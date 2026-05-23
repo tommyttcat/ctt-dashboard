@@ -2,7 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ==========================================
 # API KEYS
@@ -53,6 +53,13 @@ footer {visibility: hidden;}
 .badge-bearish  { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #450a0a; color: #f87171; border: 1px solid #991b1b; }
 .badge-mixed    { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #2d2000; color: #fbbf24; border: 1px solid #92400e; }
 .badge-cautious { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #1c1917; color: #fb923c; border: 1px solid #9a3412; }
+.badge-live     { display: inline-block; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 800; letter-spacing: 1.5px; background: #991b1b; color: #fca5a5; border: 1px solid #f87171; margin-left: 12px; vertical-align: middle; animation: pulse 2s infinite;}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.6; }
+    100% { opacity: 1; }
+}
 
 /* SECTION TITLE */
 .section-title { font-size: 16px; font-weight: 800; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; margin-bottom: 24px; border-bottom: 2px solid #1e293b; padding-bottom: 12px;}
@@ -72,7 +79,7 @@ footer {visibility: hidden;}
 .news-badge { padding: 4px 10px; border-radius: 4px; font-size: 13px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
 .nb-macro       { background: #312e81; color: #a5b4fc; }
 .news-headline { font-size: 20px; font-weight: 700; color: #f1f5f9; margin-bottom: 8px; }
-.news-body { font-size: 18px; color: #cbd5e1; line-height: 1.65; }
+.news-body { font-size: 16px; color: #cbd5e1; line-height: 1.65; }
 
 /* TABLES */
 table { width: 100%; border-collapse: collapse; border: none !important; }
@@ -81,7 +88,7 @@ th { font-size: 14px; font-weight: 700; letter-spacing: 1px; text-transform: upp
 td { padding: 18px 12px; border-bottom: 1px solid #1e293b !important; vertical-align: top; border-top: none !important; }
 tr:last-child td { border-bottom: none !important; }
 .ticker-cell { font-weight: 700; color: #f1f5f9; font-size: 20px; white-space: nowrap; }
-.catalyst-cell { font-size: 18px; color: #cbd5e1; line-height: 1.6; }
+.catalyst-cell { font-size: 16px; color: #cbd5e1; line-height: 1.6; }
 
 /* Tags */
 .etf-tag { background: #0f172a; color: #60a5fa; padding: 6px 12px; border-radius: 6px; font-family: monospace; font-size: 16px; font-weight: 700; border: 1px solid #1e2b4d;}
@@ -102,13 +109,21 @@ tr:last-child td { border-bottom: none !important; }
 # ==========================================
 @st.cache_data(ttl=300) 
 def fetch_expanded_macro():
-    tickers = {"SPX": "^GSPC", "NDX": "^IXIC", "DJI": "^DJI", "RUT": "^RUT", "VIX": "^VIX", "10Y": "^TNX", "WTI": "CL=F", "BTC": "BTC-USD"}
+    tickers = {
+        "S&P 500 (SPX)": "^GSPC", "Nasdaq Comp": "^IXIC", "Dow Jones": "^DJI", 
+        "Russell 2000": "^RUT", "VIX": "^VIX", "10Y Treasury": "^TNX",
+        "Gold (GC)": "GC=F", "WTI Crude": "CL=F", "Bitcoin (BTC)": "BTC-USD", "Ethereum (ETH)": "ETH-USD"
+    }
     data = {}
     try:
         for name, ticker in tickers.items():
-            tick = yf.Ticker(ticker).history(period="2d")
-            if len(tick) >= 2:
-                data[name] = {"price": tick['Close'].iloc[1], "pct": ((tick['Close'].iloc[1] - tick['Close'].iloc[0]) / tick['Close'].iloc[0]) * 100}
+            tick = yf.Ticker(ticker)
+            hist = tick.history(period="2d")
+            if len(hist) >= 2:
+                prev_close = hist['Close'].iloc[0]
+                curr_close = hist['Close'].iloc[1]
+                pct_change = ((curr_close - prev_close) / prev_close) * 100
+                data[name] = {"price": curr_close, "pct": pct_change}
             else:
                 data[name] = {"price": 0.0, "pct": 0.0}
     except:
@@ -118,14 +133,14 @@ def fetch_expanded_macro():
 @st.cache_data(ttl=600)
 def fetch_top_news():
     try:
-        url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=3&channels=News"
+        url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=5&channels=News"
         res = requests.get(url, headers={"accept": "application/json"}).json()
         articles = []
         for n in res:
             articles.append({
                 "title": n.get("title", "Market Update"),
-                "publisher": "BZ WIRE",
-                "teaser": n.get("teaser", "Monitoring for broader sector impact...")[:140] + "..."
+                "publisher": "CATALYST WIRE",
+                "teaser": n.get("teaser", "Monitoring for broader sector impact...")[:160] + "..."
             })
         return articles
     except:
@@ -133,13 +148,19 @@ def fetch_top_news():
 
 @st.cache_data(ttl=3600)
 def fetch_sector_flow():
-    sectors = {"Consumer Disc": "XLY", "Technology": "XLK", "Industrials": "XLI", "Comm. Services": "XLC", "Health Care": "XLV", "Consumer Staples": "XLP", "Financials": "XLF", "Materials": "XLB", "Energy": "XLE", "Real Estate": "XLRE", "Utilities": "XLU"}
+    sectors = {
+        "Technology": "XLK", "Consumer Disc": "XLY", "Industrials": "XLI", 
+        "Comm. Services": "XLC", "Health Care": "XLV", "Financials": "XLF", 
+        "Consumer Staples": "XLP", "Materials": "XLB", "Energy": "XLE", "Real Estate": "XLRE"
+    }
     perf = []
     try:
         for name, ticker in sectors.items():
-            tick = yf.Ticker(ticker).history(period="2d")
-            if len(tick) >= 2:
-                perf.append({"ticker": ticker, "sector": name, "pct": ((tick['Close'].iloc[1] - tick['Close'].iloc[0]) / tick['Close'].iloc[0]) * 100})
+            hist = yf.Ticker(ticker).history(period="2d")
+            if len(hist) >= 2:
+                change = ((hist['Close'].iloc[1] - hist['Close'].iloc[0]) / hist['Close'].iloc[0]) * 100
+                theme = f"Inflow detected. {name} strength." if change > 0 else f"Distribution phase. {name} weakness."
+                perf.append({"ticker": ticker, "sector": name, "pct": change, "theme": theme})
         return sorted(perf, key=lambda x: x['pct'], reverse=True)
     except: return []
 
@@ -149,34 +170,8 @@ def fetch_market_movers():
         gainers = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey={FMP_KEY}").json()[:5]
         losers = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/losers?apikey={FMP_KEY}").json()[:5]
         results = []
-        for g in gainers: results.append({"ticker": g['symbol'], "change": g['changesPercentage'], "note": "High relative volume / Pre-market bid."})
-        for l in losers: results.append({"ticker": l['symbol'], "change": l['changesPercentage'], "note": "Pre-market distribution / Risk-off."})
-        return results
-    except:
-        return []
-
-@st.cache_data(ttl=3600)
-def fetch_earnings():
-    try:
-        today = datetime.now().strftime("%Y-%m-%d")
-        url = f"https://api.benzinga.com/api/v2.1/calendar/earnings?token={BZ_KEY}&parameters[date]={today}"
-        res = requests.get(url, headers={"accept": "application/json"}).json()
-        earnings = res.get('earnings', [])[:5]
-        return [{"ticker": e.get('ticker'), "company": e.get('name'), "time": e.get('time', 'TBA')} for e in earnings]
-    except: return []
-
-@st.cache_data(ttl=3600)
-def fetch_economics():
-    try:
-        today = datetime.now().strftime("%Y-%m-%d")
-        url = f"https://api.benzinga.com/api/v2.1/calendar/economics?token={BZ_KEY}&parameters[date]={today}"
-        res = requests.get(url, headers={"accept": "application/json"}).json()
-        econ = res.get('economics', [])[:5]
-        results = []
-        for e in econ:
-            imp = e.get('importance', 3)
-            impact = "HIGH" if imp >= 4 else ("MED" if imp == 3 else "LOW")
-            results.append({"time": e.get('time', 'TBA'), "release": e.get('description', 'Data Release'), "impact": impact})
+        for g in gainers: results.append({"ticker": g['symbol'], "change": g['changesPercentage'], "note": "High relative volume / Pre-market bid / Catalyst detected."})
+        for l in losers: results.append({"ticker": l['symbol'], "change": l['changesPercentage'], "note": "Pre-market distribution / Risk-off rotation."})
         return results
     except: return []
 
@@ -192,6 +187,17 @@ def fetch_in_play():
             results.append({"ticker": t, "price": current, "bias": bias, "color": "badge-bullish" if bias == "LONG" else "badge-bearish"})
         return results
     except: return []
+
+@st.cache_data(ttl=3600)
+def fetch_calendar_data(cal_type="earnings"):
+    try:
+        today = datetime.now()
+        next_week = today + timedelta(days=7)
+        date_from = today.strftime("%Y-%m-%d")
+        date_to = next_week.strftime("%Y-%m-%d")
+        url = f"https://api.benzinga.com/api/v2.1/calendar/{cal_type}?token={BZ_KEY}&parameters[date_from]={date_from}&parameters[date_to]={date_to}"
+        return requests.get(url, headers={"accept": "application/json"}).json()
+    except: return {}
 
 def calculate_vpci(df, short_window=5, long_window=21):
     try:
@@ -218,8 +224,8 @@ st.markdown(f"""
 </div>
 <div class="hdr-meta">
 <div class="hdr-date">{date_str}</div>
-<div style="margin-bottom:10px;color:#64748b">System Status</div>
-<span class="badge-bullish">LIVE DATA</span>
+<div style="margin-bottom:10px;color:#64748b">Current Market State</div>
+<span class="badge-bullish">BULLISH</span>
 </div>
 </div>
 </div>
@@ -228,11 +234,11 @@ st.markdown(f"""
 
 # --- 01 | SCORECARD ---
 macro_data = fetch_expanded_macro()
-scorecard_html = """<div class="cloud-card"><div class="section-title">01 — Futures & Macro Snapshot</div><div class="inst-grid">\n"""
+scorecard_html = """<div class="cloud-card"><div class="section-title">01 — Futures & Macro Snapshot <span class="badge-live">● LIVE DATA</span></div><div class="inst-grid">\n"""
 for name, metrics in macro_data.items():
     color_class = "inst-change-up" if metrics['pct'] > 0 else "inst-change-down" if metrics['pct'] < 0 else "inst-change-flat"
     sign = "▲ +" if metrics['pct'] > 0 else "▼ " if metrics['pct'] < 0 else "— "
-    price_str = f"{metrics['price']:.3f}" if name in ["VIX", "10Y"] else f"${metrics['price']:,.2f}" if name in ["BTC", "WTI"] else f"{metrics['price']:,.2f}"
+    price_str = f"{metrics['price']:.3f}" if name in ["VIX", "10Y Treasury"] else f"${metrics['price']:,.2f}" if name in ["Bitcoin (BTC)", "Ethereum (ETH)", "WTI Crude"] else f"{metrics['price']:,.2f}"
     scorecard_html += f"""<div class="inst-card"><div class="inst-name">{name}</div><div class="inst-level">{price_str}</div><div class="{color_class}">{sign}{metrics['pct']:.2f}%</div></div>\n"""
 scorecard_html += "</div></div>"
 st.markdown(scorecard_html, unsafe_allow_html=True)
@@ -240,7 +246,7 @@ st.markdown(scorecard_html, unsafe_allow_html=True)
 
 # --- 02 | LIVE NEWS ---
 news_data = fetch_top_news()
-news_html = """<div class="cloud-card"><div class="section-title">02 — Live Market Headlines</div>\n"""
+news_html = """<div class="cloud-card"><div class="section-title">02 — Market Catalysts (Top Stories)</div>\n"""
 for article in news_data:
     news_html += f"""<div class="news-item"><div class="news-item-top"><span class="news-badge nb-macro">{article['publisher']}</span></div><div class="news-headline">{article['title']}</div><div class="news-body">{article['teaser']}</div></div>\n"""
 news_html += "</div>"
@@ -250,11 +256,11 @@ st.markdown(news_html, unsafe_allow_html=True)
 # --- 03 | SECTORS ---
 sector_data = fetch_sector_flow()
 if sector_data:
-    heatmap_html = """<div class="cloud-card"><div class="section-title">03 — Sector Performance</div><table><thead><tr><th>#</th><th>Sector / ETF</th><th>Live Change</th><th>Theme</th></tr></thead><tbody>\n"""
+    heatmap_html = """<div class="cloud-card"><div class="section-title">03 — Sector Performance & Themes</div><table><thead><tr><th>#</th><th>Sector / ETF</th><th>Live Change</th><th>Theme</th></tr></thead><tbody>\n"""
     for i, item in enumerate(sector_data):
         color_class = "up-pct" if item['pct'] >= 0 else "down-pct"
         sign = "▲ +" if item['pct'] > 0 else "▼ "
-        heatmap_html += f"""<tr><td style="color:#64748b;font-weight:700;">{i+1}</td><td class="ticker-cell">{item['ticker']} <span style="color:#94a3b8; font-weight:400; font-size:16px;">— {item['sector']}</span></td><td><span class="{color_class}">{sign}{item['pct']:.2f}%</span></td><td class="catalyst-cell">Volume synchronized</td></tr>\n"""
+        heatmap_html += f"""<tr><td style="color:#64748b;font-weight:700;">{i+1}</td><td class="ticker-cell">{item['ticker']} <span style="color:#94a3b8; font-weight:400; font-size:16px;">— {item['sector']}</span></td><td><span class="{color_class}">{sign}{item['pct']:.2f}%</span></td><td class="catalyst-cell">{item['theme']}</td></tr>\n"""
     heatmap_html += "</tbody></table></div>"
     st.markdown(heatmap_html, unsafe_allow_html=True)
 
@@ -262,7 +268,7 @@ if sector_data:
 # --- 04 | MOVERS ---
 movers_data = fetch_market_movers()
 if movers_data:
-    movers_html = """<div class="cloud-card"><div class="section-title">04 — Scanner: Top Movers</div><table><thead><tr><th>Ticker</th><th>Live Gap %</th><th>Scanner Notes</th></tr></thead><tbody>\n"""
+    movers_html = """<div class="cloud-card"><div class="section-title">04 — Top Movers & Catalysts</div><table><thead><tr><th>Ticker</th><th>Live Gap %</th><th>Scanner Notes</th></tr></thead><tbody>\n"""
     for item in movers_data:
         color_class = "up-pct" if item['change'] >= 0 else "down-pct"
         sign = "▲ +" if item['change'] > 0 else "▼ "
@@ -281,49 +287,64 @@ if play_data:
     st.markdown(play_html, unsafe_allow_html=True)
 
 
-# --- 06 | BREADTH & VPCI ---
-st.markdown("<div class='cloud-card'><div class='section-title'>06 — Sentiment, Breadth & Technicals</div>", unsafe_allow_html=True)
-st.markdown("""<div class="inst-grid" style="margin-bottom: 28px;">
-<div class="inst-card"><div class="inst-name">T2108 (Above 40D MA)</div><div class="inst-level">58.4%</div><div class="inst-change-up">Healthy Breadth</div></div>
-<div class="inst-card"><div class="inst-name">Put/Call Ratio</div><div class="inst-level">0.82</div><div class="inst-change-up">Bullish Bias</div></div>
-<div class="inst-card"><div class="inst-name">SPX > 50D Moving Avg</div><div class="inst-level">~72%</div><div class="inst-change-up">Strong Trend</div></div>
-</div>""", unsafe_allow_html=True)
-
+# --- 06 | BREADTH & VPCI (COMBINED CLOUD) ---
+vpci_html = ""
 try:
     spy_df = yf.Ticker("SPY").history(period="3mo")
     if not spy_df.empty and len(spy_df) > 21:
         latest_vpci = calculate_vpci(spy_df)
         vpci_color = "up-pct" if latest_vpci >= 0 else "down-pct"
         vpci_status = "BULLISH CONFIRMATION" if latest_vpci >= 0 else "BEARISH DIVERGENCE"
-        st.markdown(f"""<div class="news-item" style="border-left: 6px solid #818cf8;"><div style="font-size: 14px; font-weight: 700; color: #818cf8; text-transform: uppercase; margin-bottom: 8px;">Current VPCI Reading (SPY)</div><div style="font-size: 32px; font-weight: 800; margin-bottom: 12px;"><span class="{vpci_color}">{latest_vpci:.4f}</span> | <span style="font-size: 24px; font-weight: 700; color:#f1f5f9;">{vpci_status}</span></div><div style="font-size: 18px; line-height: 1.6; color: #cbd5e1;">The Volume Price Confirmation Indicator (VPCI) measures the relationship between price trends and volume. A positive value indicates that volume is expanding in the direction of the trend, confirming bullish strength.</div></div>""", unsafe_allow_html=True)
+        vpci_html = f"""<div class="news-item" style="border-left: 6px solid #818cf8;"><div style="font-size: 14px; font-weight: 700; color: #818cf8; text-transform: uppercase; margin-bottom: 8px;">Current VPCI Reading (SPY)</div><div style="font-size: 32px; font-weight: 800; margin-bottom: 12px;"><span class="{vpci_color}">{latest_vpci:.4f}</span> | <span style="font-size: 24px; font-weight: 700; color:#f1f5f9;">{vpci_status}</span></div><div style="font-size: 18px; line-height: 1.6; color: #cbd5e1;">The Volume Price Confirmation Indicator (VPCI) measures the relationship between price trends and volume. A positive value indicates that volume is expanding in the direction of the trend, confirming bullish strength.</div></div>"""
 except:
-    st.markdown("<div class='news-item'>VPCI data syncing...</div>", unsafe_allow_html=True)
-st.markdown("</div>", unsafe_allow_html=True)
+    vpci_html = "<div class='news-item'>VPCI data syncing...</div>"
+
+st.markdown(f"""
+<div class="cloud-card">
+    <div class="section-title">06 — Sentiment, Breadth & Technicals</div>
+    <div class="inst-grid" style="margin-bottom: 28px;">
+        <div class="inst-card"><div class="inst-name">T2108 (Above 40D MA)</div><div class="inst-level">58.4%</div><div class="inst-change-up">Healthy Breadth</div></div>
+        <div class="inst-card"><div class="inst-name">Put/Call Ratio</div><div class="inst-level">0.82</div><div class="inst-change-up">Bullish Bias</div></div>
+        <div class="inst-card"><div class="inst-name">SPX > 50D Moving Avg</div><div class="inst-level">~72%</div><div class="inst-change-up">Strong Trend</div></div>
+    </div>
+    {vpci_html}
+</div>
+""", unsafe_allow_html=True)
 
 
-# --- 07 | ECONOMIC DATA ---
-econ_data = fetch_economics()
+# --- 07 | ECONOMIC DATA (WEEK AHEAD) ---
+econ_res = fetch_calendar_data("economics")
+econ_data = econ_res.get("economics", [])[:8]
 if econ_data:
-    econ_html = """<div class="cloud-card"><div class="section-title">07 — Economic Data Releases</div><table><thead><tr><th>Time (EST)</th><th>Release</th><th>Impact</th></tr></thead><tbody>\n"""
+    econ_html = """<div class="cloud-card"><div class="section-title">07 — Economic Calendar (Week Ahead)</div><table><thead><tr><th>Date & Time</th><th>Release</th><th>Impact</th></tr></thead><tbody>\n"""
     for item in econ_data:
-        color = "badge-bearish" if item['impact'] == "HIGH" else "badge-mixed" if item['impact'] == "MED" else "badge-cautious"
-        econ_html += f"""<tr><td class="ticker-cell" style="font-size:18px;">{item['time']}</td><td class="catalyst-cell">{item['release']}</td><td><span class="{color}">{item['impact']}</span></td></tr>\n"""
+        imp = item.get('importance', 3)
+        impact_str = "HIGH" if imp >= 4 else ("MED" if imp == 3 else "LOW")
+        color = "badge-bearish" if impact_str == "HIGH" else "badge-mixed" if impact_str == "MED" else "badge-cautious"
+        d_str = item.get('date', '')
+        t_str = item.get('time', '')
+        dt_display = f"{d_str} {t_str}".strip()
+        econ_html += f"""<tr><td class="ticker-cell" style="font-size:16px;">{dt_display}</td><td class="catalyst-cell">{item.get('description', 'Data Release')}</td><td><span class="{color}">{impact_str}</span></td></tr>\n"""
     econ_html += "</tbody></table></div>"
     st.markdown(econ_html, unsafe_allow_html=True)
-else:
-    st.markdown("<div class='cloud-card'><div class='section-title'>07 — Economic Data Releases</div><div class='catalyst-cell'>No major economic data scheduled for today.</div></div>", unsafe_allow_html=True)
 
 
-# --- 08 | EARNINGS ---
-earn_data = fetch_earnings()
+# --- 08 | EARNINGS (WEEK AHEAD) ---
+earn_res = fetch_calendar_data("earnings")
+earn_data = earn_res.get("earnings", [])[:10]
 if earn_data:
-    earn_html = """<div class="cloud-card"><div class="section-title">08 — Earnings Calendar</div><table><thead><tr><th>Ticker</th><th>Company</th><th>Time</th></tr></thead><tbody>\n"""
+    earn_html = """<div class="cloud-card"><div class="section-title">08 — Earnings Calendar (Week Ahead)</div><table><thead><tr><th>Date</th><th>Ticker</th><th>Company</th><th>EPS Est.</th><th>Rev Est.</th></tr></thead><tbody>\n"""
     for item in earn_data:
-        earn_html += f"""<tr><td class="ticker-cell"><span class="etf-tag">{item['ticker']}</span></td><td class="catalyst-cell">{item['company']}</td><td class="catalyst-cell" style="color:#f1f5f9;">{item['time']}</td></tr>\n"""
+        eps = item.get('eps_est')
+        rev = item.get('revenue_est')
+        eps_str = f"${eps}" if eps else "N/A"
+        rev_str = f"${(float(rev)/1e9):.2f}B" if rev else "N/A"
+        date_raw = item.get('date', '')
+        earn_html += f"""<tr><td class="catalyst-cell" style="font-size:16px;">{date_raw}</td><td class="ticker-cell"><span class="etf-tag">{item.get('ticker')}</span></td><td class="catalyst-cell" style="color:#f1f5f9;">{item.get('name')}</td><td class="catalyst-cell">{eps_str}</td><td class="catalyst-cell">{rev_str}</td></tr>\n"""
     earn_html += "</tbody></table></div>"
     st.markdown(earn_html, unsafe_allow_html=True)
 else:
-    st.markdown("<div class='cloud-card'><div class='section-title'>08 — Earnings Calendar</div><div class='catalyst-cell'>No major earnings scheduled for today.</div></div>", unsafe_allow_html=True)
+    st.markdown("<div class='cloud-card'><div class='section-title'>08 — Earnings Calendar</div><div class='catalyst-cell'>No major earnings scheduled.</div></div>", unsafe_allow_html=True)
 
 
 # --- 09 | EDITOR'S NOTE ---
@@ -336,7 +357,7 @@ The real test today is the interaction with the 4.2% level on the 10Y Yield. Wat
 Keep in mind that <strong>Monday, May 25 is Memorial Day</strong>, so markets will be closed. Plan your weekend risk exposure accordingly.<br><br>
 <strong>CLOSING POSTURE:</strong> <em>Tactical long into the weekend with semis & AI-optics; pair-trade the energy/healthcare weakness against tech strength.</em>
 <br><br>
-<strong>See you at the close. 📈</strong>
+
 </div>
 </div>
 """, unsafe_allow_html=True)
