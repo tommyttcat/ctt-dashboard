@@ -4,66 +4,84 @@ import pandas as pd
 from datetime import datetime
 
 # ==========================================
-# 1. PAGE CONFIGURATION & PREMIUM CSS
+# 1. PAGE CONFIGURATION & ULTRA-CRISP CSS
 # ==========================================
 st.set_page_config(page_title="CTT Daily Briefing", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
 <style>
-    /* Base App Styling */
-    .stApp { background-color: #090B10; color: #FAFAFA; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    /* Force Crisp Font Rendering */
+    .stApp { 
+        background-color: #0A0D14; 
+        color: #F8FAFC; 
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+        -webkit-font-smoothing: antialiased; 
+        -moz-osx-font-smoothing: grayscale;
+    }
     header {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Set width to 70% for a clean, centered desktop reading experience */
+    /* Center at 70% width */
     .block-container { max-width: 70% !important; margin: 0 auto !important; padding-top: 2rem; padding-bottom: 4rem; }
     
     /* Typography & Colors */
-    .pos { color: #00E676; font-weight: 600;}
-    .neg { color: #FF3D00; font-weight: 600;}
+    .pos { color: #10B981; font-weight: 600;} /* Sharper Green */
+    .neg { color: #EF4444; font-weight: 600;} /* Sharper Red */
     
-    /* Section headers updated to pipe delimiter */
+    /* Section headers: Smaller, slate gray, no lines */
     .section-head { 
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
-        color: #94A3B8; 
-        font-size: 20px; 
+        color: #64748B; 
+        font-size: 18px; 
         font-weight: 600; 
         margin-bottom: 12px; 
         margin-top: 40px; 
-        border-bottom: none; 
-        padding-bottom: 0px;
     }
     
-    /* Clean Parent Cards */
-    .card { background-color: #11151E; border-radius: 12px; padding: 24px; border: none; }
+    /* Crisp Parent Cards - NO SHADOWS, Sharp 1px Border */
+    .card { 
+        background-color: #111622; 
+        border-radius: 6px; 
+        padding: 24px; 
+        border: 1px solid #1E293B; 
+    }
     
-    /* Nested Sub-Cards (replaces horizontal lines for lists) */
-    .sub-card { background-color: #171C28; border-radius: 10px; padding: 20px; margin-bottom: 12px; border: none; }
+    /* Nested Sub-Cards (News List) */
+    .sub-card { 
+        background-color: #161D2B; 
+        border-radius: 4px; 
+        padding: 16px; 
+        margin-bottom: 4px; 
+        border: 1px solid #111622; /* Matches parent card background to hide border */
+    }
     .sub-card:last-child { margin-bottom: 0px; }
     
     /* Metrics Grid */
     .metric-grid { display: grid; gap: 16px; }
-    .metric-box { background-color: #171C28; padding: 16px; border-radius: 10px; text-align: center; border: none;}
-    .metric-title { color: #8B949E; font-size: 11px; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px;}
-    .metric-value { color: #FFFFFF; font-size: 24px; font-weight: 700; margin-bottom: 4px; }
-    .metric-change { font-size: 13px; }
+    .metric-box { background-color: #161D2B; padding: 16px; border-radius: 6px; text-align: center; border: 1px solid #111622;}
+    .metric-title { color: #64748B; font-size: 11px; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px; font-weight: 600;}
+    .metric-value { color: #FFFFFF; font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+    .metric-change { font-size: 12px; }
     
-    /* Premium Borderless Tables */
-    .custom-table { width: 100%; border-collapse: separate; border-spacing: 0 8px; font-size: 14px; }
-    .custom-table th { text-align: left; color: #8B949E; padding: 0 12px 4px 12px; font-weight: 500; font-size: 11px; text-transform: uppercase; border: none; }
-    .custom-table td { padding: 16px 12px; background-color: #171C28; border: none; color: #E6EDF3; }
-    .custom-table tr td:first-child { border-top-left-radius: 8px; border-bottom-left-radius: 8px; }
-    .custom-table tr td:last-child { border-top-right-radius: 8px; border-bottom-right-radius: 8px; }
+    /* Ultra-Crisp Borderless Tables */
+    .custom-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .custom-table th { text-align: left; color: #64748B; padding: 8px 12px; font-weight: 600; font-size: 10px; text-transform: uppercase; border-bottom: 2px solid #111622; }
     
-    .etf-tag { background: #212635; color: #58A6FF; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 12px; font-weight: 700;}
-    .badge-long { background: rgba(0, 230, 118, 0.1); color: #00E676; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; text-transform: uppercase;}
-    .badge-short { background: rgba(255, 61, 0, 0.1); color: #FF3D00; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; text-transform: uppercase;}
+    /* Table Rows: Bottom border exactly matches the card background (#111622) acting as an invisible spacer */
+    .custom-table td { padding: 12px 12px; background-color: #161D2B; color: #E2E8F0; border-bottom: 4px solid #111622; }
     
-    /* Editor's Note */
-    .editor-note { background: linear-gradient(145deg, #1A173A 0%, #0F1219 100%); padding: 28px; border-radius: 12px; color: #E6EDF3; font-size: 15px; line-height: 1.7; border-left: 4px solid #8A2BE2; }
-    .editor-note strong { color: #B388FF; font-weight: 600; }
+    /* Keep row shapes sharp */
+    .custom-table tr td:first-child { border-top-left-radius: 4px; border-bottom-left-radius: 4px; }
+    .custom-table tr td:last-child { border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
+    
+    .etf-tag { background: #1E293B; color: #38BDF8; padding: 3px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 11px; font-weight: 700;}
+    .badge-long { background: rgba(16, 185, 129, 0.1); color: #10B981; padding: 3px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; text-transform: uppercase;}
+    .badge-short { background: rgba(239, 68, 68, 0.1); color: #EF4444; padding: 3px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; text-transform: uppercase;}
+    
+    /* Editor's Note - Solid, Sharp, No Gradients */
+    .editor-note { background-color: #161D2B; padding: 24px; border-radius: 6px; color: #E2E8F0; font-size: 14px; line-height: 1.6; border-left: 4px solid #8B5CF6; border-top: 1px solid #111622; border-right: 1px solid #111622; border-bottom: 1px solid #111622;}
+    .editor-note strong { color: #A78BFA; font-weight: 600; }
 
-    /* Responsive Grid Adjustments for Mobile */
+    /* Responsive Grid Adjustments */
     @media (max-width: 768px) {
         .metric-grid { grid-template-columns: repeat(2, 1fr); }
         .block-container { max-width: 95% !important; }
@@ -98,7 +116,6 @@ def fetch_macro_snapshot():
 
 @st.cache_data(ttl=3600)
 def fetch_sector_flow():
-    # Expanded to 10 key sectors
     sectors = {
         "Technology": "XLK", "Financials": "XLF", "Energy": "XLE", 
         "Health Care": "XLV", "Discretionary": "XLY", "Staples": "XLP",
@@ -134,8 +151,8 @@ def calculate_vpci(df, short_window=5, long_window=21):
 
 # HEADER
 date_str = datetime.now().strftime("%A — %B %d, %Y")
-st.markdown(f"<h1 style='font-size: 36px; font-weight: 800; margin-bottom: 4px; text-align: center;'>Confluence Trading Tools | Daily Briefing</h1>", unsafe_allow_html=True)
-st.markdown(f"<div style='color: #8B949E; font-size: 15px; margin-bottom: 40px; font-weight: 600; text-align: center;'>{date_str}</div>", unsafe_allow_html=True)
+st.markdown(f"<h1 style='font-size: 32px; font-weight: 800; margin-bottom: 4px; text-align: center;'>Confluence Trading Tools | Daily Briefing</h1>", unsafe_allow_html=True)
+st.markdown(f"<div style='color: #64748B; font-size: 14px; margin-bottom: 40px; font-weight: 600; text-align: center;'>{date_str}</div>", unsafe_allow_html=True)
 
 
 # --- 01 | FUTURES & MACRO SNAPSHOT ---
@@ -159,44 +176,44 @@ st.markdown(scorecard_html, unsafe_allow_html=True)
 st.markdown("<div class='section-head'>02 | Key News & Catalysts</div>", unsafe_allow_html=True)
 st.markdown("""<div class='card'>
     <div class='sub-card'>
-        <div style='color: #FF5252; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>MACRO / FED</div>
-        <div style='font-size: 15px; color: #E6EDF3;'><strong>Core PCE Print</strong> — Inflation data aligns with consensus, stripping away hawkish tail-risks and steepening the yield curve.</div>
+        <div style='color: #EF4444; font-size: 10px; font-weight: 700; letter-spacing: 1px; margin-bottom: 4px;'>MACRO / FED</div>
+        <div style='font-size: 14px; color: #E2E8F0;'><strong>Core PCE Print</strong> — Inflation data aligns with consensus, stripping away hawkish tail-risks and steepening the yield curve.</div>
     </div>
     <div class='sub-card'>
-        <div style='color: #448AFF; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>SECTOR ROTATION</div>
-        <div style='font-size: 15px; color: #E6EDF3;'><strong>Semiconductor Strength</strong> — Leading optical/infra names continue their tear on server-demand signal, lifting NDX heavily.</div>
+        <div style='color: #38BDF8; font-size: 10px; font-weight: 700; letter-spacing: 1px; margin-bottom: 4px;'>SECTOR ROTATION</div>
+        <div style='font-size: 14px; color: #E2E8F0;'><strong>Semiconductor Strength</strong> — Leading optical/infra names continue their tear on server-demand signal, lifting NDX heavily.</div>
     </div>
     <div class='sub-card'>
-        <div style='color: #E040FB; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>M&A ACTION</div>
-        <div style='font-size: 15px; color: #E6EDF3;'><strong>Pharma Bidding War</strong> — Competing private equity offers surface for mid-cap biosciences, juicing the XLV underlying.</div>
+        <div style='color: #A78BFA; font-size: 10px; font-weight: 700; letter-spacing: 1px; margin-bottom: 4px;'>M&A ACTION</div>
+        <div style='font-size: 14px; color: #E2E8F0;'><strong>Pharma Bidding War</strong> — Competing private equity offers surface for mid-cap biosciences, juicing the XLV underlying.</div>
     </div>
     <div class='sub-card'>
-        <div style='color: #00E676; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>GLOBAL SUPPLY CHAIN</div>
-        <div style='font-size: 15px; color: #E6EDF3;'><strong>EV Output Pause</strong> — Major Shanghai manufacturing hub briefly halts production due to localized logistics bottlenecks.</div>
+        <div style='color: #10B981; font-size: 10px; font-weight: 700; letter-spacing: 1px; margin-bottom: 4px;'>GLOBAL SUPPLY CHAIN</div>
+        <div style='font-size: 14px; color: #E2E8F0;'><strong>EV Output Pause</strong> — Major Shanghai manufacturing hub briefly halts production due to localized logistics bottlenecks.</div>
     </div>
     <div class='sub-card'>
-        <div style='color: #FFAB00; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>BIG TECH</div>
-        <div style='font-size: 15px; color: #E6EDF3;'><strong>Hardware Base Building</strong> — Consumer tech giants consolidate near 50-DMA ahead of major developer conference announcements.</div>
+        <div style='color: #F59E0B; font-size: 10px; font-weight: 700; letter-spacing: 1px; margin-bottom: 4px;'>BIG TECH</div>
+        <div style='font-size: 14px; color: #E2E8F0;'><strong>Hardware Base Building</strong> — Consumer tech giants consolidate near 50-DMA ahead of major developer conference announcements.</div>
     </div>
     <div class='sub-card'>
-        <div style='color: #00B0FF; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>COMMODITIES</div>
-        <div style='font-size: 15px; color: #E6EDF3;'><strong>Crude Oil Geopolitics</strong> — WTI futures climb past $94 on renewed strategic reserve replenishment talks and tight physical markets.</div>
+        <div style='color: #3B82F6; font-size: 10px; font-weight: 700; letter-spacing: 1px; margin-bottom: 4px;'>COMMODITIES</div>
+        <div style='font-size: 14px; color: #E2E8F0;'><strong>Crude Oil Geopolitics</strong> — WTI futures climb past $94 on renewed strategic reserve replenishment talks and tight physical markets.</div>
     </div>
     <div class='sub-card'>
-        <div style='color: #FF5252; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>CONSUMER SPENDING</div>
-        <div style='font-size: 15px; color: #E6EDF3;'><strong>Retail Sales Divergence</strong> — Discretionary spending shows cracks in lower-income brackets while luxury holds firm.</div>
+        <div style='color: #EF4444; font-size: 10px; font-weight: 700; letter-spacing: 1px; margin-bottom: 4px;'>CONSUMER SPENDING</div>
+        <div style='font-size: 14px; color: #E2E8F0;'><strong>Retail Sales Divergence</strong> — Discretionary spending shows cracks in lower-income brackets while luxury holds firm.</div>
     </div>
     <div class='sub-card'>
-        <div style='color: #448AFF; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>SOFTWARE & CLOUD</div>
-        <div style='font-size: 15px; color: #E6EDF3;'><strong>Margin Expansion Focus</strong> — Enterprise SaaS names catch upgrades as cost-cutting measures begin heavily impacting bottom lines.</div>
+        <div style='color: #38BDF8; font-size: 10px; font-weight: 700; letter-spacing: 1px; margin-bottom: 4px;'>SOFTWARE & CLOUD</div>
+        <div style='font-size: 14px; color: #E2E8F0;'><strong>Margin Expansion Focus</strong> — Enterprise SaaS names catch upgrades as cost-cutting measures begin heavily impacting bottom lines.</div>
     </div>
     <div class='sub-card'>
-        <div style='color: #E040FB; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>REGULATORY RISK</div>
-        <div style='font-size: 15px; color: #E6EDF3;'><strong>Digital Asset Framework</strong> — New legislative proposals aimed at stablecoins introduce temporary volatility across crypto proxies.</div>
+        <div style='color: #A78BFA; font-size: 10px; font-weight: 700; letter-spacing: 1px; margin-bottom: 4px;'>REGULATORY RISK</div>
+        <div style='font-size: 14px; color: #E2E8F0;'><strong>Digital Asset Framework</strong> — New legislative proposals aimed at stablecoins introduce temporary volatility across crypto proxies.</div>
     </div>
     <div class='sub-card'>
-        <div style='color: #FFAB00; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>TRANSPORTATION</div>
-        <div style='font-size: 15px; color: #E6EDF3;'><strong>Airline Capacity Adjustments</strong> — Legacy carriers quietly trim Q3 seat capacity guidance citing domestic demand normalization.</div>
+        <div style='color: #F59E0B; font-size: 10px; font-weight: 700; letter-spacing: 1px; margin-bottom: 4px;'>TRANSPORTATION</div>
+        <div style='font-size: 14px; color: #E2E8F0;'><strong>Airline Capacity Adjustments</strong> — Legacy carriers quietly trim Q3 seat capacity guidance citing domestic demand normalization.</div>
     </div>
 </div>""", unsafe_allow_html=True)
 
@@ -275,10 +292,10 @@ try:
         
         st.markdown(f"""<div class='card'>
         <div style='margin-bottom: 16px;'>
-            <div style='color: #8B949E; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 8px;'>CURRENT VPCI READING (SPY)</div>
-            <div style='font-size: 24px; font-weight: 700;'><span class='{vpci_color}'>{latest_vpci:.4f}</span> | {vpci_status}</div>
+            <div style='color: #64748B; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 8px;'>CURRENT VPCI READING (SPY)</div>
+            <div style='font-size: 22px; font-weight: 700;'><span class='{vpci_color}'>{latest_vpci:.4f}</span> | {vpci_status}</div>
         </div>
-        <div style='font-size: 15px; color: #E6EDF3; line-height: 1.6;'>
+        <div style='font-size: 14px; color: #E2E8F0; line-height: 1.6;'>
             The Volume Price Confirmation Indicator (VPCI) measures the relationship between price trends and volume. 
             Currently, the VPCI is reading <strong>{latest_vpci:.4f}</strong> against a closing price of <strong>${latest_price:.2f}</strong>. 
             A positive value indicates that volume is expanding in the direction of the trend, confirming bullish strength. A negative value suggests weakening volume support.
@@ -292,16 +309,16 @@ except:
 st.markdown("<div class='section-head'>08 | Economic Data & Catalysts Today</div>", unsafe_allow_html=True)
 st.markdown("""<div class='card'><table class='custom-table'>
 <tr><th>TIME (EST)</th><th>RELEASE</th><th>IMPACT</th></tr>
-<tr><td>08:30 AM</td><td style='color:#E6EDF3;'>Core PCE Price Index MoM</td><td class='neg'>HIGH</td></tr>
-<tr><td>08:30 AM</td><td style='color:#E6EDF3;'>Core PCE Price Index YoY</td><td class='neg'>HIGH</td></tr>
-<tr><td>08:30 AM</td><td style='color:#E6EDF3;'>Personal Income & Spending</td><td style='color:#FFB300; font-weight:600;'>MED</td></tr>
-<tr><td>09:45 AM</td><td style='color:#E6EDF3;'>Chicago PMI</td><td style='color:#FFB300; font-weight:600;'>MED</td></tr>
-<tr><td>10:00 AM</td><td style='color:#E6EDF3;'>UMich Consumer Sentiment (Final)</td><td class='neg'>HIGH</td></tr>
-<tr><td>10:00 AM</td><td style='color:#E6EDF3;'>UMich 1-Yr Inflation Exp</td><td class='neg'>HIGH</td></tr>
-<tr><td>10:00 AM</td><td style='color:#E6EDF3;'>UMich 5-Yr Inflation Exp</td><td style='color:#FFB300; font-weight:600;'>MED</td></tr>
-<tr><td>10:00 AM</td><td style='color:#E6EDF3;'>ISM Manufacturing PMI</td><td class='neg'>HIGH</td></tr>
-<tr><td>10:00 AM</td><td style='color:#E6EDF3;'>Pending Home Sales</td><td style='color:#FFB300; font-weight:600;'>MED</td></tr>
-<tr><td>01:00 PM</td><td style='color:#E6EDF3;'>Baker Hughes Rig Count</td><td style='color:#8B949E; font-weight:600;'>LOW</td></tr>
+<tr><td>08:30 AM</td><td style='color:#E2E8F0;'>Core PCE Price Index MoM</td><td class='neg'>HIGH</td></tr>
+<tr><td>08:30 AM</td><td style='color:#E2E8F0;'>Core PCE Price Index YoY</td><td class='neg'>HIGH</td></tr>
+<tr><td>08:30 AM</td><td style='color:#E2E8F0;'>Personal Income & Spending</td><td style='color:#F59E0B; font-weight:600;'>MED</td></tr>
+<tr><td>09:45 AM</td><td style='color:#E2E8F0;'>Chicago PMI</td><td style='color:#F59E0B; font-weight:600;'>MED</td></tr>
+<tr><td>10:00 AM</td><td style='color:#E2E8F0;'>UMich Consumer Sentiment (Final)</td><td class='neg'>HIGH</td></tr>
+<tr><td>10:00 AM</td><td style='color:#E2E8F0;'>UMich 1-Yr Inflation Exp</td><td class='neg'>HIGH</td></tr>
+<tr><td>10:00 AM</td><td style='color:#E2E8F0;'>UMich 5-Yr Inflation Exp</td><td style='color:#F59E0B; font-weight:600;'>MED</td></tr>
+<tr><td>10:00 AM</td><td style='color:#E2E8F0;'>ISM Manufacturing PMI</td><td class='neg'>HIGH</td></tr>
+<tr><td>10:00 AM</td><td style='color:#E2E8F0;'>Pending Home Sales</td><td style='color:#F59E0B; font-weight:600;'>MED</td></tr>
+<tr><td>01:00 PM</td><td style='color:#E2E8F0;'>Baker Hughes Rig Count</td><td style='color:#64748B; font-weight:600;'>LOW</td></tr>
 </table></div>""", unsafe_allow_html=True)
 
 
@@ -309,16 +326,16 @@ st.markdown("""<div class='card'><table class='custom-table'>
 st.markdown("<div class='section-head'>09 | Today's Earnings Calendar</div>", unsafe_allow_html=True)
 st.markdown("""<div class='card'><table class='custom-table'>
 <tr><th>TICKER</th><th>COMPANY</th><th>TIME</th></tr>
-<tr><td><span class='etf-tag'>CRM</span></td><td style='color:#E6EDF3;'>Salesforce Inc.</td><td>After Close</td></tr>
-<tr><td><span class='etf-tag'>SNOW</span></td><td style='color:#E6EDF3;'>Snowflake Inc.</td><td>After Close</td></tr>
-<tr><td><span class='etf-tag'>OKTA</span></td><td style='color:#E6EDF3;'>Okta Inc.</td><td>After Close</td></tr>
-<tr><td><span class='etf-tag'>CRWD</span></td><td style='color:#E6EDF3;'>CrowdStrike Holdings</td><td>After Close</td></tr>
-<tr><td><span class='etf-tag'>VEEV</span></td><td style='color:#E6EDF3;'>Veeva Systems</td><td>After Close</td></tr>
-<tr><td><span class='etf-tag'>MDB</span></td><td style='color:#E6EDF3;'>MongoDB Inc.</td><td>After Close</td></tr>
-<tr><td><span class='etf-tag'>HPE</span></td><td style='color:#E6EDF3;'>Hewlett Packard Ent.</td><td>After Close</td></tr>
-<tr><td><span class='etf-tag'>CHWY</span></td><td style='color:#E6EDF3;'>Chewy Inc.</td><td>After Close</td></tr>
-<tr><td><span class='etf-tag'>FIVE</span></td><td style='color:#E6EDF3;'>Five Below</td><td>After Close</td></tr>
-<tr><td><span class='etf-tag'>PSTG</span></td><td style='color:#E6EDF3;'>Pure Storage</td><td>After Close</td></tr>
+<tr><td><span class='etf-tag'>CRM</span></td><td style='color:#E2E8F0;'>Salesforce Inc.</td><td>After Close</td></tr>
+<tr><td><span class='etf-tag'>SNOW</span></td><td style='color:#E2E8F0;'>Snowflake Inc.</td><td>After Close</td></tr>
+<tr><td><span class='etf-tag'>OKTA</span></td><td style='color:#E2E8F0;'>Okta Inc.</td><td>After Close</td></tr>
+<tr><td><span class='etf-tag'>CRWD</span></td><td style='color:#E2E8F0;'>CrowdStrike Holdings</td><td>After Close</td></tr>
+<tr><td><span class='etf-tag'>VEEV</span></td><td style='color:#E2E8F0;'>Veeva Systems</td><td>After Close</td></tr>
+<tr><td><span class='etf-tag'>MDB</span></td><td style='color:#E2E8F0;'>MongoDB Inc.</td><td>After Close</td></tr>
+<tr><td><span class='etf-tag'>HPE</span></td><td style='color:#E2E8F0;'>Hewlett Packard Ent.</td><td>After Close</td></tr>
+<tr><td><span class='etf-tag'>CHWY</span></td><td style='color:#E2E8F0;'>Chewy Inc.</td><td>After Close</td></tr>
+<tr><td><span class='etf-tag'>FIVE</span></td><td style='color:#E2E8F0;'>Five Below</td><td>After Close</td></tr>
+<tr><td><span class='etf-tag'>PSTG</span></td><td style='color:#E2E8F0;'>Pure Storage</td><td>After Close</td></tr>
 </table></div>""", unsafe_allow_html=True)
 
 
