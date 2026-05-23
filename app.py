@@ -19,11 +19,11 @@ st.markdown("""
 <style>
 /* Reset and Base App Styling */
 .stApp { 
-    background: #0d0d12; 
-    color: #e2e8f0; 
-    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; 
-    font-size: 18px; 
-    line-height: 1.6; 
+background: #0d0d12; 
+color: #e2e8f0; 
+font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; 
+font-size: 18px; 
+line-height: 1.6; 
 }
 header {visibility: hidden;}
 footer {visibility: hidden;}
@@ -33,12 +33,12 @@ footer {visibility: hidden;}
 
 /* FLOATING CLOUD CARDS */
 .cloud-card {
-    background: #111827;
-    border: none; 
-    border-radius: 16px;
-    padding: 36px 40px;
-    margin-bottom: 40px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+background: #111827;
+border: none; 
+border-radius: 16px;
+padding: 36px 40px;
+margin-bottom: 40px;
+box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
 }
 
 /* HEADER CLOUD */
@@ -49,16 +49,16 @@ footer {visibility: hidden;}
 .hdr-meta { text-align: right; font-size: 16px; color: #94a3b8; }
 .hdr-date { font-size: 20px; color: #c7d2fe; font-weight: 600; margin-bottom: 8px; }
 
-.badge-bullish  { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #052e16; color: #4ade80; border: 1px solid #166534; }
-.badge-bearish  { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #450a0a; color: #f87171; border: 1px solid #991b1b; }
-.badge-mixed    { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #2d2000; color: #fbbf24; border: 1px solid #92400e; }
+.badge-bullish { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #052e16; color: #4ade80; border: 1px solid #166534; }
+.badge-bearish { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #450a0a; color: #f87171; border: 1px solid #991b1b; }
+.badge-mixed { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #2d2000; color: #fbbf24; border: 1px solid #92400e; }
 .badge-cautious { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #1c1917; color: #fb923c; border: 1px solid #9a3412; }
-.badge-live     { display: inline-block; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 800; letter-spacing: 1.5px; background: #991b1b; color: #fca5a5; border: 1px solid #f87171; margin-left: 12px; vertical-align: middle; animation: pulse 2s infinite;}
+.badge-live { display: inline-block; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 800; letter-spacing: 1.5px; background: #991b1b; color: #fca5a5; border: 1px solid #f87171; margin-left: 12px; vertical-align: middle; animation: pulse 2s infinite;}
 
 @keyframes pulse {
-    0% { opacity: 1; }
-    50% { opacity: 0.6; }
-    100% { opacity: 1; }
+0% { opacity: 1; }
+50% { opacity: 0.6; }
+100% { opacity: 1; }
 }
 
 /* SECTION TITLE */
@@ -67,11 +67,14 @@ footer {visibility: hidden;}
 /* INSTRUMENT GRID */
 .inst-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
 .inst-card { background: #1e293b; border-radius: 12px; padding: 24px 26px; border: none; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
-.inst-name  { font-size: 14px; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+.inst-name { font-size: 14px; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
 .inst-level { font-size: 28px; font-weight: 700; color: #f1f5f9; margin: 6px 0 6px; }
-.inst-change-up   { font-size: 16px; font-weight: 600; color: #4ade80; }
+.inst-change-up { font-size: 16px; font-weight: 600; color: #4ade80; }
 .inst-change-down { font-size: 16px; font-weight: 600; color: #f87171; }
 .inst-change-flat { font-size: 16px; font-weight: 600; color: #94a3b8; }
+
+/* NEWS BADGE */
+.news-badge { padding: 4px 10px; border-radius: 4px; font-size: 13px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; background: #312e81; color: #a5b4fc;}
 
 /* TABLES */
 table { width: 100%; border-collapse: collapse; border: none !important; }
@@ -84,14 +87,14 @@ tr:last-child td { border-bottom: none !important; }
 
 /* Tags */
 .etf-tag { background: #0f172a; color: #60a5fa; padding: 6px 12px; border-radius: 6px; font-family: monospace; font-size: 16px; font-weight: 700; border: 1px solid #1e2b4d;}
-.up-pct   { color: #4ade80; font-weight: 700; font-size: 18px; white-space: nowrap; }
+.up-pct { color: #4ade80; font-weight: 700; font-size: 18px; white-space: nowrap; }
 .down-pct { color: #f87171; font-weight: 700; font-size: 18px; white-space: nowrap; }
 
 /* Mobile Fixes */
 @media (max-width: 768px) {
-    .inst-grid { grid-template-columns: repeat(2, 1fr); }
-    .cloud-card { padding: 24px; }
-    .hdr { padding: 28px; }
+.inst-grid { grid-template-columns: repeat(2, 1fr); }
+.cloud-card { padding: 24px; }
+.hdr { padding: 28px; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -125,7 +128,6 @@ def fetch_expanded_macro():
 @st.cache_data(ttl=600)
 def fetch_top_news():
     articles = []
-    # 1. Fetch Benzinga Top 5
     try:
         url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=5&channels=News"
         res = requests.get(url, headers={"accept": "application/json"}).json()
@@ -137,7 +139,6 @@ def fetch_top_news():
             })
     except: pass
 
-    # 2. Fetch Yahoo Finance Top 5
     try:
         yf_news = yf.Ticker("SPY").news[:5]
         for n in yf_news:
@@ -174,7 +175,6 @@ def fetch_sector_flow():
 
 @st.cache_data(ttl=300)
 def fetch_gappers():
-    # Exactly Top 10 (5 Gainers, 5 Losers)
     try:
         gainers = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey={FMP_KEY}").json()[:5]
         losers = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/losers?apikey={FMP_KEY}").json()[:5]
@@ -289,17 +289,7 @@ news_data = fetch_top_news()
 if news_data:
     news_html = """<div class="cloud-card"><div class="section-title">02 — Market Catalysts & Breaking News</div><table><thead><tr><th style="width:15%;">Source</th><th style="width:85%;">Headline & Summary</th></tr></thead><tbody>\n"""
     for article in news_data:
-        news_html += f"""
-        <tr>
-            <td style="vertical-align: top; padding-top: 22px;">
-                <span style="background:#312e81; color:#a5b4fc; padding: 4px 10px; border-radius: 4px; font-size:12px; font-weight:700; letter-spacing:0.5px;">{article['publisher']}</span>
-            </td>
-            <td style="vertical-align: top; padding-top: 18px; padding-bottom: 18px;">
-                <div style="font-size: 20px; font-weight: 700; color: #f1f5f9; margin-bottom: 6px;">{article['title']}</div>
-                <div style="font-size: 16px; color: #cbd5e1; line-height: 1.6;">{article['teaser']}</div>
-            </td>
-        </tr>
-        """
+        news_html += f"""<tr><td style="vertical-align: top;"><span class="news-badge">{article['publisher']}</span></td><td style="vertical-align: top; padding-bottom: 24px;"><div style="font-size: 20px; font-weight: 700; color: #f1f5f9; margin-bottom: 6px;">{article['title']}</div><div style="font-size: 16px; color: #cbd5e1; line-height: 1.6;">{article['teaser']}</div></td></tr>\n"""
     news_html += "</tbody></table></div>"
     st.markdown(news_html, unsafe_allow_html=True)
 
@@ -397,11 +387,11 @@ if econ_data:
                 t_fmt = t_obj.strftime("%I:%M %p")
             else:
                 t_fmt = "TBA"
-            dt_display = f"<div style='font-weight:700;'>{d_fmt}</div><div style='font-size:14px; color:#94a3b8;'>{t_fmt}</div>"
+            dt_display = f"{d_fmt} | {t_fmt}"
         except:
             dt_display = f"{d_str} {t_str}".strip()
             
-        econ_html += f"""<tr><td class="ticker-cell" style="font-size:16px; vertical-align:middle;">{dt_display}</td><td class="catalyst-cell" style="vertical-align:middle;">{item.get('description', 'Data Release')}</td><td style="vertical-align:middle;"><span class="{color}">{impact_str}</span></td></tr>\n"""
+        econ_html += f"""<tr><td class="ticker-cell" style="font-size:16px;">{dt_display}</td><td class="catalyst-cell">{item.get('description', 'Data Release')}</td><td><span class="{color}">{impact_str}</span></td></tr>\n"""
     econ_html += "</tbody></table></div>"
     st.markdown(econ_html, unsafe_allow_html=True)
 else:
@@ -422,13 +412,13 @@ except:
 
 st.markdown(f"""
 <div class="cloud-card">
-    <div class="section-title">09 — Sentiment, Breadth & Technicals</div>
-    <div class="inst-grid" style="margin-bottom: 28px;">
-        <div class="inst-card"><div class="inst-name">T2108 (Above 40D MA)</div><div class="inst-level">58.4%</div><div class="inst-change-up">Healthy Breadth</div></div>
-        <div class="inst-card"><div class="inst-name">Put/Call Ratio</div><div class="inst-level">0.82</div><div class="inst-change-up">Bullish Bias</div></div>
-        <div class="inst-card"><div class="inst-name">SPX > 50D Moving Avg</div><div class="inst-level">~72%</div><div class="inst-change-up">Strong Trend</div></div>
-    </div>
-    {vpci_html}
+<div class="section-title">09 — Sentiment, Breadth & Technicals</div>
+<div class="inst-grid" style="margin-bottom: 28px;">
+<div class="inst-card"><div class="inst-name">T2108 (Above 40D MA)</div><div class="inst-level">58.4%</div><div class="inst-change-up">Healthy Breadth</div></div>
+<div class="inst-card"><div class="inst-name">Put/Call Ratio</div><div class="inst-level">0.82</div><div class="inst-change-up">Bullish Bias</div></div>
+<div class="inst-card"><div class="inst-name">SPX > 50D Moving Avg</div><div class="inst-level">~72%</div><div class="inst-change-up">Strong Trend</div></div>
+</div>
+{vpci_html}
 </div>
 """, unsafe_allow_html=True)
 
