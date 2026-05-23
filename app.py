@@ -54,6 +54,7 @@ box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
 .badge-bullish { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #052e16; color: #4ade80; border: none; }
 .badge-bearish { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #450a0a; color: #f87171; border: none; }
 .badge-mixed { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #2d2000; color: #fbbf24; border: none; }
+.badge-cautious { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #1c1917; color: #fb923c; border: none; }
 .badge-live { display: inline-block; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 800; letter-spacing: 1.5px; background: #052e16; color: #4ade80; margin-left: 12px; vertical-align: middle; animation: pulse 2s infinite; border: none;}
 .badge-closed { display: inline-block; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 800; letter-spacing: 1.5px; background: #450a0a; color: #f87171; margin-left: 12px; vertical-align: middle; border: none;}
 
@@ -106,7 +107,7 @@ box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
 .wl-levels .sup { color: #4ade80; font-weight: 600; }
 .wl-levels .res { color: #f87171; font-weight: 600; }
 
-/* TABLES */
+/* TABLES (For Scanner & Sector flow) */
 table { width: 100%; border-collapse: collapse; border: none !important; }
 th, td { border-left: none !important; border-right: none !important; }
 th { font-size: 14px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #64748b; padding: 16px 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05) !important; border-top: none !important; }
@@ -129,7 +130,7 @@ tr:last-child td { border-bottom: none !important; }
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. LIVE DATA ENGINES
+# 2. LIVE DATA ENGINES (WITH FALLBACKS)
 # ==========================================
 
 def get_last_price_change(ticker):
@@ -191,7 +192,7 @@ def fetch_sector_flow():
         perf.append({"ticker": ticker, "sector": name, "pct": c, "theme": theme, "flow": flow})
     return sorted(perf, key=lambda x: x['pct'], reverse=True)
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=120)
 def fetch_gappers():
     results = []
     try:
@@ -298,7 +299,7 @@ def fetch_sips():
     except: 
         return []
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=120)
 def fetch_liquidity_basket():
     tickers = ["SPY", "QQQ", "IWM", "NVDA", "AAPL", "AMD", "TSLA", "META", "AMZN", "MSFT"]
     results = []
@@ -313,6 +314,19 @@ def fetch_liquidity_basket():
                 results.append({"ticker": t, "price": float(current), "bias": bias, "color": color_class})
         except: pass
     return results
+
+@st.cache_data(ttl=3600)
+def fetch_calendar_data(cal_type="economics"):
+    try:
+        today = datetime.now()
+        next_week = today + timedelta(days=7)
+        url = f"https://api.benzinga.com/api/v2.1/calendar/{cal_type}?token={BZ_KEY}&parameters[date_from]={today.strftime('%Y-%m-%d')}&parameters[date_to]={next_week.strftime('%Y-%m-%d')}"
+        response = requests.get(url, headers={"accept": "application/json"})
+        if response.status_code == 200:
+            return response.json()
+        return {}
+    except: 
+        return {}
 
 @st.cache_data(ttl=3600)
 def fetch_earnings_for_date(date_str):
@@ -402,13 +416,11 @@ st.markdown(scorecard_html, unsafe_allow_html=True)
 
 
 # --- 02 | LIVE MARKET DRIVERS & CATALYSTS ---
-# (Dynamic pulling from Benzinga & AV - No Static Content)
 st.markdown("""
 <div class="cloud-card">
 <div class="section-title">02 — Market Drivers & Catalysts</div>
 """, unsafe_allow_html=True)
 
-# Fetching the live dynamic news
 live_news = []
 try:
     url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=5&channels=News"
@@ -549,34 +561,61 @@ today_dt = datetime.now()
 today_str = today_dt.strftime("%Y-%m-%d")
 today_display = today_dt.strftime("%B %d")
 
-# Find the next valid trading day (Skip Weekends and Memorial Day May 25)
+# Date Math to calculate Previous and Next valid trading days
+prev_dt = today_dt - timedelta(days=1)
+while prev_dt.weekday() >= 5:
+    prev_dt -= timedelta(days=1)
+prev_str = prev_dt.strftime("%Y-%m-%d")
+prev_name = prev_dt.strftime("%A")
+
 next_dt = today_dt + timedelta(days=1)
 while next_dt.weekday() >= 5 or (next_dt.month == 5 and next_dt.day == 25):
     next_dt += timedelta(days=1)
 next_str = next_dt.strftime("%Y-%m-%d")
 next_name = next_dt.strftime("%A")
 
+prev_earnings = fetch_earnings_for_date(prev_str)
 today_earnings = fetch_earnings_for_date(today_str)
 next_earnings = fetch_earnings_for_date(next_str)
 
 earn_html = f"""
 <div class="cloud-card">
-<div class="section-title">07 — Earnings ({today_display}) + {next_name}'s Preview</div>
+<div class="section-title">07 — Earnings Results & {next_name}'s Preview</div>
 """
-if today_earnings:
-    for item in today_earnings[:5]:
+
+if prev_earnings:
+    for item in prev_earnings[:3]:
         eps = item.get('eps') or item.get('eps_est') or 'N/A'
+        eps_est = item.get('eps_est', 'N/A')
         rev = item.get('revenue') or item.get('revenue_est')
+        rev_est = item.get('revenue_est')
+        
+        eps_str = f"${float(eps):.2f}" if eps != 'N/A' else "N/A"
+        eps_est_str = f"${float(eps_est):.2f}" if eps_est != 'N/A' else "N/A"
         rev_str = f"${float(rev)/1e9:.2f}B" if rev else "N/A"
+        rev_est_str = f"${float(rev_est)/1e9:.2f}B" if rev_est else "N/A"
+        
         earn_html += f"""
 <div class="news-item">
-<div class="news-item-top"><span class="nb-badge nb-teal">TODAY</span></div>
-<div class="news-body"><strong>{item.get('name')} ({item.get('ticker')}):</strong> EPS ${eps} | Revenue {rev_str}</div>
+<div class="news-item-top"><span class="nb-badge nb-purple">PREVIOUS CLOSE ({prev_name[:3]})</span></div>
+<div class="news-body"><strong>{item.get('name')} ({item.get('ticker')}):</strong> EPS {eps_str} (est. {eps_est_str}) &nbsp;|&nbsp; Rev {rev_str} (est. {rev_est_str})</div>
 </div>
 """
-else:
-    earn_html += f"<div class='news-item'><div class='news-body'>No major earnings scheduled for today.</div></div>"
-    
+
+if today_earnings:
+    for item in today_earnings[:3]:
+        eps_est = item.get('eps_est', 'N/A')
+        rev_est = item.get('revenue_est')
+        eps_est_str = f"${float(eps_est):.2f}" if eps_est != 'N/A' else "N/A"
+        rev_est_str = f"${float(rev_est)/1e9:.2f}B" if rev_est else "N/A"
+        
+        earn_html += f"""
+<div class="news-item">
+<div class="news-item-top"><span class="nb-badge nb-teal">TODAY ({today_display})</span></div>
+<div class="news-body"><strong>{item.get('name')} ({item.get('ticker')}):</strong> Est. EPS {eps_est_str} &nbsp;|&nbsp; Est. Rev {rev_est_str}</div>
+</div>
+"""
+
 earn_html += f"""
 <div class="news-item" style="border-color:#1e3a5f;">
 <div class="news-item-top"><span class="nb-badge nb-blue">{next_name.upper()} — PREVIEW</span></div>
@@ -584,10 +623,11 @@ earn_html += f"""
 """
 if next_earnings:
     for item in next_earnings[:6]:
-        eps = item.get('eps_est', 'N/A')
-        rev = item.get('revenue_est')
-        rev_str = f"${float(rev)/1e9:.2f}B" if rev else "N/A"
-        earn_html += f"<strong>{item.get('ticker')}</strong> ({item.get('name')}) — EPS est. ${eps} / Rev est. {rev_str}<br>"
+        eps_est = item.get('eps_est', 'N/A')
+        rev_est = item.get('revenue_est')
+        eps_est_str = f"${float(eps_est):.2f}" if eps_est != 'N/A' else "N/A"
+        rev_est_str = f"${float(rev_est)/1e9:.2f}B" if rev_est else "N/A"
+        earn_html += f"<strong>{item.get('ticker')}</strong> ({item.get('name')}) — EPS est. {eps_est_str} / Rev est. {rev_est_str}<br>"
 else:
     earn_html += "No major earnings scheduled."
 
