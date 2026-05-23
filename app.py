@@ -97,7 +97,7 @@ box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
 .sentiment-line strong { color: #f1f5f9; }
 
 /* WATCHLIST */
-.watchlist-item { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 24px 28px; margin-bottom: 20px; display: grid; grid-template-columns: 28px 1fr; gap: 16px; align-items: start; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
+.watchlist-item { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 24px 28px; margin-bottom: 20px; display: grid; grid-template-columns: 32px 1fr; gap: 16px; align-items: start; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
 .wl-num { font-size: 18px; color: #64748b; font-weight: 800; padding-top: 3px; }
 .wl-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
 .wl-ticker { font-size: 22px; font-weight: 800; color: #818cf8; }
@@ -117,7 +117,7 @@ tr:last-child td { border-bottom: none !important; }
 .catalyst-cell { font-size: 18px; color: #cbd5e1; line-height: 1.6; }
 .divider-row td { padding: 8px 14px; background: #0d0d12; font-size: 14px; color: #64748b; letter-spacing: 1px; text-transform: uppercase; text-align: center; font-weight: 700;}
 .etf-tag { background: #0f172a; color: #60a5fa; padding: 6px 12px; border-radius: 6px; font-family: monospace; font-size: 16px; font-weight: 700; border: 1px solid #1e2b4d;}
-.up-pct { color: #4ade80; font-weight: 700; font-size: 18px; white-space: nowrap; }
+.up-pct   { color: #4ade80; font-weight: 700; font-size: 18px; white-space: nowrap; }
 .down-pct { color: #f87171; font-weight: 700; font-size: 18px; white-space: nowrap; }
 
 /* Mobile Fixes */
@@ -158,6 +158,7 @@ def fetch_expanded_macro():
 @st.cache_data(ttl=600)
 def fetch_top_news():
     articles = []
+    # 1. Fetch Benzinga
     try:
         url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=5&channels=News"
         res = requests.get(url, headers={"accept": "application/json"}).json()
@@ -169,6 +170,7 @@ def fetch_top_news():
             })
     except: pass
 
+    # 2. Fetch Alpha Vantage
     try:
         av_url = f"https://www.alphavantage.co/query?function=NEWS_SENTIMENT&sort=LATEST&limit=5&apikey={AV_KEY}"
         av_res = requests.get(av_url).json()
@@ -180,6 +182,7 @@ def fetch_top_news():
                 "teaser": n.get("summary", "Monitoring market momentum.")[:250] + "..."
             })
     except: pass
+    
     return articles[:10]
 
 @st.cache_data(ttl=3600)
@@ -211,8 +214,8 @@ def fetch_gappers():
         gainers = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey={FMP_KEY}").json()[:5]
         losers = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/losers?apikey={FMP_KEY}").json()[:5]
         results = []
-        for g in gainers: results.append({"ticker": g['symbol'], "name": g['name'], "price": g['price'], "change": g['changesPercentage'], "type": "Gainer"})
-        for l in losers: results.append({"ticker": l['symbol'], "name": l['name'], "price": l['price'], "change": l['changesPercentage'], "type": "Loser"})
+        for g in gainers: results.append({"ticker": g['symbol'], "price": g['price'], "change": g['changesPercentage'], "type": "Gainer"})
+        for l in losers: results.append({"ticker": l['symbol'], "price": l['price'], "change": l['changesPercentage'], "type": "Loser"})
         return results
     except: return []
 
@@ -229,6 +232,7 @@ def fetch_sips():
                     t = s.get('name')
                     if t and t not in sips_dict and len(sips_dict) < 10:
                         sips_dict[t] = n.get('title')
+        
         if sips_dict:
             tickers_str = ",".join(sips_dict.keys())
             quotes = requests.get(f"https://financialmodelingprep.com/api/v3/quote/{tickers_str}?apikey={FMP_KEY}").json()
@@ -236,7 +240,12 @@ def fetch_sips():
             for q in quotes:
                 t = q['symbol']
                 if t in sips_dict:
-                    results.append({"ticker": t, "price": q['price'], "change": q['changesPercentage'], "catalyst": sips_dict[t]})
+                    results.append({
+                        "ticker": t,
+                        "price": q['price'],
+                        "change": q['changesPercentage'],
+                        "catalyst": sips_dict[t]
+                    })
             return sorted(results, key=lambda x: abs(x['change']), reverse=True)[:10]
         return []
     except: return []
@@ -253,6 +262,25 @@ def fetch_liquidity_basket():
             results.append({"ticker": t, "price": current, "bias": bias, "color": "badge-bullish" if bias == "LONG" else "badge-bearish"})
         return results
     except: return []
+
+@st.cache_data(ttl=3600)
+def fetch_calendar_data(cal_type="economics"):
+    try:
+        today = datetime.now()
+        next_week = today + timedelta(days=7)
+        url = f"https://api.benzinga.com/api/v2.1/calendar/{cal_type}?token={BZ_KEY}&parameters[date_from]={today.strftime('%Y-%m-%d')}&parameters[date_to]={next_week.strftime('%Y-%m-%d')}"
+        return requests.get(url, headers={"accept": "application/json"}).json()
+    except: return {}
+
+def calculate_vpci(df, short_window=5, long_window=21):
+    try:
+        df['Vol_x_Price'] = df['Close'] * df['Volume']
+        v_short = df['Vol_x_Price'].rolling(window=short_window).sum() / df['Volume'].rolling(window=short_window).sum()
+        v_long = df['Vol_x_Price'].rolling(window=long_window).sum() / df['Volume'].rolling(window=long_window).sum()
+        sma_long = df['Close'].rolling(window=long_window).mean()
+        sma_short = df['Close'].rolling(window=short_window).mean()
+        return ((v_long - sma_long) * (v_short / sma_short) * (df['Volume'].rolling(window=short_window).mean() / df['Volume'].rolling(window=long_window).mean())).iloc[-1]
+    except: return 0.0
 
 # ==========================================
 # 3. UI GENERATION
@@ -279,33 +307,20 @@ st.markdown(f"""
 
 # --- 01 | SCORECARD ---
 macro_data = fetch_expanded_macro()
-scorecard_html = """
-<div class="cloud-card">
-<div class="section-title">01 — Scorecard <span class="badge-live">● LIVE DATA</span></div>
-<div class="inst-grid">
-"""
+scorecard_html = """<div class="cloud-card"><div class="section-title">01 — Scorecard <span class="badge-live">● LIVE DATA</span></div><div class="inst-grid">\n"""
 for name, metrics in macro_data.items():
     color_class = "inst-change-up" if metrics['pct'] >= 0 else "inst-change-down"
     sign = "▲ +" if metrics['pct'] > 0 else "▼ " if metrics['pct'] < 0 else "— "
     price_str = f"{metrics['price']:.3f}" if name in ["VIX", "10Y Treasury"] else f"${metrics['price']:,.2f}" if name in ["Bitcoin (BTC)", "Ethereum (ETH)", "Gold (GC)", "WTI Crude"] else f"{metrics['price']:,.2f}"
-    scorecard_html += f"""
-<div class="inst-card">
-<div class="inst-name">{name}</div>
-<div class="inst-level">{price_str}</div>
-<div class="{color_class}">{sign}{metrics['pct']:.2f}%</div>
-</div>
-"""
+    scorecard_html += f"""<div class="inst-card"><div class="inst-name">{name}</div><div class="inst-level">{price_str}</div><div class="{color_class}">{sign}{metrics['pct']:.2f}%</div></div>\n"""
 scorecard_html += "</div></div>"
 st.markdown(scorecard_html, unsafe_allow_html=True)
 
 
-# --- 02 | LIVE NEWS (CARD LAYOUT NO LINKS) ---
+# --- 02 | LIVE NEWS (CARD LAYOUT) ---
 news_data = fetch_top_news()
 if news_data:
-    news_html = """
-<div class="cloud-card">
-<div class="section-title">02 — Market Catalysts & Breaking News</div>
-"""
+    news_html = """<div class="cloud-card"><div class="section-title">02 — Market Catalysts & Breaking News</div>\n"""
     for article in news_data:
         news_html += f"""
 <div class="news-item">
@@ -321,26 +336,11 @@ if news_data:
 # --- 03 | SECTORS ---
 sector_data = fetch_sector_flow()
 if sector_data:
-    heatmap_html = """
-<div class="cloud-card">
-<div class="section-title">03 — Sector Performance & Themes</div>
-<table>
-<thead>
-<tr><th>#</th><th>Sector / ETF</th><th>Live Change</th><th>Theme</th></tr>
-</thead>
-<tbody>
-"""
+    heatmap_html = """<div class="cloud-card"><div class="section-title">03 — Sector Performance & Themes</div><table><thead><tr><th>#</th><th>Sector / ETF</th><th>Live Change</th><th>Theme</th></tr></thead><tbody>\n"""
     for i, item in enumerate(sector_data):
         color_class = "up-pct" if item['pct'] >= 0 else "down-pct"
         sign = "▲ +" if item['pct'] > 0 else "▼ "
-        heatmap_html += f"""
-<tr>
-<td style="color:#64748b;font-weight:700;">{i+1}</td>
-<td class="ticker-cell">{item['ticker']} <span class="ticker-name">{item['sector']}</span></td>
-<td><span class="{color_class}">{sign}{item['pct']:.2f}%</span></td>
-<td class="catalyst-cell">{item['theme']}</td>
-</tr>
-"""
+        heatmap_html += f"""<tr><td style="color:#64748b;font-weight:700;">{i+1}</td><td class="ticker-cell">{item['ticker']} <span style="color:#94a3b8; font-weight:400; font-size:16px;">— {item['sector']}</span></td><td><span class="{color_class}">{sign}{item['pct']:.2f}%</span></td><td class="catalyst-cell">{item['theme']}</td></tr>\n"""
     heatmap_html += "</tbody></table></div>"
     st.markdown(heatmap_html, unsafe_allow_html=True)
 
@@ -348,35 +348,12 @@ if sector_data:
 # --- 04 | PRE/POST MARKET GAPPERS ---
 gappers_data = fetch_gappers()
 if gappers_data:
-    gappers_html = """
-<div class="cloud-card">
-<div class="section-title">04 — Pre/Post Market Gappers</div>
-<table>
-<thead>
-<tr><th>Ticker</th><th>Change / Price</th><th>Scanner Notes</th></tr>
-</thead>
-<tbody>
-"""
-    gainers = [g for g in gappers_data if g['type'] == 'Gainer']
-    losers = [l for l in gappers_data if l['type'] == 'Loser']
-    
-    for item in gainers:
-        gappers_html += f"""
-<tr>
-<td class="ticker-cell">{item['ticker']}<span class="ticker-name">{item['name'][:20]}</span></td>
-<td><div class="up-pct">▲ +{item['change']:.2f}%</div><div style="font-size:15px;color:#64748b;margin-top:4px">${item['price']:.2f}</div></td>
-<td class="catalyst-cell">High relative volume / Pre-market bid.</td>
-</tr>
-"""
-    gappers_html += """<tr class="divider-row"><td colspan="3">— Top Losers —</td></tr>\n"""
-    for item in losers:
-        gappers_html += f"""
-<tr>
-<td class="ticker-cell">{item['ticker']}<span class="ticker-name">{item['name'][:20]}</span></td>
-<td><div class="down-pct">▼ {item['change']:.2f}%</div><div style="font-size:15px;color:#64748b;margin-top:4px">${item['price']:.2f}</div></td>
-<td class="catalyst-cell">Pre-market distribution / Risk-off rotation.</td>
-</tr>
-"""
+    gappers_html = """<div class="cloud-card"><div class="section-title">04 — Pre/Post Market Gappers (Top 10)</div><table><thead><tr><th>Ticker</th><th>Price</th><th>Gap %</th><th>Status</th></tr></thead><tbody>\n"""
+    for item in gappers_data:
+        color_class = "up-pct" if item['change'] >= 0 else "down-pct"
+        sign = "▲ +" if item['change'] > 0 else "▼ "
+        bias_badge = "<span class='badge-bullish'>MOMENTUM</span>" if item['change'] > 0 else "<span class='badge-bearish'>RISK-OFF</span>"
+        gappers_html += f"""<tr><td class="ticker-cell"><span class="etf-tag">{item['ticker']}</span></td><td class="catalyst-cell" style="color:#f1f5f9;">${item['price']:.2f}</td><td><div class="{color_class}">{sign}{item['change']:.2f}%</div></td><td>{bias_badge}</td></tr>\n"""
     gappers_html += "</tbody></table></div>"
     st.markdown(gappers_html, unsafe_allow_html=True)
 
@@ -384,26 +361,11 @@ if gappers_data:
 # --- 05 | STOCKS IN PLAY (SIPS) ---
 sips_data = fetch_sips()
 if sips_data:
-    sips_html = """
-<div class="cloud-card">
-<div class="section-title">05 — Stocks in Play (SIPS) — Catalyst Movers</div>
-<table>
-<thead>
-<tr><th>Ticker</th><th>Live Price</th><th>Change</th><th>News Catalyst</th></tr>
-</thead>
-<tbody>
-"""
+    sips_html = """<div class="cloud-card"><div class="section-title">05 — Stocks in Play (SIPS) — Catalyst Movers</div><table><thead><tr><th>Ticker</th><th>Live Price</th><th>Change</th><th>News Catalyst</th></tr></thead><tbody>\n"""
     for item in sips_data:
         color_class = "up-pct" if item['change'] >= 0 else "down-pct"
         sign = "▲ +" if item['change'] > 0 else "▼ "
-        sips_html += f"""
-<tr>
-<td class="ticker-cell"><span class="etf-tag">{item['ticker']}</span></td>
-<td class="catalyst-cell" style="color:#f1f5f9;">${item['price']:.2f}</td>
-<td><div class="{color_class}">{sign}{item['change']:.2f}%</div></td>
-<td class="catalyst-cell">{item['catalyst']}</td>
-</tr>
-"""
+        sips_html += f"""<tr><td class="ticker-cell"><span class="etf-tag">{item['ticker']}</span></td><td class="catalyst-cell" style="color:#f1f5f9;">${item['price']:.2f}</td><td><div class="{color_class}">{sign}{item['change']:.2f}%</div></td><td class="catalyst-cell">{item['catalyst']}</td></tr>\n"""
     sips_html += "</tbody></table></div>"
     st.markdown(sips_html, unsafe_allow_html=True)
 
@@ -411,23 +373,9 @@ if sips_data:
 # --- 06 | LIQUIDITY BASKET ---
 play_data = fetch_liquidity_basket()
 if play_data:
-    play_html = """
-<div class="cloud-card">
-<div class="section-title">06 — Liquidity Basket (Algo Bias vs 5D SMA)</div>
-<table>
-<thead>
-<tr><th>Ticker</th><th>Live Price</th><th>Algo Bias</th></tr>
-</thead>
-<tbody>
-"""
+    play_html = """<div class="cloud-card"><div class="section-title">06 — Liquidity Basket (Algo Bias vs 5D SMA)</div><table><thead><tr><th>Ticker</th><th>Live Price</th><th>Algo Bias</th></tr></thead><tbody>\n"""
     for item in play_data:
-        play_html += f"""
-<tr>
-<td class="ticker-cell">{item['ticker']}</td>
-<td class="catalyst-cell">${item['price']:.2f}</td>
-<td><span class="{item['color']}">{item['bias']}</span></td>
-</tr>
-"""
+        play_html += f"""<tr><td class="ticker-cell">{item['ticker']}</td><td class="catalyst-cell">${item['price']:.2f}</td><td><span class="{item['color']}">{item['bias']}</span></td></tr>\n"""
     play_html += "</tbody></table></div>"
     st.markdown(play_html, unsafe_allow_html=True)
 
@@ -439,7 +387,7 @@ st.markdown("""
 <div class="news-item">
 <div class="news-item-top"><span class="news-badge nb-earnings">BEAT / BEAT ✓</span></div>
 <div class="news-headline">GE Vernova (GEV) & Boeing (BA) — Pre-Market Double Beat</div>
-<div class="news-body">GEV posted Q1 EPS of <strong>$1.98 vs. $1.90 est.</strong>, revenue $9.34B (beat), and raised 2026 guidance to $44.5–$45.5B — stock soared to new all-time highs. AI data center power demand driving massive Electrification order growth. Boeing reported losses of just <strong>–$0.20/share vs. –$0.80 est.</strong>, revenue $22.22B vs. $21.78B est. BA jumped 3.5%; CEO reaffirmed $1–3B FCF target for 2026.</div>
+<div class="news-body">GEV posted Q1 EPS of <strong>$1.98 vs. $1.90 est.</strong>, revenue $9.34B (beat), and raised 2026 guidance to $44.5–$45.5B. AI data center power demand driving massive Electrification order growth. Boeing reported losses of just <strong>–$0.20/share vs. –$0.80 est.</strong>, revenue $22.22B vs. $21.78B est. BA jumped 3.5%; CEO reaffirmed $1–3B FCF target for 2026.</div>
 </div>
 <div class="news-item">
 <div class="news-item-top"><span class="news-badge nb-alert">AH VOLATILE</span></div>
@@ -457,129 +405,130 @@ st.markdown("""
 <div class="news-body"><strong>SON:</strong> EPS $1.20 (in-line) but revenue $1.68B missed ($1.71B est.); severe weather + facility fire headwinds; –16%. | <strong>TNL:</strong> Beat EPS but FCF margin crashed from 10.7% → 2% YoY; FY EBITDA guide only in-line at $1.04B; –13.6%.</div>
 </div>
 <div class="news-item" style="border-color:#1e3a5f;">
-<div class="news-item-top"><span class="news-badge nb-technical">TOMORROW — APR 23</span></div>
+<div class="news-item-top"><span class="news-badge nb-technical">TOMORROW — PREVIEW</span></div>
 <div class="news-headline">Key Earnings Thursday: INTC, CMCSA, TMO, BKR + AH: KDP</div>
 <div class="news-body">
 <strong>INTC</strong> (Intel) — BMO; EPS est. $0.01 / Rev est. $10.75B. AI PC traction & foundry update. Stock moves 8–12% on print.<br>
 <strong>CMCSA</strong> (Comcast) — BMO; EPS est. $0.73 / Rev est. $30.41B. Broadband subscriber trend is the headline watch.<br>
 <strong>TMO</strong> (Thermo Fisher) — BMO; EPS est. $5.20 / Rev est. $10.86B. Life sciences demand barometer for all of XLV.<br>
-<strong>BKR</strong> (Baker Hughes) — Q1 2026; EPS est. $0.50 / Rev est. $6.34B. Energy services/LNG order flow outlook.<br>
-<strong>KDP</strong> (Keurig Dr Pepper) — AMC; EPS est. $0.36 / Rev est. $3.84B.
+<strong>BKR</strong> (Baker Hughes) — Q1; EPS est. $0.50 / Rev est. $6.34B. Energy services/LNG order flow outlook.
 </div>
 </div>
 </div>
 """, unsafe_allow_html=True)
 
 
-# --- 08 | TECHNICAL PICTURE ---
+# --- 08 | ECONOMIC CALENDAR (WEEK AHEAD) ---
+econ_res = fetch_calendar_data("economics")
+econ_data = econ_res.get("economics", [])[:10]
+if econ_data:
+    econ_html = """<div class="cloud-card"><div class="section-title">08 — Economic Calendar (Week Ahead)</div><table><thead><tr><th>Date & Time</th><th>Release</th><th>Impact</th></tr></thead><tbody>\n"""
+    for item in econ_data:
+        imp = item.get('importance', 3)
+        impact_str = "HIGH" if imp >= 4 else ("MED" if imp == 3 else "LOW")
+        color = "badge-bearish" if impact_str == "HIGH" else "badge-mixed" if impact_str == "MED" else "badge-cautious"
+        
+        d_str = item.get('date', '')
+        t_str = item.get('time', '')
+        
+        try:
+            d_obj = datetime.strptime(d_str, "%Y-%m-%d")
+            d_fmt = d_obj.strftime("%b %d")
+            if t_str and t_str != "00:00:00":
+                t_obj = datetime.strptime(t_str, "%H:%M:%S")
+                t_fmt = t_obj.strftime("%I:%M %p")
+            else:
+                t_fmt = "TBA"
+            dt_display = f"<div style='font-weight:700;'>{d_fmt}</div><div style='font-size:14px; color:#94a3b8;'>{t_fmt}</div>"
+        except:
+            dt_display = f"{d_str} {t_str}".strip()
+            
+        econ_html += f"""<tr><td class="ticker-cell" style="font-size:16px; vertical-align:middle;">{dt_display}</td><td class="catalyst-cell" style="vertical-align:middle;">{item.get('description', 'Data Release')}</td><td style="vertical-align:middle;"><span class="{color}">{impact_str}</span></td></tr>\n"""
+    econ_html += "</tbody></table></div>"
+    st.markdown(econ_html, unsafe_allow_html=True)
+else:
+    st.markdown("<div class='cloud-card'><div class='section-title'>08 — Economic Calendar</div><div class='catalyst-cell'>No major economic data scheduled for the week ahead.</div></div>", unsafe_allow_html=True)
+
+
+# --- 09 | TECHNICAL PICTURE (HTML FORMAT) ---
 st.markdown("""
 <div class="cloud-card">
-<div class="section-title">08 — Technical Picture — SPX & Key Levels</div>
-<div class="sentiment-line"><strong>SPX Close:</strong> 7,137.90 — Fresh All-Time High. The prior ATH was 7,147.52 (April 17). Today's close at 7,137 eclipses that on a closing basis, confirming breakout momentum.</div>
+<div class="section-title">09 — Technical Picture — SPX & Key Levels</div>
+<div class="sentiment-line"><strong>SPX Close:</strong> Fresh All-Time High. Today's close eclipses resistance on a closing basis, confirming breakout momentum.</div>
 <div class="sentiment-line"><strong>Near-Term Support:</strong> 7,000 (round number / prior resistance-turned-support) → 6,780–6,720 (Elliott Wave key pullback zone)</div>
 <div class="sentiment-line"><strong>Upside Targets:</strong> 7,147 (prior intraday ATH) → 7,300–7,375 (next measured-move target) → 7,900 (extended bull case)</div>
-<div class="sentiment-line"><strong>VIX:</strong> ~19.10 — Down ~30% from late-March spike. Entering "normal" range (15–20). Continued fade toward 16–17 zone confirms risk-on regime. No systemic fear signals present.</div>
-<div class="sentiment-line"><strong>10Y Yield:</strong> 4.292% (+0.99%) — Rising with stocks signals pure risk-on, not fear. Remains below the 4.5% "equity valuation threat" zone. Watch for divergence if yields move above 4.5% while stocks rally.</div>
-<div class="sentiment-line"><strong>Moving Average Summary:</strong> 12/12 Buy signals across major timeframes. "Strong Buy" across daily, weekly, monthly — supportive of continuation into ATH territory.</div>
+<div class="sentiment-line"><strong>VIX:</strong> Down ~30% from late-March spike. Entering "normal" range (15–20). Continued fade toward 16–17 zone confirms risk-on regime.</div>
+<div class="sentiment-line"><strong>10Y Yield:</strong> Rising with stocks signals pure risk-on, not fear. Remains below the 4.5% "equity valuation threat" zone.</div>
+<div class="sentiment-line"><strong>Moving Average Summary:</strong> 12/12 Buy signals across major timeframes. "Strong Buy" across daily, weekly, monthly.</div>
 </div>
 """, unsafe_allow_html=True)
 
 
-# --- 09 | MARKET BREADTH & INTERNALS ---
-st.markdown("""
+# --- 10 | BREADTH & VPCI (COMBINED CLOUD) ---
+vpci_html = ""
+try:
+    spy_df = yf.Ticker("SPY").history(period="3mo")
+    if not spy_df.empty and len(spy_df) > 21:
+        latest_vpci = calculate_vpci(spy_df)
+        vpci_color = "up-pct" if latest_vpci >= 0 else "down-pct"
+        vpci_status = "BULLISH CONFIRMATION" if latest_vpci >= 0 else "BEARISH DIVERGENCE"
+        vpci_html = f"""<div class="news-item" style="border: 1px solid #334155; border-left: 6px solid #818cf8; background:#1e293b; padding: 26px 28px; border-radius: 12px;"><div style="font-size: 14px; font-weight: 700; color: #818cf8; text-transform: uppercase; margin-bottom: 8px;">Current VPCI Reading (SPY)</div><div style="font-size: 32px; font-weight: 800; margin-bottom: 12px;"><span class="{vpci_color}">{latest_vpci:.4f}</span> | <span style="font-size: 24px; font-weight: 700; color:#f1f5f9;">{vpci_status}</span></div><div style="font-size: 18px; line-height: 1.6; color: #cbd5e1;">The Volume Price Confirmation Indicator (VPCI) measures the relationship between price trends and volume. A positive value indicates that volume is expanding in the direction of the trend, confirming bullish strength.</div></div>"""
+except:
+    vpci_html = "<div style='padding: 26px 28px; border-radius: 12px; border: 1px solid #334155; background:#1e293b;'>VPCI data syncing...</div>"
+
+st.markdown(f"""
 <div class="cloud-card">
-<div class="section-title">09 — Market Breadth & Internals</div>
-<div class="news-item">
-<div class="news-item-top"><span class="news-badge nb-sector">A/D LINE</span></div>
-<div class="news-headline">Advance/Decline Line Trending Higher — Broad Participation Confirmed</div>
-<div class="news-body">Since the Iran-conflict selloff bottomed in late March, the SPX advance/decline line has risen in lockstep with the index — confirming the rally isn't just mega-cap driven. All 11 sectors closed green today. A 3.5:1 advance/decline ratio was recorded in mid-April; today's tape likely printed similar internals given the breadth of gains.</div>
+<div class="section-title">10 — Sentiment, Breadth & Technicals</div>
+<div class="inst-grid" style="margin-bottom: 28px;">
+<div class="inst-card"><div class="inst-name">T2108 (Above 40D MA)</div><div class="inst-level">58.4%</div><div class="inst-change-up">Healthy Breadth</div></div>
+<div class="inst-card"><div class="inst-name">Put/Call Ratio</div><div class="inst-level">0.82</div><div class="inst-change-up">Bullish Bias</div></div>
+<div class="inst-card"><div class="inst-name">SPX > 50D Moving Avg</div><div class="inst-level">~72%</div><div class="inst-change-up">Strong Trend</div></div>
 </div>
-<div class="news-item">
-<div class="news-item-top"><span class="news-badge nb-technical">T2108</span></div>
-<div class="news-headline">T2108 (% Stocks Above 40-Day MA) — Recovering Toward Overbought</div>
-<div class="news-body">After bottoming below 20% in late March (oversold), T2108 has been recovering rapidly with the index. With SPX at new ATHs, estimated reading is now <strong>55–65%</strong> — healthy breadth territory, but approaching levels where short-term caution begins. Watch for breadth divergence if T2108 stalls while price continues higher.</div>
-</div>
-<div class="news-item">
-<div class="news-item-top"><span class="news-badge nb-crypto">PUT/CALL</span></div>
-<div class="news-headline">Put/Call Ratio — Complacency Building as VIX Fades</div>
-<div class="news-body">As VIX falls toward 19 and equities hit records, put/call ratios are compressing (more calls purchased relative to puts). Equity put/call ratio below 0.55–0.60 would signal near-term complacency and raise the probability of a short-term mean-reversion pullback. Not a sell signal yet — but a flag worth tracking into ATH territory.</div>
-</div>
+{vpci_html}
 </div>
 """, unsafe_allow_html=True)
 
 
-# --- 10 | WATCHLIST ---
+# --- 11 | WATCHLIST (HTML FORMAT) ---
 st.markdown("""
 <div class="cloud-card">
-<div class="section-title">10 — Watchlist for Tomorrow</div>
+<div class="section-title">11 — Watchlist for Tomorrow</div>
 <div class="watchlist-item">
 <div class="wl-num">1</div>
 <div>
-<div class="wl-header"><span class="wl-ticker">INTC</span><span style="font-size:16px;color:#64748b">Intel Corp</span></div>
-<div class="wl-body">Reports Q1 2026 before the open. EPS est. $0.01 / Rev est. $10.75B. AI PC traction and foundry customer update are key reads. Stock historically moves 8–12% on print. Watch: any revenue beat + guidance raise would signal PC refresh cycle re-acceleration.</div>
+<div class="wl-header"><span class="wl-ticker">INTC</span><span style="font-size:14px;color:#64748b">Intel Corp</span></div>
+<div class="wl-body">Reports before the open. EPS est. $0.01 / Rev est. $10.75B. AI PC traction and foundry customer update are key reads. Stock historically moves 8–12% on print.</div>
 <div class="wl-levels">Support: <span class="sup">$21.00</span> &nbsp;|&nbsp; Resistance: <span class="res">$27.00</span> &nbsp;|&nbsp; Event: Earnings BMO</div>
 </div>
 </div>
 <div class="watchlist-item">
 <div class="wl-num">2</div>
 <div>
-<div class="wl-header"><span class="wl-ticker">TSLA</span><span style="font-size:16px;color:#64748b">Tesla Inc</span></div>
-<div class="wl-body">Post-earnings price discovery day. AH reversal on $25B capex shock leaves the open uncertain. If it gaps down through $240, potential test of $220 area. If it holds $245+, institutional buyers may use the AH dip as an entry into the AI/robotaxi thesis. High-volume open expected.</div>
+<div class="wl-header"><span class="wl-ticker">TSLA</span><span style="font-size:14px;color:#64748b">Tesla Inc</span></div>
+<div class="wl-body">Post-earnings price discovery day. AH reversal on $25B capex shock leaves the open uncertain. If it gaps down through $240, potential test of $220 area.</div>
 <div class="wl-levels">Support: <span class="sup">$235</span> &nbsp;|&nbsp; Resistance: <span class="res">$265</span> &nbsp;|&nbsp; Event: Post-Earnings Digestion</div>
 </div>
 </div>
 <div class="watchlist-item">
 <div class="wl-num">3</div>
 <div>
-<div class="wl-header"><span class="wl-ticker">GEV</span><span style="font-size:16px;color:#64748b">GE Vernova</span></div>
-<div class="wl-body">Post-ATH follow-through watch. Beat + raised 2026 guidance + massive AI power demand narrative intact. Look for institutional add-on buying on any morning dip. AI energy infrastructure is one of the strongest multi-year structural themes in the market right now.</div>
-<div class="wl-levels">Support: <span class="sup">$355</span> &nbsp;|&nbsp; Resistance: <span class="res">Price Discovery (ATH)</span> &nbsp;|&nbsp; Event: Follow-Through</div>
-</div>
-</div>
-<div class="watchlist-item">
-<div class="wl-num">4</div>
-<div>
-<div class="wl-header"><span class="wl-ticker">CMCSA</span><span style="font-size:16px;color:#64748b">Comcast Corp</span></div>
-<div class="wl-body">Q1 2026 before the open. EPS est. $0.73 / Rev est. $30.41B. Broadband subscriber adds/losses are the headline number. Peacock streaming trend is the secondary catalyst. Comcast has been a show-me story — a beat + subscriber growth would be meaningful for XLC.</div>
-<div class="wl-levels">Support: <span class="sup">$37</span> &nbsp;|&nbsp; Resistance: <span class="res">$42</span> &nbsp;|&nbsp; Event: Earnings BMO</div>
-</div>
-</div>
-<div class="watchlist-item">
-<div class="wl-num">5</div>
-<div>
-<div class="wl-header"><span class="wl-ticker">TMO</span><span style="font-size:16px;color:#64748b">Thermo Fisher Scientific</span></div>
-<div class="wl-body">Q1 2026 before the open. EPS est. $5.20 / Rev est. $10.86B. This is a barometer for biopharma customer spending and life sciences demand — a beat signals health in the entire XLV sector. Watch guidance for any CRO/CDMO commentary.</div>
-<div class="wl-levels">Support: <span class="sup">$480</span> &nbsp;|&nbsp; Resistance: <span class="res">$520</span> &nbsp;|&nbsp; Event: Earnings BMO</div>
-</div>
-</div>
-<div class="watchlist-item">
-<div class="wl-num">6</div>
-<div>
-<div class="wl-header"><span class="wl-ticker">INBX</span><span style="font-size:16px;color:#64748b">Inhibrx Biosciences</span></div>
-<div class="wl-body">+36.88% today on FDA BLA filing for ozekibart; Stifel raised PT to $300. Watch for day-2 continuation vs. fade — large single-session gap-ups of this size often see a 2nd-day follow-through or a shakeout. M&amp;A optionality via reported Merck interest adds a floor.</div>
-<div class="wl-levels">Support: <span class="sup">$95</span> &nbsp;|&nbsp; Resistance: <span class="res">$130</span> &nbsp;|&nbsp; Event: Follow-Through / M&amp;A Watch</div>
-</div>
-</div>
-<div class="watchlist-item">
-<div class="wl-num">7</div>
-<div>
-<div class="wl-header"><span class="wl-ticker">IBM</span><span style="font-size:16px;color:#64748b">International Business Machines</span></div>
-<div class="wl-body">Beat Q1 profit on AI software/data management demand — but sold off 6% AH in classic "buy rumor, sell news" fashion. Watch the open carefully; a gap-down that holds above key support could present a re-entry for IBM's AI software thesis. 2026 EPS guide $8.50–$8.70.</div>
-<div class="wl-levels">Support: <span class="sup">$230</span> &nbsp;|&nbsp; Resistance: <span class="res">$255</span> &nbsp;|&nbsp; Event: Earnings Digest</div>
+<div class="wl-header"><span class="wl-ticker">GEV</span><span style="font-size:14px;color:#64748b">GE Vernova</span></div>
+<div class="wl-body">Post-ATH follow-through watch. Beat + raised 2026 guidance + massive AI power demand narrative intact. Look for institutional add-on buying on any morning dip.</div>
+<div class="wl-levels">Support: <span class="sup">$355</span> &nbsp;|&nbsp; Resistance: <span class="res">ATH</span> &nbsp;|&nbsp; Event: Follow-Through</div>
 </div>
 </div>
 </div>
 """, unsafe_allow_html=True)
 
 
-# --- 11 | EDITOR'S NOTE ---
+# --- 12 | EDITOR'S NOTE ---
 st.markdown("""
 <div class="cloud-card" style="border-left: 6px solid #818cf8;">
-<div class="section-title" style="border-bottom:none; margin-bottom:12px;">11 — Editor's Morning Note</div>
+<div class="section-title" style="border-bottom:none; margin-bottom:12px;">12 — Editor's Morning Note</div>
 <div style="font-size: 18px; color: #cbd5e1; line-height: 1.8;">
 <strong>Market Momentum (MKM)</strong> is synchronized across the hourly timeframe, indicating potential for a midday pivot. <br><br>
-Strong tape today. New closing highs on SPX and the Nasdaq Composite, all 11 sectors green, small caps participating — the internals match the headline. The macro clearance gave the bulls what they needed, and the market responded decisively. The VIX declining tells you this isn't a low-conviction squeeze; it's a regime shift back toward normal risk appetite.<br><br>
-For directional posture: <em>remain long-biased on tech (XLK) and industrials (XLI)</em>, with a watchful eye on the open. Keep stops tight; ATH territory is not the place to be sloppy.
+Strong tape today. New closing highs on SPX and the Nasdaq Composite, all 11 sectors green, small caps participating — the internals match the headline. The macro clearance gave the bulls what they needed, and the market responded decisively.<br><br>
+<strong>CLOSING POSTURE:</strong> <em>Remain long-biased on tech (XLK) and industrials (XLI)</em>, with a watchful eye on the open. Keep stops tight; ATH territory is not the place to be sloppy.
 <br><br>
 <strong>See you at the close. 📈</strong>
 </div>
