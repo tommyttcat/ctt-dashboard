@@ -76,7 +76,7 @@ box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
 .inst-change-down { font-size: 16px; font-weight: 600; color: #f87171; }
 .inst-change-flat { font-size: 16px; font-weight: 600; color: #94a3b8; }
 
-/* STACKED CARDS - NO BORDERS */
+/* STACKED CARDS (News, Earnings, Breadth) - NO BORDERS */
 .news-item { background: #1e293b; border: none !important; border-radius: 12px; padding: 26px 28px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
 .news-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .news-headline { font-size: 20px; font-weight: 700; color: #f1f5f9; margin-bottom: 8px; }
@@ -196,13 +196,52 @@ def fetch_sector_flow():
 def fetch_gappers():
     results = []
     try:
-        gainers = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey={FMP_KEY}").json()
-        losers = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/losers?apikey={FMP_KEY}").json()
+        # Fetch Pre-Market, Post-Market, and Regular gainers/losers to catch everything
+        g_reg = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey={FMP_KEY}").json()
+        g_pre = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/pre-market-gainers?apikey={FMP_KEY}").json()
+        g_post = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/post-market-gainers?apikey={FMP_KEY}").json()
         
-        g_list = gainers[:10] if isinstance(gainers, list) else []
-        l_list = losers[:10] if isinstance(losers, list) else []
+        l_reg = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/losers?apikey={FMP_KEY}").json()
+        l_pre = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/pre-market-losers?apikey={FMP_KEY}").json()
+        l_post = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/post-market-losers?apikey={FMP_KEY}").json()
+
+        g_reg = g_reg if isinstance(g_reg, list) else []
+        g_pre = g_pre if isinstance(g_pre, list) else []
+        g_post = g_post if isinstance(g_post, list) else []
         
-        tickers = [g['symbol'] for g in g_list] + [l['symbol'] for l in l_list]
+        l_reg = l_reg if isinstance(l_reg, list) else []
+        l_pre = l_pre if isinstance(l_pre, list) else []
+        l_post = l_post if isinstance(l_post, list) else []
+
+        # Tag sessions
+        for x in g_reg: x['session'] = 'REGULAR'
+        for x in g_pre: x['session'] = 'PRE-MARKET'
+        for x in g_post: x['session'] = 'POST-MARKET'
+        
+        for x in l_reg: x['session'] = 'REGULAR'
+        for x in l_pre: x['session'] = 'PRE-MARKET'
+        for x in l_post: x['session'] = 'POST-MARKET'
+
+        # Deduplicate and keep highest absolute percentage
+        all_gainers = {}
+        for x in g_pre + g_post + g_reg:
+            sym = x.get('symbol')
+            if not sym: continue
+            if sym not in all_gainers or abs(x.get('changesPercentage', 0)) > abs(all_gainers[sym].get('changesPercentage', 0)):
+                all_gainers[sym] = x
+
+        all_losers = {}
+        for x in l_pre + l_post + l_reg:
+            sym = x.get('symbol')
+            if not sym: continue
+            if sym not in all_losers or abs(x.get('changesPercentage', 0)) > abs(all_losers[sym].get('changesPercentage', 0)):
+                all_losers[sym] = x
+
+        sorted_gainers = sorted(all_gainers.values(), key=lambda x: x.get('changesPercentage', 0), reverse=True)[:10]
+        sorted_losers = sorted(all_losers.values(), key=lambda x: x.get('changesPercentage', 0))[:10]
+
+        # Bulk fetch quotes for volume metrics
+        tickers = [g['symbol'] for g in sorted_gainers] + [l['symbol'] for l in sorted_losers]
         quote_map = {}
         if tickers:
             ticker_str = ",".join(tickers)
@@ -217,7 +256,7 @@ def fetch_gappers():
                 sym = item.get('symbol', '')
                 price = item.get('price', 0)
                 change = item.get('changesPercentage', 0)
-                name = item.get('name', '')
+                session = item.get('session', 'REGULAR')
                 
                 vol = 0
                 avg_vol = 1
@@ -230,17 +269,17 @@ def fetch_gappers():
                 
                 vol_str = f"{vol/1e6:.2f}M" if vol >= 1e6 else f"{vol/1e3:.0f}K"
                 dol_vol_str = f"${dol_vol/1e6:.2f}M" if dol_vol >= 1e6 else f"${dol_vol/1e3:.0f}K"
-                notes = f"Vol: {vol_str} &nbsp;|&nbsp; $Vol: {dol_vol_str} &nbsp;|&nbsp; RVOL: {rel_vol:.2f}"
+                notes = f"Vol: <strong>{vol_str}</strong> &nbsp;|&nbsp; $Vol: <strong>{dol_vol_str}</strong> &nbsp;|&nbsp; RVOL: <strong>{rel_vol:.2f}</strong>"
                 
-                results.append({"ticker": sym, "name": name, "price": price, "change": change, "type": t_type, "notes": notes})
+                results.append({"ticker": sym, "price": price, "change": change, "type": t_type, "session": session, "notes": notes})
 
-        process_list(g_list, "Gainer")
-        process_list(l_list, "Loser")
+        process_list(sorted_gainers, "Gainer")
+        process_list(sorted_losers, "Loser")
         
         if results: return results
     except: pass
     
-    # GUARANTEED FALLBACK: Weekend scan across high-beta basket if APIs return empty
+    # GUARANTEED FALLBACK
     fallback_tickers = ["TSLA", "NVDA", "AMD", "SMCI", "COIN", "MSTR", "PLTR", "ARM", "MARA", "HOOD", "RCL", "UBER", "META", "NFLX", "QCOM", "AVGO", "MU", "INTC", "AAPL", "AMZN"]
     perf = []
     for t in fallback_tickers:
@@ -257,9 +296,9 @@ def fetch_gappers():
                 
                 vol_str = f"{vol/1e6:.2f}M" if vol >= 1e6 else f"{vol/1e3:.0f}K"
                 dol_vol_str = f"${dol_vol/1e6:.2f}M"
-                notes = f"Vol: {vol_str} &nbsp;|&nbsp; $Vol: {dol_vol_str} &nbsp;|&nbsp; RVOL: {rel_vol:.2f}"
+                notes = f"Vol: <strong>{vol_str}</strong> &nbsp;|&nbsp; $Vol: <strong>{dol_vol_str}</strong> &nbsp;|&nbsp; RVOL: <strong>{rel_vol:.2f}</strong>"
                 
-                perf.append({"ticker": t, "name": t, "price": float(curr), "change": float(c), "notes": notes})
+                perf.append({"ticker": t, "price": float(curr), "change": float(c), "session": "REGULAR", "notes": notes})
         except: pass
     
     perf = sorted(perf, key=lambda x: x['change'], reverse=True)
@@ -352,7 +391,6 @@ def calculate_vpci(df, short_window=5, long_window=21):
         return float(val)
     except: return 0.0
 
-# Helper to automatically assign a categorical color to live news
 def parse_news_badge(title):
     t = title.lower()
     if any(x in t for x in ['bitcoin', 'crypto', 'eth', 'sec']): return 'nb-orange', 'CRYPTO'
@@ -361,6 +399,16 @@ def parse_news_badge(title):
     elif any(x in t for x in ['plunge', 'crash', 'down', 'miss']): return 'nb-red', 'ALERT'
     else: return 'nb-blue', 'MARKET UPDATE'
 
+def get_market_status():
+    try:
+        res = requests.get(f"https://financialmodelingprep.com/api/v3/is-the-market-open?apikey={FMP_KEY}").json()
+        if res and res.get("isTheStockMarketOpen"):
+            return "MARKET OPEN", "badge-live"
+        else:
+            return "MARKET CLOSED", "badge-closed"
+    except:
+        return "LIVE DATA", "badge-live"
+
 # ==========================================
 # 3. UI GENERATION
 # ==========================================
@@ -368,6 +416,7 @@ def parse_news_badge(title):
 macro_data = fetch_expanded_macro()
 rating_text, rating_class = get_market_rating(macro_data)
 date_str = datetime.now().strftime("%A, %B %d, %Y")
+status_text, status_badge = get_market_status()
 
 # HEADER
 st.markdown(f"""
@@ -390,7 +439,7 @@ st.markdown(f"""
 # --- 01 | SCORECARD ---
 scorecard_html = f"""
 <div class="cloud-card">
-<div class="section-title">01 — Scorecard <span class="badge-live" style="margin-left:16px;">● LIVE DATA</span> <span class="{rating_class}" style="margin-left:8px;">{rating_text}</span></div>
+<div class="section-title">01 — Scorecard <span class="{status_badge}" style="margin-left:16px;">● {status_text}</span> <span class="{rating_class}" style="margin-left:8px;">{rating_text}</span></div>
 <div class="inst-grid">
 """
 for name, metrics in macro_data.items():
@@ -471,14 +520,14 @@ heatmap_html += "</tbody></table></div>"
 st.markdown(heatmap_html, unsafe_allow_html=True)
 
 
-# --- 04 | PRE/POST MARKET GAPPERS (WITH VOLUME METRICS) ---
+# --- 04 | PRE/POST MARKET GAPPERS ---
 gappers_data = fetch_gappers()
 gappers_html = """
 <div class="cloud-card">
 <div class="section-title">04 — Pre/Post Market Gappers (Top 10)</div>
 <table>
 <thead>
-<tr><th>Ticker</th><th>Price</th><th>Gap %</th><th>Scanner Notes</th></tr>
+<tr><th>Ticker</th><th>Session</th><th>Price</th><th>Gap %</th><th>Scanner Notes</th></tr>
 </thead>
 <tbody>
 """
@@ -488,19 +537,21 @@ for item in gainers:
     gappers_html += f"""
 <tr>
 <td class="ticker-cell"><span class="etf-tag">{item['ticker']}</span></td>
+<td style="vertical-align:middle;"><span class="nb-badge nb-blue">{item.get('session', 'REGULAR')}</span></td>
 <td class="catalyst-cell" style="color:#f1f5f9;">${item['price']:.2f}</td>
 <td><div class="up-pct">▲ +{item['change']:.2f}%</div></td>
-<td class="catalyst-cell" style="font-size:14px;">{item.get('notes', 'High relative volume / Pre-market bid.')}</td>
+<td class="catalyst-cell" style="font-size:15px;">{item.get('notes', '')}</td>
 </tr>
 """
-gappers_html += """<tr class="divider-row"><td colspan="4">— Top Losers —</td></tr>"""
+gappers_html += """<tr class="divider-row"><td colspan="5">— Top Losers —</td></tr>"""
 for item in losers:
     gappers_html += f"""
 <tr>
 <td class="ticker-cell"><span class="etf-tag">{item['ticker']}</span></td>
+<td style="vertical-align:middle;"><span class="nb-badge nb-blue">{item.get('session', 'REGULAR')}</span></td>
 <td class="catalyst-cell" style="color:#f1f5f9;">${item['price']:.2f}</td>
 <td><div class="down-pct">▼ {item['change']:.2f}%</div></td>
-<td class="catalyst-cell" style="font-size:14px;">{item.get('notes', 'Pre-market distribution / Risk-off rotation.')}</td>
+<td class="catalyst-cell" style="font-size:15px;">{item.get('notes', '')}</td>
 </tr>
 """
 gappers_html += "</tbody></table></div>"
@@ -556,12 +607,11 @@ play_html += "</tbody></table></div>"
 st.markdown(play_html, unsafe_allow_html=True)
 
 
-# --- 07 | EARNINGS RESULTS + PREVIEWS (DYNAMIC DATES) ---
+# --- 07 | EARNINGS RESULTS + PREVIEWS (DYNAMIC) ---
 today_dt = datetime.now()
 today_str = today_dt.strftime("%Y-%m-%d")
 today_display = today_dt.strftime("%B %d")
 
-# Date Math to calculate Previous and Next valid trading days
 prev_dt = today_dt - timedelta(days=1)
 while prev_dt.weekday() >= 5:
     prev_dt -= timedelta(days=1)
@@ -711,7 +761,7 @@ try:
         vpci_html = f"""
 <div class="news-item" style="border-left: 5px solid #818cf8 !important; padding: 26px 28px; margin-top: 30px;">
 <div style="font-size: 14px; font-weight: 800; color: #818cf8; text-transform: uppercase; margin-bottom: 8px;">Current VPCI Reading (SPY)</div>
-<div style="font-size: 32px; font-weight: 800; margin-bottom: 12px; color: #f1f5f9;"><span class="{vpci_color}">{latest_vpci:.4f}</span> <span style="font-size: 20px; font-weight: 600; color: #94a3b8;">| {vpci_status}</span></div>
+<div style="font-size: 24px; font-weight: 800; margin-bottom: 12px; color: #f1f5f9;"><span class="{vpci_color}">{latest_vpci:.4f}</span> <span style="font-size: 16px; font-weight: 600; color: #94a3b8;">| {vpci_status}</span></div>
 <div class="news-body">The Volume Price Confirmation Indicator (VPCI) measures the relationship between price trends and volume. A positive value indicates that volume is expanding in the direction of the trend, confirming bullish strength.</div>
 </div>
 """
@@ -726,19 +776,19 @@ st.markdown(f"""
 
 <div class="news-item">
 <div class="news-item-top"><span class="nb-badge nb-green">A/D LINE</span></div>
-<div style="font-size: 32px; font-weight: 800; margin-bottom: 12px; color: #4ade80;">3.5 : 1 <span style="font-size: 20px; font-weight: 600; color: #94a3b8;">(Advancers vs Decliners)</span></div>
+<div style="font-size: 24px; font-weight: 800; margin-bottom: 12px; color: #4ade80;">3.5 : 1 <span style="font-size: 16px; font-weight: 600; color: #94a3b8;">(Advancers vs Decliners)</span></div>
 <div class="news-body"><strong>Advance/Decline Line Trending Higher</strong> — Since the Iran-conflict selloff bottomed in late March, the SPX advance/decline line has risen in lockstep with the index — confirming the rally isn't just mega-cap driven. All 11 sectors closed green today. A 3.5:1 advance/decline ratio was recorded in mid-April; today's tape likely printed similar internals given the breadth of gains.</div>
 </div>
 
 <div class="news-item">
 <div class="news-item-top"><span class="nb-badge nb-blue">T2108 / BREADTH</span></div>
-<div style="font-size: 32px; font-weight: 800; margin-bottom: 12px; color: #4ade80;">58.4% <span style="font-size: 20px; font-weight: 600; color: #94a3b8;">(Healthy Breadth)</span></div>
+<div style="font-size: 24px; font-weight: 800; margin-bottom: 12px; color: #4ade80;">58.4% <span style="font-size: 16px; font-weight: 600; color: #94a3b8;">(Healthy Breadth)</span></div>
 <div class="news-body"><strong>% Stocks Above 40-Day MA</strong> — After bottoming below 20% in late March (oversold), T2108 has been recovering rapidly with the index. With SPX at new ATHs, estimated reading is now 55–65% — healthy breadth territory, but approaching levels where short-term caution begins. Watch for breadth divergence if T2108 stalls while price continues higher.</div>
 </div>
 
 <div class="news-item">
 <div class="news-item-top"><span class="nb-badge nb-purple">PUT/CALL</span></div>
-<div style="font-size: 32px; font-weight: 800; margin-bottom: 12px; color: #f1f5f9;">{pcr_val:.2f} <span style="font-size: 20px; font-weight: 600; color: #f87171;">(Complacency Warning)</span></div>
+<div style="font-size: 24px; font-weight: 800; margin-bottom: 12px; color: #f1f5f9;">{pcr_val:.2f} <span style="font-size: 16px; font-weight: 600; color: #f87171;">(Complacency Warning)</span></div>
 <div class="news-body"><strong>CBOE Equity Put/Call Ratio</strong> — As VIX falls and equities hit records, put/call ratios are compressing. Equity put/call ratio below 0.55–0.60 would signal near-term complacency and raise the probability of a short-term mean-reversion pullback. Not a sell signal yet — but a flag worth tracking.</div>
 </div>
 
