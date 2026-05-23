@@ -8,7 +8,7 @@ from datetime import datetime
 # ==========================================
 st.set_page_config(page_title="CTT Market Briefing", layout="wide", initial_sidebar_state="collapsed")
 
-# Injecting the exact CSS, scaled up and with vertical lines removed
+# Injecting the exact CSS, scaled up significantly and vertical lines removed
 st.markdown("""
 <style>
 /* Reset and Base App Styling */
@@ -16,51 +16,51 @@ st.markdown("""
     background: #0d0d12; 
     color: #e2e8f0; 
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; 
-    font-size: 16px; 
+    font-size: 18px; 
     line-height: 1.6; 
 }
 header {visibility: hidden;}
 footer {visibility: hidden;}
 
 /* Wrap constraint - Widened for a bigger layout */
-.block-container { max-width: 900px !important; margin: 0 auto !important; padding-top: 1rem; padding-bottom: 3rem; }
+.block-container { max-width: 1100px !important; margin: 0 auto !important; padding-top: 1rem; padding-bottom: 3rem; }
 
 /* HEADER */
-.hdr { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); padding: 40px 40px 30px; border-bottom: 2px solid #312e81; border-radius: 8px 8px 0 0; margin-bottom: 24px; }
+.hdr { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); padding: 44px 44px 34px; border-bottom: 2px solid #312e81; border-radius: 8px 8px 0 0; margin-bottom: 30px; }
 .hdr-top { display: flex; justify-content: space-between; align-items: flex-start; }
-.wrap-type { font-size: 13px; font-weight: 700; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; }
-.wrap-title { font-size: 34px; font-weight: 800; color: #f1f5f9; margin-top: 8px; }
-.hdr-meta { text-align: right; font-size: 14px; color: #94a3b8; }
-.hdr-date { font-size: 18px; color: #c7d2fe; font-weight: 600; margin-bottom: 6px; }
+.wrap-type { font-size: 15px; font-weight: 700; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; }
+.wrap-title { font-size: 42px; font-weight: 800; color: #f1f5f9; margin-top: 10px; }
+.hdr-meta { text-align: right; font-size: 16px; color: #94a3b8; }
+.hdr-date { font-size: 20px; color: #c7d2fe; font-weight: 600; margin-bottom: 8px; }
 
-.badge-bullish  { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700; letter-spacing: 1px; background: #052e16; color: #4ade80; border: 1px solid #166534; }
-.badge-bearish  { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700; letter-spacing: 1px; background: #450a0a; color: #f87171; border: 1px solid #991b1b; }
-.badge-mixed    { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700; letter-spacing: 1px; background: #2d2000; color: #fbbf24; border: 1px solid #92400e; }
-.badge-cautious { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700; letter-spacing: 1px; background: #1c1917; color: #fb923c; border: 1px solid #9a3412; }
+.badge-bullish  { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #052e16; color: #4ade80; border: 1px solid #166534; }
+.badge-bearish  { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #450a0a; color: #f87171; border: 1px solid #991b1b; }
+.badge-mixed    { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #2d2000; color: #fbbf24; border: 1px solid #92400e; }
+.badge-cautious { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #1c1917; color: #fb923c; border: 1px solid #9a3412; }
 
 /* SECTION */
-.section { padding: 28px 36px; border-bottom: 1px solid #1e293b; background: #0d0d12;}
-.section-title { font-size: 13px; font-weight: 700; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; margin-bottom: 20px; }
+.section { padding: 32px 40px; border-bottom: 1px solid #1e293b; background: #0d0d12;}
+.section-title { font-size: 16px; font-weight: 700; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; margin-bottom: 24px; }
 
 /* INSTRUMENT GRID */
-.inst-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.inst-card { background: #1e293b; border-radius: 8px; padding: 16px 18px; border: 1px solid #334155; }
-.inst-name  { font-size: 12px; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-.inst-level { font-size: 20px; font-weight: 700; color: #f1f5f9; margin: 4px 0 4px; }
-.inst-change-up   { font-size: 14px; font-weight: 600; color: #4ade80; }
-.inst-change-down { font-size: 14px; font-weight: 600; color: #f87171; }
-.inst-change-flat { font-size: 14px; font-weight: 600; color: #94a3b8; }
+.inst-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.inst-card { background: #1e293b; border-radius: 8px; padding: 20px 22px; border: 1px solid #334155; }
+.inst-name  { font-size: 14px; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+.inst-level { font-size: 28px; font-weight: 700; color: #f1f5f9; margin: 6px 0 6px; }
+.inst-change-up   { font-size: 16px; font-weight: 600; color: #4ade80; }
+.inst-change-down { font-size: 16px; font-weight: 600; color: #f87171; }
+.inst-change-flat { font-size: 16px; font-weight: 600; color: #94a3b8; }
 
-/* SENTIMENT */
-.sentiment-text { background: #111827; border-left: 4px solid #818cf8; padding: 16px 20px; border-radius: 0 8px 8px 0; margin-top: 20px; font-size: 15px; color: #cbd5e1; line-height: 1.8; }
-.sentiment-line { padding: 12px 0; color: #94a3b8; font-size: 15px; border-bottom: 1px solid #1e293b; }
+/* SENTIMENT / VPCI TEXT */
+.sentiment-text { background: #111827; border-left: 5px solid #818cf8; padding: 20px 24px; border-radius: 0 8px 8px 0; margin-top: 24px; font-size: 18px; color: #cbd5e1; line-height: 1.8; }
+.sentiment-line { padding: 14px 0; color: #94a3b8; font-size: 18px; border-bottom: 1px solid #1e293b; }
 .sentiment-line:last-child { border-bottom: none; }
 .sentiment-line strong { color: #e2e8f0; }
 
 /* NEWS */
-.news-item { background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 18px 20px; margin-bottom: 12px; }
-.news-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.news-badge { padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
+.news-item { background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 22px 24px; margin-bottom: 16px; }
+.news-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.news-badge { padding: 4px 10px; border-radius: 4px; font-size: 13px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
 .nb-macro       { background: #312e81; color: #a5b4fc; }
 .nb-earnings    { background: #164e63; color: #67e8f9; }
 .nb-geopolitical{ background: #3b0764; color: #e879f9; }
@@ -68,42 +68,45 @@ footer {visibility: hidden;}
 .nb-sector      { background: #052e16; color: #4ade80; }
 .nb-alert       { background: #450a0a; color: #fca5a5; }
 .nb-technical   { background: #0c4a6e; color: #7dd3fc; }
-.news-headline { font-size: 16px; font-weight: 700; color: #f1f5f9; margin-bottom: 6px; }
-.news-body { font-size: 15px; color: #94a3b8; line-height: 1.65; }
+.news-headline { font-size: 20px; font-weight: 700; color: #f1f5f9; margin-bottom: 8px; }
+.news-body { font-size: 18px; color: #94a3b8; line-height: 1.65; }
 
 /* TABLES (Forcing Vertical Lines Off) */
 table { width: 100%; border-collapse: collapse; border: none !important; }
 th, td { border-left: none !important; border-right: none !important; }
-th { font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #475569; padding: 12px 10px; text-align: left; border-bottom: 1px solid #1e293b !important; border-top: none !important; }
-td { padding: 14px 10px; border-bottom: 1px solid #1e293b !important; vertical-align: top; border-top: none !important; }
+th { font-size: 14px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #475569; padding: 16px 12px; text-align: left; border-bottom: 2px solid #1e293b !important; border-top: none !important; }
+td { padding: 18px 12px; border-bottom: 1px solid #1e293b !important; vertical-align: top; border-top: none !important; }
 tr:last-child td { border-bottom: none !important; }
-.ticker-cell { font-weight: 700; color: #f1f5f9; font-size: 16px; white-space: nowrap; }
-.ticker-name { font-size: 13px; color: #475569; display: block; font-weight: 400; margin-top: 4px; }
-.up-pct   { color: #4ade80; font-weight: 700; font-size: 16px; white-space: nowrap; }
-.down-pct { color: #f87171; font-weight: 700; font-size: 16px; white-space: nowrap; }
-.catalyst-cell { font-size: 14px; color: #94a3b8; line-height: 1.5; }
+.ticker-cell { font-weight: 700; color: #f1f5f9; font-size: 20px; white-space: nowrap; }
+.ticker-name { font-size: 15px; color: #475569; display: block; font-weight: 400; margin-top: 4px; }
+.up-pct   { color: #4ade80; font-weight: 700; font-size: 18px; white-space: nowrap; }
+.down-pct { color: #f87171; font-weight: 700; font-size: 18px; white-space: nowrap; }
+.catalyst-cell { font-size: 18px; color: #94a3b8; line-height: 1.6; }
 
 /* WATCHLIST */
-.watchlist-item { background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 18px 20px; margin-bottom: 12px; display: grid; grid-template-columns: 24px 1fr; gap: 12px; align-items: start; }
-.wl-num { font-size: 14px; color: #334155; font-weight: 700; padding-top: 3px; }
-.wl-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
-.wl-ticker { font-size: 18px; font-weight: 800; color: #818cf8; }
-.wl-body   { font-size: 15px; color: #94a3b8; line-height: 1.6; }
-.wl-levels { font-size: 14px; color: #475569; margin-top: 8px; }
+.watchlist-item { background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 22px 24px; margin-bottom: 16px; display: grid; grid-template-columns: 28px 1fr; gap: 14px; align-items: start; }
+.wl-num { font-size: 16px; color: #334155; font-weight: 700; padding-top: 3px; }
+.wl-header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+.wl-ticker { font-size: 22px; font-weight: 800; color: #818cf8; }
+.wl-body   { font-size: 18px; color: #94a3b8; line-height: 1.6; }
+.wl-levels { font-size: 16px; color: #475569; margin-top: 10px; }
 .wl-levels .sup { color: #4ade80; font-weight: 600; }
 .wl-levels .res { color: #f87171; font-weight: 600; }
 
 /* FOOTER */
-.footer { padding: 28px 36px 40px; background: #0d0d12;}
-.footer-note { background: #111827; border: 1px solid #312e81; border-radius: 10px; padding: 24px 28px; font-size: 15px; color: #94a3b8; line-height: 1.8; }
+.footer { padding: 32px 40px 48px; background: #0d0d12;}
+.footer-note { background: #111827; border: 1px solid #312e81; border-radius: 10px; padding: 28px 32px; font-size: 18px; color: #94a3b8; line-height: 1.8; }
 .footer-note strong { color: #c7d2fe; }
-.divider-row td { padding: 6px 12px; background: #0d0d12; font-size: 12px; color: #334155; letter-spacing: 1px; text-transform: uppercase; }
+.divider-row td { padding: 8px 14px; background: #0d0d12; font-size: 14px; color: #334155; letter-spacing: 1px; text-transform: uppercase; }
+
+/* Tags */
+.etf-tag { background: #0f172a; color: #60a5fa; padding: 6px 12px; border-radius: 6px; font-family: monospace; font-size: 16px; font-weight: 700; border: 1px solid #1e2b4d;}
 
 /* Mobile Fixes */
-@media (max-width: 600px) {
+@media (max-width: 768px) {
     .inst-grid { grid-template-columns: repeat(2, 1fr); }
-    .section { padding: 20px; }
-    .hdr { padding: 24px; }
+    .section { padding: 24px; }
+    .hdr { padding: 28px; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -173,7 +176,6 @@ def calculate_vpci(df, short_window=5, long_window=21):
 # ==========================================
 # 3. UI GENERATION (FLUSH LEFT HTML)
 # ==========================================
-# NOTE: All HTML is flush-left to prevent Streamlit's Markdown parser from turning it into code blocks.
 
 date_str = datetime.now().strftime("%A, %B %d, %Y")
 
@@ -182,7 +184,7 @@ st.markdown(f"""
 <div class="hdr-top">
 <div>
 <div class="wrap-type">Market Briefing</div>
-<div class="wrap-title">Confluence Trading Tool Market Briefing</div>
+<div class="wrap-title">CTT Market Briefing</div>
 </div>
 <div class="hdr-meta">
 <div class="hdr-date">{date_str}</div>
@@ -367,31 +369,31 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# --- 06 | SENTIMENT & MARKET BREADTH ---
+# --- 06 | SENTIMENT, BREADTH & TECHNICALS (COMBINED) ---
+st.markdown("<div class='section'><div class='section-title'>06 — Sentiment, Breadth & Technicals</div>", unsafe_allow_html=True)
+
+# Top row: 3 breadth stats
 st.markdown("""
-<div class="section">
-<div class="section-title">06 — Sentiment & Market Breadth</div>
-<div class="news-item">
-<div class="news-item-top"><span class="news-badge nb-technical">T2108</span></div>
-<div class="news-headline">T2108 Proxy (Above 40-Day MA)</div>
-<div class="news-body">Estimated reading is now <strong>58.4%</strong> — healthy breadth territory, confirming the broader trend.</div>
-</div>
-<div class="news-item">
-<div class="news-item-top"><span class="news-badge nb-sector">A/D Line</span></div>
-<div class="news-headline">Put/Call Ratio: 0.82</div>
-<div class="news-body">Put/call ratios are compressing, showing bullish bias but nearing complacency zones.</div>
-</div>
-<div class="news-item">
-<div class="news-item-top"><span class="news-badge nb-macro">Trend</span></div>
-<div class="news-headline">SPX > 50D Moving Avg: ~72%</div>
-<div class="news-body">Strong participation confirming indexes at fresh highs.</div>
-</div>
+<div class="inst-grid" style="margin-bottom: 24px;">
+    <div class="inst-card">
+        <div class="inst-name">T2108 (Above 40D MA)</div>
+        <div class="inst-level">58.4%</div>
+        <div class="inst-change-up">Healthy Breadth</div>
+    </div>
+    <div class="inst-card">
+        <div class="inst-name">Put/Call Ratio</div>
+        <div class="inst-level">0.82</div>
+        <div class="inst-change-up">Bullish Bias</div>
+    </div>
+    <div class="inst-card">
+        <div class="inst-name">SPX > 50D Moving Avg</div>
+        <div class="inst-level">~72%</div>
+        <div class="inst-change-up">Strong Trend</div>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
-
-# --- 07 | TECHNICAL ANALYSIS & VPCI ---
-st.markdown("<div class='section'><div class='section-title'>07 — Technical Analysis & VPCI</div>", unsafe_allow_html=True)
+# Bottom row: VPCI Readout
 try:
     spy_df = yf.Ticker("SPY").history(period="3mo")
     if not spy_df.empty and len(spy_df) > 21:
@@ -399,21 +401,22 @@ try:
         vpci_color = "up-pct" if latest_vpci >= 0 else "down-pct"
         vpci_status = "BULLISH CONFIRMATION" if latest_vpci >= 0 else "BEARISH DIVERGENCE"
         st.markdown(f"""
-<div class="sentiment-text" style="background:#1e293b; border-color:#60a5fa;">
-<div style="font-size: 13px; font-weight: 700; color: #818cf8; text-transform: uppercase; margin-bottom: 6px;">Current VPCI Reading (SPY)</div>
-<div style="font-size: 26px; font-weight: 800; margin-bottom: 12px;"><span class="{vpci_color}">{latest_vpci:.4f}</span> | {vpci_status}</div>
-The Volume Price Confirmation Indicator (VPCI) measures the relationship between price trends and volume. A positive value indicates that volume is expanding in the direction of the trend, confirming bullish strength.
+<div class="sentiment-text" style="background:#1e293b; border-color:#60a5fa; margin-top:0;">
+<div style="font-size: 14px; font-weight: 700; color: #818cf8; text-transform: uppercase; margin-bottom: 8px;">Current VPCI Reading (SPY)</div>
+<div style="font-size: 32px; font-weight: 800; margin-bottom: 12px;"><span class="{vpci_color}">{latest_vpci:.4f}</span> | <span style="font-size: 24px; font-weight: 700;">{vpci_status}</span></div>
+<div style="font-size: 18px; line-height: 1.6; color: #cbd5e1;">The Volume Price Confirmation Indicator (VPCI) measures the relationship between price trends and volume. A positive value indicates that volume is expanding in the direction of the trend, confirming bullish strength.</div>
 </div>
         """, unsafe_allow_html=True)
 except:
-    st.markdown("<div class='sentiment-text'>VPCI data syncing...</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sentiment-text' style='margin-top:0;'>VPCI data syncing...</div>", unsafe_allow_html=True)
+
 st.markdown("</div>", unsafe_allow_html=True)
 
 
-# --- 08 | ECONOMIC DATA ---
+# --- 07 | ECONOMIC DATA ---
 st.markdown("""
 <div class="section">
-<div class="section-title">08 — Economic Data & Catalysts Today</div>
+<div class="section-title">07 — Economic Data & Catalysts Today</div>
 <table>
 <thead>
 <tr>
@@ -423,20 +426,20 @@ st.markdown("""
 </tr>
 </thead>
 <tbody>
-<tr><td class="ticker-cell" style="font-size:14px;">08:30 AM</td><td class="catalyst-cell">Core PCE Price Index MoM</td><td><span class="badge-bearish">HIGH</span></td></tr>
-<tr><td class="ticker-cell" style="font-size:14px;">09:45 AM</td><td class="catalyst-cell">Chicago PMI</td><td><span class="badge-mixed">MED</span></td></tr>
-<tr><td class="ticker-cell" style="font-size:14px;">10:00 AM</td><td class="catalyst-cell">UMich Consumer Sentiment (Final)</td><td><span class="badge-bearish">HIGH</span></td></tr>
-<tr><td class="ticker-cell" style="font-size:14px;">01:00 PM</td><td class="catalyst-cell">Baker Hughes Rig Count</td><td><span class="badge-cautious" style="background:transparent; border-color:#475569; color:#94a3b8;">LOW</span></td></tr>
+<tr><td class="ticker-cell" style="font-size:16px;">08:30 AM</td><td class="catalyst-cell">Core PCE Price Index MoM</td><td><span class="badge-bearish">HIGH</span></td></tr>
+<tr><td class="ticker-cell" style="font-size:16px;">09:45 AM</td><td class="catalyst-cell">Chicago PMI</td><td><span class="badge-mixed">MED</span></td></tr>
+<tr><td class="ticker-cell" style="font-size:16px;">10:00 AM</td><td class="catalyst-cell">UMich Consumer Sentiment (Final)</td><td><span class="badge-bearish">HIGH</span></td></tr>
+<tr><td class="ticker-cell" style="font-size:16px;">01:00 PM</td><td class="catalyst-cell">Baker Hughes Rig Count</td><td><span class="badge-cautious" style="background:transparent; border-color:#475569; color:#94a3b8;">LOW</span></td></tr>
 </tbody>
 </table>
 </div>
 """, unsafe_allow_html=True)
 
 
-# --- 09 | EARNINGS CALENDAR ---
+# --- 08 | EARNINGS CALENDAR ---
 st.markdown("""
 <div class="section">
-<div class="section-title">09 — Today's Earnings Calendar</div>
+<div class="section-title">08 — Today's Earnings Calendar</div>
 <table>
 <thead>
 <tr>
@@ -446,19 +449,19 @@ st.markdown("""
 </tr>
 </thead>
 <tbody>
-<tr><td class="ticker-cell">CRM</td><td class="catalyst-cell">Salesforce Inc.</td><td class="catalyst-cell" style="color:#f1f5f9;">After Close</td></tr>
-<tr><td class="ticker-cell">SNOW</td><td class="catalyst-cell">Snowflake Inc.</td><td class="catalyst-cell" style="color:#f1f5f9;">After Close</td></tr>
-<tr><td class="ticker-cell">CRWD</td><td class="catalyst-cell">CrowdStrike Holdings</td><td class="catalyst-cell" style="color:#f1f5f9;">After Close</td></tr>
+<tr><td class="ticker-cell"><span class="etf-tag">CRM</span></td><td class="catalyst-cell">Salesforce Inc.</td><td class="catalyst-cell" style="color:#f1f5f9;">After Close</td></tr>
+<tr><td class="ticker-cell"><span class="etf-tag">SNOW</span></td><td class="catalyst-cell">Snowflake Inc.</td><td class="catalyst-cell" style="color:#f1f5f9;">After Close</td></tr>
+<tr><td class="ticker-cell"><span class="etf-tag">CRWD</span></td><td class="catalyst-cell">CrowdStrike Holdings</td><td class="catalyst-cell" style="color:#f1f5f9;">After Close</td></tr>
 </tbody>
 </table>
 </div>
 """, unsafe_allow_html=True)
 
 
-# --- 10 | EDITOR'S NOTE (FOOTER) ---
+# --- 09 | EDITOR'S NOTE (FOOTER) ---
 st.markdown("""
 <div class="footer">
-<div class="section-title">10 — Editor's Morning Note</div>
+<div class="section-title">09 — Editor's Morning Note</div>
 <div class="footer-note">
 <strong>Hey Thomas —</strong><br><br>
 <strong>Market Momentum (MKM)</strong> is synchronized across the hourly timeframe, indicating potential for a midday pivot. <br><br>
