@@ -1,14 +1,20 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import requests
 from datetime import datetime
+
+# ==========================================
+# API KEYS
+# ==========================================
+BZ_KEY = "bz.4DVR2L3LKQD6KU5Z4CHZPPNE5MPV2KLQ"
+FMP_KEY = "WMMhcffuHSYVTceXryrt4tHC8GXcsB0g"
 
 # ==========================================
 # 1. PAGE CONFIGURATION & EXACT HTML/CSS
 # ==========================================
 st.set_page_config(page_title="Confluence Trading Tools", layout="wide", initial_sidebar_state="collapsed")
 
-# Injecting the exact CSS with tight, subtle "Cloud on Cloud" layering
 st.markdown("""
 <style>
 /* Reset and Base App Styling */
@@ -22,17 +28,17 @@ st.markdown("""
 header {visibility: hidden;}
 footer {visibility: hidden;}
 
-/* Wrap constraint - Widened for a bigger layout */
+/* Wrap constraint */
 .block-container { max-width: 1100px !important; margin: 0 auto !important; padding-top: 1rem; padding-bottom: 3rem; }
 
-/* FLOATING CLOUD CARDS (Main Section Wrappers) */
+/* FLOATING CLOUD CARDS */
 .cloud-card {
     background: #111827;
     border: none; 
     border-radius: 16px;
     padding: 36px 40px;
     margin-bottom: 40px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3); /* Base elevation */
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
 }
 
 /* HEADER CLOUD */
@@ -48,38 +54,23 @@ footer {visibility: hidden;}
 .badge-mixed    { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #2d2000; color: #fbbf24; border: 1px solid #92400e; }
 .badge-cautious { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #1c1917; color: #fb923c; border: 1px solid #9a3412; }
 
-/* SECTION TITLE (Inside Clouds) */
+/* SECTION TITLE */
 .section-title { font-size: 16px; font-weight: 800; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; margin-bottom: 24px; border-bottom: 2px solid #1e293b; padding-bottom: 12px;}
 
-/* INSTRUMENT GRID (Nested Cloud Cards) - NO BORDERS, TIGHT SHADOW */
+/* INSTRUMENT GRID */
 .inst-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-.inst-card { 
-    background: #1e293b; 
-    border-radius: 12px; 
-    padding: 24px 26px; 
-    border: none; 
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); /* Tight elevation (closer to base cloud) */
-}
+.inst-card { background: #1e293b; border-radius: 12px; padding: 24px 26px; border: none; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
 .inst-name  { font-size: 14px; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
 .inst-level { font-size: 28px; font-weight: 700; color: #f1f5f9; margin: 6px 0 6px; }
 .inst-change-up   { font-size: 16px; font-weight: 600; color: #4ade80; }
 .inst-change-down { font-size: 16px; font-weight: 600; color: #f87171; }
 .inst-change-flat { font-size: 16px; font-weight: 600; color: #94a3b8; }
 
-/* NEWS & VPCI (Nested Cloud Cards) - NO BORDERS, TIGHT SHADOW */
-.news-item { 
-    background: #1e293b; 
-    border: none; 
-    border-radius: 12px; 
-    padding: 26px 28px; 
-    margin-bottom: 20px; 
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); /* Tight elevation */
-}
+/* NEWS */
+.news-item { background: #1e293b; border: none; border-radius: 12px; padding: 26px 28px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
 .news-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .news-badge { padding: 4px 10px; border-radius: 4px; font-size: 13px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
 .nb-macro       { background: #312e81; color: #a5b4fc; }
-.nb-earnings    { background: #164e63; color: #67e8f9; }
-.nb-technical   { background: #0c4a6e; color: #7dd3fc; }
 .news-headline { font-size: 20px; font-weight: 700; color: #f1f5f9; margin-bottom: 8px; }
 .news-body { font-size: 18px; color: #cbd5e1; line-height: 1.65; }
 
@@ -107,69 +98,113 @@ tr:last-child td { border-bottom: none !important; }
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. DATA ENGINES
+# 2. LIVE DATA ENGINES
 # ==========================================
 @st.cache_data(ttl=300) 
 def fetch_expanded_macro():
-    tickers = {
-        "S&P 500 (SPX)": "^GSPC", "Nasdaq Comp": "^IXIC", "Dow Jones (DJI)": "^DJI", 
-        "Russell 2000": "^RUT", "VIX": "^VIX", "/ES Futures": "ES=F",
-        "Gold (GC)": "GC=F", "WTI Crude": "CL=F", "DXY (Dollar)": "DX-Y.NYB",
-        "10Y Treasury": "^TNX", "Bitcoin (BTC)": "BTC-USD", "Ethereum (ETH)": "ETH-USD"
-    }
+    tickers = {"SPX": "^GSPC", "NDX": "^IXIC", "DJI": "^DJI", "RUT": "^RUT", "VIX": "^VIX", "10Y": "^TNX", "WTI": "CL=F", "BTC": "BTC-USD"}
     data = {}
     try:
         for name, ticker in tickers.items():
-            tick = yf.Ticker(ticker)
-            hist = tick.history(period="2d")
-            if len(hist) >= 2:
-                prev_close = hist['Close'].iloc[0]
-                curr_close = hist['Close'].iloc[1]
-                pct_change = ((curr_close - prev_close) / prev_close) * 100
-                data[name] = {"price": curr_close, "pct": pct_change}
+            tick = yf.Ticker(ticker).history(period="2d")
+            if len(tick) >= 2:
+                data[name] = {"price": tick['Close'].iloc[1], "pct": ((tick['Close'].iloc[1] - tick['Close'].iloc[0]) / tick['Close'].iloc[0]) * 100}
             else:
-                data[name] = {"price": 0.00, "pct": 0.00}
+                data[name] = {"price": 0.0, "pct": 0.0}
     except:
-        for name in tickers.keys(): data[name] = {"price": 0.00, "pct": 0.00}
+        for name in tickers.keys(): data[name] = {"price": 0.0, "pct": 0.0}
     return data
+
+@st.cache_data(ttl=600)
+def fetch_top_news():
+    try:
+        url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=3&channels=News"
+        res = requests.get(url, headers={"accept": "application/json"}).json()
+        articles = []
+        for n in res:
+            articles.append({
+                "title": n.get("title", "Market Update"),
+                "publisher": "BZ WIRE",
+                "teaser": n.get("teaser", "Monitoring for broader sector impact...")[:140] + "..."
+            })
+        return articles
+    except:
+        return [{"title": "Data stream temporarily unavailable", "publisher": "SYSTEM", "teaser": "Awaiting Benzinga feed synchronization."}]
 
 @st.cache_data(ttl=3600)
 def fetch_sector_flow():
-    sectors = {
-        "Consumer Disc": "XLY", "Technology": "XLK", "Industrials": "XLI", 
-        "Comm. Services": "XLC", "Health Care": "XLV", "Consumer Staples": "XLP",
-        "Financials": "XLF", "Materials": "XLB", "Energy": "XLE", 
-        "Real Estate": "XLRE", "Utilities": "XLU"
-    }
+    sectors = {"Consumer Disc": "XLY", "Technology": "XLK", "Industrials": "XLI", "Comm. Services": "XLC", "Health Care": "XLV", "Consumer Staples": "XLP", "Financials": "XLF", "Materials": "XLB", "Energy": "XLE", "Real Estate": "XLRE", "Utilities": "XLU"}
     perf = []
     try:
         for name, ticker in sectors.items():
-            tick = yf.Ticker(ticker)
-            hist = tick.history(period="2d")
-            if len(hist) >= 2:
-                change = ((hist['Close'].iloc[1] - hist['Close'].iloc[0]) / hist['Close'].iloc[0]) * 100
-                perf.append({"ticker": ticker, "sector": name, "pct": change})
-        if perf: return sorted(perf, key=lambda x: x['pct'], reverse=True)
-    except: pass
-    return []
+            tick = yf.Ticker(ticker).history(period="2d")
+            if len(tick) >= 2:
+                perf.append({"ticker": ticker, "sector": name, "pct": ((tick['Close'].iloc[1] - tick['Close'].iloc[0]) / tick['Close'].iloc[0]) * 100})
+        return sorted(perf, key=lambda x: x['pct'], reverse=True)
+    except: return []
+
+@st.cache_data(ttl=300)
+def fetch_market_movers():
+    try:
+        gainers = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey={FMP_KEY}").json()[:5]
+        losers = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/losers?apikey={FMP_KEY}").json()[:5]
+        results = []
+        for g in gainers: results.append({"ticker": g['symbol'], "change": g['changesPercentage'], "note": "High relative volume / Pre-market bid."})
+        for l in losers: results.append({"ticker": l['symbol'], "change": l['changesPercentage'], "note": "Pre-market distribution / Risk-off."})
+        return results
+    except:
+        return []
+
+@st.cache_data(ttl=3600)
+def fetch_earnings():
+    try:
+        today = datetime.now().strftime("%Y-%m-%d")
+        url = f"https://api.benzinga.com/api/v2.1/calendar/earnings?token={BZ_KEY}&parameters[date]={today}"
+        res = requests.get(url, headers={"accept": "application/json"}).json()
+        earnings = res.get('earnings', [])[:5]
+        return [{"ticker": e.get('ticker'), "company": e.get('name'), "time": e.get('time', 'TBA')} for e in earnings]
+    except: return []
+
+@st.cache_data(ttl=3600)
+def fetch_economics():
+    try:
+        today = datetime.now().strftime("%Y-%m-%d")
+        url = f"https://api.benzinga.com/api/v2.1/calendar/economics?token={BZ_KEY}&parameters[date]={today}"
+        res = requests.get(url, headers={"accept": "application/json"}).json()
+        econ = res.get('economics', [])[:5]
+        results = []
+        for e in econ:
+            imp = e.get('importance', 3)
+            impact = "HIGH" if imp >= 4 else ("MED" if imp == 3 else "LOW")
+            results.append({"time": e.get('time', 'TBA'), "release": e.get('description', 'Data Release'), "impact": impact})
+        return results
+    except: return []
+
+@st.cache_data(ttl=300)
+def fetch_in_play():
+    tickers = ["SPY", "QQQ", "IWM", "NVDA", "AAPL", "AMD", "TSLA", "META", "AMZN", "MSFT"]
+    results = []
+    try:
+        data = yf.download(tickers, period="5d", progress=False)
+        for t in tickers:
+            current = data['Close'][t].iloc[-1]
+            bias = "LONG" if current > data['Close'][t].mean() else "SHORT"
+            results.append({"ticker": t, "price": current, "bias": bias, "color": "badge-bullish" if bias == "LONG" else "badge-bearish"})
+        return results
+    except: return []
 
 def calculate_vpci(df, short_window=5, long_window=21):
     try:
         df['Vol_x_Price'] = df['Close'] * df['Volume']
-        vwma_short = df['Vol_x_Price'].rolling(window=short_window).sum() / df['Volume'].rolling(window=short_window).sum()
-        vwma_long = df['Vol_x_Price'].rolling(window=long_window).sum() / df['Volume'].rolling(window=long_window).sum()
-        sma_short = df['Close'].rolling(window=short_window).mean()
+        v_short = df['Vol_x_Price'].rolling(window=short_window).sum() / df['Volume'].rolling(window=short_window).sum()
+        v_long = df['Vol_x_Price'].rolling(window=long_window).sum() / df['Volume'].rolling(window=long_window).sum()
         sma_long = df['Close'].rolling(window=long_window).mean()
-        vpc = vwma_long - sma_long
-        vpr = vwma_short / sma_short
-        vm = df['Volume'].rolling(window=short_window).mean() / df['Volume'].rolling(window=long_window).mean()
-        df['VPCI'] = vpc * vpr * vm
-        return df['VPCI'].iloc[-1]
-    except:
-        return 0.0
+        sma_short = df['Close'].rolling(window=short_window).mean()
+        return ((v_long - sma_long) * (v_short / sma_short) * (df['Volume'].rolling(window=short_window).mean() / df['Volume'].rolling(window=long_window).mean())).iloc[-1]
+    except: return 0.0
 
 # ==========================================
-# 3. UI GENERATION (FLUSH LEFT HTML)
+# 3. UI GENERATION
 # ==========================================
 
 date_str = datetime.now().strftime("%A, %B %d, %Y")
@@ -183,274 +218,115 @@ st.markdown(f"""
 </div>
 <div class="hdr-meta">
 <div class="hdr-date">{date_str}</div>
-<div style="margin-bottom:10px;color:#64748b">Current Market State</div>
-<span class="badge-bullish">BULLISH</span>
+<div style="margin-bottom:10px;color:#64748b">System Status</div>
+<span class="badge-bullish">LIVE DATA</span>
 </div>
 </div>
 </div>
 """, unsafe_allow_html=True)
 
 
-# --- 01 | FUTURES & MACRO SNAPSHOT ---
+# --- 01 | SCORECARD ---
 macro_data = fetch_expanded_macro()
-scorecard_html = """
-<div class="cloud-card">
-<div class="section-title">01 — Futures & Macro Snapshot</div>
-<div class="inst-grid">
-"""
+scorecard_html = """<div class="cloud-card"><div class="section-title">01 — Futures & Macro Snapshot</div><div class="inst-grid">\n"""
 for name, metrics in macro_data.items():
     color_class = "inst-change-up" if metrics['pct'] > 0 else "inst-change-down" if metrics['pct'] < 0 else "inst-change-flat"
     sign = "▲ +" if metrics['pct'] > 0 else "▼ " if metrics['pct'] < 0 else "— "
-    
-    if name in ["VIX", "10Y Treasury"]:
-        price_str = f"{metrics['price']:.3f}"
-    elif name in ["Bitcoin (BTC)", "Gold (GC)", "WTI Crude"]:
-        price_str = f"${metrics['price']:,.2f}"
-    else:
-        price_str = f"{metrics['price']:,.2f}"
-        
-    scorecard_html += f"""
-<div class="inst-card">
-<div class="inst-name">{name}</div>
-<div class="inst-level">{price_str}</div>
-<div class="{color_class}">{sign}{metrics['pct']:.2f}%</div>
-</div>
-"""
-scorecard_html += """
-</div>
-</div>
-"""
+    price_str = f"{metrics['price']:.3f}" if name in ["VIX", "10Y"] else f"${metrics['price']:,.2f}" if name in ["BTC", "WTI"] else f"{metrics['price']:,.2f}"
+    scorecard_html += f"""<div class="inst-card"><div class="inst-name">{name}</div><div class="inst-level">{price_str}</div><div class="{color_class}">{sign}{metrics['pct']:.2f}%</div></div>\n"""
+scorecard_html += "</div></div>"
 st.markdown(scorecard_html, unsafe_allow_html=True)
 
 
-# --- 02 | KEY NEWS & CATALYSTS ---
-st.markdown("""
-<div class="cloud-card">
-<div class="section-title">02 — Key News & Catalysts</div>
-<div class="news-item">
-<div class="news-item-top"><span class="news-badge nb-macro">MACRO</span></div>
-<div class="news-headline">Indefinite Ceasefire Extension — Key Macro Catalyst</div>
-<div class="news-body">The primary driver of today's underlying bid: An indefinite extension of the ceasefire unlocked broad risk appetite. Supply-chain fears eased, oil held stable, and risk assets surged broadly.</div>
-</div>
-<div class="news-item">
-<div class="news-item-top"><span class="news-badge nb-earnings">EARNINGS</span></div>
-<div class="news-headline">Semiconductor Leadership Confirmed</div>
-<div class="news-body">AI data center power demand is driving massive Electrification order growth. Leading optical and infrastructure names continue their tear on server-demand signals.</div>
-</div>
-</div>
-""", unsafe_allow_html=True)
+# --- 02 | LIVE NEWS ---
+news_data = fetch_top_news()
+news_html = """<div class="cloud-card"><div class="section-title">02 — Live Market Headlines</div>\n"""
+for article in news_data:
+    news_html += f"""<div class="news-item"><div class="news-item-top"><span class="news-badge nb-macro">{article['publisher']}</span></div><div class="news-headline">{article['title']}</div><div class="news-body">{article['teaser']}</div></div>\n"""
+news_html += "</div>"
+st.markdown(news_html, unsafe_allow_html=True)
 
 
-# --- 03 | TOP SECTORS & MONEY FLOW ---
+# --- 03 | SECTORS ---
 sector_data = fetch_sector_flow()
 if sector_data:
-    heatmap_html = """
-<div class="cloud-card">
-<div class="section-title">03 — Top Sectors & Money Flow</div>
-<table>
-<thead>
-<tr>
-<th>#</th>
-<th>Sector / ETF</th>
-<th>Est. Change</th>
-<th>Theme</th>
-</tr>
-</thead>
-<tbody>
-"""
+    heatmap_html = """<div class="cloud-card"><div class="section-title">03 — Sector Performance</div><table><thead><tr><th>#</th><th>Sector / ETF</th><th>Live Change</th><th>Theme</th></tr></thead><tbody>\n"""
     for i, item in enumerate(sector_data):
-        rank = i + 1
         color_class = "up-pct" if item['pct'] >= 0 else "down-pct"
         sign = "▲ +" if item['pct'] > 0 else "▼ "
-        heatmap_html += f"""
-<tr>
-<td style="color:#64748b;font-size:16px;font-weight:700;">{rank}</td>
-<td class="ticker-cell">{item['ticker']} <span style="color:#94a3b8; font-weight:400; font-size:16px;">— {item['sector']}</span></td>
-<td><span class="{color_class}">{sign}{item['pct']:.2f}%</span></td>
-<td class="catalyst-cell">Data sync complete</td>
-</tr>
-"""
-    heatmap_html += """
-</tbody>
-</table>
-</div>
-"""
+        heatmap_html += f"""<tr><td style="color:#64748b;font-weight:700;">{i+1}</td><td class="ticker-cell">{item['ticker']} <span style="color:#94a3b8; font-weight:400; font-size:16px;">— {item['sector']}</span></td><td><span class="{color_class}">{sign}{item['pct']:.2f}%</span></td><td class="catalyst-cell">Volume synchronized</td></tr>\n"""
+    heatmap_html += "</tbody></table></div>"
     st.markdown(heatmap_html, unsafe_allow_html=True)
 
 
-# --- 04 | PRE/POST MARKET GAPPERS ---
-st.markdown("""
-<div class="cloud-card">
-<div class="section-title">04 — Pre/Post Market Gappers</div>
-<table>
-<thead>
-<tr>
-<th>Ticker</th>
-<th>Change / Price</th>
-<th>Catalyst</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td class="ticker-cell">MXL</td>
-<td><div class="up-pct">▲ +12.4%</div></td>
-<td class="catalyst-cell">Post-close analyst upgrade drumbeat; PT raised.</td>
-</tr>
-<tr>
-<td class="ticker-cell">POET</td>
-<td><div class="up-pct">▲ +8.1%</div></td>
-<td class="catalyst-cell">Sympathy read-through on optical orders.</td>
-</tr>
-<tr>
-<td class="ticker-cell">INTC</td>
-<td><div class="up-pct">▲ +4.1%</div></td>
-<td class="catalyst-cell">Continuation on margin expansion.</td>
-</tr>
-<tr>
-<td class="ticker-cell">MRK</td>
-<td><div class="down-pct">▼ -2.3%</div></td>
-<td class="catalyst-cell">Defensive tactical rotation out of pharma.</td>
-</tr>
-<tr>
-<td class="ticker-cell">SNOW</td>
-<td><div class="down-pct">▼ -4.1%</div></td>
-<td class="catalyst-cell">Pre-earnings de-risking by institutional desks.</td>
-</tr>
-</tbody>
-</table>
-</div>
-""", unsafe_allow_html=True)
+# --- 04 | MOVERS ---
+movers_data = fetch_market_movers()
+if movers_data:
+    movers_html = """<div class="cloud-card"><div class="section-title">04 — Scanner: Top Movers</div><table><thead><tr><th>Ticker</th><th>Live Gap %</th><th>Scanner Notes</th></tr></thead><tbody>\n"""
+    for item in movers_data:
+        color_class = "up-pct" if item['change'] >= 0 else "down-pct"
+        sign = "▲ +" if item['change'] > 0 else "▼ "
+        movers_html += f"""<tr><td class="ticker-cell">{item['ticker']}</td><td><div class="{color_class}">{sign}{item['change']:.2f}%</div></td><td class="catalyst-cell">{item['note']}</td></tr>\n"""
+    movers_html += "</tbody></table></div>"
+    st.markdown(movers_html, unsafe_allow_html=True)
 
 
-# --- 05 | STOCKS IN PLAY TODAY ---
-st.markdown("""
-<div class="cloud-card">
-<div class="section-title">05 — Stocks in Play Today</div>
-<table>
-<thead>
-<tr>
-<th>Ticker</th>
-<th>Key Level</th>
-<th>Bias</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td class="ticker-cell">NVDA</td>
-<td class="catalyst-cell">$200 / $210</td>
-<td><span class="badge-bullish">LONG</span></td>
-</tr>
-<tr>
-<td class="ticker-cell">AAPL</td>
-<td class="catalyst-cell">Base $170</td>
-<td><span class="badge-bullish">LONG</span></td>
-</tr>
-<tr>
-<td class="ticker-cell">SPY</td>
-<td class="catalyst-cell">Hold $510 / fade $520</td>
-<td><span class="badge-mixed">RANGE</span></td>
-</tr>
-<tr>
-<td class="ticker-cell">OXY</td>
-<td class="catalyst-cell">Fade $65</td>
-<td><span class="badge-bearish">SHORT</span></td>
-</tr>
-</tbody>
-</table>
-</div>
-""", unsafe_allow_html=True)
+# --- 05 | STOCKS IN PLAY ---
+play_data = fetch_in_play()
+if play_data:
+    play_html = """<div class="cloud-card"><div class="section-title">05 — Stocks in Play (Liquidity Basket)</div><table><thead><tr><th>Ticker</th><th>Live Price</th><th>Algo Bias (vs 5D SMA)</th></tr></thead><tbody>\n"""
+    for item in play_data:
+        play_html += f"""<tr><td class="ticker-cell">{item['ticker']}</td><td class="catalyst-cell">${item['price']:.2f}</td><td><span class="{item['color']}">{item['bias']}</span></td></tr>\n"""
+    play_html += "</tbody></table></div>"
+    st.markdown(play_html, unsafe_allow_html=True)
 
 
-# --- 06 | SENTIMENT, BREADTH & TECHNICALS (COMBINED) ---
+# --- 06 | BREADTH & VPCI ---
 st.markdown("<div class='cloud-card'><div class='section-title'>06 — Sentiment, Breadth & Technicals</div>", unsafe_allow_html=True)
+st.markdown("""<div class="inst-grid" style="margin-bottom: 28px;">
+<div class="inst-card"><div class="inst-name">T2108 (Above 40D MA)</div><div class="inst-level">58.4%</div><div class="inst-change-up">Healthy Breadth</div></div>
+<div class="inst-card"><div class="inst-name">Put/Call Ratio</div><div class="inst-level">0.82</div><div class="inst-change-up">Bullish Bias</div></div>
+<div class="inst-card"><div class="inst-name">SPX > 50D Moving Avg</div><div class="inst-level">~72%</div><div class="inst-change-up">Strong Trend</div></div>
+</div>""", unsafe_allow_html=True)
 
-# Top row: 3 breadth stats
-st.markdown("""
-<div class="inst-grid" style="margin-bottom: 28px;">
-    <div class="inst-card">
-        <div class="inst-name">T2108 (Above 40D MA)</div>
-        <div class="inst-level">58.4%</div>
-        <div class="inst-change-up">Healthy Breadth</div>
-    </div>
-    <div class="inst-card">
-        <div class="inst-name">Put/Call Ratio</div>
-        <div class="inst-level">0.82</div>
-        <div class="inst-change-up">Bullish Bias</div>
-    </div>
-    <div class="inst-card">
-        <div class="inst-name">SPX > 50D Moving Avg</div>
-        <div class="inst-level">~72%</div>
-        <div class="inst-change-up">Strong Trend</div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# Bottom row: VPCI Readout inside the same cloud
 try:
     spy_df = yf.Ticker("SPY").history(period="3mo")
     if not spy_df.empty and len(spy_df) > 21:
         latest_vpci = calculate_vpci(spy_df)
         vpci_color = "up-pct" if latest_vpci >= 0 else "down-pct"
         vpci_status = "BULLISH CONFIRMATION" if latest_vpci >= 0 else "BEARISH DIVERGENCE"
-        st.markdown(f"""
-<div class="news-item" style="border-left: 6px solid #818cf8;">
-<div style="font-size: 14px; font-weight: 700; color: #818cf8; text-transform: uppercase; margin-bottom: 8px;">Current VPCI Reading (SPY)</div>
-<div style="font-size: 32px; font-weight: 800; margin-bottom: 12px;"><span class="{vpci_color}">{latest_vpci:.4f}</span> | <span style="font-size: 24px; font-weight: 700; color:#f1f5f9;">{vpci_status}</span></div>
-<div style="font-size: 18px; line-height: 1.6; color: #cbd5e1;">The Volume Price Confirmation Indicator (VPCI) measures the relationship between price trends and volume. A positive value indicates that volume is expanding in the direction of the trend, confirming bullish strength.</div>
-</div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="news-item" style="border-left: 6px solid #818cf8;"><div style="font-size: 14px; font-weight: 700; color: #818cf8; text-transform: uppercase; margin-bottom: 8px;">Current VPCI Reading (SPY)</div><div style="font-size: 32px; font-weight: 800; margin-bottom: 12px;"><span class="{vpci_color}">{latest_vpci:.4f}</span> | <span style="font-size: 24px; font-weight: 700; color:#f1f5f9;">{vpci_status}</span></div><div style="font-size: 18px; line-height: 1.6; color: #cbd5e1;">The Volume Price Confirmation Indicator (VPCI) measures the relationship between price trends and volume. A positive value indicates that volume is expanding in the direction of the trend, confirming bullish strength.</div></div>""", unsafe_allow_html=True)
 except:
     st.markdown("<div class='news-item'>VPCI data syncing...</div>", unsafe_allow_html=True)
-
 st.markdown("</div>", unsafe_allow_html=True)
 
 
 # --- 07 | ECONOMIC DATA ---
-st.markdown("""
-<div class="cloud-card">
-<div class="section-title">07 — Economic Data & Catalysts Today</div>
-<table>
-<thead>
-<tr>
-<th>Time (EST)</th>
-<th>Release</th>
-<th>Impact</th>
-</tr>
-</thead>
-<tbody>
-<tr><td class="ticker-cell" style="font-size:18px;">08:30 AM</td><td class="catalyst-cell">Core PCE Price Index MoM</td><td><span class="badge-bearish">HIGH</span></td></tr>
-<tr><td class="ticker-cell" style="font-size:18px;">09:45 AM</td><td class="catalyst-cell">Chicago PMI</td><td><span class="badge-mixed">MED</span></td></tr>
-<tr><td class="ticker-cell" style="font-size:18px;">10:00 AM</td><td class="catalyst-cell">UMich Consumer Sentiment (Final)</td><td><span class="badge-bearish">HIGH</span></td></tr>
-<tr><td class="ticker-cell" style="font-size:18px;">01:00 PM</td><td class="catalyst-cell">Baker Hughes Rig Count</td><td><span class="badge-cautious" style="background:transparent; color:#94a3b8;">LOW</span></td></tr>
-</tbody>
-</table>
-</div>
-""", unsafe_allow_html=True)
+econ_data = fetch_economics()
+if econ_data:
+    econ_html = """<div class="cloud-card"><div class="section-title">07 — Economic Data Releases</div><table><thead><tr><th>Time (EST)</th><th>Release</th><th>Impact</th></tr></thead><tbody>\n"""
+    for item in econ_data:
+        color = "badge-bearish" if item['impact'] == "HIGH" else "badge-mixed" if item['impact'] == "MED" else "badge-cautious"
+        econ_html += f"""<tr><td class="ticker-cell" style="font-size:18px;">{item['time']}</td><td class="catalyst-cell">{item['release']}</td><td><span class="{color}">{item['impact']}</span></td></tr>\n"""
+    econ_html += "</tbody></table></div>"
+    st.markdown(econ_html, unsafe_allow_html=True)
+else:
+    st.markdown("<div class='cloud-card'><div class='section-title'>07 — Economic Data Releases</div><div class='catalyst-cell'>No major economic data scheduled for today.</div></div>", unsafe_allow_html=True)
 
 
-# --- 08 | EARNINGS CALENDAR ---
-st.markdown("""
-<div class="cloud-card">
-<div class="section-title">08 — Today's Earnings Calendar</div>
-<table>
-<thead>
-<tr>
-<th>Ticker</th>
-<th>Company</th>
-<th>Time</th>
-</tr>
-</thead>
-<tbody>
-<tr><td class="ticker-cell"><span class="etf-tag">CRM</span></td><td class="catalyst-cell">Salesforce Inc.</td><td class="catalyst-cell" style="color:#f1f5f9;">After Close</td></tr>
-<tr><td class="ticker-cell"><span class="etf-tag">SNOW</span></td><td class="catalyst-cell">Snowflake Inc.</td><td class="catalyst-cell" style="color:#f1f5f9;">After Close</td></tr>
-<tr><td class="ticker-cell"><span class="etf-tag">CRWD</span></td><td class="catalyst-cell">CrowdStrike Holdings</td><td class="catalyst-cell" style="color:#f1f5f9;">After Close</td></tr>
-</tbody>
-</table>
-</div>
-""", unsafe_allow_html=True)
+# --- 08 | EARNINGS ---
+earn_data = fetch_earnings()
+if earn_data:
+    earn_html = """<div class="cloud-card"><div class="section-title">08 — Earnings Calendar</div><table><thead><tr><th>Ticker</th><th>Company</th><th>Time</th></tr></thead><tbody>\n"""
+    for item in earn_data:
+        earn_html += f"""<tr><td class="ticker-cell"><span class="etf-tag">{item['ticker']}</span></td><td class="catalyst-cell">{item['company']}</td><td class="catalyst-cell" style="color:#f1f5f9;">{item['time']}</td></tr>\n"""
+    earn_html += "</tbody></table></div>"
+    st.markdown(earn_html, unsafe_allow_html=True)
+else:
+    st.markdown("<div class='cloud-card'><div class='section-title'>08 — Earnings Calendar</div><div class='catalyst-cell'>No major earnings scheduled for today.</div></div>", unsafe_allow_html=True)
 
 
-# --- 09 | EDITOR'S NOTE (FOOTER CLOUD) ---
+# --- 09 | EDITOR'S NOTE ---
 st.markdown("""
 <div class="cloud-card" style="border-left: 6px solid #818cf8;">
 <div class="section-title" style="border-bottom:none; margin-bottom:12px;">09 — Editor's Morning Note</div>
