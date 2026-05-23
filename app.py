@@ -22,7 +22,7 @@ st.markdown("""
     .pos { color: #00E676; font-weight: 600;}
     .neg { color: #FF3D00; font-weight: 600;}
     
-    /* Section headers updated to subtle gray, smaller font, no borders */
+    /* Section headers updated to pipe delimiter */
     .section-head { 
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
         color: #94A3B8; 
@@ -34,8 +34,12 @@ st.markdown("""
         padding-bottom: 0px;
     }
     
-    /* Clean Cards with completely removed borders */
+    /* Clean Parent Cards */
     .card { background-color: #11151E; border-radius: 12px; padding: 24px; border: none; }
+    
+    /* Nested Sub-Cards (replaces horizontal lines for lists) */
+    .sub-card { background-color: #171C28; border-radius: 10px; padding: 20px; margin-bottom: 12px; border: none; }
+    .sub-card:last-child { margin-bottom: 0px; }
     
     /* Metrics Grid */
     .metric-grid { display: grid; gap: 16px; }
@@ -94,7 +98,12 @@ def fetch_macro_snapshot():
 
 @st.cache_data(ttl=3600)
 def fetch_sector_flow():
-    sectors = {"Technology": "XLK", "Financials": "XLF", "Energy": "XLE", "Health Care": "XLV"}
+    # Expanded to 10 key sectors
+    sectors = {
+        "Technology": "XLK", "Financials": "XLF", "Energy": "XLE", 
+        "Health Care": "XLV", "Discretionary": "XLY", "Staples": "XLP",
+        "Industrials": "XLI", "Materials": "XLB", "Utilities": "XLU", "Real Estate": "XLRE"
+    }
     perf = []
     try:
         for name, ticker in sectors.items():
@@ -129,8 +138,8 @@ st.markdown(f"<h1 style='font-size: 36px; font-weight: 800; margin-bottom: 4px; 
 st.markdown(f"<div style='color: #8B949E; font-size: 15px; margin-bottom: 40px; font-weight: 600; text-align: center;'>{date_str}</div>", unsafe_allow_html=True)
 
 
-# --- 1. FUTURES & MACRO SNAPSHOT ---
-st.markdown("<div class='section-head'>01 — Futures & Macro Snapshot</div>", unsafe_allow_html=True)
+# --- 01 | FUTURES & MACRO SNAPSHOT ---
+st.markdown("<div class='section-head'>01 | Futures & Macro Snapshot</div>", unsafe_allow_html=True)
 macro_data = fetch_macro_snapshot()
 scorecard_html = "<div class='card'><div class='metric-grid'>\n"
 for name, metrics in macro_data.items():
@@ -146,26 +155,54 @@ scorecard_html += "</div></div>"
 st.markdown(scorecard_html, unsafe_allow_html=True)
 
 
-# --- 2. KEY NEWS & CATALYSTS ---
-st.markdown("<div class='section-head'>02 — Key News & Catalysts</div>", unsafe_allow_html=True)
+# --- 02 | KEY NEWS & CATALYSTS ---
+st.markdown("<div class='section-head'>02 | Key News & Catalysts</div>", unsafe_allow_html=True)
 st.markdown("""<div class='card'>
-<div style='margin-bottom: 24px;'>
-    <div style='color: #FF5252; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 8px;'>MACRO / FED</div>
-    <div style='font-size: 15px; color: #E6EDF3;'><strong>Core PCE Print</strong> — Inflation data aligns with consensus, stripping away hawkish tail-risks and steepening the yield curve.</div>
-</div>
-<div style='margin-bottom: 24px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 24px;'>
-    <div style='color: #448AFF; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 8px;'>SECTOR ROTATION</div>
-    <div style='font-size: 15px; color: #E6EDF3;'><strong>Semiconductor Strength</strong> — Leading optical/infra names continue their tear on server-demand signal, lifting NDX heavily.</div>
-</div>
-<div style='border-top: 1px solid rgba(255,255,255,0.05); padding-top: 24px;'>
-    <div style='color: #E040FB; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 8px;'>M&A ACTION</div>
-    <div style='font-size: 15px; color: #E6EDF3;'><strong>Pharma Bidding War</strong> — Competing private equity offers surface for mid-cap biosciences, juicing the XLV underlying.</div>
-</div>
+    <div class='sub-card'>
+        <div style='color: #FF5252; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>MACRO / FED</div>
+        <div style='font-size: 15px; color: #E6EDF3;'><strong>Core PCE Print</strong> — Inflation data aligns with consensus, stripping away hawkish tail-risks and steepening the yield curve.</div>
+    </div>
+    <div class='sub-card'>
+        <div style='color: #448AFF; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>SECTOR ROTATION</div>
+        <div style='font-size: 15px; color: #E6EDF3;'><strong>Semiconductor Strength</strong> — Leading optical/infra names continue their tear on server-demand signal, lifting NDX heavily.</div>
+    </div>
+    <div class='sub-card'>
+        <div style='color: #E040FB; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>M&A ACTION</div>
+        <div style='font-size: 15px; color: #E6EDF3;'><strong>Pharma Bidding War</strong> — Competing private equity offers surface for mid-cap biosciences, juicing the XLV underlying.</div>
+    </div>
+    <div class='sub-card'>
+        <div style='color: #00E676; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>GLOBAL SUPPLY CHAIN</div>
+        <div style='font-size: 15px; color: #E6EDF3;'><strong>EV Output Pause</strong> — Major Shanghai manufacturing hub briefly halts production due to localized logistics bottlenecks.</div>
+    </div>
+    <div class='sub-card'>
+        <div style='color: #FFAB00; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>BIG TECH</div>
+        <div style='font-size: 15px; color: #E6EDF3;'><strong>Hardware Base Building</strong> — Consumer tech giants consolidate near 50-DMA ahead of major developer conference announcements.</div>
+    </div>
+    <div class='sub-card'>
+        <div style='color: #00B0FF; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>COMMODITIES</div>
+        <div style='font-size: 15px; color: #E6EDF3;'><strong>Crude Oil Geopolitics</strong> — WTI futures climb past $94 on renewed strategic reserve replenishment talks and tight physical markets.</div>
+    </div>
+    <div class='sub-card'>
+        <div style='color: #FF5252; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>CONSUMER SPENDING</div>
+        <div style='font-size: 15px; color: #E6EDF3;'><strong>Retail Sales Divergence</strong> — Discretionary spending shows cracks in lower-income brackets while luxury holds firm.</div>
+    </div>
+    <div class='sub-card'>
+        <div style='color: #448AFF; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>SOFTWARE & CLOUD</div>
+        <div style='font-size: 15px; color: #E6EDF3;'><strong>Margin Expansion Focus</strong> — Enterprise SaaS names catch upgrades as cost-cutting measures begin heavily impacting bottom lines.</div>
+    </div>
+    <div class='sub-card'>
+        <div style='color: #E040FB; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>REGULATORY RISK</div>
+        <div style='font-size: 15px; color: #E6EDF3;'><strong>Digital Asset Framework</strong> — New legislative proposals aimed at stablecoins introduce temporary volatility across crypto proxies.</div>
+    </div>
+    <div class='sub-card'>
+        <div style='color: #FFAB00; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>TRANSPORTATION</div>
+        <div style='font-size: 15px; color: #E6EDF3;'><strong>Airline Capacity Adjustments</strong> — Legacy carriers quietly trim Q3 seat capacity guidance citing domestic demand normalization.</div>
+    </div>
 </div>""", unsafe_allow_html=True)
 
 
-# --- 3. TOP SECTORS & MONEY FLOW ---
-st.markdown("<div class='section-head'>03 — Top Sectors & Money Flow</div>", unsafe_allow_html=True)
+# --- 03 | TOP SECTORS & MONEY FLOW ---
+st.markdown("<div class='section-head'>03 | Top Sectors & Money Flow</div>", unsafe_allow_html=True)
 sector_data = fetch_sector_flow()
 table_html = """<div class='card'><table class='custom-table'>
 <tr><th>ETF</th><th>SECTOR</th><th style='text-align: right;'>FLOW %</th></tr>\n"""
@@ -181,30 +218,42 @@ table_html += "</table></div>"
 st.markdown(table_html, unsafe_allow_html=True)
 
 
-# --- 4. PRE/POST MARKET GAPPERS ---
-st.markdown("<div class='section-head'>04 — Pre/Post Market Gappers</div>", unsafe_allow_html=True)
+# --- 04 | PRE/POST MARKET GAPPERS ---
+st.markdown("<div class='section-head'>04 | Pre/Post Market Gappers</div>", unsafe_allow_html=True)
 st.markdown("""<div class='card'><table class='custom-table'>
 <tr><th>TICKER</th><th>GAP %</th><th>CATALYST</th></tr>
 <tr><td><span class='etf-tag'>MXL</span></td><td class='pos'>+12.4%</td><td>Post-close PT hike drumbeat</td></tr>
+<tr><td><span class='etf-tag'>POET</span></td><td class='pos'>+8.1%</td><td>Sympathy read-through on optical orders</td></tr>
 <tr><td><span class='etf-tag'>INTC</span></td><td class='pos'>+4.1%</td><td>Continuation on margin expansion</td></tr>
-<tr><td><span class='etf-tag'>MRK</span></td><td class='neg'>-2.3%</td><td>Defensive tactical rotation</td></tr>
-<tr><td><span class='etf-tag'>CVX</span></td><td class='neg'>-1.8%</td><td>Profit-taking into prints</td></tr>
+<tr><td><span class='etf-tag'>DGN</span></td><td class='pos'>+3.2%</td><td>Acquisition rumor confirmed by WSJ</td></tr>
+<tr><td><span class='etf-tag'>AAOI</span></td><td class='pos'>+2.9%</td><td>Guidance raised for Q2 deliveries</td></tr>
+<tr><td><span class='etf-tag'>MRK</span></td><td class='neg'>-2.3%</td><td>Defensive tactical rotation out of pharma</td></tr>
+<tr><td><span class='etf-tag'>CVX</span></td><td class='neg'>-1.8%</td><td>Profit-taking into impending prints</td></tr>
+<tr><td><span class='etf-tag'>XOM</span></td><td class='neg'>-1.5%</td><td>Sympathy drag with broader energy major fade</td></tr>
+<tr><td><span class='etf-tag'>LULU</span></td><td class='neg'>-3.4%</td><td>Inventory concerns raised in analyst note</td></tr>
+<tr><td><span class='etf-tag'>SNOW</span></td><td class='neg'>-4.1%</td><td>Pre-earnings de-risking by institutional desks</td></tr>
 </table></div>""", unsafe_allow_html=True)
 
 
-# --- 5. STOCKS IN PLAY TODAY ---
-st.markdown("<div class='section-head'>05 — Stocks in Play Today</div>", unsafe_allow_html=True)
+# --- 05 | STOCKS IN PLAY TODAY ---
+st.markdown("<div class='section-head'>05 | Stocks in Play Today</div>", unsafe_allow_html=True)
 st.markdown("""<div class='card'><table class='custom-table'>
 <tr><th>TICKER</th><th>KEY LEVEL</th><th>BIAS</th></tr>
 <tr><td><span class='etf-tag'>NVDA</span></td><td>$200 / $210</td><td><span class='badge-long'>LONG</span></td></tr>
-<tr><td><span class='etf-tag'>OXY</span></td><td>Fade $65</td><td><span class='badge-short'>SHORT</span></td></tr>
+<tr><td><span class='etf-tag'>AMD</span></td><td>Breakout $275</td><td><span class='badge-long'>LONG</span></td></tr>
 <tr><td><span class='etf-tag'>AAPL</span></td><td>Base $170</td><td><span class='badge-long'>LONG</span></td></tr>
+<tr><td><span class='etf-tag'>META</span></td><td>Hold $480</td><td><span class='badge-long'>LONG</span></td></tr>
 <tr><td><span class='etf-tag'>SPY</span></td><td>Hold $510</td><td><span class='badge-long'>LONG</span></td></tr>
+<tr><td><span class='etf-tag'>OXY</span></td><td>Fade $65</td><td><span class='badge-short'>SHORT</span></td></tr>
+<tr><td><span class='etf-tag'>TSLA</span></td><td>Reject $190</td><td><span class='badge-short'>SHORT</span></td></tr>
+<tr><td><span class='etf-tag'>BA</span></td><td>Break $160</td><td><span class='badge-short'>SHORT</span></td></tr>
+<tr><td><span class='etf-tag'>UNH</span></td><td>Range $450-$465</td><td><span class='badge-short'>RANGE</span></td></tr>
+<tr><td><span class='etf-tag'>JPM</span></td><td>Range $185-$192</td><td><span class='badge-short'>RANGE</span></td></tr>
 </table></div>""", unsafe_allow_html=True)
 
 
-# --- 6. SENTIMENT & MARKET BREADTH ---
-st.markdown("<div class='section-head'>06 — Sentiment & Market Breadth (T2108)</div>", unsafe_allow_html=True)
+# --- 06 | SENTIMENT & MARKET BREADTH ---
+st.markdown("<div class='section-head'>06 | Sentiment & Market Breadth (T2108)</div>", unsafe_allow_html=True)
 st.markdown("""<div class='card'><div class='metric-grid' style='grid-template-columns: repeat(3, 1fr);'>
     <div class='metric-box'><div class='metric-title'>T2108 Proxy (Above 40D SMA)</div><div class='metric-value'>54.2%</div><div class='metric-change pos'>Healthy Breadth</div></div>
     <div class='metric-box'><div class='metric-title'>Put/Call Ratio</div><div class='metric-value'>0.82</div><div class='metric-change pos'>Bullish Bias</div></div>
@@ -212,8 +261,8 @@ st.markdown("""<div class='card'><div class='metric-grid' style='grid-template-c
 </div></div>""", unsafe_allow_html=True)
 
 
-# --- 7. TECHNICAL ANALYSIS & VPCI ---
-st.markdown("<div class='section-head'>07 — Technical Analysis & VPCI</div>", unsafe_allow_html=True)
+# --- 07 | TECHNICAL ANALYSIS & VPCI ---
+st.markdown("<div class='section-head'>07 | Technical Analysis & VPCI</div>", unsafe_allow_html=True)
 try:
     spy_df = yf.Ticker("SPY").history(period="3mo")
     if not spy_df.empty and len(spy_df) > 21:
@@ -239,28 +288,42 @@ except:
     st.error("VPCI data synchronizing...")
 
 
-# --- 8. ECONOMIC DATA & CATALYSTS ---
-st.markdown("<div class='section-head'>08 — Economic Data & Catalysts Today</div>", unsafe_allow_html=True)
+# --- 08 | ECONOMIC DATA & CATALYSTS ---
+st.markdown("<div class='section-head'>08 | Economic Data & Catalysts Today</div>", unsafe_allow_html=True)
 st.markdown("""<div class='card'><table class='custom-table'>
 <tr><th>TIME (EST)</th><th>RELEASE</th><th>IMPACT</th></tr>
-<tr><td>08:30 AM</td><td style='color:#E6EDF3;'>Core PCE Price Index</td><td class='neg'>HIGH</td></tr>
-<tr><td>10:00 AM</td><td style='color:#E6EDF3;'>UMich Sentiment (Final)</td><td style='color:#FFB300; font-weight:600;'>MED</td></tr>
-<tr><td>10:00 AM</td><td style='color:#E6EDF3;'>ISM Manufacturing PMI</td><td style='color:#FFB300; font-weight:600;'>MED</td></tr>
+<tr><td>08:30 AM</td><td style='color:#E6EDF3;'>Core PCE Price Index MoM</td><td class='neg'>HIGH</td></tr>
+<tr><td>08:30 AM</td><td style='color:#E6EDF3;'>Core PCE Price Index YoY</td><td class='neg'>HIGH</td></tr>
+<tr><td>08:30 AM</td><td style='color:#E6EDF3;'>Personal Income & Spending</td><td style='color:#FFB300; font-weight:600;'>MED</td></tr>
+<tr><td>09:45 AM</td><td style='color:#E6EDF3;'>Chicago PMI</td><td style='color:#FFB300; font-weight:600;'>MED</td></tr>
+<tr><td>10:00 AM</td><td style='color:#E6EDF3;'>UMich Consumer Sentiment (Final)</td><td class='neg'>HIGH</td></tr>
+<tr><td>10:00 AM</td><td style='color:#E6EDF3;'>UMich 1-Yr Inflation Exp</td><td class='neg'>HIGH</td></tr>
+<tr><td>10:00 AM</td><td style='color:#E6EDF3;'>UMich 5-Yr Inflation Exp</td><td style='color:#FFB300; font-weight:600;'>MED</td></tr>
+<tr><td>10:00 AM</td><td style='color:#E6EDF3;'>ISM Manufacturing PMI</td><td class='neg'>HIGH</td></tr>
+<tr><td>10:00 AM</td><td style='color:#E6EDF3;'>Pending Home Sales</td><td style='color:#FFB300; font-weight:600;'>MED</td></tr>
+<tr><td>01:00 PM</td><td style='color:#E6EDF3;'>Baker Hughes Rig Count</td><td style='color:#8B949E; font-weight:600;'>LOW</td></tr>
 </table></div>""", unsafe_allow_html=True)
 
 
-# --- 9. TODAY'S EARNINGS CALENDAR ---
-st.markdown("<div class='section-head'>09 — Today's Earnings Calendar</div>", unsafe_allow_html=True)
+# --- 09 | TODAY'S EARNINGS CALENDAR ---
+st.markdown("<div class='section-head'>09 | Today's Earnings Calendar</div>", unsafe_allow_html=True)
 st.markdown("""<div class='card'><table class='custom-table'>
 <tr><th>TICKER</th><th>COMPANY</th><th>TIME</th></tr>
-<tr><td><span class='etf-tag'>CRM</span></td><td style='color:#E6EDF3;'>Salesforce</td><td>After Close</td></tr>
-<tr><td><span class='etf-tag'>SNOW</span></td><td style='color:#E6EDF3;'>Snowflake</td><td>After Close</td></tr>
+<tr><td><span class='etf-tag'>CRM</span></td><td style='color:#E6EDF3;'>Salesforce Inc.</td><td>After Close</td></tr>
+<tr><td><span class='etf-tag'>SNOW</span></td><td style='color:#E6EDF3;'>Snowflake Inc.</td><td>After Close</td></tr>
 <tr><td><span class='etf-tag'>OKTA</span></td><td style='color:#E6EDF3;'>Okta Inc.</td><td>After Close</td></tr>
+<tr><td><span class='etf-tag'>CRWD</span></td><td style='color:#E6EDF3;'>CrowdStrike Holdings</td><td>After Close</td></tr>
+<tr><td><span class='etf-tag'>VEEV</span></td><td style='color:#E6EDF3;'>Veeva Systems</td><td>After Close</td></tr>
+<tr><td><span class='etf-tag'>MDB</span></td><td style='color:#E6EDF3;'>MongoDB Inc.</td><td>After Close</td></tr>
+<tr><td><span class='etf-tag'>HPE</span></td><td style='color:#E6EDF3;'>Hewlett Packard Ent.</td><td>After Close</td></tr>
+<tr><td><span class='etf-tag'>CHWY</span></td><td style='color:#E6EDF3;'>Chewy Inc.</td><td>After Close</td></tr>
+<tr><td><span class='etf-tag'>FIVE</span></td><td style='color:#E6EDF3;'>Five Below</td><td>After Close</td></tr>
+<tr><td><span class='etf-tag'>PSTG</span></td><td style='color:#E6EDF3;'>Pure Storage</td><td>After Close</td></tr>
 </table></div>""", unsafe_allow_html=True)
 
 
-# --- 10. EDITOR'S MORNING NOTE ---
-st.markdown("<div class='section-head'>10 — Editor's Morning Note</div>", unsafe_allow_html=True)
+# --- 10 | EDITOR'S MORNING NOTE ---
+st.markdown("<div class='section-head'>10 | Editor's Morning Note</div>", unsafe_allow_html=True)
 st.markdown("""<div class='editor-note'>
 <strong>Market Momentum (MKM)</strong> across the hourly timeframe indicates potential for a midday pivot. 
 <br><br>
