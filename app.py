@@ -5,6 +5,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 
+# ==========================================
+# 1. PAGE CONFIGURATION & DARK THEME
+# ==========================================
 st.set_page_config(
     page_title="CTT Morning Dashboard",
     page_icon="📈",
@@ -25,18 +28,24 @@ st.title("Confluence Trading Tools | Daily Briefing")
 st.caption(f"Market Data Initialized: {datetime.now().strftime('%A, %b %d, %Y')}")
 st.markdown("---")
 
+# ==========================================
+# 2. DATA FETCHING LOGIC (WITH SAFETY NETS)
+# ==========================================
 @st.cache_data(ttl=300) 
 def fetch_macro_snapshot():
     tickers = {"S&P 500 Futures": "^ES=F", "Nasdaq Futures": "^NQ=F", "10Y Yield": "^TNX", "Crude Oil": "CL=F"}
     data = {}
-    for name, ticker in tickers.items():
-        tick = yf.Ticker(ticker)
-        hist = tick.history(period="2d")
-        if len(hist) >= 2:
-            prev_close = hist['Close'].iloc[0]
-            curr_close = hist['Close'].iloc[1]
-            pct_change = ((curr_close - prev_close) / prev_close) * 100
-            data[name] = {"price": curr_close, "pct": pct_change}
+    try:
+        for name, ticker in tickers.items():
+            tick = yf.Ticker(ticker)
+            hist = tick.history(period="2d")
+            if len(hist) >= 2:
+                prev_close = hist['Close'].iloc[0]
+                curr_close = hist['Close'].iloc[1]
+                pct_change = ((curr_close - prev_close) / prev_close) * 100
+                data[name] = {"price": curr_close, "pct": pct_change}
+    except Exception as e:
+        st.warning("Yahoo Finance rate limit reached. Displaying partial macro data.")
     return data
 
 @st.cache_data(ttl=3600)
@@ -46,13 +55,18 @@ def fetch_sector_flow():
         "Healthcare": "XLV", "Consumer Disc": "XLY"
     }
     perf = []
-    for name, ticker in sectors.items():
-        tick = yf.Ticker(ticker)
-        hist = tick.history(period="2d")
-        if len(hist) >= 2:
-            change = ((hist['Close'].iloc[1] - hist['Close'].iloc[0]) / hist['Close'].iloc[0]) * 100
-            perf.append({"Sector": name, "Change %": change})
-    return pd.DataFrame(perf).sort_values(by="Change %", ascending=False)
+    try:
+        for name, ticker in sectors.items():
+            tick = yf.Ticker(ticker)
+            hist = tick.history(period="2d")
+            if len(hist) >= 2:
+                change = ((hist['Close'].iloc[1] - hist['Close'].iloc[0]) / hist['Close'].iloc[0]) * 100
+                perf.append({"Sector": name, "Change %": change})
+        if perf:
+            return pd.DataFrame(perf).sort_values(by="Change %", ascending=False)
+    except Exception as e:
+        pass # Silently fail and return empty dataframe
+    return pd.DataFrame(columns=["Sector", "Change %"])
 
 def calculate_vpci(df, short_window=5, long_window=21):
     df['Vol_x_Price'] = df['Close'] * df['Volume']
@@ -66,14 +80,22 @@ def calculate_vpci(df, short_window=5, long_window=21):
     df['VPCI'] = vpc * vpr * vm
     return df
 
+# ==========================================
+# 3. DASHBOARD LAYOUT & SECTIONS
+# ==========================================
+
 st.subheader("Editor's Morning Note")
 st.info("**Macro Context:** Equities are testing key algorithmic liquidity zones this morning. Watch the 10Y Yield closely as it interacts with the 4.2% level. Market Momentum (MKM) across the hourly timeframe indicates potential for a midday pivot. Keep in mind that Monday, May 25 is Memorial Day, so markets will be closed.")
 
 st.subheader("Futures & Macro Snapshot")
 macro_data = fetch_macro_snapshot()
-cols = st.columns(4)
-for i, (name, metrics) in enumerate(macro_data.items()):
-    cols[i].metric(label=name, value=f"{metrics['price']:.2f}", delta=f"{metrics['pct']:.2f}%")
+if macro_data:
+    cols = st.columns(4)
+    for i, (name, metrics) in enumerate(macro_data.items()):
+        if i < 4:
+            cols[i].metric(label=name, value=f"{metrics['price']:.2f}", delta=f"{metrics['pct']:.2f}%")
+else:
+    st.error("Market data temporarily unavailable due to server rate limits.")
 
 st.markdown("---")
 col1, col2 = st.columns([1, 1])
@@ -81,9 +103,12 @@ col1, col2 = st.columns([1, 1])
 with col1:
     st.subheader("Top Sectors & Money Flow")
     sector_df = fetch_sector_flow()
-    fig = px.bar(sector_df, x="Change %", y="Sector", orientation='h', color="Change %", color_continuous_scale="RdYlGn", template="plotly_dark")
-    fig.update_layout(showlegend=False, height=300, margin=dict(l=0, r=0, t=0, b=0))
-    st.plotly_chart(fig, use_container_width=True)
+    if not sector_df.empty:
+        fig = px.bar(sector_df, x="Change %", y="Sector", orientation='h', color="Change %", color_continuous_scale="RdYlGn", template="plotly_dark")
+        fig.update_layout(showlegend=False, height=300, margin=dict(l=0, r=0, t=0, b=0))
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Sector data syncing...")
 
 with col2:
     st.subheader("Key News & Catalysts")
@@ -98,7 +123,7 @@ st.subheader("Sentiment & Market Breadth")
 st.caption("T2108 Proxy: VIX and Advance/Decline metrics.")
 try:
     vix = yf.Ticker("^VIX").history(period="1d")['Close'].iloc[0]
-except IndexError:
+except Exception:
     vix = 15.00
     
 sc1, sc2, sc3 = st.columns(3)
@@ -108,14 +133,20 @@ sc3.metric("Put/Call Ratio", "0.82", delta="-0.05", delta_color="inverse")
 
 st.markdown("---")
 st.subheader("Technical Analysis & VPCI (Volume Price Confirmation)")
-spy_df = yf.Ticker("SPY").history(period="3mo")
-spy_df = calculate_vpci(spy_df)
 
-fig_tech = go.Figure()
-fig_tech.add_trace(go.Scatter(x=spy_df.index, y=spy_df['Close'], name='SPY Close', line=dict(color='#FAFAFA')))
-fig_tech.add_trace(go.Bar(x=spy_df.index, y=spy_df['VPCI'], name='VPCI', marker_color='#00FFAA', yaxis='y2'))
-fig_tech.update_layout(template="plotly_dark", yaxis=dict(title='Price'), yaxis2=dict(title='VPCI', overlaying='y', side='right'), height=400, margin=dict(l=0, r=0, t=30, b=0))
-st.plotly_chart(fig_tech, use_container_width=True)
+try:
+    spy_df = yf.Ticker("SPY").history(period="3mo")
+    if not spy_df.empty and len(spy_df) > 21:
+        spy_df = calculate_vpci(spy_df)
+        fig_tech = go.Figure()
+        fig_tech.add_trace(go.Scatter(x=spy_df.index, y=spy_df['Close'], name='SPY Close', line=dict(color='#FAFAFA')))
+        fig_tech.add_trace(go.Bar(x=spy_df.index, y=spy_df['VPCI'], name='VPCI', marker_color='#00FFAA', yaxis='y2'))
+        fig_tech.update_layout(template="plotly_dark", yaxis=dict(title='Price'), yaxis2=dict(title='VPCI', overlaying='y', side='right'), height=400, margin=dict(l=0, r=0, t=30, b=0))
+        st.plotly_chart(fig_tech, use_container_width=True)
+    else:
+        st.info("Chart data synchronizing...")
+except Exception:
+    st.error("Technical chart unavailable.")
 
 st.markdown("---")
 col3, col4 = st.columns([1, 1])
