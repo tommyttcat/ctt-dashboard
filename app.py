@@ -1,13 +1,11 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import plotly.graph_objects as go
 from datetime import datetime
 
 # ==========================================
 # 1. PAGE CONFIGURATION & PREMIUM CSS
 # ==========================================
-# We use "wide" but constrain it with CSS below so it perfectly centers at a readable width
 st.set_page_config(page_title="CTT Daily Briefing", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
@@ -17,18 +15,29 @@ st.markdown("""
     header {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Center the app and constrain width for readability */
-    .block-container { max-width: 850px !important; margin: 0 auto !important; padding-top: 2rem; padding-bottom: 4rem; }
+    /* Widen the app container for large monitors */
+    .block-container { max-width: 95% !important; margin: 0 auto !important; padding-top: 2rem; padding-bottom: 4rem; }
     
     /* Typography & Colors */
     .pos { color: #00E676; font-weight: 600;}
     .neg { color: #FF3D00; font-weight: 600;}
-    .section-head { font-family: 'Courier New', Courier, monospace; color: #78909C; font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 16px; margin-top: 40px; border-bottom: 1px solid #1E293B; padding-bottom: 8px;}
+    
+    /* Section headers upgraded to match main page title */
+    .section-head { 
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+        color: #FAFAFA; 
+        font-size: 28px; 
+        font-weight: 800; 
+        margin-bottom: 16px; 
+        margin-top: 40px; 
+        border-bottom: 2px solid #1E293B; 
+        padding-bottom: 8px;
+    }
     
     /* Elevated Cards without Borders */
     .card { background-color: #11151E; border-radius: 12px; padding: 24px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.02); }
     
-    /* Metrics Grid (4 items across inside a single section) */
+    /* Metrics Grid */
     .metric-grid { display: grid; gap: 16px; }
     .metric-box { background-color: #171C28; padding: 16px; border-radius: 10px; text-align: center; border: 1px solid rgba(255,255,255,0.03);}
     .metric-title { color: #8B949E; font-size: 11px; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px;}
@@ -115,7 +124,7 @@ def calculate_vpci(df, short_window=5, long_window=21):
 
 # HEADER
 date_str = datetime.now().strftime("%A — %B %d, %Y")
-st.markdown(f"<h1 style='font-size: 32px; font-weight: 800; margin-bottom: 4px; text-align: center;'>Confluence Trading Tools | Daily Briefing</h1>", unsafe_allow_html=True)
+st.markdown(f"<h1 style='font-size: 36px; font-weight: 800; margin-bottom: 4px; text-align: center;'>Confluence Trading Tools | Daily Briefing</h1>", unsafe_allow_html=True)
 st.markdown(f"<div style='color: #8B949E; font-size: 15px; margin-bottom: 40px; font-weight: 600; text-align: center;'>{date_str}</div>", unsafe_allow_html=True)
 
 
@@ -148,111 +157,4 @@ st.markdown("""<div class='card'>
     <div style='font-size: 15px; color: #E6EDF3;'><strong>Semiconductor Strength</strong> — Leading optical/infra names continue their tear on server-demand signal, lifting NDX heavily.</div>
 </div>
 <div style='border-top: 1px solid rgba(255,255,255,0.05); padding-top: 24px;'>
-    <div style='color: #E040FB; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 8px;'>M&A ACTION</div>
-    <div style='font-size: 15px; color: #E6EDF3;'><strong>Pharma Bidding War</strong> — Competing private equity offers surface for mid-cap biosciences, juicing the XLV underlying.</div>
-</div>
-</div>""", unsafe_allow_html=True)
-
-
-# --- 3. TOP SECTORS & MONEY FLOW ---
-st.markdown("<div class='section-head'>03 — Top Sectors & Money Flow</div>", unsafe_allow_html=True)
-sector_data = fetch_sector_flow()
-table_html = """<div class='card'><table class='custom-table'>
-<tr><th>ETF</th><th>SECTOR</th><th style='text-align: right;'>FLOW %</th></tr>\n"""
-for item in sector_data:
-    color_class = "pos" if item['pct'] >= 0 else "neg"
-    sign = "+" if item['pct'] > 0 else ""
-    table_html += f"""<tr>
-    <td><span class='etf-tag'>{item['ticker']}</span></td>
-    <td style='font-weight: 600;'>{item['sector']}</td>
-    <td style='text-align: right;' class='{color_class}'>{sign}{item['pct']:.1f}%</td>
-    </tr>\n"""
-table_html += "</table></div>"
-st.markdown(table_html, unsafe_allow_html=True)
-
-
-# --- 4. PRE/POST MARKET GAPPERS ---
-st.markdown("<div class='section-head'>04 — Pre/Post Market Gappers</div>", unsafe_allow_html=True)
-st.markdown("""<div class='card'><table class='custom-table'>
-<tr><th>TICKER</th><th>GAP %</th><th>CATALYST</th></tr>
-<tr><td><span class='etf-tag'>MXL</span></td><td class='pos'>+12.4%</td><td>Post-close PT hike drumbeat</td></tr>
-<tr><td><span class='etf-tag'>INTC</span></td><td class='pos'>+4.1%</td><td>Continuation on margin expansion</td></tr>
-<tr><td><span class='etf-tag'>MRK</span></td><td class='neg'>-2.3%</td><td>Defensive tactical rotation</td></tr>
-<tr><td><span class='etf-tag'>CVX</span></td><td class='neg'>-1.8%</td><td>Profit-taking into prints</td></tr>
-</table></div>""", unsafe_allow_html=True)
-
-
-# --- 5. STOCKS IN PLAY TODAY ---
-st.markdown("<div class='section-head'>05 — Stocks in Play Today</div>", unsafe_allow_html=True)
-st.markdown("""<div class='card'><table class='custom-table'>
-<tr><th>TICKER</th><th>KEY LEVEL</th><th>BIAS</th></tr>
-<tr><td><span class='etf-tag'>NVDA</span></td><td>$200 / $210</td><td><span class='badge-long'>LONG</span></td></tr>
-<tr><td><span class='etf-tag'>OXY</span></td><td>Fade $65</td><td><span class='badge-short'>SHORT</span></td></tr>
-<tr><td><span class='etf-tag'>AAPL</span></td><td>Base $170</td><td><span class='badge-long'>LONG</span></td></tr>
-<tr><td><span class='etf-tag'>SPY</span></td><td>Hold $510</td><td><span class='badge-long'>LONG</span></td></tr>
-</table></div>""", unsafe_allow_html=True)
-
-
-# --- 6. SENTIMENT & MARKET BREADTH ---
-st.markdown("<div class='section-head'>06 — Sentiment & Market Breadth (T2108)</div>", unsafe_allow_html=True)
-st.markdown("""<div class='card'><div class='metric-grid' style='grid-template-columns: repeat(3, 1fr);'>
-    <div class='metric-box'><div class='metric-title'>T2108 Proxy (Above 40D SMA)</div><div class='metric-value'>54.2%</div><div class='metric-change pos'>Healthy Breadth</div></div>
-    <div class='metric-box'><div class='metric-title'>Put/Call Ratio</div><div class='metric-value'>0.82</div><div class='metric-change pos'>Bullish Bias</div></div>
-    <div class='metric-box'><div class='metric-title'>SPX > 50D Moving Avg</div><div class='metric-value'>~72%</div><div class='metric-change pos'>Strong Trend</div></div>
-</div></div>""", unsafe_allow_html=True)
-
-
-# --- 7. TECHNICAL ANALYSIS & VPCI ---
-st.markdown("<div class='section-head'>07 — Technical Analysis & VPCI</div>", unsafe_allow_html=True)
-try:
-    spy_df = yf.Ticker("SPY").history(period="3mo")
-    if not spy_df.empty and len(spy_df) > 21:
-        spy_df = calculate_vpci(spy_df)
-        fig_tech = go.Figure()
-        fig_tech.add_trace(go.Scatter(x=spy_df.index, y=spy_df['Close'], name='SPY Close', line=dict(color='#FAFAFA', width=2)))
-        fig_tech.add_trace(go.Bar(x=spy_df.index, y=spy_df['VPCI'], name='VPCI', marker_color='#00E676', yaxis='y2', opacity=0.6))
-        
-        fig_tech.update_layout(
-            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-            margin=dict(l=0, r=0, t=10, b=0), height=400,
-            yaxis=dict(title='Price', gridcolor='rgba(255,255,255,0.05)'),
-            yaxis2=dict(title='VPCI', overlaying='y', side='right', gridcolor='rgba(255,255,255,0.0)')
-        )
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.plotly_chart(fig_tech, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-except:
-    st.error("Chart data synchronizing...")
-
-
-# --- 8. ECONOMIC DATA & CATALYSTS ---
-st.markdown("<div class='section-head'>08 — Economic Data & Catalysts Today</div>", unsafe_allow_html=True)
-st.markdown("""<div class='card'><table class='custom-table'>
-<tr><th>TIME (EST)</th><th>RELEASE</th><th>IMPACT</th></tr>
-<tr><td>08:30 AM</td><td style='color:#E6EDF3;'>Core PCE Price Index</td><td class='neg'>HIGH</td></tr>
-<tr><td>10:00 AM</td><td style='color:#E6EDF3;'>UMich Sentiment (Final)</td><td style='color:#FFB300; font-weight:600;'>MED</td></tr>
-<tr><td>10:00 AM</td><td style='color:#E6EDF3;'>ISM Manufacturing PMI</td><td style='color:#FFB300; font-weight:600;'>MED</td></tr>
-</table></div>""", unsafe_allow_html=True)
-
-
-# --- 9. TODAY'S EARNINGS CALENDAR ---
-st.markdown("<div class='section-head'>09 — Today's Earnings Calendar</div>", unsafe_allow_html=True)
-st.markdown("""<div class='card'><table class='custom-table'>
-<tr><th>TICKER</th><th>COMPANY</th><th>TIME</th></tr>
-<tr><td><span class='etf-tag'>CRM</span></td><td style='color:#E6EDF3;'>Salesforce</td><td>After Close</td></tr>
-<tr><td><span class='etf-tag'>SNOW</span></td><td style='color:#E6EDF3;'>Snowflake</td><td>After Close</td></tr>
-<tr><td><span class='etf-tag'>OKTA</span></td><td style='color:#E6EDF3;'>Okta Inc.</td><td>After Close</td></tr>
-</table></div>""", unsafe_allow_html=True)
-
-
-# --- 10. EDITOR'S MORNING NOTE ---
-st.markdown("<div class='section-head'>10 — Editor's Morning Note</div>", unsafe_allow_html=True)
-st.markdown("""<div class='editor-note'>
-<strong>Market Momentum (MKM)</strong> across the hourly timeframe indicates potential for a midday pivot. 
-<br><br>
-The real test today is the interaction with the 4.2% level on the 10Y Yield. Watch for a rotation out of heavily weighted tech names into defensive posturing if yields spike rapidly. 
-<br><br>
-Keep in mind that <strong>Monday, May 25 is Memorial Day</strong>, so markets will be closed. Plan your weekend risk exposure accordingly.
-<br><br>
-<strong>CLOSING POSTURE:</strong> Tactical long into the weekend with semis & AI-optics; pair-trade the energy/healthcare weakness against tech strength.
-</div>""", unsafe_allow_html=True)
+    <div style='
