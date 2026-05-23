@@ -73,14 +73,6 @@ footer {visibility: hidden;}
 .inst-change-down { font-size: 16px; font-weight: 600; color: #f87171; }
 .inst-change-flat { font-size: 16px; font-weight: 600; color: #94a3b8; }
 
-/* NEWS */
-.news-item { background: #1e293b; border: none; border-radius: 12px; padding: 26px 28px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
-.news-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.news-badge { padding: 4px 10px; border-radius: 4px; font-size: 13px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
-.nb-macro       { background: #312e81; color: #a5b4fc; }
-.news-headline { font-size: 20px; font-weight: 700; color: #f1f5f9; margin-bottom: 8px; }
-.news-body { font-size: 16px; color: #cbd5e1; line-height: 1.65; }
-
 /* TABLES */
 table { width: 100%; border-collapse: collapse; border: none !important; }
 th, td { border-left: none !important; border-right: none !important; }
@@ -141,7 +133,7 @@ def fetch_top_news():
             articles.append({
                 "title": n.get("title", "Market Update"),
                 "publisher": "BZ WIRE",
-                "teaser": n.get("teaser", "Monitoring for broader sector impact...")[:140] + "..."
+                "teaser": n.get("teaser", "Monitoring for broader sector impact...")[:250] + "..."
             })
     except: pass
 
@@ -151,7 +143,7 @@ def fetch_top_news():
         for n in yf_news:
             articles.append({
                 "title": n.get("title", "Market Update"),
-                "publisher": n.get("publisher", "Yahoo Finance"),
+                "publisher": n.get("publisher", "Yahoo Finance").upper()[:15],
                 "teaser": "Latest coverage and market commentary from " + n.get("publisher", "Yahoo Finance") + "."
             })
     except: pass
@@ -194,7 +186,6 @@ def fetch_gappers():
 
 @st.cache_data(ttl=300)
 def fetch_sips():
-    # Stocks in Play: Scan recent news for explicit tickers, cross-reference with FMP for live quotes
     try:
         url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=30"
         res = requests.get(url, headers={"accept": "application/json"}).json()
@@ -293,13 +284,23 @@ scorecard_html += "</div></div>"
 st.markdown(scorecard_html, unsafe_allow_html=True)
 
 
-# --- 02 | LIVE NEWS ---
+# --- 02 | LIVE NEWS (TABLE LAYOUT) ---
 news_data = fetch_top_news()
 if news_data:
-    news_html = """<div class="cloud-card"><div class="section-title">02 — Market Catalysts & Breaking News</div>\n"""
+    news_html = """<div class="cloud-card"><div class="section-title">02 — Market Catalysts & Breaking News</div><table><thead><tr><th style="width:15%;">Source</th><th style="width:85%;">Headline & Summary</th></tr></thead><tbody>\n"""
     for article in news_data:
-        news_html += f"""<div class="news-item"><div class="news-item-top"><span class="news-badge nb-macro">{article['publisher']}</span></div><div class="news-headline">{article['title']}</div><div class="news-body">{article['teaser']}</div></div>\n"""
-    news_html += "</div>"
+        news_html += f"""
+        <tr>
+            <td style="vertical-align: top; padding-top: 22px;">
+                <span style="background:#312e81; color:#a5b4fc; padding: 4px 10px; border-radius: 4px; font-size:12px; font-weight:700; letter-spacing:0.5px;">{article['publisher']}</span>
+            </td>
+            <td style="vertical-align: top; padding-top: 18px; padding-bottom: 18px;">
+                <div style="font-size: 20px; font-weight: 700; color: #f1f5f9; margin-bottom: 6px;">{article['title']}</div>
+                <div style="font-size: 16px; color: #cbd5e1; line-height: 1.6;">{article['teaser']}</div>
+            </td>
+        </tr>
+        """
+    news_html += "</tbody></table></div>"
     st.markdown(news_html, unsafe_allow_html=True)
 
 
@@ -350,7 +351,64 @@ if play_data:
     st.markdown(play_html, unsafe_allow_html=True)
 
 
-# --- 07 | BREADTH & VPCI (COMBINED CLOUD) ---
+# --- 07 | EARNINGS CALENDAR (WEEK AHEAD) ---
+earn_res = fetch_calendar_data("earnings")
+earn_data = earn_res.get("earnings", [])[:10]
+if earn_data:
+    earn_html = """<div class="cloud-card"><div class="section-title">07 — Earnings Calendar (Week Ahead)</div><table><thead><tr><th>Date</th><th>Ticker</th><th>Company</th><th>EPS Est.</th><th>Rev Est.</th></tr></thead><tbody>\n"""
+    for item in earn_data:
+        eps = item.get('eps_est')
+        rev = item.get('revenue_est')
+        eps_str = f"${eps}" if eps else "N/A"
+        rev_str = f"${(float(rev)/1e9):.2f}B" if rev else "N/A"
+        
+        d_raw = item.get('date', '')
+        try:
+            d_obj = datetime.strptime(d_raw, "%Y-%m-%d")
+            d_fmt = d_obj.strftime("%b %d")
+        except:
+            d_fmt = d_raw
+            
+        earn_html += f"""<tr><td class="catalyst-cell" style="font-size:16px;">{d_fmt}</td><td class="ticker-cell"><span class="etf-tag">{item.get('ticker')}</span></td><td class="catalyst-cell" style="color:#f1f5f9;">{item.get('name')}</td><td class="catalyst-cell">{eps_str}</td><td class="catalyst-cell">{rev_str}</td></tr>\n"""
+    earn_html += "</tbody></table></div>"
+    st.markdown(earn_html, unsafe_allow_html=True)
+else:
+    st.markdown("<div class='cloud-card'><div class='section-title'>07 — Earnings Calendar</div><div class='catalyst-cell'>No major earnings scheduled for the week ahead.</div></div>", unsafe_allow_html=True)
+
+
+# --- 08 | ECONOMIC CALENDAR (WEEK AHEAD) ---
+econ_res = fetch_calendar_data("economics")
+econ_data = econ_res.get("economics", [])[:10]
+if econ_data:
+    econ_html = """<div class="cloud-card"><div class="section-title">08 — Economic Calendar (Week Ahead)</div><table><thead><tr><th>Date & Time</th><th>Release</th><th>Impact</th></tr></thead><tbody>\n"""
+    for item in econ_data:
+        imp = item.get('importance', 3)
+        impact_str = "HIGH" if imp >= 4 else ("MED" if imp == 3 else "LOW")
+        color = "badge-bearish" if impact_str == "HIGH" else "badge-mixed" if impact_str == "MED" else "badge-cautious"
+        
+        d_str = item.get('date', '')
+        t_str = item.get('time', '')
+        
+        try:
+            d_obj = datetime.strptime(d_str, "%Y-%m-%d")
+            d_fmt = d_obj.strftime("%b %d")
+            if t_str and t_str != "00:00:00":
+                t_obj = datetime.strptime(t_str, "%H:%M:%S")
+                t_fmt = t_obj.strftime("%I:%M %p")
+            else:
+                t_fmt = "TBA"
+            dt_display = f"<div style='font-weight:700;'>{d_fmt}</div><div style='font-size:14px; color:#94a3b8;'>{t_fmt}</div>"
+        except:
+            dt_display = f"{d_str} {t_str}".strip()
+            
+        econ_html += f"""<tr><td class="ticker-cell" style="font-size:16px; vertical-align:middle;">{dt_display}</td><td class="catalyst-cell" style="vertical-align:middle;">{item.get('description', 'Data Release')}</td><td style="vertical-align:middle;"><span class="{color}">{impact_str}</span></td></tr>\n"""
+    econ_html += "</tbody></table></div>"
+    st.markdown(econ_html, unsafe_allow_html=True)
+else:
+    st.markdown("<div class='cloud-card'><div class='section-title'>08 — Economic Calendar</div><div class='catalyst-cell'>No major economic data scheduled for the week ahead.</div></div>", unsafe_allow_html=True)
+
+
+# --- 09 | BREADTH & VPCI (COMBINED CLOUD) ---
 vpci_html = ""
 try:
     spy_df = yf.Ticker("SPY").history(period="3mo")
@@ -358,13 +416,13 @@ try:
         latest_vpci = calculate_vpci(spy_df)
         vpci_color = "up-pct" if latest_vpci >= 0 else "down-pct"
         vpci_status = "BULLISH CONFIRMATION" if latest_vpci >= 0 else "BEARISH DIVERGENCE"
-        vpci_html = f"""<div class="news-item" style="border-left: 6px solid #818cf8;"><div style="font-size: 14px; font-weight: 700; color: #818cf8; text-transform: uppercase; margin-bottom: 8px;">Current VPCI Reading (SPY)</div><div style="font-size: 32px; font-weight: 800; margin-bottom: 12px;"><span class="{vpci_color}">{latest_vpci:.4f}</span> | <span style="font-size: 24px; font-weight: 700; color:#f1f5f9;">{vpci_status}</span></div><div style="font-size: 18px; line-height: 1.6; color: #cbd5e1;">The Volume Price Confirmation Indicator (VPCI) measures the relationship between price trends and volume. A positive value indicates that volume is expanding in the direction of the trend, confirming bullish strength.</div></div>"""
+        vpci_html = f"""<div style="border: 1px solid #334155; border-left: 6px solid #818cf8; background:#1e293b; padding: 26px 28px; border-radius: 12px;"><div style="font-size: 14px; font-weight: 700; color: #818cf8; text-transform: uppercase; margin-bottom: 8px;">Current VPCI Reading (SPY)</div><div style="font-size: 32px; font-weight: 800; margin-bottom: 12px;"><span class="{vpci_color}">{latest_vpci:.4f}</span> | <span style="font-size: 24px; font-weight: 700; color:#f1f5f9;">{vpci_status}</span></div><div style="font-size: 18px; line-height: 1.6; color: #cbd5e1;">The Volume Price Confirmation Indicator (VPCI) measures the relationship between price trends and volume. A positive value indicates that volume is expanding in the direction of the trend, confirming bullish strength.</div></div>"""
 except:
-    vpci_html = "<div class='news-item'>VPCI data syncing...</div>"
+    vpci_html = "<div style='padding: 26px 28px; border-radius: 12px; border: 1px solid #334155; background:#1e293b;'>VPCI data syncing...</div>"
 
 st.markdown(f"""
 <div class="cloud-card">
-    <div class="section-title">07 — Sentiment, Breadth & Technicals</div>
+    <div class="section-title">09 — Sentiment, Breadth & Technicals</div>
     <div class="inst-grid" style="margin-bottom: 28px;">
         <div class="inst-card"><div class="inst-name">T2108 (Above 40D MA)</div><div class="inst-level">58.4%</div><div class="inst-change-up">Healthy Breadth</div></div>
         <div class="inst-card"><div class="inst-name">Put/Call Ratio</div><div class="inst-level">0.82</div><div class="inst-change-up">Bullish Bias</div></div>
@@ -373,41 +431,6 @@ st.markdown(f"""
     {vpci_html}
 </div>
 """, unsafe_allow_html=True)
-
-
-# --- 08 | ECONOMIC DATA (WEEK AHEAD) ---
-econ_res = fetch_calendar_data("economics")
-econ_data = econ_res.get("economics", [])[:8]
-if econ_data:
-    econ_html = """<div class="cloud-card"><div class="section-title">08 — Economic Calendar (Week Ahead)</div><table><thead><tr><th>Date & Time</th><th>Release</th><th>Impact</th></tr></thead><tbody>\n"""
-    for item in econ_data:
-        imp = item.get('importance', 3)
-        impact_str = "HIGH" if imp >= 4 else ("MED" if imp == 3 else "LOW")
-        color = "badge-bearish" if impact_str == "HIGH" else "badge-mixed" if impact_str == "MED" else "badge-cautious"
-        d_str = item.get('date', '')
-        t_str = item.get('time', '')
-        dt_display = f"{d_str} {t_str}".strip()
-        econ_html += f"""<tr><td class="ticker-cell" style="font-size:16px;">{dt_display}</td><td class="catalyst-cell">{item.get('description', 'Data Release')}</td><td><span class="{color}">{impact_str}</span></td></tr>\n"""
-    econ_html += "</tbody></table></div>"
-    st.markdown(econ_html, unsafe_allow_html=True)
-
-
-# --- 09 | EARNINGS (WEEK AHEAD) ---
-earn_res = fetch_calendar_data("earnings")
-earn_data = earn_res.get("earnings", [])[:10]
-if earn_data:
-    earn_html = """<div class="cloud-card"><div class="section-title">09 — Earnings Calendar (Week Ahead)</div><table><thead><tr><th>Date</th><th>Ticker</th><th>Company</th><th>EPS Est.</th><th>Rev Est.</th></tr></thead><tbody>\n"""
-    for item in earn_data:
-        eps = item.get('eps_est')
-        rev = item.get('revenue_est')
-        eps_str = f"${eps}" if eps else "N/A"
-        rev_str = f"${(float(rev)/1e9):.2f}B" if rev else "N/A"
-        date_raw = item.get('date', '')
-        earn_html += f"""<tr><td class="catalyst-cell" style="font-size:16px;">{date_raw}</td><td class="ticker-cell"><span class="etf-tag">{item.get('ticker')}</span></td><td class="catalyst-cell" style="color:#f1f5f9;">{item.get('name')}</td><td class="catalyst-cell">{eps_str}</td><td class="catalyst-cell">{rev_str}</td></tr>\n"""
-    earn_html += "</tbody></table></div>"
-    st.markdown(earn_html, unsafe_allow_html=True)
-else:
-    st.markdown("<div class='cloud-card'><div class='section-title'>09 — Earnings Calendar</div><div class='catalyst-cell'>No major earnings scheduled.</div></div>", unsafe_allow_html=True)
 
 
 # --- 10 | EDITOR'S NOTE ---
