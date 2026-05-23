@@ -54,8 +54,8 @@ box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
 .badge-bullish { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #052e16; color: #4ade80; border: none; }
 .badge-bearish { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #450a0a; color: #f87171; border: none; }
 .badge-mixed { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #2d2000; color: #fbbf24; border: none; }
-.badge-live { display: inline-block; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 800; letter-spacing: 1.5px; background: #052e16; color: #4ade80; margin-left: 12px; vertical-align: middle; animation: pulse 2s infinite; border: none;}
-.badge-closed { display: inline-block; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 800; letter-spacing: 1.5px; background: #450a0a; color: #f87171; margin-left: 12px; vertical-align: middle; border: none;}
+.badge-cautious { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #1c1917; color: #fb923c; border: none; }
+.badge-live { display: inline-block; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 800; letter-spacing: 1.5px; background: #991b1b; color: #fca5a5; vertical-align: middle; animation: pulse 2s infinite; border: none;}
 
 @keyframes pulse {
 0% { opacity: 1; }
@@ -132,7 +132,6 @@ tr:last-child td { border-bottom: none !important; }
 # 2. LIVE DATA ENGINES (WITH FALLBACKS)
 # ==========================================
 
-# Helper: Guaranteed last close fetcher
 def get_last_price_change(ticker):
     try:
         hist = yf.Ticker(ticker).history(period="5d").dropna(subset=['Close'])
@@ -143,18 +142,22 @@ def get_last_price_change(ticker):
     except: pass
     return 0.0, 0.0
 
-@st.cache_data(ttl=60)
-def get_market_status():
-    try:
-        res = requests.get(f"https://financialmodelingprep.com/api/v3/is-the-market-open?apikey={FMP_KEY}").json()
-        if res and res.get("isTheStockMarketOpen"):
-            return "MARKET OPEN", "badge-live"
-        else:
-            return "MARKET CLOSED", "badge-closed"
-    except:
-        return "LIVE DATA", "badge-live"
+def get_market_rating(macro_data):
+    spx_pct = macro_data.get("S&P 500 (SPX)", {}).get("pct", 0)
+    ndx_pct = macro_data.get("Nasdaq Comp", {}).get("pct", 0)
+    
+    if spx_pct >= 0.5 and ndx_pct >= 0.5:
+        return "RISK-ON", "badge-bullish"
+    elif spx_pct > 0 and ndx_pct > 0:
+        return "BULLISH", "badge-bullish"
+    elif spx_pct <= -0.5 and ndx_pct <= -0.5:
+        return "RISK-OFF", "badge-bearish"
+    elif spx_pct < 0 and ndx_pct < 0:
+        return "BEARISH", "badge-bearish"
+    else:
+        return "MIXED", "badge-mixed"
 
-@st.cache_data(ttl=60) 
+@st.cache_data(ttl=10) 
 def fetch_expanded_macro():
     tickers = {
         "S&P 500 (SPX)": "^GSPC", "Nasdaq Comp": "^IXIC", "Dow Jones": "^DJI", 
@@ -280,8 +283,10 @@ def calculate_vpci(df, short_window=5, long_window=21):
 # 3. UI GENERATION
 # ==========================================
 
+# 1. Gather Macro Data & Calculate Rating First
+macro_data = fetch_expanded_macro()
+rating_text, rating_class = get_market_rating(macro_data)
 date_str = datetime.now().strftime("%A, %B %d, %Y")
-status_text, badge_class = get_market_status()
 
 # HEADER
 st.markdown(f"""
@@ -293,8 +298,8 @@ st.markdown(f"""
 </div>
 <div class="hdr-meta">
 <div class="hdr-date">{date_str}</div>
-<div style="margin-bottom:10px;color:#64748b">System Status</div>
-<span class="{badge_class}">● {status_text}</span>
+<div style="margin-bottom:10px;color:#64748b">Current Posture</div>
+<span class="{rating_class}">{rating_text}</span>
 </div>
 </div>
 </div>
@@ -302,10 +307,9 @@ st.markdown(f"""
 
 
 # --- 01 | SCORECARD ---
-macro_data = fetch_expanded_macro()
 scorecard_html = f"""
 <div class="cloud-card">
-<div class="section-title">01 — Scorecard <span class="{badge_class}" style="margin-left:16px;">● {status_text}</span></div>
+<div class="section-title">01 — Scorecard <span class="badge-live" style="margin-left:16px;">● LIVE DATA</span> <span class="{rating_class}" style="margin-left:8px;">{rating_text}</span></div>
 <div class="inst-grid">
 """
 for name, metrics in macro_data.items():
