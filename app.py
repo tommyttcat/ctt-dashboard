@@ -8,7 +8,7 @@ from datetime import datetime
 # ==========================================
 st.set_page_config(page_title="Confluence Trading Tools", layout="wide", initial_sidebar_state="collapsed")
 
-# Injecting the exact CSS with the "Cloud on Cloud" layered aesthetic
+# Injecting the exact CSS with flattened inner cards to reduce "cloud on cloud" noise
 st.markdown("""
 <style>
 /* Reset and Base App Styling */
@@ -25,18 +25,18 @@ footer {visibility: hidden;}
 /* Wrap constraint - Widened for a bigger layout */
 .block-container { max-width: 1100px !important; margin: 0 auto !important; padding-top: 1rem; padding-bottom: 3rem; }
 
-/* FLOATING CLOUD CARDS (Main Section Wrappers) */
+/* FLOATING CLOUD CARDS (Main Section Wrappers) - These keep the soft shadow */
 .cloud-card {
     background: #111827;
     border: none; 
     border-radius: 16px;
     padding: 36px 40px;
     margin-bottom: 40px;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
 }
 
 /* HEADER CLOUD */
-.hdr { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); padding: 44px 44px 34px; border: none; border-radius: 16px; margin-bottom: 40px; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4); }
+.hdr { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); padding: 44px 44px 34px; border: none; border-radius: 16px; margin-bottom: 40px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3); }
 .hdr-top { display: flex; justify-content: space-between; align-items: flex-start; }
 .wrap-type { font-size: 15px; font-weight: 700; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; }
 .wrap-title { font-size: 42px; font-weight: 800; color: #f1f5f9; margin-top: 10px; }
@@ -51,14 +51,14 @@ footer {visibility: hidden;}
 /* SECTION TITLE (Inside Clouds) */
 .section-title { font-size: 16px; font-weight: 800; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; margin-bottom: 24px; border-bottom: 2px solid #1e293b; padding-bottom: 12px;}
 
-/* INSTRUMENT GRID (Nested Cloud Cards) - Removed borders, added shadows */
+/* INSTRUMENT GRID (Nested Cards) - Shadows removed, anchored with subtle border */
 .inst-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
 .inst-card { 
     background: #1e293b; 
     border-radius: 12px; 
     padding: 24px 26px; 
-    border: none; 
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4); 
+    border: 1px solid #334155; 
+    box-shadow: none; 
 }
 .inst-name  { font-size: 14px; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
 .inst-level { font-size: 28px; font-weight: 700; color: #f1f5f9; margin: 6px 0 6px; }
@@ -66,14 +66,14 @@ footer {visibility: hidden;}
 .inst-change-down { font-size: 16px; font-weight: 600; color: #f87171; }
 .inst-change-flat { font-size: 16px; font-weight: 600; color: #94a3b8; }
 
-/* NEWS (Nested Cloud Cards) - Removed borders, added shadows */
+/* NEWS (Nested Cards) - Shadows removed, anchored with subtle border */
 .news-item { 
     background: #1e293b; 
-    border: none; 
+    border: 1px solid #334155; 
     border-radius: 12px; 
     padding: 26px 28px; 
     margin-bottom: 20px; 
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4); 
+    box-shadow: none; 
 }
 .news-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .news-badge { padding: 4px 10px; border-radius: 4px; font-size: 13px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
@@ -393,14 +393,14 @@ try:
         vpci_color = "up-pct" if latest_vpci >= 0 else "down-pct"
         vpci_status = "BULLISH CONFIRMATION" if latest_vpci >= 0 else "BEARISH DIVERGENCE"
         st.markdown(f"""
-<div class="news-item" style="border-left: 6px solid #818cf8;">
+<div class="news-item" style="border: 1px solid #334155; border-left: 6px solid #818cf8; background:#1e293b;">
 <div style="font-size: 14px; font-weight: 700; color: #818cf8; text-transform: uppercase; margin-bottom: 8px;">Current VPCI Reading (SPY)</div>
 <div style="font-size: 32px; font-weight: 800; margin-bottom: 12px;"><span class="{vpci_color}">{latest_vpci:.4f}</span> | <span style="font-size: 24px; font-weight: 700; color:#f1f5f9;">{vpci_status}</span></div>
 <div style="font-size: 18px; line-height: 1.6; color: #cbd5e1;">The Volume Price Confirmation Indicator (VPCI) measures the relationship between price trends and volume. A positive value indicates that volume is expanding in the direction of the trend, confirming bullish strength.</div>
 </div>
         """, unsafe_allow_html=True)
 except:
-    st.markdown("<div class='news-item'>VPCI data syncing...</div>", unsafe_allow_html=True)
+    st.markdown("<div class='news-item' style='border: 1px solid #334155;'>VPCI data syncing...</div>", unsafe_allow_html=True)
 
 st.markdown("</div>", unsafe_allow_html=True)
 
