@@ -8,7 +8,7 @@ from datetime import datetime
 # ==========================================
 st.set_page_config(page_title="CTT Market Briefing", layout="wide", initial_sidebar_state="collapsed")
 
-# Injecting the exact CSS from your HTML file, adapted slightly to override Streamlit's defaults
+# Injecting the exact CSS, scaled up and with vertical lines removed
 st.markdown("""
 <style>
 /* Reset and Base App Styling */
@@ -16,51 +16,51 @@ st.markdown("""
     background: #0d0d12; 
     color: #e2e8f0; 
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; 
-    font-size: 14px; 
+    font-size: 16px; 
     line-height: 1.6; 
 }
 header {visibility: hidden;}
 footer {visibility: hidden;}
 
-/* Wrap constraint matching the HTML */
-.block-container { max-width: 800px !important; margin: 0 auto !important; padding-top: 1rem; padding-bottom: 3rem; }
+/* Wrap constraint - Widened for a bigger layout */
+.block-container { max-width: 900px !important; margin: 0 auto !important; padding-top: 1rem; padding-bottom: 3rem; }
 
 /* HEADER */
-.hdr { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); padding: 32px 32px 24px; border-bottom: 2px solid #312e81; border-radius: 8px 8px 0 0; margin-bottom: 24px; }
+.hdr { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); padding: 40px 40px 30px; border-bottom: 2px solid #312e81; border-radius: 8px 8px 0 0; margin-bottom: 24px; }
 .hdr-top { display: flex; justify-content: space-between; align-items: flex-start; }
-.wrap-type { font-size: 11px; font-weight: 700; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; }
-.wrap-title { font-size: 28px; font-weight: 800; color: #f1f5f9; margin-top: 6px; }
-.hdr-meta { text-align: right; font-size: 12px; color: #94a3b8; }
-.hdr-date { font-size: 15px; color: #c7d2fe; font-weight: 600; margin-bottom: 4px; }
+.wrap-type { font-size: 13px; font-weight: 700; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; }
+.wrap-title { font-size: 34px; font-weight: 800; color: #f1f5f9; margin-top: 8px; }
+.hdr-meta { text-align: right; font-size: 14px; color: #94a3b8; }
+.hdr-date { font-size: 18px; color: #c7d2fe; font-weight: 600; margin-bottom: 6px; }
 
-.badge-bullish  { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: 1px; background: #052e16; color: #4ade80; border: 1px solid #166534; }
-.badge-bearish  { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: 1px; background: #450a0a; color: #f87171; border: 1px solid #991b1b; }
-.badge-mixed    { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: 1px; background: #2d2000; color: #fbbf24; border: 1px solid #92400e; }
-.badge-cautious { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: 1px; background: #1c1917; color: #fb923c; border: 1px solid #9a3412; }
+.badge-bullish  { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700; letter-spacing: 1px; background: #052e16; color: #4ade80; border: 1px solid #166534; }
+.badge-bearish  { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700; letter-spacing: 1px; background: #450a0a; color: #f87171; border: 1px solid #991b1b; }
+.badge-mixed    { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700; letter-spacing: 1px; background: #2d2000; color: #fbbf24; border: 1px solid #92400e; }
+.badge-cautious { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700; letter-spacing: 1px; background: #1c1917; color: #fb923c; border: 1px solid #9a3412; }
 
 /* SECTION */
-.section { padding: 24px 32px; border-bottom: 1px solid #1e293b; background: #0d0d12;}
-.section-title { font-size: 11px; font-weight: 700; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; margin-bottom: 16px; }
+.section { padding: 28px 36px; border-bottom: 1px solid #1e293b; background: #0d0d12;}
+.section-title { font-size: 13px; font-weight: 700; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; margin-bottom: 20px; }
 
 /* INSTRUMENT GRID */
-.inst-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.inst-card { background: #1e293b; border-radius: 8px; padding: 12px 14px; border: 1px solid #334155; }
-.inst-name  { font-size: 10px; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-.inst-level { font-size: 17px; font-weight: 700; color: #f1f5f9; margin: 3px 0 2px; }
-.inst-change-up   { font-size: 12px; font-weight: 600; color: #4ade80; }
-.inst-change-down { font-size: 12px; font-weight: 600; color: #f87171; }
-.inst-change-flat { font-size: 12px; font-weight: 600; color: #94a3b8; }
+.inst-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.inst-card { background: #1e293b; border-radius: 8px; padding: 16px 18px; border: 1px solid #334155; }
+.inst-name  { font-size: 12px; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+.inst-level { font-size: 20px; font-weight: 700; color: #f1f5f9; margin: 4px 0 4px; }
+.inst-change-up   { font-size: 14px; font-weight: 600; color: #4ade80; }
+.inst-change-down { font-size: 14px; font-weight: 600; color: #f87171; }
+.inst-change-flat { font-size: 14px; font-weight: 600; color: #94a3b8; }
 
 /* SENTIMENT */
-.sentiment-text { background: #111827; border-left: 3px solid #818cf8; padding: 12px 16px; border-radius: 0 6px 6px 0; margin-top: 16px; font-size: 13px; color: #cbd5e1; line-height: 1.8; }
-.sentiment-line { padding: 9px 0; color: #94a3b8; font-size: 13px; border-bottom: 1px solid #1e293b; }
+.sentiment-text { background: #111827; border-left: 4px solid #818cf8; padding: 16px 20px; border-radius: 0 8px 8px 0; margin-top: 20px; font-size: 15px; color: #cbd5e1; line-height: 1.8; }
+.sentiment-line { padding: 12px 0; color: #94a3b8; font-size: 15px; border-bottom: 1px solid #1e293b; }
 .sentiment-line:last-child { border-bottom: none; }
 .sentiment-line strong { color: #e2e8f0; }
 
 /* NEWS */
-.news-item { background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; }
-.news-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
-.news-badge { padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
+.news-item { background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 18px 20px; margin-bottom: 12px; }
+.news-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.news-badge { padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
 .nb-macro       { background: #312e81; color: #a5b4fc; }
 .nb-earnings    { background: #164e63; color: #67e8f9; }
 .nb-geopolitical{ background: #3b0764; color: #e879f9; }
@@ -68,42 +68,42 @@ footer {visibility: hidden;}
 .nb-sector      { background: #052e16; color: #4ade80; }
 .nb-alert       { background: #450a0a; color: #fca5a5; }
 .nb-technical   { background: #0c4a6e; color: #7dd3fc; }
-.news-headline { font-size: 14px; font-weight: 700; color: #f1f5f9; margin-bottom: 5px; }
-.news-body { font-size: 13px; color: #94a3b8; line-height: 1.65; }
+.news-headline { font-size: 16px; font-weight: 700; color: #f1f5f9; margin-bottom: 6px; }
+.news-body { font-size: 15px; color: #94a3b8; line-height: 1.65; }
 
-/* TABLES */
-table { width: 100%; border-collapse: collapse; }
-th { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #475569; padding: 8px 10px; text-align: left; border-bottom: 1px solid #1e293b; }
-td { padding: 10px 10px; border-bottom: 1px solid #1e293b; vertical-align: top; }
-tr:last-child td { border-bottom: none; }
-.ticker-cell { font-weight: 700; color: #f1f5f9; font-size: 14px; white-space: nowrap; }
-.ticker-name { font-size: 11px; color: #475569; display: block; font-weight: 400; margin-top: 2px; }
-.up-pct   { color: #4ade80; font-weight: 700; font-size: 14px; white-space: nowrap; }
-.down-pct { color: #f87171; font-weight: 700; font-size: 14px; white-space: nowrap; }
-.catalyst-cell { font-size: 12px; color: #94a3b8; line-height: 1.5; }
+/* TABLES (Forcing Vertical Lines Off) */
+table { width: 100%; border-collapse: collapse; border: none !important; }
+th, td { border-left: none !important; border-right: none !important; }
+th { font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #475569; padding: 12px 10px; text-align: left; border-bottom: 1px solid #1e293b !important; border-top: none !important; }
+td { padding: 14px 10px; border-bottom: 1px solid #1e293b !important; vertical-align: top; border-top: none !important; }
+tr:last-child td { border-bottom: none !important; }
+.ticker-cell { font-weight: 700; color: #f1f5f9; font-size: 16px; white-space: nowrap; }
+.ticker-name { font-size: 13px; color: #475569; display: block; font-weight: 400; margin-top: 4px; }
+.up-pct   { color: #4ade80; font-weight: 700; font-size: 16px; white-space: nowrap; }
+.down-pct { color: #f87171; font-weight: 700; font-size: 16px; white-space: nowrap; }
+.catalyst-cell { font-size: 14px; color: #94a3b8; line-height: 1.5; }
 
 /* WATCHLIST */
-.watchlist-item { background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; }
-.wl-num { font-size: 12px; color: #334155; font-weight: 700; padding-top: 3px; }
-.wl-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; }
-.wl-ticker { font-size: 16px; font-weight: 800; color: #818cf8; }
-.wl-body   { font-size: 13px; color: #94a3b8; line-height: 1.6; }
-.wl-levels { font-size: 12px; color: #475569; margin-top: 6px; }
+.watchlist-item { background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 18px 20px; margin-bottom: 12px; display: grid; grid-template-columns: 24px 1fr; gap: 12px; align-items: start; }
+.wl-num { font-size: 14px; color: #334155; font-weight: 700; padding-top: 3px; }
+.wl-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.wl-ticker { font-size: 18px; font-weight: 800; color: #818cf8; }
+.wl-body   { font-size: 15px; color: #94a3b8; line-height: 1.6; }
+.wl-levels { font-size: 14px; color: #475569; margin-top: 8px; }
 .wl-levels .sup { color: #4ade80; font-weight: 600; }
 .wl-levels .res { color: #f87171; font-weight: 600; }
 
 /* FOOTER */
-.footer { padding: 24px 32px 32px; background: #0d0d12;}
-.footer-note { background: #111827; border: 1px solid #312e81; border-radius: 10px; padding: 20px 22px; font-size: 13px; color: #94a3b8; line-height: 1.8; }
+.footer { padding: 28px 36px 40px; background: #0d0d12;}
+.footer-note { background: #111827; border: 1px solid #312e81; border-radius: 10px; padding: 24px 28px; font-size: 15px; color: #94a3b8; line-height: 1.8; }
 .footer-note strong { color: #c7d2fe; }
-.divider-row td { padding: 4px 10px; background: #0d0d12; font-size: 10px; color: #334155; letter-spacing: 1px; text-transform: uppercase; }
-.record-tag { font-size: 10px; font-weight: 700; color: #fbbf24; background: #2d2000; border-radius: 3px; padding: 1px 5px; margin-left: 4px; vertical-align: middle; }
+.divider-row td { padding: 6px 12px; background: #0d0d12; font-size: 12px; color: #334155; letter-spacing: 1px; text-transform: uppercase; }
 
 /* Mobile Fixes */
 @media (max-width: 600px) {
     .inst-grid { grid-template-columns: repeat(2, 1fr); }
-    .section { padding: 16px; }
-    .hdr { padding: 20px; }
+    .section { padding: 20px; }
+    .hdr { padding: 24px; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -267,7 +267,7 @@ if sector_data:
         sign = "▲ +" if item['pct'] > 0 else "▼ "
         heatmap_html += f"""
 <tr>
-<td style="color:#475569;font-size:12px">{rank}</td>
+<td style="color:#475569;font-size:14px">{rank}</td>
 <td class="ticker-cell">{item['ticker']}<span class="ticker-name">{item['sector']}</span></td>
 <td><span class="{color_class}">{sign}{item['pct']:.2f}%</span></td>
 <td class="catalyst-cell">Data sync complete</td>
@@ -400,8 +400,8 @@ try:
         vpci_status = "BULLISH CONFIRMATION" if latest_vpci >= 0 else "BEARISH DIVERGENCE"
         st.markdown(f"""
 <div class="sentiment-text" style="background:#1e293b; border-color:#60a5fa;">
-<div style="font-size: 11px; font-weight: 700; color: #818cf8; text-transform: uppercase; margin-bottom: 4px;">Current VPCI Reading (SPY)</div>
-<div style="font-size: 24px; font-weight: 800; margin-bottom: 10px;"><span class="{vpci_color}">{latest_vpci:.4f}</span> | {vpci_status}</div>
+<div style="font-size: 13px; font-weight: 700; color: #818cf8; text-transform: uppercase; margin-bottom: 6px;">Current VPCI Reading (SPY)</div>
+<div style="font-size: 26px; font-weight: 800; margin-bottom: 12px;"><span class="{vpci_color}">{latest_vpci:.4f}</span> | {vpci_status}</div>
 The Volume Price Confirmation Indicator (VPCI) measures the relationship between price trends and volume. A positive value indicates that volume is expanding in the direction of the trend, confirming bullish strength.
 </div>
         """, unsafe_allow_html=True)
@@ -423,10 +423,10 @@ st.markdown("""
 </tr>
 </thead>
 <tbody>
-<tr><td class="ticker-cell" style="font-size:12px;">08:30 AM</td><td class="catalyst-cell">Core PCE Price Index MoM</td><td><span class="badge-bearish">HIGH</span></td></tr>
-<tr><td class="ticker-cell" style="font-size:12px;">09:45 AM</td><td class="catalyst-cell">Chicago PMI</td><td><span class="badge-mixed">MED</span></td></tr>
-<tr><td class="ticker-cell" style="font-size:12px;">10:00 AM</td><td class="catalyst-cell">UMich Consumer Sentiment (Final)</td><td><span class="badge-bearish">HIGH</span></td></tr>
-<tr><td class="ticker-cell" style="font-size:12px;">01:00 PM</td><td class="catalyst-cell">Baker Hughes Rig Count</td><td><span class="badge-cautious" style="background:transparent; border-color:#475569; color:#94a3b8;">LOW</span></td></tr>
+<tr><td class="ticker-cell" style="font-size:14px;">08:30 AM</td><td class="catalyst-cell">Core PCE Price Index MoM</td><td><span class="badge-bearish">HIGH</span></td></tr>
+<tr><td class="ticker-cell" style="font-size:14px;">09:45 AM</td><td class="catalyst-cell">Chicago PMI</td><td><span class="badge-mixed">MED</span></td></tr>
+<tr><td class="ticker-cell" style="font-size:14px;">10:00 AM</td><td class="catalyst-cell">UMich Consumer Sentiment (Final)</td><td><span class="badge-bearish">HIGH</span></td></tr>
+<tr><td class="ticker-cell" style="font-size:14px;">01:00 PM</td><td class="catalyst-cell">Baker Hughes Rig Count</td><td><span class="badge-cautious" style="background:transparent; border-color:#475569; color:#94a3b8;">LOW</span></td></tr>
 </tbody>
 </table>
 </div>
