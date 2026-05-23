@@ -7,6 +7,7 @@ from datetime import datetime
 # ==========================================
 # 1. PAGE CONFIGURATION & PREMIUM CSS
 # ==========================================
+# We use "wide" but constrain it with CSS below so it perfectly centers at a readable width
 st.set_page_config(page_title="CTT Daily Briefing", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
@@ -16,29 +17,28 @@ st.markdown("""
     header {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Remove confined web limits - stretch to screen */
-    .block-container { padding-top: 2rem; padding-bottom: 2rem; max-width: 98% !important; }
+    /* Center the app and constrain width for readability */
+    .block-container { max-width: 850px !important; margin: 0 auto !important; padding-top: 2rem; padding-bottom: 4rem; }
     
     /* Typography & Colors */
     .pos { color: #00E676; font-weight: 600;}
     .neg { color: #FF3D00; font-weight: 600;}
-    .section-head { font-family: 'Courier New', Courier, monospace; color: #78909C; font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 16px; margin-top: 32px; border-bottom: 1px solid #1E293B; padding-bottom: 8px;}
+    .section-head { font-family: 'Courier New', Courier, monospace; color: #78909C; font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 16px; margin-top: 40px; border-bottom: 1px solid #1E293B; padding-bottom: 8px;}
     
     /* Elevated Cards without Borders */
-    .card { background-color: #11151E; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.02); }
+    .card { background-color: #11151E; border-radius: 12px; padding: 24px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.02); }
     
-    /* Metrics Grid */
-    .metric-grid { display: grid; gap: 16px; margin-bottom: 10px; }
+    /* Metrics Grid (4 items across inside a single section) */
+    .metric-grid { display: grid; gap: 16px; }
     .metric-box { background-color: #171C28; padding: 16px; border-radius: 10px; text-align: center; border: 1px solid rgba(255,255,255,0.03);}
     .metric-title { color: #8B949E; font-size: 11px; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px;}
-    .metric-value { color: #FFFFFF; font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+    .metric-value { color: #FFFFFF; font-size: 24px; font-weight: 700; margin-bottom: 4px; }
     .metric-change { font-size: 13px; }
     
-    /* Premium Borderless Tables (Floating Pill Rows) */
-    .custom-table { width: 100%; border-collapse: separate; border-spacing: 0 8px; font-size: 13px; }
-    .custom-table th { text-align: left; color: #8B949E; padding: 0 12px 4px 12px; font-weight: 500; font-size: 10px; text-transform: uppercase; border: none; }
-    .custom-table td { padding: 14px 12px; background-color: #171C28; border: none; color: #E6EDF3; }
-    /* Rounded corners for the first and last cells of each row to create a pill effect */
+    /* Premium Borderless Tables */
+    .custom-table { width: 100%; border-collapse: separate; border-spacing: 0 8px; font-size: 14px; }
+    .custom-table th { text-align: left; color: #8B949E; padding: 0 12px 4px 12px; font-weight: 500; font-size: 11px; text-transform: uppercase; border: none; }
+    .custom-table td { padding: 16px 12px; background-color: #171C28; border: none; color: #E6EDF3; }
     .custom-table tr td:first-child { border-top-left-radius: 8px; border-bottom-left-radius: 8px; }
     .custom-table tr td:last-child { border-top-right-radius: 8px; border-bottom-right-radius: 8px; }
     
@@ -47,10 +47,10 @@ st.markdown("""
     .badge-short { background: rgba(255, 61, 0, 0.1); color: #FF3D00; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; text-transform: uppercase;}
     
     /* Editor's Note */
-    .editor-note { background: linear-gradient(145deg, #1A173A 0%, #0F1219 100%); padding: 24px; border-radius: 12px; color: #E6EDF3; font-size: 15px; line-height: 1.7; border-left: 4px solid #8A2BE2; }
+    .editor-note { background: linear-gradient(145deg, #1A173A 0%, #0F1219 100%); padding: 28px; border-radius: 12px; color: #E6EDF3; font-size: 15px; line-height: 1.7; border-left: 4px solid #8A2BE2; }
     .editor-note strong { color: #B388FF; font-weight: 600; }
 
-    /* Responsive Grid Adjustments */
+    /* Responsive Grid Adjustments for Mobile */
     @media (max-width: 768px) {
         .metric-grid { grid-template-columns: repeat(2, 1fr); }
     }
@@ -115,8 +115,9 @@ def calculate_vpci(df, short_window=5, long_window=21):
 
 # HEADER
 date_str = datetime.now().strftime("%A — %B %d, %Y")
-st.markdown(f"<h1 style='font-size: 28px; font-weight: 800; margin-bottom: 4px;'>Confluence Trading Tools | Daily Briefing</h1>", unsafe_allow_html=True)
-st.markdown(f"<div style='color: #8B949E; font-size: 14px; margin-bottom: 24px; font-weight: 600;'>{date_str}</div>", unsafe_allow_html=True)
+st.markdown(f"<h1 style='font-size: 32px; font-weight: 800; margin-bottom: 4px; text-align: center;'>Confluence Trading Tools | Daily Briefing</h1>", unsafe_allow_html=True)
+st.markdown(f"<div style='color: #8B949E; font-size: 15px; margin-bottom: 40px; font-weight: 600; text-align: center;'>{date_str}</div>", unsafe_allow_html=True)
+
 
 # --- 1. FUTURES & MACRO SNAPSHOT ---
 st.markdown("<div class='section-head'>01 — Futures & Macro Snapshot</div>", unsafe_allow_html=True)
@@ -134,42 +135,24 @@ for name, metrics in macro_data.items():
 scorecard_html += "</div></div>"
 st.markdown(scorecard_html, unsafe_allow_html=True)
 
-# ROW 2: News & Sectors
-col1, col2 = st.columns([1.2, 1])
 
-with col1:
-    # --- 2. KEY NEWS & CATALYSTS ---
-    st.markdown("<div class='section-head'>02 — Key News & Catalysts</div>", unsafe_allow_html=True)
-    st.markdown("""<div class='card'>
-    <div style='margin-bottom: 20px;'>
-        <div style='color: #FF5252; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>MACRO / FED</div>
-        <div style='font-size: 14px; color: #E6EDF3;'><strong>Core PCE Print</strong> — Inflation data aligns with consensus, stripping away hawkish tail-risks and steepening the yield curve.</div>
-    </div>
-    <div style='margin-bottom: 20px;'>
-        <div style='color: #448AFF; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>SECTOR ROTATION</div>
-        <div style='font-size: 14px; color: #E6EDF3;'><strong>Semiconductor Strength</strong> — Leading optical/infra names continue their tear on server-demand signal, lifting NDX heavily.</div>
-    </div>
-    <div>
-        <div style='color: #E040FB; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px;'>M&A ACTION</div>
-        <div style='font-size: 14px; color: #E6EDF3;'><strong>Pharma Bidding War</strong> — Competing private equity offers surface for mid-cap biosciences, juicing the XLV underlying.</div>
-    </div>
-    </div>""", unsafe_allow_html=True)
+# --- 2. KEY NEWS & CATALYSTS ---
+st.markdown("<div class='section-head'>02 — Key News & Catalysts</div>", unsafe_allow_html=True)
+st.markdown("""<div class='card'>
+<div style='margin-bottom: 24px;'>
+    <div style='color: #FF5252; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 8px;'>MACRO / FED</div>
+    <div style='font-size: 15px; color: #E6EDF3;'><strong>Core PCE Print</strong> — Inflation data aligns with consensus, stripping away hawkish tail-risks and steepening the yield curve.</div>
+</div>
+<div style='margin-bottom: 24px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 24px;'>
+    <div style='color: #448AFF; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 8px;'>SECTOR ROTATION</div>
+    <div style='font-size: 15px; color: #E6EDF3;'><strong>Semiconductor Strength</strong> — Leading optical/infra names continue their tear on server-demand signal, lifting NDX heavily.</div>
+</div>
+<div style='border-top: 1px solid rgba(255,255,255,0.05); padding-top: 24px;'>
+    <div style='color: #E040FB; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 8px;'>M&A ACTION</div>
+    <div style='font-size: 15px; color: #E6EDF3;'><strong>Pharma Bidding War</strong> — Competing private equity offers surface for mid-cap biosciences, juicing the XLV underlying.</div>
+</div>
+</div>""", unsafe_allow_html=True)
 
-with col2:
-    # --- 3. TOP SECTORS & MONEY FLOW ---
-    st.markdown("<div class='section-head'>03 — Top Sectors & Money Flow</div>", unsafe_allow_html=True)
-    sector_data = fetch_sector_flow()
-    table_html = """<div class='card' style='padding: 12px 24px;'><table class='custom-table'>
-    <tr><th>ETF</th><th>SECTOR</th><th style='text-align: right;'>FLOW %</th></tr>\n"""
-    for item in sector_data:
-        color_class = "pos" if item['pct'] >= 0 else "neg"
-        sign = "+" if item['pct'] > 0 else ""
-        table_html += f"""<tr>
-        <td><span class='etf-tag'>{item['ticker']}</span></td>
-        <td style='font-weight: 600;'>{item['sector']}</td>
-        <td style='text-align: right;' class='{color_class}'>{sign}{item['pct']:.1f}%</td>
-        </tr>\n"""
-    table_html += "</table></div>"
-    st.markdown(table_html, unsafe_allow_html=True)
 
-# ROW 3: G
+# --- 3. TOP SECTORS & MONEY FLOW ---
+st.markdown("<div class='section-head'>03 — Top Sectors & Money Flow</div>",
