@@ -78,8 +78,7 @@ footer {visibility: hidden;}
 .news-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .news-badge { padding: 4px 10px; border-radius: 4px; font-size: 13px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
 .nb-macro       { background: #312e81; color: #a5b4fc; }
-.news-headline { font-size: 20px; font-weight: 700; color: #f1f5f9; margin-bottom: 8px; display: block; text-decoration: none; transition: color 0.2s; }
-.news-headline:hover { color: #818cf8; text-decoration: underline; }
+.news-headline { font-size: 20px; font-weight: 700; color: #f1f5f9; margin-bottom: 8px; }
 .news-body { font-size: 16px; color: #cbd5e1; line-height: 1.65; }
 
 /* TABLES */
@@ -142,7 +141,6 @@ def fetch_top_news():
             articles.append({
                 "title": n.get("title", "Market Update"),
                 "publisher": "BZ WIRE",
-                "url": n.get("url", "#"),
                 "teaser": n.get("teaser", "Monitoring for broader sector impact...")[:140] + "..."
             })
     except: pass
@@ -154,7 +152,6 @@ def fetch_top_news():
             articles.append({
                 "title": n.get("title", "Market Update"),
                 "publisher": n.get("publisher", "Yahoo Finance"),
-                "url": n.get("link", "#"),
                 "teaser": "Latest coverage and market commentary from " + n.get("publisher", "Yahoo Finance") + "."
             })
     except: pass
@@ -301,7 +298,7 @@ news_data = fetch_top_news()
 if news_data:
     news_html = """<div class="cloud-card"><div class="section-title">02 — Market Catalysts & Breaking News</div>\n"""
     for article in news_data:
-        news_html += f"""<div class="news-item"><div class="news-item-top"><span class="news-badge nb-macro">{article['publisher']}</span></div><a href="{article['url']}" target="_blank" class="news-headline">{article['title']}</a><div class="news-body">{article['teaser']}</div></div>\n"""
+        news_html += f"""<div class="news-item"><div class="news-item-top"><span class="news-badge nb-macro">{article['publisher']}</span></div><div class="news-headline">{article['title']}</div><div class="news-body">{article['teaser']}</div></div>\n"""
     news_html += "</div>"
     st.markdown(news_html, unsafe_allow_html=True)
 
@@ -353,44 +350,7 @@ if play_data:
     st.markdown(play_html, unsafe_allow_html=True)
 
 
-# --- 07 | EARNINGS CALENDAR (WEEK AHEAD) ---
-earn_res = fetch_calendar_data("earnings")
-earn_data = earn_res.get("earnings", [])[:10]
-if earn_data:
-    earn_html = """<div class="cloud-card"><div class="section-title">07 — Earnings Calendar (Week Ahead)</div><table><thead><tr><th>Date</th><th>Ticker</th><th>Company</th><th>EPS Est.</th><th>Rev Est.</th></tr></thead><tbody>\n"""
-    for item in earn_data:
-        eps = item.get('eps_est')
-        rev = item.get('revenue_est')
-        eps_str = f"${eps}" if eps else "N/A"
-        rev_str = f"${(float(rev)/1e9):.2f}B" if rev else "N/A"
-        date_raw = item.get('date', '')
-        earn_html += f"""<tr><td class="catalyst-cell" style="font-size:16px;">{date_raw}</td><td class="ticker-cell"><span class="etf-tag">{item.get('ticker')}</span></td><td class="catalyst-cell" style="color:#f1f5f9;">{item.get('name')}</td><td class="catalyst-cell">{eps_str}</td><td class="catalyst-cell">{rev_str}</td></tr>\n"""
-    earn_html += "</tbody></table></div>"
-    st.markdown(earn_html, unsafe_allow_html=True)
-else:
-    st.markdown("<div class='cloud-card'><div class='section-title'>07 — Earnings Calendar</div><div class='catalyst-cell'>No major earnings scheduled for the week ahead.</div></div>", unsafe_allow_html=True)
-
-
-# --- 08 | ECONOMIC CALENDAR (WEEK AHEAD) ---
-econ_res = fetch_calendar_data("economics")
-econ_data = econ_res.get("economics", [])[:10]
-if econ_data:
-    econ_html = """<div class="cloud-card"><div class="section-title">08 — Economic Calendar (Week Ahead)</div><table><thead><tr><th>Date & Time</th><th>Release</th><th>Impact</th></tr></thead><tbody>\n"""
-    for item in econ_data:
-        imp = item.get('importance', 3)
-        impact_str = "HIGH" if imp >= 4 else ("MED" if imp == 3 else "LOW")
-        color = "badge-bearish" if impact_str == "HIGH" else "badge-mixed" if impact_str == "MED" else "badge-cautious"
-        d_str = item.get('date', '')
-        t_str = item.get('time', '')
-        dt_display = f"{d_str} {t_str}".strip()
-        econ_html += f"""<tr><td class="ticker-cell" style="font-size:16px;">{dt_display}</td><td class="catalyst-cell">{item.get('description', 'Data Release')}</td><td><span class="{color}">{impact_str}</span></td></tr>\n"""
-    econ_html += "</tbody></table></div>"
-    st.markdown(econ_html, unsafe_allow_html=True)
-else:
-    st.markdown("<div class='cloud-card'><div class='section-title'>08 — Economic Calendar</div><div class='catalyst-cell'>No major economic data scheduled for the week ahead.</div></div>", unsafe_allow_html=True)
-
-
-# --- 09 | BREADTH & VPCI (COMBINED CLOUD) ---
+# --- 07 | BREADTH & VPCI (COMBINED CLOUD) ---
 vpci_html = ""
 try:
     spy_df = yf.Ticker("SPY").history(period="3mo")
@@ -404,7 +364,7 @@ except:
 
 st.markdown(f"""
 <div class="cloud-card">
-    <div class="section-title">09 — Sentiment, Breadth & Technicals</div>
+    <div class="section-title">07 — Sentiment, Breadth & Technicals</div>
     <div class="inst-grid" style="margin-bottom: 28px;">
         <div class="inst-card"><div class="inst-name">T2108 (Above 40D MA)</div><div class="inst-level">58.4%</div><div class="inst-change-up">Healthy Breadth</div></div>
         <div class="inst-card"><div class="inst-name">Put/Call Ratio</div><div class="inst-level">0.82</div><div class="inst-change-up">Bullish Bias</div></div>
@@ -415,10 +375,45 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 
+# --- 08 | ECONOMIC DATA (WEEK AHEAD) ---
+econ_res = fetch_calendar_data("economics")
+econ_data = econ_res.get("economics", [])[:8]
+if econ_data:
+    econ_html = """<div class="cloud-card"><div class="section-title">08 — Economic Calendar (Week Ahead)</div><table><thead><tr><th>Date & Time</th><th>Release</th><th>Impact</th></tr></thead><tbody>\n"""
+    for item in econ_data:
+        imp = item.get('importance', 3)
+        impact_str = "HIGH" if imp >= 4 else ("MED" if imp == 3 else "LOW")
+        color = "badge-bearish" if impact_str == "HIGH" else "badge-mixed" if impact_str == "MED" else "badge-cautious"
+        d_str = item.get('date', '')
+        t_str = item.get('time', '')
+        dt_display = f"{d_str} {t_str}".strip()
+        econ_html += f"""<tr><td class="ticker-cell" style="font-size:16px;">{dt_display}</td><td class="catalyst-cell">{item.get('description', 'Data Release')}</td><td><span class="{color}">{impact_str}</span></td></tr>\n"""
+    econ_html += "</tbody></table></div>"
+    st.markdown(econ_html, unsafe_allow_html=True)
+
+
+# --- 09 | EARNINGS (WEEK AHEAD) ---
+earn_res = fetch_calendar_data("earnings")
+earn_data = earn_res.get("earnings", [])[:10]
+if earn_data:
+    earn_html = """<div class="cloud-card"><div class="section-title">09 — Earnings Calendar (Week Ahead)</div><table><thead><tr><th>Date</th><th>Ticker</th><th>Company</th><th>EPS Est.</th><th>Rev Est.</th></tr></thead><tbody>\n"""
+    for item in earn_data:
+        eps = item.get('eps_est')
+        rev = item.get('revenue_est')
+        eps_str = f"${eps}" if eps else "N/A"
+        rev_str = f"${(float(rev)/1e9):.2f}B" if rev else "N/A"
+        date_raw = item.get('date', '')
+        earn_html += f"""<tr><td class="catalyst-cell" style="font-size:16px;">{date_raw}</td><td class="ticker-cell"><span class="etf-tag">{item.get('ticker')}</span></td><td class="catalyst-cell" style="color:#f1f5f9;">{item.get('name')}</td><td class="catalyst-cell">{eps_str}</td><td class="catalyst-cell">{rev_str}</td></tr>\n"""
+    earn_html += "</tbody></table></div>"
+    st.markdown(earn_html, unsafe_allow_html=True)
+else:
+    st.markdown("<div class='cloud-card'><div class='section-title'>09 — Earnings Calendar</div><div class='catalyst-cell'>No major earnings scheduled.</div></div>", unsafe_allow_html=True)
+
+
 # --- 10 | EDITOR'S NOTE ---
 st.markdown("""
 <div class="cloud-card" style="border-left: 6px solid #818cf8;">
-<div class="section-title" style="border-bottom:none; margin-bottom:12px;">10 — Editor's Note</div>
+<div class="section-title" style="border-bottom:none; margin-bottom:12px;">10 — Editor's Morning Note</div>
 <div style="font-size: 18px; color: #cbd5e1; line-height: 1.8;">
 <strong>Market Momentum (MKM)</strong> is synchronized across the hourly timeframe, indicating potential for a midday pivot. <br><br>
 The real test today is the interaction with the 4.2% level on the 10Y Yield. Watch for a rotation out of heavily weighted tech names into defensive posturing if yields spike rapidly. <br><br>
