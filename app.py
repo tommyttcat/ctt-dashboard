@@ -76,9 +76,10 @@ box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
 .inst-change-down { font-size: 16px; font-weight: 600; color: #f87171; }
 .inst-change-flat { font-size: 16px; font-weight: 600; color: #94a3b8; }
 
-/* STACKED CARDS */
+/* STACKED CARDS (News, Earnings, Breadth) - NO BORDERS */
 .news-item { background: #1e293b; border: none !important; border-radius: 12px; padding: 26px 28px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
 .news-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.news-headline { font-size: 20px; font-weight: 700; color: #f1f5f9; margin-bottom: 8px; }
 .news-body { font-size: 16px; color: #cbd5e1; line-height: 1.65; }
 
 /* MULTI-COLOR PILL BADGES */
@@ -106,7 +107,7 @@ box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
 .wl-levels .sup { color: #4ade80; font-weight: 600; }
 .wl-levels .res { color: #f87171; font-weight: 600; }
 
-/* TABLES */
+/* TABLES (For Scanner & Sector flow) */
 table { width: 100%; border-collapse: collapse; border: none !important; }
 th, td { border-left: none !important; border-right: none !important; }
 th { font-size: 14px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #64748b; padding: 16px 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05) !important; border-top: none !important; }
@@ -129,7 +130,7 @@ tr:last-child td { border-bottom: none !important; }
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. LIVE DATA ENGINES (FORCED REFRESH)
+# 2. LIVE DATA ENGINES (WITH FALLBACKS)
 # ==========================================
 
 def get_last_price_change(ticker):
@@ -145,22 +146,19 @@ def get_last_price_change(ticker):
 def get_market_rating(macro_data):
     spx_pct = macro_data.get("S&P 500 (SPX)", {}).get("pct", 0)
     ndx_pct = macro_data.get("Nasdaq Comp", {}).get("pct", 0)
-    if spx_pct >= 0.5 and ndx_pct >= 0.5: return "RISK-ON", "badge-bullish"
-    elif spx_pct > 0 and ndx_pct > 0: return "BULLISH", "badge-bullish"
-    elif spx_pct <= -0.5 and ndx_pct <= -0.5: return "RISK-OFF", "badge-bearish"
-    elif spx_pct < 0 and ndx_pct < 0: return "BEARISH", "badge-bearish"
-    else: return "MIXED", "badge-mixed"
+    
+    if spx_pct >= 0.5 and ndx_pct >= 0.5:
+        return "RISK-ON", "badge-bullish"
+    elif spx_pct > 0 and ndx_pct > 0:
+        return "BULLISH", "badge-bullish"
+    elif spx_pct <= -0.5 and ndx_pct <= -0.5:
+        return "RISK-OFF", "badge-bearish"
+    elif spx_pct < 0 and ndx_pct < 0:
+        return "BEARISH", "badge-bearish"
+    else:
+        return "MIXED", "badge-mixed"
 
-def get_market_status():
-    try:
-        res = requests.get(f"https://financialmodelingprep.com/api/v3/is-the-market-open?apikey={FMP_KEY}").json()
-        if res and res.get("isTheStockMarketOpen"):
-            return "MARKET OPEN", "badge-live"
-        else:
-            return "MARKET CLOSED", "badge-closed"
-    except:
-        return "LIVE DATA", "badge-live"
-
+@st.cache_data(ttl=10) 
 def fetch_expanded_macro():
     tickers = {
         "S&P 500 (SPX)": "^GSPC", "Nasdaq Comp": "^IXIC", "Dow Jones": "^DJI", 
@@ -174,10 +172,12 @@ def fetch_expanded_macro():
         data[name] = {"price": p, "pct": c}
     return data
 
+@st.cache_data(ttl=60)
 def fetch_pcr():
     p, _ = get_last_price_change("^PCR")
     return p if p > 0 else 0.82
 
+@st.cache_data(ttl=300)
 def fetch_sector_flow():
     sector_map = {
         "XLK": "Technology", "XLY": "Consumer Disc", "XLI": "Industrials", 
@@ -192,6 +192,7 @@ def fetch_sector_flow():
         perf.append({"ticker": ticker, "sector": name, "pct": c, "theme": theme, "flow": flow})
     return sorted(perf, key=lambda x: x['pct'], reverse=True)
 
+@st.cache_data(ttl=120)
 def fetch_gappers():
     results = []
     try:
@@ -262,9 +263,8 @@ def fetch_gappers():
                 
                 vol_str = f"{vol/1e6:.2f}M" if vol >= 1e6 else f"{vol/1e3:.0f}K"
                 dol_vol_str = f"${dol_vol/1e6:.2f}M" if dol_vol >= 1e6 else f"${dol_vol/1e3:.0f}K"
-                notes = f"Vol: <strong>{vol_str}</strong> &nbsp;|&nbsp; $Vol: <strong>{dol_vol_str}</strong> &nbsp;|&nbsp; RVOL: <strong>{rel_vol:.2f}</strong>"
                 
-                results.append({"ticker": sym, "price": price, "change": change, "type": t_type, "session": session, "notes": notes})
+                results.append({"ticker": sym, "price": price, "change": change, "type": t_type, "session": session, "vol": vol_str, "dvol": dol_vol_str, "rvol": f"{rel_vol:.2f}"})
 
         process_list(sorted_gainers, "Gainer")
         process_list(sorted_losers, "Loser")
@@ -272,7 +272,7 @@ def fetch_gappers():
         if results: return results
     except: pass
     
-    # GUARANTEED FALLBACK FOR WEEKENDS: Pull exact tickers from screenshot to prove UI works
+    # GUARANTEED FALLBACK FOR WEEKENDS
     fallback_tickers = ["AKTX", "PCLA", "RYOJ", "QTEX", "BIYA", "LFS", "VCIG", "HYLN", "FJET", "MEHA"]
     perf = []
     for t in fallback_tickers:
@@ -289,9 +289,8 @@ def fetch_gappers():
                 
                 vol_str = f"{vol/1e6:.2f}M" if vol >= 1e6 else f"{vol/1e3:.0f}K"
                 dol_vol_str = f"${dol_vol/1e6:.2f}M"
-                notes = f"Vol: <strong>{vol_str}</strong> &nbsp;|&nbsp; $Vol: <strong>{dol_vol_str}</strong> &nbsp;|&nbsp; RVOL: <strong>{rel_vol:.2f}</strong>"
                 
-                perf.append({"ticker": t, "price": float(curr), "change": float(c), "session": "REGULAR", "notes": notes})
+                perf.append({"ticker": t, "price": float(curr), "change": float(c), "session": "REGULAR", "vol": vol_str, "dvol": dol_vol_str, "rvol": f"{rel_vol:.2f}"})
         except: pass
     
     perf = sorted(perf, key=lambda x: x['change'], reverse=True)
@@ -303,6 +302,7 @@ def fetch_gappers():
         results.append(item)
     return results
 
+@st.cache_data(ttl=300)
 def fetch_sips():
     try:
         url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=30"
@@ -330,6 +330,7 @@ def fetch_sips():
     except: 
         return []
 
+@st.cache_data(ttl=120)
 def fetch_liquidity_basket():
     tickers = ["SPY", "QQQ", "IWM", "NVDA", "AAPL", "AMD", "TSLA", "META", "AMZN", "MSFT"]
     results = []
@@ -389,6 +390,16 @@ def parse_news_badge(title):
     elif any(x in t for x in ['war', 'china', 'fed', 'rate', 'inflation', 'biden', 'trump', 'geopolitical']): return 'nb-purple', 'MACRO'
     elif any(x in t for x in ['plunge', 'crash', 'down', 'miss']): return 'nb-red', 'ALERT'
     else: return 'nb-blue', 'MARKET UPDATE'
+
+def get_market_status():
+    try:
+        res = requests.get(f"https://financialmodelingprep.com/api/v3/is-the-market-open?apikey={FMP_KEY}").json()
+        if res and res.get("isTheStockMarketOpen"):
+            return "MARKET OPEN", "badge-live"
+        else:
+            return "MARKET CLOSED", "badge-closed"
+    except:
+        return "LIVE DATA", "badge-live"
 
 # ==========================================
 # 3. UI GENERATION
@@ -514,7 +525,7 @@ gappers_html = """
 <div class="section-title">04 — Pre/Post Market Gappers (Top 10)</div>
 <table>
 <thead>
-<tr><th>Ticker</th><th>Session</th><th>Price</th><th>Gap %</th><th>Scanner Notes</th></tr>
+<tr><th>Ticker</th><th>Session</th><th>Price</th><th>Gap %</th><th>Vol</th><th>$ Vol</th><th>RVOL</th></tr>
 </thead>
 <tbody>
 """
@@ -527,10 +538,12 @@ for item in gainers:
 <td style="vertical-align:middle;"><span class="nb-badge nb-blue">{item.get('session', 'REGULAR')}</span></td>
 <td class="catalyst-cell" style="color:#f1f5f9;">${item['price']:.2f}</td>
 <td><div class="up-pct">▲ +{item['change']:.2f}%</div></td>
-<td class="catalyst-cell" style="font-size:15px;">{item.get('notes', '')}</td>
+<td class="catalyst-cell" style="font-size:15px;">{item.get('vol', '')}</td>
+<td class="catalyst-cell" style="font-size:15px;">{item.get('dvol', '')}</td>
+<td class="catalyst-cell" style="font-size:15px;">{item.get('rvol', '')}</td>
 </tr>
 """
-gappers_html += """<tr class="divider-row"><td colspan="5">— Top Losers —</td></tr>"""
+gappers_html += """<tr class="divider-row"><td colspan="7">— Top Losers —</td></tr>"""
 for item in losers:
     gappers_html += f"""
 <tr>
@@ -538,7 +551,9 @@ for item in losers:
 <td style="vertical-align:middle;"><span class="nb-badge nb-blue">{item.get('session', 'REGULAR')}</span></td>
 <td class="catalyst-cell" style="color:#f1f5f9;">${item['price']:.2f}</td>
 <td><div class="down-pct">▼ {item['change']:.2f}%</div></td>
-<td class="catalyst-cell" style="font-size:15px;">{item.get('notes', '')}</td>
+<td class="catalyst-cell" style="font-size:15px;">{item.get('vol', '')}</td>
+<td class="catalyst-cell" style="font-size:15px;">{item.get('dvol', '')}</td>
+<td class="catalyst-cell" style="font-size:15px;">{item.get('rvol', '')}</td>
 </tr>
 """
 gappers_html += "</tbody></table></div>"
@@ -594,7 +609,7 @@ play_html += "</tbody></table></div>"
 st.markdown(play_html, unsafe_allow_html=True)
 
 
-# --- 07 | EARNINGS RESULTS + PREVIEWS ---
+# --- 07 | EARNINGS RESULTS + PREVIEWS (DYNAMIC) ---
 today_dt = datetime.now()
 today_str = today_dt.strftime("%Y-%m-%d")
 today_display = today_dt.strftime("%B %d")
@@ -748,7 +763,7 @@ try:
         vpci_html = f"""
 <div class="news-item" style="border-left: 5px solid #818cf8 !important; padding: 26px 28px; margin-top: 30px;">
 <div style="font-size: 14px; font-weight: 800; color: #818cf8; text-transform: uppercase; margin-bottom: 8px;">Current VPCI Reading (SPY)</div>
-<div style="font-size: 24px; font-weight: 800; margin-bottom: 12px; color: #f1f5f9;"><span class="{vpci_color}">{latest_vpci:.4f}</span> <span style="font-size: 16px; font-weight: 600; color: #94a3b8;">| {vpci_status}</span></div>
+<div style="font-size: 32px; font-weight: 800; margin-bottom: 12px; color: #f1f5f9;"><span class="{vpci_color}">{latest_vpci:.4f}</span> <span style="font-size: 20px; font-weight: 600; color: #94a3b8;">| {vpci_status}</span></div>
 <div class="news-body">The Volume Price Confirmation Indicator (VPCI) measures the relationship between price trends and volume. A positive value indicates that volume is expanding in the direction of the trend, confirming bullish strength.</div>
 </div>
 """
