@@ -8,7 +8,7 @@ from datetime import datetime
 # ==========================================
 st.set_page_config(page_title="Confluence Trading Tools", layout="wide", initial_sidebar_state="collapsed")
 
-# Injecting the exact CSS with flattened inner cards to reduce "cloud on cloud" noise
+# Injecting the exact CSS with tight, subtle "Cloud on Cloud" layering
 st.markdown("""
 <style>
 /* Reset and Base App Styling */
@@ -25,14 +25,14 @@ footer {visibility: hidden;}
 /* Wrap constraint - Widened for a bigger layout */
 .block-container { max-width: 1100px !important; margin: 0 auto !important; padding-top: 1rem; padding-bottom: 3rem; }
 
-/* FLOATING CLOUD CARDS (Main Section Wrappers) - These keep the soft shadow */
+/* FLOATING CLOUD CARDS (Main Section Wrappers) */
 .cloud-card {
     background: #111827;
     border: none; 
     border-radius: 16px;
     padding: 36px 40px;
     margin-bottom: 40px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3); /* Base elevation */
 }
 
 /* HEADER CLOUD */
@@ -51,14 +51,14 @@ footer {visibility: hidden;}
 /* SECTION TITLE (Inside Clouds) */
 .section-title { font-size: 16px; font-weight: 800; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; margin-bottom: 24px; border-bottom: 2px solid #1e293b; padding-bottom: 12px;}
 
-/* INSTRUMENT GRID (Nested Cards) - Shadows removed, anchored with subtle border */
+/* INSTRUMENT GRID (Nested Cloud Cards) - NO BORDERS, TIGHT SHADOW */
 .inst-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
 .inst-card { 
     background: #1e293b; 
     border-radius: 12px; 
     padding: 24px 26px; 
-    border: 1px solid #334155; 
-    box-shadow: none; 
+    border: none; 
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); /* Tight elevation (closer to base cloud) */
 }
 .inst-name  { font-size: 14px; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
 .inst-level { font-size: 28px; font-weight: 700; color: #f1f5f9; margin: 6px 0 6px; }
@@ -66,14 +66,14 @@ footer {visibility: hidden;}
 .inst-change-down { font-size: 16px; font-weight: 600; color: #f87171; }
 .inst-change-flat { font-size: 16px; font-weight: 600; color: #94a3b8; }
 
-/* NEWS (Nested Cards) - Shadows removed, anchored with subtle border */
+/* NEWS & VPCI (Nested Cloud Cards) - NO BORDERS, TIGHT SHADOW */
 .news-item { 
     background: #1e293b; 
-    border: 1px solid #334155; 
+    border: none; 
     border-radius: 12px; 
     padding: 26px 28px; 
     margin-bottom: 20px; 
-    box-shadow: none; 
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); /* Tight elevation */
 }
 .news-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .news-badge { padding: 4px 10px; border-radius: 4px; font-size: 13px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
@@ -393,14 +393,14 @@ try:
         vpci_color = "up-pct" if latest_vpci >= 0 else "down-pct"
         vpci_status = "BULLISH CONFIRMATION" if latest_vpci >= 0 else "BEARISH DIVERGENCE"
         st.markdown(f"""
-<div class="news-item" style="border: 1px solid #334155; border-left: 6px solid #818cf8; background:#1e293b;">
+<div class="news-item" style="border-left: 6px solid #818cf8;">
 <div style="font-size: 14px; font-weight: 700; color: #818cf8; text-transform: uppercase; margin-bottom: 8px;">Current VPCI Reading (SPY)</div>
 <div style="font-size: 32px; font-weight: 800; margin-bottom: 12px;"><span class="{vpci_color}">{latest_vpci:.4f}</span> | <span style="font-size: 24px; font-weight: 700; color:#f1f5f9;">{vpci_status}</span></div>
 <div style="font-size: 18px; line-height: 1.6; color: #cbd5e1;">The Volume Price Confirmation Indicator (VPCI) measures the relationship between price trends and volume. A positive value indicates that volume is expanding in the direction of the trend, confirming bullish strength.</div>
 </div>
         """, unsafe_allow_html=True)
 except:
-    st.markdown("<div class='news-item' style='border: 1px solid #334155;'>VPCI data syncing...</div>", unsafe_allow_html=True)
+    st.markdown("<div class='news-item'>VPCI data syncing...</div>", unsafe_allow_html=True)
 
 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -421,7 +421,7 @@ st.markdown("""
 <tr><td class="ticker-cell" style="font-size:18px;">08:30 AM</td><td class="catalyst-cell">Core PCE Price Index MoM</td><td><span class="badge-bearish">HIGH</span></td></tr>
 <tr><td class="ticker-cell" style="font-size:18px;">09:45 AM</td><td class="catalyst-cell">Chicago PMI</td><td><span class="badge-mixed">MED</span></td></tr>
 <tr><td class="ticker-cell" style="font-size:18px;">10:00 AM</td><td class="catalyst-cell">UMich Consumer Sentiment (Final)</td><td><span class="badge-bearish">HIGH</span></td></tr>
-<tr><td class="ticker-cell" style="font-size:18px;">01:00 PM</td><td class="catalyst-cell">Baker Hughes Rig Count</td><td><span class="badge-cautious" style="background:transparent; border-color:#475569; color:#94a3b8;">LOW</span></td></tr>
+<tr><td class="ticker-cell" style="font-size:18px;">01:00 PM</td><td class="catalyst-cell">Baker Hughes Rig Count</td><td><span class="badge-cautious" style="background:transparent; color:#94a3b8;">LOW</span></td></tr>
 </tbody>
 </table>
 </div>
