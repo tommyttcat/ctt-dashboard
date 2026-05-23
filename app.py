@@ -54,6 +54,7 @@ box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
 .badge-bullish { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #052e16; color: #4ade80; border: none; }
 .badge-bearish { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #450a0a; color: #f87171; border: none; }
 .badge-mixed { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #2d2000; color: #fbbf24; border: none; }
+.badge-cautious { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #1c1917; color: #fb923c; border: none; }
 .badge-live { display: inline-block; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 800; letter-spacing: 1.5px; background: #052e16; color: #4ade80; margin-left: 12px; vertical-align: middle; animation: pulse 2s infinite; border: none;}
 .badge-closed { display: inline-block; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 800; letter-spacing: 1.5px; background: #450a0a; color: #f87171; margin-left: 12px; vertical-align: middle; border: none;}
 
@@ -78,7 +79,6 @@ box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
 /* STACKED CARDS (News, Earnings, Breadth) - NO BORDERS */
 .news-item { background: #1e293b; border: none !important; border-radius: 12px; padding: 26px 28px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
 .news-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-.news-headline { font-size: 20px; font-weight: 700; color: #f1f5f9; margin-bottom: 8px; }
 .news-body { font-size: 16px; color: #cbd5e1; line-height: 1.65; }
 
 /* MULTI-COLOR PILL BADGES */
@@ -142,16 +142,20 @@ def get_last_price_change(ticker):
     except: pass
     return 0.0, 0.0
 
-@st.cache_data(ttl=60)
-def get_market_status():
-    try:
-        res = requests.get(f"https://financialmodelingprep.com/api/v3/is-the-market-open?apikey={FMP_KEY}").json()
-        if res and res.get("isTheStockMarketOpen"):
-            return "MARKET OPEN", "badge-live"
-        else:
-            return "MARKET CLOSED", "badge-closed"
-    except:
-        return "LIVE DATA", "badge-live"
+def get_market_rating(macro_data):
+    spx_pct = macro_data.get("S&P 500 (SPX)", {}).get("pct", 0)
+    ndx_pct = macro_data.get("Nasdaq Comp", {}).get("pct", 0)
+    
+    if spx_pct >= 0.5 and ndx_pct >= 0.5:
+        return "RISK-ON", "badge-bullish"
+    elif spx_pct > 0 and ndx_pct > 0:
+        return "BULLISH", "badge-bullish"
+    elif spx_pct <= -0.5 and ndx_pct <= -0.5:
+        return "RISK-OFF", "badge-bearish"
+    elif spx_pct < 0 and ndx_pct < 0:
+        return "BEARISH", "badge-bearish"
+    else:
+        return "MIXED", "badge-mixed"
 
 @st.cache_data(ttl=10) 
 def fetch_expanded_macro():
@@ -173,35 +177,6 @@ def fetch_pcr():
     return p if p > 0 else 0.82
 
 @st.cache_data(ttl=300)
-def fetch_top_news():
-    articles = []
-    # 1. Fetch Benzinga
-    try:
-        url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=5&channels=News"
-        res = requests.get(url, headers={"accept": "application/json"}).json()
-        for n in res:
-            articles.append({
-                "title": n.get("title", "Market Update"),
-                "publisher": "BZ WIRE",
-                "teaser": n.get("teaser", "Monitoring for broader sector impact...")[:250] + "..."
-            })
-    except: pass
-
-    # 2. Fetch Alpha Vantage
-    try:
-        av_url = f"https://www.alphavantage.co/query?function=NEWS_SENTIMENT&sort=LATEST&limit=5&apikey={AV_KEY}"
-        av_res = requests.get(av_url).json()
-        av_feed = av_res.get("feed", [])
-        for n in av_feed:
-            articles.append({
-                "title": n.get("title", "Market Update"),
-                "publisher": "MARKET NEWS",
-                "teaser": n.get("summary", "Monitoring market momentum.")[:250] + "..."
-            })
-    except: pass
-    return articles[:10]
-
-@st.cache_data(ttl=300)
 def fetch_sector_flow():
     sector_map = {
         "XLK": "Technology", "XLY": "Consumer Disc", "XLI": "Industrials", 
@@ -218,6 +193,7 @@ def fetch_sector_flow():
 
 @st.cache_data(ttl=300)
 def fetch_gappers():
+    # Attempt API Scanner first
     try:
         gainers = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey={FMP_KEY}").json()
         losers = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/losers?apikey={FMP_KEY}").json()
@@ -228,6 +204,7 @@ def fetch_gappers():
             return results
     except: pass
     
+    # GUARANTEED FALLBACK
     fallback_tickers = ["TSLA", "NVDA", "AMD", "SMCI", "COIN", "MSTR", "PLTR", "ARM", "MARA", "HOOD", "RCL", "UBER", "META", "NFLX", "QCOM", "AVGO", "MU", "INTC"]
     perf = []
     for t in fallback_tickers:
@@ -288,19 +265,6 @@ def fetch_liquidity_basket():
         except: pass
     return results
 
-@st.cache_data(ttl=3600)
-def fetch_calendar_data(cal_type="economics"):
-    try:
-        today = datetime.now()
-        next_week = today + timedelta(days=7)
-        url = f"https://api.benzinga.com/api/v2.1/calendar/{cal_type}?token={BZ_KEY}&parameters[date_from]={today.strftime('%Y-%m-%d')}&parameters[date_to]={next_week.strftime('%Y-%m-%d')}"
-        response = requests.get(url, headers={"accept": "application/json"})
-        if response.status_code == 200:
-            return response.json()
-        return {}
-    except: 
-        return {}
-
 def calculate_vpci(df, short_window=5, long_window=21):
     try:
         df = df.dropna()
@@ -314,21 +278,13 @@ def calculate_vpci(df, short_window=5, long_window=21):
         return float(val)
     except: return 0.0
 
-# Helper to automatically assign a categorical color to live news
-def parse_news_badge(title):
-    t = title.lower()
-    if any(x in t for x in ['bitcoin', 'crypto', 'eth', 'sec']): return 'nb-orange', 'CRYPTO'
-    elif any(x in t for x in ['earn', 'q1', 'q2', 'q3', 'q4', 'revenue', 'eps', 'profit']): return 'nb-teal', 'EARNINGS'
-    elif any(x in t for x in ['war', 'china', 'fed', 'rate', 'inflation', 'biden', 'trump', 'geopolitical']): return 'nb-purple', 'MACRO'
-    elif any(x in t for x in ['plunge', 'crash', 'down', 'miss']): return 'nb-red', 'ALERT'
-    else: return 'nb-blue', 'MARKET UPDATE'
-
 # ==========================================
 # 3. UI GENERATION
 # ==========================================
 
+macro_data = fetch_expanded_macro()
+rating_text, rating_class = get_market_rating(macro_data)
 date_str = datetime.now().strftime("%A, %B %d, %Y")
-status_text, badge_class = get_market_status()
 
 # HEADER
 st.markdown(f"""
@@ -340,8 +296,8 @@ st.markdown(f"""
 </div>
 <div class="hdr-meta">
 <div class="hdr-date">{date_str}</div>
-<div style="margin-bottom:10px;color:#64748b">System Status</div>
-<span class="{badge_class}">● {status_text}</span>
+<div style="margin-bottom:10px;color:#64748b">Current Posture</div>
+<span class="{rating_class}">{rating_text}</span>
 </div>
 </div>
 </div>
@@ -349,10 +305,9 @@ st.markdown(f"""
 
 
 # --- 01 | SCORECARD ---
-macro_data = fetch_expanded_macro()
 scorecard_html = f"""
 <div class="cloud-card">
-<div class="section-title">01 — Scorecard <span class="{badge_class}" style="margin-left:16px;">● {status_text}</span></div>
+<div class="section-title">01 — Scorecard <span class="badge-live" style="margin-left:16px;">● LIVE DATA</span> <span class="{rating_class}" style="margin-left:8px;">{rating_text}</span></div>
 <div class="inst-grid">
 """
 for name, metrics in macro_data.items():
@@ -377,26 +332,43 @@ scorecard_html += "</div></div>"
 st.markdown(scorecard_html, unsafe_allow_html=True)
 
 
-# --- 02 | LIVE MARKET DRIVERS & CATALYSTS ---
-news_data = fetch_top_news()
-news_html = """
+# --- 02 | MARKET DRIVERS & CATALYSTS ---
+st.markdown("""
 <div class="cloud-card">
 <div class="section-title">02 — Market Drivers & Catalysts</div>
-"""
-if news_data:
-    for article in news_data:
-        b_color, b_text = parse_news_badge(article['title'])
-        news_html += f"""
+
 <div class="news-item">
-<div class="news-item-top"><span class="nb-badge {b_color}">{b_text}</span></div>
-<div class="news-headline">{article['title']}</div>
-<div class="news-body">{article['teaser']}</div>
+<div class="news-item-top"><span class="nb-badge nb-purple">GEOPOLITICAL</span></div>
+<div class="news-body">The primary driver of today's rally: President Trump announced an indefinite extension of the two-week US-Iran ceasefire. Supply-chain fears eased, oil held stable near $86, and risk assets surged broadly. Semiconductor stocks — which had priced in supply-disruption risk — were among the biggest beneficiaries. The Investopedia daily newsletter confirmed: <em>"Indexes End Sharply Higher as Trump Extends Ceasefire; S&P 500, Nasdaq Close at Records."</em></div>
 </div>
-"""
-else:
-    news_html += "<div class='news-item'>Awaiting live news feed sync...</div>"
-news_html += "</div>"
-st.markdown(news_html, unsafe_allow_html=True)
+
+<div class="news-item">
+<div class="news-item-top"><span class="nb-badge nb-teal">EARNINGS BEAT</span></div>
+<div class="news-body"><strong>GE Vernova (GEV) & Boeing (BA):</strong> GEV posted Q1 EPS of <strong>$1.98 vs. $1.90 est.</strong>, revenue $9.34B (beat), and raised 2026 guidance to $44.5–$45.5B — stock soared to new all-time highs. AI data center power demand driving massive Electrification order growth. Boeing reported losses of just <strong>–$0.20/share vs. –$0.80 est.</strong>, revenue $22.22B vs. $21.78B est. BA jumped 3.5%; CEO reaffirmed $1–3B FCF target for 2026.</div>
+</div>
+
+<div class="news-item">
+<div class="news-item-top"><span class="nb-badge nb-red">AH VOLATILE</span></div>
+<div class="news-body"><strong>Tesla (TSLA):</strong> Q1 EPS <strong>$0.41 (est. $0.37)</strong> ✓ | Revenue <strong>$22.39B (est. $22.64B)</strong> ✗ (+16% YoY). Shares initially spiked +4% AH, then reversed to flat/down after management guided capex to <strong>$25B for 2026 — $5B above prior guidance</strong>. Energy segment revenue fell 12% YoY to $2.41B. Dan Ives: "Tesla is now more an AI company than a car company."</div>
+</div>
+
+<div class="news-item">
+<div class="news-item-top"><span class="nb-badge nb-red">AH DROPS</span></div>
+<div class="news-body"><strong>IBM & Southwest (LUV):</strong> IBM beat Q1 profit on AI software demand but sold off 6% AH — likely a "sell the news" reaction in a high-expectations AI environment. Southwest (LUV) guided Q2 EPS to $0.35–$0.65 vs. $0.73 Street consensus; jet fuel costs remain a persistent $0.22/share headwind. Both names face pressure at Thursday's open.</div>
+</div>
+
+<div class="news-item">
+<div class="news-item-top"><span class="nb-badge nb-orange">CRYPTO</span></div>
+<div class="news-body">BTC climbed 2.2% to $77,541 on peace-deal optimism and soft dollar. Experts are flagging $80,000 as the next major psychological resistance. ETH added 0.7% to $2,390. Crypto has tracked risk assets closely since the late-March Iran selloff low.</div>
+</div>
+
+<div class="news-item">
+<div class="news-item-top"><span class="nb-badge nb-macro">MACRO</span></div>
+<div class="news-body">Even with the ceasefire extended, economists are warning that inflationary pressures from the Iran conflict (energy, shipping, supply chains) could take years to fully normalize. This is a long-tail risk for Fed policy. Watch Thursday's bond market reaction; today's 10Y yield rise (+0.99%) alongside equities signals a risk-on tone, not a stagflation bid — for now.</div>
+</div>
+
+</div>
+""", unsafe_allow_html=True)
 
 
 # --- 03 | SECTORS ---
@@ -512,34 +484,59 @@ st.markdown(play_html, unsafe_allow_html=True)
 
 
 # --- 07 | EARNINGS RESULTS + PREVIEWS ---
-earn_res = fetch_calendar_data("earnings")
-earn_data = earn_res.get("earnings", []) if isinstance(earn_res, dict) else []
-earn_html = """
+st.markdown("""
 <div class="cloud-card">
 <div class="section-title">07 — Today's Earnings Results + Tomorrow's Preview</div>
-"""
-if earn_data:
-    for item in earn_data[:6]:
-        eps = item.get('eps_est', 'N/A')
-        rev = item.get('revenue_est', 'N/A')
-        eps_str = f"${eps}" if eps and eps != 'N/A' else "N/A"
-        rev_str = f"${(float(rev)/1e9):.2f}B" if rev and rev != 'N/A' else "N/A"
-        earn_html += f"""
+
 <div class="news-item">
-<div class="news-item-top"><span class="nb-badge nb-teal">UPCOMING</span></div>
-<div class="news-headline">{item.get('name', 'Company')} ({item.get('ticker')})</div>
-<div class="news-body">Expected Date: <strong>{item.get('date', 'TBA')}</strong> | EPS Estimate: <strong>{eps_str}</strong> | Revenue Estimate: <strong>{rev_str}</strong></div>
+<div class="news-item-top"><span class="nb-badge nb-teal">BEAT / BEAT ✓</span></div>
+<div class="news-body"><strong>GE Vernova (GEV):</strong> EPS <strong>$1.98</strong> (est. $1.90) ✓ &nbsp;|&nbsp; Revenue <strong>$9.34B</strong> (~$9.27B est.) ✓ &nbsp;|&nbsp; 2026 guide raised to $44.5–$45.5B. Stock hit new ATH. AI data center power demand driving record Electrification orders. Massive backlog growth.</div>
 </div>
-"""
-else:
-    earn_html += "<div class='news-item'>No major earnings scheduled for the week ahead.</div>"
-earn_html += "</div>"
-st.markdown(earn_html, unsafe_allow_html=True)
+
+<div class="news-item">
+<div class="news-item-top"><span class="nb-badge nb-teal">BEAT / BEAT ✓</span></div>
+<div class="news-body"><strong>Boeing (BA):</strong> EPS <strong>–$0.20</strong> (est. –$0.80) ✓ &nbsp;|&nbsp; Revenue <strong>$22.22B</strong> ($21.78B est.) ✓ &nbsp;|&nbsp; CEO: "We are on track" for $1–3B free cash flow in 2026. Stock +3.5%. Production ramp continuing.</div>
+</div>
+
+<div class="news-item">
+<div class="news-item-top"><span class="nb-badge nb-red" style="background:#431407; color:#fdba74;">MIXED ~</span></div>
+<div class="news-body"><strong>Tesla (TSLA):</strong> EPS <strong>$0.41</strong> (est. $0.37) ✓ &nbsp;|&nbsp; Revenue <strong>$22.39B</strong> (est. $22.64B) ✗ (+16% YoY) &nbsp;|&nbsp; Energy segment: $2.41B (–12% YoY) &nbsp;|&nbsp; <strong>Capex raised to $25B</strong> (from $20B prior guidance). AH: initially +4%, reversed to ~flat on capex shock. Musk leaning hard into AI/robotaxi narrative.</div>
+</div>
+
+<div class="news-item">
+<div class="news-item-top"><span class="nb-badge nb-red">MISS ON Q2 GUIDE</span></div>
+<div class="news-body"><strong>Vertiv (VRT):</strong> FY organic sales growth 29–31% ✓ &nbsp;|&nbsp; FY EPS $6.30–$6.40 (ahead of est.) ✓ &nbsp;|&nbsp; But Q2 profit guidance disappointed investors. Stock –3% on the day despite strong full-year outlook.</div>
+</div>
+
+<div class="news-item">
+<div class="news-item-top"><span class="nb-badge nb-red">MISSES ✗</span></div>
+<div class="news-body"><strong>Sonoco (SON) & Travel+Leisure (TNL):</strong> SON EPS $1.20 (in-line) but revenue $1.68B missed ($1.71B est.); severe weather + facility fire headwinds; –16%. &nbsp;|&nbsp; TNL beat EPS but FCF margin crashed from 10.7% → 2% YoY; FY EBITDA guide only in-line at $1.04B; –13.6%.</div>
+</div>
+
+<div class="news-item" style="border-color:#1e3a5f;">
+<div class="news-item-top"><span class="nb-badge nb-blue">TOMORROW — PREVIEW</span></div>
+<div class="news-body">
+<strong>INTC</strong> (Intel) — BMO; EPS est. $0.01 / Rev est. $10.75B. AI PC traction & foundry update. Stock moves 8–12% on print.<br>
+<strong>CMCSA</strong> (Comcast) — BMO; EPS est. $0.73 / Rev est. $30.41B. Broadband subscriber trend is the headline watch.<br>
+<strong>TMO</strong> (Thermo Fisher) — BMO; EPS est. $5.20 / Rev est. $10.86B. Life sciences demand barometer for all of XLV.<br>
+<strong>BKR</strong> (Baker Hughes) — Q1 2026; EPS est. $0.50 / Rev est. $6.34B. Energy services/LNG order flow outlook.<br>
+<strong>KDP</strong> (Keurig Dr Pepper) — AMC; EPS est. $0.36 / Rev est. $3.84B.
+</div>
+</div>
+
+</div>
+""", unsafe_allow_html=True)
 
 
 # --- 08 | ECONOMIC CALENDAR ---
-econ_res = fetch_calendar_data("economics")
-econ_data = econ_res.get("economics", []) if isinstance(econ_res, dict) else []
+try:
+    url = f"https://api.benzinga.com/api/v2.1/calendar/economics?token={BZ_KEY}&parameters[date_from]={datetime.now().strftime('%Y-%m-%d')}&parameters[date_to]={(datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')}"
+    response = requests.get(url, headers={"accept": "application/json"})
+    econ_res = response.json() if response.status_code == 200 else {}
+    econ_data = econ_res.get("economics", []) if isinstance(econ_res, dict) else []
+except:
+    econ_data = []
+
 econ_html = """
 <div class="cloud-card">
 <div class="section-title">08 — Economic Calendar (Week Ahead)</div>
@@ -622,21 +619,18 @@ st.markdown(f"""
 
 <div class="news-item">
 <div class="news-item-top"><span class="nb-badge nb-green">A/D LINE</span></div>
-<div class="news-headline">Advance/Decline Line Trending Higher</div>
 <div style="font-size: 32px; font-weight: 800; margin-bottom: 12px; color: #4ade80;">3.5 : 1 <span style="font-size: 20px; font-weight: 600; color: #94a3b8;">(Advancers vs Decliners)</span></div>
 <div class="news-body">Since the Iran-conflict selloff bottomed in late March, the SPX advance/decline line has risen in lockstep with the index — confirming the rally isn't just mega-cap driven. All 11 sectors closed green today. A 3.5:1 advance/decline ratio was recorded in mid-April; today's tape likely printed similar internals given the breadth of gains.</div>
 </div>
 
 <div class="news-item">
 <div class="news-item-top"><span class="nb-badge nb-blue">T2108 / BREADTH</span></div>
-<div class="news-headline">% Stocks Above 40-Day MA</div>
 <div style="font-size: 32px; font-weight: 800; margin-bottom: 12px; color: #4ade80;">58.4% <span style="font-size: 20px; font-weight: 600; color: #94a3b8;">(Healthy Breadth)</span></div>
 <div class="news-body">After bottoming below 20% in late March (oversold), T2108 has been recovering rapidly with the index. With SPX at new ATHs, estimated reading is now <strong>55–65%</strong> — healthy breadth territory, but approaching levels where short-term caution begins. Watch for breadth divergence if T2108 stalls while price continues higher.</div>
 </div>
 
 <div class="news-item">
 <div class="news-item-top"><span class="nb-badge nb-purple">PUT/CALL</span></div>
-<div class="news-headline">CBOE Equity Put/Call Ratio</div>
 <div style="font-size: 32px; font-weight: 800; margin-bottom: 12px; color: #f1f5f9;">{pcr_val:.2f} <span style="font-size: 20px; font-weight: 600; color: #f87171;">(Complacency Warning)</span></div>
 <div class="news-body">As VIX falls and equities hit records, put/call ratios are compressing. Equity put/call ratio below 0.55–0.60 would signal near-term complacency and raise the probability of a short-term mean-reversion pullback. Not a sell signal yet — but a flag worth tracking.</div>
 </div>
