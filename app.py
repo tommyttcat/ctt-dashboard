@@ -16,7 +16,7 @@ st.set_page_config(page_title="Confluence Trading Tools", layout="wide", initial
 
 st.markdown("""
 <style>
-/* Reset and Base App Styling - Deep Navy Background */
+/* Reset and Base App Styling */
 .stApp { background: #0a1120; color: #e2e8f0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; font-size: 16px; line-height: 1.6; }
 header {visibility: hidden;}
 footer {visibility: hidden;}
@@ -24,11 +24,14 @@ footer {visibility: hidden;}
 /* Wrap constraint */
 .block-container { max-width: 1100px !important; margin: 0 auto !important; padding-top: 1rem; padding-bottom: 3rem; }
 
-/* FLAT LIST WRAPPER (NO BUBBLES/CLOUDS) */
-.list-wrapper { background: transparent !important; margin-bottom: 56px !important; padding: 0 !important; border: none !important; box-shadow: none !important; }
+/* CLOUD CARDS (Strictly for Section 1 & 9) */
+.cloud-card { background: #111827 !important; border: 1px solid rgba(255, 255, 255, 0.05) !important; border-radius: 12px !important; padding: 32px 36px !important; margin-bottom: 48px !important; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important; }
 
-/* HEADER - FLAT */
-.hdr { background: transparent !important; padding: 20px 0 40px 0 !important; border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important; margin-bottom: 40px !important; }
+/* FLAT LIST WRAPPER (For everything else - NO BUBBLES) */
+.list-wrapper { background: transparent !important; margin-bottom: 48px !important; padding: 0 !important; }
+
+/* HEADER */
+.hdr { background: transparent !important; padding: 10px 0 30px 0 !important; border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important; margin-bottom: 40px !important; }
 .hdr-top { display: flex; justify-content: space-between; align-items: flex-start; }
 .wrap-type { font-size: 15px; font-weight: 700; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; }
 .wrap-title { font-size: 42px; font-weight: 800; color: #f1f5f9; margin-top: 10px; }
@@ -38,9 +41,6 @@ footer {visibility: hidden;}
 /* STATUS BADGES */
 .badge-closed { background: #450a0a; color: #f87171; padding: 6px 16px; border-radius: 6px; font-weight: 800; font-size: 14px; letter-spacing: 1px; border: none; }
 .badge-live { background: #052e16; color: #4ade80; padding: 6px 16px; border-radius: 6px; font-weight: 800; font-size: 14px; letter-spacing: 1px; border: none; animation: pulse 2s infinite;}
-.badge-beat { background: #052e16; color: #4ade80; padding: 4px 10px; border-radius: 4px; font-weight: 800; font-size: 13px; margin-left: 8px; border: none; }
-.badge-miss { background: #450a0a; color: #f87171; padding: 4px 10px; border-radius: 4px; font-weight: 800; font-size: 13px; margin-left: 8px; border: none; }
-.econ-bold { font-weight: 900; color: #f8fafc; font-size: 17px; text-transform: uppercase; }
 
 /* SECTION TITLE */
 .section-title { font-size: 16px; font-weight: 800; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; margin-bottom: 16px; padding-bottom: 12px;}
@@ -50,18 +50,18 @@ footer {visibility: hidden;}
 .t-row { display: grid; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding: 16px 0; font-size: 16px; color: #f1f5f9; }
 .t-row:last-child { border-bottom: none; }
 
-/* TARGETED MONOSPACE FONTS */
+/* MONOSPACE FONTS (Specifically targeted) */
+.mono-font { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important; }
 .label-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important; font-weight: 700; color: #94a3b8; text-transform: uppercase; font-size: 14px; letter-spacing: 1px; margin-right: 8px; }
 .vol-cell { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important; font-weight: 700; color: #f1f5f9; font-size: 16px; }
 .etf-tag { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important; font-weight: 700; color: #f1f5f9; font-size: 18px; }
+.up-pct { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important; color: #4ade80; font-weight: 700; font-size: 16px; }
+.down-pct { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important; color: #f87171; font-weight: 700; font-size: 16px; }
 
 /* TEXT STYLES */
-.ticker-cell { font-weight: 800; color: #f1f5f9; font-size: 18px; }
-.up-pct { color: #4ade80; font-weight: 700; font-size: 16px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important; }
-.down-pct { color: #f87171; font-weight: 700; font-size: 16px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important; }
-.cat-cell { color: #cbd5e1; font-size: 15px; }
+.cat-cell { color: #cbd5e1; font-size: 15px; line-height: 1.5; }
 
-/* SCORECARD OVERRIDE TO FLAT */
+/* SCORECARD & TECH PICTURE GRID */
 .inst-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
 .inst-card { background: transparent; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding: 16px 0; }
 .inst-name { font-size: 14px; color: #64748b; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }
@@ -74,6 +74,8 @@ footer {visibility: hidden;}
 .nb-orange { background: #431407; color: #fdba74; }
 .nb-blue { background: #0c4a6e; color: #7dd3fc; }
 .nb-green { background: #052e16; color: #4ade80; }
+.badge-beat { background: #052e16; color: #4ade80; padding: 4px 10px; border-radius: 4px; font-weight: 800; font-size: 13px; margin-left: 8px; border: none; }
+.badge-miss { background: #450a0a; color: #f87171; padding: 4px 10px; border-radius: 4px; font-weight: 800; font-size: 13px; margin-left: 8px; border: none; }
 
 .tech-action { color: #818cf8; font-weight: 700; margin-top: 8px; display: block; font-size: 16px;}
 
@@ -85,7 +87,6 @@ footer {visibility: hidden;}
 # 2. CALENDAR & DATE LOGIC
 # ==========================================
 now_dt = datetime.now()
-
 prev_dt = now_dt - timedelta(days=1)
 while prev_dt.weekday() >= 5 or prev_dt.strftime('%m-%d') == '05-25':
     prev_dt -= timedelta(days=1)
@@ -101,7 +102,7 @@ else:
     status_class = "badge-live"
 
 # ==========================================
-# 3. LIVE DATA ENGINES 
+# 3. LIVE DATA ENGINES (NO FAKE DATA)
 # ==========================================
 def safe_float(val):
     try: return float(val)
@@ -135,34 +136,82 @@ def fetch_sector_flow():
 
 @st.cache_data(ttl=120)
 def fetch_gappers():
-    # HARDCODED: Realistic catalysts, exact sizing
-    return [
-        # PRE-MARKET (Top 5)
-        {"ticker": "QTEX", "price": 0.72, "change": 140.01, "session": "PRE-MARKET", "vol": "788.2M", "dvol": "$573M", "rvol": 22.5, "catalyst": "Gov Contract Award"},
-        {"ticker": "BIYA", "price": 1.30, "change": 110.53, "session": "PRE-MARKET", "vol": "101.5M", "dvol": "$131M", "rvol": 9.8, "catalyst": "Upgraded Guidance"},
-        {"ticker": "FFIE", "price": 0.85, "change": 95.40, "session": "PRE-MARKET", "vol": "350.0M", "dvol": "$297M", "rvol": 18.4, "catalyst": "Retail Short Squeeze"},
-        {"ticker": "HOLO", "price": 1.25, "change": 88.20, "session": "PRE-MARKET", "vol": "85.0M", "dvol": "$106M", "rvol": 14.2, "catalyst": "Sympathy Momentum"},
-        {"ticker": "GWAV", "price": 3.40, "change": 75.60, "session": "PRE-MARKET", "vol": "42.0M", "dvol": "$142M", "rvol": 11.5, "catalyst": "Debt Payoff"},
-        
-        # REGULAR (Top 10)
-        {"ticker": "AKTX", "price": 18.27, "change": 255.45, "session": "REGULAR", "vol": "34.0M", "dvol": "$622M", "rvol": 12.4, "catalyst": "FDA Fast Track Rumor"},
-        {"ticker": "PCLA", "price": 6.62, "change": 194.22, "session": "REGULAR", "vol": "37.0M", "dvol": "$245M", "rvol": 8.2, "catalyst": "Massive Earnings Beat"},
-        {"ticker": "RYOJ", "price": 5.00, "change": 148.76, "session": "REGULAR", "vol": "41.2M", "dvol": "$206M", "rvol": 15.1, "catalyst": "M&A Buyout Rumor"},
-        {"ticker": "LFS", "price": 3.55, "change": 89.33, "session": "REGULAR", "vol": "77.8M", "dvol": "$276M", "rvol": 4.2, "catalyst": "Analyst Upgrade"},
-        {"ticker": "VCIG", "price": 1.33, "change": 64.79, "session": "REGULAR", "vol": "31.7M", "dvol": "$42M", "rvol": 3.1, "catalyst": "Strategic Partnership"},
-        {"ticker": "HYLN", "price": 5.99, "change": 42.62, "session": "REGULAR", "vol": "20.1M", "dvol": "$120M", "rvol": 5.5, "catalyst": "New Product Launch"},
-        {"ticker": "FJET", "price": 7.20, "change": 39.81, "session": "REGULAR", "vol": "12.4M", "dvol": "$89M", "rvol": 2.8, "catalyst": "Defense Contract"},
-        {"ticker": "MEHA", "price": 0.10, "change": 38.69, "session": "REGULAR", "vol": "628.1M", "dvol": "$66M", "rvol": 18.3, "catalyst": "Phase 2 Clinical Data"},
-        {"ticker": "TSLA", "price": 215.40, "change": 8.40, "session": "REGULAR", "vol": "145.2M", "dvol": "$31B", "rvol": 2.9, "catalyst": "FSD China Approval (Mega-Cap)"},
-        {"ticker": "NVDA", "price": 1050.20, "change": 4.50, "session": "REGULAR", "vol": "42.1M", "dvol": "$44B", "rvol": 2.1, "catalyst": "Institutional Buy Flow (Mega-Cap)"},
-        
-        # POST-MARKET (Top 5)
-        {"ticker": "GME", "price": 22.40, "change": 45.20, "session": "POST-MARKET", "vol": "15.0M", "dvol": "$336M", "rvol": 5.1, "catalyst": "Retail Momentum"},
-        {"ticker": "AMC", "price": 18.50, "change": 38.10, "session": "POST-MARKET", "vol": "25.0M", "dvol": "$462M", "rvol": 4.8, "catalyst": "Debt Restructuring"},
-        {"ticker": "KOSS", "price": 4.20, "change": 32.50, "session": "POST-MARKET", "vol": "5.0M", "dvol": "$21M", "rvol": 6.2, "catalyst": "Sympathy Play"},
-        {"ticker": "SPWR", "price": 12.10, "change": 28.40, "session": "POST-MARKET", "vol": "8.0M", "dvol": "$96M", "rvol": 3.9, "catalyst": "Contract Win"},
-        {"ticker": "BBAI", "price": 2.10, "change": 25.10, "session": "POST-MARKET", "vol": "12.0M", "dvol": "$25M", "rvol": 7.1, "catalyst": "AI Sector Run"}
-    ]
+    results = []
+    try:
+        g_reg = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey={FMP_KEY}").json()
+        g_pre = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/pre-market-gainers?apikey={FMP_KEY}").json()
+        g_post = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/post-market-gainers?apikey={FMP_KEY}").json()
+
+        all_gainers = []
+        if isinstance(g_reg, list):
+            for x in g_reg: x['session'] = 'REGULAR'; all_gainers.append(x)
+        if isinstance(g_pre, list):
+            for x in g_pre: x['session'] = 'PRE-MARKET'; all_gainers.append(x)
+        if isinstance(g_post, list):
+            for x in g_post: x['session'] = 'POST-MARKET'; all_gainers.append(x)
+
+        if not all_gainers:
+            return []
+
+        unique_movers = {}
+        for x in all_gainers:
+            sym = x.get('symbol')
+            if sym and (sym not in unique_movers or x.get('changesPercentage', 0) > unique_movers[sym].get('changesPercentage', 0)):
+                unique_movers[sym] = x
+
+        reg_movers = sorted([v for v in unique_movers.values() if v['session'] == 'REGULAR'], key=lambda x: x.get('changesPercentage', 0), reverse=True)[:15]
+        pre_movers = sorted([v for v in unique_movers.values() if v['session'] == 'PRE-MARKET'], key=lambda x: x.get('changesPercentage', 0), reverse=True)[:10]
+        post_movers = sorted([v for v in unique_movers.values() if v['session'] == 'POST-MARKET'], key=lambda x: x.get('changesPercentage', 0), reverse=True)[:10]
+
+        final_targets = reg_movers + pre_movers + post_movers
+        tickers_to_fetch = [x['symbol'] for x in final_targets]
+
+        if not tickers_to_fetch:
+            return []
+
+        yf_data = yf.download(tickers_to_fetch, period="5d", progress=False)
+        closes = yf_data['Close'] if 'Close' in yf_data else pd.DataFrame()
+        volumes = yf_data['Volume'] if 'Volume' in yf_data else pd.DataFrame()
+
+        bz_map = {}
+        try:
+            bz_url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&symbols={','.join(tickers_to_fetch)}&limit=50"
+            bz_res = requests.get(bz_url).json()
+            for article in bz_res:
+                for sym_data in article.get('stocks', []):
+                    t = sym_data.get('name')
+                    if t not in bz_map:
+                        bz_map[t] = article.get('title', 'Momentum Alert')
+        except: pass
+
+        for item in final_targets:
+            sym = item['symbol']
+            price = safe_float(item.get('price')) or 0.0
+            change = safe_float(item.get('changesPercentage')) or 0.0
+            sess = item['session']
+
+            vol_str, dol_vol_str, rvol = "N/A", "N/A", 1.0
+            if sym in closes.columns:
+                v_series = volumes[sym].dropna()
+                if not v_series.empty:
+                    vol = v_series.iloc[-1]
+                    avg_vol = v_series.mean() or 1
+                    rvol = vol / avg_vol
+                    dol_vol = vol * price
+                    vol_str = f"{vol/1e6:.2f}M" if vol >= 1e6 else f"{vol/1e3:.0f}K"
+                    dol_vol_str = f"${dol_vol/1e6:.2f}M" if dol_vol >= 1e6 else f"${dol_vol/1e3:.0f}K"
+
+            raw_cat = bz_map.get(sym, "Volume Surge / Pre-Market Breakout")
+            catalyst = raw_cat.split(" - ")[0][:65] + "..." if len(raw_cat) > 65 else raw_cat
+
+            results.append({
+                "ticker": sym, "price": price, "change": change, "session": sess,
+                "vol": vol_str, "dvol": dol_vol_str, "rvol": float(rvol), "catalyst": catalyst
+            })
+
+        return sorted(results, key=lambda x: x['change'], reverse=True)
+    except Exception as e:
+        return []
 
 @st.cache_data(ttl=120)
 def fetch_liquidity_basket():
@@ -212,20 +261,20 @@ institutional_flow = fetch_massive_data()
 # --- HEADER ---
 st.markdown(f'<div class="hdr"><div class="hdr-top"><div><div class="wrap-type">Market Briefing</div><div class="wrap-title">Confluence Trading Tools</div></div><div class="hdr-meta"><div class="hdr-date">{now_dt.strftime("%A, %B %d")}</div><span class="{status_class}">{market_status}</span></div></div></div>', unsafe_allow_html=True)
 
-# --- 01 | SCORECARD ---
-scorecard_html = '<div class="list-wrapper"><div class="section-title">01 — Macro Scorecard</div><div class="inst-grid">'
+# --- 01 | SCORECARD (CLOUD) ---
+scorecard_html = '<div class="cloud-card"><div class="section-title">01 — Macro Scorecard</div><div class="inst-grid">'
 for name, m in macro_data.items():
     col = "up-pct" if m['pct'] >= 0 else "down-pct"
     sign = "▲ +" if m['pct'] > 0 else "▼ " if m['pct'] < 0 else ""
     p_str = f"{m['price']:.3f}" if name in ["VIX", "10Y Treasury"] else f"${m['price']:,.2f}"
-    scorecard_html += f'<div class="inst-card"><div class="inst-name">{name}</div><div class="inst-level">{p_str}</div><div class="{col}">{sign}{m["pct"]:.2f}%</div></div>'
+    scorecard_html += f'<div class="inst-card"><div class="inst-name">{name}</div><div class="inst-level mono-font">{p_str}</div><div class="{col}">{sign}{m["pct"]:.2f}%</div></div>'
 scorecard_html += "</div></div>"
 st.markdown(scorecard_html, unsafe_allow_html=True)
 
-# --- 02 | MARKET DRIVERS ---
+# --- 02 | MARKET DRIVERS (FLAT LIST - 15 BLURBS) ---
 live_news = []
 try:
-    url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=10&channels=News"
+    url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=25&channels=News"
     res = requests.get(url, headers={"accept": "application/json"}).json()
     for n in res:
         title = n.get("title", "").replace(" — ...", "")
@@ -233,170 +282,123 @@ try:
         live_news.append({"title": title, "teaser": teaser[:250] + "..."})
 except: pass
 
-if not live_news:
-    live_news = [
-        {"title": "Micro-Cap Biotech AKTX Surges", "teaser": "Akari Therapeutics is leading the market gainers today on extreme relative volume rumors."},
-        {"title": "Tesla (TSLA) Reverses on Capex Shock", "teaser": "Shares reversed to flat/down after management guided capex to $25B for 2026."},
-        {"title": "GE Vernova (GEV) Pre-Market Double Beat", "teaser": "GEV posted Q1 EPS of $1.98 vs. $1.90 est., revenue $9.34B (beat)."},
-        {"title": "Bitcoin Approaches $80K Level", "teaser": "BTC climbed to $77,541 on macroeconomic optimism and a soft dollar."}
-    ]
-
 news_html = '<div class="list-wrapper"><div class="section-title">02 — Market Drivers & Catalysts</div>'
-for article in live_news[:10]:
-    b_color, b_text = parse_news_badge(article['title'])
-    news_html += f'<div class="t-row" style="grid-template-columns: 1fr;"><div style="margin-bottom:4px;"><span class="nb-badge {b_color}" style="margin-right:8px;">{b_text}</span> <strong style="color:#f1f5f9; font-size:17px;">{article["title"]}</strong></div><div class="cat-cell">{article["teaser"]}</div></div>'
+if live_news:
+    for article in live_news[:15]:
+        b_color, b_text = parse_news_badge(article['title'])
+        news_html += f'<div class="t-row" style="grid-template-columns: 1fr;"><div style="margin-bottom:4px;"><span class="nb-badge {b_color}" style="margin-right:8px;">{b_text}</span> <strong style="color:#f1f5f9; font-size:17px;">{article["title"]}</strong></div><div class="cat-cell">{article["teaser"]}</div></div>'
+else:
+    news_html += '<div class="t-row"><div class="cat-cell">Awaiting Benzinga live news sync...</div></div>'
 news_html += "</div>"
 st.markdown(news_html, unsafe_allow_html=True)
 
-# --- 03 | SECTORS ---
+# --- 03 | SECTORS (FLAT LIST) ---
 heatmap_html = '<div class="list-wrapper"><div class="section-title">03 — Sector Flows</div>'
-heatmap_html += '<div class="t-header-row" style="grid-template-columns: 50px 3fr 2fr 2fr;"><div>#</div><div>Sector / ETF</div><div>Change</div><div>Flow</div></div>'
+heatmap_html += '<div class="t-header-row" style="grid-template-columns: 50px 3fr 2fr 2fr;"><div>#</div><div>Sector / ETF</div><div>Live Change</div><div>Flow</div></div>'
 for i, item in enumerate(sector_data):
     col = "up-pct" if item['pct'] >= 0 else "down-pct"
     sign = "▲ +" if item['pct'] > 0 else "▼ " if item['pct'] < 0 else ""
     f_col = "#4ade80" if item['pct'] >= 0 else "#f87171"
-    heatmap_html += f'<div class="t-row" style="grid-template-columns: 50px 3fr 2fr 2fr;"><div>{i+1}</div><div><span class="etf-tag">{item["ticker"]}</span> <span style="color:#64748b; font-size:15px;">— {item["sector"]}</span></div><div><span class="{col}">{sign}{item["pct"]:.2f}%</span></div><div style="color:{f_col}; font-weight:700;">{item["flow"]}</div></div>'
+    heatmap_html += f'<div class="t-row" style="grid-template-columns: 50px 3fr 2fr 2fr;"><div>{i+1}</div><div><span class="etf-tag">{item["ticker"]}</span> <span style="color:#94a3b8; font-size:15px; margin-left:8px;">— {item["sector"]}</span></div><div><span class="{col}">{sign}{item["pct"]:.2f}%</span></div><div style="color:{f_col}; font-weight:700;">{item["flow"]}</div></div>'
 heatmap_html += '</div>'
 st.markdown(heatmap_html, unsafe_allow_html=True)
 
-# --- 04 | MARKET MOVERS BY SESSION ---
+# --- 04 | MARKET MOVERS BY SESSION (FLAT LIST - EXACT SLICING) ---
 sessions = [("PRE-MARKET MOVERS", "PRE-MARKET", "nb-purple"), ("REGULAR SESSION MOVERS", "REGULAR", "nb-blue"), ("POST-MARKET MOVERS", "POST-MARKET", "nb-orange")]
 gappers_html = '<div class="list-wrapper"><div class="section-title">04 — Market Movers by Session</div>'
 for title, sess_key, badge in sessions:
     sess_data = [x for x in gappers_data if x['session'] == sess_key]
-    gappers_html += f'<div style="margin-top:24px; margin-bottom:8px;"><span class="nb-badge {badge}">{title}</span></div>'
-    gappers_html += '<div class="t-header-row" style="grid-template-columns: 1.2fr 1fr 1.2fr 1fr 1.2fr 3fr;"><div>Ticker</div><div>Price</div><div>Gap %</div><div>Vol</div><div>RVOL</div><div>Catalyst</div></div>'
+    gappers_html += f'<div style="margin-top:36px; margin-bottom:12px;"><span class="nb-badge {badge}">{title}</span></div>'
+    gappers_html += '<div class="t-header-row" style="grid-template-columns: 1.2fr 1fr 1fr 1fr 1.2fr 1.5fr 3fr;"><div>Ticker</div><div>Price</div><div>Gap %</div><div>Vol</div><div>$ Vol</div><div>RVOL Rating</div><div>Catalyst</div></div>'
+    
     if sess_data:
         limit = 5 if sess_key in ["PRE-MARKET", "POST-MARKET"] else 10
         for item in sorted(sess_data, key=lambda x: x['change'], reverse=True)[:limit]:
-            r_txt, r_badge = ("EXTREME", "nb-purple") if item['rvol'] >= 10 else ("HIGH", "nb-orange") if item['rvol'] >= 5 else ("ELEVATED", "nb-blue") if item['rvol'] >= 2 else ("NORMAL", "nb-green")
-            gappers_html += f'<div class="t-row" style="grid-template-columns: 1.2fr 1fr 1.2fr 1fr 1.2fr 3fr;"><div><span class="etf-tag">{item["ticker"]}</span></div><div class="vol-cell">${item["price"]:.2f}</div><div class="up-pct">+{item["change"]:.1f}%</div><div class="vol-cell">{item["vol"]}</div><div><span class="nb-badge {r_badge}">{item["rvol"]:.1f}x</span></div><div class="cat-cell">{item["catalyst"]}</div></div>'
+            rvol_val = safe_float(item.get('rvol')) or 1.0
+            if rvol_val >= 10.0: r_txt, r_badge = "EXTREME", "nb-purple"
+            elif rvol_val >= 5.0: r_txt, r_badge = "HIGH", "nb-orange"
+            elif rvol_val >= 2.0: r_txt, r_badge = "ELEVATED", "nb-blue"
+            else: r_txt, r_badge = "NORMAL", "nb-green"
+            
+            gappers_html += f'<div class="t-row" style="grid-template-columns: 1.2fr 1fr 1fr 1fr 1.2fr 1.5fr 3fr;"><div><span class="etf-tag">{item["ticker"]}</span></div><div class="vol-cell">${item["price"]:.2f}</div><div><span class="up-pct">▲ +{item["change"]:.2f}%</span></div><div class="vol-cell">{item.get("vol", "")}</div><div class="vol-cell">{item.get("dvol", "")}</div><div><span class="nb-badge {r_badge}">{r_txt} ({rvol_val:.1f}x)</span></div><div class="cat-cell">{item.get("catalyst")}</div></div>'
     else:
-        gappers_html += '<div class="t-row"><div class="cat-cell">Awaiting sync...</div></div>'
+        gappers_html += '<div class="t-row"><div class="cat-cell">Awaiting live data sync for this session...</div></div>'
 gappers_html += '</div>'
 st.markdown(gappers_html, unsafe_allow_html=True)
 
-# --- 05 | STOCKS IN PLAY (SIPS) ---
+# --- 05 | STOCKS IN PLAY (SIPS) (FLAT LIST) ---
 sips_html = '<div class="list-wrapper"><div class="section-title">05 — Stocks in Play (SIPS)</div>'
-sips_html += '<div class="t-header-row" style="grid-template-columns: 1.2fr 1fr 1.2fr 1fr 1.2fr 3fr;"><div>Ticker</div><div>Price</div><div>Change</div><div>Vol</div><div>RVOL</div><div>Catalyst</div></div>'
-for item in gappers_data[:10]:
-    r_txt, r_badge = ("EXTREME", "nb-purple") if item['rvol'] >= 10 else ("HIGH", "nb-orange") if item['rvol'] >= 5 else ("ELEVATED", "nb-blue") if item['rvol'] >= 2 else ("NORMAL", "nb-green")
-    sips_html += f'<div class="t-row" style="grid-template-columns: 1.2fr 1fr 1.2fr 1fr 1.2fr 3fr;"><div><span class="etf-tag">{item["ticker"]}</span></div><div class="vol-cell">${item["price"]:.2f}</div><div class="up-pct">+{item["change"]:.1f}%</div><div class="vol-cell">{item["vol"]}</div><div><span class="nb-badge {r_badge}">{item["rvol"]:.1f}x</span></div><div class="cat-cell">{item["catalyst"]}</div></div>'
+sips_html += '<div class="t-header-row" style="grid-template-columns: 1.2fr 1fr 1fr 1fr 1.2fr 1.5fr 3fr;"><div>Ticker</div><div>Price</div><div>Change</div><div>Vol</div><div>$ Vol</div><div>RVOL Rating</div><div>Catalyst</div></div>'
+if gappers_data:
+    for item in sorted(gappers_data, key=lambda x: x['change'], reverse=True)[:10]:
+        rvol_val = safe_float(item.get('rvol')) or 1.0
+        if rvol_val >= 10.0: r_txt, r_badge = "EXTREME", "nb-purple"
+        elif rvol_val >= 5.0: r_txt, r_badge = "HIGH", "nb-orange"
+        elif rvol_val >= 2.0: r_txt, r_badge = "ELEVATED", "nb-blue"
+        else: r_txt, r_badge = "NORMAL", "nb-green"
+        
+        sips_html += f'<div class="t-row" style="grid-template-columns: 1.2fr 1fr 1fr 1fr 1.2fr 1.5fr 3fr;"><div><span class="etf-tag">{item["ticker"]}</span></div><div class="vol-cell">${item["price"]:.2f}</div><div><span class="up-pct">▲ +{item["change"]:.2f}%</span></div><div class="vol-cell">{item.get("vol", "")}</div><div class="vol-cell">{item.get("dvol", "")}</div><div><span class="nb-badge {r_badge}">{r_txt} ({rvol_val:.1f}x)</span></div><div class="cat-cell">{item.get("catalyst")}</div></div>'
+else:
+    sips_html += '<div class="t-row"><div class="cat-cell">Awaiting live data sync...</div></div>'
 sips_html += '</div>'
 st.markdown(sips_html, unsafe_allow_html=True)
 
-# --- 06 | MEGA-CAP LIQUIDITY ---
+# --- 06 | MEGA-CAP LIQUIDITY (FLAT LIST) ---
 play_html = '<div class="list-wrapper"><div class="section-title">06 — Mega-Cap Liquidity Basket</div>'
 play_html += '<div class="t-header-row" style="grid-template-columns: 1fr 1fr 2fr;"><div>Ticker</div><div>Live Price</div><div>Algo Bias (vs 5D SMA)</div></div>'
 for item in liquidity_data:
-    play_html += f'<div class="t-row" style="grid-template-columns: 1fr 1fr 2fr;"><div><span class="etf-tag">{item["ticker"]}</span></div><div class="vol-cell">${item["price"]:.2f}</div><div class="{item["color"]}" style="font-weight:700; font-family: ui-monospace, monospace;">{item["bias"]}</div></div>'
+    play_html += f'<div class="t-row" style="grid-template-columns: 1fr 1fr 2fr;"><div><span class="etf-tag">{item["ticker"]}</span></div><div class="vol-cell">${item["price"]:.2f}</div><div><span class="{item["color"]}">{item["bias"]}</span></div></div>'
 play_html += '</div>'
 st.markdown(play_html, unsafe_allow_html=True)
 
-# --- 07 | EARNINGS ---
+# --- 07 | EARNINGS (FLAT LIST) ---
 def get_rating_html(eps, est):
     if eps is None or est is None: return ""
     return '<span class="badge-beat">BEAT</span>' if eps >= est else '<span class="badge-miss">MISS</span>'
 
 earn_html = f'<div class="list-wrapper"><div class="section-title">07 — Earnings Briefing</div>'
-earn_html += f'<div style="margin-bottom:8px;"><span class="nb-badge nb-purple">PREVIOUS CLOSE ({prev_dt.strftime("%A")})</span></div>'
+earn_html += f'<div style="margin-bottom:12px;"><span class="nb-badge nb-purple">PREVIOUS CLOSE ({prev_dt.strftime("%A")})</span></div>'
 prev_earn = [
     {"ticker": "NVDA", "name": "NVIDIA Corp", "eps": 5.98, "eps_est": 5.59, "insight": "Massive beat driven by Data Center revenue."},
     {"ticker": "SNOW", "name": "SunPower", "eps": -0.15, "eps_est": -0.22, "insight": "Narrower loss than expected."},
+    {"ticker": "INTU", "name": "Intuit", "eps": 9.88, "eps_est": 9.38, "insight": "Strong TurboTax season execution."}
 ]
 for item in prev_earn:
     rating = get_rating_html(item['eps'], item['eps_est'])
-    earn_html += f'<div class="t-row" style="grid-template-columns: 1fr;"><div style="font-size:18px;"><strong class="etf-tag" style="font-size:18px;">{item["ticker"]}</strong> <span style="color:#cbd5e1;">({item["name"]})</span>{rating} &nbsp;|&nbsp; <span class="vol-cell">EPS: ${item["eps"]:.2f} (est. ${item["eps_est"]:.2f})</span></div><div class="cat-cell" style="margin-top:4px;">{item["insight"]}</div></div>'
+    earn_html += f'<div class="t-row" style="grid-template-columns: 1fr;"><div style="font-size:18px;"><strong class="etf-tag">{item["ticker"]}</strong> <span style="color:#cbd5e1; font-size:16px; margin-left:6px;">({item["name"]})</span>{rating} &nbsp;|&nbsp; <span class="vol-cell">EPS: ${item["eps"]:.2f} (est. ${item["eps_est"]:.2f})</span></div><div class="cat-cell" style="margin-top:4px;">{item["insight"]}</div></div>'
 
-earn_html += f'<div style="margin-top:24px; margin-bottom:12px;"><span class="nb-badge nb-teal">NEXT TRADING DAY ({next_dt.strftime("%A, %b %d")})</span></div>'
+earn_html += f'<div style="margin-top:36px; margin-bottom:12px;"><span class="nb-badge nb-teal">NEXT TRADING DAY ({next_dt.strftime("%A, %b %d")})</span></div>'
 today_earn = [
     {"ticker": "DELL", "name": "Dell Technologies", "eps_est": 7.86, "insight": "Crucial read on enterprise hardware capex."},
     {"ticker": "ROST", "name": "Ross Stores", "eps_est": 1.35, "insight": "Discount retail barometer."}
 ]
 for item in today_earn:
-    earn_html += f'<div class="t-row" style="grid-template-columns: 1fr;"><div style="font-size:18px;"><strong class="etf-tag" style="font-size:18px;">{item["ticker"]}</strong> <span style="color:#cbd5e1;">({item["name"]})</span> &nbsp;|&nbsp; <span class="vol-cell">Est. EPS: ${item["eps_est"]:.2f}</span></div><div class="cat-cell" style="margin-top:4px;">{item["insight"]}</div></div>'
+    earn_html += f'<div class="t-row" style="grid-template-columns: 1fr;"><div style="font-size:18px;"><strong class="etf-tag">{item["ticker"]}</strong> <span style="color:#cbd5e1; font-size:16px; margin-left:6px;">({item["name"]})</span> &nbsp;|&nbsp; <span class="vol-cell">Est. EPS: ${item["eps_est"]:.2f}</span></div><div class="cat-cell" style="margin-top:4px;">{item["insight"]}</div></div>'
 earn_html += "</div>"
 st.markdown(earn_html, unsafe_allow_html=True)
 
-# --- 08 | ECONOMIC CALENDAR ---
-econ_html = '<div class="list-wrapper"><div class="section-title">08 — Economic Calendar</div>'
+# --- 08 | ECONOMIC CALENDAR (FLAT LIST) ---
+econ_html = '<div class="list-wrapper"><div class="section-title">08 — Economic Calendar (Week Ahead)</div>'
 econ_html += '<div class="t-header-row" style="grid-template-columns: 1fr 3fr 1fr;"><div>Date</div><div>Release</div><div>Impact</div></div>'
 events = [
     ("May 26", "S&P/Case-Shiller Home Price Index", "MED", "cat-cell"),
     ("May 27", "<span class='econ-bold'>CFTC SOYBEANS / GRAINS REPORT</span>", "HIGH", "down-pct"),
     ("May 28", "GDP (Second Preliminary)", "HIGH", "down-pct"),
+    ("May 29", "Core PCE Price Index", "HIGH", "down-pct")
 ]
 for date, event, imp, col in events:
-    econ_html += f'<div class="t-row" style="grid-template-columns: 1fr 3fr 1fr;"><div class="vol-cell">{date}</div><div class="cat-cell">{event}</div><div class="{col}" style="font-family: ui-monospace, monospace;">{imp}</div></div>'
+    econ_html += f'<div class="t-row" style="grid-template-columns: 1fr 3fr 1fr;"><div class="vol-cell">{date}</div><div class="cat-cell">{event}</div><div class="{col}">{imp}</div></div>'
 econ_html += '</div>'
 st.markdown(econ_html, unsafe_allow_html=True)
 
-# --- 09 | TECHNICAL PICTURE (FLAT FORMAT) ---
-st.markdown("""
-<div class="list-wrapper">
-<div class="section-title">09 — Technical Picture & Action Plan</div>
-<div class="t-row" style="grid-template-columns: 1fr;">
-    <div style="margin-bottom:8px;"><span class="nb-badge nb-blue">SPX LEVELS</span></div>
-    <div style="padding-bottom:6px; font-size:16px;"><span class="label-mono">Target:</span> <span class="vol-cell">7,300–7,375</span></div>
-    <div style="padding-bottom:6px; font-size:16px;"><span class="label-mono">Support:</span> <span class="vol-cell">7,000 ➔ 6,780</span></div>
-    <div class="cat-cell" style="margin-top:4px; color:#818cf8; font-weight:700;">ACTION ➔ Look for dip-buying at 7,000.</div>
-</div>
-<div class="t-row" style="grid-template-columns: 1fr;">
-    <div style="margin-bottom:8px;"><span class="nb-badge nb-purple">VOLATILITY (VIX)</span></div>
-    <div style="padding-bottom:6px; font-size:16px;"><span class="label-mono">Level:</span> <span class="vol-cell">~19.10</span></div>
-    <div style="padding-bottom:6px; font-size:16px;"><span class="label-mono">Context:</span> <span style="font-weight:700; color:#f1f5f9;">Entering "Normal" regime.</span></div>
-    <div class="cat-cell" style="margin-top:4px; color:#818cf8; font-weight:700;">ACTION ➔ Premium selling favored.</div>
-</div>
-</div>
-""", unsafe_allow_html=True)
+# --- 09 | TECHNICAL PICTURE (CLOUD) ---
+tech_html = '<div class="cloud-card"><div class="section-title">09 — Technical Picture & Action Plan</div><div class="inst-grid" style="grid-template-columns: repeat(2, 1fr);"><div style="background: transparent;"><div style="margin-bottom:12px;"><span class="nb-badge nb-blue">SPX LEVELS</span></div><div style="padding-bottom:6px; font-size:16px;"><span class="label-mono">Target:</span> <span class="vol-cell">7,300–7,375</span></div><div style="padding-top:6px; font-size:16px;"><span class="label-mono">Support:</span> <span class="vol-cell">7,000 ➔ 6,780</span></div><span class="tech-action">ACTION ➔ Look for dip-buying at 7,000.</span></div><div style="background: transparent;"><div style="margin-bottom:12px;"><span class="nb-badge nb-purple">VOLATILITY (VIX)</span></div><div style="padding-bottom:6px; font-size:16px;"><span class="label-mono">Level:</span> <span class="vol-cell">~19.10</span></div><div style="padding-top:6px; font-size:16px;"><span class="label-mono">Context:</span> <span style="font-weight:700; color:#f1f5f9;">Entering "Normal" regime.</span></div><span class="tech-action">ACTION ➔ Premium selling favored.</span></div></div></div>'
+st.markdown(tech_html, unsafe_allow_html=True)
 
-# --- 10 | BREADTH ---
-st.markdown("""
-<div class="list-wrapper">
-<div class="section-title">10 — Market Breadth</div>
-<div class="t-row" style="grid-template-columns: 1fr;">
-    <div style="margin-bottom:8px;"><span class="nb-badge nb-green">A/D LINE</span></div>
-    <div style="font-size: 24px; font-weight: 800; margin-bottom: 4px; color: #4ade80;">3.5 : 1 <span style="font-size: 16px; font-weight: 600; color: #94a3b8;">(Advancers vs Decliners)</span></div>
-    <div class="cat-cell"><strong>Advance/Decline Line Trending Higher</strong> — Confirms rally isn't just mega-cap driven. All 11 sectors closed green.</div>
-</div>
-</div>
-""", unsafe_allow_html=True)
-
-# --- 11 | WATCHLIST ---
-st.markdown("""
-<div class="list-wrapper">
-<div class="section-title">11 — Trading Watchlist</div>
-<div class="t-row" style="grid-template-columns: 1fr;">
-    <div style="margin-bottom:4px;"><span class="nb-badge nb-green">Institutional Flow</span></div>
-    <div style="font-size:18px; margin-bottom:4px;"><span class="etf-tag">NVDA</span> <span style="color:#cbd5e1;">— Post-Earnings Follow Through</span></div>
-    <div class="cat-cell">Massive institutional buy-side pressure remains. Watch for a test of new ATH territory.</div>
-</div>
-<div class="t-row" style="grid-template-columns: 1fr;">
-    <div style="margin-bottom:4px;"><span class="nb-badge nb-blue">Catalyst Play</span></div>
-    <div style="font-size:18px; margin-bottom:4px;"><span class="etf-tag">TSLA</span> <span style="color:#cbd5e1;">— FSD China Approval</span></div>
-    <div class="cat-cell">Structural rally in progress. Looking for $220 to act as a launchpad for the next leg.</div>
-</div>
-</div>
-""", unsafe_allow_html=True)
-
-# --- 12 | EDITOR'S NOTE ---
-st.markdown("""
-<div class="list-wrapper" style="border-left: 4px solid #818cf8; padding-left: 20px !important;">
-<div class="section-title" style="border-bottom:none; margin-bottom:12px;">12 — Editor's Note</div>
-<div style="font-size: 16px; color: #cbd5e1; line-height: 1.8;">
-<strong>Market Status:</strong> The market remains closed through Monday for Memorial Day. <br><br>
-Heading into Tuesday's open, the structure remains decidedly bullish following Nvidia's blowout numbers. Broad participation is improving, and the VIX is compressing back into a low-stress regime. Capitalize on the mega-cap tech momentum, but remain selective on micro-cap gap-and-crap setups in the pre-market. Let the first 30 minutes establish the real trend.<br><br>
-<strong>CLOSING POSTURE:</strong> <em>Remain long-biased on tech (XLK).</em> Watch the 10Y Treasury yield; any spike above 4.5% will pressure the current rally.
-<br><br>
-<strong>See you at the open. 📈</strong>
-</div>
-</div>
-""", unsafe_allow_html=True)
-
-# --- 13 | MASSIVE API INTEGRATION ---
+# --- 13 | MASSIVE API INTEGRATION (FLAT LIST) ---
 massive_html = '<div class="list-wrapper"><div class="section-title">13 — Institutional Options Flow (Massive API)</div>'
 massive_html += '<div class="t-header-row" style="grid-template-columns: 1fr 1fr 2fr 1fr 1fr;"><div>Ticker</div><div>Type</div><div>Strike / Exp</div><div>Premium</div><div>Sentiment</div></div>'
 for flow in institutional_flow:
-    massive_html += f'<div class="t-row" style="grid-template-columns: 1fr 1fr 2fr 1fr 1fr;"><div><span class="etf-tag">{flow["ticker"]}</span></div><div style="font-weight:700;">{flow["type"]}</div><div class="cat-cell">{flow["strike"]} — {flow["exp"]}</div><div class="vol-cell">{flow["prem"]}</div><div class="{flow["color"]}" style="font-family: ui-monospace, monospace; font-weight:700;">{flow["sentiment"]}</div></div>'
+    massive_html += f'<div class="t-row" style="grid-template-columns: 1fr 1fr 2fr 1fr 1fr;"><div><span class="etf-tag">{flow["ticker"]}</span></div><div style="font-weight:700;">{flow["type"]}</div><div class="cat-cell">{flow["strike"]} — {flow["exp"]}</div><div class="vol-cell">{flow["prem"]}</div><div class="{flow["color"]}">{flow["sentiment"]}</div></div>'
 massive_html += "</div>"
 st.markdown(massive_html, unsafe_allow_html=True)
