@@ -3,6 +3,8 @@ import yfinance as yf
 import pandas as pd
 import requests
 import re
+import os
+import json
 from datetime import datetime, timedelta
 
 # --- SAFETY HELPER ---
@@ -21,7 +23,7 @@ st.set_page_config(page_title="Confluence Trading Tools", layout="wide", initial
 
 st.markdown("""
 <style>
-/* Reset and Base App Styling */
+/* Base Styling - Crisp system font, off-white text */
 .stApp { 
     background: #0a1120; 
     color: #e2e8f0; 
@@ -46,12 +48,12 @@ footer {visibility: hidden;}
 
 /* HEADER */
 .hdr { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 24px; margin-bottom: 48px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
-.wrap-type { font-size: 16px; font-weight: 600; letter-spacing: 1px; color: #818cf8; }
+.wrap-type { font-size: 16px; font-weight: 600; letter-spacing: 1px; color: #64748b; }
 .wrap-title { font-size: 42px; font-weight: 800; color: #f1f5f9; margin-top: 4px; }
 .hdr-meta { text-align: right; font-size: 16px; color: #94a3b8; }
 .hdr-date { font-size: 20px; color: #c7d2fe; font-weight: 600; margin-bottom: 8px; }
 
-/* INDIVIDUAL SECTION WRAPPER (Darker Gray Line) */
+/* INDIVIDUAL SECTION WRAPPER (Dark Slate Line) */
 .section-container {
     border-left: 4px solid #64748b; 
     padding-left: 24px;
@@ -64,38 +66,38 @@ footer {visibility: hidden;}
     display: block;
 }
 
-/* SECTION TITLE (Larger Font) */
-.section-title { display: flex; justify-content: space-between; align-items: center; font-size: 22px; font-weight: 800; color: #e2e8f0; margin-bottom: 28px; }
+/* SECTION TITLE (Darker Gray Text) */
+.section-title { font-size: 22px; font-weight: 800; color: #64748b; margin-bottom: 24px; text-transform: uppercase; letter-spacing: 1.5px; }
 
-/* BADGES - ONLY TEXT COLOR */
-.nb-badge, .badge-beat, .badge-miss, .badge-closed, .badge-live { 
-    background: transparent !important; 
-    padding: 0 !important; 
-    border: none !important; 
-    font-size: 15px; 
-    font-weight: 700; 
-    display: inline-block; 
-}
+/* STACKED LIST ITEMS (Replaces Tables) */
+.item-card { padding: 20px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.item-card:last-child { border-bottom: none; }
+.item-top { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; font-size: 18px; }
+.item-bot { font-size: 16px; color: #cbd5e1; line-height: 1.6; }
+
+/* ITEM TEXT STYLES */
+.tckr { font-weight: 800; color: #f1f5f9; font-size: 20px; }
+.sub-name { color: #94a3b8; font-size: 17px; }
+.sep { color: #475569; margin: 0 4px; font-weight: 300; }
+.val { font-weight: 700; color: #f1f5f9; }
+.up-pct { color: #4ade80; font-weight: 700; }
+.down-pct { color: #f87171; font-weight: 700; }
+
+/* INLINE BADGES */
+.nb-badge { font-size: 16px; font-weight: 800; display: inline-block; margin-bottom: 8px;}
 .nb-purple { color: #e879f9 !important; }
 .nb-teal { color: #67e8f9 !important; }
 .nb-orange { color: #fdba74 !important; }
 .nb-blue { color: #7dd3fc !important; }
-.nb-green, .badge-beat, .badge-live { color: #4ade80 !important; }
-.nb-red, .badge-miss, .badge-closed { color: #f87171 !important; }
+.nb-green, .badge-beat, .badge-live { color: #4ade80 !important; font-weight: 800; }
+.nb-red, .badge-miss, .badge-closed { color: #f87171 !important; font-weight: 800; }
+.badge-live { animation: pulse 2s infinite; }
 
-/* TERMINAL ROWS */
-.t-header-row { display: grid; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px; margin-bottom: 4px; font-size: 14px; font-weight: 700; color: #64748b; }
-.t-row { display: grid; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.03); padding: 16px 0; font-size: 16px; color: #e2e8f0; }
-.t-row:last-child { border-bottom: none; }
-
-/* FONTS & TEXT STYLES */
-.ticker-cell { font-weight: 800; color: #e2e8f0; font-size: 18px; }
-.vol-cell { font-weight: 700; color: #e2e8f0; font-size: 16px; }
-.up-pct { color: #4ade80; font-weight: 700; font-size: 16px; }
-.down-pct { color: #f87171; font-weight: 700; font-size: 16px; }
-.cat-cell { color: #cbd5e1; font-size: 15px; line-height: 1.5; }
-.summary-text { font-size: 16px; color: #cbd5e1; line-height: 1.8; margin-bottom: 16px;}
-.summary-text strong { color: #e2e8f0; }
+/* INSTRUMENT GRID (For Scorecard) */
+.inst-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.inst-card { padding: 12px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+.inst-name { font-size: 15px; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+.inst-level { font-size: 28px; font-weight: 800; color: #f1f5f9; margin-bottom: 4px; }
 
 @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
 </style>
@@ -120,7 +122,7 @@ else:
     status_class = "badge-live"
 
 # ==========================================
-# 3. DATA ENGINES 
+# 3. DATA ENGINES (WITH EOD SNAPSHOT CACHING)
 # ==========================================
 def get_last_price_change(ticker):
     try:
@@ -139,15 +141,6 @@ def fetch_expanded_macro():
         data[name] = {"price": p, "pct": c}
     return data
 
-def get_market_rating(macro_data):
-    spx_pct = macro_data.get("S&P 500 (SPX)", {}).get("pct", 0)
-    ndx_pct = macro_data.get("Nasdaq Comp", {}).get("pct", 0)
-    if spx_pct >= 0.5 and ndx_pct >= 0.5: return "Risk-On", "nb-green"
-    elif spx_pct > 0 and ndx_pct > 0: return "Bullish", "nb-green"
-    elif spx_pct <= -0.5 and ndx_pct <= -0.5: return "Risk-Off", "nb-red"
-    elif spx_pct < 0 and ndx_pct < 0: return "Bearish", "nb-red"
-    else: return "Mixed", "nb-blue"
-
 @st.cache_data(ttl=300)
 def fetch_sector_flow():
     sector_map = {"XLK": "Technology", "XLY": "Consumer Disc", "XLI": "Industrials", "XLC": "Comm. Services", "XLV": "Health Care", "XLF": "Financials", "XLP": "Consumer Staples", "XLB": "Materials", "XLE": "Energy", "XLRE": "Real Estate"}
@@ -159,31 +152,9 @@ def fetch_sector_flow():
 
 @st.cache_data(ttl=120)
 def fetch_gappers():
-    # Fallback to Market Close data if APIs are empty over the weekend
-    fallback_data = [
-        {"ticker": "QTEX", "price": 0.72, "change": 140.01, "session": "Pre-Market", "vol": "788.2M", "dvol": "$573M", "rvol": 22.5, "catalyst": "Gov Contract Award"},
-        {"ticker": "BIYA", "price": 1.30, "change": 110.53, "session": "Pre-Market", "vol": "101.5M", "dvol": "$131M", "rvol": 9.8, "catalyst": "Upgraded Guidance"},
-        {"ticker": "FFIE", "price": 0.85, "change": 95.40, "session": "Pre-Market", "vol": "350.0M", "dvol": "$297M", "rvol": 18.4, "catalyst": "Retail Short Squeeze"},
-        {"ticker": "HOLO", "price": 1.25, "change": 88.20, "session": "Pre-Market", "vol": "85.0M", "dvol": "$106M", "rvol": 14.2, "catalyst": "Sympathy Momentum"},
-        {"ticker": "GWAV", "price": 3.40, "change": 75.60, "session": "Pre-Market", "vol": "42.0M", "dvol": "$142M", "rvol": 11.5, "catalyst": "Debt Payoff"},
-        {"ticker": "AKTX", "price": 18.27, "change": 255.45, "session": "Regular", "vol": "34.0M", "dvol": "$622M", "rvol": 12.4, "catalyst": "FDA Fast Track Rumor"},
-        {"ticker": "PCLA", "price": 6.62, "change": 194.22, "session": "Regular", "vol": "37.0M", "dvol": "$245M", "rvol": 8.2, "catalyst": "Massive Earnings Beat"},
-        {"ticker": "RYOJ", "price": 5.00, "change": 148.76, "session": "Regular", "vol": "41.2M", "dvol": "$206M", "rvol": 15.1, "catalyst": "M&A Buyout Rumor"},
-        {"ticker": "LFS", "price": 3.55, "change": 89.33, "session": "Regular", "vol": "77.8M", "dvol": "$276M", "rvol": 4.2, "catalyst": "Analyst Upgrade"},
-        {"ticker": "VCIG", "price": 1.33, "change": 64.79, "session": "Regular", "vol": "31.7M", "dvol": "$42M", "rvol": 3.1, "catalyst": "Strategic Partnership"},
-        {"ticker": "HYLN", "price": 5.99, "change": 42.62, "session": "Regular", "vol": "20.1M", "dvol": "$120M", "rvol": 5.5, "catalyst": "New Product Launch"},
-        {"ticker": "FJET", "price": 7.20, "change": 39.81, "session": "Regular", "vol": "12.4M", "dvol": "$89M", "rvol": 2.8, "catalyst": "Defense Contract"},
-        {"ticker": "MEHA", "price": 0.10, "change": 38.69, "session": "Regular", "vol": "628.1M", "dvol": "$66M", "rvol": 18.3, "catalyst": "Phase 2 Clinical Data"},
-        {"ticker": "TSLA", "price": 215.40, "change": 8.40, "session": "Regular", "vol": "145.2M", "dvol": "$31B", "rvol": 2.9, "catalyst": "FSD China Approval"},
-        {"ticker": "NVDA", "price": 1050.20, "change": 4.50, "session": "Regular", "vol": "42.1M", "dvol": "$44B", "rvol": 2.1, "catalyst": "Institutional Buy Flow"},
-        {"ticker": "GME", "price": 22.40, "change": 45.20, "session": "Post-Market", "vol": "15.0M", "dvol": "$336M", "rvol": 5.1, "catalyst": "Retail Momentum"},
-        {"ticker": "AMC", "price": 18.50, "change": 38.10, "session": "Post-Market", "vol": "25.0M", "dvol": "$462M", "rvol": 4.8, "catalyst": "Debt Restructuring"},
-        {"ticker": "KOSS", "price": 4.20, "change": 32.50, "session": "Post-Market", "vol": "5.0M", "dvol": "$21M", "rvol": 6.2, "catalyst": "Sympathy Play"},
-        {"ticker": "SPWR", "price": 12.10, "change": 28.40, "session": "Post-Market", "vol": "8.0M", "dvol": "$96M", "rvol": 3.9, "catalyst": "Contract Win"},
-        {"ticker": "BBAI", "price": 2.10, "change": 25.10, "session": "Post-Market", "vol": "12.0M", "dvol": "$25M", "rvol": 7.1, "catalyst": "AI Sector Run"}
-    ]
-    
     results = []
+    cache_file = "eod_gappers_cache.json"
+    
     try:
         g_reg = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey={FMP_KEY}").json()
         g_pre = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/pre-market-gainers?apikey={FMP_KEY}").json()
@@ -197,7 +168,12 @@ def fetch_gappers():
         if isinstance(g_post, list):
             for x in g_post: x['session'] = 'Post-Market'; all_gainers.append(x)
 
-        if not all_gainers: return fallback_data
+        # EOD CACHE LOGIC: If APIs return empty (after hours/weekend), load the last saved JSON.
+        if not all_gainers:
+            if os.path.exists(cache_file):
+                with open(cache_file, 'r') as f:
+                    return json.load(f)
+            return []
 
         unique_movers = {}
         for x in all_gainers:
@@ -212,7 +188,7 @@ def fetch_gappers():
         final_targets = pre_movers + reg_movers + post_movers
         tickers_to_fetch = [x['symbol'] for x in final_targets]
 
-        if not tickers_to_fetch: return fallback_data
+        if not tickers_to_fetch: return []
 
         yf_data = yf.download(tickers_to_fetch, period="10d", progress=False)
         volumes = yf_data['Volume'] if 'Volume' in yf_data else pd.DataFrame()
@@ -249,10 +225,19 @@ def fetch_gappers():
 
             results.append({"ticker": sym, "price": price, "change": change, "session": sess, "vol": vol_str, "dvol": dol_vol_str, "rvol": float(rvol), "catalyst": catalyst})
 
-        if not results: return fallback_data
-        return sorted(results, key=lambda x: x['change'], reverse=True)
-    except: 
-        return fallback_data
+        final_result = sorted(results, key=lambda x: x['change'], reverse=True)
+        
+        # Save snapshot for nighttime review
+        if final_result:
+            with open(cache_file, 'w') as f:
+                json.dump(final_result, f)
+                
+        return final_result
+    except Exception as e: 
+        if os.path.exists(cache_file):
+            with open(cache_file, 'r') as f:
+                return json.load(f)
+        return []
 
 @st.cache_data(ttl=120)
 def fetch_liquidity_basket():
@@ -278,24 +263,13 @@ def fetch_massive_data():
         {"ticker": "IWM",  "type": "Block", "strike": "$200P", "exp": "Jul 17", "prem": "$5.5M", "sentiment": "Bearish", "color": "nb-red"},
         {"ticker": "META", "type": "Sweep", "strike": "$480C", "exp": "Jun 05", "prem": "$2.1M", "sentiment": "Bullish", "color": "nb-green"},
         {"ticker": "QQQ",  "type": "Block", "strike": "$450P", "exp": "Jun 19", "prem": "$8.4M", "sentiment": "Bearish", "color": "nb-red"},
-        {"ticker": "DELL", "type": "Sweep", "strike": "$160C", "exp": "May 29", "prem": "$1.8M", "sentiment": "Bullish", "color": "nb-green"},
-        {"ticker": "AMD",  "type": "Sweep", "strike": "$175C", "exp": "Jun 05", "prem": "$2.5M", "sentiment": "Bullish", "color": "nb-green"},
-        {"ticker": "SPY",  "type": "Block", "strike": "$525P", "exp": "Jul 17", "prem": "$12.2M", "sentiment": "Bearish", "color": "nb-red"}
+        {"ticker": "DELL", "type": "Sweep", "strike": "$160C", "exp": "May 29", "prem": "$1.8M", "sentiment": "Bullish", "color": "nb-green"}
     ]
-
-def parse_news_badge(title):
-    t = title.lower()
-    if any(x in t for x in ['bitcoin', 'crypto']): return 'nb-orange', 'Crypto'
-    elif any(x in t for x in ['earn', 'q1', 'revenue', 'eps']): return 'nb-teal', 'Earnings'
-    elif any(x in t for x in ['fed', 'rate', 'inflation']): return 'nb-purple', 'Macro'
-    elif any(x in t for x in ['plunge', 'crash', 'down']): return 'nb-red', 'Alert'
-    else: return 'nb-blue', 'Market Update'
 
 # ==========================================
 # 4. DATA EXECUTION & STATE
 # ==========================================
 macro_data = fetch_expanded_macro()
-rating_text, rating_class = get_market_rating(macro_data)
 sector_data = fetch_sector_flow()
 gappers_data = fetch_gappers()
 liquidity_data = fetch_liquidity_basket()
@@ -306,22 +280,22 @@ institutional_flow = fetch_massive_data()
 # ==========================================
 
 # --- HEADER ---
-st.markdown(f'<div class="hdr"><div><div class="wrap-type">Market Briefing</div><div class="wrap-title">Confluence Trading Tools</div></div><div class="hdr-meta"><div class="hdr-date">{now_dt.strftime("%A, %B %d")}</div><span class="nb-badge {status_class}">{market_status}</span></div></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="hdr"><div><div class="wrap-type">Market Briefing</div><div class="wrap-title">Confluence Trading Tools</div></div><div class="hdr-meta"><div class="hdr-date">{now_dt.strftime("%A, %B %d")}</div><span class="{status_class}">{market_status}</span></div></div>', unsafe_allow_html=True)
 
 # OPEN MASTER CLOUD
 st.markdown('<div class="block-container">', unsafe_allow_html=True)
 
 # --- 01 | SCORECARD ---
-scorecard_html = f'<div class="section-container"><div class="section-title"><span>01 — Macro Scorecard</span><span class="nb-badge {rating_class}">Market Rating: {rating_text}</span></div><div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">'
+scorecard_html = f'<div class="section-container"><div class="section-title">01 — Macro Scorecard</div><div class="inst-grid">'
 for name, m in macro_data.items():
     col = "up-pct" if m['pct'] >= 0 else "down-pct"
     sign = "▲ +" if m['pct'] > 0 else "▼ " if m['pct'] < 0 else ""
     p_str = f"{m['price']:.3f}" if name in ["VIX", "10Y Treasury"] else f"${m['price']:,.2f}"
-    scorecard_html += f'<div><div style="font-size: 15px; color: #64748b; font-weight: 700;">{name}</div><div class="vol-cell" style="font-size: 28px; margin: 4px 0;">{p_str}</div><div class="{col}">{sign}{m["pct"]:.2f}%</div></div>'
+    scorecard_html += f'<div class="inst-card"><div class="inst-name">{name}</div><div class="inst-level">{p_str}</div><div class="{col}">{sign}{m["pct"]:.2f}%</div></div>'
 scorecard_html += "</div></div><div class='section-spacer'></div>"
 st.markdown(scorecard_html, unsafe_allow_html=True)
 
-# --- 02 | MARKET DRIVERS ---
+# --- 02 | MARKET DRIVERS (STACKED FORMAT) ---
 live_news = []
 try:
     url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=25&channels=News"
@@ -336,99 +310,81 @@ if not live_news:
     live_news = [{"title": "Market Data Sync Pending", "teaser": "Awaiting Benzinga headline feed connection..."}]
 
 news_html = '<div class="section-container"><div class="section-title">02 — Market Drivers & Catalysts</div>'
-for article in live_news[:10]:
-    b_color, b_text = parse_news_badge(article['title'])
-    news_html += f'<div class="t-row" style="grid-template-columns: 1fr;"><div style="margin-bottom:4px;"><span class="nb-badge {b_color}" style="margin-right:8px;">{b_text}</span> <strong style="color:#e2e8f0; font-size:17px;">{article["title"]}</strong></div><div class="cat-cell">{article["teaser"]}</div></div>'
+for article in live_news[:8]:
+    news_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{article["title"]}</span></div><div class="item-bot">{article["teaser"]}</div></div>'
 news_html += "</div><div class='section-spacer'></div>"
 st.markdown(news_html, unsafe_allow_html=True)
 
-# --- 03 | SECTORS ---
+# --- 03 | SECTORS (STACKED FORMAT) ---
 heatmap_html = '<div class="section-container"><div class="section-title">03 — Sector Flows</div>'
-heatmap_html += '<div class="t-header-row" style="grid-template-columns: 50px 3fr 2fr 2fr;"><div>#</div><div>Sector / ETF</div><div>Live Change</div><div>Flow</div></div>'
 for i, item in enumerate(sector_data):
     col = "up-pct" if item['pct'] >= 0 else "down-pct"
     sign = "▲ +" if item['pct'] > 0 else "▼ " if item['pct'] < 0 else ""
     f_col = "nb-green" if item['pct'] >= 0 else "nb-red"
-    heatmap_html += f'<div class="t-row" style="grid-template-columns: 50px 3fr 2fr 2fr;"><div>{i+1}</div><div><span class="ticker-cell">{item["ticker"]}</span> <span style="color:#94a3b8; font-size:15px; margin-left:8px;">— {item["sector"]}</span></div><div><span class="{col}">{sign}{item["pct"]:.2f}%</span></div><div><span class="nb-badge {f_col}">{item["flow"]}</span></div></div>'
+    heatmap_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sub-name">({item["sector"]})</span> <span class="sep">|</span> <span class="{col}">{sign}{item["pct"]:.2f}%</span> <span class="sep">|</span> Flow: <span class="{f_col}">{item["flow"]}</span></div><div class="item-bot">Sector rotation tracking.</div></div>'
 heatmap_html += '</div><div class="section-spacer"></div>'
 st.markdown(heatmap_html, unsafe_allow_html=True)
 
-# --- 04 | MARKET MOVERS BY SESSION ---
+# --- 04 | MARKET MOVERS BY SESSION (STACKED FORMAT) ---
 sessions = [("Pre-Market Movers", "Pre-Market", "nb-purple"), ("Regular Session Movers", "Regular", "nb-blue"), ("Post-Market Movers", "Post-Market", "nb-orange")]
 gappers_html = '<div class="section-container"><div class="section-title">04 — Market Movers by Session</div>'
 for title, sess_key, badge in sessions:
     sess_data = [x for x in gappers_data if x['session'] == sess_key]
-    gappers_html += f'<div style="margin-top:16px; margin-bottom:12px;"><span class="nb-badge {badge}">{title}</span></div>'
-    gappers_html += '<div class="t-header-row" style="grid-template-columns: 1.2fr 1fr 1fr 1fr 1.2fr 1.5fr 3fr;"><div>Ticker</div><div>Price</div><div>Gap %</div><div>Vol</div><div>$ Vol</div><div>RVOL Rating</div><div>Catalyst</div></div>'
+    gappers_html += f'<div class="nb-badge {badge}" style="margin-top:16px;">{title}</div>'
     
     if sess_data:
         limit = 5 if sess_key in ["Pre-Market", "Post-Market"] else 10
         for item in sorted(sess_data, key=lambda x: x['change'], reverse=True)[:limit]:
             rvol_val = safe_float(item.get('rvol')) or 1.0
-            if rvol_val >= 10.0: r_txt, r_badge = "Extreme", "nb-purple"
-            elif rvol_val >= 5.0: r_txt, r_badge = "High", "nb-orange"
-            elif rvol_val >= 2.0: r_txt, r_badge = "Elevated", "nb-blue"
-            else: r_txt, r_badge = "Normal", "nb-green"
-            
-            gappers_html += f'<div class="t-row" style="grid-template-columns: 1.2fr 1fr 1fr 1fr 1.2fr 1.5fr 3fr;"><div><span class="ticker-cell">{item["ticker"]}</span></div><div class="vol-cell">${item["price"]:.2f}</div><div><span class="up-pct">▲ +{item["change"]:.2f}%</span></div><div class="vol-cell">{item.get("vol", "")}</div><div class="vol-cell">{item.get("dvol", "")}</div><div><span class="nb-badge {r_badge}">{r_txt} ({rvol_val:.1f}x)</span></div><div class="cat-cell">{item.get("catalyst")}</div></div>'
+            r_txt = f"{rvol_val:.1f}x"
+            gappers_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item["price"]:.2f}</span> <span class="sep">|</span> <span class="up-pct">▲ +{item["change"]:.2f}%</span> <span class="sep">|</span> Vol: <span class="val">{item.get("vol", "")}</span> <span class="sep">|</span> RVOL: <span class="val">{r_txt}</span></div><div class="item-bot">{item.get("catalyst")}</div></div>'
     else:
-        gappers_html += "<div class='t-row'><div class='cat-cell'>Awaiting live market data sync from FMP...</div></div>"
+        gappers_html += "<div class='item-card'><div class='item-bot'>Awaiting live market data sync...</div></div>"
 gappers_html += '</div><div class="section-spacer"></div>'
 st.markdown(gappers_html, unsafe_allow_html=True)
 
-# --- 05 | STOCKS IN PLAY (SIPS) ---
+# --- 05 | STOCKS IN PLAY (SIPS) (STACKED FORMAT) ---
 sips_html = '<div class="section-container"><div class="section-title">05 — Stocks in Play (SIPS)</div>'
-sips_html += '<div class="t-header-row" style="grid-template-columns: 1.2fr 1fr 1fr 1fr 1.2fr 1.5fr 3fr;"><div>Ticker</div><div>Price</div><div>Change</div><div>Vol</div><div>$ Vol</div><div>RVOL Rating</div><div>Catalyst</div></div>'
 if gappers_data:
     for item in sorted(gappers_data, key=lambda x: x['change'], reverse=True)[:10]:
         rvol_val = safe_float(item.get('rvol')) or 1.0
-        if rvol_val >= 10.0: r_txt, r_badge = "Extreme", "nb-purple"
-        elif rvol_val >= 5.0: r_txt, r_badge = "High", "nb-orange"
-        elif rvol_val >= 2.0: r_txt, r_badge = "Elevated", "nb-blue"
-        else: r_txt, r_badge = "Normal", "nb-green"
-        
-        sips_html += f'<div class="t-row" style="grid-template-columns: 1.2fr 1fr 1fr 1fr 1.2fr 1.5fr 3fr;"><div><span class="ticker-cell">{item["ticker"]}</span></div><div class="vol-cell">${item["price"]:.2f}</div><div><span class="up-pct">▲ +{item["change"]:.2f}%</span></div><div class="vol-cell">{item.get("vol", "")}</div><div class="vol-cell">{item.get("dvol", "")}</div><div><span class="nb-badge {r_badge}">{r_txt} ({rvol_val:.1f}x)</span></div><div class="cat-cell">{item.get("catalyst")}</div></div>'
+        r_txt = f"{rvol_val:.1f}x"
+        sips_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item["price"]:.2f}</span> <span class="sep">|</span> <span class="up-pct">▲ +{item["change"]:.2f}%</span> <span class="sep">|</span> Vol: <span class="val">{item.get("vol", "")}</span> <span class="sep">|</span> RVOL: <span class="val">{r_txt}</span></div><div class="item-bot">{item.get("catalyst")}</div></div>'
 else:
-    sips_html += "<div class='t-row'><div class='cat-cell'>Awaiting live market data sync...</div></div>"
+    sips_html += "<div class='item-card'><div class='item-bot'>Awaiting live market data sync...</div></div>"
 sips_html += '</div><div class="section-spacer"></div>'
 st.markdown(sips_html, unsafe_allow_html=True)
 
-# --- 06 | MEGA-CAP LIQUIDITY ---
+# --- 06 | MEGA-CAP LIQUIDITY (STACKED FORMAT) ---
 play_html = '<div class="section-container"><div class="section-title">06 — Mega-Cap Liquidity Basket</div>'
-play_html += '<div class="t-header-row" style="grid-template-columns: 1fr 1fr 2fr;"><div>Ticker</div><div>Live Price</div><div>Algo Bias (vs 5D SMA)</div></div>'
 for item in liquidity_data:
-    play_html += f'<div class="t-row" style="grid-template-columns: 1fr 1fr 2fr;"><div><span class="ticker-cell">{item["ticker"]}</span></div><div class="vol-cell">${item["price"]:.2f}</div><div><span class="{item["color"]}" style="font-weight:700;">{item["bias"]}</span></div></div>'
+    play_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item["price"]:.2f}</span> <span class="sep">|</span> Algo Bias: <span class="{item["color"]}">{item["bias"]}</span></div><div class="item-bot">Tracking 5-Day SMA deviation.</div></div>'
 play_html += '</div><div class="section-spacer"></div>'
 st.markdown(play_html, unsafe_allow_html=True)
 
-# --- 07 | EARNINGS ---
-def get_rating_html(eps, est):
-    if eps is None or est is None: return ""
-    return '<span class="badge-beat">Beat</span>' if eps >= est else '<span class="badge-miss">Miss</span>'
-
+# --- 07 | EARNINGS (STACKED FORMAT) ---
 earn_html = f'<div class="section-container"><div class="section-title">07 — Earnings Briefing</div>'
-earn_html += f'<div style="margin-bottom:12px;"><span class="nb-badge nb-purple">Previous Close ({prev_dt.strftime("%A")})</span></div>'
+earn_html += f'<div class="nb-badge nb-purple">Previous Close ({prev_dt.strftime("%A")})</div>'
 prev_earn = [
     {"ticker": "NVDA", "name": "NVIDIA Corp", "eps": 5.98, "eps_est": 5.59, "insight": "Massive beat driven by Data Center revenue."},
     {"ticker": "SNOW", "name": "SunPower", "eps": -0.15, "eps_est": -0.22, "insight": "Narrower loss than expected."},
 ]
 for item in prev_earn:
-    rating = get_rating_html(item['eps'], item['eps_est'])
-    earn_html += f'<div class="t-row" style="grid-template-columns: 1fr;"><div style="font-size:18px;"><strong class="ticker-cell">{item["ticker"]}</strong> <span style="color:#cbd5e1; font-size:16px; margin-left:6px;">({item["name"]})</span>{rating} &nbsp;|&nbsp; <span class="vol-cell">EPS: ${item["eps"]:.2f} (est. ${item["eps_est"]:.2f})</span></div><div class="cat-cell" style="margin-top:4px;">{item["insight"]}</div></div>'
+    rating = '<span class="badge-beat">Beat</span>' if item['eps'] >= item['eps_est'] else '<span class="badge-miss">Miss</span>'
+    earn_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sub-name">({item["name"]})</span>{rating} <span class="sep">|</span> <span class="val">EPS: ${item["eps"]:.2f} (est. ${item["eps_est"]:.2f})</span></div><div class="item-bot">{item["insight"]}</div></div>'
 
-earn_html += f'<div style="margin-top:24px; margin-bottom:12px;"><span class="nb-badge nb-teal">Next Trading Day ({next_dt.strftime("%A, %b %d")})</span></div>'
+earn_html += f'<div class="nb-badge nb-teal" style="margin-top: 24px;">Next Trading Day ({next_dt.strftime("%A, %b %d")})</div>'
 today_earn = [
     {"ticker": "DELL", "name": "Dell Technologies", "eps_est": 7.86, "insight": "Crucial read on enterprise hardware capex."},
     {"ticker": "ROST", "name": "Ross Stores", "eps_est": 1.35, "insight": "Discount retail barometer."}
 ]
 for item in today_earn:
-    earn_html += f'<div class="t-row" style="grid-template-columns: 1fr;"><div style="font-size:18px;"><strong class="ticker-cell">{item["ticker"]}</strong> <span style="color:#cbd5e1; font-size:16px; margin-left:6px;">({item["name"]})</span> &nbsp;|&nbsp; <span class="vol-cell">Est. EPS: ${item["eps_est"]:.2f}</span></div><div class="cat-cell" style="margin-top:4px;">{item["insight"]}</div></div>'
+    earn_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sub-name">({item["name"]})</span> <span class="sep">|</span> <span class="val">Est. EPS: ${item["eps_est"]:.2f}</span></div><div class="item-bot">{item["insight"]}</div></div>'
 earn_html += "</div><div class='section-spacer'></div>"
 st.markdown(earn_html, unsafe_allow_html=True)
 
-# --- 08 | ECONOMIC CALENDAR ---
+# --- 08 | ECONOMIC CALENDAR (STACKED FORMAT) ---
 econ_html = '<div class="section-container"><div class="section-title">08 — Economic Calendar (Week Ahead)</div>'
-econ_html += '<div class="t-header-row" style="grid-template-columns: 1fr 3fr 1fr;"><div>Date</div><div>Release</div><div>Impact</div></div>'
 events = [
     ("May 26", "S&P/Case-Shiller Home Price", "Med", "nb-blue"),
     ("May 27", "CFTC Soybeans / Grains Report", "High", "nb-red"),
@@ -436,7 +392,7 @@ events = [
     ("May 29", "Core PCE Price Index", "High", "nb-red")
 ]
 for date, event, imp, col in events:
-    econ_html += f'<div class="t-row" style="grid-template-columns: 1fr 3fr 1fr;"><div class="vol-cell">{date}</div><div class="cat-cell" style="font-weight:700; color:#e2e8f0;">{event}</div><div><span class="nb-badge {col}">{imp}</span></div></div>'
+    econ_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{date}</span> <span class="sep">|</span> Impact: <span class="{col}">{imp}</span></div><div class="item-bot">{event}</div></div>'
 econ_html += '</div><div class="section-spacer"></div>'
 st.markdown(econ_html, unsafe_allow_html=True)
 
@@ -444,47 +400,40 @@ st.markdown(econ_html, unsafe_allow_html=True)
 st.markdown("""
 <div class="section-container">
 <div class="section-title">09 — Technical Picture & Action Plan</div>
-<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
-<div>
-    <div style="margin-bottom:12px;"><span class="nb-badge nb-blue">SPX Levels</span></div>
-    <div style="padding-bottom:6px; font-size:16px; font-weight: 700; color: #94a3b8;">Target: <span style="color:#e2e8f0; margin-left:8px;">7,300–7,375</span></div>
-    <div style="padding-bottom:6px; font-size:16px; font-weight: 700; color: #94a3b8;">Support: <span style="color:#e2e8f0; margin-left:8px;">7,000 ➔ 6,780</span></div>
-    <div class="cat-cell" style="margin-top:8px; color:#818cf8; font-weight:700;">Action ➔ Look for dip-buying at 7,000.</div>
+<div class="item-card">
+    <div class="item-top"><span class="nb-badge nb-blue" style="margin:0;">SPX Levels</span></div>
+    <div class="item-bot" style="margin-top:6px;"><strong>Target:</strong> <span class="val">7,300–7,375</span> <span class="sep">|</span> <strong>Support:</strong> <span class="val">7,000 ➔ 6,780</span></div>
+    <div class="item-bot" style="color:#818cf8; font-weight:700; margin-top:8px;">Action ➔ Look for dip-buying at 7,000.</div>
 </div>
-<div>
-    <div style="margin-bottom:12px;"><span class="nb-badge nb-purple">Volatility (VIX)</span></div>
-    <div style="padding-bottom:6px; font-size:16px; font-weight: 700; color: #94a3b8;">Level: <span style="color:#e2e8f0; margin-left:8px;">~19.10</span></div>
-    <div style="padding-bottom:6px; font-size:16px; font-weight: 700; color: #94a3b8;">Context: <span style="color:#e2e8f0; margin-left:8px;">Entering "Normal" regime.</span></div>
-    <div class="cat-cell" style="margin-top:8px; color:#818cf8; font-weight:700;">Action ➔ Premium selling favored.</div>
-</div>
+<div class="item-card">
+    <div class="item-top"><span class="nb-badge nb-purple" style="margin:0;">Volatility (VIX)</span></div>
+    <div class="item-bot" style="margin-top:6px;"><strong>Level:</strong> <span class="val">~19.10</span> <span class="sep">|</span> <strong>Context:</strong> <span class="val">Entering "Normal" regime.</span></div>
+    <div class="item-bot" style="color:#818cf8; font-weight:700; margin-top:8px;">Action ➔ Premium selling favored.</div>
 </div>
 </div>
 <div class="section-spacer"></div>
 """, unsafe_allow_html=True)
 
-# --- 11 | WATCHLIST ---
+# --- 11 | WATCHLIST (STACKED FORMAT) ---
 st.markdown("""
 <div class="section-container">
 <div class="section-title">11 — Trading Watchlist</div>
-<div class="t-row" style="grid-template-columns: 1fr;">
-    <div style="margin-bottom:4px;"><span class="nb-badge nb-green">Institutional Flow</span></div>
-    <div style="font-size:18px; margin-bottom:4px;"><span class="ticker-cell">NVDA</span> <span style="color:#cbd5e1;">— Post-Earnings Follow Through</span></div>
-    <div class="cat-cell">Massive institutional buy-side pressure remains. Watch for a test of new ATH territory.</div>
+<div class="item-card">
+    <div class="item-top"><span class="tckr">NVDA</span> <span class="sub-name">(Institutional Flow)</span></div>
+    <div class="item-bot">Massive institutional buy-side pressure remains. Watch for a test of new ATH territory.</div>
 </div>
-<div class="t-row" style="grid-template-columns: 1fr;">
-    <div style="margin-bottom:4px;"><span class="nb-badge nb-blue">Catalyst Play</span></div>
-    <div style="font-size:18px; margin-bottom:4px;"><span class="ticker-cell">TSLA</span> <span style="color:#cbd5e1;">— FSD China Approval</span></div>
-    <div class="cat-cell">Structural rally in progress. Looking for $220 to act as a launchpad for the next leg.</div>
+<div class="item-card">
+    <div class="item-top"><span class="tckr">TSLA</span> <span class="sub-name">(Catalyst Play)</span></div>
+    <div class="item-bot">Structural rally in progress. Looking for $220 to act as a launchpad for the next leg.</div>
 </div>
 </div>
 <div class="section-spacer"></div>
 """, unsafe_allow_html=True)
 
-# --- 12 | MASSIVE API INTEGRATION ---
+# --- 12 | MASSIVE API INTEGRATION (STACKED FORMAT) ---
 massive_html = '<div class="section-container"><div class="section-title">12 — Institutional Options Flow (Massive API)</div>'
-massive_html += '<div class="t-header-row" style="grid-template-columns: 1fr 1fr 2fr 1fr 1fr;"><div>Ticker</div><div>Type</div><div>Strike / Exp</div><div>Premium</div><div>Sentiment</div></div>'
 for flow in institutional_flow:
-    massive_html += f'<div class="t-row" style="grid-template-columns: 1fr 1fr 2fr 1fr 1fr;"><div><span class="ticker-cell">{flow["ticker"]}</span></div><div style="font-weight:700; color:#e2e8f0;">{flow["type"]}</div><div class="cat-cell" style="font-weight:700; color:#e2e8f0;">{flow["strike"]} — {flow["exp"]}</div><div class="vol-cell">{flow["prem"]}</div><div><span class="{flow["color"]}" style="font-weight:800;">{flow["sentiment"]}</span></div></div>'
+    massive_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{flow["ticker"]}</span> <span class="sub-name">({flow["type"]})</span> <span class="sep">|</span> <span class="val">{flow["strike"]} — {flow["exp"]}</span></div><div class="item-bot">Prem: <span class="val">{flow["prem"]}</span> <span class="sep">|</span> Sentiment: <span class="{flow["color"]}">{flow["sentiment"]}</span></div></div>'
 massive_html += "</div><div class='section-spacer'></div>"
 st.markdown(massive_html, unsafe_allow_html=True)
 
@@ -495,25 +444,20 @@ top_gapper = gappers_data[0]['ticker'] if gappers_data else "N/A"
 top_gapper_change = gappers_data[0]['change'] if gappers_data else 0.0
 
 summary_text = f"""
-<div class="section-container" style="border-left: 4px solid #64748b;">
-<div class="section-title" style="margin-bottom: 24px;">13 — Market Summary</div>
-
-<div class="summary-text">
-<strong>Market Status:</strong> The market remains closed through Monday for Memorial Day.
+<div class="section-container">
+<div class="section-title">13 — Market Summary</div>
+<div class="item-card">
+    <div class="item-top"><span class="val">Market Status</span></div>
+    <div class="item-bot">The market remains closed through Monday for Memorial Day.</div>
 </div>
-
-<div class="summary-text" style="margin-top: 16px;">
-<strong>Action Summary:</strong> Heading into the next session, the broader market is {'pushing higher' if spx_pct > 0 else 'showing weakness'} with the S&P 500 at {spx_pct:+.2f}%. Sector rotation favors {top_sector}, while speculative pre-market money is heavily concentrated in high-RVOL runners like {top_gapper} (+{top_gapper_change:.1f}%). With the VIX hovering near ~19.10, the environment remains constructive but warrants selectivity.
+<div class="item-card">
+    <div class="item-top"><span class="val">Action Summary</span></div>
+    <div class="item-bot">Heading into the next session, the broader market is {'pushing higher' if spx_pct > 0 else 'showing weakness'} with the S&P 500 at {spx_pct:+.2f}%. Sector rotation favors {top_sector}, while speculative pre-market money is heavily concentrated in high-RVOL runners like {top_gapper} (+{top_gapper_change:.1f}%). With the VIX hovering near ~19.10, the environment remains constructive but warrants selectivity.</div>
 </div>
-
-<div class="summary-text" style="margin-top: 16px;">
-<strong>Closing Posture:</strong> <em>Remain focused on relative strength.</em> Watch the SPX 7,000 level closely for structural support.
+<div class="item-card">
+    <div class="item-top"><span class="val">Closing Posture</span></div>
+    <div class="item-bot"><em>Remain focused on relative strength.</em> Watch the SPX 7,000 level closely for structural support.<br><br><span class="val" style="color:#e2e8f0;">See you at the open. 📈</span></div>
 </div>
-
-<div class="summary-text" style="margin-top: 16px;">
-<strong>See you at the open. 📈</strong>
-</div>
-
 </div>
 """
 st.markdown(summary_text, unsafe_allow_html=True)
