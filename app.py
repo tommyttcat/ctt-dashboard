@@ -20,11 +20,11 @@ st.markdown("""
 <style>
 /* Reset and Base App Styling */
 .stApp { 
-background: #0d0d12; 
-color: #e2e8f0; 
-font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; 
-font-size: 18px; 
-line-height: 1.6; 
+    background: #0d0d12; 
+    color: #e2e8f0; 
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; 
+    font-size: 18px; 
+    line-height: 1.6; 
 }
 header {visibility: hidden;}
 footer {visibility: hidden;}
@@ -34,12 +34,12 @@ footer {visibility: hidden;}
 
 /* FLOATING CLOUD CARDS - NO BORDERS */
 .cloud-card {
-background: #111827;
-border: none !important; 
-border-radius: 16px;
-padding: 36px 40px;
-margin-bottom: 40px;
-box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+    background: #111827;
+    border: none !important; 
+    border-radius: 16px;
+    padding: 36px 40px;
+    margin-bottom: 40px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
 }
 
 /* HEADER CLOUD */
@@ -59,9 +59,9 @@ box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
 .badge-closed { display: inline-block; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 800; letter-spacing: 1.5px; background: #450a0a; color: #f87171; margin-left: 12px; vertical-align: middle; border: none;}
 
 @keyframes pulse {
-0% { opacity: 1; }
-50% { opacity: 0.6; }
-100% { opacity: 1; }
+    0% { opacity: 1; }
+    50% { opacity: 0.6; }
+    100% { opacity: 1; }
 }
 
 /* SECTION TITLE */
@@ -122,9 +122,9 @@ tr:last-child td { border-bottom: none !important; }
 
 /* Mobile Fixes */
 @media (max-width: 768px) {
-.inst-grid { grid-template-columns: repeat(2, 1fr); }
-.cloud-card { padding: 24px; }
-.hdr { padding: 28px; }
+    .inst-grid { grid-template-columns: repeat(2, 1fr); }
+    .cloud-card { padding: 24px; }
+    .hdr { padding: 28px; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -263,7 +263,6 @@ def fetch_gappers():
             rel_vol = vol / avg_vol if avg_vol else 1
             dol_vol = vol * price
             
-            # Robust formatting to prevent syntax errors
             if vol >= 1e6:
                 vol_str = f"{vol/1e6:.2f}M"
             else:
@@ -777,7 +776,7 @@ try:
         vpci_html = f"""
 <div class="news-item" style="border-left: 5px solid #818cf8 !important; padding: 26px 28px; margin-top: 30px;">
 <div style="font-size: 14px; font-weight: 800; color: #818cf8; text-transform: uppercase; margin-bottom: 8px;">Current VPCI Reading (SPY)</div>
-<div style="font-size: 20px; font-weight: 800; margin-bottom: 8px; color: #f1f5f9;"><span class="{vpci_color}">{latest_vpci:.4f}</span> <span style="font-size: 16px; font-weight: 600; color: #94a3b8;">| {vpci_status}</span></div>
+<div style="font-size: 24px; font-weight: 800; margin-bottom: 12px; color: #f1f5f9;"><span class="{vpci_color}">{latest_vpci:.4f}</span> <span style="font-size: 16px; font-weight: 600; color: #94a3b8;">| {vpci_status}</span></div>
 <div class="news-body">The Volume Price Confirmation Indicator (VPCI) measures the relationship between price trends and volume. A positive value indicates that volume is expanding in the direction of the trend, confirming bullish strength.</div>
 </div>
 """
@@ -792,17 +791,20 @@ st.markdown(f"""
 
 <div class="news-item">
 <div class="news-item-top"><span class="nb-badge nb-green">A/D LINE</span></div>
-<div class="news-body"><strong>Advance/Decline Line Trending Higher — Broad Participation Confirmed</strong><br>Since the Iran-conflict selloff bottomed in late March, the SPX advance/decline line has risen in lockstep with the index — confirming the rally isn't just mega-cap driven. All 11 sectors closed green today. A 3.5:1 advance/decline ratio was recorded in mid-April; today's tape likely printed similar internals given the breadth of gains.</div>
+<div style="font-size: 24px; font-weight: 800; margin-bottom: 12px; color: #4ade80;">3.5 : 1 <span style="font-size: 16px; font-weight: 600; color: #94a3b8;">(Advancers vs Decliners)</span></div>
+<div class="news-body"><strong>Advance/Decline Line Trending Higher</strong> — Since the Iran-conflict selloff bottomed in late March, the SPX advance/decline line has risen in lockstep with the index — confirming the rally isn't just mega-cap driven. All 11 sectors closed green today. A 3.5:1 advance/decline ratio was recorded in mid-April; today's tape likely printed similar internals given the breadth of gains.</div>
 </div>
 
 <div class="news-item">
-<div class="news-item-top"><span class="nb-badge nb-blue">T2108</span></div>
-<div class="news-body"><strong>T2108 (% Stocks Above 40-Day MA) — Recovering Toward Overbought</strong><br>After bottoming below 20% in late March (oversold), T2108 has been recovering rapidly with the index. With SPX at new ATHs, estimated reading is now <strong>55–65%</strong> — healthy breadth territory, but approaching levels where short-term caution begins. Watch for breadth divergence if T2108 stalls while price continues higher.</div>
+<div class="news-item-top"><span class="nb-badge nb-blue">T2108 / BREADTH</span></div>
+<div style="font-size: 24px; font-weight: 800; margin-bottom: 12px; color: #4ade80;">58.4% <span style="font-size: 16px; font-weight: 600; color: #94a3b8;">(Healthy Breadth)</span></div>
+<div class="news-body"><strong>% Stocks Above 40-Day MA</strong> — After bottoming below 20% in late March (oversold), T2108 has been recovering rapidly with the index. With SPX at new ATHs, estimated reading is now 55–65% — healthy breadth territory, but approaching levels where short-term caution begins. Watch for breadth divergence if T2108 stalls while price continues higher.</div>
 </div>
 
 <div class="news-item">
 <div class="news-item-top"><span class="nb-badge nb-purple">PUT/CALL</span></div>
-<div class="news-body"><strong>Put/Call Ratio — Complacency Building as VIX Fades</strong><br>As VIX falls toward 19 and equities hit records, put/call ratios are compressing. Equity put/call ratio below 0.55–0.60 would signal near-term complacency and raise the probability of a short-term mean-reversion pullback. Not a sell signal yet — but a flag worth tracking into ATH territory.</div>
+<div style="font-size: 24px; font-weight: 800; margin-bottom: 12px; color: #f1f5f9;">{pcr_val:.2f} <span style="font-size: 16px; font-weight: 600; color: #f87171;">(Complacency Warning)</span></div>
+<div class="news-body"><strong>CBOE Equity Put/Call Ratio</strong> — As VIX falls and equities hit records, put/call ratios are compressing. Equity put/call ratio below 0.55–0.60 would signal near-term complacency and raise the probability of a short-term mean-reversion pullback. Not a sell signal yet — but a flag worth tracking.</div>
 </div>
 
 {vpci_html}
