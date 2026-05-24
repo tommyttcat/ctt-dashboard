@@ -211,20 +211,32 @@ def fetch_gappers():
         g_pre = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/pre-market-gainers?apikey={FMP_KEY}").json()
         g_post = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/post-market-gainers?apikey={FMP_KEY}").json()
         
+        l_reg = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/losers?apikey={FMP_KEY}").json()
+        l_pre = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/pre-market-losers?apikey={FMP_KEY}").json()
+        l_post = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/post-market-losers?apikey={FMP_KEY}").json()
+
         g_reg = g_reg if isinstance(g_reg, list) else []
         g_pre = g_pre if isinstance(g_pre, list) else []
         g_post = g_post if isinstance(g_post, list) else []
+        
+        l_reg = l_reg if isinstance(l_reg, list) else []
+        l_pre = l_pre if isinstance(l_pre, list) else []
+        l_post = l_post if isinstance(l_post, list) else []
 
         for x in g_reg: x['session'] = 'REGULAR'
         for x in g_pre: x['session'] = 'PRE-MARKET'
         for x in g_post: x['session'] = 'POST-MARKET'
         
-        all_gainers = g_pre + g_post + g_reg
+        for x in l_reg: x['session'] = 'REGULAR'
+        for x in l_pre: x['session'] = 'PRE-MARKET'
+        for x in l_post: x['session'] = 'POST-MARKET'
+
+        all_movers = g_pre + g_post + g_reg + l_pre + l_post + l_reg
         unique_movers = {}
-        for x in all_gainers:
+        for x in all_movers:
             sym = x.get('symbol')
             if sym:
-                if sym not in unique_movers or x.get('changesPercentage', 0) > unique_movers[sym].get('changesPercentage', 0):
+                if sym not in unique_movers or abs(x.get('changesPercentage', 0)) > abs(unique_movers[sym].get('changesPercentage', 0)):
                     unique_movers[sym] = x
 
         tickers = list(unique_movers.keys())
@@ -251,33 +263,44 @@ def fetch_gappers():
             rel_vol = vol / avg_vol if avg_vol else 1
             dol_vol = vol * price
             
+            if vol >= 1e6:
+                vol_str = f"{vol/1e6:.2f}M"
+            else:
+                vol_str = f"{vol/1e3:.0f}K"
+                
+            if dol_vol >= 1e6:
+                dol_vol_str = f"${dol_vol/1e6:.2f}M"
+            else:
+                dol_vol_str = f"${dol_vol/1e3:.0f}K"
+            
             results.append({
                 "ticker": sym, 
                 "price": price, 
                 "change": change, 
                 "session": session, 
-                "vol": float(vol), 
-                "dvol": float(dol_vol), 
-                "rvol": float(rel_vol)
+                "vol": vol_str, 
+                "dvol": dol_vol_str, 
+                "rvol": f"{rel_vol:.2f}"
             })
             
-        if results: return sorted(results, key=lambda x: x['change'], reverse=True)
+        if results: return sorted(results, key=lambda x: abs(x['change']), reverse=True)
     except: pass
     
     # GUARANTEED FALLBACK FOR WEEKENDS
     fallback_data = [
-        {"ticker": "AKTX", "price": 18.27, "change": 255.45, "session": "POST-MARKET", "vol": 34042960.0, "dvol": 621964879.0, "rvol": 12.40},
-        {"ticker": "PCLA", "price": 6.62, "change": 194.22, "session": "POST-MARKET", "vol": 37041491.0, "dvol": 245214670.0, "rvol": 8.20},
-        {"ticker": "RYOJ", "price": 5.00, "change": 148.76, "session": "POST-MARKET", "vol": 41281833.0, "dvol": 206409165.0, "rvol": 15.10},
-        {"ticker": "QTEX", "price": 0.727, "change": 140.01, "session": "PRE-MARKET", "vol": 788263968.0, "dvol": 573067904.0, "rvol": 22.50},
-        {"ticker": "BIYA", "price": 1.30, "change": 110.53, "session": "PRE-MARKET", "vol": 101542195.0, "dvol": 132004853.0, "rvol": 9.80},
-        {"ticker": "LFS", "price": 3.55, "change": 89.33, "session": "REGULAR", "vol": 77867638.0, "dvol": 276430114.0, "rvol": 4.20},
-        {"ticker": "VCIG", "price": 1.33, "change": 64.79, "session": "REGULAR", "vol": 31792471.0, "dvol": 42283986.0, "rvol": 3.10},
-        {"ticker": "HYLN", "price": 5.99, "change": 42.62, "session": "REGULAR", "vol": 20171479.0, "dvol": 120827159.0, "rvol": 5.50},
-        {"ticker": "FJET", "price": 7.20, "change": 39.81, "session": "REGULAR", "vol": 12461100.0, "dvol": 89719920.0, "rvol": 2.80},
-        {"ticker": "MEHA", "price": 0.106, "change": 38.69, "session": "REGULAR", "vol": 628189656.0, "dvol": 66588103.0, "rvol": 18.30}
+        {"ticker": "AKTX", "price": 18.27, "change": 255.45, "session": "POST-MARKET", "vol": "34.04M", "dvol": "$622M", "rvol": "12.40"},
+        {"ticker": "PCLA", "price": 6.62, "change": 194.22, "session": "POST-MARKET", "vol": "37.04M", "dvol": "$245M", "rvol": "8.20"},
+        {"ticker": "RYOJ", "price": 5.00, "change": 148.76, "session": "POST-MARKET", "vol": "41.28M", "dvol": "$206M", "rvol": "15.10"},
+        {"ticker": "QTEX", "price": 0.727, "change": 140.01, "session": "PRE-MARKET", "vol": "788.2M", "dvol": "$573M", "rvol": "22.50"},
+        {"ticker": "BIYA", "price": 1.30, "change": 110.53, "session": "PRE-MARKET", "vol": "101.5M", "dvol": "$131M", "rvol": "9.80"},
+        {"ticker": "LFS", "price": 3.55, "change": 89.33, "session": "REGULAR", "vol": "77.8M", "dvol": "$276M", "rvol": "4.20"},
+        {"ticker": "VCIG", "price": 1.33, "change": 64.79, "session": "REGULAR", "vol": "31.7M", "dvol": "$42M", "rvol": "3.10"},
+        {"ticker": "HYLN", "price": 5.99, "change": 42.62, "session": "REGULAR", "vol": "20.1M", "dvol": "$120M", "rvol": "5.50"},
+        {"ticker": "FJET", "price": 7.20, "change": 39.81, "session": "REGULAR", "vol": "12.4M", "dvol": "$89M", "rvol": "2.80"},
+        {"ticker": "MEHA", "price": 0.106, "change": 38.69, "session": "REGULAR", "vol": "628.1M", "dvol": "$66M", "rvol": "18.30"},
+        {"ticker": "AAPL", "price": 189.20, "change": -2.40, "session": "REGULAR", "vol": "45.1M", "dvol": "$8.5B", "rvol": "0.90"}
     ]
-    return sorted(fallback_data, key=lambda x: x['change'], reverse=True)
+    return sorted(fallback_data, key=lambda x: abs(x['change']), reverse=True)
 
 @st.cache_data(ttl=300)
 def fetch_sips():
@@ -485,7 +508,7 @@ heatmap_html += "</tbody></table></div>"
 st.markdown(heatmap_html, unsafe_allow_html=True)
 
 
-# --- 04 | MARKET MOVERS BY SESSION (SORTABLE DATAFRAMES) ---
+# --- 04 | MARKET MOVERS BY SESSION (HTML TABLES) ---
 gappers_data = fetch_gappers()
 sessions = [
     ("PRE-MARKET MOVERS", "PRE-MARKET", "nb-purple"),
@@ -493,33 +516,56 @@ sessions = [
     ("POST-MARKET MOVERS", "POST-MARKET", "nb-orange")
 ]
 
-st.markdown('<div class="cloud-card" style="padding-bottom: 20px;"><div class="section-title" style="margin-bottom: 0; border: none;">04 — Market Movers by Session (Sortable)</div></div>', unsafe_allow_html=True)
+gappers_html = '<div class="cloud-card"><div class="section-title">04 — Market Movers by Session</div>'
 
 for title, sess_key, badge in sessions:
     sess_data = [x for x in gappers_data if x['session'] == sess_key]
     
-    st.markdown(f'<div style="margin-bottom:12px;"><span class="nb-badge {badge}">{title}</span></div>', unsafe_allow_html=True)
-    
+    gappers_html += f'<div style="margin-top:24px; margin-bottom:12px;"><span class="nb-badge {badge}">{title}</span></div>'
+    gappers_html += """
+<table>
+<thead>
+<tr><th>Ticker</th><th>Price</th><th>Gap %</th><th>Vol</th><th>$ Vol</th><th>RVOL</th></tr>
+</thead>
+<tbody>
+"""
     if sess_data:
-        df = pd.DataFrame(sess_data)
-        df = df[['ticker', 'price', 'change', 'vol', 'dvol', 'rvol']]
-        st.dataframe(
-            df.head(10),
-            column_config={
-                "ticker": st.column_config.TextColumn("Ticker"),
-                "price": st.column_config.NumberColumn("Price", format="$%.2f"),
-                "change": st.column_config.NumberColumn("Gap %", format="%.2f%%"),
-                "vol": st.column_config.NumberColumn("Vol", format="%,d"),
-                "dvol": st.column_config.NumberColumn("$ Vol", format="$%,.0f"),
-                "rvol": st.column_config.NumberColumn("RVOL", format="%.2f")
-            },
-            hide_index=True,
-            use_container_width=True
-        )
+        sess_gainers = sorted([x for x in sess_data if x['change'] >= 0], key=lambda x: x['change'], reverse=True)[:5]
+        sess_losers = sorted([x for x in sess_data if x['change'] < 0], key=lambda x: x['change'])[:5]
+        
+        for item in sess_gainers:
+            gappers_html += f"""
+<tr>
+<td class="ticker-cell"><span class="etf-tag">{item['ticker']}</span></td>
+<td class="catalyst-cell" style="color:#f1f5f9;">${item['price']:.2f}</td>
+<td><div class="up-pct">▲ +{item['change']:.2f}%</div></td>
+<td class="catalyst-cell" style="font-size:15px; font-weight: 700;">{item.get('vol', '')}</td>
+<td class="catalyst-cell" style="font-size:15px; font-weight: 700;">{item.get('dvol', '')}</td>
+<td class="catalyst-cell" style="font-size:15px; font-weight: 700;">{item.get('rvol', '')}</td>
+</tr>
+"""
+        if sess_losers:
+            gappers_html += """<tr class="divider-row"><td colspan="6">— Top Losers —</td></tr>"""
+            for item in sess_losers:
+                gappers_html += f"""
+<tr>
+<td class="ticker-cell"><span class="etf-tag">{item['ticker']}</span></td>
+<td class="catalyst-cell" style="color:#f1f5f9;">${item['price']:.2f}</td>
+<td><div class="down-pct">▼ {item['change']:.2f}%</div></td>
+<td class="catalyst-cell" style="font-size:15px; font-weight: 700;">{item.get('vol', '')}</td>
+<td class="catalyst-cell" style="font-size:15px; font-weight: 700;">{item.get('dvol', '')}</td>
+<td class="catalyst-cell" style="font-size:15px; font-weight: 700;">{item.get('rvol', '')}</td>
+</tr>
+"""
+        if not sess_gainers and not sess_losers:
+            gappers_html += "<tr><td colspan='6' class='catalyst-cell'>Awaiting market data sync for this session...</td></tr>"
     else:
-        st.markdown("<div style='color:#94a3b8; font-size:15px; margin-bottom: 24px;'>Awaiting market data sync for this session...</div>", unsafe_allow_html=True)
+        gappers_html += "<tr><td colspan='6' class='catalyst-cell'>Awaiting market data sync for this session...</td></tr>"
     
-    st.markdown("<br>", unsafe_allow_html=True)
+    gappers_html += "</tbody></table>"
+
+gappers_html += "</div>"
+st.markdown(gappers_html, unsafe_allow_html=True)
 
 
 # --- 05 | STOCKS IN PLAY (SIPS) ---
