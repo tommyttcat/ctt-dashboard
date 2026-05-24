@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 # ==========================================
 BZ_KEY = "bz.4DVR2L3LKQD6KU5Z4CHZPPNE5MPV2KLQ"
 FMP_KEY = "WMMhcffuHSYVTceXryrt4tHC8GXcsB0g"
+MASSIVE_KEY = "TfwImIVSEp2wLzNnXpwysYH9ccvjk6pv" # Massive REST API
 
 st.set_page_config(page_title="Confluence Trading Tools", layout="wide", initial_sidebar_state="collapsed")
 
@@ -24,10 +25,10 @@ footer {visibility: hidden;}
 .block-container { max-width: 1100px !important; margin: 0 auto !important; padding-top: 1rem; padding-bottom: 3rem; }
 
 /* FLOATING CLOUD CARDS - NO BORDERS */
-.cloud-card { background: #111827; border: none !important; border-radius: 16px; padding: 36px 40px; margin-bottom: 40px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3); }
+.cloud-card { background: #111827 !important; border: none !important; border-radius: 16px !important; padding: 36px 40px !important; margin-bottom: 40px !important; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3) !important; }
 
 /* HEADER CLOUD */
-.hdr { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); padding: 44px 44px 34px; border: none !important; border-radius: 16px; margin-bottom: 40px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3); }
+.hdr { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%) !important; padding: 44px 44px 34px !important; border: none !important; border-radius: 16px !important; margin-bottom: 40px !important; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3) !important; }
 .hdr-top { display: flex; justify-content: space-between; align-items: flex-start; }
 .wrap-type { font-size: 15px; font-weight: 700; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; }
 .wrap-title { font-size: 42px; font-weight: 800; color: #f1f5f9; margin-top: 10px; }
@@ -38,12 +39,12 @@ footer {visibility: hidden;}
 .badge-bullish { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #052e16; color: #4ade80; border: none; }
 .badge-bearish { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #450a0a; color: #f87171; border: none; }
 .badge-mixed { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #2d2000; color: #fbbf24; border: none; }
-.badge-closed { background: #450a0a; color: #f87171; padding: 6px 16px; border-radius: 20px; font-weight: 800; font-size: 14px; letter-spacing: 1px; }
+.badge-closed { background: #450a0a; color: #f87171; padding: 6px 16px; border-radius: 20px; font-weight: 800; font-size: 14px; letter-spacing: 1px; border: none; }
 .badge-live { display: inline-block; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 800; letter-spacing: 1.5px; background: #052e16; color: #4ade80; margin-left: 12px; vertical-align: middle; animation: pulse 2s infinite; border: none;}
 
 /* EARNINGS & ECON BADGES */
-.badge-beat { background: #052e16; color: #4ade80; padding: 4px 10px; border-radius: 6px; font-weight: 800; font-size: 13px; margin-left: 8px; }
-.badge-miss { background: #450a0a; color: #f87171; padding: 4px 10px; border-radius: 6px; font-weight: 800; font-size: 13px; margin-left: 8px; }
+.badge-beat { background: #052e16; color: #4ade80; padding: 4px 10px; border-radius: 6px; font-weight: 800; font-size: 13px; margin-left: 8px; border: none; }
+.badge-miss { background: #450a0a; color: #f87171; padding: 4px 10px; border-radius: 6px; font-weight: 800; font-size: 13px; margin-left: 8px; border: none; }
 .econ-bold { font-weight: 900; color: #f8fafc; font-size: 17px; text-transform: uppercase; }
 
 /* SECTION TITLE */
@@ -63,7 +64,7 @@ footer {visibility: hidden;}
 .news-body { font-size: 16px; color: #cbd5e1; line-height: 1.65; }
 
 /* MULTI-COLOR PILL BADGES */
-.nb-badge { padding: 4px 10px; border-radius: 4px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; }
+.nb-badge { padding: 4px 10px; border-radius: 4px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; border: none; }
 .nb-purple { background: #3b0764; color: #e879f9; }
 .nb-teal { background: #164e63; color: #67e8f9; }
 .nb-red { background: #450a0a; color: #fca5a5; }
@@ -77,7 +78,7 @@ footer {visibility: hidden;}
 .tech-action { color: #818cf8; font-weight: 700; margin-top: 4px; display: block; font-size: 16px;}
 
 /* WATCHLIST */
-.watchlist-item { background: #1e293b; border-radius: 12px; padding: 24px 28px; margin-bottom: 20px; display: grid; grid-template-columns: 28px 1fr; gap: 16px; align-items: start; }
+.watchlist-item { background: #1e293b; border: none !important; border-radius: 12px; padding: 24px 28px; margin-bottom: 20px; display: grid; grid-template-columns: 28px 1fr; gap: 16px; align-items: start; }
 .wl-num { font-size: 18px; color: #64748b; font-weight: 800; padding-top: 3px; }
 .wl-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
 .wl-ticker { font-size: 22px; font-weight: 800; color: #818cf8; }
@@ -86,10 +87,13 @@ footer {visibility: hidden;}
 .wl-levels .sup { color: #4ade80; font-weight: 600; }
 .wl-levels .res { color: #f87171; font-weight: 600; }
 
-/* TABLES */
-table { width: 100%; border-collapse: collapse; border: none !important; margin-bottom: 24px; }
-th { font-size: 14px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #64748b; padding: 16px 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05) !important; }
-td { padding: 18px 12px; border-bottom: 1px solid rgba(255,255,255,0.05) !important; vertical-align: middle; }
+/* TABLES (OVERRIDING ALL BORDERS) */
+table { width: 100%; border-collapse: collapse; border: none !important; margin-bottom: 24px; background: transparent !important; }
+th, td { border: none !important; }
+tr { border: none !important; background: transparent !important; }
+th { font-size: 14px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #64748b; padding: 16px 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05) !important; border-top: none !important; border-left: none !important; border-right: none !important; }
+td { padding: 18px 12px; border-bottom: 1px solid rgba(255,255,255,0.05) !important; vertical-align: middle; border-top: none !important; border-left: none !important; border-right: none !important; }
+tr:last-child td { border-bottom: none !important; }
 .ticker-cell { font-weight: 700; color: #f1f5f9; font-size: 20px; white-space: nowrap; }
 .catalyst-cell { font-size: 16px; color: #cbd5e1; line-height: 1.6; }
 .etf-tag { background: #0f172a; color: #60a5fa; padding: 6px 12px; border-radius: 6px; font-family: monospace; font-size: 16px; font-weight: 700; border: none; }
@@ -120,7 +124,7 @@ else:
     status_class = "badge-live"
 
 # ==========================================
-# 3. LIVE DATA ENGINES (WITH BULK OVERRIDES)
+# 3. LIVE DATA ENGINES 
 # ==========================================
 def safe_float(val):
     try: return float(val)
@@ -136,7 +140,7 @@ def get_last_price_change(ticker):
 
 @st.cache_data(ttl=10) 
 def fetch_expanded_macro():
-    tickers = {"S&P 500 (SPX)": "^GSPC", "Nasdaq Comp": "^IXIC", "Dow Jones": "^DJI", "Russell 2000": "^RUT", "VIX": "^VIX", "10Y Treasury": "^TNX", "WTI Crude": "CL=F", "Bitcoin (BTC)": "BTC-USD"}
+    tickers = {"S&P 500 (SPX)": "^GSPC", "Nasdaq Comp": "^IXIC", "Dow Jones": "^DJI", "Russell 2000": "^RUT", "VIX": "^VIX", "10Y Treasury": "^TNX", "WTI Crude": "CL=F", "Bitcoin (BTC)": "BTC-USD", "Ethereum (ETH)": "ETH-USD"}
     data = {}
     for name, ticker in tickers.items():
         p, c = get_last_price_change(ticker)
@@ -165,7 +169,6 @@ def fetch_sector_flow():
 def fetch_gappers():
     results = []
     try:
-        # LIVE API LOGIC
         g_reg = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey={FMP_KEY}").json()
         g_pre = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/pre-market-gainers?apikey={FMP_KEY}").json()
         g_post = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/post-market-gainers?apikey={FMP_KEY}").json()
@@ -178,7 +181,6 @@ def fetch_gappers():
                 if sym and (sym not in unique_movers or x.get('changesPercentage', 0) > unique_movers[sym].get('changesPercentage', 0)):
                     unique_movers[sym] = x
 
-            # Mega-Cap Override
             mega_caps = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", "LLY", "AVGO", "NFLX", "AMD"]
             try:
                 mc_data = requests.get(f"https://financialmodelingprep.com/api/v3/quote/{','.join(mega_caps)}?apikey={FMP_KEY}").json()
@@ -196,7 +198,6 @@ def fetch_gappers():
             return sorted(results, key=lambda x: x['change'], reverse=True)
     except: pass
     
-    # BULK YFINANCE FALLBACK (Fast, accurate data)
     fallback_tickers = ["AKTX", "PCLA", "RYOJ", "QTEX", "BIYA", "LFS", "VCIG", "HYLN", "FJET", "MEHA", "TSLA", "NVDA", "GME", "AMC", "SPWR", "BBAI", "SOUN", "ZURA", "FFIE", "HOLO", "GWAV", "CRKN", "PEGY", "MNMD", "AGBA"]
     try:
         data = yf.download(fallback_tickers, period="5d", progress=False)
@@ -418,7 +419,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- 11 | WATCHLIST (RESTORED) ---
+# --- 11 | WATCHLIST ---
 st.markdown("""
 <div class="cloud-card">
 <div class="section-title">11 — Watchlist for Next Open</div>
@@ -453,8 +454,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-
-# --- 12 | EDITOR'S NOTE (RESTORED) ---
+# --- 12 | EDITOR'S NOTE ---
 st.markdown("""
 <div class="cloud-card" style="border-left: 6px solid #818cf8;">
 <div class="section-title" style="border-bottom:none; margin-bottom:12px;">12 — Editor's Note</div>
