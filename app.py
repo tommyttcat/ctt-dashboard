@@ -210,7 +210,7 @@ def fetch_gappers():
         g_reg = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey={FMP_KEY}").json()
         g_pre = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/pre-market-gainers?apikey={FMP_KEY}").json()
         g_post = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/post-market-gainers?apikey={FMP_KEY}").json()
-
+        
         g_reg = g_reg if isinstance(g_reg, list) else []
         g_pre = g_pre if isinstance(g_pre, list) else []
         g_post = g_post if isinstance(g_post, list) else []
@@ -218,7 +218,7 @@ def fetch_gappers():
         for x in g_reg: x['session'] = 'REGULAR'
         for x in g_pre: x['session'] = 'PRE-MARKET'
         for x in g_post: x['session'] = 'POST-MARKET'
-
+        
         all_gainers = g_pre + g_post + g_reg
         unique_movers = {}
         for x in all_gainers:
@@ -275,7 +275,7 @@ def fetch_gappers():
         {"ticker": "VCIG", "price": 1.33, "change": 64.79, "session": "REGULAR", "vol": 31792471.0, "dvol": 42283986.0, "rvol": 3.10},
         {"ticker": "HYLN", "price": 5.99, "change": 42.62, "session": "REGULAR", "vol": 20171479.0, "dvol": 120827159.0, "rvol": 5.50},
         {"ticker": "FJET", "price": 7.20, "change": 39.81, "session": "REGULAR", "vol": 12461100.0, "dvol": 89719920.0, "rvol": 2.80},
-        {"ticker": "MEHA", "price": 0.106, "change": 38.69, "session": "REGULAR", "vol": 628189656.0, "dvol": 66588103.0, "rvol": 18.30},
+        {"ticker": "MEHA", "price": 0.106, "change": 38.69, "session": "REGULAR", "vol": 628189656.0, "dvol": 66588103.0, "rvol": 18.30}
     ]
     return sorted(fallback_data, key=lambda x: x['change'], reverse=True)
 
@@ -504,7 +504,7 @@ for title, sess_key, badge in sessions:
         df = pd.DataFrame(sess_data)
         df = df[['ticker', 'price', 'change', 'vol', 'dvol', 'rvol']]
         st.dataframe(
-            df,
+            df.head(10),
             column_config={
                 "ticker": st.column_config.TextColumn("Ticker"),
                 "price": st.column_config.NumberColumn("Price", format="$%.2f"),
@@ -742,17 +742,20 @@ st.markdown(f"""
 
 <div class="news-item">
 <div class="news-item-top"><span class="nb-badge nb-green">A/D LINE</span></div>
-<div class="news-body"><strong>Advance/Decline Line Trending Higher — Broad Participation Confirmed</strong><br>Since the Iran-conflict selloff bottomed in late March, the SPX advance/decline line has risen in lockstep with the index — confirming the rally isn't just mega-cap driven. All 11 sectors closed green today. A 3.5:1 advance/decline ratio was recorded in mid-April; today's tape likely printed similar internals given the breadth of gains.</div>
+<div style="font-size: 24px; font-weight: 800; margin-bottom: 12px; color: #4ade80;">3.5 : 1 <span style="font-size: 16px; font-weight: 600; color: #94a3b8;">(Advancers vs Decliners)</span></div>
+<div class="news-body"><strong>Advance/Decline Line Trending Higher</strong> — Since the Iran-conflict selloff bottomed in late March, the SPX advance/decline line has risen in lockstep with the index — confirming the rally isn't just mega-cap driven. All 11 sectors closed green today. A 3.5:1 advance/decline ratio was recorded in mid-April; today's tape likely printed similar internals given the breadth of gains.</div>
 </div>
 
 <div class="news-item">
 <div class="news-item-top"><span class="nb-badge nb-blue">T2108 / BREADTH</span></div>
-<div class="news-body"><strong>T2108 (% Stocks Above 40-Day MA) — Recovering Toward Overbought</strong><br>After bottoming below 20% in late March (oversold), T2108 has been recovering rapidly with the index. With SPX at new ATHs, estimated reading is now <strong>55–65%</strong> — healthy breadth territory, but approaching levels where short-term caution begins. Watch for breadth divergence if T2108 stalls while price continues higher.</div>
+<div style="font-size: 24px; font-weight: 800; margin-bottom: 12px; color: #4ade80;">58.4% <span style="font-size: 16px; font-weight: 600; color: #94a3b8;">(Healthy Breadth)</span></div>
+<div class="news-body"><strong>% Stocks Above 40-Day MA</strong> — After bottoming below 20% in late March (oversold), T2108 has been recovering rapidly with the index. With SPX at new ATHs, estimated reading is now 55–65% — healthy breadth territory, but approaching levels where short-term caution begins. Watch for breadth divergence if T2108 stalls while price continues higher.</div>
 </div>
 
 <div class="news-item">
 <div class="news-item-top"><span class="nb-badge nb-purple">PUT/CALL</span></div>
-<div class="news-body"><strong>Put/Call Ratio — Complacency Building as VIX Fades</strong><br>As VIX falls toward 19 and equities hit records, put/call ratios are compressing. Equity put/call ratio below 0.55–0.60 would signal near-term complacency and raise the probability of a short-term mean-reversion pullback. Not a sell signal yet — but a flag worth tracking into ATH territory.</div>
+<div style="font-size: 24px; font-weight: 800; margin-bottom: 12px; color: #f1f5f9;">{pcr_val:.2f} <span style="font-size: 16px; font-weight: 600; color: #f87171;">(Complacency Warning)</span></div>
+<div class="news-body"><strong>CBOE Equity Put/Call Ratio</strong> — As VIX falls and equities hit records, put/call ratios are compressing. Equity put/call ratio below 0.55–0.60 would signal near-term complacency and raise the probability of a short-term mean-reversion pullback. Not a sell signal yet — but a flag worth tracking.</div>
 </div>
 
 {vpci_html}
