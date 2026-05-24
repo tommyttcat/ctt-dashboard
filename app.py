@@ -16,33 +16,32 @@ st.set_page_config(page_title="Confluence Trading Tools", layout="wide", initial
 
 st.markdown("""
 <style>
-/* Reset and Base App Styling */
+/* Reset and Base App Styling - Deep Navy Background */
 .stApp { background: #0a1120; color: #e2e8f0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; font-size: 16px; line-height: 1.6; }
 header {visibility: hidden;}
 footer {visibility: hidden;}
 
-/* Wrap constraint */
-.block-container { max-width: 1100px !important; margin: 0 auto !important; padding-top: 1rem; padding-bottom: 3rem; }
+/* ONE BIG MASTER CLOUD - Applied directly to Streamlit's native container */
+.block-container { 
+    background: #111827 !important; 
+    border: 1px solid rgba(255, 255, 255, 0.05) !important; 
+    border-radius: 16px !important; 
+    padding: 48px !important; 
+    max-width: 1100px !important; 
+    margin: 40px auto !important; 
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5) !important; 
+}
 
 /* HEADER */
-.hdr { background: transparent !important; padding: 10px 0 24px 0 !important; border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important; margin-bottom: 32px !important; }
+.hdr { background: transparent !important; padding: 0 0 24px 0 !important; border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important; margin-bottom: 32px !important; }
 .hdr-top { display: flex; justify-content: space-between; align-items: flex-start; }
 .wrap-type { font-size: 15px; font-weight: 700; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; }
 .wrap-title { font-size: 42px; font-weight: 800; color: #f1f5f9; margin-top: 10px; }
 .hdr-meta { text-align: right; font-size: 16px; color: #94a3b8; }
 .hdr-date { font-size: 20px; color: #c7d2fe; font-weight: 600; margin-bottom: 8px; }
 
-/* ONE BIG MASTER CLOUD */
-.master-cloud { 
-    background: #111827; 
-    border: 1px solid rgba(255, 255, 255, 0.05); 
-    border-radius: 16px; 
-    padding: 48px 48px; 
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); 
-}
-
-/* SECTION BLOCKS (Inside the Master Cloud) */
-.section-block { padding: 36px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+/* SECTION BLOCKS (Seamless stacking inside the master cloud) */
+.section-block { padding: 32px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
 .section-block:first-child { padding-top: 0; }
 .section-block:last-child { padding-bottom: 0; border-bottom: none; }
 
@@ -60,9 +59,9 @@ footer {visibility: hidden;}
 
 /* FONTS & TEXT STYLES */
 .ticker-cell { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important; font-weight: 800; color: #f1f5f9; font-size: 18px; }
-.vol-cell { font-weight: 700; color: #f1f5f9; font-size: 16px; }
-.up-pct { color: #4ade80; font-weight: 700; font-size: 16px; }
-.down-pct { color: #f87171; font-weight: 700; font-size: 16px; }
+.vol-cell { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important; font-weight: 700; color: #f1f5f9; font-size: 16px; }
+.up-pct { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important; color: #4ade80; font-weight: 700; font-size: 16px; }
+.down-pct { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important; color: #f87171; font-weight: 700; font-size: 16px; }
 .cat-cell { color: #cbd5e1; font-size: 15px; line-height: 1.5; }
 
 /* PILL BADGES */
@@ -98,8 +97,12 @@ else:
     status_class = "badge-live"
 
 # ==========================================
-# 3. DATA ENGINES (CORRECTED & HARDCODED FOR ACCURACY)
+# 3. DATA ENGINES 
 # ==========================================
+def safe_float(val):
+    try: return float(val)
+    except: return None
+
 def get_last_price_change(ticker):
     try:
         hist = yf.Ticker(ticker).history(period="5d").dropna(subset=['Close'])
@@ -205,16 +208,13 @@ institutional_flow = fetch_massive_data()
 # --- HEADER ---
 st.markdown(f'<div class="hdr"><div class="hdr-top"><div><div class="wrap-type">Market Briefing</div><div class="wrap-title">Confluence Trading Tools</div></div><div class="hdr-meta"><div class="hdr-date">{now_dt.strftime("%A, %B %d")}</div><span class="{status_class}">{market_status}</span></div></div></div>', unsafe_allow_html=True)
 
-# OPEN MASTER CLOUD
-st.markdown('<div class="master-cloud">', unsafe_allow_html=True)
-
 # --- 01 | SCORECARD ---
 scorecard_html = '<div class="section-block"><div class="section-title">01 — Macro Scorecard</div><div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">'
 for name, m in macro_data.items():
     col = "up-pct" if m['pct'] >= 0 else "down-pct"
     sign = "▲ +" if m['pct'] > 0 else "▼ " if m['pct'] < 0 else ""
     p_str = f"{m['price']:.3f}" if name in ["VIX", "10Y Treasury"] else f"${m['price']:,.2f}"
-    scorecard_html += f'<div><div style="font-size: 14px; color: #64748b; font-weight: 800; text-transform: uppercase;">{name}</div><div style="font-size: 28px; font-weight: 700; color: #f1f5f9; margin: 4px 0; font-family: ui-monospace, monospace;">{p_str}</div><div class="{col}">{sign}{m["pct"]:.2f}%</div></div>'
+    scorecard_html += f'<div><div style="font-size: 14px; color: #64748b; font-weight: 800; text-transform: uppercase;">{name}</div><div class="vol-cell" style="font-size: 28px; margin: 4px 0;">{p_str}</div><div class="{col}">{sign}{m["pct"]:.2f}%</div></div>'
 scorecard_html += "</div></div>"
 st.markdown(scorecard_html, unsafe_allow_html=True)
 
@@ -290,7 +290,7 @@ st.markdown(sips_html, unsafe_allow_html=True)
 play_html = '<div class="section-block"><div class="section-title">06 — Mega-Cap Liquidity Basket</div>'
 play_html += '<div class="t-header-row" style="grid-template-columns: 1fr 1fr 2fr;"><div>Ticker</div><div>Live Price</div><div>Algo Bias (vs 5D SMA)</div></div>'
 for item in liquidity_data:
-    play_html += f'<div class="t-row" style="grid-template-columns: 1fr 1fr 2fr;"><div><span class="ticker-cell">{item["ticker"]}</span></div><div class="vol-cell">${item["price"]:.2f}</div><div><span class="{item["color"]}" style="font-weight:700;">{item["bias"]}</span></div></div>'
+    play_html += f'<div class="t-row" style="grid-template-columns: 1fr 1fr 2fr;"><div><span class="ticker-cell">{item["ticker"]}</span></div><div class="vol-cell">${item["price"]:.2f}</div><div><span class="{item["color"]}" style="font-family: ui-monospace, monospace; font-weight:700;">{item["bias"]}</span></div></div>'
 play_html += '</div>'
 st.markdown(play_html, unsafe_allow_html=True)
 
@@ -315,7 +315,7 @@ today_earn = [
     {"ticker": "ROST", "name": "Ross Stores", "eps_est": 1.35, "insight": "Discount retail barometer."}
 ]
 for item in today_earn:
-    earn_html += f'<div class="t-row" style="grid-template-columns: 1fr;"><div style="font-size:18px;"><strong class="ticker-cell">{item["ticker"]}</strong> <span style="color:#cbd5e1; font-size:16px; margin-left:6px;">({item["name"]})</span> &nbsp;|&nbsp; <span class="vol-cell">Est. EPS: ${item["eps"]:.2f}</span></div><div class="cat-cell" style="margin-top:4px;">{item["insight"]}</div></div>'
+    earn_html += f'<div class="t-row" style="grid-template-columns: 1fr;"><div style="font-size:18px;"><strong class="ticker-cell">{item["ticker"]}</strong> <span style="color:#cbd5e1; font-size:16px; margin-left:6px;">({item["name"]})</span> &nbsp;|&nbsp; <span class="vol-cell">Est. EPS: ${item["eps_est"]:.2f}</span></div><div class="cat-cell" style="margin-top:4px;">{item["insight"]}</div></div>'
 earn_html += "</div>"
 st.markdown(earn_html, unsafe_allow_html=True)
 
@@ -340,14 +340,14 @@ st.markdown("""
 <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
 <div>
     <div style="margin-bottom:12px;"><span class="nb-badge nb-blue">SPX LEVELS</span></div>
-    <div style="padding-bottom:6px; font-size:16px; font-family: ui-monospace, monospace; color: #94a3b8; font-weight: 700;">TARGET: <span style="color:#f1f5f9; margin-left:8px;">7,300–7,375</span></div>
-    <div style="padding-bottom:6px; font-size:16px; font-family: ui-monospace, monospace; color: #94a3b8; font-weight: 700;">SUPPORT: <span style="color:#f1f5f9; margin-left:8px;">7,000 ➔ 6,780</span></div>
+    <div style="padding-bottom:6px; font-size:16px; font-family: ui-monospace, monospace; color: #94a3b8; font-weight: 700;">TARGET: <span class="vol-cell" style="margin-left:8px;">7,300–7,375</span></div>
+    <div style="padding-bottom:6px; font-size:16px; font-family: ui-monospace, monospace; color: #94a3b8; font-weight: 700;">SUPPORT: <span class="vol-cell" style="margin-left:8px;">7,000 ➔ 6,780</span></div>
     <div class="cat-cell" style="margin-top:8px; color:#818cf8; font-weight:700;">ACTION ➔ Look for dip-buying at 7,000.</div>
 </div>
 <div>
     <div style="margin-bottom:12px;"><span class="nb-badge nb-purple">VOLATILITY (VIX)</span></div>
-    <div style="padding-bottom:6px; font-size:16px; font-family: ui-monospace, monospace; color: #94a3b8; font-weight: 700;">LEVEL: <span style="color:#f1f5f9; margin-left:8px;">~19.10</span></div>
-    <div style="padding-bottom:6px; font-size:16px; font-family: ui-monospace, monospace; color: #94a3b8; font-weight: 700;">CONTEXT: <span style="color:#f1f5f9; margin-left:8px;">Entering "Normal" regime.</span></div>
+    <div style="padding-bottom:6px; font-size:16px; font-family: ui-monospace, monospace; color: #94a3b8; font-weight: 700;">LEVEL: <span class="vol-cell" style="margin-left:8px;">~19.10</span></div>
+    <div style="padding-bottom:6px; font-size:16px; font-family: ui-monospace, monospace; color: #94a3b8; font-weight: 700;">CONTEXT: <span style="color:#f1f5f9; margin-left:8px; font-family: 'Segoe UI', sans-serif;">Entering "Normal" regime.</span></div>
     <div class="cat-cell" style="margin-top:8px; color:#818cf8; font-weight:700;">ACTION ➔ Premium selling favored.</div>
 </div>
 </div>
@@ -375,7 +375,7 @@ st.markdown("""
 massive_html = '<div class="section-block"><div class="section-title">12 — Institutional Options Flow (Massive API)</div>'
 massive_html += '<div class="t-header-row" style="grid-template-columns: 1fr 1fr 2fr 1fr 1fr;"><div>Ticker</div><div>Type</div><div>Strike / Exp</div><div>Premium</div><div>Sentiment</div></div>'
 for flow in institutional_flow:
-    massive_html += f'<div class="t-row" style="grid-template-columns: 1fr 1fr 2fr 1fr 1fr;"><div><span class="ticker-cell">{flow["ticker"]}</span></div><div style="font-weight:700;">{flow["type"]}</div><div class="cat-cell" style="font-weight:700;">{flow["strike"]} — {flow["exp"]}</div><div class="vol-cell">{flow["prem"]}</div><div class="{flow["color"]}" style="font-weight:700;">{flow["sentiment"]}</div></div>'
+    massive_html += f'<div class="t-row" style="grid-template-columns: 1fr 1fr 2fr 1fr 1fr;"><div><span class="ticker-cell">{flow["ticker"]}</span></div><div style="font-weight:700;">{flow["type"]}</div><div class="cat-cell" style="font-weight:700;">{flow["strike"]} — {flow["exp"]}</div><div class="vol-cell">{flow["prem"]}</div><div class="{flow["color"]}" style="font-family: ui-monospace, monospace; font-weight:700;">{flow["sentiment"]}</div></div>'
 massive_html += "</div>"
 st.markdown(massive_html, unsafe_allow_html=True)
 
@@ -392,6 +392,3 @@ st.markdown("""
 </div>
 </div>
 """, unsafe_allow_html=True)
-
-# CLOSE MASTER CLOUD
-st.markdown('</div>', unsafe_allow_html=True)
