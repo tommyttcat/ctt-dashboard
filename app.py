@@ -17,7 +17,7 @@ st.set_page_config(page_title="Confluence Trading Tools", layout="wide", initial
 st.markdown("""
 <style>
 /* Reset and Base App Styling */
-.stApp { background: #0d0d12; color: #e2e8f0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; font-size: 16px; line-height: 1.6; }
+.stApp { background: #0a1120; color: #e2e8f0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; font-size: 16px; line-height: 1.6; }
 header {visibility: hidden;}
 footer {visibility: hidden;}
 
@@ -363,13 +363,11 @@ st.markdown("""
     <div style="margin-bottom:8px;"><span class="nb-badge nb-blue">SPX LEVELS</span></div>
     <div style="padding-bottom:4px; font-size:16px;"><strong>Target:</strong> 7,300–7,375</div>
     <div style="padding-top:4px; font-size:16px;"><strong>Support:</strong> 7,000 ➔ 6,780</div>
-    <span class="tech-action">ACTION ➔ Look for dip-buying at 7,000.</span>
 </div>
 <div style="background: transparent;">
     <div style="margin-bottom:8px;"><span class="nb-badge nb-purple">VOLATILITY (VIX)</span></div>
     <div style="padding-bottom:4px; font-size:16px;"><strong>Level:</strong> ~19.10</div>
     <div style="padding-top:4px; font-size:16px;"><strong>Context:</strong> Entering "Normal" regime.</div>
-    <span class="tech-action">ACTION ➔ Premium selling favored.</span>
 </div>
 </div>
 </div>
