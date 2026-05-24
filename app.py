@@ -21,7 +21,7 @@ st.set_page_config(page_title="Confluence Trading Tools", layout="wide", initial
 
 st.markdown("""
 <style>
-/* Reset and Base App Styling */
+/* Reset and Base App Styling - Native Crisp Sans-Serif */
 .stApp { 
     background: #0a1120; 
     color: #e2e8f0; 
@@ -55,6 +55,13 @@ footer {visibility: hidden;}
 .section-container {
     border-left: 4px solid #818cf8; 
     padding-left: 24px;
+}
+
+/* HARDCODED SPACER (Prevents Streamlit from collapsing margins) */
+.section-spacer {
+    height: 56px;
+    width: 100%;
+    display: block;
 }
 
 /* SECTION TITLE (No ALL CAPS) */
@@ -285,7 +292,7 @@ for name, m in macro_data.items():
     sign = "▲ +" if m['pct'] > 0 else "▼ " if m['pct'] < 0 else ""
     p_str = f"{m['price']:.3f}" if name in ["VIX", "10Y Treasury"] else f"${m['price']:,.2f}"
     scorecard_html += f'<div><div style="font-size: 15px; color: #64748b; font-weight: 700;">{name}</div><div class="vol-cell" style="font-size: 28px; margin: 4px 0;">{p_str}</div><div class="{col}">{sign}{m["pct"]:.2f}%</div></div>'
-scorecard_html += "</div></div><div style='height: 56px;'></div>"
+scorecard_html += "</div></div><div class='section-spacer'></div>"
 st.markdown(scorecard_html, unsafe_allow_html=True)
 
 # --- 02 | MARKET DRIVERS ---
@@ -306,7 +313,7 @@ news_html = '<div class="section-container"><div class="section-title">02 — Ma
 for article in live_news[:10]:
     b_color, b_text = parse_news_badge(article['title'])
     news_html += f'<div class="t-row" style="grid-template-columns: 1fr;"><div style="margin-bottom:4px;"><span class="nb-badge {b_color}" style="margin-right:8px;">{b_text}</span> <strong style="color:#e2e8f0; font-size:17px;">{article["title"]}</strong></div><div class="cat-cell">{article["teaser"]}</div></div>'
-news_html += "</div><div style='height: 56px;'></div>"
+news_html += "</div><div class='section-spacer'></div>"
 st.markdown(news_html, unsafe_allow_html=True)
 
 # --- 03 | SECTORS ---
@@ -317,7 +324,7 @@ for i, item in enumerate(sector_data):
     sign = "▲ +" if item['pct'] > 0 else "▼ " if item['pct'] < 0 else ""
     f_col = "nb-green" if item['pct'] >= 0 else "nb-red"
     heatmap_html += f'<div class="t-row" style="grid-template-columns: 50px 3fr 2fr 2fr;"><div>{i+1}</div><div><span class="ticker-cell">{item["ticker"]}</span> <span style="color:#94a3b8; font-size:15px; margin-left:8px;">— {item["sector"]}</span></div><div><span class="{col}">{sign}{item["pct"]:.2f}%</span></div><div><span class="nb-badge {f_col}">{item["flow"]}</span></div></div>'
-heatmap_html += '</div><div style='height: 56px;'></div>'
+heatmap_html += '</div><div class="section-spacer"></div>'
 st.markdown(heatmap_html, unsafe_allow_html=True)
 
 # --- 04 | MARKET MOVERS BY SESSION ---
@@ -338,7 +345,9 @@ for title, sess_key, badge in sessions:
             else: r_txt, r_badge = "Normal", "nb-green"
             
             gappers_html += f'<div class="t-row" style="grid-template-columns: 1.2fr 1fr 1fr 1fr 1.2fr 1.5fr 3fr;"><div><span class="ticker-cell">{item["ticker"]}</span></div><div class="vol-cell">${item["price"]:.2f}</div><div><span class="up-pct">▲ +{item["change"]:.2f}%</span></div><div class="vol-cell">{item.get("vol", "")}</div><div class="vol-cell">{item.get("dvol", "")}</div><div><span class="nb-badge {r_badge}">{r_txt} ({rvol_val:.1f}x)</span></div><div class="cat-cell">{item.get("catalyst")}</div></div>'
-gappers_html += '</div><div style="height: 56px;"></div>'
+    else:
+        gappers_html += "<div class='t-row'><div class='cat-cell'>Awaiting live market data sync from FMP...</div></div>"
+gappers_html += '</div><div class="section-spacer"></div>'
 st.markdown(gappers_html, unsafe_allow_html=True)
 
 # --- 05 | STOCKS IN PLAY (SIPS) ---
@@ -353,7 +362,9 @@ if gappers_data:
         else: r_txt, r_badge = "Normal", "nb-green"
         
         sips_html += f'<div class="t-row" style="grid-template-columns: 1.2fr 1fr 1fr 1fr 1.2fr 1.5fr 3fr;"><div><span class="ticker-cell">{item["ticker"]}</span></div><div class="vol-cell">${item["price"]:.2f}</div><div><span class="up-pct">▲ +{item["change"]:.2f}%</span></div><div class="vol-cell">{item.get("vol", "")}</div><div class="vol-cell">{item.get("dvol", "")}</div><div><span class="nb-badge {r_badge}">{r_txt} ({rvol_val:.1f}x)</span></div><div class="cat-cell">{item.get("catalyst")}</div></div>'
-sips_html += '</div><div style="height: 56px;"></div>'
+else:
+    sips_html += "<div class='t-row'><div class='cat-cell'>Awaiting live market data sync...</div></div>"
+sips_html += '</div><div class="section-spacer"></div>'
 st.markdown(sips_html, unsafe_allow_html=True)
 
 # --- 06 | MEGA-CAP LIQUIDITY ---
@@ -361,7 +372,7 @@ play_html = '<div class="section-container"><div class="section-title">06 — Me
 play_html += '<div class="t-header-row" style="grid-template-columns: 1fr 1fr 2fr;"><div>Ticker</div><div>Live Price</div><div>Algo Bias (vs 5D SMA)</div></div>'
 for item in liquidity_data:
     play_html += f'<div class="t-row" style="grid-template-columns: 1fr 1fr 2fr;"><div><span class="ticker-cell">{item["ticker"]}</span></div><div class="vol-cell">${item["price"]:.2f}</div><div><span class="{item["color"]}" style="font-weight:700;">{item["bias"]}</span></div></div>'
-play_html += '</div><div style="height: 56px;"></div>'
+play_html += '</div><div class="section-spacer"></div>'
 st.markdown(play_html, unsafe_allow_html=True)
 
 # --- 07 | EARNINGS ---
@@ -386,7 +397,7 @@ today_earn = [
 ]
 for item in today_earn:
     earn_html += f'<div class="t-row" style="grid-template-columns: 1fr;"><div style="font-size:18px;"><strong class="ticker-cell">{item["ticker"]}</strong> <span style="color:#cbd5e1; font-size:16px; margin-left:6px;">({item["name"]})</span> &nbsp;|&nbsp; <span class="vol-cell">Est. EPS: ${item["eps_est"]:.2f}</span></div><div class="cat-cell" style="margin-top:4px;">{item["insight"]}</div></div>'
-earn_html += "</div><div style='height: 56px;'></div>"
+earn_html += "</div><div class='section-spacer'></div>"
 st.markdown(earn_html, unsafe_allow_html=True)
 
 # --- 08 | ECONOMIC CALENDAR ---
@@ -400,7 +411,7 @@ events = [
 ]
 for date, event, imp, col in events:
     econ_html += f'<div class="t-row" style="grid-template-columns: 1fr 3fr 1fr;"><div class="vol-cell">{date}</div><div class="cat-cell" style="font-weight:700; color:#e2e8f0;">{event}</div><div><span class="nb-badge {col}">{imp}</span></div></div>'
-econ_html += '</div><div style="height: 56px;"></div>'
+econ_html += '</div><div class="section-spacer"></div>'
 st.markdown(econ_html, unsafe_allow_html=True)
 
 # --- 09 | TECHNICAL PICTURE ---
@@ -422,7 +433,7 @@ st.markdown("""
 </div>
 </div>
 </div>
-<div style="height: 56px;"></div>
+<div class="section-spacer"></div>
 """, unsafe_allow_html=True)
 
 # --- 11 | WATCHLIST ---
@@ -440,7 +451,7 @@ st.markdown("""
     <div class="cat-cell">Structural rally in progress. Looking for $220 to act as a launchpad for the next leg.</div>
 </div>
 </div>
-<div style="height: 56px;"></div>
+<div class="section-spacer"></div>
 """, unsafe_allow_html=True)
 
 # --- 12 | MASSIVE API INTEGRATION ---
@@ -448,7 +459,7 @@ massive_html = '<div class="section-container"><div class="section-title">12 —
 massive_html += '<div class="t-header-row" style="grid-template-columns: 1fr 1fr 2fr 1fr 1fr;"><div>Ticker</div><div>Type</div><div>Strike / Exp</div><div>Premium</div><div>Sentiment</div></div>'
 for flow in institutional_flow:
     massive_html += f'<div class="t-row" style="grid-template-columns: 1fr 1fr 2fr 1fr 1fr;"><div><span class="ticker-cell">{flow["ticker"]}</span></div><div style="font-weight:700; color:#e2e8f0;">{flow["type"]}</div><div class="cat-cell" style="font-weight:700; color:#e2e8f0;">{flow["strike"]} — {flow["exp"]}</div><div class="vol-cell">{flow["prem"]}</div><div><span class="{flow["color"]}" style="font-weight:800;">{flow["sentiment"]}</span></div></div>'
-massive_html += "</div><div style='height: 56px;'></div>"
+massive_html += "</div><div class='section-spacer'></div>"
 st.markdown(massive_html, unsafe_allow_html=True)
 
 # --- 13 | DYNAMIC MARKET SUMMARY ---
@@ -458,7 +469,7 @@ top_gapper = gappers_data[0]['ticker'] if gappers_data else "N/A"
 top_gapper_change = gappers_data[0]['change'] if gappers_data else 0.0
 
 summary_text = f"""
-<div class="section-container" style="border-left: 4px solid #818cf8;">
+<div class="section-container">
 <div class="section-title" style="margin-bottom: 24px;">13 — Market Summary</div>
 
 <div class="summary-text">
