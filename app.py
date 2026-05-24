@@ -413,8 +413,6 @@ st.markdown(scorecard_html, unsafe_allow_html=True)
 
 
 # --- 02 | LIVE MARKET DRIVERS & CATALYSTS ---
-st.markdown("""<div class="cloud-card"><div class="section-title">02 — Market Drivers & Catalysts</div>""", unsafe_allow_html=True)
-
 live_news = []
 try:
     url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=15&channels=News"
@@ -450,7 +448,10 @@ if len(live_news) < 10:
         {"title": "What Is Going On With Marvell Stock On Friday?", "teaser": "Marvell Technology is experiencing unusual options activity and elevated trading volume as the semiconductor sector continues to digest recent supply chain reports and AI infrastructure capital expenditure adjustments."}
     ]
 
-news_html = ""
+news_html = """
+<div class="cloud-card">
+<div class="section-title">02 — Market Drivers & Catalysts</div>
+"""
 for article in live_news[:10]:
     b_color, b_text = parse_news_badge(article['title'])
     news_html += f"""
@@ -459,8 +460,8 @@ for article in live_news[:10]:
 <div class="news-body"><strong>{article['title']}</strong> — {article['teaser']}</div>
 </div>
 """
+news_html += "</div>"
 st.markdown(news_html, unsafe_allow_html=True)
-st.markdown("</div>", unsafe_allow_html=True)
 
 
 # --- 03 | SECTORS ---
@@ -490,7 +491,7 @@ heatmap_html += "</tbody></table></div>"
 st.markdown(heatmap_html, unsafe_allow_html=True)
 
 
-# --- 04 | MARKET MOVERS BY SESSION (STATIC HTML TABLES, NO NEWLINES) ---
+# --- 04 | MARKET MOVERS BY SESSION (STATIC HTML TABLES) ---
 gappers_data = fetch_gappers()
 sessions = [
     ("PRE-MARKET MOVERS", "PRE-MARKET", "nb-purple"),
@@ -527,6 +528,9 @@ for m in top_movers:
         "ticker": m['ticker'],
         "price": m['price'],
         "change": m['change'],
+        "rvol": m.get('rvol', "1.00"),
+        "vol": m.get('vol', 'N/A'),
+        "dvol": m.get('dvol', 'N/A'),
         "catalyst": m.get('catalyst', 'High Relative Volume Momentum')
     })
 
@@ -535,18 +539,30 @@ sips_html = """
 <div class="section-title">05 — Stocks in Play (SIPS) — Actionable Movers</div>
 <table>
 <thead>
-<tr><th>Ticker</th><th>Live Price</th><th>Change</th><th>News Catalyst</th></tr>
+<tr><th>Ticker</th><th>Live Price</th><th>Change</th><th>Vol</th><th>$ Vol</th><th>RVOL Rating</th><th>News Catalyst</th></tr>
 </thead>
 <tbody>
 """
 for item in sips_data:
-    color_class = "up-pct" if item['change'] >= 0 else "down-pct"
-    sign = "▲ +" if item['change'] > 0 else "▼ " if item['change'] < 0 else ""
+    c = item['change']
+    rvol_val = safe_float(item.get('rvol')) or 1.0
+    
+    color_class = "up-pct" if c >= 0 else "down-pct"
+    sign = "▲ +" if c > 0 else "▼ " if c < 0 else ""
+    
+    if rvol_val >= 10.0: rvol_text, rvol_badge = "EXTREME", "nb-purple"
+    elif rvol_val >= 5.0: rvol_text, rvol_badge = "HIGH", "nb-orange"
+    elif rvol_val >= 2.0: rvol_text, rvol_badge = "ELEVATED", "nb-blue"
+    else: rvol_text, rvol_badge = "NORMAL", "nb-green"
+    
     sips_html += f"""
 <tr>
 <td class="ticker-cell"><span class="etf-tag">{item['ticker']}</span></td>
 <td class="catalyst-cell" style="color:#f1f5f9;">${item['price']:.2f}</td>
 <td><div class="{color_class}">{sign}{item['change']:.2f}%</div></td>
+<td class="catalyst-cell" style="font-size:15px; font-weight: 700;">{item.get('vol', 'N/A')}</td>
+<td class="catalyst-cell" style="font-size:15px; font-weight: 700;">{item.get('dvol', 'N/A')}</td>
+<td style="vertical-align:middle;"><span class="nb-badge {rvol_badge}">{rvol_text} ({rvol_val:.1f}x)</span></td>
 <td class="catalyst-cell">{item['catalyst']}</td>
 </tr>
 """
