@@ -51,9 +51,9 @@ footer {visibility: hidden;}
 .hdr-meta { text-align: right; font-size: 16px; color: #94a3b8; }
 .hdr-date { font-size: 20px; color: #c7d2fe; font-weight: 600; margin-bottom: 8px; }
 
-/* INDIVIDUAL SECTION WRAPPER (Darkened Bar) */
+/* INDIVIDUAL SECTION WRAPPER (Darker Gray Line) */
 .section-container {
-    border-left: 4px solid #334155; 
+    border-left: 4px solid #64748b; 
     padding-left: 24px;
 }
 
@@ -64,8 +64,8 @@ footer {visibility: hidden;}
     display: block;
 }
 
-/* SECTION TITLE (Brightened Text) */
-.section-title { display: flex; justify-content: space-between; align-items: center; font-size: 18px; font-weight: 700; color: #e2e8f0; margin-bottom: 24px; }
+/* SECTION TITLE (Larger Font) */
+.section-title { display: flex; justify-content: space-between; align-items: center; font-size: 22px; font-weight: 800; color: #e2e8f0; margin-bottom: 28px; }
 
 /* BADGES - ONLY TEXT COLOR */
 .nb-badge, .badge-beat, .badge-miss, .badge-closed, .badge-live { 
@@ -495,7 +495,7 @@ top_gapper = gappers_data[0]['ticker'] if gappers_data else "N/A"
 top_gapper_change = gappers_data[0]['change'] if gappers_data else 0.0
 
 summary_text = f"""
-<div class="section-container">
+<div class="section-container" style="border-left: 4px solid #64748b;">
 <div class="section-title" style="margin-bottom: 24px;">13 — Market Summary</div>
 
 <div class="summary-text">
