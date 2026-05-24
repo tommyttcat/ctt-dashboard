@@ -39,6 +39,7 @@ footer {visibility: hidden;}
 .badge-bearish { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #450a0a; color: #f87171; border: none; }
 .badge-mixed { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: #2d2000; color: #fbbf24; border: none; }
 .badge-closed { background: #450a0a; color: #f87171; padding: 6px 16px; border-radius: 20px; font-weight: 800; font-size: 14px; letter-spacing: 1px; }
+.badge-live { display: inline-block; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 800; letter-spacing: 1.5px; background: #052e16; color: #4ade80; margin-left: 12px; vertical-align: middle; animation: pulse 2s infinite; border: none;}
 
 /* EARNINGS & ECON BADGES */
 .badge-beat { background: #052e16; color: #4ade80; padding: 4px 10px; border-radius: 6px; font-weight: 800; font-size: 13px; margin-left: 8px; }
@@ -75,6 +76,16 @@ footer {visibility: hidden;}
 .sentiment-line strong { color: #f1f5f9; }
 .tech-action { color: #818cf8; font-weight: 700; margin-top: 4px; display: block; font-size: 16px;}
 
+/* WATCHLIST */
+.watchlist-item { background: #1e293b; border-radius: 12px; padding: 24px 28px; margin-bottom: 20px; display: grid; grid-template-columns: 28px 1fr; gap: 16px; align-items: start; }
+.wl-num { font-size: 18px; color: #64748b; font-weight: 800; padding-top: 3px; }
+.wl-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+.wl-ticker { font-size: 22px; font-weight: 800; color: #818cf8; }
+.wl-body   { font-size: 16px; color: #cbd5e1; line-height: 1.6; }
+.wl-levels { font-size: 14px; color: #94a3b8; margin-top: 10px; }
+.wl-levels .sup { color: #4ade80; font-weight: 600; }
+.wl-levels .res { color: #f87171; font-weight: 600; }
+
 /* TABLES */
 table { width: 100%; border-collapse: collapse; border: none !important; margin-bottom: 24px; }
 th { font-size: 14px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #64748b; padding: 16px 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05) !important; }
@@ -84,6 +95,8 @@ td { padding: 18px 12px; border-bottom: 1px solid rgba(255,255,255,0.05) !import
 .etf-tag { background: #0f172a; color: #60a5fa; padding: 6px 12px; border-radius: 6px; font-family: monospace; font-size: 16px; font-weight: 700; border: none; }
 .up-pct { color: #4ade80; font-weight: 700; font-size: 18px; white-space: nowrap; }
 .down-pct { color: #f87171; font-weight: 700; font-size: 18px; white-space: nowrap; }
+
+@keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
 </style>
 """, unsafe_allow_html=True)
 
@@ -92,12 +105,10 @@ td { padding: 18px 12px; border-bottom: 1px solid rgba(255,255,255,0.05) !import
 # ==========================================
 now_dt = datetime.now()
 
-# Determine Previous Trading Day (Skip weekends + Memorial Day)
 prev_dt = now_dt - timedelta(days=1)
 while prev_dt.weekday() >= 5 or prev_dt.strftime('%m-%d') == '05-25':
     prev_dt -= timedelta(days=1)
 
-# Determine Next Trading Day (Skip weekends + Memorial Day)
 next_dt = now_dt
 if next_dt.weekday() >= 5 or next_dt.strftime('%m-%d') == '05-25':
     while next_dt.weekday() >= 5 or next_dt.strftime('%m-%d') == '05-25':
@@ -109,7 +120,7 @@ else:
     status_class = "badge-live"
 
 # ==========================================
-# 3. LIVE DATA ENGINES (WITH OVERRIDES)
+# 3. LIVE DATA ENGINES (WITH BULK OVERRIDES)
 # ==========================================
 def safe_float(val):
     try: return float(val)
@@ -159,102 +170,64 @@ def fetch_gappers():
         g_pre = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/pre-market-gainers?apikey={FMP_KEY}").json()
         g_post = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/post-market-gainers?apikey={FMP_KEY}").json()
 
-        g_reg = g_reg if isinstance(g_reg, list) else []
-        g_pre = g_pre if isinstance(g_pre, list) else []
-        g_post = g_post if isinstance(g_post, list) else []
-
-        for x in g_reg: x['session'] = 'REGULAR'
-        for x in g_pre: x['session'] = 'PRE-MARKET'
-        for x in g_post: x['session'] = 'POST-MARKET'
-
-        all_gainers = g_pre + g_post + g_reg
-        unique_movers = {}
-        for x in all_gainers:
-            sym = x.get('symbol')
-            if sym:
-                if sym not in unique_movers or x.get('changesPercentage', 0) > unique_movers[sym].get('changesPercentage', 0):
+        all_gainers = (g_pre if isinstance(g_pre, list) else []) + (g_post if isinstance(g_post, list) else []) + (g_reg if isinstance(g_reg, list) else [])
+        if all_gainers:
+            unique_movers = {}
+            for x in all_gainers:
+                sym = x.get('symbol')
+                if sym and (sym not in unique_movers or x.get('changesPercentage', 0) > unique_movers[sym].get('changesPercentage', 0)):
                     unique_movers[sym] = x
 
-        # Mega-Cap Override: Ensure mega caps > 4% get caught even if they miss the micro-cap dominated API lists
-        mega_caps = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", "LLY", "AVGO", "NFLX", "AMD"]
-        mega_str = ",".join(mega_caps)
-        try:
-            mc_data = requests.get(f"https://financialmodelingprep.com/api/v3/quote/{mega_str}?apikey={FMP_KEY}").json()
-            for q in mc_data:
-                if q.get('changesPercentage', 0) >= 4.0:
-                    sym = q['symbol']
-                    q['session'] = 'REGULAR'
-                    unique_movers[sym] = q
-        except: pass
-
-        tickers = list(unique_movers.keys())
-        quote_map = {}
-        
-        chunk_size = 50
-        for i in range(0, len(tickers), chunk_size):
-            ticker_chunk = tickers[i:i + chunk_size]
-            ticker_str = ",".join(ticker_chunk)
+            # Mega-Cap Override
+            mega_caps = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", "LLY", "AVGO", "NFLX", "AMD"]
             try:
-                q_data = requests.get(f"https://financialmodelingprep.com/api/v3/quote/{ticker_str}?apikey={FMP_KEY}").json()
-                for q in q_data:
-                    quote_map[q['symbol']] = q
+                mc_data = requests.get(f"https://financialmodelingprep.com/api/v3/quote/{','.join(mega_caps)}?apikey={FMP_KEY}").json()
+                for q in mc_data:
+                    if q.get('changesPercentage', 0) >= 4.0:
+                        sym = q['symbol']
+                        q['session'] = 'REGULAR'
+                        unique_movers[sym] = q
             except: pass
 
-        for sym, item in unique_movers.items():
-            price = safe_float(item.get('price')) or 0.0
-            change = safe_float(item.get('changesPercentage')) or 0.0
-            session = item.get('session', 'REGULAR')
-            
-            vol = quote_map.get(sym, {}).get('volume', 0)
-            avg_vol = quote_map.get(sym, {}).get('avgVolume', 1) or 1
-            rel_vol = vol / avg_vol if avg_vol else 1
-            dol_vol = vol * price
-            
-            vol_str = f"{vol/1e6:.2f}M" if vol >= 1e6 else f"{vol/1e3:.0f}K"
-            dol_vol_str = f"${dol_vol/1e6:.2f}M" if dol_vol >= 1e6 else f"${dol_vol/1e3:.0f}K"
-            
-            results.append({
-                "ticker": sym, "price": price, "change": change, "session": session, 
-                "vol": vol_str, "dvol": dol_vol_str, "rvol": f"{rel_vol:.2f}", "catalyst": "Volume Spike"
-            })
-            
-        if results: return sorted(results, key=lambda x: x['change'], reverse=True)
+            for sym, item in unique_movers.items():
+                price = safe_float(item.get('price')) or 0.0
+                change = safe_float(item.get('changesPercentage')) or 0.0
+                results.append({"ticker": sym, "price": price, "change": change, "session": item.get('session', 'REGULAR'), "vol": "N/A", "dvol": "N/A", "rvol": 1.0, "catalyst": "Momentum"})
+            return sorted(results, key=lambda x: x['change'], reverse=True)
     except: pass
     
-    # GUARANTEED FALLBACK: Pulling ACTUAL data via yfinance for known screeners, not fake numbers.
-    fallback_tickers = [
-        "AKTX", "PCLA", "RYOJ", "QTEX", "BIYA", "LFS", "VCIG", "HYLN", "FJET", "MEHA", 
-        "CODX", "SVRN", "MTVA", "THH", "GOVX", "TSLA", "NVDA", "GME", "AMC", "SPWR", 
-        "BBAI", "SOUN", "ZURA", "FFIE", "HOLO", "GWAV", "CRKN", "PEGY", "MNMD", "AGBA"
-    ]
-    
-    for t in fallback_tickers:
-        try:
-            hist = yf.Ticker(t).history(period="5d")
-            if len(hist) >= 2:
-                prev = hist['Close'].iloc[-2]
-                curr = hist['Close'].iloc[-1]
-                change = ((curr - prev) / prev) * 100
-                
-                vol = hist['Volume'].iloc[-1]
-                avg_vol = hist['Volume'].mean() or 1
-                rel_vol = vol / avg_vol
-                dol_vol = vol * curr
-                
-                vol_str = f"{vol/1e6:.2f}M" if vol >= 1e6 else f"{vol/1e3:.0f}K"
-                dol_vol_str = f"${dol_vol/1e6:.2f}M" if dol_vol >= 1e6 else f"${dol_vol/1e3:.0f}K"
-                
-                # Assign pseudo-sessions mathematically to populate tables over weekend
-                sess = "REGULAR"
-                if change > 60: sess = "PRE-MARKET"
-                elif change > 25 and change <= 60: sess = "POST-MARKET"
-
-                results.append({
-                    "ticker": t, "price": float(curr), "change": float(change), "session": sess, 
-                    "vol": vol_str, "dvol": dol_vol_str, "rvol": float(rel_vol), "catalyst": "Momentum Alert"
-                })
-        except: pass
+    # BULK YFINANCE FALLBACK (Fast, accurate data)
+    fallback_tickers = ["AKTX", "PCLA", "RYOJ", "QTEX", "BIYA", "LFS", "VCIG", "HYLN", "FJET", "MEHA", "TSLA", "NVDA", "GME", "AMC", "SPWR", "BBAI", "SOUN", "ZURA", "FFIE", "HOLO", "GWAV", "CRKN", "PEGY", "MNMD", "AGBA"]
+    try:
+        data = yf.download(fallback_tickers, period="5d", progress=False)
+        closes = data['Close']
+        volumes = data['Volume']
         
+        for t in fallback_tickers:
+            if t in closes.columns:
+                series = closes[t].dropna()
+                v_series = volumes[t].dropna()
+                if len(series) >= 2:
+                    prev = series.iloc[-2]
+                    curr = series.iloc[-1]
+                    change = ((curr - prev) / prev) * 100
+                    
+                    vol = v_series.iloc[-1]
+                    avg_vol = v_series.mean() or 1
+                    rel_vol = vol / avg_vol
+                    dol_vol = vol * curr
+                    
+                    vol_str = f"{vol/1e6:.2f}M" if vol >= 1e6 else f"{vol/1e3:.0f}K"
+                    dol_vol_str = f"${dol_vol/1e6:.2f}M" if dol_vol >= 1e6 else f"${dol_vol/1e3:.0f}K"
+                    
+                    sess = "REGULAR"
+                    if change > 60: sess = "PRE-MARKET"
+                    elif change > 25 and change <= 60: sess = "POST-MARKET"
+                    
+                    cat = "Mega-Cap Flow" if t in ["TSLA", "NVDA", "AAPL"] else "Momentum Alert"
+
+                    results.append({"ticker": t, "price": float(curr), "change": float(change), "session": sess, "vol": vol_str, "dvol": dol_vol_str, "rvol": float(rel_vol), "catalyst": cat})
+    except: pass
     return sorted(results, key=lambda x: x['change'], reverse=True)
 
 @st.cache_data(ttl=120)
@@ -280,7 +253,7 @@ def parse_news_badge(title):
     else: return 'nb-blue', 'MARKET UPDATE'
 
 # ==========================================
-# 4. DATA EXECUTION & STATE (Fixing NameError)
+# 4. DATA EXECUTION & STATE
 # ==========================================
 macro_data = fetch_expanded_macro()
 rating_text, rating_class = get_market_rating(macro_data)
@@ -342,7 +315,7 @@ for i, item in enumerate(sector_data):
 heatmap_html += "</tbody></table></div>"
 st.markdown(heatmap_html, unsafe_allow_html=True)
 
-# --- 04 | MARKET MOVERS BY SESSION (FLATTENED HTML) ---
+# --- 04 | MARKET MOVERS BY SESSION ---
 sessions = [("PRE-MARKET MOVERS", "PRE-MARKET", "nb-purple"), ("REGULAR SESSION MOVERS", "REGULAR", "nb-blue"), ("POST-MARKET MOVERS", "POST-MARKET", "nb-orange")]
 
 gappers_html = '<div class="cloud-card"><div class="section-title">04 — Market Movers by Session</div>'
@@ -357,7 +330,6 @@ for title, sess_key, badge in sessions:
             elif rvol_val >= 5.0: r_txt, r_badge = "HIGH", "nb-orange"
             elif rvol_val >= 2.0: r_txt, r_badge = "ELEVATED", "nb-blue"
             else: r_txt, r_badge = "NORMAL", "nb-green"
-            
             gappers_html += f'<tr><td class="ticker-cell"><span class="etf-tag">{item["ticker"]}</span></td><td class="catalyst-cell" style="color:#f1f5f9;">${item["price"]:.2f}</td><td><div class="up-pct">▲ +{item["change"]:.2f}%</div></td><td class="catalyst-cell" style="font-weight:700;">{item.get("vol", "")}</td><td class="catalyst-cell" style="font-weight:700;">{item.get("dvol", "")}</td><td style="vertical-align:middle;"><span class="nb-badge {r_badge}">{r_txt} ({rvol_val:.1f}x)</span></td><td class="catalyst-cell" style="font-size:14px;">{item.get("catalyst")}</td></tr>'
     else:
         gappers_html += "<tr><td colspan='7' class='catalyst-cell'>Awaiting sync...</td></tr>"
@@ -373,7 +345,6 @@ for item in sorted(gappers_data, key=lambda x: x['change'], reverse=True)[:10]:
     elif rvol_val >= 5.0: r_txt, r_badge = "HIGH", "nb-orange"
     elif rvol_val >= 2.0: r_txt, r_badge = "ELEVATED", "nb-blue"
     else: r_txt, r_badge = "NORMAL", "nb-green"
-    
     sips_html += f'<tr><td class="ticker-cell"><span class="etf-tag">{item["ticker"]}</span></td><td class="catalyst-cell" style="color:#f1f5f9;">${item["price"]:.2f}</td><td><div class="up-pct">▲ +{item["change"]:.2f}%</div></td><td class="catalyst-cell" style="font-weight:700;">{item.get("vol", "")}</td><td class="catalyst-cell" style="font-weight:700;">{item.get("dvol", "")}</td><td style="vertical-align:middle;"><span class="nb-badge {r_badge}">{r_txt} ({rvol_val:.1f}x)</span></td><td class="catalyst-cell">{item.get("catalyst")}</td></tr>'
 sips_html += "</tbody></table></div>"
 st.markdown(sips_html, unsafe_allow_html=True)
@@ -392,7 +363,6 @@ def get_rating_html(eps, est):
 
 earn_html = f'<div class="cloud-card"><div class="section-title">07 — Earnings Briefing</div>'
 
-# Prev Close
 earn_html += f'<div class="news-item"><div class="news-item-top"><span class="nb-badge nb-purple">PREVIOUS CLOSE ({prev_dt.strftime("%A")})</span></div>'
 prev_earn = [
     {"ticker": "NVDA", "name": "NVIDIA Corp", "eps": 5.98, "eps_est": 5.59, "rev": 26.04, "rev_est": 24.65, "insight": "Massive beat driven by Data Center revenue."},
@@ -404,7 +374,6 @@ for item in prev_earn:
     earn_html += f'<div style="margin-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:12px;"><div class="news-body" style="color:#f1f5f9; font-size:18px;"><strong>{item["ticker"]}</strong> ({item["name"]}){rating} &nbsp;|&nbsp; EPS: ${item["eps"]:.2f} (est. ${item["eps_est"]:.2f})</div><div class="news-body" style="font-size:15px; color:#94a3b8; margin-top:4px;"><strong>Insight:</strong> {item["insight"]}</div></div>'
 earn_html += "</div>"
 
-# Next Trading Day
 earn_html += f'<div class="news-item"><div class="news-item-top"><span class="nb-badge nb-teal">NEXT TRADING DAY ({next_dt.strftime("%A, %b %d")})</span></div>'
 today_earn = [
     {"ticker": "DELL", "name": "Dell Technologies", "eps_est": 7.86, "rev_est": 13.28, "insight": "Crucial read on enterprise hardware capex."},
@@ -428,7 +397,7 @@ for date, event, imp, col in events:
 econ_html += "</tbody></table></div>"
 st.markdown(econ_html, unsafe_allow_html=True)
 
-# --- 09 | TECHNICAL PICTURE (ACTIONABLE) ---
+# --- 09 | TECHNICAL PICTURE ---
 st.markdown("""
 <div class="cloud-card">
 <div class="section-title">09 — Technical Picture & Action Plan</div>
@@ -445,6 +414,56 @@ st.markdown("""
     <div class="sentiment-line" style="border:none; padding-top:4px;"><strong>Context:</strong> Entering "Normal" regime.</div>
     <span class="tech-action">ACTION ➔ Premium selling favored.</span>
 </div>
+</div>
+</div>
+""", unsafe_allow_html=True)
+
+# --- 11 | WATCHLIST (RESTORED) ---
+st.markdown("""
+<div class="cloud-card">
+<div class="section-title">11 — Watchlist for Next Open</div>
+
+<div class="watchlist-item">
+<div class="wl-num">1</div>
+<div>
+<div class="wl-header"><span class="wl-ticker">NVDA</span><span style="font-size:14px;color:#64748b;margin-top:4px;margin-left:8px;">NVIDIA Corp</span></div>
+<div class="wl-body">Post-earnings price discovery day. Massive beat + raise affirms AI supercycle. Watch for institutional add-on buying on any morning dip.</div>
+<div class="wl-levels">Support: <span class="sup">$1,020</span> &nbsp;|&nbsp; Resistance: <span class="res">Price Discovery (ATH)</span> &nbsp;|&nbsp; Event: Follow-Through</div>
+</div>
+</div>
+
+<div class="watchlist-item">
+<div class="wl-num">2</div>
+<div>
+<div class="wl-header"><span class="wl-ticker">TSLA</span><span style="font-size:14px;color:#64748b;margin-top:4px;margin-left:8px;">Tesla Inc</span></div>
+<div class="wl-body">Mega-cap override active. FSD China approval news drove an 8.4% rally. Watch if $220 turns from resistance into support.</div>
+<div class="wl-levels">Support: <span class="sup">$215</span> &nbsp;|&nbsp; Resistance: <span class="res">$230</span> &nbsp;|&nbsp; Event: Catalyst Digestion</div>
+</div>
+</div>
+
+<div class="watchlist-item">
+<div class="wl-num">3</div>
+<div>
+<div class="wl-header"><span class="wl-ticker">DELL</span><span style="font-size:14px;color:#64748b;margin-top:4px;margin-left:8px;">Dell Technologies</span></div>
+<div class="wl-body">Reports Tuesday. Key read on enterprise AI hardware capex. Stock historically moves 8–12% on print.</div>
+<div class="wl-levels">Support: <span class="sup">$140</span> &nbsp;|&nbsp; Resistance: <span class="res">$160</span> &nbsp;|&nbsp; Event: Earnings Play</div>
+</div>
+</div>
+
+</div>
+""", unsafe_allow_html=True)
+
+
+# --- 12 | EDITOR'S NOTE (RESTORED) ---
+st.markdown("""
+<div class="cloud-card" style="border-left: 6px solid #818cf8;">
+<div class="section-title" style="border-bottom:none; margin-bottom:12px;">12 — Editor's Note</div>
+<div style="font-size: 18px; color: #cbd5e1; line-height: 1.8;">
+<strong>Market Status:</strong> The market remains closed through Monday for Memorial Day. <br><br>
+Heading into Tuesday's open, the structure remains decidedly bullish following Nvidia's blowout numbers. Broad participation is improving, and the VIX is compressing back into a low-stress regime. Capitalize on the mega-cap tech momentum, but remain selective on micro-cap gap-and-crap setups in the pre-market. Let the first 30 minutes establish the real trend.<br><br>
+<strong>CLOSING POSTURE:</strong> <em>Remain long-biased on tech (XLK).</em> Watch the 10Y Treasury yield; any spike above 4.5% will pressure the current rally.
+<br><br>
+<strong>See you at the open. 📈</strong>
 </div>
 </div>
 """, unsafe_allow_html=True)
