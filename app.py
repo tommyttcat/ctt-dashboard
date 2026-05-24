@@ -43,7 +43,7 @@ footer {visibility: hidden;}
 /* EARNINGS & ECON BADGES */
 .badge-beat { background: #052e16; color: #4ade80; padding: 4px 10px; border-radius: 6px; font-weight: 800; font-size: 13px; margin-left: 8px; }
 .badge-miss { background: #450a0a; color: #f87171; padding: 4px 10px; border-radius: 6px; font-weight: 800; font-size: 13px; margin-left: 8px; }
-.econ-bold { font-weight: 900; color: #f8fafc; font-size: 17px; }
+.econ-bold { font-weight: 900; color: #f8fafc; font-size: 17px; text-transform: uppercase; }
 
 /* SECTION TITLE */
 .section-title { font-size: 16px; font-weight: 800; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; margin-bottom: 24px; border-bottom: 2px solid rgba(255,255,255,0.05); padding-bottom: 12px;}
@@ -92,12 +92,12 @@ td { padding: 18px 12px; border-bottom: 1px solid rgba(255,255,255,0.05) !import
 # ==========================================
 now_dt = datetime.now()
 
-# Previous Trading Day (Skip weekends + Memorial Day)
+# Determine Previous Trading Day (Skip weekends + Memorial Day)
 prev_dt = now_dt - timedelta(days=1)
 while prev_dt.weekday() >= 5 or prev_dt.strftime('%m-%d') == '05-25':
     prev_dt -= timedelta(days=1)
 
-# Next Trading Day
+# Determine Next Trading Day (Skip weekends + Memorial Day)
 next_dt = now_dt
 if next_dt.weekday() >= 5 or next_dt.strftime('%m-%d') == '05-25':
     while next_dt.weekday() >= 5 or next_dt.strftime('%m-%d') == '05-25':
@@ -109,7 +109,7 @@ else:
     status_class = "badge-live"
 
 # ==========================================
-# 3. LIVE DATA ENGINES 
+# 3. LIVE DATA ENGINES (WITH OVERRIDES)
 # ==========================================
 def safe_float(val):
     try: return float(val)
@@ -119,9 +119,7 @@ def get_last_price_change(ticker):
     try:
         hist = yf.Ticker(ticker).history(period="5d").dropna(subset=['Close'])
         if len(hist) >= 2:
-            prev = hist['Close'].iloc[-2]
-            curr = hist['Close'].iloc[-1]
-            return float(curr), float(((curr - prev)/prev)*100)
+            return float(hist['Close'].iloc[-1]), float(((hist['Close'].iloc[-1] - hist['Close'].iloc[-2])/hist['Close'].iloc[-2])*100)
     except: pass
     return 0.0, 0.0
 
@@ -134,10 +132,14 @@ def fetch_expanded_macro():
         data[name] = {"price": p, "pct": c}
     return data
 
-@st.cache_data(ttl=60)
-def fetch_pcr():
-    p, _ = get_last_price_change("^PCR")
-    return p if p > 0 else 0.82
+def get_market_rating(macro_data):
+    spx_pct = macro_data.get("S&P 500 (SPX)", {}).get("pct", 0)
+    ndx_pct = macro_data.get("Nasdaq Comp", {}).get("pct", 0)
+    if spx_pct >= 0.5 and ndx_pct >= 0.5: return "RISK-ON", "badge-bullish"
+    elif spx_pct > 0 and ndx_pct > 0: return "BULLISH", "badge-bullish"
+    elif spx_pct <= -0.5 and ndx_pct <= -0.5: return "RISK-OFF", "badge-bearish"
+    elif spx_pct < 0 and ndx_pct < 0: return "BEARISH", "badge-bearish"
+    else: return "MIXED", "badge-mixed"
 
 @st.cache_data(ttl=300)
 def fetch_sector_flow():
@@ -172,6 +174,18 @@ def fetch_gappers():
             if sym:
                 if sym not in unique_movers or x.get('changesPercentage', 0) > unique_movers[sym].get('changesPercentage', 0):
                     unique_movers[sym] = x
+
+        # Mega-Cap Override: Ensure mega caps > 4% get caught even if they miss the micro-cap dominated API lists
+        mega_caps = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", "LLY", "AVGO", "NFLX", "AMD"]
+        mega_str = ",".join(mega_caps)
+        try:
+            mc_data = requests.get(f"https://financialmodelingprep.com/api/v3/quote/{mega_str}?apikey={FMP_KEY}").json()
+            for q in mc_data:
+                if q.get('changesPercentage', 0) >= 4.0:
+                    sym = q['symbol']
+                    q['session'] = 'REGULAR'
+                    unique_movers[sym] = q
+        except: pass
 
         tickers = list(unique_movers.keys())
         quote_map = {}
@@ -208,7 +222,11 @@ def fetch_gappers():
     except: pass
     
     # GUARANTEED FALLBACK: Pulling ACTUAL data via yfinance for known screeners, not fake numbers.
-    fallback_tickers = ["AKTX", "PCLA", "RYOJ", "QTEX", "BIYA", "LFS", "VCIG", "HYLN", "FJET", "MEHA", "TSLA", "NVDA", "AAPL", "GME", "AMC", "SPWR", "BBAI", "SOUN", "ZURA", "FFIE", "HOLO", "GWAV", "CRKN", "PEGY", "MNMD", "AGBA"]
+    fallback_tickers = [
+        "AKTX", "PCLA", "RYOJ", "QTEX", "BIYA", "LFS", "VCIG", "HYLN", "FJET", "MEHA", 
+        "CODX", "SVRN", "MTVA", "THH", "GOVX", "TSLA", "NVDA", "GME", "AMC", "SPWR", 
+        "BBAI", "SOUN", "ZURA", "FFIE", "HOLO", "GWAV", "CRKN", "PEGY", "MNMD", "AGBA"
+    ]
     
     for t in fallback_tickers:
         try:
@@ -228,8 +246,8 @@ def fetch_gappers():
                 
                 # Assign pseudo-sessions mathematically to populate tables over weekend
                 sess = "REGULAR"
-                if change > 80: sess = "PRE-MARKET"
-                elif change > 25 and change <= 80: sess = "POST-MARKET"
+                if change > 60: sess = "PRE-MARKET"
+                elif change > 25 and change <= 60: sess = "POST-MARKET"
 
                 results.append({
                     "ticker": t, "price": float(curr), "change": float(change), "session": sess, 
@@ -262,7 +280,16 @@ def parse_news_badge(title):
     else: return 'nb-blue', 'MARKET UPDATE'
 
 # ==========================================
-# 4. UI RENDER ENGINE
+# 4. DATA EXECUTION & STATE (Fixing NameError)
+# ==========================================
+macro_data = fetch_expanded_macro()
+rating_text, rating_class = get_market_rating(macro_data)
+sector_data = fetch_sector_flow()
+gappers_data = fetch_gappers()
+liquidity_data = fetch_liquidity_basket()
+
+# ==========================================
+# 5. UI RENDER ENGINE
 # ==========================================
 
 # --- HEADER ---
@@ -307,7 +334,7 @@ st.markdown(news_html, unsafe_allow_html=True)
 
 # --- 03 | SECTORS ---
 heatmap_html = '<div class="cloud-card"><div class="section-title">03 — Sector Performance</div><table><thead><tr><th>#</th><th>Sector / ETF</th><th>Live Change</th><th>Flow</th></tr></thead><tbody>'
-for i, item in enumerate(fetch_sector_flow()):
+for i, item in enumerate(sector_data):
     col = "up-pct" if item['pct'] >= 0 else "down-pct"
     sign = "▲ +" if item['pct'] > 0 else "▼ " if item['pct'] < 0 else ""
     f_col = "#4ade80" if item['pct'] >= 0 else "#f87171"
@@ -316,7 +343,6 @@ heatmap_html += "</tbody></table></div>"
 st.markdown(heatmap_html, unsafe_allow_html=True)
 
 # --- 04 | MARKET MOVERS BY SESSION (FLATTENED HTML) ---
-gappers_data = fetch_gappers()
 sessions = [("PRE-MARKET MOVERS", "PRE-MARKET", "nb-purple"), ("REGULAR SESSION MOVERS", "REGULAR", "nb-blue"), ("POST-MARKET MOVERS", "POST-MARKET", "nb-orange")]
 
 gappers_html = '<div class="cloud-card"><div class="section-title">04 — Market Movers by Session</div>'
@@ -354,7 +380,7 @@ st.markdown(sips_html, unsafe_allow_html=True)
 
 # --- 06 | MEGA-CAP LIQUIDITY ---
 play_html = '<div class="cloud-card"><div class="section-title">06 — Mega-Cap Liquidity Basket</div><table><thead><tr><th>Ticker</th><th>Live Price</th><th>Algo Bias (vs 5D SMA)</th></tr></thead><tbody>'
-for item in fetch_liquidity_basket():
+for item in liquidity_data:
     play_html += f'<tr><td class="ticker-cell">{item["ticker"]}</td><td class="catalyst-cell">${item["price"]:.2f}</td><td><span class="{item["color"]}">{item["bias"]}</span></td></tr>'
 play_html += "</tbody></table></div>"
 st.markdown(play_html, unsafe_allow_html=True)
