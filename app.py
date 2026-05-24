@@ -46,14 +46,14 @@ footer {visibility: hidden;}
 
 /* HEADER */
 .hdr { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 24px; margin-bottom: 48px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
-.wrap-type { font-size: 16px; font-weight: 600; letter-spacing: 1px; color: #818cf8; }
+.wrap-type { font-size: 16px; font-weight: 600; letter-spacing: 1px; color: #64748b; }
 .wrap-title { font-size: 42px; font-weight: 800; color: #f1f5f9; margin-top: 4px; }
 .hdr-meta { text-align: right; font-size: 16px; color: #94a3b8; }
 .hdr-date { font-size: 20px; color: #c7d2fe; font-weight: 600; margin-bottom: 8px; }
 
-/* INDIVIDUAL SECTION WRAPPER (Light Gray border) */
+/* INDIVIDUAL SECTION WRAPPER (Darker Gray Line) */
 .section-container {
-    border-left: 4px solid #cbd5e1; 
+    border-left: 4px solid #64748b; 
     padding-left: 24px;
 }
 
@@ -64,8 +64,8 @@ footer {visibility: hidden;}
     display: block;
 }
 
-/* SECTION TITLE */
-.section-title { display: flex; justify-content: space-between; align-items: center; font-size: 18px; font-weight: 700; color: #818cf8; margin-bottom: 24px; }
+/* SECTION TITLE (Darker Gray text) */
+.section-title { display: flex; justify-content: space-between; align-items: center; font-size: 18px; font-weight: 700; color: #64748b; margin-bottom: 24px; }
 
 /* BADGES - ONLY TEXT COLOR */
 .nb-badge, .badge-beat, .badge-miss, .badge-closed, .badge-live { 
@@ -371,6 +371,8 @@ for title, sess_key, badge in sessions:
             else: r_txt, r_badge = "Normal", "nb-green"
             
             gappers_html += f'<div class="t-row" style="grid-template-columns: 1.2fr 1fr 1fr 1fr 1.2fr 1.5fr 3fr;"><div><span class="ticker-cell">{item["ticker"]}</span></div><div class="vol-cell">${item["price"]:.2f}</div><div><span class="up-pct">▲ +{item["change"]:.2f}%</span></div><div class="vol-cell">{item.get("vol", "")}</div><div class="vol-cell">{item.get("dvol", "")}</div><div><span class="nb-badge {r_badge}">{r_txt} ({rvol_val:.1f}x)</span></div><div class="cat-cell">{item.get("catalyst")}</div></div>'
+    else:
+        gappers_html += "<div class='t-row'><div class='cat-cell'>Awaiting live market data sync from FMP...</div></div>"
 gappers_html += '</div><div class="section-spacer"></div>'
 st.markdown(gappers_html, unsafe_allow_html=True)
 
@@ -386,6 +388,8 @@ if gappers_data:
         else: r_txt, r_badge = "Normal", "nb-green"
         
         sips_html += f'<div class="t-row" style="grid-template-columns: 1.2fr 1fr 1fr 1fr 1.2fr 1.5fr 3fr;"><div><span class="ticker-cell">{item["ticker"]}</span></div><div class="vol-cell">${item["price"]:.2f}</div><div><span class="up-pct">▲ +{item["change"]:.2f}%</span></div><div class="vol-cell">{item.get("vol", "")}</div><div class="vol-cell">{item.get("dvol", "")}</div><div><span class="nb-badge {r_badge}">{r_txt} ({rvol_val:.1f}x)</span></div><div class="cat-cell">{item.get("catalyst")}</div></div>'
+else:
+    sips_html += "<div class='t-row'><div class='cat-cell'>Awaiting live market data sync...</div></div>"
 sips_html += '</div><div class="section-spacer"></div>'
 st.markdown(sips_html, unsafe_allow_html=True)
 
@@ -491,7 +495,7 @@ top_gapper = gappers_data[0]['ticker'] if gappers_data else "N/A"
 top_gapper_change = gappers_data[0]['change'] if gappers_data else 0.0
 
 summary_text = f"""
-<div class="section-container" style="border-left: 4px solid #cbd5e1;">
+<div class="section-container">
 <div class="section-title" style="margin-bottom: 24px;">13 — Market Summary</div>
 
 <div class="summary-text">
