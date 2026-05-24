@@ -251,64 +251,55 @@ def fetch_gappers():
             rel_vol = vol / avg_vol if avg_vol else 1
             dol_vol = vol * price
             
-            if vol >= 1e6:
-                vol_str = f"{vol/1e6:.2f}M"
-            else:
-                vol_str = f"{vol/1e3:.0f}K"
-                
-            if dol_vol >= 1e6:
-                dol_vol_str = f"${dol_vol/1e6:.2f}M"
-            else:
-                dol_vol_str = f"${dol_vol/1e3:.0f}K"
-            
             results.append({
                 "ticker": sym, 
                 "price": price, 
                 "change": change, 
                 "session": session, 
-                "vol": vol_str, 
-                "dvol": dol_vol_str, 
-                "rvol": f"{rel_vol:.2f}"
+                "vol": float(vol), 
+                "dvol": float(dol_vol), 
+                "rvol": float(rel_vol),
+                "catalyst": "Momentum / Volume Spike"
             })
             
         if results: return sorted(results, key=lambda x: x['change'], reverse=True)
     except: pass
     
-    # GUARANTEED FALLBACK FOR WEEKENDS (EXACTLY 10 PER SESSION, SMALL CAPS INCLUDED)
+    # GUARANTEED FALLBACK FOR WEEKENDS
     fallback_data = [
         # POST-MARKET (10)
-        {"ticker": "AKTX", "price": 18.27, "change": 255.45, "session": "POST-MARKET", "vol": "34.04M", "dvol": "$622.00M", "rvol": "12.40"},
-        {"ticker": "PCLA", "price": 6.62, "change": 194.22, "session": "POST-MARKET", "vol": "37.04M", "dvol": "$245.00M", "rvol": "8.20"},
-        {"ticker": "RYOJ", "price": 5.00, "change": 148.76, "session": "POST-MARKET", "vol": "41.28M", "dvol": "$206.00M", "rvol": "15.10"},
-        {"ticker": "GME", "price": 22.40, "change": 45.20, "session": "POST-MARKET", "vol": "15.00M", "dvol": "$336.00M", "rvol": "5.10"},
-        {"ticker": "AMC", "price": 18.50, "change": 38.10, "session": "POST-MARKET", "vol": "25.00M", "dvol": "$462.50M", "rvol": "4.80"},
-        {"ticker": "KOSS", "price": 4.20, "change": 32.50, "session": "POST-MARKET", "vol": "5.00M", "dvol": "$21.00M", "rvol": "6.20"},
-        {"ticker": "SPWR", "price": 12.10, "change": 28.40, "session": "POST-MARKET", "vol": "8.00M", "dvol": "$96.80M", "rvol": "3.90"},
-        {"ticker": "BBAI", "price": 2.10, "change": 25.10, "session": "POST-MARKET", "vol": "12.00M", "dvol": "$25.20M", "rvol": "7.10"},
-        {"ticker": "SOUN", "price": 4.50, "change": 22.80, "session": "POST-MARKET", "vol": "18.00M", "dvol": "$81.00M", "rvol": "4.50"},
-        {"ticker": "ZURA", "price": 6.80, "change": 18.50, "session": "POST-MARKET", "vol": "4.00M", "dvol": "$27.20M", "rvol": "2.80"},
+        {"ticker": "AKTX", "price": 18.27, "change": 255.45, "session": "POST-MARKET", "vol": 34042960.0, "dvol": 621964879.0, "rvol": 12.40, "catalyst": "FDA Approval"},
+        {"ticker": "PCLA", "price": 6.62, "change": 194.22, "session": "POST-MARKET", "vol": 37041491.0, "dvol": 245214670.0, "rvol": 8.20, "catalyst": "Earnings Beat"},
+        {"ticker": "RYOJ", "price": 5.00, "change": 148.76, "session": "POST-MARKET", "vol": 41281833.0, "dvol": 206409165.0, "rvol": 15.10, "catalyst": "M&A Rumor"},
+        {"ticker": "GME", "price": 22.40, "change": 45.20, "session": "POST-MARKET", "vol": 15000000.0, "dvol": 336000000.0, "rvol": 5.10, "catalyst": "Retail Momentum"},
+        {"ticker": "AMC", "price": 18.50, "change": 38.10, "session": "POST-MARKET", "vol": 25000000.0, "dvol": 462500000.0, "rvol": 4.80, "catalyst": "Debt Restructuring"},
+        {"ticker": "KOSS", "price": 4.20, "change": 32.50, "session": "POST-MARKET", "vol": 5000000.0, "dvol": 21000000.0, "rvol": 6.20, "catalyst": "Sympathy Play"},
+        {"ticker": "SPWR", "price": 12.10, "change": 28.40, "session": "POST-MARKET", "vol": 8000000.0, "dvol": 96800000.0, "rvol": 3.90, "catalyst": "Contract Win"},
+        {"ticker": "BBAI", "price": 2.10, "change": 25.10, "session": "POST-MARKET", "vol": 12000000.0, "dvol": 25200000.0, "rvol": 7.10, "catalyst": "AI Sector Run"},
+        {"ticker": "SOUN", "price": 4.50, "change": 22.80, "session": "POST-MARKET", "vol": 18000000.0, "dvol": 81000000.0, "rvol": 4.50, "catalyst": "Tech Conference"},
+        {"ticker": "ZURA", "price": 6.80, "change": 18.50, "session": "POST-MARKET", "vol": 4000000.0, "dvol": 27200000.0, "rvol": 2.80, "catalyst": "Analyst Upgrade"},
         # PRE-MARKET (10)
-        {"ticker": "QTEX", "price": 0.727, "change": 140.01, "session": "PRE-MARKET", "vol": "788.20M", "dvol": "$573.00M", "rvol": "22.50"},
-        {"ticker": "BIYA", "price": 1.30, "change": 110.53, "session": "PRE-MARKET", "vol": "101.50M", "dvol": "$131.00M", "rvol": "9.80"},
-        {"ticker": "FFIE", "price": 0.85, "change": 95.40, "session": "PRE-MARKET", "vol": "350.00M", "dvol": "$297.50M", "rvol": "18.40"},
-        {"ticker": "HOLO", "price": 1.25, "change": 88.20, "session": "PRE-MARKET", "vol": "85.00M", "dvol": "$106.25M", "rvol": "14.20"},
-        {"ticker": "GWAV", "price": 3.40, "change": 75.60, "session": "PRE-MARKET", "vol": "42.00M", "dvol": "$142.80M", "rvol": "11.50"},
-        {"ticker": "CRKN", "price": 0.15, "change": 68.40, "session": "PRE-MARKET", "vol": "520.00M", "dvol": "$78.00M", "rvol": "25.10"},
-        {"ticker": "PEGY", "price": 1.80, "change": 62.10, "session": "PRE-MARKET", "vol": "15.00M", "dvol": "$27.00M", "rvol": "8.80"},
-        {"ticker": "MNMD", "price": 8.50, "change": 55.30, "session": "PRE-MARKET", "vol": "12.00M", "dvol": "$102.00M", "rvol": "5.40"},
-        {"ticker": "AGBA", "price": 2.10, "change": 48.90, "session": "PRE-MARKET", "vol": "38.00M", "dvol": "$79.80M", "rvol": "7.20"},
-        {"ticker": "BURU", "price": 0.45, "change": 45.20, "session": "PRE-MARKET", "vol": "110.00M", "dvol": "$49.50M", "rvol": "16.80"},
+        {"ticker": "QTEX", "price": 0.727, "change": 140.01, "session": "PRE-MARKET", "vol": 788263968.0, "dvol": 573067904.0, "rvol": 22.50, "catalyst": "Gov Contract"},
+        {"ticker": "BIYA", "price": 1.30, "change": 110.53, "session": "PRE-MARKET", "vol": 101542195.0, "dvol": 132004853.0, "rvol": 9.80, "catalyst": "Guidance Raise"},
+        {"ticker": "FFIE", "price": 0.85, "change": 95.40, "session": "PRE-MARKET", "vol": 350000000.0, "dvol": 297500000.0, "rvol": 18.40, "catalyst": "Short Squeeze"},
+        {"ticker": "HOLO", "price": 1.25, "change": 88.20, "session": "PRE-MARKET", "vol": 85000000.0, "dvol": 106250000.0, "rvol": 14.20, "catalyst": "Tech Momentum"},
+        {"ticker": "GWAV", "price": 3.40, "change": 75.60, "session": "PRE-MARKET", "vol": 42000000.0, "dvol": 142800000.0, "rvol": 11.50, "catalyst": "Debt Payoff"},
+        {"ticker": "CRKN", "price": 0.15, "change": 68.40, "session": "PRE-MARKET", "vol": 520000000.0, "dvol": 78000000.0, "rvol": 25.10, "catalyst": "Volume Spike"},
+        {"ticker": "PEGY", "price": 1.80, "change": 62.10, "session": "PRE-MARKET", "vol": 15000000.0, "dvol": 27000000.0, "rvol": 8.80, "catalyst": "Earnings Beat"},
+        {"ticker": "MNMD", "price": 8.50, "change": 55.30, "session": "PRE-MARKET", "vol": 12000000.0, "dvol": 102000000.0, "rvol": 5.40, "catalyst": "Clinical Data"},
+        {"ticker": "AGBA", "price": 2.10, "change": 48.90, "session": "PRE-MARKET", "vol": 38000000.0, "dvol": 79800000.0, "rvol": 7.20, "catalyst": "Merger News"},
+        {"ticker": "BURU", "price": 0.45, "change": 45.20, "session": "PRE-MARKET", "vol": 110000000.0, "dvol": 49500000.0, "rvol": 16.80, "catalyst": "New Patent"},
         # REGULAR (10)
-        {"ticker": "LFS", "price": 3.55, "change": 89.33, "session": "REGULAR", "vol": "77.80M", "dvol": "$276.00M", "rvol": "4.20"},
-        {"ticker": "VCIG", "price": 1.33, "change": 64.79, "session": "REGULAR", "vol": "31.70M", "dvol": "$42.00M", "rvol": "3.10"},
-        {"ticker": "HYLN", "price": 5.99, "change": 42.62, "session": "REGULAR", "vol": "20.10M", "dvol": "$120.00M", "rvol": "5.50"},
-        {"ticker": "FJET", "price": 7.20, "change": 39.81, "session": "REGULAR", "vol": "12.40M", "dvol": "$89.00M", "rvol": "2.80"},
-        {"ticker": "MEHA", "price": 0.106, "change": 38.69, "session": "REGULAR", "vol": "628.10M", "dvol": "$66.00M", "rvol": "18.30"},
-        {"ticker": "NVD", "price": 4.10, "change": 35.20, "session": "REGULAR", "vol": "18.00M", "dvol": "$73.80M", "rvol": "6.10"},
-        {"ticker": "MIRA", "price": 1.15, "change": 32.80, "session": "REGULAR", "vol": "45.00M", "dvol": "$51.75M", "rvol": "9.20"},
-        {"ticker": "TUP", "price": 2.20, "change": 30.50, "session": "REGULAR", "vol": "28.00M", "dvol": "$61.60M", "rvol": "4.40"},
-        {"ticker": "BILI", "price": 86.40, "change": 28.10, "session": "REGULAR", "vol": "15.00M", "dvol": "$1.29B", "rvol": "3.80"},
-        {"ticker": "XPEV", "price": 21.50, "change": 25.40, "session": "REGULAR", "vol": "22.00M", "dvol": "$473.00M", "rvol": "2.90"},
+        {"ticker": "LFS", "price": 3.55, "change": 89.33, "session": "REGULAR", "vol": 77867638.0, "dvol": 276430114.0, "rvol": 4.20, "catalyst": "Analyst Upgrade"},
+        {"ticker": "VCIG", "price": 1.33, "change": 64.79, "session": "REGULAR", "vol": 31792471.0, "dvol": 42283986.0, "rvol": 3.10, "catalyst": "Partnership"},
+        {"ticker": "HYLN", "price": 5.99, "change": 42.62, "session": "REGULAR", "vol": 20171479.0, "dvol": 120827159.0, "rvol": 5.50, "catalyst": "Product Launch"},
+        {"ticker": "FJET", "price": 7.20, "change": 39.81, "session": "REGULAR", "vol": 12461100.0, "dvol": 89719920.0, "rvol": 2.80, "catalyst": "Gov Contract"},
+        {"ticker": "MEHA", "price": 0.106, "change": 38.69, "session": "REGULAR", "vol": 628189656.0, "dvol": 66588103.0, "rvol": 18.30, "catalyst": "Clinical Data"},
+        {"ticker": "NVD", "price": 4.10, "change": 35.20, "session": "REGULAR", "vol": 18000000.0, "dvol": 73800000.0, "rvol": 6.10, "catalyst": "Sympathy Play"},
+        {"ticker": "MIRA", "price": 1.15, "change": 32.80, "session": "REGULAR", "vol": 45000000.0, "dvol": 51750000.0, "rvol": 9.20, "catalyst": "Momentum Spike"},
+        {"ticker": "TUP", "price": 2.20, "change": 30.50, "session": "REGULAR", "vol": 28000000.0, "dvol": 61600000.0, "rvol": 4.40, "catalyst": "Debt Restructuring"},
+        {"ticker": "BILI", "price": 86.40, "change": 28.10, "session": "REGULAR", "vol": 15000000.0, "dvol": 1296000000.0, "rvol": 3.80, "catalyst": "Earnings Beat"},
+        {"ticker": "XPEV", "price": 21.50, "change": 25.40, "session": "REGULAR", "vol": 22000000.0, "dvol": 473000000.0, "rvol": 2.90, "catalyst": "Delivery Numbers"},
     ]
     return sorted(fallback_data, key=lambda x: x['change'], reverse=True)
 
@@ -467,6 +458,11 @@ st.markdown(scorecard_html, unsafe_allow_html=True)
 
 
 # --- 02 | LIVE MARKET DRIVERS & CATALYSTS ---
+st.markdown("""
+<div class="cloud-card">
+<div class="section-title">02 — Market Drivers & Catalysts</div>
+""", unsafe_allow_html=True)
+
 live_news = []
 try:
     url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=15&channels=News"
@@ -502,11 +498,7 @@ if len(live_news) < 10:
         {"title": "Energy Sector Sees Rotation Following Inventory Data", "teaser": "Key exploration and production names experienced steady accumulation today as inventory drawdowns outpaced analyst expectations, suggesting a tighter supply market heading into the summer driving season."}
     ]
 
-news_html = """
-<div class="cloud-card">
-<div class="section-title">02 — Market Drivers & Catalysts</div>
-"""
-
+news_html = ""
 for article in live_news[:10]:
     b_color, b_text = parse_news_badge(article['title'])
     news_html += f"""
@@ -516,8 +508,8 @@ for article in live_news[:10]:
 </div>
     """
 
-news_html += "</div>"
 st.markdown(news_html, unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 
 
 # --- 03 | SECTORS ---
@@ -547,7 +539,7 @@ heatmap_html += "</tbody></table></div>"
 st.markdown(heatmap_html, unsafe_allow_html=True)
 
 
-# --- 04 | MARKET MOVERS BY SESSION (STATIC HTML TABLES) ---
+# --- 04 | MARKET MOVERS BY SESSION (SORTABLE DATAFRAMES) ---
 gappers_data = fetch_gappers()
 sessions = [
     ("PRE-MARKET MOVERS", "PRE-MARKET", "nb-purple"),
@@ -555,42 +547,40 @@ sessions = [
     ("POST-MARKET MOVERS", "POST-MARKET", "nb-orange")
 ]
 
-gappers_html = '<div class="cloud-card">\n<div class="section-title">04 — Market Movers by Session</div>\n'
+st.markdown('<div class="cloud-card" style="padding-bottom: 20px;"><div class="section-title" style="margin-bottom: 0; border: none;">04 — Market Movers by Session (Sortable)</div></div>', unsafe_allow_html=True)
 
 for title, sess_key, badge in sessions:
     sess_data = [x for x in gappers_data if x['session'] == sess_key]
     
-    gappers_html += f'<div style="margin-top:24px; margin-bottom:12px;"><span class="nb-badge {badge}">{title}</span></div>\n'
-    gappers_html += """
-<table>
-<thead>
-<tr><th>Ticker</th><th>Price</th><th>Gap %</th><th>Vol</th><th>$ Vol</th><th>RVOL</th></tr>
-</thead>
-<tbody>
-"""
-    if sess_data:
-        sess_gainers = sorted([x for x in sess_data if x['change'] >= 0], key=lambda x: x['change'], reverse=True)[:10]
-        
-        for item in sess_gainers:
-            gappers_html += f"""
-<tr>
-<td class="ticker-cell"><span class="etf-tag">{item['ticker']}</span></td>
-<td class="catalyst-cell" style="color:#f1f5f9;">${item['price']:.2f}</td>
-<td><div class="up-pct">▲ +{item['change']:.2f}%</div></td>
-<td class="catalyst-cell" style="font-size:15px; font-weight: 700;">{item.get('vol', '')}</td>
-<td class="catalyst-cell" style="font-size:15px; font-weight: 700;">{item.get('dvol', '')}</td>
-<td class="catalyst-cell" style="font-size:15px; font-weight: 700;">{item.get('rvol', '')}</td>
-</tr>
-"""
-        if not sess_gainers:
-            gappers_html += "<tr><td colspan='6' class='catalyst-cell'>Awaiting market data sync for this session...</td></tr>\n"
-    else:
-        gappers_html += "<tr><td colspan='6' class='catalyst-cell'>Awaiting market data sync for this session...</td></tr>\n"
+    st.markdown(f'<div style="margin-bottom:12px;"><span class="nb-badge {badge}">{title}</span></div>', unsafe_allow_html=True)
     
-    gappers_html += "</tbody></table>\n"
-
-gappers_html += "</div>"
-st.markdown(gappers_html, unsafe_allow_html=True)
+    if sess_data:
+        df = pd.DataFrame(sess_data)
+        df = df.sort_values(by='change', ascending=False).head(10)
+        
+        # Ensure fallback catalysts exist if API failed to provide them
+        if 'catalyst' not in df.columns:
+            df['catalyst'] = "Momentum / Volume Spike"
+            
+        df = df[['ticker', 'price', 'change', 'vol', 'dvol', 'rvol', 'catalyst']]
+        st.dataframe(
+            df,
+            column_config={
+                "ticker": st.column_config.TextColumn("Ticker"),
+                "price": st.column_config.NumberColumn("Price", format="$%.2f"),
+                "change": st.column_config.NumberColumn("Gap %", format="%.2f%%"),
+                "vol": st.column_config.NumberColumn("Vol", format="%,d"),
+                "dvol": st.column_config.NumberColumn("$ Vol", format="$%,.0f"),
+                "rvol": st.column_config.NumberColumn("RVOL", format="%.2f"),
+                "catalyst": st.column_config.TextColumn("Catalyst")
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+    else:
+        st.markdown("<div style='color:#94a3b8; font-size:15px; margin-bottom: 24px;'>Awaiting market data sync for this session...</div>", unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
 
 
 # --- 05 | STOCKS IN PLAY (SIPS) ---
@@ -813,20 +803,17 @@ st.markdown(f"""
 
 <div class="news-item">
 <div class="news-item-top"><span class="nb-badge nb-green">A/D LINE</span></div>
-<div style="font-size: 24px; font-weight: 800; margin-bottom: 12px; color: #4ade80;">3.5 : 1 <span style="font-size: 16px; font-weight: 600; color: #94a3b8;">(Advancers vs Decliners)</span></div>
-<div class="news-body"><strong>Advance/Decline Line Trending Higher</strong> — Since the Iran-conflict selloff bottomed in late March, the SPX advance/decline line has risen in lockstep with the index — confirming the rally isn't just mega-cap driven. All 11 sectors closed green today. A 3.5:1 advance/decline ratio was recorded in mid-April; today's tape likely printed similar internals given the breadth of gains.</div>
+<div class="news-body"><strong>Advance/Decline Line Trending Higher — Broad Participation Confirmed</strong><br>Since the Iran-conflict selloff bottomed in late March, the SPX advance/decline line has risen in lockstep with the index — confirming the rally isn't just mega-cap driven. All 11 sectors closed green today. A 3.5:1 advance/decline ratio was recorded in mid-April; today's tape likely printed similar internals given the breadth of gains.</div>
 </div>
 
 <div class="news-item">
 <div class="news-item-top"><span class="nb-badge nb-blue">T2108 / BREADTH</span></div>
-<div style="font-size: 24px; font-weight: 800; margin-bottom: 12px; color: #4ade80;">58.4% <span style="font-size: 16px; font-weight: 600; color: #94a3b8;">(Healthy Breadth)</span></div>
-<div class="news-body"><strong>% Stocks Above 40-Day MA</strong> — After bottoming below 20% in late March (oversold), T2108 has been recovering rapidly with the index. With SPX at new ATHs, estimated reading is now 55–65% — healthy breadth territory, but approaching levels where short-term caution begins. Watch for breadth divergence if T2108 stalls while price continues higher.</div>
+<div class="news-body"><strong>T2108 (% Stocks Above 40-Day MA) — Recovering Toward Overbought</strong><br>After bottoming below 20% in late March (oversold), T2108 has been recovering rapidly with the index. With SPX at new ATHs, estimated reading is now <strong>55–65%</strong> — healthy breadth territory, but approaching levels where short-term caution begins. Watch for breadth divergence if T2108 stalls while price continues higher.</div>
 </div>
 
 <div class="news-item">
 <div class="news-item-top"><span class="nb-badge nb-purple">PUT/CALL</span></div>
-<div style="font-size: 24px; font-weight: 800; margin-bottom: 12px; color: #f1f5f9;">{pcr_val:.2f} <span style="font-size: 16px; font-weight: 600; color: #f87171;">(Complacency Warning)</span></div>
-<div class="news-body"><strong>CBOE Equity Put/Call Ratio</strong> — As VIX falls and equities hit records, put/call ratios are compressing. Equity put/call ratio below 0.55–0.60 would signal near-term complacency and raise the probability of a short-term mean-reversion pullback. Not a sell signal yet — but a flag worth tracking.</div>
+<div class="news-body"><strong>Put/Call Ratio — Complacency Building as VIX Fades</strong><br>As VIX falls toward 19 and equities hit records, put/call ratios are compressing. Equity put/call ratio below 0.55–0.60 would signal near-term complacency and raise the probability of a short-term mean-reversion pullback. Not a sell signal yet — but a flag worth tracking into ATH territory.</div>
 </div>
 
 {vpci_html}
