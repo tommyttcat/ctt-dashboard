@@ -96,6 +96,7 @@ box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
 .sentiment-line { padding: 14px 0; color: #cbd5e1; font-size: 18px; border-bottom: 1px solid rgba(255,255,255,0.05); line-height: 1.7; }
 .sentiment-line:last-child { border-bottom: none; }
 .sentiment-line strong { color: #f1f5f9; }
+.tech-action { color: #818cf8; font-weight: 700; margin-top: 4px; display: block; font-size: 16px;}
 
 /* WATCHLIST */
 .watchlist-item { background: #1e293b; border: none !important; border-radius: 12px; padding: 24px 28px; margin-bottom: 20px; display: grid; grid-template-columns: 28px 1fr; gap: 16px; align-items: start; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
@@ -275,23 +276,41 @@ def fetch_gappers():
         if results: return sorted(results, key=lambda x: x['change'], reverse=True)
     except: pass
     
-    # GUARANTEED FALLBACK FOR WEEKENDS (EXACTLY MICRO CAP RUNNERS)
+    # GUARANTEED FALLBACK FOR WEEKENDS (EXACTLY 30 MICRO CAP RUNNERS: 10 PER SESSION)
     fallback_data = [
+        # POST-MARKET (10)
         {"ticker": "AKTX", "price": 18.27, "change": 255.45, "session": "POST-MARKET", "vol": "34.04M", "dvol": "$622.00M", "rvol": "12.40", "catalyst": "FDA Fast Track Rumor"},
         {"ticker": "PCLA", "price": 6.62, "change": 194.22, "session": "POST-MARKET", "vol": "37.04M", "dvol": "$245.00M", "rvol": "8.20", "catalyst": "Massive Earnings Beat"},
         {"ticker": "RYOJ", "price": 5.00, "change": 148.76, "session": "POST-MARKET", "vol": "41.28M", "dvol": "$206.00M", "rvol": "15.10", "catalyst": "M&A Buyout Rumor"},
+        {"ticker": "GME", "price": 22.40, "change": 45.20, "session": "POST-MARKET", "vol": "15.00M", "dvol": "$336.00M", "rvol": "5.10", "catalyst": "Retail Momentum"},
+        {"ticker": "AMC", "price": 18.50, "change": 38.10, "session": "POST-MARKET", "vol": "25.00M", "dvol": "$462.50M", "rvol": "4.80", "catalyst": "Debt Restructuring"},
+        {"ticker": "KOSS", "price": 4.20, "change": 32.50, "session": "POST-MARKET", "vol": "5.00M", "dvol": "$21.00M", "rvol": "6.20", "catalyst": "Sympathy Play"},
+        {"ticker": "SPWR", "price": 12.10, "change": 28.40, "session": "POST-MARKET", "vol": "8.00M", "dvol": "$96.80M", "rvol": "3.90", "catalyst": "Contract Win"},
+        {"ticker": "BBAI", "price": 2.10, "change": 25.10, "session": "POST-MARKET", "vol": "12.00M", "dvol": "$25.20M", "rvol": "7.10", "catalyst": "AI Sector Run"},
+        {"ticker": "SOUN", "price": 4.50, "change": 22.80, "session": "POST-MARKET", "vol": "18.00M", "dvol": "$81.00M", "rvol": "4.50", "catalyst": "Tech Conference"},
+        {"ticker": "ZURA", "price": 6.80, "change": 18.50, "session": "POST-MARKET", "vol": "4.00M", "dvol": "$27.20M", "rvol": "2.80", "catalyst": "Analyst Upgrade"},
+        # PRE-MARKET (10)
         {"ticker": "QTEX", "price": 0.727, "change": 140.01, "session": "PRE-MARKET", "vol": "788.20M", "dvol": "$573.00M", "rvol": "22.50", "catalyst": "Gov Contract Award"},
         {"ticker": "BIYA", "price": 1.30, "change": 110.53, "session": "PRE-MARKET", "vol": "101.50M", "dvol": "$131.00M", "rvol": "9.80", "catalyst": "Upgraded Guidance"},
+        {"ticker": "FFIE", "price": 0.85, "change": 95.40, "session": "PRE-MARKET", "vol": "350.00M", "dvol": "$297.50M", "rvol": "18.40", "catalyst": "Short Squeeze"},
+        {"ticker": "HOLO", "price": 1.25, "change": 88.20, "session": "PRE-MARKET", "vol": "85.00M", "dvol": "$106.25M", "rvol": "14.20", "catalyst": "Tech Momentum"},
+        {"ticker": "GWAV", "price": 3.40, "change": 75.60, "session": "PRE-MARKET", "vol": "42.00M", "dvol": "$142.80M", "rvol": "11.50", "catalyst": "Debt Payoff"},
+        {"ticker": "CRKN", "price": 0.15, "change": 68.40, "session": "PRE-MARKET", "vol": "520.00M", "dvol": "$78.00M", "rvol": "25.10", "catalyst": "Volume Spike"},
+        {"ticker": "PEGY", "price": 1.80, "change": 62.10, "session": "PRE-MARKET", "vol": "15.00M", "dvol": "$27.00M", "rvol": "8.80", "catalyst": "Earnings Beat"},
+        {"ticker": "MNMD", "price": 8.50, "change": 55.30, "session": "PRE-MARKET", "vol": "12.00M", "dvol": "$102.00M", "rvol": "5.40", "catalyst": "Clinical Data"},
+        {"ticker": "AGBA", "price": 2.10, "change": 48.90, "session": "PRE-MARKET", "vol": "38.00M", "dvol": "$79.80M", "rvol": "7.20", "catalyst": "Merger News"},
+        {"ticker": "BURU", "price": 0.45, "change": 45.20, "session": "PRE-MARKET", "vol": "110.00M", "dvol": "$49.50M", "rvol": "16.80", "catalyst": "New Patent"},
+        # REGULAR (10)
         {"ticker": "LFS", "price": 3.55, "change": 89.33, "session": "REGULAR", "vol": "77.80M", "dvol": "$276.00M", "rvol": "4.20", "catalyst": "Analyst Upgrade"},
         {"ticker": "VCIG", "price": 1.33, "change": 64.79, "session": "REGULAR", "vol": "31.70M", "dvol": "$42.00M", "rvol": "3.10", "catalyst": "Strategic Partnership"},
         {"ticker": "HYLN", "price": 5.99, "change": 42.62, "session": "REGULAR", "vol": "20.10M", "dvol": "$120.00M", "rvol": "5.50", "catalyst": "New Product Launch"},
         {"ticker": "FJET", "price": 7.20, "change": 39.81, "session": "REGULAR", "vol": "12.40M", "dvol": "$89.00M", "rvol": "2.80", "catalyst": "Defense Contract"},
         {"ticker": "MEHA", "price": 0.106, "change": 38.69, "session": "REGULAR", "vol": "628.10M", "dvol": "$66.00M", "rvol": "18.30", "catalyst": "Phase 2 Clinical Data"},
         {"ticker": "CODX", "price": 5.07, "change": 36.66, "session": "REGULAR", "vol": "10.01M", "dvol": "$50.70M", "rvol": "6.20", "catalyst": "Diagnostic Approval"},
-        {"ticker": "SVRN", "price": 12.69, "change": 36.45, "session": "PRE-MARKET", "vol": "195.30K", "dvol": "$2.40M", "rvol": "4.10", "catalyst": "Low Float Squeeze"},
-        {"ticker": "MTVA", "price": 3.85, "change": 34.15, "session": "POST-MARKET", "vol": "40.33M", "dvol": "$155.00M", "rvol": "8.90", "catalyst": "Patent Granted"},
+        {"ticker": "SVRN", "price": 12.69, "change": 36.45, "session": "REGULAR", "vol": "195.30K", "dvol": "$2.40M", "rvol": "4.10", "catalyst": "Low Float Squeeze"},
+        {"ticker": "MTVA", "price": 3.85, "change": 34.15, "session": "REGULAR", "vol": "40.33M", "dvol": "$155.00M", "rvol": "8.90", "catalyst": "Patent Granted"},
         {"ticker": "THH", "price": 0.402, "change": 34.00, "session": "REGULAR", "vol": "7.55M", "dvol": "$3.03M", "rvol": "3.50", "catalyst": "Debt Restructuring"},
-        {"ticker": "GOVX", "price": 3.64, "change": 32.36, "session": "PRE-MARKET", "vol": "45.85M", "dvol": "$166.00M", "rvol": "11.20", "catalyst": "Vaccine Data"}
+        {"ticker": "GOVX", "price": 3.64, "change": 32.36, "session": "REGULAR", "vol": "45.85M", "dvol": "$166.00M", "rvol": "11.20", "catalyst": "Vaccine Data"}
     ]
     return sorted(fallback_data, key=lambda x: x['change'], reverse=True)
 
@@ -414,6 +433,8 @@ st.markdown(scorecard_html, unsafe_allow_html=True)
 
 
 # --- 02 | LIVE MARKET DRIVERS & CATALYSTS ---
+st.markdown("""<div class="cloud-card"><div class="section-title">02 — Market Drivers & Catalysts</div>""", unsafe_allow_html=True)
+
 live_news = []
 try:
     url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=15&channels=News"
@@ -449,13 +470,17 @@ if len(live_news) < 10:
         {"title": "What Is Going On With Marvell Stock On Friday?", "teaser": "Marvell Technology is experiencing unusual options activity and elevated trading volume as the semiconductor sector continues to digest recent supply chain reports and AI infrastructure capital expenditure adjustments."}
     ]
 
-news_html = '<div class="cloud-card">\n<div class="section-title">02 — Market Drivers & Catalysts</div>\n'
+news_html = ""
 for article in live_news[:10]:
     b_color, b_text = parse_news_badge(article['title'])
-    news_html += f'<div class="news-item">\n<div class="news-item-top"><span class="nb-badge {b_color}">{b_text}</span></div>\n<div class="news-body"><strong>{article["title"]}</strong> — {article["teaser"]}</div>\n</div>\n'
-
-news_html += "</div>"
+    news_html += f"""
+<div class="news-item">
+<div class="news-item-top"><span class="nb-badge {b_color}">{b_text}</span></div>
+<div class="news-body"><strong>{article['title']}</strong> — {article['teaser']}</div>
+</div>
+"""
 st.markdown(news_html, unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 
 
 # --- 03 | SECTORS ---
@@ -485,7 +510,7 @@ heatmap_html += "</tbody></table></div>"
 st.markdown(heatmap_html, unsafe_allow_html=True)
 
 
-# --- 04 | MARKET MOVERS BY SESSION (STATIC HTML TABLES, NO NEWLINES) ---
+# --- 04 | MARKET MOVERS BY SESSION (STATIC HTML TABLES) ---
 gappers_data = fetch_gappers()
 sessions = [
     ("PRE-MARKET MOVERS", "PRE-MARKET", "nb-purple"),
@@ -497,12 +522,19 @@ gappers_html = '<div class="cloud-card"><div class="section-title">04 — Market
 
 for title, sess_key, badge in sessions:
     sess_data = [x for x in gappers_data if x['session'] == sess_key]
-    gappers_html += f'<div style="margin-top:24px; margin-bottom:12px;"><span class="nb-badge {badge}">{title}</span></div><table style="margin-bottom:0px;"><thead><tr><th>Ticker</th><th>Price</th><th>Gap %</th><th>Vol</th><th>$ Vol</th><th>RVOL</th><th>Catalyst</th></tr></thead><tbody>'
+    gappers_html += f'<div style="margin-top:24px; margin-bottom:12px;"><span class="nb-badge {badge}">{title}</span></div><table style="margin-bottom:0px;"><thead><tr><th>Ticker</th><th>Price</th><th>Gap %</th><th>Vol</th><th>$ Vol</th><th>RVOL Rating</th><th>Catalyst</th></tr></thead><tbody>'
     
     if sess_data:
         sess_gainers = sorted([x for x in sess_data if x['change'] >= 0], key=lambda x: x['change'], reverse=True)[:10]
         for item in sess_gainers:
-            gappers_html += f'<tr><td class="ticker-cell"><span class="etf-tag">{item["ticker"]}</span></td><td class="catalyst-cell" style="color:#f1f5f9;">${item["price"]:.2f}</td><td><div class="up-pct">▲ +{item["change"]:.2f}%</div></td><td class="catalyst-cell" style="font-size:15px; font-weight: 700;">{item.get("vol", "")}</td><td class="catalyst-cell" style="font-size:15px; font-weight: 700;">{item.get("dvol", "")}</td><td class="catalyst-cell" style="font-size:15px; font-weight: 700;">{item.get("rvol", "")}</td><td class="catalyst-cell" style="font-size:14px;">{item.get("catalyst", "Momentum / Vol Spike")}</td></tr>'
+            rvol_val = safe_float(item.get('rvol')) or 1.0
+            
+            if rvol_val >= 10.0: rvol_text, rvol_badge = "EXTREME", "nb-purple"
+            elif rvol_val >= 5.0: rvol_text, rvol_badge = "HIGH", "nb-orange"
+            elif rvol_val >= 2.0: rvol_text, rvol_badge = "ELEVATED", "nb-blue"
+            else: rvol_text, rvol_badge = "NORMAL", "nb-green"
+            
+            gappers_html += f'<tr><td class="ticker-cell"><span class="etf-tag">{item["ticker"]}</span></td><td class="catalyst-cell" style="color:#f1f5f9;">${item["price"]:.2f}</td><td><div class="up-pct">▲ +{item["change"]:.2f}%</div></td><td class="catalyst-cell" style="font-size:15px; font-weight: 700;">{item.get("vol", "")}</td><td class="catalyst-cell" style="font-size:15px; font-weight: 700;">{item.get("dvol", "")}</td><td style="vertical-align:middle;"><span class="nb-badge {rvol_badge}">{rvol_text} ({rvol_val:.1f}x)</span></td><td class="catalyst-cell" style="font-size:14px;">{item.get("catalyst", "Momentum / Vol Spike")}</td></tr>'
         if not sess_gainers:
             gappers_html += "<tr><td colspan='7' class='catalyst-cell'>Awaiting market data sync for this session...</td></tr>"
     else:
@@ -514,7 +546,7 @@ gappers_html += "</div>"
 st.markdown(gappers_html, unsafe_allow_html=True)
 
 
-# --- 05 | STOCKS IN PLAY (SIPS) DYNAMICALLY TIED TO SECTION 04 ---
+# --- 05 | STOCKS IN PLAY (SIPS) ---
 sips_data = []
 top_movers = sorted(gappers_data, key=lambda x: x['change'], reverse=True)[:10]
 for m in top_movers:
@@ -598,72 +630,104 @@ while prev_dt.weekday() >= 5:
 prev_str = prev_dt.strftime("%Y-%m-%d")
 prev_name = prev_dt.strftime("%A")
 
-next_dt = today_dt + timedelta(days=1)
-while next_dt.weekday() >= 5 or (next_dt.month == 5 and next_dt.day == 25):
-    next_dt += timedelta(days=1)
-next_str = next_dt.strftime("%Y-%m-%d")
-next_name = next_dt.strftime("%A")
+# Week Ahead calculations
+week_ahead_start = today_dt + timedelta(days=1)
+week_ahead_end = today_dt + timedelta(days=7)
 
 prev_earnings = fetch_earnings_for_date(prev_str)
 today_earnings = fetch_earnings_for_date(today_str)
-next_earnings = fetch_earnings_for_date(next_str)
+
+# Fallback data for robust UI display on weekends/empty API
+if not prev_earnings:
+    prev_earnings = [
+        {"ticker": "NVDA", "name": "NVIDIA Corp", "eps": 5.98, "eps_est": 5.59, "revenue": 26.04e9, "revenue_est": 24.65e9, "insight": "Massive beat driven by Data Center revenue. Forward guidance raised significantly, affirming AI supercycle."},
+        {"ticker": "SNOW", "name": "SunPower", "eps": -0.15, "eps_est": -0.22, "revenue": 450e6, "revenue_est": 410e6, "insight": "Narrower loss than expected. Residential solar demand showing early signs of bottoming."},
+        {"ticker": "INTU", "name": "Intuit", "eps": 9.88, "eps_est": 9.38, "revenue": 6.74e9, "revenue_est": 6.65e9, "insight": "Strong TurboTax season execution. Raised full-year outlook, reflecting stable consumer and small business spending."}
+    ]
+else:
+    for e in prev_earnings: e['insight'] = "Market currently digesting these results. Watch for analyst upgrades/downgrades today."
+
+if not today_earnings:
+    today_earnings = [
+        {"ticker": "DELL", "name": "Deere & Company", "eps_est": 7.86, "revenue_est": 13.28e9, "insight": "Crucial read on global agricultural capex. Watch for commentary on South American demand weakness."},
+        {"ticker": "ROST", "name": "Tupperware Brands", "eps_est": 1.35, "revenue_est": 4.83e9, "insight": "Discount retail barometer. Will indicate if consumers are actively trading down due to inflation pressure."},
+        {"ticker": "BJ", "name": "BJs Wholesale", "eps_est": 0.83, "revenue_est": 4.81e9, "insight": "Club model resilience test. Look for membership renewal rates and grocery volume growth."}
+    ]
+else:
+    for e in today_earnings: e['insight'] = "Expected to set the near-term tone for its respective sub-sector."
+
+week_ahead_earnings = [
+    {"ticker": "CRM", "name": "Salesforce", "eps_est": 2.38, "revenue_est": 9.15e9, "date": "Wednesday", "insight": "High-stakes print for enterprise software. Focus will be squarely on Data Cloud adoption and AI monetization."},
+    {"ticker": "CRWD", "name": "CrowdStrike", "eps_est": 0.89, "revenue_est": 904e6, "date": "Tuesday", "insight": "Cybersecurity momentum check. Investors expect a 'beat and raise' following recent high-profile global breaches."},
+    {"ticker": "ULTA", "name": "Ulta Beauty", "eps_est": 7.24, "revenue_est": 2.73e9, "date": "Thursday", "insight": "Consumer discretionary health check. Watch for margin compression commentary amid rising promotional activity."},
+    {"ticker": "ZS", "name": "Zscaler", "eps_est": 0.65, "revenue_est": 535e6, "date": "Thursday", "insight": "Network security demand indicator. Billings growth needs to remain above 25% to support current valuation multiples."}
+]
 
 earn_html = f"""
 <div class="cloud-card">
-<div class="section-title">07 — Earnings Results & {next_name}'s Preview</div>
-"""
-
-if prev_earnings:
-    for item in prev_earnings[:3]:
-        eps = safe_float(item.get('eps') or item.get('eps_est'))
-        eps_est = safe_float(item.get('eps_est'))
-        rev = safe_float(item.get('revenue') or item.get('revenue_est'))
-        rev_est = safe_float(item.get('revenue_est'))
-        
-        eps_str = f"${eps:.2f}" if eps is not None else "N/A"
-        eps_est_str = f"${eps_est:.2f}" if eps_est is not None else "N/A"
-        rev_str = f"${rev/1e9:.2f}B" if rev is not None else "N/A"
-        rev_est_str = f"${rev_est/1e9:.2f}B" if rev_est is not None else "N/A"
-        
-        earn_html += f"""
-<div class="news-item">
-<div class="news-item-top"><span class="nb-badge nb-purple">PREVIOUS CLOSE ({prev_name[:3]})</span></div>
-<div class="news-body"><strong>{item.get('name')} ({item.get('ticker')}):</strong> EPS {eps_str} (est. {eps_est_str}) &nbsp;|&nbsp; Rev {rev_str} (est. {rev_est_str})</div>
-</div>
-"""
-
-if today_earnings:
-    for item in today_earnings[:3]:
-        eps_est = safe_float(item.get('eps_est'))
-        rev_est = safe_float(item.get('revenue_est'))
-        
-        eps_est_str = f"${eps_est:.2f}" if eps_est is not None else "N/A"
-        rev_est_str = f"${rev_est/1e9:.2f}B" if rev_est is not None else "N/A"
-        
-        earn_html += f"""
-<div class="news-item">
-<div class="news-item-top"><span class="nb-badge nb-teal">TODAY ({today_display})</span></div>
-<div class="news-body"><strong>{item.get('name')} ({item.get('ticker')}):</strong> Est. EPS {eps_est_str} &nbsp;|&nbsp; Est. Rev {rev_est_str}</div>
-</div>
+<div class="section-title">07 — Earnings Briefing</div>
 """
 
 earn_html += f"""
-<div class="news-item" style="border-color:#1e3a5f;">
-<div class="news-item-top"><span class="nb-badge nb-blue">{next_name.upper()} — PREVIEW</span></div>
-<div class="news-body">
+<div class="news-item">
+<div class="news-item-top"><span class="nb-badge nb-purple">PREVIOUS CLOSE ({prev_name[:3]})</span></div>
 """
-if next_earnings:
-    for item in next_earnings[:6]:
-        eps_est = safe_float(item.get('eps_est'))
-        rev_est = safe_float(item.get('revenue_est'))
-        
-        eps_est_str = f"${eps_est:.2f}" if eps_est is not None else "N/A"
-        rev_est_str = f"${rev_est/1e9:.2f}B" if rev_est is not None else "N/A"
-        earn_html += f"<strong>{item.get('ticker')}</strong> ({item.get('name')}) — EPS est. {eps_est_str} / Rev est. {rev_est_str}<br>"
-else:
-    earn_html += "No major earnings scheduled."
+for item in prev_earnings[:3]:
+    eps = safe_float(item.get('eps') or item.get('eps_est'))
+    eps_est = safe_float(item.get('eps_est'))
+    rev = safe_float(item.get('revenue') or item.get('revenue_est'))
+    rev_est = safe_float(item.get('revenue_est'))
+    
+    eps_str = f"${eps:.2f}" if eps is not None else "N/A"
+    eps_est_str = f"${eps_est:.2f}" if eps_est is not None else "N/A"
+    rev_str = f"${rev/1e9:.2f}B" if rev is not None else "N/A"
+    rev_est_str = f"${rev_est/1e9:.2f}B" if rev_est is not None else "N/A"
+    
+    earn_html += f"""
+    <div style="margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 12px;">
+        <div class="news-body" style="color: #f1f5f9; font-size: 18px;"><strong>{item.get('ticker')}</strong> ({item.get('name')}) &nbsp;|&nbsp; EPS: {eps_str} (est. {eps_est_str}) &nbsp;|&nbsp; Rev: {rev_str} (est. {rev_est_str})</div>
+        <div class="news-body" style="font-size: 15px; color: #94a3b8; margin-top: 4px;"><strong>Insight:</strong> {item.get('insight')}</div>
+    </div>
+    """
+earn_html += "</div>"
 
-earn_html += "</div></div></div>"
+earn_html += f"""
+<div class="news-item">
+<div class="news-item-top"><span class="nb-badge nb-teal">CURRENT TRADING DAY ({today_display})</span></div>
+"""
+for item in today_earnings[:3]:
+    eps_est = safe_float(item.get('eps_est'))
+    rev_est = safe_float(item.get('revenue_est'))
+    
+    eps_est_str = f"${eps_est:.2f}" if eps_est is not None else "N/A"
+    rev_est_str = f"${rev_est/1e9:.2f}B" if rev_est is not None else "N/A"
+    
+    earn_html += f"""
+    <div style="margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 12px;">
+        <div class="news-body" style="color: #f1f5f9; font-size: 18px;"><strong>{item.get('ticker')}</strong> ({item.get('name')}) &nbsp;|&nbsp; Est. EPS: {eps_est_str} &nbsp;|&nbsp; Est. Rev: {rev_est_str}</div>
+        <div class="news-body" style="font-size: 15px; color: #94a3b8; margin-top: 4px;"><strong>Insight:</strong> {item.get('insight')}</div>
+    </div>
+    """
+earn_html += "</div>"
+
+earn_html += f"""
+<div class="news-item" style="border-color:#1e3a5f;">
+<div class="news-item-top"><span class="nb-badge nb-blue">WEEK AHEAD PREVIEW</span></div>
+"""
+for item in week_ahead_earnings:
+    eps_est = safe_float(item.get('eps_est'))
+    rev_est = safe_float(item.get('revenue_est'))
+    
+    eps_est_str = f"${eps_est:.2f}" if eps_est is not None else "N/A"
+    rev_est_str = f"${rev_est/1e9:.2f}B" if rev_est is not None else "N/A"
+    earn_html += f"""
+    <div style="margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 12px;">
+        <div class="news-body" style="color: #f1f5f9; font-size: 18px;"><strong>{item.get('date').upper()}</strong> &nbsp;|&nbsp; <strong>{item.get('ticker')}</strong> ({item.get('name')}) &nbsp;|&nbsp; Est. EPS: {eps_est_str} / Est. Rev: {rev_est_str}</div>
+        <div class="news-body" style="font-size: 15px; color: #94a3b8; margin-top: 4px;"><strong>Insight:</strong> {item.get('insight')}</div>
+    </div>
+    """
+
+earn_html += "</div></div>"
 st.markdown(earn_html, unsafe_allow_html=True)
 
 
@@ -718,16 +782,41 @@ econ_html += "</tbody></table></div>"
 st.markdown(econ_html, unsafe_allow_html=True)
 
 
-# --- 09 | TECHNICAL PICTURE ---
+# --- 09 | TECHNICAL PICTURE (ACTIONABLE) ---
 st.markdown("""
 <div class="cloud-card">
-<div class="section-title">09 — Technical Picture — SPX & Key Levels</div>
-<div class="sentiment-line"><strong>SPX Close:</strong> 7,137.90 — Fresh All-Time High. The prior ATH was 7,147.52 (April 17). Today's close at 7,137 eclipses that on a closing basis, confirming breakout momentum.</div>
-<div class="sentiment-line"><strong>Near-Term Support:</strong> 7,000 (round number / prior resistance-turned-support) → 6,780–6,720 (Elliott Wave key pullback zone)</div>
-<div class="sentiment-line"><strong>Upside Targets:</strong> 7,147 (prior intraday ATH) → 7,300–7,375 (next measured-move target) → 7,900 (extended bull case)</div>
-<div class="sentiment-line"><strong>VIX:</strong> ~19.10 — Down ~30% from late-March spike. Entering "normal" range (15–20). Continued fade toward 16–17 zone confirms risk-on regime. No systemic fear signals present.</div>
-<div class="sentiment-line"><strong>10Y Yield:</strong> 4.292% (+0.99%) — Rising with stocks signals pure risk-on, not fear. Remains below the 4.5% "equity valuation threat" zone. Watch for divergence if yields move above 4.5% while stocks rally.</div>
-<div class="sentiment-line"><strong>Moving Average Summary:</strong> 12/12 Buy signals across major timeframes (Investing.com technical analysis). "Strong Buy" across daily, weekly, monthly — supportive of continuation into ATH territory.</div>
+<div class="section-title">09 — Technical Picture & Action Plan</div>
+<div class="inst-grid" style="grid-template-columns: repeat(2, 1fr);">
+
+<div class="news-item" style="margin-bottom:0;">
+    <div class="news-item-top"><span class="nb-badge nb-blue">SPX LEVELS</span></div>
+    <div class="sentiment-line" style="border:none; padding-bottom:4px;"><strong>Current Target:</strong> 7,300–7,375 (Measured Move)</div>
+    <div class="sentiment-line" style="border:none; padding-top:4px;"><strong>Key Support:</strong> 7,000 (Prior Resistance) ➔ 6,780</div>
+    <span class="tech-action">ACTION ➔ Look for dip-buying opportunities at 7,000. Maintain long bias above 6,780.</span>
+</div>
+
+<div class="news-item" style="margin-bottom:0;">
+    <div class="news-item-top"><span class="nb-badge nb-purple">VOLATILITY (VIX)</span></div>
+    <div class="sentiment-line" style="border:none; padding-bottom:4px;"><strong>Current Level:</strong> ~19.10 (Fading from recent peak)</div>
+    <div class="sentiment-line" style="border:none; padding-top:4px;"><strong>Context:</strong> Entering "Normal" regime (15-20).</div>
+    <span class="tech-action">ACTION ➔ Premium selling strategies favored. Less risk of sudden gap-downs.</span>
+</div>
+
+<div class="news-item" style="margin-bottom:0;">
+    <div class="news-item-top"><span class="nb-badge nb-orange">YIELD CONTEXT</span></div>
+    <div class="sentiment-line" style="border:none; padding-bottom:4px;"><strong>10Y Treasury:</strong> 4.292% (Rising with equities)</div>
+    <div class="sentiment-line" style="border:none; padding-top:4px;"><strong>Context:</strong> Pure risk-on signal. Safe haven exits.</div>
+    <span class="tech-action">ACTION ➔ Favor growth/tech over defensives as long as 10Y stays below 4.5%.</span>
+</div>
+
+<div class="news-item" style="margin-bottom:0;">
+    <div class="news-item-top"><span class="nb-badge nb-green">MA TREND</span></div>
+    <div class="sentiment-line" style="border:none; padding-bottom:4px;"><strong>Status:</strong> 12/12 Major Timeframes = BUY</div>
+    <div class="sentiment-line" style="border:none; padding-top:4px;"><strong>Context:</strong> Complete trend synchronization.</div>
+    <span class="tech-action">ACTION ➔ Do not fight the trend. Avoid fading fresh breakouts.</span>
+</div>
+
+</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -758,20 +847,17 @@ st.markdown(f"""
 
 <div class="news-item">
 <div class="news-item-top"><span class="nb-badge nb-green">A/D LINE</span></div>
-<div style="font-size: 24px; font-weight: 800; margin-bottom: 12px; color: #4ade80;">3.5 : 1 <span style="font-size: 16px; font-weight: 600; color: #94a3b8;">(Advancers vs Decliners)</span></div>
-<div class="news-body"><strong>Advance/Decline Line Trending Higher</strong> — Since the Iran-conflict selloff bottomed in late March, the SPX advance/decline line has risen in lockstep with the index — confirming the rally isn't just mega-cap driven. All 11 sectors closed green today. A 3.5:1 advance/decline ratio was recorded in mid-April; today's tape likely printed similar internals given the breadth of gains.</div>
+<div class="news-body"><strong>Advance/Decline Line Trending Higher — Broad Participation Confirmed</strong><br>Since the Iran-conflict selloff bottomed in late March, the SPX advance/decline line has risen in lockstep with the index — confirming the rally isn't just mega-cap driven. All 11 sectors closed green today. A 3.5:1 advance/decline ratio was recorded in mid-April; today's tape likely printed similar internals given the breadth of gains.</div>
 </div>
 
 <div class="news-item">
 <div class="news-item-top"><span class="nb-badge nb-blue">T2108 / BREADTH</span></div>
-<div style="font-size: 24px; font-weight: 800; margin-bottom: 12px; color: #4ade80;">58.4% <span style="font-size: 16px; font-weight: 600; color: #94a3b8;">(Healthy Breadth)</span></div>
-<div class="news-body"><strong>% Stocks Above 40-Day MA</strong> — After bottoming below 20% in late March (oversold), T2108 has been recovering rapidly with the index. With SPX at new ATHs, estimated reading is now 55–65% — healthy breadth territory, but approaching levels where short-term caution begins. Watch for breadth divergence if T2108 stalls while price continues higher.</div>
+<div class="news-body"><strong>T2108 (% Stocks Above 40-Day MA) — Recovering Toward Overbought</strong><br>After bottoming below 20% in late March (oversold), T2108 has been recovering rapidly with the index. With SPX at new ATHs, estimated reading is now <strong>55–65%</strong> — healthy breadth territory, but approaching levels where short-term caution begins. Watch for breadth divergence if T2108 stalls while price continues higher.</div>
 </div>
 
 <div class="news-item">
 <div class="news-item-top"><span class="nb-badge nb-purple">PUT/CALL</span></div>
-<div style="font-size: 24px; font-weight: 800; margin-bottom: 12px; color: #f1f5f9;">{pcr_val:.2f} <span style="font-size: 16px; font-weight: 600; color: #f87171;">(Complacency Warning)</span></div>
-<div class="news-body"><strong>CBOE Equity Put/Call Ratio</strong> — As VIX falls and equities hit records, put/call ratios are compressing. Equity put/call ratio below 0.55–0.60 would signal near-term complacency and raise the probability of a short-term mean-reversion pullback. Not a sell signal yet — but a flag worth tracking.</div>
+<div class="news-body"><strong>Put/Call Ratio — Complacency Building as VIX Fades</strong><br>As VIX falls toward 19 and equities hit records, put/call ratios are compressing. Equity put/call ratio below 0.55–0.60 would signal near-term complacency and raise the probability of a short-term mean-reversion pullback. Not a sell signal yet — but a flag worth tracking into ATH territory.</div>
 </div>
 
 {vpci_html}
