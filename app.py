@@ -46,14 +46,14 @@ footer {visibility: hidden;}
 
 /* HEADER */
 .hdr { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 24px; margin-bottom: 48px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
-.wrap-type { font-size: 16px; font-weight: 600; letter-spacing: 1px; color: #64748b; }
+.wrap-type { font-size: 16px; font-weight: 600; letter-spacing: 1px; color: #818cf8; }
 .wrap-title { font-size: 42px; font-weight: 800; color: #f1f5f9; margin-top: 4px; }
 .hdr-meta { text-align: right; font-size: 16px; color: #94a3b8; }
 .hdr-date { font-size: 20px; color: #c7d2fe; font-weight: 600; margin-bottom: 8px; }
 
-/* INDIVIDUAL SECTION WRAPPER (Darker Gray Line) */
+/* INDIVIDUAL SECTION WRAPPER (Darkened Bar) */
 .section-container {
-    border-left: 4px solid #64748b; 
+    border-left: 4px solid #334155; 
     padding-left: 24px;
 }
 
@@ -64,8 +64,8 @@ footer {visibility: hidden;}
     display: block;
 }
 
-/* SECTION TITLE (Darker Gray text) */
-.section-title { display: flex; justify-content: space-between; align-items: center; font-size: 18px; font-weight: 700; color: #64748b; margin-bottom: 24px; }
+/* SECTION TITLE (Brightened Text) */
+.section-title { display: flex; justify-content: space-between; align-items: center; font-size: 18px; font-weight: 700; color: #e2e8f0; margin-bottom: 24px; }
 
 /* BADGES - ONLY TEXT COLOR */
 .nb-badge, .badge-beat, .badge-miss, .badge-closed, .badge-live { 
