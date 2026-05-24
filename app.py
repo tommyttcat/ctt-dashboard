@@ -298,7 +298,8 @@ def fetch_gappers():
 
 @st.cache_data(ttl=120)
 def fetch_liquidity_basket():
-    tickers = ["IWM", "QQQ", "SPY", "AKTX", "QTEX", "LFS", "BIYA", "RYOJ", "PCLA", "FJET"]
+    # Only Mega-Caps for Section 6
+    tickers = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", "LLY", "AVGO"]
     results = []
     for t in tickers:
         try:
@@ -448,18 +449,11 @@ if len(live_news) < 10:
         {"title": "What Is Going On With Marvell Stock On Friday?", "teaser": "Marvell Technology is experiencing unusual options activity and elevated trading volume as the semiconductor sector continues to digest recent supply chain reports and AI infrastructure capital expenditure adjustments."}
     ]
 
-news_html = """
-<div class="cloud-card">
-<div class="section-title">02 — Market Drivers & Catalysts</div>
-"""
+news_html = '<div class="cloud-card">\n<div class="section-title">02 — Market Drivers & Catalysts</div>\n'
 for article in live_news[:10]:
     b_color, b_text = parse_news_badge(article['title'])
-    news_html += f"""
-<div class="news-item">
-<div class="news-item-top"><span class="nb-badge {b_color}">{b_text}</span></div>
-<div class="news-body"><strong>{article['title']}</strong> — {article['teaser']}</div>
-</div>
-"""
+    news_html += f'<div class="news-item">\n<div class="news-item-top"><span class="nb-badge {b_color}">{b_text}</span></div>\n<div class="news-body"><strong>{article["title"]}</strong> — {article["teaser"]}</div>\n</div>\n'
+
 news_html += "</div>"
 st.markdown(news_html, unsafe_allow_html=True)
 
@@ -491,7 +485,7 @@ heatmap_html += "</tbody></table></div>"
 st.markdown(heatmap_html, unsafe_allow_html=True)
 
 
-# --- 04 | MARKET MOVERS BY SESSION (STATIC HTML TABLES) ---
+# --- 04 | MARKET MOVERS BY SESSION (STATIC HTML TABLES, NO NEWLINES) ---
 gappers_data = fetch_gappers()
 sessions = [
     ("PRE-MARKET MOVERS", "PRE-MARKET", "nb-purple"),
@@ -574,7 +568,7 @@ st.markdown(sips_html, unsafe_allow_html=True)
 play_data = fetch_liquidity_basket()
 play_html = """
 <div class="cloud-card">
-<div class="section-title">06 — Liquidity Basket (Algo Bias vs 5D SMA)</div>
+<div class="section-title">06 — Mega-Cap Liquidity Basket (Algo Bias vs 5D SMA)</div>
 <table>
 <thead>
 <tr><th>Ticker</th><th>Live Price</th><th>Algo Bias</th></tr>
