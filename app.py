@@ -26,7 +26,7 @@ footer {visibility: hidden;}
 
 /* LAYOUT WRAPPERS */
 .cloud-card { background: #111827 !important; border: none !important; border-radius: 16px !important; padding: 36px 40px !important; margin-bottom: 40px !important; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3) !important; }
-.list-wrapper { background: transparent !important; margin-bottom: 48px !important; padding: 0 12px !important; }
+.list-wrapper { background: transparent !important; margin-bottom: 48px !important; padding: 0 !important; }
 
 /* HEADER CLOUD */
 .hdr { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%) !important; padding: 44px 44px 34px !important; border: none !important; border-radius: 16px !important; margin-bottom: 48px !important; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3) !important; }
@@ -49,7 +49,16 @@ footer {visibility: hidden;}
 .econ-bold { font-weight: 900; color: #f8fafc; font-size: 17px; text-transform: uppercase; }
 
 /* SECTION TITLE */
-.section-title { font-size: 16px; font-weight: 800; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; margin-bottom: 16px; border-bottom: 2px solid rgba(255,255,255,0.05); padding-bottom: 12px;}
+.section-title { font-size: 16px; font-weight: 800; letter-spacing: 2px; color: #818cf8; text-transform: uppercase; margin-bottom: 20px; border-bottom: 2px solid rgba(255,255,255,0.05); padding-bottom: 12px;}
+
+/* CSS GRID LISTS (REPLACES STREAMLIT TABLES) */
+.grid-row { display: grid; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding: 16px 0; gap: 12px; }
+.grid-header { font-size: 13px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid rgba(255, 255, 255, 0.15); padding-bottom: 12px; margin-bottom: 4px; }
+.grid-cell { font-size: 16px; color: #f1f5f9; }
+.ticker-cell { font-weight: 700; color: #f1f5f9; font-size: 20px; white-space: nowrap; }
+.etf-tag { font-family: monospace; font-size: 18px; font-weight: 700; color: #f1f5f9; }
+.up-pct { color: #4ade80; font-weight: 700; font-size: 18px; white-space: nowrap; }
+.down-pct { color: #f87171; font-weight: 700; font-size: 18px; white-space: nowrap; }
 
 /* INSTRUMENT GRID (For Scorecard & Tech Pic) */
 .inst-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
@@ -59,22 +68,14 @@ footer {visibility: hidden;}
 .inst-change-up { font-size: 16px; font-weight: 600; color: #4ade80; }
 .inst-change-down { font-size: 16px; font-weight: 600; color: #f87171; }
 
-/* LIST ROWS (For News, Earnings, Watchlist) */
-.news-item { background: transparent !important; border-bottom: 1px solid rgba(255,255,255,0.05) !important; padding: 20px 0; margin-bottom: 0; box-shadow: none !important; border-radius: 0 !important; }
+/* STACKED LIST ITEMS (News, Earnings, Watchlist) */
+.news-item { background: transparent !important; border-bottom: 1px solid rgba(255,255,255,0.08); padding: 20px 0; margin-bottom: 0; }
+.news-item:last-child { border-bottom: none; }
 .news-item-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .news-body { font-size: 16px; color: #cbd5e1; line-height: 1.65; }
 
-.watchlist-item { background: transparent !important; border-bottom: 1px solid rgba(255,255,255,0.05) !important; padding: 20px 0; margin-bottom: 0; display: grid; grid-template-columns: 28px 1fr; gap: 16px; align-items: start; border-radius: 0 !important; }
-.wl-num { font-size: 18px; color: #64748b; font-weight: 800; padding-top: 3px; }
-.wl-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
-.wl-ticker { font-size: 22px; font-weight: 800; color: #f1f5f9; }
-.wl-body   { font-size: 16px; color: #cbd5e1; line-height: 1.6; }
-.wl-levels { font-size: 14px; color: #94a3b8; margin-top: 10px; }
-.wl-levels .sup { color: #4ade80; font-weight: 600; }
-.wl-levels .res { color: #f87171; font-weight: 600; }
-
 /* MULTI-COLOR PILL BADGES */
-.nb-badge { padding: 4px 10px; border-radius: 4px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; border: none; }
+.nb-badge { padding: 4px 10px; border-radius: 4px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; border: none; display: inline-block; }
 .nb-purple { background: #3b0764; color: #e879f9; }
 .nb-teal { background: #164e63; color: #67e8f9; }
 .nb-red { background: #450a0a; color: #fca5a5; }
@@ -86,19 +87,6 @@ footer {visibility: hidden;}
 .sentiment-line { padding: 14px 0; color: #cbd5e1; font-size: 18px; border-bottom: 1px solid rgba(255,255,255,0.05); line-height: 1.7; }
 .sentiment-line strong { color: #f1f5f9; }
 .tech-action { color: #818cf8; font-weight: 700; margin-top: 4px; display: block; font-size: 16px;}
-
-/* TABLES (OVERRIDING ALL BORDERS FOR LIST LOOK) */
-table { width: 100%; border-collapse: collapse; border: none !important; margin-bottom: 0px; background: transparent !important; }
-th, td { border: none !important; }
-tr { border: none !important; background: transparent !important; }
-th { font-size: 14px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #64748b; padding: 16px 0px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05) !important; border-top: none !important; border-left: none !important; border-right: none !important; }
-td { padding: 18px 0px; border-bottom: 1px solid rgba(255,255,255,0.05) !important; vertical-align: middle; border-top: none !important; border-left: none !important; border-right: none !important; }
-tr:last-child td { border-bottom: none !important; }
-.ticker-cell { font-weight: 700; color: #f1f5f9; font-size: 20px; white-space: nowrap; }
-.catalyst-cell { font-size: 16px; color: #cbd5e1; line-height: 1.6; }
-.etf-tag { font-family: monospace; font-size: 18px; font-weight: 700; color: #f1f5f9; }
-.up-pct { color: #4ade80; font-weight: 700; font-size: 18px; white-space: nowrap; }
-.down-pct { color: #f87171; font-weight: 700; font-size: 18px; white-space: nowrap; }
 
 @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
 </style>
@@ -246,23 +234,16 @@ def fetch_liquidity_basket():
     return results
 
 @st.cache_data(ttl=120)
-def fetch_massive_data(endpoint="options_flow"):
-    """
-    Modular engine to pull from the Massive REST API.
-    Provides actionable institutional order flow or dark pool prints.
-    """
+def fetch_massive_data():
+    # Simulate Massive API order flow fetch
     headers = {"Authorization": f"Bearer {MASSIVE_KEY}", "Accept": "application/json"}
-    
-    # Placeholder block simulating a successful Massive API return for 'Unusual Options Sweeps'
-    # Replace the mocked array below with: res = requests.get(url, headers=headers).json()
-    mocked_options_flow = [
+    return [
         {"ticker": "NVDA", "type": "SWEEP", "strike": "$1100C", "exp": "May 29", "prem": "$4.2M", "sentiment": "BULLISH", "color": "up-pct"},
         {"ticker": "TSLA", "type": "BLOCK", "strike": "$200P", "exp": "Jun 19", "prem": "$2.8M", "sentiment": "BEARISH", "color": "down-pct"},
         {"ticker": "AAPL", "type": "SWEEP", "strike": "$195C", "exp": "May 29", "prem": "$1.5M", "sentiment": "BULLISH", "color": "up-pct"},
         {"ticker": "SMCI", "type": "SWEEP", "strike": "$950C", "exp": "Jun 05", "prem": "$3.1M", "sentiment": "BULLISH", "color": "up-pct"},
-        {"ticker": "IWM", "type": "BLOCK", "strike": "$200P", "exp": "Jul 17", "prem": "$5.5M", "sentiment": "BEARISH", "color": "down-pct"}
+        {"ticker": "IWM",  "type": "BLOCK", "strike": "$200P", "exp": "Jul 17", "prem": "$5.5M", "sentiment": "BEARISH", "color": "down-pct"}
     ]
-    return mocked_options_flow
 
 def parse_news_badge(title):
     t = title.lower()
@@ -289,7 +270,7 @@ institutional_flow = fetch_massive_data()
 # --- HEADER ---
 st.markdown(f'<div class="hdr"><div class="hdr-top"><div><div class="wrap-type">Market Briefing</div><div class="wrap-title">Confluence Trading Tools</div></div><div class="hdr-meta"><div class="hdr-date">{now_dt.strftime("%A, %B %d")}</div><span class="{status_class}">{market_status}</span></div></div></div>', unsafe_allow_html=True)
 
-# --- 01 | SCORECARD (KEEPS CLOUD BACKGROUND) ---
+# --- 01 | SCORECARD (CLOUD) ---
 scorecard_html = '<div class="cloud-card"><div class="section-title">01 — Macro Scorecard</div><div class="inst-grid">'
 for name, metrics in macro_data.items():
     col = "inst-change-up" if metrics['pct'] >= 0 else "inst-change-down"
@@ -299,7 +280,7 @@ for name, metrics in macro_data.items():
 scorecard_html += "</div></div>"
 st.markdown(scorecard_html, unsafe_allow_html=True)
 
-# --- 02 | MARKET DRIVERS (LIST FORMAT) ---
+# --- 02 | MARKET DRIVERS (LIST) ---
 live_news = []
 try:
     url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=10&channels=News"
@@ -326,23 +307,30 @@ for article in live_news[:8]:
 news_html += "</div>"
 st.markdown(news_html, unsafe_allow_html=True)
 
-# --- 03 | SECTORS (LIST FORMAT) ---
-heatmap_html = '<div class="list-wrapper"><div class="section-title">03 — Sector Performance</div><table><thead><tr><th>#</th><th>Sector / ETF</th><th>Live Change</th><th>Flow</th></tr></thead><tbody>'
+# --- 03 | SECTORS (CSS GRID) ---
+heatmap_html = '<div class="list-wrapper"><div class="section-title">03 — Sector Performance</div>'
+heatmap_html += '<div class="grid-row grid-header" style="grid-template-columns: 50px 3fr 2fr 2fr;"><div>#</div><div>Sector / ETF</div><div>Live Change</div><div>Flow</div></div>'
 for i, item in enumerate(sector_data):
     col = "up-pct" if item['pct'] >= 0 else "down-pct"
     sign = "▲ +" if item['pct'] > 0 else "▼ " if item['pct'] < 0 else ""
     f_col = "#4ade80" if item['pct'] >= 0 else "#f87171"
-    heatmap_html += f'<tr><td style="color:#64748b;font-weight:700;">{i+1}</td><td class="ticker-cell">{item["ticker"]} <span style="color:#94a3b8; font-weight:400; font-size:16px;">— {item["sector"]}</span></td><td><span class="{col}">{sign}{item["pct"]:.2f}%</span></td><td class="catalyst-cell" style="color:{f_col}; font-weight:700;">{item["flow"]}</td></tr>'
-heatmap_html += "</tbody></table></div>"
+    heatmap_html += f'<div class="grid-row" style="grid-template-columns: 50px 3fr 2fr 2fr;">'
+    heatmap_html += f'<div style="color:#64748b; font-weight:700;">{i+1}</div>'
+    heatmap_html += f'<div class="ticker-cell">{item["ticker"]} <span style="color:#94a3b8; font-weight:400; font-size:16px;">— {item["sector"]}</span></div>'
+    heatmap_html += f'<div><span class="{col}">{sign}{item["pct"]:.2f}%</span></div>'
+    heatmap_html += f'<div style="color:{f_col}; font-weight:700;">{item["flow"]}</div>'
+    heatmap_html += '</div>'
+heatmap_html += '</div>'
 st.markdown(heatmap_html, unsafe_allow_html=True)
 
-# --- 04 | MARKET MOVERS BY SESSION (LIST FORMAT) ---
+# --- 04 | MARKET MOVERS BY SESSION (CSS GRID) ---
 sessions = [("PRE-MARKET MOVERS", "PRE-MARKET", "nb-purple"), ("REGULAR SESSION MOVERS", "REGULAR", "nb-blue"), ("POST-MARKET MOVERS", "POST-MARKET", "nb-orange")]
 
 gappers_html = '<div class="list-wrapper"><div class="section-title">04 — Market Movers by Session</div>'
 for title, sess_key, badge in sessions:
     sess_data = [x for x in gappers_data if x['session'] == sess_key]
-    gappers_html += f'<div style="margin-top:36px; margin-bottom:4px;"><span class="nb-badge {badge}">{title}</span></div><table style="margin-bottom:0px;"><thead><tr><th>Ticker</th><th>Price</th><th>Gap %</th><th>Vol</th><th>$ Vol</th><th>RVOL Rating</th><th>Catalyst</th></tr></thead><tbody>'
+    gappers_html += f'<div style="margin-top:36px; margin-bottom:8px;"><span class="nb-badge {badge}">{title}</span></div>'
+    gappers_html += '<div class="grid-row grid-header" style="grid-template-columns: 1.5fr 1.5fr 1.5fr 1.5fr 1.5fr 2fr 3fr;"><div>Ticker</div><div>Price</div><div>Gap %</div><div>Vol</div><div>$ Vol</div><div>RVOL Rating</div><div>Catalyst</div></div>'
     
     if sess_data:
         for item in sorted(sess_data, key=lambda x: x['change'], reverse=True)[:10]:
@@ -351,30 +339,53 @@ for title, sess_key, badge in sessions:
             elif rvol_val >= 5.0: r_txt, r_badge = "HIGH", "nb-orange"
             elif rvol_val >= 2.0: r_txt, r_badge = "ELEVATED", "nb-blue"
             else: r_txt, r_badge = "NORMAL", "nb-green"
-            gappers_html += f'<tr><td class="ticker-cell"><span class="etf-tag">{item["ticker"]}</span></td><td class="catalyst-cell" style="color:#f1f5f9;">${item["price"]:.2f}</td><td><div class="up-pct">▲ +{item["change"]:.2f}%</div></td><td class="catalyst-cell" style="font-weight:700;">{item.get("vol", "")}</td><td class="catalyst-cell" style="font-weight:700;">{item.get("dvol", "")}</td><td style="vertical-align:middle;"><span class="nb-badge {r_badge}">{r_txt} ({rvol_val:.1f}x)</span></td><td class="catalyst-cell" style="font-size:14px;">{item.get("catalyst")}</td></tr>'
+            
+            gappers_html += f'<div class="grid-row" style="grid-template-columns: 1.5fr 1.5fr 1.5fr 1.5fr 1.5fr 2fr 3fr;">'
+            gappers_html += f'<div><span class="etf-tag">{item["ticker"]}</span></div>'
+            gappers_html += f'<div class="grid-cell">${item["price"]:.2f}</div>'
+            gappers_html += f'<div><span class="up-pct">▲ +{item["change"]:.2f}%</span></div>'
+            gappers_html += f'<div class="grid-cell" style="font-weight:700;">{item.get("vol", "")}</div>'
+            gappers_html += f'<div class="grid-cell" style="font-weight:700;">{item.get("dvol", "")}</div>'
+            gappers_html += f'<div><span class="nb-badge {r_badge}">{r_txt} ({rvol_val:.1f}x)</span></div>'
+            gappers_html += f'<div class="grid-cell" style="font-size:14px; color:#cbd5e1;">{item.get("catalyst")}</div>'
+            gappers_html += '</div>'
     else:
-        gappers_html += "<tr><td colspan='7' class='catalyst-cell'>Awaiting sync...</td></tr>"
-    gappers_html += "</tbody></table>"
-gappers_html += "</div>"
+        gappers_html += '<div class="grid-row"><div class="grid-cell text-muted">Awaiting sync...</div></div>'
+gappers_html += '</div>'
 st.markdown(gappers_html, unsafe_allow_html=True)
 
-# --- 05 | STOCKS IN PLAY (SIPS) (LIST FORMAT) ---
-sips_html = '<div class="list-wrapper"><div class="section-title">05 — Stocks in Play (SIPS) — Actionable Movers</div><table><thead><tr><th>Ticker</th><th>Live Price</th><th>Change</th><th>Vol</th><th>$ Vol</th><th>RVOL Rating</th><th>Catalyst</th></tr></thead><tbody>'
+# --- 05 | STOCKS IN PLAY (SIPS) (CSS GRID) ---
+sips_html = '<div class="list-wrapper"><div class="section-title">05 — Stocks in Play (SIPS)</div>'
+sips_html += '<div class="grid-row grid-header" style="grid-template-columns: 1.5fr 1.5fr 1.5fr 1.5fr 1.5fr 2fr 3fr;"><div>Ticker</div><div>Live Price</div><div>Change</div><div>Vol</div><div>$ Vol</div><div>RVOL Rating</div><div>Catalyst</div></div>'
 for item in sorted(gappers_data, key=lambda x: x['change'], reverse=True)[:10]:
     rvol_val = safe_float(item.get('rvol')) or 1.0
     if rvol_val >= 10.0: r_txt, r_badge = "EXTREME", "nb-purple"
     elif rvol_val >= 5.0: r_txt, r_badge = "HIGH", "nb-orange"
     elif rvol_val >= 2.0: r_txt, r_badge = "ELEVATED", "nb-blue"
     else: r_txt, r_badge = "NORMAL", "nb-green"
-    sips_html += f'<tr><td class="ticker-cell"><span class="etf-tag">{item["ticker"]}</span></td><td class="catalyst-cell" style="color:#f1f5f9;">${item["price"]:.2f}</td><td><div class="up-pct">▲ +{item["change"]:.2f}%</div></td><td class="catalyst-cell" style="font-weight:700;">{item.get("vol", "")}</td><td class="catalyst-cell" style="font-weight:700;">{item.get("dvol", "")}</td><td style="vertical-align:middle;"><span class="nb-badge {r_badge}">{r_txt} ({rvol_val:.1f}x)</span></td><td class="catalyst-cell">{item.get("catalyst")}</td></tr>'
-sips_html += "</tbody></table></div>"
+    
+    sips_html += f'<div class="grid-row" style="grid-template-columns: 1.5fr 1.5fr 1.5fr 1.5fr 1.5fr 2fr 3fr;">'
+    sips_html += f'<div><span class="etf-tag">{item["ticker"]}</span></div>'
+    sips_html += f'<div class="grid-cell">${item["price"]:.2f}</div>'
+    sips_html += f'<div><span class="up-pct">▲ +{item["change"]:.2f}%</span></div>'
+    sips_html += f'<div class="grid-cell" style="font-weight:700;">{item.get("vol", "")}</div>'
+    sips_html += f'<div class="grid-cell" style="font-weight:700;">{item.get("dvol", "")}</div>'
+    sips_html += f'<div><span class="nb-badge {r_badge}">{r_txt} ({rvol_val:.1f}x)</span></div>'
+    sips_html += f'<div class="grid-cell" style="font-size:14px; color:#cbd5e1;">{item.get("catalyst")}</div>'
+    sips_html += '</div>'
+sips_html += '</div>'
 st.markdown(sips_html, unsafe_allow_html=True)
 
-# --- 06 | MEGA-CAP LIQUIDITY (LIST FORMAT) ---
-play_html = '<div class="list-wrapper"><div class="section-title">06 — Mega-Cap Liquidity Basket</div><table><thead><tr><th>Ticker</th><th>Live Price</th><th>Algo Bias (vs 5D SMA)</th></tr></thead><tbody>'
+# --- 06 | MEGA-CAP LIQUIDITY (CSS GRID) ---
+play_html = '<div class="list-wrapper"><div class="section-title">06 — Mega-Cap Liquidity Basket</div>'
+play_html += '<div class="grid-row grid-header" style="grid-template-columns: 1fr 1fr 2fr;"><div>Ticker</div><div>Live Price</div><div>Algo Bias (vs 5D SMA)</div></div>'
 for item in liquidity_data:
-    play_html += f'<tr><td class="ticker-cell">{item["ticker"]}</td><td class="catalyst-cell">${item["price"]:.2f}</td><td><span class="{item["color"]}">{item["bias"]}</span></td></tr>'
-play_html += "</tbody></table></div>"
+    play_html += f'<div class="grid-row" style="grid-template-columns: 1fr 1fr 2fr;">'
+    play_html += f'<div><span class="ticker-cell">{item["ticker"]}</span></div>'
+    play_html += f'<div class="grid-cell">${item["price"]:.2f}</div>'
+    play_html += f'<div><span class="{item["color"]}">{item["bias"]}</span></div>'
+    play_html += '</div>'
+play_html += '</div>'
 st.markdown(play_html, unsafe_allow_html=True)
 
 # --- 07 | EARNINGS (LIST FORMAT) ---
@@ -404,8 +415,9 @@ for item in today_earn:
 earn_html += "</div>"
 st.markdown(earn_html, unsafe_allow_html=True)
 
-# --- 08 | ECONOMIC CALENDAR (LIST FORMAT) ---
-econ_html = '<div class="list-wrapper"><div class="section-title">08 — Economic Calendar (Week Ahead)</div><table><thead><tr><th>Date</th><th>Release</th><th>Impact</th></tr></thead><tbody>'
+# --- 08 | ECONOMIC CALENDAR (CSS GRID) ---
+econ_html = '<div class="list-wrapper"><div class="section-title">08 — Economic Calendar (Week Ahead)</div>'
+econ_html += '<div class="grid-row grid-header" style="grid-template-columns: 1fr 3fr 1fr;"><div>Date</div><div>Release</div><div>Impact</div></div>'
 events = [
     ("May 26", "S&P/Case-Shiller Home Price Index", "MED", "badge-mixed"),
     ("May 27", "<span class='econ-bold'>CFTC SOYBEANS / GRAINS REPORT</span>", "HIGH", "badge-bearish"),
@@ -413,11 +425,15 @@ events = [
     ("May 29", "Core PCE Price Index", "HIGH", "badge-bearish")
 ]
 for date, event, imp, col in events:
-    econ_html += f'<tr><td class="ticker-cell" style="font-size:16px;">{date}</td><td class="catalyst-cell">{event}</td><td><span class="{col}">{imp}</span></td></tr>'
-econ_html += "</tbody></table></div>"
+    econ_html += f'<div class="grid-row" style="grid-template-columns: 1fr 3fr 1fr;">'
+    econ_html += f'<div class="ticker-cell" style="font-size:16px;">{date}</div>'
+    econ_html += f'<div class="grid-cell" style="color:#cbd5e1;">{event}</div>'
+    econ_html += f'<div><span class="{col}">{imp}</span></div>'
+    econ_html += '</div>'
+econ_html += '</div>'
 st.markdown(econ_html, unsafe_allow_html=True)
 
-# --- 09 | TECHNICAL PICTURE (KEEPS CLOUD BACKGROUND) ---
+# --- 09 | TECHNICAL PICTURE (CLOUD) ---
 st.markdown("""
 <div class="cloud-card">
 <div class="section-title">09 — Technical Picture & Action Plan</div>
@@ -459,7 +475,7 @@ st.markdown("""
 st.markdown("""
 <div class="list-wrapper">
 <div class="section-title">11 — Watchlist for Next Open</div>
-<div class="watchlist-item">
+<div class="news-item" style="display:grid; grid-template-columns: 28px 1fr; gap:16px;">
 <div class="wl-num">1</div>
 <div>
 <div class="wl-header"><span class="wl-ticker">NVDA</span><span style="font-size:14px;color:#64748b;margin-top:4px;margin-left:8px;">NVIDIA Corp</span></div>
@@ -467,7 +483,7 @@ st.markdown("""
 <div class="wl-levels">Support: <span class="sup">$1,020</span> &nbsp;|&nbsp; Resistance: <span class="res">Price Discovery (ATH)</span> &nbsp;|&nbsp; Event: Follow-Through</div>
 </div>
 </div>
-<div class="watchlist-item">
+<div class="news-item" style="display:grid; grid-template-columns: 28px 1fr; gap:16px;">
 <div class="wl-num">2</div>
 <div>
 <div class="wl-header"><span class="wl-ticker">TSLA</span><span style="font-size:14px;color:#64748b;margin-top:4px;margin-left:8px;">Tesla Inc</span></div>
@@ -478,7 +494,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- 12 | EDITOR'S NOTE (LIST FORMAT WITH ACCENT) ---
+# --- 12 | EDITOR'S NOTE ---
 st.markdown("""
 <div class="list-wrapper" style="border-left: 4px solid #818cf8; padding-left: 20px !important;">
 <div class="section-title" style="border-bottom:none; margin-bottom:12px;">12 — Editor's Note</div>
@@ -492,9 +508,16 @@ Heading into Tuesday's open, the structure remains decidedly bullish following N
 </div>
 """, unsafe_allow_html=True)
 
-# --- 13 | MASSIVE API INTEGRATION (LIST FORMAT) ---
-massive_html = '<div class="list-wrapper"><div class="section-title">13 — Institutional Options Flow (Massive API)</div><table><thead><tr><th>Ticker</th><th>Type</th><th>Strike / Exp</th><th>Premium</th><th>Sentiment</th></tr></thead><tbody>'
+# --- 13 | MASSIVE API INTEGRATION (CSS GRID) ---
+massive_html = '<div class="list-wrapper"><div class="section-title">13 — Institutional Options Flow (Massive API)</div>'
+massive_html += '<div class="grid-row grid-header" style="grid-template-columns: 1fr 1fr 2fr 1fr 1fr;"><div>Ticker</div><div>Type</div><div>Strike / Exp</div><div>Premium</div><div>Sentiment</div></div>'
 for flow in institutional_flow:
-    massive_html += f'<tr><td class="ticker-cell"><span class="etf-tag">{flow["ticker"]}</span></td><td class="catalyst-cell" style="font-weight:700;">{flow["type"]}</td><td class="catalyst-cell">{flow["strike"]} — {flow["exp"]}</td><td class="catalyst-cell" style="font-weight:700;">{flow["prem"]}</td><td><span class="{flow["color"]}">{flow["sentiment"]}</span></td></tr>'
-massive_html += "</tbody></table></div>"
+    massive_html += f'<div class="grid-row" style="grid-template-columns: 1fr 1fr 2fr 1fr 1fr;">'
+    massive_html += f'<div><span class="etf-tag">{flow["ticker"]}</span></div>'
+    massive_html += f'<div class="grid-cell" style="font-weight:700;">{flow["type"]}</div>'
+    massive_html += f'<div class="grid-cell">{flow["strike"]} — {flow["exp"]}</div>'
+    massive_html += f'<div class="grid-cell" style="font-weight:700;">{flow["prem"]}</div>'
+    massive_html += f'<div><span class="{flow["color"]}" style="font-weight:700;">{flow["sentiment"]}</span></div>'
+    massive_html += '</div>'
+massive_html += "</div>"
 st.markdown(massive_html, unsafe_allow_html=True)
