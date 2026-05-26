@@ -7,72 +7,96 @@ from datetime import datetime, timedelta
 # CONFIGURATION & THEME
 # ==========================================
 st.set_page_config(
-    page_title="Market Wrap & Prep",
-    page_icon="📈",
+    page_title="Market Wrap",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# Custom CSS for Dark Theme & Card UI to match the screenshots
+# Strip out visual noise and force the custom dark UI
 st.markdown("""
     <style>
-    /* Main Background */
-    .stApp {
-        background-color: #0B0E14;
-        color: #E2E8F0;
-    }
-    /* Headers */
-    h1, h2, h3 {
-        color: #FFFFFF !important;
-        font-family: 'Inter', sans-serif;
-    }
-    /* Metric Cards */
-    div[data-testid="metric-container"] {
-        background-color: #171A21;
-        border: 1px solid #2D3748;
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-    }
-    div[data-testid="metric-container"] label {
-        color: #A0AEC0 !important;
-        font-weight: 600;
+    /* Base Theme */
+    .stApp { background-color: #0b0e14; color: #8b9eb7; font-family: 'Inter', sans-serif; }
+    
+    /* Hide Streamlit Noise */
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+    /* Section Headers */
+    .section-header {
+        color: #8b9eb7;
         font-size: 0.85rem;
+        font-weight: 600;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        margin-top: 30px;
+        margin-bottom: 15px;
+        border-bottom: 1px solid #1e2634;
+        padding-bottom: 5px;
     }
-    div[data-testid="metric-container"] div[data-testid="stMetricValue"] {
-        color: #FFFFFF !important;
-        font-size: 1.5rem;
-        font-weight: bold;
-    }
-    /* Green for Positive, Red for Negative */
-    div[data-testid="stMetricDelta"] svg {
-        display: none; /* Hide default arrows for cleaner look */
-    }
-    /* Section Dividers */
-    hr {
-        border-color: #2D3748;
-    }
-    /* Dataframes */
-    .stDataFrame {
-        background-color: #171A21;
-        border-radius: 8px;
-        padding: 10px;
-    }
-    /* Notes / Summary Box */
-    .summary-box {
-        background-color: #1E1A2D;
-        border-left: 4px solid #805AD5;
-        padding: 15px;
-        border-radius: 4px;
-        margin-top: 10px;
+
+    /* Scorecard Grid */
+    .grid-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 12px;
         margin-bottom: 20px;
     }
+    .card {
+        background-color: #151a25;
+        border: 1px solid #1e2634;
+        border-radius: 8px;
+        padding: 15px;
+        text-align: center;
+    }
+    .card-title { font-size: 0.75rem; color: #8b9eb7; font-weight: 700; margin-bottom: 5px; text-transform: uppercase; }
+    .card-value { font-size: 1.25rem; color: #ffffff; font-weight: 700; margin-bottom: 3px; }
+    .text-green { color: #00d26a !important; font-size: 0.8rem; font-weight: 600; }
+    .text-red { color: #f94144 !important; font-size: 0.8rem; font-weight: 600; }
+    .text-gray { color: #8b9eb7 !important; font-size: 0.8rem; font-weight: 600; }
+
+    /* Custom Tables */
+    .custom-table {
+        width: 100%;
+        border-collapse: collapse;
+        background-color: #151a25;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    .custom-table th {
+        text-align: left;
+        padding: 12px;
+        font-size: 0.75rem;
+        color: #8b9eb7;
+        border-bottom: 1px solid #1e2634;
+        text-transform: uppercase;
+    }
+    .custom-table td {
+        padding: 12px;
+        font-size: 0.85rem;
+        color: #e2e8f0;
+        border-bottom: 1px solid #1e2634;
+    }
+    .custom-table tr:last-child td { border-bottom: none; }
+    .ticker-link { color: #4b89ff; font-weight: 600; text-decoration: none; }
+
+    /* Editor Note Box */
+    .editor-note {
+        background-color: #15162a;
+        border: 1px solid #362f6b;
+        border-radius: 8px;
+        padding: 20px;
+        color: #e2e8f0;
+        font-size: 0.9rem;
+        line-height: 1.6;
+    }
+    .editor-note b { color: #b392f0; }
     </style>
 """, unsafe_allow_html=True)
 
-
 # ==========================================
-# API KEYS (Provided)
+# API KEYS
 # ==========================================
 BZ_KEY = "bz.4DVR2L3LKQD6KU5Z4CHZPPNE5MPV2KLQ"
 FMP_KEY = "WMMhcffuHSYVTceXryrt4tHC8GXcsB0g"
@@ -81,224 +105,143 @@ AV_KEY = "JDYOYHLL40FDFOUK"
 # ==========================================
 # DATA FETCHING HELPER FUNCTIONS
 # ==========================================
-@st.cache_data(ttl=300) # Cache for 5 mins to save API calls
-def fetch_fmp_quote(symbol):
+@st.cache_data(ttl=60)
+def fetch_quotes(symbols):
+    """Fetches multiple quotes in one call. Use proper FMP index tickers (e.g., ^GSPC for SP500)."""
     try:
-        url = f"https://financialmodelingprep.com/api/v3/quote/{symbol}?apikey={FMP_KEY}"
-        res = requests.get(url).json()
-        return res[0] if res else None
-    except:
-        return None
+        url = f"https://financialmodelingprep.com/api/v3/quote/{','.join(symbols)}?apikey={FMP_KEY}"
+        res = requests.get(url)
+        if res.status_code == 200:
+            return {item['symbol']: item for item in res.json()}
+        else:
+            st.error(f"FMP API Error: {res.status_code}")
+            return {}
+    except Exception as e:
+        st.error(f"Connection Error: {e}")
+        return {}
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=300)
 def fetch_fmp_market_movers(mover_type="gainers"):
-    # mover_type: 'gainers', 'losers', or 'actives'
     try:
         url = f"https://financialmodelingprep.com/api/v3/stock_market/{mover_type}?apikey={FMP_KEY}"
-        res = requests.get(url).json()
-        df = pd.DataFrame(res)
-        if not df.empty:
-            return df[['symbol', 'name', 'changesPercentage', 'price']].head(10)
-        return pd.DataFrame()
-    except:
-        return pd.DataFrame()
-
-@st.cache_data(ttl=600)
-def fetch_fmp_sectors():
-    try:
-        url = f"https://financialmodelingprep.com/api/v3/sectors-performance?apikey={FMP_KEY}"
-        res = requests.get(url).json()
-        df = pd.DataFrame(res)
-        return df
-    except:
-        return pd.DataFrame()
-
-@st.cache_data(ttl=1800)
-def fetch_benzinga_news():
-    try:
-        url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&displayOutput=headline,url,created_at,symbols&limit=5"
-        headers = {"accept": "application/json"}
-        res = requests.get(url, headers=headers).json()
-        return res
+        res = requests.get(url)
+        if res.status_code == 200:
+            return res.json()[:5]
+        return []
     except:
         return []
 
-@st.cache_data(ttl=3600)
-def fetch_fmp_earnings(start_date, end_date):
+@st.cache_data(ttl=300)
+def fetch_benzinga_news():
     try:
-        url = f"https://financialmodelingprep.com/api/v3/earning_calendar?from={start_date}&to={end_date}&apikey={FMP_KEY}"
-        res = requests.get(url).json()
-        df = pd.DataFrame(res)
-        if not df.empty:
-            df = df[['date', 'symbol', 'eps', 'epsEstimated', 'revenue', 'revenueEstimated', 'time']]
-            return df.head(15) # Limit for UI cleanliness
-        return pd.DataFrame()
+        url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&displayOutput=headline,created_at,symbols&limit=5"
+        res = requests.get(url, headers={"accept": "application/json"})
+        if res.status_code == 200:
+            return res.json()
+        return []
     except:
-        return pd.DataFrame()
+        return []
 
-@st.cache_data(ttl=3600)
-def fetch_fmp_eco_calendar(start_date, end_date):
-    try:
-        url = f"https://financialmodelingprep.com/api/v3/economic_calendar?from={start_date}&to={end_date}&apikey={FMP_KEY}"
-        res = requests.get(url).json()
-        df = pd.DataFrame(res)
-        if not df.empty:
-             return df[['date', 'event', 'actual', 'estimate', 'impact', 'country']].head(10)
-        return pd.DataFrame()
-    except:
-        return pd.DataFrame()
+def format_delta(val):
+    if val is None: return "<span class='text-gray'>unch</span>"
+    if val > 0: return f"<span class='text-green'>+{val:.2f}%</span>"
+    if val < 0: return f"<span class='text-red'>{val:.2f}%</span>"
+    return "<span class='text-gray'>unch</span>"
 
-# Dates for queries
-today_str = datetime.today().strftime('%Y-%m-%d')
-next_week_str = (datetime.today() + timedelta(days=7)).strftime('%Y-%m-%d')
+def format_price(val):
+    if val is None: return "—"
+    return f"{val:,.2f}"
 
 # ==========================================
 # UI BUILDER
 # ==========================================
 
-# Header
-st.markdown(f"### ✦ POST-MARKET WRAP & PREP | {datetime.today().strftime('%A — %B %d, %Y')}")
-st.caption("Market data, catalysts, and technical context.")
-st.markdown("---")
+st.markdown("<h2 style='color: white; margin-bottom: 0;'>Post-Market Wrap</h2>", unsafe_allow_html=True)
+st.markdown(f"<p style='color: #8b9eb7; font-size: 0.9rem;'>{datetime.today().strftime('%A — %B %d, %Y')}</p>", unsafe_allow_html=True)
 
-# 1. Futures & Macro Snapshot Scorecard
-st.markdown("#### 01 — CLOSING SCORECARD")
-tickers = ['SPY', 'QQQ', 'DIA', 'IWM', 'VIXY'] # Using proxies for indexes/vix due to API availability
-cols = st.columns(5)
-for i, ticker in enumerate(tickers):
-    data = fetch_fmp_quote(ticker)
-    with cols[i]:
-        if data:
-            pct_change = data.get('changesPercentage', 0)
-            color = "inverse" if pct_change < 0 else "normal"
-            st.metric(label=ticker, 
-                      value=f"${data.get('price', 0):.2f}", 
-                      delta=f"{pct_change:.2f}%", 
-                      delta_color=color)
-        else:
-            st.metric(label=ticker, value="N/A", delta="N/A")
+# --- 01 CLOSING SCORECARD ---
+st.markdown("<div class='section-header'>01 — CLOSING SCORECARD</div>", unsafe_allow_html=True)
 
-st.write("") # Spacer
+# Define tickers (Indices, commodities, crypto)
+# FMP uses ^GSPC (SPX), ^NDX (NDX), ^DJI (Dow), ^RUT (Russell)
+scorecard_tickers = ['^GSPC', '^NDX', '^DJI', '^RUT', '^VIX', 'USO', 'GLD', 'BTCUSD']
+quotes = fetch_quotes(scorecard_tickers)
 
-# Secondary Macro
-macro_tickers = ['USO', 'GLD', 'BTCUSD'] # Oil proxy, Gold Proxy, Crypto
-cols_macro = st.columns(5)
-for i, ticker in enumerate(macro_tickers):
-    data = fetch_fmp_quote(ticker)
-    with cols_macro[i]:
-         if data:
-            pct_change = data.get('changesPercentage', 0)
-            st.metric(label=ticker, 
-                      value=f"${data.get('price', 0):.2f}", 
-                      delta=f"{pct_change:.2f}%")
-            
-st.markdown("---")
-
-# 2. Top Sectors & Money Flow
-st.markdown("#### 02 — SECTOR PERFORMANCE")
-sectors_df = fetch_fmp_sectors()
-if not sectors_df.empty:
-    # Formatting for UI
-    sectors_df['changesPercentage'] = sectors_df['changesPercentage'].apply(lambda x: f"{float(x.strip('%')):.2f}%" if isinstance(x, str) else f"{x:.2f}%")
-    st.dataframe(sectors_df, use_container_width=True, hide_index=True)
-else:
-    st.info("Sector data currently unavailable.")
-
-st.markdown("---")
-
-# 3. Pre-Market Gappers / Post Market Gappers / Daily movers
-st.markdown("#### 03 — TOP MOVERS (GAINERS & LOSERS)")
-col_gain, col_loss = st.columns(2)
-
-with col_gain:
-    st.success("▲ TOP GAINERS")
-    gainers = fetch_fmp_market_movers("gainers")
-    if not gainers.empty:
-        st.dataframe(gainers, use_container_width=True, hide_index=True)
-
-with col_loss:
-    st.error("▼ TOP LOSERS")
-    losers = fetch_fmp_market_movers("losers")
-    if not losers.empty:
-        st.dataframe(losers, use_container_width=True, hide_index=True)
-
-st.markdown("---")
-
-# 4. Key News & Catalysts
-st.markdown("#### 04 — NEWS DRIVERS & CATALYSTS")
-news = fetch_benzinga_news()
-if news:
-    for item in news:
-        symbols = ", ".join([s['symbol'] for s in item.get('stocks', [])])
-        st.markdown(f"**[{symbols}] {item.get('title', 'News Headline')}**")
-        st.caption(f"Created: {item.get('created', 'N/A')} | [Read More]({item.get('url', '#')})")
-else:
-    st.info("No recent news fetched.")
-
-st.markdown("---")
-
-# 5. Stocks in Play Today (Custom Watchlist Placeholder)
-st.markdown("#### 05 — STOCKS IN PLAY & WATCHLIST")
-# Creating a dummy dataframe to mimic the image's "Monday Watch List"
-watchlist_data = {
-    "TICKER": ["INTC", "MXL", "NVDA", "SPY"],
-    "PRICE": ["83.55", "62.25", "205.00", "716.00"],
-    "KEY LEVEL": ["Hold $80 / fade $86", "$58 base", "$200 / $210", "Hold $710"],
-    "CATALYST / THESIS": ["Post-blowout continuation", "Momentum stall zone", "18-day SOX streak", "Index scalp ahead of tech"],
-    "BIAS": ["LONG", "RANGE", "RANGE", "RANGE"]
+# Map API results to clean display names
+display_map = {
+    '^GSPC': 'SPX', '^NDX': 'NDX', '^DJI': 'DJIA', '^RUT': 'RUT',
+    '^VIX': 'VIX', 'USO': 'WTI (Prox)', 'GLD': 'GOLD (Prox)', 'BTCUSD': 'BTC'
 }
-st.dataframe(pd.DataFrame(watchlist_data), use_container_width=True, hide_index=True)
 
-st.markdown("---")
+html_cards = "<div class='grid-container'>"
+for ticker, display_name in display_map.items():
+    data = quotes.get(ticker, {})
+    price = data.get('price')
+    change = data.get('changesPercentage')
+    
+    html_cards += f"""
+    <div class='card'>
+        <div class='card-title'>{display_name}</div>
+        <div class='card-value'>{format_price(price)}</div>
+        <div>{format_delta(change)}</div>
+    </div>
+    """
+html_cards += "</div>"
+st.markdown(html_cards, unsafe_allow_html=True)
 
-# 6. Sentiment & Market Breadth (T2108) / Technical Analysis & VPCI
-st.markdown("#### 06 — SENTIMENT & TECHNICAL BREADTH")
-col_b1, col_b2, col_b3 = st.columns(3)
-with col_b1:
-    st.metric(label="VIX (Volatility)", value="19.02", delta="+0.5%", delta_color="inverse")
-with col_b2:
-    st.metric(label="SPX > 50D (Breadth)", value="~72%", delta="Strong", delta_color="normal")
-with col_b3:
-    st.metric(label="NH-NL (Net Highs)", value="+212", delta="Bullish Expansion", delta_color="normal")
-st.caption("*Note: Custom indicator data (T2108, VPCI) requires specialized live feeds. Values shown above are illustrative placeholders based on UI requirements.*")
+# --- 02 TOP MOVERS ---
+st.markdown("<div class='section-header'>02 — TOP MOVERS</div>", unsafe_allow_html=True)
 
-st.markdown("---")
+gainers = fetch_fmp_market_movers("gainers")
+losers = fetch_fmp_market_movers("losers")
 
-# 7. Economic Data & Catalysts Today
-st.markdown("#### 07 — ECONOMIC DATA RECAP")
-eco_df = fetch_fmp_eco_calendar(today_str, next_week_str)
-if not eco_df.empty:
-    st.dataframe(eco_df.head(5), use_container_width=True, hide_index=True)
+html_movers = "<table class='custom-table'><tr><th>Ticker</th><th>%</th><th>Close</th><th>Name / Catalyst</th></tr>"
+html_movers += "<tr><td colspan='4' style='color:#00d26a; font-size:0.7rem; font-weight:bold;'>▲ GAINERS</td></tr>"
+for g in gainers:
+    html_movers += f"<tr><td><a href='#' class='ticker-link'>{g.get('symbol')}</a></td><td class='text-green'>+{g.get('changesPercentage', 0):.2f}%</td><td>${g.get('price', 0):.2f}</td><td style='color:#8b9eb7; font-size:0.8rem;'>{g.get('name', '')[:40]}</td></tr>"
+
+html_movers += "<tr><td colspan='4' style='color:#f94144; font-size:0.7rem; font-weight:bold; border-top: 1px solid #1e2634; padding-top: 15px;'>▼ LOSERS</td></tr>"
+for l in losers:
+    html_movers += f"<tr><td><a href='#' class='ticker-link'>{l.get('symbol')}</a></td><td class='text-red'>{l.get('changesPercentage', 0):.2f}%</td><td>${l.get('price', 0):.2f}</td><td style='color:#8b9eb7; font-size:0.8rem;'>{l.get('name', '')[:40]}</td></tr>"
+html_movers += "</table>"
+
+st.markdown(html_movers, unsafe_allow_html=True)
+
+# --- 03 NEWS & CATALYSTS ---
+st.markdown("<div class='section-header'>03 — NEWS DRIVERS & CATALYSTS</div>", unsafe_allow_html=True)
+news = fetch_benzinga_news()
+
+if news:
+    html_news = "<table class='custom-table'>"
+    for item in news:
+        syms = ", ".join([s['symbol'] for s in item.get('stocks', [])])
+        title = item.get('title', '')
+        html_news += f"<tr><td style='width: 80px;'><span style='background:#362f6b; color:#b392f0; padding:3px 6px; border-radius:4px; font-size:0.7rem;'>{syms if syms else 'NEWS'}</span></td><td><b style='color:#e2e8f0;'>{title}</b></td></tr>"
+    html_news += "</table>"
+    st.markdown(html_news, unsafe_allow_html=True)
 else:
-    st.info("No major economic data found for the current window.")
+    st.markdown("<div style='color:#8b9eb7; font-size: 0.85rem;'>No recent catalysts found or API limit reached.</div>", unsafe_allow_html=True)
 
-st.markdown("---")
 
-# 8. & 9. Earnings Calendar
-st.markdown("#### 08 — EARNINGS CALENDAR")
-tab1, tab2 = st.tabs(["Today's Earnings", "Week Ahead"])
+# --- 04 WATCHLIST & STOCKS IN PLAY ---
+st.markdown("<div class='section-header'>04 — WATCH LIST</div>", unsafe_allow_html=True)
+# Hardcoded to mimic the user's specific workflow in the screenshots
+html_watch = """
+<table class='custom-table'>
+    <tr><th>Ticker</th><th>Close</th><th>Key Level</th><th>Catalyst / Thesis</th><th>Bias</th></tr>
+    <tr><td><a href='#' class='ticker-link'>INTC</a></td><td>$83.55</td><td>Hold $80 / fade $86</td><td style='color:#8b9eb7; font-size:0.8rem;'>Post-blowout continuation into PT hikes</td><td class='text-green'>LONG</td></tr>
+    <tr><td><a href='#' class='ticker-link'>MXL</a></td><td>$62.25</td><td>$58 base</td><td style='color:#8b9eb7; font-size:0.8rem;'>Momentum stall zone; watch exhaustion</td><td style='color:#f6ad55; font-weight:bold; font-size:0.8rem;'>RANGE</td></tr>
+    <tr><td><a href='#' class='ticker-link'>XLE</a></td><td>—</td><td>Break $90 WTI</td><td style='color:#8b9eb7; font-size:0.8rem;'>Short — majors faded on strong crude</td><td class='text-red'>SHORT</td></tr>
+</table>
+"""
+st.markdown(html_watch, unsafe_allow_html=True)
 
-with tab1:
-    todays_earnings = fetch_fmp_earnings(today_str, today_str)
-    if not todays_earnings.empty:
-        st.dataframe(todays_earnings, use_container_width=True, hide_index=True)
-    else:
-        st.write("No major earnings reported today.")
 
-with tab2:
-    week_earnings = fetch_fmp_earnings(today_str, next_week_str)
-    if not week_earnings.empty:
-         st.dataframe(week_earnings, use_container_width=True, hide_index=True)
-    else:
-        st.write("No major earnings expected this week.")
-
-st.markdown("---")
-
-# 10. Summary (Editor's Note Style)
-st.markdown("#### 10 — EDITOR'S AFTERNOON NOTE & SUMMARY")
+# --- 05 EDITOR'S NOTE ---
+st.markdown("<div class='section-header'>05 — EDITOR'S AFTERNOON NOTE</div>", unsafe_allow_html=True)
 st.markdown("""
-<div class="summary-box">
-    <p><b>MARKET TONE:</b> Markets hit fresh local highs as major semi-conductor blowouts fuel risk-on flows. Breadth remains relatively narrow, heavily carried by mega-cap tech and semis, while defensive sectors lag. VIX remains sticky near 19 due to lingering macro headlines.</p>
-    <p><b>CLOSING POSTURE:</b> Tactical long into the week with semis & AI-optics. Pair-trade energy weakness against tech strength. Trim positions ahead of major mega-cap AMC event risks later this week.</p>
+<div class='editor-note'>
+    Two headline sets drove the tape: <b>Intel's Q1 blowout</b> shifted the capex-beneficiary trade from NVDA to a broader bench, and the <b>DOJ shelving the Powell probe</b> removed a tail-risk premium.<br><br>
+    <b>CLOSING POSTURE:</b> Tactical long into Monday with semis & AI-optics; pair-trade the energy/healthcare weakness against tech strength; trim Weds AM ahead of mega-cap AMC event risk.
 </div>
 """, unsafe_allow_html=True)
