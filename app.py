@@ -66,23 +66,51 @@ footer {visibility: hidden;}
 /* SECTION TITLE */
 .section-title { font-size: 22px; font-weight: 800; color: #64748b; margin-bottom: 24px; letter-spacing: 1.5px; }
 
+/* PERFECT VERTICAL ALIGNMENT ROW CLASSES */
+.item-row { 
+    display: flex; 
+    align-items: center; 
+    padding: 16px 0; 
+    border-bottom: 1px solid rgba(255,255,255,0.05); 
+    font-size: 18px; 
+    line-height: 1.6;
+    white-space: nowrap;
+}
+.item-row:last-child { border-bottom: none; }
+
+/* Fixed Widths for perfect vertical columns */
+.c-tckr { display: inline-block; width: 75px; font-weight: 800; color: #f1f5f9; font-size: 20px; }
+.c-prc  { display: inline-block; width: 95px; color: #f1f5f9; font-weight: 400; }
+.c-pct  { display: inline-block; width: 105px; font-weight: 400; }
+.c-vol  { display: inline-block; width: 120px; color: #f1f5f9; font-weight: 400; }
+.c-rvol { display: inline-block; width: 110px; color: #f1f5f9; font-weight: 400; }
+.c-sec  { display: inline-block; width: 170px; color: #f1f5f9; font-weight: 400; }
+.c-flow { display: inline-block; width: 130px; color: #f1f5f9; font-weight: 400; }
+.c-bias { display: inline-block; width: 160px; color: #f1f5f9; font-weight: 400; }
+.c-type { display: inline-block; width: 90px; color: #f1f5f9; font-weight: 400; }
+.c-strk { display: inline-block; width: 170px; color: #f1f5f9; font-weight: 400; }
+.c-prem { display: inline-block; width: 120px; color: #f1f5f9; font-weight: 400; }
+.c-sent { display: inline-block; width: 160px; color: #f1f5f9; font-weight: 400; }
+.c-date { display: inline-block; width: 90px; color: #f1f5f9; font-weight: 800; }
+.c-imp  { display: inline-block; width: 140px; color: #f1f5f9; font-weight: 400; }
+
+.c-desc { color: #cbd5e1; font-size: 16px; font-weight: 400; white-space: normal; }
+.sep { display: inline-block; width: 24px; text-align: center; color: #475569; font-weight: 300; }
+
+.score-up { color: #4ade80; }
+.score-down { color: #f87171; }
+
 /* INLINE BADGES */
 .nb-badge { font-size: 16px; font-weight: 800; display: inline-block; margin-bottom: 8px;}
-.nb-purple { color: #e879f9 !important; }
-.nb-teal { color: #67e8f9 !important; }
-.nb-orange { color: #fdba74 !important; }
 .nb-blue { color: #7dd3fc !important; }
-.nb-green, .badge-live { color: #4ade80 !important; font-weight: 400; }
-.nb-red, .badge-closed { color: #f87171 !important; font-weight: 400; }
-.badge-live { animation: pulse 2s infinite; }
+.badge-live { color: #4ade80 !important; font-weight: 400; animation: pulse 2s infinite; }
+.badge-closed { color: #f87171 !important; font-weight: 400; }
 
 /* INSTRUMENT GRID */
 .inst-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
 .inst-card { padding: 12px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
 .inst-name { font-size: 15px; color: #64748b; font-weight: 700; letter-spacing: 1px; margin-bottom: 4px; }
 .inst-level { font-size: 28px; font-weight: 400; color: #f1f5f9; margin-bottom: 4px; }
-.score-up { color: #4ade80; font-weight: 400; }
-.score-down { color: #f87171; font-weight: 400; }
 
 @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
 </style>
@@ -175,7 +203,6 @@ def fetch_gappers():
         
         final_result = sorted(results, key=lambda x: x['change'], reverse=True)
         
-        # Deep News Hydration
         top_tickers = [x['ticker'] for x in final_result[:10]]
         if top_tickers:
             try:
@@ -250,13 +277,8 @@ liquidity_data = fetch_liquidity_basket()
 institutional_flow = fetch_massive_data()
 
 # ==========================================
-# 5. UI RENDER ENGINE (HARDCODED INLINE STYLES)
+# 5. UI RENDER ENGINE
 # ==========================================
-ROW_WRAPPER = 'style="display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 18px; line-height: 1.6;"'
-TICKER_STYLE = 'style="font-weight: 800; color: #f1f5f9; font-size: 20px;"'
-DATA_STYLE = 'style="font-weight: 400; color: #f1f5f9;"'
-SEP_STYLE = 'style="font-weight: 300; color: #475569; margin: 0 4px;"'
-DESC_STYLE = 'style="font-weight: 400; color: #cbd5e1; font-size: 16px;"'
 
 # --- HEADER ---
 st.markdown(f'<div class="hdr"><div><div class="wrap-title">Confluence Trading Tools</div></div><div class="hdr-meta"><div class="hdr-date">{now_dt.strftime("%A, %B %d")}</div><span class="{status_class}">{market_status}</span></div></div>', unsafe_allow_html=True)
@@ -296,7 +318,7 @@ except Exception as e:
 
 news_html = '<div class="section-container"><div class="section-title">02 — Market Drivers & Catalysts</div>'
 for article in live_news[:8]:
-    news_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>{article["title"]}</span> <span {SEP_STYLE}>|</span> <span {DESC_STYLE}>{article["teaser"]}</span></div>'
+    news_html += f'<div class="item-row"><span class="c-strk" style="width: auto; padding-right: 12px;">{article["title"]}</span> <span class="sep">|</span> <span class="c-desc">{article["teaser"]}</span></div>'
 news_html += "</div>"
 st.markdown(news_html, unsafe_allow_html=True)
 
@@ -304,28 +326,28 @@ st.markdown(news_html, unsafe_allow_html=True)
 heatmap_html = f'<div class="section-container"><div class="section-title">03 — Sector Flows</div>'
 for i, item in enumerate(sector_data):
     if item.get('error'):
-        heatmap_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>{item["ticker"]}</span> <span {DATA_STYLE}>({item["sector"]})</span> <span {SEP_STYLE}>|</span> <span {DESC_STYLE} style="color:#f87171;">Error: {item["error"]}</span></div>'
+        heatmap_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-sec">({item["sector"]})</span><span class="sep">|</span><span class="c-desc" style="color:#f87171;">Error: {item["error"]}</span></div>'
     else:
-        pct_color = "#4ade80" if item['pct'] >= 0 else "#f87171"
+        pct_color = "score-up" if item['pct'] >= 0 else "score-down"
         sign = "▲ +" if item['pct'] > 0 else "▼ " if item['pct'] < 0 else ""
-        heatmap_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>{item["ticker"]}</span> <span {DATA_STYLE}>({item["sector"]})</span> <span {SEP_STYLE}>|</span> <span style="font-weight:400; color:{pct_color};">{sign}{item["pct"]:.2f}%</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Flow: {item["flow"]}</span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE}>Sector rotation tracking.</span></div>'
+        heatmap_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-sec">({item["sector"]})</span><span class="sep">|</span><span class="c-pct {pct_color}">{sign}{item["pct"]:.2f}%</span><span class="sep">|</span><span class="c-flow">Flow: {item["flow"]}</span><span class="sep">—</span><span class="c-desc">Sector rotation tracking.</span></div>'
 heatmap_html += '</div>'
 st.markdown(heatmap_html, unsafe_allow_html=True)
 
 # --- 04 | MARKET MOVERS ---
 gappers_html = f'<div class="section-container"><div class="section-title">04 — Live Market Movers</div>'
 if gappers_data and "global_error" in gappers_data[0]:
-    gappers_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>Error</span> <span {SEP_STYLE}>|</span> <span {DESC_STYLE} style="color:#f87171;">Scanner Failed: {gappers_data[0]["global_error"]}</span></div>'
+    gappers_html += f'<div class="item-row"><span class="c-tckr">Error</span><span class="sep">|</span><span class="c-desc" style="color:#f87171;">Scanner Failed: {gappers_data[0]["global_error"]}</span></div>'
 else:
     gappers_html += f'<div class="nb-badge nb-blue" style="margin-bottom:16px;">Momentum Scanner (Beta Basket)</div>'
     if gappers_data:
         for item in gappers_data[:10]:
             rvol_val = safe_float(item.get('rvol')) or 1.0
-            pct_color = "#4ade80" if item["change"] >= 0 else "#f87171"
+            pct_color = "score-up" if item["change"] >= 0 else "score-down"
             sign = "▲ +" if item["change"] >= 0 else "▼ "
-            gappers_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>{item["ticker"]}</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>${item["price"]:.2f}</span> <span {SEP_STYLE}>|</span> <span style="font-weight:400; color:{pct_color};">{sign}{item["change"]:.2f}%</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Vol: {item.get("vol", "")}</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>RVOL: {rvol_val:.1f}x</span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE}>{item.get("catalyst")}</span></div>'
+            gappers_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-prc">${item["price"]:.2f}</span><span class="sep">|</span><span class="c-pct {pct_color}">{sign}{item["change"]:.2f}%</span><span class="sep">|</span><span class="c-vol">Vol: {item.get("vol", "")}</span><span class="sep">|</span><span class="c-rvol">RVOL: {rvol_val:.1f}x</span><span class="sep">—</span><span class="c-desc">{item.get("catalyst")}</span></div>'
     else:
-        gappers_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>Status</span> <span {SEP_STYLE}>|</span> <span {DESC_STYLE}>No significant momentum in tracked basket.</span></div>'
+        gappers_html += f'<div class="item-row"><span class="c-tckr">Status</span><span class="sep">|</span><span class="c-desc">No significant momentum in tracked basket.</span></div>'
 gappers_html += '</div>'
 st.markdown(gappers_html, unsafe_allow_html=True)
 
@@ -334,12 +356,12 @@ sips_html = f'<div class="section-container"><div class="section-title">05 — S
 if gappers_data and "global_error" not in gappers_data[0]:
     for item in sorted(gappers_data, key=lambda x: abs(x.get('change', 0)), reverse=True)[:6]:
         rvol_val = safe_float(item.get('rvol')) or 1.0
-        pct_color = "#4ade80" if item["change"] >= 0 else "#f87171"
+        pct_color = "score-up" if item["change"] >= 0 else "score-down"
         sign = "▲ +" if item["change"] >= 0 else "▼ "
-        sips_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>{item["ticker"]}</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>${item.get("price", 0):.2f}</span> <span {SEP_STYLE}>|</span> <span style="font-weight:400; color:{pct_color};">{sign}{item.get("change", 0):.2f}%</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Vol: {item.get("vol", "")}</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>RVOL: {rvol_val:.1f}x</span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE}>{item.get("catalyst")}</span></div>'
+        sips_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-prc">${item.get("price", 0):.2f}</span><span class="sep">|</span><span class="c-pct {pct_color}">{sign}{item.get("change", 0):.2f}%</span><span class="sep">|</span><span class="c-vol">Vol: {item.get("vol", "")}</span><span class="sep">|</span><span class="c-rvol">RVOL: {rvol_val:.1f}x</span><span class="sep">—</span><span class="c-desc">{item.get("catalyst")}</span></div>'
 else:
     err_msg = gappers_data[0]['global_error'] if gappers_data else "Unknown Error"
-    sips_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>Error</span> <span {SEP_STYLE}>|</span> <span {DESC_STYLE} style="color:#f87171;">Cannot generate SIPs: {err_msg}</span></div>'
+    sips_html += f'<div class="item-row"><span class="c-tckr">Error</span><span class="sep">|</span><span class="c-desc" style="color:#f87171;">Cannot generate SIPs: {err_msg}</span></div>'
 sips_html += '</div>'
 st.markdown(sips_html, unsafe_allow_html=True)
 
@@ -347,10 +369,10 @@ st.markdown(sips_html, unsafe_allow_html=True)
 play_html = f'<div class="section-container"><div class="section-title">06 — Mega-Cap Liquidity Basket</div>'
 for item in liquidity_data:
     if item.get('error'):
-        play_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>{item["ticker"]}</span> <span {SEP_STYLE}>|</span> <span {DESC_STYLE} style="color:#f87171;">Error: {item["error"]}</span></div>'
+        play_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-desc" style="color:#f87171;">Error: {item["error"]}</span></div>'
     else:
         bias_color = "#4ade80" if item["bias"] == "Long" else "#f87171"
-        play_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>{item["ticker"]}</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>${item["price"]:.2f}</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Algo Bias: <span style="color:{bias_color};">{item["bias"]}</span></span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE}>Tracking 5-Day SMA deviation.</span></div>'
+        play_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-prc">${item["price"]:.2f}</span><span class="sep">|</span><span class="c-bias">Algo Bias: <span style="color:{bias_color};">{item["bias"]}</span></span><span class="sep">—</span><span class="c-desc">Tracking 5-Day SMA deviation.</span></div>'
 play_html += '</div>'
 st.markdown(play_html, unsafe_allow_html=True)
 
@@ -363,7 +385,7 @@ events = [
     ("May 29", "Core PCE Price Index", "High", "#f87171")
 ]
 for date, event, imp, col in events:
-    econ_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>{date}</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Impact: <span style="color:{col};">{imp}</span></span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE}>{event}</span></div>'
+    econ_html += f'<div class="item-row"><span class="c-date">{date}</span><span class="sep">|</span><span class="c-imp">Impact: <span style="color:{col};">{imp}</span></span><span class="sep">—</span><span class="c-desc">{event}</span></div>'
 econ_html += '</div>'
 st.markdown(econ_html, unsafe_allow_html=True)
 
@@ -371,8 +393,8 @@ st.markdown(econ_html, unsafe_allow_html=True)
 st.markdown(f"""
 <div class="section-container">
 <div class="section-title">08 — Technical Picture & Action Plan</div>
-<div {ROW_WRAPPER}><span {TICKER_STYLE}>SPX Levels</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Target: 7,300–7,375</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Support: 7,000 ➔ 6,780</span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE} style="color:#818cf8;">Action ➔ Look for dip-buying at 7,000.</span></div>
-<div {ROW_WRAPPER}><span {TICKER_STYLE}>Volatility (VIX)</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Level: ~19.10</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Context: Entering "Normal" regime.</span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE} style="color:#818cf8;">Action ➔ Premium selling favored.</span></div>
+<div class="item-row"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">SPX Levels</span><span class="sep">|</span><span class="c-prc" style="width: auto; padding-right: 12px;">Target: 7,300–7,375</span><span class="sep">|</span><span class="c-prc" style="width: auto; padding-right: 12px;">Support: 7,000 ➔ 6,780</span><span class="sep">—</span><span class="c-desc" style="color:#818cf8;">Action ➔ Look for dip-buying at 7,000.</span></div>
+<div class="item-row"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">Volatility (VIX)</span><span class="sep">|</span><span class="c-prc" style="width: auto; padding-right: 12px;">Level: ~19.10</span><span class="sep">|</span><span class="c-prc" style="width: auto; padding-right: 12px;">Context: Entering "Normal" regime.</span><span class="sep">—</span><span class="c-desc" style="color:#818cf8;">Action ➔ Premium selling favored.</span></div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -380,15 +402,15 @@ st.markdown(f"""
 st.markdown(f"""
 <div class="section-container">
 <div class="section-title">09 — Trading Watchlist</div>
-<div {ROW_WRAPPER}><span {TICKER_STYLE}>NVDA</span> <span {DATA_STYLE}>(Institutional Flow)</span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE}>Massive institutional buy-side pressure remains. Watch for a test of new ATH territory.</span></div>
-<div {ROW_WRAPPER}><span {TICKER_STYLE}>TSLA</span> <span {DATA_STYLE}>(Catalyst Play)</span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE}>Structural rally in progress. Looking for $220 to act as a launchpad for the next leg.</span></div>
+<div class="item-row"><span class="c-tckr">NVDA</span><span class="c-sec">(Institutional Flow)</span><span class="sep">—</span><span class="c-desc">Massive institutional buy-side pressure remains. Watch for a test of new ATH territory.</span></div>
+<div class="item-row"><span class="c-tckr">TSLA</span><span class="c-sec">(Catalyst Play)</span><span class="sep">—</span><span class="c-desc">Structural rally in progress. Looking for $220 to act as a launchpad for the next leg.</span></div>
 </div>
 """, unsafe_allow_html=True)
 
 # --- 10 | MASSIVE API INTEGRATION ---
 massive_html = f'<div class="section-container"><div class="section-title">10 — Institutional Options Flow (Massive API)</div>'
 for flow in institutional_flow:
-    massive_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>{flow["ticker"]}</span> <span {DATA_STYLE}>({flow["type"]})</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>{flow["strike"]} — {flow["exp"]}</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Prem: {flow["prem"]}</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Sentiment: <span style="color:{flow["color"]};">{flow["sentiment"]}</span></span></div>'
+    massive_html += f'<div class="item-row"><span class="c-tckr">{flow["ticker"]}</span><span class="c-type">({flow["type"]})</span><span class="sep">|</span><span class="c-strk">{flow["strike"]} — {flow["exp"]}</span><span class="sep">|</span><span class="c-prem">Prem: {flow["prem"]}</span><span class="sep">|</span><span class="c-sent">Sentiment: <span style="color:{flow["color"]};">{flow["sentiment"]}</span></span></div>'
 massive_html += "</div>"
 st.markdown(massive_html, unsafe_allow_html=True)
 
@@ -403,9 +425,9 @@ display_status = "The market is currently open and trading." if market_status ==
 summary_text = f"""
 <div class="section-container">
 <div class="section-title">11 — Market Summary</div>
-<div {ROW_WRAPPER}><span {TICKER_STYLE}>Market Status</span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE}>{display_status}</span></div>
-<div {ROW_WRAPPER}><span {TICKER_STYLE}>Action Summary</span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE}>Heading into the next session, the broader market is {'pushing higher' if spx_pct > 0 else 'showing weakness'} with the S&P 500 at {spx_pct:+.2f}%. Sector rotation favors {top_sector}, while speculative money is concentrated in names like {top_gapper} ({top_gapper_change:+.1f}%). With the VIX hovering near ~19.10, the environment remains constructive but warrants selectivity.</span></div>
-<div {ROW_WRAPPER}><span {TICKER_STYLE}>Closing Posture</span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE}>Remain focused on relative strength. Watch the SPX 7,000 level closely for structural support. See you at the open. 📈</span></div>
+<div class="item-row"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">Market Status</span><span class="sep">—</span><span class="c-desc">{display_status}</span></div>
+<div class="item-row"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">Action Summary</span><span class="sep">—</span><span class="c-desc">Heading into the next session, the broader market is {'pushing higher' if spx_pct > 0 else 'showing weakness'} with the S&P 500 at {spx_pct:+.2f}%. Sector rotation favors {top_sector}, while speculative money is concentrated in names like {top_gapper} ({top_gapper_change:+.1f}%). With the VIX hovering near ~19.10, the environment remains constructive but warrants selectivity.</span></div>
+<div class="item-row"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">Closing Posture</span><span class="sep">—</span><span class="c-desc">Remain focused on relative strength. Watch the SPX 7,000 level closely for structural support. See you at the open. 📈</span></div>
 </div>
 """
 st.markdown(summary_text, unsafe_allow_html=True)
