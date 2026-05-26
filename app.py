@@ -335,7 +335,7 @@ for title, sess_key, badge in sessions:
             r_txt = f"{rvol_val:.1f}x"
             gappers_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item["price"]:.2f}</span> <span class="sep">|</span> <span class="up-pct">▲ +{item["change"]:.2f}%</span> <span class="sep">|</span> Vol: <span class="val">{item.get("vol", "")}</span> <span class="sep">|</span> RVOL: <span class="val">{r_txt}</span></div><div class="item-bot">{item.get("catalyst")}</div></div>'
     else:
-        gappers_html += "<div class='item-card'><div class='item-bot'>Awaiting live market data sync...</div></div>"
+        gappers_html += "<div class='item-card'><div class='item-bot'>Awaiting session market data...</div></div>"
 gappers_html += '</div>'
 st.markdown(gappers_html, unsafe_allow_html=True)
 
@@ -347,7 +347,7 @@ if gappers_data:
         r_txt = f"{rvol_val:.1f}x"
         sips_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item["price"]:.2f}</span> <span class="sep">|</span> <span class="up-pct">▲ +{item["change"]:.2f}%</span> <span class="sep">|</span> Vol: <span class="val">{item.get("vol", "")}</span> <span class="sep">|</span> RVOL: <span class="val">{r_txt}</span></div><div class="item-bot">{item.get("catalyst")}</div></div>'
 else:
-    sips_html += "<div class='item-card'><div class='item-bot'>Awaiting live market data sync...</div></div>"
+    sips_html += "<div class='item-card'><div class='item-bot'>Awaiting live market data...</div></div>"
 sips_html += '</div>'
 st.markdown(sips_html, unsafe_allow_html=True)
 
@@ -416,12 +416,15 @@ top_sector = sector_data[0]['sector'] if sector_data else "Technology"
 top_gapper = gappers_data[0]['ticker'] if gappers_data else "N/A"
 top_gapper_change = gappers_data[0]['change'] if gappers_data else 0.0
 
+# Dynamic status injection
+display_status = "The market is currently open and trading." if market_status == "Market Open" else market_status
+
 summary_text = f"""
 <div class="section-container">
 <div class="section-title">11 — Market Summary</div>
 <div class="item-card">
     <div class="item-top"><span class="val">Market Status</span></div>
-    <div class="item-bot">The market remains closed through Monday for Memorial Day.</div>
+    <div class="item-bot">{display_status}</div>
 </div>
 <div class="item-card">
     <div class="item-top"><span class="val">Action Summary</span></div>
