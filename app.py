@@ -124,7 +124,7 @@ else:
 # ==========================================
 def get_last_price_change(ticker):
     try:
-        hist = yf.Ticker(ticker).history(period="5d", progress=False).dropna(subset=['Close'])
+        hist = yf.Ticker(ticker).history(period="5d").dropna(subset=['Close'])
         if len(hist) >= 2:
             return float(hist['Close'].iloc[-1]), float(((hist['Close'].iloc[-1] - hist['Close'].iloc[-2])/hist['Close'].iloc[-2])*100), None
         return 0.0, 0.0, "Empty DataFrame returned"
@@ -202,7 +202,7 @@ def fetch_gappers():
         volumes = {}
         for t in tickers_to_fetch:
             try:
-                hist = yf.Ticker(t).history(period="10d", progress=False)
+                hist = yf.Ticker(t).history(period="10d")
                 if not hist.empty and 'Volume' in hist.columns:
                     volumes[t] = hist['Volume']
             except: pass
