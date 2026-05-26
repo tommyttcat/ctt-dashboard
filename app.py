@@ -66,7 +66,7 @@ footer {visibility: hidden;}
 /* SECTION TITLE */
 .section-title { font-size: 22px; font-weight: 800; color: #64748b; margin-bottom: 24px; letter-spacing: 1.5px; }
 
-/* PERFECT VERTICAL ALIGNMENT ROW CLASSES */
+/* PERFECT VERTICAL ALIGNMENT ROW CLASSES (For Data Grids) */
 .item-row { 
     display: flex; 
     align-items: center; 
@@ -77,6 +77,18 @@ footer {visibility: hidden;}
     white-space: nowrap;
 }
 .item-row:last-child { border-bottom: none; }
+
+/* TEXT WRAPPING ROW CLASS (For News & Summaries) */
+.item-row-wrap { 
+    display: flex; 
+    align-items: flex-start; 
+    padding: 16px 0; 
+    border-bottom: 1px solid rgba(255,255,255,0.05); 
+    font-size: 18px; 
+    line-height: 1.6;
+    white-space: normal;
+}
+.item-row-wrap:last-child { border-bottom: none; }
 
 /* Fixed Widths for perfect vertical columns */
 .c-tckr { display: inline-block; width: 75px; font-weight: 800; color: #f1f5f9; font-size: 20px; }
@@ -164,17 +176,8 @@ def fetch_sector_flow():
         perf.append({"ticker": ticker, "sector": name, "pct": c, "flow": "Inflow" if c > 0 else "Outflow", "error": err})
     return sorted(perf, key=lambda x: x['pct'], reverse=True)
 
-@st.cache_data(ttl=120)
-def fetch_gappers():
+def core_scanner(scan_list, cache_file):
     results = []
-    cache_file = "eod_gappers_cache.json"
-    
-    scan_list = [
-        "NVDA", "TSLA", "AMD", "SMCI", "COIN", "PLTR", "MARA", "MSTR", 
-        "AAPL", "META", "AMZN", "MSFT", "GOOGL", "AVGO", "ARM", "QCOM",
-        "NFLX", "GME", "AMC", "HOOD", "RCL", "CCL", "UBER", "DDOG", "CRWD"
-    ]
-    
     try:
         for sym in scan_list:
             try:
@@ -203,6 +206,7 @@ def fetch_gappers():
         
         final_result = sorted(results, key=lambda x: x['change'], reverse=True)
         
+        # Deep News Hydration
         top_tickers = [x['ticker'] for x in final_result[:10]]
         if top_tickers:
             try:
@@ -212,12 +216,13 @@ def fetch_gappers():
                     bz_map = {}
                     for article in bz_res.json():
                         raw_text = article.get('teaser', '')
-                        if not raw_text or len(raw_text) < 20: 
+                        if not raw_text or len(raw_text) < 15: 
                             raw_text = article.get('body', '')
-                        if not raw_text or len(raw_text) < 20: 
+                        if not raw_text or len(raw_text) < 15: 
                             raw_text = article.get('title', '')
                             
                         clean_text = re.sub(r'<[^>]+>', '', raw_text)
+                        clean_text = re.sub(r'\s+', ' ', clean_text).strip()
                         
                         for s in article.get('stocks', []):
                             t = s.get('name')
@@ -238,6 +243,23 @@ def fetch_gappers():
         if os.path.exists(cache_file):
             with open(cache_file, 'r') as f: return json.load(f)
         return [{"global_error": f"Scanner Exception: {str(e)}"}]
+
+@st.cache_data(ttl=120)
+def fetch_gappers():
+    scan_list = [
+        "NVDA", "TSLA", "AMD", "SMCI", "COIN", "PLTR", "MARA", "MSTR", 
+        "AAPL", "META", "AMZN", "MSFT", "GOOGL", "AVGO", "ARM", "QCOM",
+        "NFLX", "GME", "AMC", "HOOD", "RCL", "CCL", "UBER", "DDOG", "CRWD"
+    ]
+    return core_scanner(scan_list, "eod_gappers_cache.json")
+
+@st.cache_data(ttl=120)
+def fetch_micro_caps():
+    scan_list = [
+        "SOUN", "LUNR", "ACHR", "JOBY", "ASTS", "RGTI", "IONQ", "BOWL", 
+        "TPST", "CYBN", "HOLO", "MIGI", "BXRX", "CTNT", "RVSN"
+    ]
+    return core_scanner(scan_list, "eod_micro_cache.json")
 
 @st.cache_data(ttl=120)
 def fetch_liquidity_basket():
@@ -273,6 +295,7 @@ def fetch_massive_data():
 macro_data = fetch_expanded_macro()
 sector_data = fetch_sector_flow()
 gappers_data = fetch_gappers()
+micro_cap_data = fetch_micro_caps()
 liquidity_data = fetch_liquidity_basket()
 institutional_flow = fetch_massive_data()
 
@@ -299,7 +322,7 @@ for name, m in macro_data.items():
 scorecard_html += "</div></div>"
 st.markdown(scorecard_html, unsafe_allow_html=True)
 
-# --- 02 | MARKET DRIVERS ---
+# --- 02 | MARKET DRIVERS (WRAPPING) ---
 live_news = []
 try:
     url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=25&channels=News"
@@ -309,8 +332,11 @@ try:
             title = n.get("title", "").replace(" — ...", "")
             raw_text = n.get("teaser", "")
             if not raw_text or len(raw_text) < 20: raw_text = n.get("body", "")
+            if not raw_text or len(raw_text) < 20: raw_text = "No additional summary provided by the news desk."
+            
             teaser = re.sub(r'<[^>]+>', '', raw_text)
-            live_news.append({"title": title, "teaser": teaser[:350] + "..."})
+            teaser = re.sub(r'\s+', ' ', teaser).strip()
+            live_news.append({"title": title, "teaser": teaser[:350] + ("..." if len(teaser) > 350 else "")})
     else:
         live_news.append({"title": "API Error", "teaser": f"Status [{res.status_code}] - Check API key."})
 except Exception as e:
@@ -318,7 +344,7 @@ except Exception as e:
 
 news_html = '<div class="section-container"><div class="section-title">02 — Market Drivers & Catalysts</div>'
 for article in live_news[:8]:
-    news_html += f'<div class="item-row"><span class="c-strk" style="width: auto; padding-right: 12px;">{article["title"]}</span> <span class="sep">|</span> <span class="c-desc">{article["teaser"]}</span></div>'
+    news_html += f'<div class="item-row-wrap"><span style="font-weight: 800; color: #f1f5f9; padding-right: 12px; max-width: 45%;">{article["title"]}</span> <span class="sep">|</span> <span class="c-desc" style="flex: 1;">{article["teaser"]}</span></div>'
 news_html += "</div>"
 st.markdown(news_html, unsafe_allow_html=True)
 
@@ -376,8 +402,25 @@ for item in liquidity_data:
 play_html += '</div>'
 st.markdown(play_html, unsafe_allow_html=True)
 
-# --- 07 | ECONOMIC CALENDAR ---
-econ_html = f'<div class="section-container"><div class="section-title">07 — Economic Calendar (Week Ahead)</div>'
+# --- 07 | MICRO-CAP WATCHLIST ---
+micro_html = f'<div class="section-container"><div class="section-title">07 — Micro-Cap / High-Beta Watchlist</div>'
+if micro_cap_data and "global_error" in micro_cap_data[0]:
+    micro_html += f'<div class="item-row"><span class="c-tckr">Error</span><span class="sep">|</span><span class="c-desc" style="color:#f87171;">Scanner Failed: {micro_cap_data[0]["global_error"]}</span></div>'
+else:
+    micro_html += f'<div class="nb-badge nb-blue" style="margin-bottom:16px;">Low-Float / High-Volatility Scanner</div>'
+    if micro_cap_data:
+        for item in micro_cap_data[:8]:
+            rvol_val = safe_float(item.get('rvol')) or 1.0
+            pct_color = "score-up" if item["change"] >= 0 else "score-down"
+            sign = "▲ +" if item["change"] >= 0 else "▼ "
+            micro_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-prc">${item["price"]:.2f}</span><span class="sep">|</span><span class="c-pct {pct_color}">{sign}{item["change"]:.2f}%</span><span class="sep">|</span><span class="c-vol">Vol: {item.get("vol", "")}</span><span class="sep">|</span><span class="c-rvol">RVOL: {rvol_val:.1f}x</span><span class="sep">—</span><span class="c-desc">{item.get("catalyst")}</span></div>'
+    else:
+        micro_html += f'<div class="item-row"><span class="c-tckr">Status</span><span class="sep">|</span><span class="c-desc">No significant momentum in tracked micro-cap basket.</span></div>'
+micro_html += '</div>'
+st.markdown(micro_html, unsafe_allow_html=True)
+
+# --- 08 | ECONOMIC CALENDAR ---
+econ_html = f'<div class="section-container"><div class="section-title">08 — Economic Calendar (Week Ahead)</div>'
 events = [
     ("May 26", "S&P/Case-Shiller Home Price", "Med", "#7dd3fc"),
     ("May 27", "CFTC Soybeans / Grains Report", "High", "#f87171"),
@@ -389,32 +432,32 @@ for date, event, imp, col in events:
 econ_html += '</div>'
 st.markdown(econ_html, unsafe_allow_html=True)
 
-# --- 08 | TECHNICAL PICTURE ---
+# --- 09 | TECHNICAL PICTURE ---
 st.markdown(f"""
 <div class="section-container">
-<div class="section-title">08 — Technical Picture & Action Plan</div>
-<div class="item-row"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">SPX Levels</span><span class="sep">|</span><span class="c-prc" style="width: auto; padding-right: 12px;">Target: 7,300–7,375</span><span class="sep">|</span><span class="c-prc" style="width: auto; padding-right: 12px;">Support: 7,000 ➔ 6,780</span><span class="sep">—</span><span class="c-desc" style="color:#818cf8;">Action ➔ Look for dip-buying at 7,000.</span></div>
-<div class="item-row"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">Volatility (VIX)</span><span class="sep">|</span><span class="c-prc" style="width: auto; padding-right: 12px;">Level: ~19.10</span><span class="sep">|</span><span class="c-prc" style="width: auto; padding-right: 12px;">Context: Entering "Normal" regime.</span><span class="sep">—</span><span class="c-desc" style="color:#818cf8;">Action ➔ Premium selling favored.</span></div>
+<div class="section-title">09 — Technical Picture & Action Plan</div>
+<div class="item-row-wrap"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">SPX Levels</span><span class="sep">|</span><span class="c-prc" style="width: auto; padding-right: 12px;">Target: 7,300–7,375</span><span class="sep">|</span><span class="c-prc" style="width: auto; padding-right: 12px;">Support: 7,000 ➔ 6,780</span><span class="sep">—</span><span class="c-desc" style="color:#818cf8; flex: 1;">Action ➔ Look for dip-buying at 7,000.</span></div>
+<div class="item-row-wrap"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">Volatility (VIX)</span><span class="sep">|</span><span class="c-prc" style="width: auto; padding-right: 12px;">Level: ~19.10</span><span class="sep">|</span><span class="c-prc" style="width: auto; padding-right: 12px;">Context: Entering "Normal" regime.</span><span class="sep">—</span><span class="c-desc" style="color:#818cf8; flex: 1;">Action ➔ Premium selling favored.</span></div>
 </div>
 """, unsafe_allow_html=True)
 
-# --- 09 | WATCHLIST ---
+# --- 10 | WATCHLIST ---
 st.markdown(f"""
 <div class="section-container">
-<div class="section-title">09 — Trading Watchlist</div>
-<div class="item-row"><span class="c-tckr">NVDA</span><span class="c-sec">(Institutional Flow)</span><span class="sep">—</span><span class="c-desc">Massive institutional buy-side pressure remains. Watch for a test of new ATH territory.</span></div>
-<div class="item-row"><span class="c-tckr">TSLA</span><span class="c-sec">(Catalyst Play)</span><span class="sep">—</span><span class="c-desc">Structural rally in progress. Looking for $220 to act as a launchpad for the next leg.</span></div>
+<div class="section-title">10 — Trading Watchlist</div>
+<div class="item-row-wrap"><span class="c-tckr">NVDA</span><span class="c-sec">(Institutional Flow)</span><span class="sep">—</span><span class="c-desc" style="flex: 1;">Massive institutional buy-side pressure remains. Watch for a test of new ATH territory.</span></div>
+<div class="item-row-wrap"><span class="c-tckr">TSLA</span><span class="c-sec">(Catalyst Play)</span><span class="sep">—</span><span class="c-desc" style="flex: 1;">Structural rally in progress. Looking for $220 to act as a launchpad for the next leg.</span></div>
 </div>
 """, unsafe_allow_html=True)
 
-# --- 10 | MASSIVE API INTEGRATION ---
-massive_html = f'<div class="section-container"><div class="section-title">10 — Institutional Options Flow (Massive API)</div>'
+# --- 11 | MASSIVE API INTEGRATION ---
+massive_html = f'<div class="section-container"><div class="section-title">11 — Institutional Options Flow (Massive API)</div>'
 for flow in institutional_flow:
     massive_html += f'<div class="item-row"><span class="c-tckr">{flow["ticker"]}</span><span class="c-type">({flow["type"]})</span><span class="sep">|</span><span class="c-strk">{flow["strike"]} — {flow["exp"]}</span><span class="sep">|</span><span class="c-prem">Prem: {flow["prem"]}</span><span class="sep">|</span><span class="c-sent">Sentiment: <span style="color:{flow["color"]};">{flow["sentiment"]}</span></span></div>'
 massive_html += "</div>"
 st.markdown(massive_html, unsafe_allow_html=True)
 
-# --- 11 | DYNAMIC MARKET SUMMARY ---
+# --- 12 | DYNAMIC MARKET SUMMARY ---
 spx_pct = macro_data.get('S&P 500 (SPX)', {}).get('pct', 0.0) if not macro_data.get('S&P 500 (SPX)', {}).get('error') else 0.0
 top_sector = sector_data[0]['sector'] if sector_data and not sector_data[0].get('error') else "Technology"
 top_gapper = gappers_data[0]['ticker'] if gappers_data and "global_error" not in gappers_data[0] else "N/A"
@@ -424,10 +467,10 @@ display_status = "The market is currently open and trading." if market_status ==
 
 summary_text = f"""
 <div class="section-container">
-<div class="section-title">11 — Market Summary</div>
-<div class="item-row"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">Market Status</span><span class="sep">—</span><span class="c-desc">{display_status}</span></div>
-<div class="item-row"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">Action Summary</span><span class="sep">—</span><span class="c-desc">Heading into the next session, the broader market is {'pushing higher' if spx_pct > 0 else 'showing weakness'} with the S&P 500 at {spx_pct:+.2f}%. Sector rotation favors {top_sector}, while speculative money is concentrated in names like {top_gapper} ({top_gapper_change:+.1f}%). With the VIX hovering near ~19.10, the environment remains constructive but warrants selectivity.</span></div>
-<div class="item-row"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">Closing Posture</span><span class="sep">—</span><span class="c-desc">Remain focused on relative strength. Watch the SPX 7,000 level closely for structural support. See you at the open. 📈</span></div>
+<div class="section-title">12 — Market Summary</div>
+<div class="item-row-wrap"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">Market Status</span><span class="sep">—</span><span class="c-desc" style="flex: 1;">{display_status}</span></div>
+<div class="item-row-wrap"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">Action Summary</span><span class="sep">—</span><span class="c-desc" style="flex: 1;">Heading into the next session, the broader market is {'pushing higher' if spx_pct > 0 else 'showing weakness'} with the S&P 500 at {spx_pct:+.2f}%. Sector rotation favors {top_sector}, while speculative money is concentrated in names like {top_gapper} ({top_gapper_change:+.1f}%). With the VIX hovering near ~19.10, the environment remains constructive but warrants selectivity.</span></div>
+<div class="item-row-wrap"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">Closing Posture</span><span class="sep">—</span><span class="c-desc" style="flex: 1;">Remain focused on relative strength. Watch the SPX 7,000 level closely for structural support. See you at the open. 📈</span></div>
 </div>
 """
 st.markdown(summary_text, unsafe_allow_html=True)
