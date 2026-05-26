@@ -6,6 +6,7 @@ import re
 import os
 import json
 from datetime import datetime, timedelta
+import pytz
 
 # --- SAFETY HELPER ---
 def safe_float(val):
@@ -15,6 +16,7 @@ def safe_float(val):
 # ==========================================
 # API KEYS & CONFIG
 # ==========================================
+BZ_KEY = "bz.4DVR2L3LKQD6KU5Z4CHZPPNE5MPV2KLQ"
 FMP_KEY = "WMMhcffuHSYVTceXryrt4tHC8GXcsB0g"
 MASSIVE_KEY = "TfwImIVSEp2wLzNnXpwysYH9ccvjk6pv"
 
@@ -70,6 +72,9 @@ footer {visibility: hidden;}
     color: #64748b; 
     margin-bottom: 24px; 
     letter-spacing: 1.5px; 
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 
 /* PERFECT VERTICAL ALIGNMENT ROW CLASSES */
@@ -84,7 +89,19 @@ footer {visibility: hidden;}
 }
 .item-row:last-child { border-bottom: none; }
 
-/* Fixed Widths for perfect vertical columns (Single Wide Layout) */
+/* TEXT WRAPPING ROW CLASS (For News & Dashboards) */
+.item-row-wrap { 
+    display: flex; 
+    align-items: flex-start; 
+    padding: 16px 0; 
+    border-bottom: 1px solid rgba(255,255,255,0.05); 
+    font-size: 17px; 
+    line-height: 1.6;
+    white-space: normal;
+}
+.item-row-wrap:last-child { border-bottom: none; }
+
+/* Fixed Widths for perfect vertical columns */
 .c-tckr { display: inline-block; width: 80px; font-weight: 800; color: #f1f5f9; font-size: 19px; }
 .c-prc  { display: inline-block; width: 100px; color: #f1f5f9; font-weight: 400; }
 .c-pct  { display: inline-block; width: 110px; font-weight: 400; }
@@ -107,23 +124,19 @@ footer {visibility: hidden;}
 .score-up { color: #4ade80; }
 .score-down { color: #f87171; }
 
-/* NEWS 2-COLUMN GRID */
-.news-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
-.news-card { padding: 16px; background: #1e293b; border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; display: flex; flex-direction: column; gap: 8px; }
-.news-title { font-weight: 800; color: #f1f5f9; font-size: 16px; line-height: 1.4; }
-.news-teaser { font-weight: 400; color: #94a3b8; font-size: 14px; line-height: 1.5; }
-
 /* INLINE BADGES */
-.nb-badge { font-size: 16px; font-weight: 800; display: inline-block; margin-bottom: 8px;}
+.nb-badge { font-size: 16px; font-weight: 800; display: inline-block; margin-bottom: 8px; margin-top: 16px;}
 .nb-blue { color: #7dd3fc !important; }
+.nb-purple { color: #e879f9 !important; }
+.nb-orange { color: #fdba74 !important; }
 .badge-live { color: #4ade80 !important; font-weight: 400; animation: pulse 2s infinite; }
 .badge-closed { color: #f87171 !important; font-weight: 400; }
 
 /* INSTRUMENT GRID */
-.inst-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 20px; }
+.inst-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
 .inst-card { padding: 12px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
-.inst-name { font-size: 14px; color: #64748b; font-weight: 700; letter-spacing: 1px; margin-bottom: 4px; text-transform: uppercase; }
-.inst-level { font-size: 26px; font-weight: 400; color: #f1f5f9; margin-bottom: 4px; }
+.inst-name { font-size: 15px; color: #64748b; font-weight: 700; letter-spacing: 1px; margin-bottom: 4px; }
+.inst-level { font-size: 28px; font-weight: 400; color: #f1f5f9; margin-bottom: 4px; }
 
 @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
 </style>
@@ -147,8 +160,16 @@ else:
     market_status = "Market Open"
     status_class = "badge-live"
 
+# Current Session determination (EST approximate)
+est_now = datetime.now(pytz.timezone('US/Eastern'))
+current_session = "Regular"
+if est_now.hour < 9 or (est_now.hour == 9 and est_now.minute < 30):
+    current_session = "Pre-Market"
+elif est_now.hour >= 16:
+    current_session = "Post-Market"
+
 # ==========================================
-# 3. DATA ENGINES (FMP OPTIMIZED + SEC)
+# 3. DATA ENGINES 
 # ==========================================
 def get_last_price_change(ticker):
     try:
@@ -189,24 +210,40 @@ def fetch_sector_flow():
         perf.append({"ticker": ticker, "sector": name, "pct": c, "flow": "Inflow" if c > 0 else "Outflow", "error": err})
     return sorted(perf, key=lambda x: x['pct'], reverse=True)
 
-def core_scanner(scan_list, cache_file):
+@st.cache_data(ttl=120)
+def fetch_session_gappers():
     results = []
+    cache_file = "eod_gappers_combined_cache.json"
+    all_movers = []
     
-    sec_form_map = {
-        "8-K": "Material Event",
-        "10-Q": "Quarterly Earnings",
-        "10-K": "Annual Report",
-        "4": "Insider Trading",
-        "S-1": "Securities Offering",
-        "S-3": "Shelf Registration",
-        "F-1": "Foreign Offering",
-        "13G": "Institutional Stake",
-        "13D": "Activist Stake",
-        "6-K": "Foreign Material Event"
-    }
-
-    try:
-        for sym in scan_list:
+    # Try FMP Sessions
+    endpoints = [
+        ("Regular", f"https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey={FMP_KEY}"),
+        ("Pre-Market", f"https://financialmodelingprep.com/api/v3/stock_market/pre-market-gainers?apikey={FMP_KEY}"),
+        ("Post-Market", f"https://financialmodelingprep.com/api/v3/stock_market/post-market-gainers?apikey={FMP_KEY}")
+    ]
+    
+    fmp_success = False
+    for sess, url in endpoints:
+        try:
+            r = requests.get(url, timeout=3)
+            if r.status_code == 200 and isinstance(r.json(), list):
+                fmp_success = True
+                for x in r.json():
+                    x['session'] = sess
+                    all_movers.append(x)
+        except: pass
+    
+    # Fallback to local scan if FMP blocks the endpoints (HTTP 403)
+    if not fmp_success:
+        master_basket = [
+            "NVDA", "TSLA", "AMD", "SMCI", "COIN", "PLTR", "MARA", "MSTR", 
+            "AAPL", "META", "AMZN", "MSFT", "GOOGL", "AVGO", "ARM", "QCOM",
+            "NFLX", "GME", "AMC", "HOOD", "RCL", "CCL", "UBER", "DDOG", "CRWD",
+            "SOUN", "LUNR", "ACHR", "JOBY", "ASTS", "RGTI", "IONQ", "BOWL", 
+            "TPST", "CYBN", "HOLO", "MIGI", "BXRX", "CTNT", "RVSN"
+        ]
+        for sym in master_basket:
             try:
                 hist = yf.Ticker(sym).history(period="5d")
                 if len(hist) >= 2:
@@ -214,86 +251,107 @@ def core_scanner(scan_list, cache_file):
                     prev = float(hist['Close'].iloc[-2])
                     change = ((price - prev) / prev) * 100
                     
-                    vol = float(hist['Volume'].iloc[-1])
-                    avg_vol = float(hist['Volume'].mean()) or 1.0
-                    rvol = vol / avg_vol
-                    vol_str = f"{vol/1e6:.1f}M" if vol >= 1e6 else f"{vol/1e3:.0f}K"
-                    
                     if abs(change) > 0.5:
-                        results.append({
-                            "ticker": sym, "price": price, "change": change, 
-                            "vol": vol_str, "rvol": float(rvol), 
-                            "catalyst": "Momentum Breakout / Sector Flow",
-                            "sec_tag": ""
+                        all_movers.append({
+                            "symbol": sym, "price": price, "changesPercentage": change, 
+                            "session": current_session
                         })
             except: pass
-        
-        final_result = sorted(results, key=lambda x: x['change'], reverse=True)
-        top_tickers = [x['ticker'] for x in final_result[:10]]
-        
-        if top_tickers:
-            # Check SEC
-            for item in final_result[:10]:
-                sym = item['ticker']
-                try:
-                    sec_url = f"https://financialmodelingprep.com/stable/sec-filings-search/symbol?symbol={sym}&page=0&limit=2&apikey={FMP_KEY}"
-                    sec_res = requests.get(sec_url, timeout=3)
-                    if sec_res.status_code == 200:
-                        for filing in sec_res.json():
-                            date_str = filing.get('acceptedDate', '')[:10]
-                            if date_str:
-                                filing_date = datetime.strptime(date_str, '%Y-%m-%d')
-                                if (now_dt - filing_date).days <= 5:
-                                    form_type = filing.get('formType', '')
-                                    desc = sec_form_map.get(form_type, f"{form_type} Filing")
-                                    item['sec_tag'] = f"[SEC {form_type}: {desc}] "
-                                    break
-                except: pass
 
-            # Mass Catalyst Hydration via General FMP News
-            try:
-                fmp_news_url = f"https://financialmodelingprep.com/stable/news/stock-latest?page=0&limit=100&apikey={FMP_KEY}"
-                fmp_res = requests.get(fmp_news_url, timeout=5)
-                if fmp_res.status_code == 200:
-                    fmp_map = {}
-                    for article in fmp_res.json():
-                        sym = article.get('symbol')
-                        if sym and sym not in fmp_map:
-                            raw_text = article.get('text', '') or article.get('title', '')
-                            clean_text = re.sub(r'<[^>]+>', '', raw_text)
-                            fmp_map[sym] = re.sub(r'\s+', ' ', clean_text).strip()
-                            
-                    for item in final_result:
-                        if item['ticker'] in fmp_map:
-                            text_snippet = fmp_map[item['ticker']][:120]
-                            item['catalyst'] = text_snippet + "..." if len(fmp_map[item['ticker']]) > 120 else text_snippet
-            except: pass
-
-        if final_result:
-            with open(cache_file, 'w') as f: json.dump(final_result, f)
-            
-        return final_result
-    except Exception as e:
+    if not all_movers:
         if os.path.exists(cache_file):
             with open(cache_file, 'r') as f: return json.load(f)
-        return [{"global_error": f"Scanner Exception: {str(e)}"}]
+        return []
 
-@st.cache_data(ttl=120)
-def fetch_gappers():
-    scan_list = [
-        "NVDA", "TSLA", "AMD", "SMCI", "COIN", "PLTR", "MARA", "MSTR", 
-        "AAPL", "META", "AMZN", "MSFT", "GOOGL", "AVGO", "ARM", "QCOM",
-        "NFLX", "GME", "AMC", "HOOD", "RCL", "CCL", "UBER", "DDOG", "CRWD"
-    ]
-    return core_scanner(scan_list, "eod_gappers_cache.json")
+    # Map raw form types to readable insights
+    sec_form_map = {
+        "8-K": "Material Event", "10-Q": "Quarterly Earnings", "10-K": "Annual Report",
+        "4": "Insider Trading", "S-1": "Securities Offering", "S-3": "Shelf Registration",
+        "F-1": "Foreign Offering", "13G": "Institutional Stake", "13D": "Activist Stake",
+        "6-K": "Foreign Material Event"
+    }
 
-@st.cache_data(ttl=120)
-def fetch_micro_caps():
-    scan_list = [
-        "SOUN", "LUNR", "ACHR", "JOBY", "ASTS", "RGTI", "IONQ", "BOWL", 
-        "TPST", "CYBN", "HOLO", "MIGI", "BXRX", "CTNT", "RVSN"
-    ]
-    return core_scanner(scan_list, "eod_micro_cache.json")
+    # Dedup and sort
+    unique_movers = {}
+    for x in all_movers:
+        sym = x.get('symbol')
+        if sym and (sym not in unique_movers or x.get('changesPercentage', 0) > unique_movers[sym].get('changesPercentage', 0)):
+            unique_movers[sym] = x
+
+    reg_movers = sorted([v for v in unique_movers.values() if v['session'] == 'Regular'], key=lambda x: x.get('changesPercentage', 0), reverse=True)[:10]
+    pre_movers = sorted([v for v in unique_movers.values() if v['session'] == 'Pre-Market'], key=lambda x: x.get('changesPercentage', 0), reverse=True)[:8]
+    post_movers = sorted([v for v in unique_movers.values() if v['session'] == 'Post-Market'], key=lambda x: x.get('changesPercentage', 0), reverse=True)[:8]
+
+    final_targets = pre_movers + reg_movers + post_movers
+    tickers_to_fetch = [x['symbol'] for x in final_targets]
+    
+    if not tickers_to_fetch: return []
+
+    # Volume extraction
+    volumes = {}
+    for t in tickers_to_fetch:
+        try:
+            hist = yf.Ticker(t).history(period="5d", progress=False)
+            if not hist.empty and 'Volume' in hist.columns:
+                volumes[t] = hist['Volume']
+        except: pass
+
+    # Mass Catalyst Hydration via Benzinga
+    bz_map = {}
+    try:
+        bz_url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&symbols={','.join(tickers_to_fetch)}&limit=50"
+        bz_res = requests.get(bz_url, timeout=5)
+        if bz_res.status_code == 200:
+            for article in bz_res.json():
+                raw_text = article.get('teaser', '')
+                if not raw_text or len(raw_text) < 15: raw_text = article.get('title', '')
+                clean_text = re.sub(r'<[^>]+>', '', raw_text).strip()
+                for s in article.get('stocks', []):
+                    t = s.get('name')
+                    if t not in bz_map: bz_map[t] = clean_text
+    except: pass
+
+    for item in final_targets:
+        sym = item['symbol']
+        price = safe_float(item.get('price')) or 0.0
+        change = safe_float(item.get('changesPercentage')) or 0.0
+        sess = item['session']
+
+        vol_str, rvol = "N/A", 1.0
+        if sym in volumes:
+            v_series = volumes[sym].dropna()
+            if not v_series.empty:
+                vol = v_series.iloc[-1]
+                avg_vol = v_series.mean() or 1
+                rvol = vol / avg_vol
+                vol_str = f"{vol/1e6:.1f}M" if vol >= 1e6 else f"{vol/1e3:.0f}K"
+
+        # Check SEC
+        sec_tag = ""
+        try:
+            sec_url = f"https://financialmodelingprep.com/stable/sec-filings-search/symbol?symbol={sym}&page=0&limit=2&apikey={FMP_KEY}"
+            sec_res = requests.get(sec_url, timeout=2)
+            if sec_res.status_code == 200:
+                for filing in sec_res.json():
+                    date_str = filing.get('acceptedDate', '')[:10]
+                    if date_str:
+                        filing_date = datetime.strptime(date_str, '%Y-%m-%d')
+                        if (now_dt - filing_date).days <= 5:
+                            form_type = filing.get('formType', '')
+                            desc = sec_form_map.get(form_type, f"{form_type} Filing")
+                            sec_tag = f"[SEC {form_type}: {desc}] "
+                            break
+        except: pass
+
+        raw_cat = bz_map.get(sym, "Momentum Breakout / Volume Spike")
+        catalyst = raw_cat[:150] + "..." if len(raw_cat) > 150 else raw_cat
+
+        results.append({"ticker": sym, "price": price, "change": change, "session": sess, "vol": vol_str, "rvol": float(rvol), "catalyst": catalyst, "sec_tag": sec_tag})
+
+    if results:
+        with open(cache_file, 'w') as f: json.dump(results, f)
+            
+    return results
 
 @st.cache_data(ttl=120)
 def fetch_liquidity_basket():
@@ -342,8 +400,7 @@ def fetch_massive_data():
 # ==========================================
 macro_data = fetch_expanded_macro()
 sector_data = fetch_sector_flow()
-gappers_data = fetch_gappers()
-micro_cap_data = fetch_micro_caps()
+gappers_data = fetch_session_gappers()
 liquidity_data = fetch_liquidity_basket()
 institutional_flow = fetch_massive_data()
 
@@ -351,7 +408,7 @@ institutional_flow = fetch_massive_data()
 spx_pct = macro_data.get('S&P 500 (SPX)', {}).get('pct', 0.0) if not macro_data.get('S&P 500 (SPX)', {}).get('error') else 0.0
 vix_pct = macro_data.get('VIX', {}).get('pct', 0.0) if not macro_data.get('VIX', {}).get('error') else 0.0
 
-regime_text = "Neutral"
+regime_text = "Neutral / Mixed"
 regime_color = "#94a3b8"
 
 if spx_pct > 0.25 and vix_pct < 0:
@@ -378,9 +435,7 @@ st.markdown(f'<div class="hdr"><div><div class="wrap-title">Confluence Trading T
 st.markdown('<div class="block-container">', unsafe_allow_html=True)
 
 # --- 01 | SCORECARD ---
-scorecard_html = f'<div class="section-container"><div class="section-title">01 — Macro Scorecard</div><div class="inst-grid">'
-# Regime Card First
-scorecard_html += f'<div class="inst-card"><div class="inst-name">MARKET REGIME</div><div class="inst-level" style="color: {regime_color}; font-size: 20px; font-weight: 800; padding-top: 4px;">{regime_text}</div></div>'
+scorecard_html = f'<div class="section-container"><div class="section-title"><span>01 — Macro Scorecard</span><span style="font-size: 16px; color: {regime_color}; border: 1px solid {regime_color}40; padding: 4px 12px; border-radius: 6px;">Market Regime: {regime_text}</span></div><div class="inst-grid">'
 for name, m in macro_data.items():
     if m.get('error'):
         scorecard_html += f'<div class="inst-card"><div class="inst-name">{name}</div><div class="inst-level" style="font-size:14px; color:#f87171;">Error: {m["error"]}</div></div>'
@@ -392,15 +447,16 @@ for name, m in macro_data.items():
 scorecard_html += "</div></div>"
 st.markdown(scorecard_html, unsafe_allow_html=True)
 
-# --- 02 | MARKET DRIVERS (2-COLUMN GRID) ---
+# --- 02 | MARKET DRIVERS (WRAPPING) ---
 live_news = []
 try:
-    url = f"https://financialmodelingprep.com/stable/news/stock-latest?page=0&limit=20&apikey={FMP_KEY}"
+    url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=25&channels=News"
     res = requests.get(url, headers={"accept": "application/json"}, timeout=5)
     if res.status_code == 200:
         for n in res.json():
             title = n.get("title", "").replace(" — ...", "")
-            raw_text = n.get("text", "")
+            raw_text = n.get("teaser", "")
+            if not raw_text or len(raw_text) < 20: raw_text = n.get("body", "")
             
             teaser = re.sub(r'<[^>]+>', '', raw_text)
             teaser = re.sub(r'\s+', ' ', teaser).strip()
@@ -408,19 +464,19 @@ try:
             if not teaser or len(teaser) < 20 or teaser == title:
                 live_news.append({"title": title, "teaser": ""})
             else:
-                live_news.append({"title": title, "teaser": teaser[:200] + ("..." if len(teaser) > 200 else "")})
+                live_news.append({"title": title, "teaser": teaser[:350] + ("..." if len(teaser) > 350 else "")})
     else:
-        live_news.append({"title": "FMP API Error", "teaser": f"Status [{res.status_code}] - Check API key."})
+        live_news.append({"title": "API Error", "teaser": f"Status [{res.status_code}] - Check API key."})
 except Exception as e:
     live_news.append({"title": "News Feed Exception", "teaser": str(e)})
 
-news_html = '<div class="section-container"><div class="section-title">02 — Market Drivers & Catalysts</div><div class="news-grid">'
+news_html = '<div class="section-container"><div class="section-title">02 — Market Drivers & Catalysts</div>'
 for article in live_news[:8]:
-    news_html += f'<div class="news-card"><span class="news-title">{article["title"]}</span>'
     if article["teaser"]:
-        news_html += f'<span class="news-teaser">{article["teaser"]}</span>'
-    news_html += '</div>'
-news_html += "</div></div>"
+        news_html += f'<div class="item-row-wrap"><span style="font-weight: 400; color: #f1f5f9; padding-right: 12px; max-width: 45%;">{article["title"]}</span> <span class="sep">|</span> <span class="c-desc" style="flex: 1;">{article["teaser"]}</span></div>'
+    else:
+        news_html += f'<div class="item-row-wrap"><span style="font-weight: 400; color: #f1f5f9;">{article["title"]}</span></div>'
+news_html += "</div>"
 st.markdown(news_html, unsafe_allow_html=True)
 
 # --- 03 | SECTORS ---
@@ -432,25 +488,31 @@ for i, item in enumerate(sector_data):
         pct_color = "score-up" if item['pct'] >= 0 else "score-down"
         sign = "▲ +" if item['pct'] > 0 else "▼ " if item['pct'] < 0 else ""
         flow_color = "score-up" if item["flow"] == "Inflow" else "score-down"
-        heatmap_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-sec">({item["sector"]})</span><span class="sep">|</span><span class="c-pct {pct_color}">{sign}{item["pct"]:.2f}%</span><span class="sep">|</span><span class="c-flow {flow_color}">{item["flow"]}</span><span class="sep">—</span><span class="c-desc">Sector rotation tracking.</span></div>'
+        heatmap_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-sec">({item["sector"]})</span><span class="sep">|</span><span class="c-pct {pct_color}">{sign}{item["pct"]:.2f}%</span><span class="sep">|</span><span class="c-flow {flow_color}">Flow: {item["flow"]}</span></div>'
 heatmap_html += '</div>'
 st.markdown(heatmap_html, unsafe_allow_html=True)
 
-# --- 04 | MARKET MOVERS ---
-gappers_html = f'<div class="section-container"><div class="section-title">04 — Live Market Movers</div>'
+# --- 04 | MARKET MOVERS BY SESSION ---
+sessions = [("Pre-Market Movers", "Pre-Market", "nb-purple"), ("Regular Session Movers", "Regular", "nb-blue"), ("Post-Market Movers", "Post-Market", "nb-orange")]
+gappers_html = '<div class="section-container"><div class="section-title">04 — Live Market Movers</div>'
+
 if gappers_data and "global_error" in gappers_data[0]:
-    gappers_html += f'<div class="item-row"><span class="c-tckr">Error</span><span class="sep">|</span><span class="c-desc" style="color:#f87171;">Scanner Failed: {gappers_data[0]["global_error"]}</span></div>'
+    gappers_html += f"<div class='item-row'><span class='c-tckr'>Error</span><span class='sep'>|</span><span class='c-desc' style='color:#f87171;'>API Sync Failed: {gappers_data[0]['global_error']}</span></div>"
 else:
-    gappers_html += f'<div class="nb-badge nb-blue" style="margin-bottom:16px;">Momentum Scanner (Beta Basket)</div>'
-    if gappers_data:
-        for item in gappers_data[:10]:
-            rvol_val = safe_float(item.get('rvol')) or 1.0
-            pct_color = "score-up" if item["change"] >= 0 else "score-down"
-            sign = "▲ +" if item["change"] >= 0 else "▼ "
-            sec_tag_html = f'<span class="c-sec-tag">{item["sec_tag"]}</span>' if item.get('sec_tag') else ''
-            gappers_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-prc">${item["price"]:.2f}</span><span class="sep">|</span><span class="c-pct {pct_color}">{sign}{item["change"]:.2f}%</span><span class="sep">|</span><span class="c-vol">Vol: {item.get("vol", "")}</span><span class="sep">|</span><span class="c-rvol">RVOL: {rvol_val:.1f}x</span><span class="sep">—</span><span class="c-desc">{sec_tag_html}{item.get("catalyst")}</span></div>'
-    else:
-        gappers_html += f'<div class="item-row"><span class="c-tckr">Status</span><span class="sep">|</span><span class="c-desc">No significant momentum in tracked basket.</span></div>'
+    for title, sess_key, badge in sessions:
+        sess_data = [x for x in gappers_data if x.get('session') == sess_key]
+        if sess_data:
+            gappers_html += f'<div class="nb-badge {badge}">{title}</div>'
+            for item in sorted(sess_data, key=lambda x: abs(x.get('change', 0)), reverse=True):
+                rvol_val = safe_float(item.get('rvol')) or 1.0
+                pct_color = "score-up" if item["change"] >= 0 else "score-down"
+                sign = "▲ +" if item["change"] >= 0 else "▼ "
+                sec_tag_html = f'<span class="c-sec-tag">{item["sec_tag"]}</span>' if item.get('sec_tag') else ''
+                gappers_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-prc">${item["price"]:.2f}</span><span class="sep">|</span><span class="c-pct {pct_color}">{sign}{item["change"]:.2f}%</span><span class="sep">|</span><span class="c-vol">Vol: {item.get("vol", "")}</span><span class="sep">|</span><span class="c-rvol">RVOL: {rvol_val:.1f}x</span><span class="sep">—</span><span class="c-desc">{sec_tag_html}{item.get("catalyst")}</span></div>'
+
+    if not [x for x in gappers_data if x.get('session') in ['Pre-Market', 'Regular', 'Post-Market']]:
+         gappers_html += "<div class='item-row'><span class='c-desc'>Awaiting session market data...</span></div>"
+
 gappers_html += '</div>'
 st.markdown(gappers_html, unsafe_allow_html=True)
 
@@ -480,26 +542,8 @@ for item in liquidity_data:
 play_html += '</div>'
 st.markdown(play_html, unsafe_allow_html=True)
 
-# --- 07 | MICRO-CAP WATCHLIST ---
-micro_html = f'<div class="section-container"><div class="section-title">07 — Micro-Cap / High-Beta Watchlist</div>'
-if micro_cap_data and "global_error" in micro_cap_data[0]:
-    micro_html += f'<div class="item-row"><span class="c-tckr">Error</span><span class="sep">|</span><span class="c-desc" style="color:#f87171;">Scanner Failed: {micro_cap_data[0]["global_error"]}</span></div>'
-else:
-    micro_html += f'<div class="nb-badge nb-blue" style="margin-bottom:16px;">Low-Float / High-Volatility Scanner</div>'
-    if micro_cap_data:
-        for item in micro_cap_data[:8]:
-            rvol_val = safe_float(item.get('rvol')) or 1.0
-            pct_color = "score-up" if item["change"] >= 0 else "score-down"
-            sign = "▲ +" if item["change"] >= 0 else "▼ "
-            sec_tag_html = f'<span class="c-sec-tag">{item["sec_tag"]}</span>' if item.get('sec_tag') else ''
-            micro_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-prc">${item["price"]:.2f}</span><span class="sep">|</span><span class="c-pct {pct_color}">{sign}{item["change"]:.2f}%</span><span class="sep">|</span><span class="c-vol">Vol: {item.get("vol", "")}</span><span class="sep">|</span><span class="c-rvol">RVOL: {rvol_val:.1f}x</span><span class="sep">—</span><span class="c-desc">{sec_tag_html}{item.get("catalyst")}</span></div>'
-    else:
-        micro_html += f'<div class="item-row"><span class="c-tckr">Status</span><span class="sep">|</span><span class="c-desc">No significant momentum in tracked micro-cap basket.</span></div>'
-micro_html += '</div>'
-st.markdown(micro_html, unsafe_allow_html=True)
-
-# --- 08 | ECONOMIC CALENDAR ---
-econ_html = f'<div class="section-container"><div class="section-title">08 — Economic Calendar (Week Ahead)</div>'
+# --- 07 | ECONOMIC CALENDAR ---
+econ_html = f'<div class="section-container"><div class="section-title">07 — Economic Calendar (Week Ahead)</div>'
 events = [
     ("May 26", "S&P/Case-Shiller Home Price", "Med", "#7dd3fc"),
     ("May 27", "CFTC Soybeans / Grains Report", "High", "#f87171"),
@@ -511,33 +555,32 @@ for date, event, imp, col in events:
 econ_html += '</div>'
 st.markdown(econ_html, unsafe_allow_html=True)
 
-# --- 09 | TECHNICAL PICTURE ---
+# --- 08 | TECHNICAL PICTURE ---
 st.markdown(f"""
 <div class="section-container">
-<div class="section-title">09 — Technical Picture & Action Plan</div>
-<div class="item-row"><span class="c-strk" style="font-weight:800;">SPX Levels</span><span class="sep">|</span><span class="c-strk">Target: 7,300–7,375</span><span class="sep">|</span><span class="c-strk">Support: 7,000 ➔ 6,780</span><span class="sep">—</span><span class="c-desc" style="color:#818cf8;">Action ➔ Look for dip-buying at 7,000.</span></div>
-<div class="item-row"><span class="c-strk" style="font-weight:800;">Volatility (VIX)</span><span class="sep">|</span><span class="c-strk">Level: ~19.10</span><span class="sep">|</span><span class="c-strk">Context: Entering "Normal" regime.</span><span class="sep">—</span><span class="c-desc" style="color:#818cf8;">Action ➔ Premium selling favored.</span></div>
+<div class="section-title">08 — Technical Picture & Action Plan</div>
+<div class="item-row-wrap"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">SPX Levels</span><span class="sep">|</span><span class="c-prc" style="width: auto; padding-right: 12px;">Target: 7,300–7,375</span><span class="sep">|</span><span class="c-prc" style="width: auto; padding-right: 12px;">Support: 7,000 ➔ 6,780</span><span class="sep">—</span><span class="c-desc" style="color:#818cf8; flex: 1;">Action ➔ Look for dip-buying at 7,000.</span></div>
+<div class="item-row-wrap"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">Volatility (VIX)</span><span class="sep">|</span><span class="c-prc" style="width: auto; padding-right: 12px;">Level: ~19.10</span><span class="sep">|</span><span class="c-prc" style="width: auto; padding-right: 12px;">Context: Entering "Normal" regime.</span><span class="sep">—</span><span class="c-desc" style="color:#818cf8; flex: 1;">Action ➔ Premium selling favored.</span></div>
 </div>
 """, unsafe_allow_html=True)
 
-# --- 10 | WATCHLIST ---
+# --- 09 | WATCHLIST ---
 st.markdown(f"""
 <div class="section-container">
-<div class="section-title">10 — Trading Watchlist</div>
-<div class="item-row"><span class="c-tckr">NVDA</span><span class="c-sec">(Institutional Flow)</span><span class="sep">—</span><span class="c-desc">Massive institutional buy-side pressure remains. Watch for a test of new ATH territory.</span></div>
-<div class="item-row"><span class="c-tckr">TSLA</span><span class="c-sec">(Catalyst Play)</span><span class="sep">—</span><span class="c-desc">Structural rally in progress. Looking for $220 to act as a launchpad for the next leg.</span></div>
+<div class="section-title">09 — Trading Watchlist</div>
+<div class="item-row-wrap"><span class="c-tckr">NVDA</span><span class="c-sec">(Institutional Flow)</span><span class="sep">—</span><span class="c-desc" style="flex: 1;">Massive institutional buy-side pressure remains. Watch for a test of new ATH territory.</span></div>
+<div class="item-row-wrap"><span class="c-tckr">TSLA</span><span class="c-sec">(Catalyst Play)</span><span class="sep">—</span><span class="c-desc" style="flex: 1;">Structural rally in progress. Looking for $220 to act as a launchpad for the next leg.</span></div>
 </div>
 """, unsafe_allow_html=True)
 
-# --- 11 | MASSIVE API INTEGRATION ---
-massive_html = f'<div class="section-container"><div class="section-title">11 — Institutional Options Flow (Massive API)</div>'
+# --- 10 | MASSIVE API INTEGRATION ---
+massive_html = f'<div class="section-container"><div class="section-title">10 — Institutional Options Flow (Massive API)</div>'
 for flow in institutional_flow:
     massive_html += f'<div class="item-row"><span class="c-tckr">{flow["ticker"]}</span><span class="c-type">({flow["type"]})</span><span class="sep">|</span><span class="c-strk">{flow["strike"]} — {flow["exp"]}</span><span class="sep">|</span><span class="c-prem">Prem: {flow["prem"]}</span><span class="sep">|</span><span class="c-sent">Sentiment: <span style="color:{flow["color"]};">{flow["sentiment"]}</span></span></div>'
 massive_html += "</div>"
 st.markdown(massive_html, unsafe_allow_html=True)
 
-# --- 12 | DYNAMIC MARKET SUMMARY ---
-spx_pct = macro_data.get('S&P 500 (SPX)', {}).get('pct', 0.0) if not macro_data.get('S&P 500 (SPX)', {}).get('error') else 0.0
+# --- 11 | DYNAMIC MARKET SUMMARY ---
 top_sector = sector_data[0]['sector'] if sector_data and not sector_data[0].get('error') else "Technology"
 top_gapper = gappers_data[0]['ticker'] if gappers_data and "global_error" not in gappers_data[0] else "N/A"
 top_gapper_change = gappers_data[0].get('change', 0.0) if gappers_data and "global_error" not in gappers_data[0] else 0.0
@@ -546,10 +589,10 @@ display_status = "The market is currently open and trading." if market_status ==
 
 summary_text = f"""
 <div class="section-container">
-<div class="section-title">12 — Market Summary</div>
-<div class="item-row"><span class="c-strk" style="font-weight:800;">Market Status</span><span class="sep">—</span><span class="c-desc">{display_status}</span></div>
-<div class="item-row"><span class="c-strk" style="font-weight:800;">Action Summary</span><span class="sep">—</span><span class="c-desc">Heading into the next session, the broader market is {'pushing higher' if spx_pct > 0 else 'showing weakness'} with the S&P 500 at {spx_pct:+.2f}%. Sector rotation favors {top_sector}, while speculative money is concentrated in names like {top_gapper} ({top_gapper_change:+.1f}%). With the VIX hovering near ~19.10, the environment remains constructive but warrants selectivity.</span></div>
-<div class="item-row"><span class="c-strk" style="font-weight:800;">Closing Posture</span><span class="sep">—</span><span class="c-desc">Remain focused on relative strength. Watch the SPX 7,000 level closely for structural support. See you at the open. 📈</span></div>
+<div class="section-title">11 — Market Summary</div>
+<div class="item-row-wrap"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">Market Status</span><span class="sep">—</span><span class="c-desc" style="flex: 1;">{display_status}</span></div>
+<div class="item-row-wrap"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">Action Summary</span><span class="sep">—</span><span class="c-desc" style="flex: 1;">Heading into the next session, the broader market is {'pushing higher' if spx_pct > 0 else 'showing weakness'} with the S&P 500 at {spx_pct:+.2f}%. Sector rotation favors {top_sector}, while speculative money is concentrated in names like {top_gapper} ({top_gapper_change:+.1f}%). With the VIX hovering near ~19.10, the environment remains constructive but warrants selectivity.</span></div>
+<div class="item-row-wrap"><span class="c-strk" style="width: auto; padding-right: 12px; font-weight:800;">Closing Posture</span><span class="sep">—</span><span class="c-desc" style="flex: 1;">Remain focused on relative strength. Watch the SPX 7,000 level closely for structural support. See you at the open. 📈</span></div>
 </div>
 """
 st.markdown(summary_text, unsafe_allow_html=True)
