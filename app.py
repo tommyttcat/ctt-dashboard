@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # ==========================================
 # CONFIGURATION & THEME
@@ -29,7 +29,6 @@ st.markdown("""
         font-size: 0.85rem;
         font-weight: 600;
         letter-spacing: 1px;
-        text-transform: uppercase;
         margin-top: 30px;
         margin-bottom: 15px;
         border-bottom: 1px solid #1e2634;
@@ -50,7 +49,7 @@ st.markdown("""
         padding: 15px;
         text-align: center;
     }
-    .card-title { font-size: 0.75rem; color: #8b9eb7; font-weight: 700; margin-bottom: 5px; text-transform: uppercase; }
+    .card-title { font-size: 0.75rem; color: #8b9eb7; font-weight: 700; margin-bottom: 5px; }
     .card-value { font-size: 1.25rem; color: #ffffff; font-weight: 700; margin-bottom: 3px; }
     .text-green { color: #00d26a !important; font-size: 0.8rem; font-weight: 600; }
     .text-red { color: #f94144 !important; font-size: 0.8rem; font-weight: 600; }
@@ -70,7 +69,6 @@ st.markdown("""
         font-size: 0.75rem;
         color: #8b9eb7;
         border-bottom: 1px solid #1e2634;
-        text-transform: uppercase;
     }
     .custom-table td {
         padding: 12px;
@@ -107,7 +105,6 @@ AV_KEY = "JDYOYHLL40FDFOUK"
 # ==========================================
 @st.cache_data(ttl=60)
 def fetch_quotes(symbols):
-    """Fetches multiple quotes in one call. Use proper FMP index tickers (e.g., ^GSPC for SP500)."""
     try:
         url = f"https://financialmodelingprep.com/api/v3/quote/{','.join(symbols)}?apikey={FMP_KEY}"
         res = requests.get(url)
@@ -159,18 +156,15 @@ def format_price(val):
 st.markdown("<h2 style='color: white; margin-bottom: 0;'>Post-Market Wrap</h2>", unsafe_allow_html=True)
 st.markdown(f"<p style='color: #8b9eb7; font-size: 0.9rem;'>{datetime.today().strftime('%A — %B %d, %Y')}</p>", unsafe_allow_html=True)
 
-# --- 01 CLOSING SCORECARD ---
-st.markdown("<div class='section-header'>01 — CLOSING SCORECARD</div>", unsafe_allow_html=True)
+# --- 01 Closing Scorecard ---
+st.markdown("<div class='section-header'>01 — Closing Scorecard</div>", unsafe_allow_html=True)
 
-# Define tickers (Indices, commodities, crypto)
-# FMP uses ^GSPC (SPX), ^NDX (NDX), ^DJI (Dow), ^RUT (Russell)
-scorecard_tickers = ['^GSPC', '^NDX', '^DJI', '^RUT', '^VIX', 'USO', 'GLD', 'BTCUSD']
+scorecard_tickers = ['SPY', 'QQQ', 'DIA', 'IWM', 'VIXY', 'USO', 'GLD', 'BTCUSD']
 quotes = fetch_quotes(scorecard_tickers)
 
-# Map API results to clean display names
 display_map = {
-    '^GSPC': 'SPX', '^NDX': 'NDX', '^DJI': 'DJIA', '^RUT': 'RUT',
-    '^VIX': 'VIX', 'USO': 'WTI (Prox)', 'GLD': 'GOLD (Prox)', 'BTCUSD': 'BTC'
+    'SPY': 'SPX (Proxy)', 'QQQ': 'NDX (Proxy)', 'DIA': 'DJIA (Proxy)', 'IWM': 'RUT (Proxy)',
+    'VIXY': 'VIX (Proxy)', 'USO': 'WTI (Proxy)', 'GLD': 'GOLD (Proxy)', 'BTCUSD': 'BTC'
 }
 
 html_cards = "<div class='grid-container'>"
@@ -179,36 +173,33 @@ for ticker, display_name in display_map.items():
     price = data.get('price')
     change = data.get('changesPercentage')
     
-    html_cards += f"""
-    <div class='card'>
-        <div class='card-title'>{display_name}</div>
-        <div class='card-value'>{format_price(price)}</div>
-        <div>{format_delta(change)}</div>
-    </div>
-    """
+    html_cards += f"<div class='card'><div class='card-title'>{display_name}</div><div class='card-value'>{format_price(price)}</div><div>{format_delta(change)}</div></div>"
+
 html_cards += "</div>"
 st.markdown(html_cards, unsafe_allow_html=True)
 
-# --- 02 TOP MOVERS ---
-st.markdown("<div class='section-header'>02 — TOP MOVERS</div>", unsafe_allow_html=True)
+
+# --- 02 Top Movers ---
+st.markdown("<div class='section-header'>02 — Top Movers</div>", unsafe_allow_html=True)
 
 gainers = fetch_fmp_market_movers("gainers")
 losers = fetch_fmp_market_movers("losers")
 
 html_movers = "<table class='custom-table'><tr><th>Ticker</th><th>%</th><th>Close</th><th>Name / Catalyst</th></tr>"
-html_movers += "<tr><td colspan='4' style='color:#00d26a; font-size:0.7rem; font-weight:bold;'>▲ GAINERS</td></tr>"
+html_movers += "<tr><td colspan='4' style='color:#00d26a; font-size:0.7rem; font-weight:bold;'>▲ Top Gainers</td></tr>"
 for g in gainers:
     html_movers += f"<tr><td><a href='#' class='ticker-link'>{g.get('symbol')}</a></td><td class='text-green'>+{g.get('changesPercentage', 0):.2f}%</td><td>${g.get('price', 0):.2f}</td><td style='color:#8b9eb7; font-size:0.8rem;'>{g.get('name', '')[:40]}</td></tr>"
 
-html_movers += "<tr><td colspan='4' style='color:#f94144; font-size:0.7rem; font-weight:bold; border-top: 1px solid #1e2634; padding-top: 15px;'>▼ LOSERS</td></tr>"
+html_movers += "<tr><td colspan='4' style='color:#f94144; font-size:0.7rem; font-weight:bold; border-top: 1px solid #1e2634; padding-top: 15px;'>▼ Top Losers</td></tr>"
 for l in losers:
     html_movers += f"<tr><td><a href='#' class='ticker-link'>{l.get('symbol')}</a></td><td class='text-red'>{l.get('changesPercentage', 0):.2f}%</td><td>${l.get('price', 0):.2f}</td><td style='color:#8b9eb7; font-size:0.8rem;'>{l.get('name', '')[:40]}</td></tr>"
 html_movers += "</table>"
 
 st.markdown(html_movers, unsafe_allow_html=True)
 
-# --- 03 NEWS & CATALYSTS ---
-st.markdown("<div class='section-header'>03 — NEWS DRIVERS & CATALYSTS</div>", unsafe_allow_html=True)
+
+# --- 03 News & Catalysts ---
+st.markdown("<div class='section-header'>03 — News Drivers & Catalysts</div>", unsafe_allow_html=True)
 news = fetch_benzinga_news()
 
 if news:
@@ -216,32 +207,32 @@ if news:
     for item in news:
         syms = ", ".join([s['symbol'] for s in item.get('stocks', [])])
         title = item.get('title', '')
-        html_news += f"<tr><td style='width: 80px;'><span style='background:#362f6b; color:#b392f0; padding:3px 6px; border-radius:4px; font-size:0.7rem;'>{syms if syms else 'NEWS'}</span></td><td><b style='color:#e2e8f0;'>{title}</b></td></tr>"
+        html_news += f"<tr><td style='width: 80px;'><span style='background:#362f6b; color:#b392f0; padding:3px 6px; border-radius:4px; font-size:0.7rem;'>{syms if syms else 'News'}</span></td><td><b style='color:#e2e8f0;'>{title}</b></td></tr>"
     html_news += "</table>"
     st.markdown(html_news, unsafe_allow_html=True)
 else:
     st.markdown("<div style='color:#8b9eb7; font-size: 0.85rem;'>No recent catalysts found or API limit reached.</div>", unsafe_allow_html=True)
 
 
-# --- 04 WATCHLIST & STOCKS IN PLAY ---
-st.markdown("<div class='section-header'>04 — WATCH LIST</div>", unsafe_allow_html=True)
-# Hardcoded to mimic the user's specific workflow in the screenshots
-html_watch = """
-<table class='custom-table'>
-    <tr><th>Ticker</th><th>Close</th><th>Key Level</th><th>Catalyst / Thesis</th><th>Bias</th></tr>
-    <tr><td><a href='#' class='ticker-link'>INTC</a></td><td>$83.55</td><td>Hold $80 / fade $86</td><td style='color:#8b9eb7; font-size:0.8rem;'>Post-blowout continuation into PT hikes</td><td class='text-green'>LONG</td></tr>
-    <tr><td><a href='#' class='ticker-link'>MXL</a></td><td>$62.25</td><td>$58 base</td><td style='color:#8b9eb7; font-size:0.8rem;'>Momentum stall zone; watch exhaustion</td><td style='color:#f6ad55; font-weight:bold; font-size:0.8rem;'>RANGE</td></tr>
-    <tr><td><a href='#' class='ticker-link'>XLE</a></td><td>—</td><td>Break $90 WTI</td><td style='color:#8b9eb7; font-size:0.8rem;'>Short — majors faded on strong crude</td><td class='text-red'>SHORT</td></tr>
-</table>
-"""
+# --- 04 Watch List ---
+st.markdown("<div class='section-header'>04 — Watch List</div>", unsafe_allow_html=True)
+
+html_watch = "<table class='custom-table'>"
+html_watch += "<tr><th>Ticker</th><th>Close</th><th>Key Level</th><th>Catalyst / Thesis</th><th>Bias</th></tr>"
+html_watch += "<tr><td><a href='#' class='ticker-link'>INTC</a></td><td>$83.55</td><td>Hold $80 / fade $86</td><td style='color:#8b9eb7; font-size:0.8rem;'>Post-blowout continuation into PT hikes</td><td class='text-green'>Long</td></tr>"
+html_watch += "<tr><td><a href='#' class='ticker-link'>MXL</a></td><td>$62.25</td><td>$58 base</td><td style='color:#8b9eb7; font-size:0.8rem;'>Momentum stall zone; watch exhaustion</td><td style='color:#f6ad55; font-weight:bold; font-size:0.8rem;'>Range</td></tr>"
+html_watch += "<tr><td><a href='#' class='ticker-link'>XLE</a></td><td>—</td><td>Break $90 WTI</td><td style='color:#8b9eb7; font-size:0.8rem;'>Short — majors faded on strong crude</td><td class='text-red'>Short</td></tr>"
+html_watch += "</table>"
+
 st.markdown(html_watch, unsafe_allow_html=True)
 
 
-# --- 05 EDITOR'S NOTE ---
-st.markdown("<div class='section-header'>05 — EDITOR'S AFTERNOON NOTE</div>", unsafe_allow_html=True)
-st.markdown("""
-<div class='editor-note'>
-    Two headline sets drove the tape: <b>Intel's Q1 blowout</b> shifted the capex-beneficiary trade from NVDA to a broader bench, and the <b>DOJ shelving the Powell probe</b> removed a tail-risk premium.<br><br>
-    <b>CLOSING POSTURE:</b> Tactical long into Monday with semis & AI-optics; pair-trade the energy/healthcare weakness against tech strength; trim Weds AM ahead of mega-cap AMC event risk.
-</div>
-""", unsafe_allow_html=True)
+# --- 05 Editor's Note ---
+st.markdown("<div class='section-header'>05 — Editor's Afternoon Note</div>", unsafe_allow_html=True)
+
+html_note = "<div class='editor-note'>"
+html_note += "Two headline sets drove the tape: <b>Intel's Q1 blowout</b> shifted the capex-beneficiary trade from NVDA to a broader bench, and the <b>DOJ shelving the Powell probe</b> removed a tail-risk premium.<br><br>"
+html_note += "<b>Closing posture:</b> Tactical long into Monday with semis & AI-optics; pair-trade the energy/healthcare weakness against tech strength; trim Weds AM ahead of mega-cap AMC event risk."
+html_note += "</div>"
+
+st.markdown(html_note, unsafe_allow_html=True)
