@@ -120,7 +120,7 @@ else:
     status_class = "badge-live"
 
 # ==========================================
-# 3. DATA ENGINES (WITH EOD SNAPSHOT CACHING)
+# 3. DATA ENGINES (WITH BULLETPROOF ERROR HANDLING)
 # ==========================================
 def get_last_price_change(ticker):
     try:
@@ -152,24 +152,28 @@ def fetch_sector_flow():
 def fetch_gappers():
     results = []
     cache_file = "eod_gappers_cache.json"
+    all_gainers = []
     
     try:
-        g_reg = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey={FMP_KEY}").json()
-        g_pre = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/pre-market-gainers?apikey={FMP_KEY}").json()
-        g_post = requests.get(f"https://financialmodelingprep.com/api/v3/stock_market/post-market-gainers?apikey={FMP_KEY}").json()
-
-        all_gainers = []
-        if isinstance(g_reg, list):
-            for x in g_reg: x['session'] = 'Regular'; all_gainers.append(x)
-        if isinstance(g_pre, list):
-            for x in g_pre: x['session'] = 'Pre-Market'; all_gainers.append(x)
-        if isinstance(g_post, list):
-            for x in g_post: x['session'] = 'Post-Market'; all_gainers.append(x)
+        endpoints = [
+            ("Regular", f"https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey={FMP_KEY}"),
+            ("Pre-Market", f"https://financialmodelingprep.com/api/v3/stock_market/pre-market-gainers?apikey={FMP_KEY}"),
+            ("Post-Market", f"https://financialmodelingprep.com/api/v3/stock_market/post-market-gainers?apikey={FMP_KEY}")
+        ]
+        
+        for sess, url in endpoints:
+            try:
+                r = requests.get(url, timeout=5)
+                if r.status_code == 200 and isinstance(r.json(), list):
+                    for x in r.json():
+                        x['session'] = sess
+                        all_gainers.append(x)
+            except Exception as e:
+                print(f"FMP {sess} Error: {e}")
 
         if not all_gainers:
             if os.path.exists(cache_file):
-                with open(cache_file, 'r') as f:
-                    return json.load(f)
+                with open(cache_file, 'r') as f: return json.load(f)
             return []
 
         unique_movers = {}
@@ -187,17 +191,24 @@ def fetch_gappers():
 
         if not tickers_to_fetch: return []
 
-        yf_data = yf.download(tickers_to_fetch, period="10d", progress=False)
-        volumes = yf_data['Volume'] if 'Volume' in yf_data else pd.DataFrame()
+        # Bulletproof yfinance history fetch (avoids MultiIndex DataFrame crash)
+        volumes = {}
+        for t in tickers_to_fetch:
+            try:
+                hist = yf.Ticker(t).history(period="10d", progress=False)
+                if not hist.empty and 'Volume' in hist.columns:
+                    volumes[t] = hist['Volume']
+            except: pass
 
         bz_map = {}
         try:
             bz_url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&symbols={','.join(tickers_to_fetch)}&limit=50"
-            bz_res = requests.get(bz_url).json()
-            for article in bz_res:
-                for sym_data in article.get('stocks', []):
-                    t = sym_data.get('name')
-                    if t not in bz_map: bz_map[t] = article.get('title', 'Momentum Breakout')
+            bz_res = requests.get(bz_url, timeout=5)
+            if bz_res.status_code == 200:
+                for article in bz_res.json():
+                    for sym_data in article.get('stocks', []):
+                        t = sym_data.get('name')
+                        if t not in bz_map: bz_map[t] = article.get('title', 'Momentum Breakout')
         except: pass
 
         for item in final_targets:
@@ -207,7 +218,7 @@ def fetch_gappers():
             sess = item['session']
 
             vol_str, dol_vol_str, rvol = "N/A", "N/A", 1.0
-            if sym in volumes.columns:
+            if sym in volumes:
                 v_series = volumes[sym].dropna()
                 if not v_series.empty:
                     vol = v_series.iloc[-1]
@@ -229,10 +240,10 @@ def fetch_gappers():
                 json.dump(final_result, f)
                 
         return final_result
-    except Exception as e: 
+    except Exception as e:
+        print(f"Master Gapper Exception: {e}")
         if os.path.exists(cache_file):
-            with open(cache_file, 'r') as f:
-                return json.load(f)
+            with open(cache_file, 'r') as f: return json.load(f)
         return []
 
 @st.cache_data(ttl=120)
@@ -295,15 +306,17 @@ st.markdown(scorecard_html, unsafe_allow_html=True)
 live_news = []
 try:
     url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=25&channels=News"
-    res = requests.get(url, headers={"accept": "application/json"}).json()
-    for n in res:
-        title = n.get("title", "").replace(" — ...", "")
-        teaser = re.sub(r'<[^>]+>', '', n.get("teaser", "") if len(n.get("teaser", "")) > 15 else n.get("body", ""))
-        live_news.append({"title": title, "teaser": teaser[:250] + "..."})
-except: pass
-
-if not live_news:
-    live_news = [{"title": "Market Data Sync Pending", "teaser": "Awaiting Benzinga headline feed connection..."}]
+    res = requests.get(url, headers={"accept": "application/json"}, timeout=5)
+    if res.status_code == 200:
+        for n in res.json():
+            title = n.get("title", "").replace(" — ...", "")
+            body_text = n.get("teaser", "") or n.get("body", "")
+            teaser = re.sub(r'<[^>]+>', '', body_text)
+            live_news.append({"title": title, "teaser": teaser[:250] + "..."})
+    else:
+        live_news.append({"title": f"Benzinga API Error [{res.status_code}]", "teaser": "Authentication or endpoint failure. Check API key."})
+except Exception as e:
+    live_news.append({"title": "News Feed Connection Timeout", "teaser": str(e)})
 
 news_html = '<div class="section-container"><div class="section-title">02 — Market Drivers & Catalysts</div>'
 for article in live_news[:8]:
@@ -335,7 +348,7 @@ for title, sess_key, badge in sessions:
             r_txt = f"{rvol_val:.1f}x"
             gappers_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item["price"]:.2f}</span> <span class="sep">|</span> <span class="up-pct">▲ +{item["change"]:.2f}%</span> <span class="sep">|</span> Vol: <span class="val">{item.get("vol", "")}</span> <span class="sep">|</span> RVOL: <span class="val">{r_txt}</span></div><div class="item-bot">{item.get("catalyst")}</div></div>'
     else:
-        gappers_html += "<div class='item-card'><div class='item-bot'>Awaiting session market data...</div></div>"
+        gappers_html += "<div class='item-card'><div class='item-bot'>Awaiting session market data (or FMP API Error). Check cache or keys.</div></div>"
 gappers_html += '</div>'
 st.markdown(gappers_html, unsafe_allow_html=True)
 
@@ -347,7 +360,7 @@ if gappers_data:
         r_txt = f"{rvol_val:.1f}x"
         sips_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item["price"]:.2f}</span> <span class="sep">|</span> <span class="up-pct">▲ +{item["change"]:.2f}%</span> <span class="sep">|</span> Vol: <span class="val">{item.get("vol", "")}</span> <span class="sep">|</span> RVOL: <span class="val">{r_txt}</span></div><div class="item-bot">{item.get("catalyst")}</div></div>'
 else:
-    sips_html += "<div class='item-card'><div class='item-bot'>Awaiting live market data...</div></div>"
+    sips_html += "<div class='item-card'><div class='item-bot'>Awaiting live market data (or FMP API Error).</div></div>"
 sips_html += '</div>'
 st.markdown(sips_html, unsafe_allow_html=True)
 
@@ -416,7 +429,6 @@ top_sector = sector_data[0]['sector'] if sector_data else "Technology"
 top_gapper = gappers_data[0]['ticker'] if gappers_data else "N/A"
 top_gapper_change = gappers_data[0]['change'] if gappers_data else 0.0
 
-# Dynamic status injection
 display_status = "The market is currently open and trading." if market_status == "Market Open" else market_status
 
 summary_text = f"""
