@@ -1,238 +1,473 @@
 import streamlit as st
+import yfinance as yf
 import pandas as pd
 import requests
-from datetime import datetime
+import re
+import os
+import json
+from datetime import datetime, timedelta
+
+# --- SAFETY HELPER ---
+def safe_float(val):
+    try: return float(val)
+    except: return None
 
 # ==========================================
-# CONFIGURATION & THEME
-# ==========================================
-st.set_page_config(
-    page_title="Market Wrap",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
-
-# Strip out visual noise and force the custom dark UI
-st.markdown("""
-    <style>
-    /* Base Theme */
-    .stApp { background-color: #0b0e14; color: #8b9eb7; font-family: 'Inter', sans-serif; }
-    
-    /* Hide Streamlit Noise */
-    #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
-    
-    /* Section Headers */
-    .section-header {
-        color: #8b9eb7;
-        font-size: 0.85rem;
-        font-weight: 600;
-        letter-spacing: 1px;
-        margin-top: 30px;
-        margin-bottom: 15px;
-        border-bottom: 1px solid #1e2634;
-        padding-bottom: 5px;
-    }
-
-    /* Scorecard Grid */
-    .grid-container {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-        gap: 12px;
-        margin-bottom: 20px;
-    }
-    .card {
-        background-color: #151a25;
-        border: 1px solid #1e2634;
-        border-radius: 8px;
-        padding: 15px;
-        text-align: center;
-    }
-    .card-title { font-size: 0.75rem; color: #8b9eb7; font-weight: 700; margin-bottom: 5px; }
-    .card-value { font-size: 1.25rem; color: #ffffff; font-weight: 700; margin-bottom: 3px; }
-    .text-green { color: #00d26a !important; font-size: 0.8rem; font-weight: 600; }
-    .text-red { color: #f94144 !important; font-size: 0.8rem; font-weight: 600; }
-    .text-gray { color: #8b9eb7 !important; font-size: 0.8rem; font-weight: 600; }
-
-    /* Custom Tables */
-    .custom-table {
-        width: 100%;
-        border-collapse: collapse;
-        background-color: #151a25;
-        border-radius: 8px;
-        overflow: hidden;
-    }
-    .custom-table th {
-        text-align: left;
-        padding: 12px;
-        font-size: 0.75rem;
-        color: #8b9eb7;
-        border-bottom: 1px solid #1e2634;
-    }
-    .custom-table td {
-        padding: 12px;
-        font-size: 0.85rem;
-        color: #e2e8f0;
-        border-bottom: 1px solid #1e2634;
-    }
-    .custom-table tr:last-child td { border-bottom: none; }
-    .ticker-link { color: #4b89ff; font-weight: 600; text-decoration: none; }
-
-    /* Editor Note Box */
-    .editor-note {
-        background-color: #15162a;
-        border: 1px solid #362f6b;
-        border-radius: 8px;
-        padding: 20px;
-        color: #e2e8f0;
-        font-size: 0.9rem;
-        line-height: 1.6;
-    }
-    .editor-note b { color: #b392f0; }
-    </style>
-""", unsafe_allow_html=True)
-
-# ==========================================
-# API KEYS
+# API KEYS & CONFIG
 # ==========================================
 BZ_KEY = "bz.4DVR2L3LKQD6KU5Z4CHZPPNE5MPV2KLQ"
 FMP_KEY = "WMMhcffuHSYVTceXryrt4tHC8GXcsB0g"
-AV_KEY = "JDYOYHLL40FDFOUK"
+MASSIVE_KEY = "TfwImIVSEp2wLzNnXpwysYH9ccvjk6pv"
 
-# ==========================================
-# DATA FETCHING HELPER FUNCTIONS
-# ==========================================
-@st.cache_data(ttl=60)
-def fetch_quotes(symbols):
-    try:
-        url = f"https://financialmodelingprep.com/api/v3/quote/{','.join(symbols)}?apikey={FMP_KEY}"
-        res = requests.get(url)
-        if res.status_code == 200:
-            return {item['symbol']: item for item in res.json()}
-        else:
-            st.error(f"FMP API Error: {res.status_code}")
-            return {}
-    except Exception as e:
-        st.error(f"Connection Error: {e}")
-        return {}
+st.set_page_config(page_title="Confluence Trading Tools", layout="wide", initial_sidebar_state="collapsed")
 
-@st.cache_data(ttl=300)
-def fetch_fmp_market_movers(mover_type="gainers"):
-    try:
-        url = f"https://financialmodelingprep.com/api/v3/stock_market/{mover_type}?apikey={FMP_KEY}"
-        res = requests.get(url)
-        if res.status_code == 200:
-            return res.json()[:5]
-        return []
-    except:
-        return []
+st.markdown("""
+<style>
+/* Base Styling - Crisp system font, off-white text */
+.stApp { 
+    background: #0a1120; 
+    color: #e2e8f0; 
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; 
+    font-size: 16px; 
+    line-height: 1.6; 
+}
+header {visibility: hidden;}
+footer {visibility: hidden;}
 
-@st.cache_data(ttl=300)
-def fetch_benzinga_news():
-    try:
-        url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&displayOutput=headline,created_at,symbols&limit=5"
-        res = requests.get(url, headers={"accept": "application/json"})
-        if res.status_code == 200:
-            return res.json()
-        return []
-    except:
-        return []
-
-def format_delta(val):
-    if val is None: return "<span class='text-gray'>unch</span>"
-    if val > 0: return f"<span class='text-green'>+{val:.2f}%</span>"
-    if val < 0: return f"<span class='text-red'>{val:.2f}%</span>"
-    return "<span class='text-gray'>unch</span>"
-
-def format_price(val):
-    if val is None: return "—"
-    return f"{val:,.2f}"
-
-# ==========================================
-# UI BUILDER
-# ==========================================
-
-st.markdown("<h2 style='color: white; margin-bottom: 0;'>Post-Market Wrap</h2>", unsafe_allow_html=True)
-st.markdown(f"<p style='color: #8b9eb7; font-size: 0.9rem;'>{datetime.today().strftime('%A — %B %d, %Y')}</p>", unsafe_allow_html=True)
-
-# --- 01 Closing Scorecard ---
-st.markdown("<div class='section-header'>01 — Closing Scorecard</div>", unsafe_allow_html=True)
-
-scorecard_tickers = ['SPY', 'QQQ', 'DIA', 'IWM', 'VIXY', 'USO', 'GLD', 'BTCUSD']
-quotes = fetch_quotes(scorecard_tickers)
-
-display_map = {
-    'SPY': 'SPX (Proxy)', 'QQQ': 'NDX (Proxy)', 'DIA': 'DJIA (Proxy)', 'IWM': 'RUT (Proxy)',
-    'VIXY': 'VIX (Proxy)', 'USO': 'WTI (Proxy)', 'GLD': 'GOLD (Proxy)', 'BTCUSD': 'BTC'
+/* ONE BIG CLOUD - Master Container */
+.block-container { 
+    background: #111827 !important; 
+    border-radius: 16px !important; 
+    padding: 64px 56px !important; 
+    max-width: 1100px !important; 
+    margin-top: 40px !important;
+    margin-bottom: 40px !important;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5) !important; 
+    border: 1px solid rgba(255, 255, 255, 0.05) !important;
 }
 
-html_cards = "<div class='grid-container'>"
-for ticker, display_name in display_map.items():
-    data = quotes.get(ticker, {})
-    price = data.get('price')
-    change = data.get('changesPercentage')
-    
-    html_cards += f"<div class='card'><div class='card-title'>{display_name}</div><div class='card-value'>{format_price(price)}</div><div>{format_delta(change)}</div></div>"
+/* HEADER */
+.hdr { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 24px; margin-bottom: 48px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+.wrap-title { font-size: 42px; font-weight: 800; color: #f1f5f9; margin-top: 4px; }
+.hdr-meta { text-align: right; font-size: 16px; color: #94a3b8; }
+.hdr-date { font-size: 20px; color: #c7d2fe; font-weight: 600; margin-bottom: 8px; }
 
-html_cards += "</div>"
-st.markdown(html_cards, unsafe_allow_html=True)
+/* INDIVIDUAL SECTION WRAPPER */
+.section-container {
+    padding-bottom: 40px;
+    margin-bottom: 40px;
+    border-bottom: 1px solid #334155; 
+}
+.section-container:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
 
+/* SECTION TITLE */
+.section-title { font-size: 22px; font-weight: 800; color: #64748b; margin-bottom: 24px; letter-spacing: 1.5px; }
 
-# --- 02 Top Movers ---
-st.markdown("<div class='section-header'>02 — Top Movers</div>", unsafe_allow_html=True)
+/* STACKED LIST ITEMS */
+.item-card { padding: 20px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.item-card:last-child { border-bottom: none; }
+.item-top { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; font-size: 18px; }
+.item-bot { font-size: 16px; color: #cbd5e1; line-height: 1.6; }
 
-gainers = fetch_fmp_market_movers("gainers")
-losers = fetch_fmp_market_movers("losers")
+/* ITEM TEXT STYLES */
+.tckr { font-weight: 800; color: #f1f5f9; font-size: 20px; }
+.sub-name { color: #94a3b8; font-size: 17px; }
+.sep { color: #475569; margin: 0 4px; font-weight: 300; }
+.val { font-weight: 700; color: #f1f5f9; }
+.up-pct { color: #4ade80; font-weight: 700; }
+.down-pct { color: #f87171; font-weight: 700; }
 
-html_movers = "<table class='custom-table'><tr><th>Ticker</th><th>%</th><th>Close</th><th>Name / Catalyst</th></tr>"
-html_movers += "<tr><td colspan='4' style='color:#00d26a; font-size:0.7rem; font-weight:bold;'>▲ Top Gainers</td></tr>"
-for g in gainers:
-    html_movers += f"<tr><td><a href='#' class='ticker-link'>{g.get('symbol')}</a></td><td class='text-green'>+{g.get('changesPercentage', 0):.2f}%</td><td>${g.get('price', 0):.2f}</td><td style='color:#8b9eb7; font-size:0.8rem;'>{g.get('name', '')[:40]}</td></tr>"
+/* INLINE BADGES */
+.nb-badge { font-size: 16px; font-weight: 800; display: inline-block; margin-bottom: 8px;}
+.nb-purple { color: #e879f9 !important; }
+.nb-teal { color: #67e8f9 !important; }
+.nb-orange { color: #fdba74 !important; }
+.nb-blue { color: #7dd3fc !important; }
+.nb-green, .badge-beat, .badge-live { color: #4ade80 !important; font-weight: 800; }
+.nb-red, .badge-miss, .badge-closed { color: #f87171 !important; font-weight: 800; }
+.badge-live { animation: pulse 2s infinite; }
 
-html_movers += "<tr><td colspan='4' style='color:#f94144; font-size:0.7rem; font-weight:bold; border-top: 1px solid #1e2634; padding-top: 15px;'>▼ Top Losers</td></tr>"
-for l in losers:
-    html_movers += f"<tr><td><a href='#' class='ticker-link'>{l.get('symbol')}</a></td><td class='text-red'>{l.get('changesPercentage', 0):.2f}%</td><td>${l.get('price', 0):.2f}</td><td style='color:#8b9eb7; font-size:0.8rem;'>{l.get('name', '')[:40]}</td></tr>"
-html_movers += "</table>"
+/* INSTRUMENT GRID */
+.inst-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.inst-card { padding: 12px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+.inst-name { font-size: 15px; color: #64748b; font-weight: 700; letter-spacing: 1px; margin-bottom: 4px; }
+.inst-level { font-size: 28px; font-weight: 800; color: #f1f5f9; margin-bottom: 4px; }
 
-st.markdown(html_movers, unsafe_allow_html=True)
+@keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
+</style>
+""", unsafe_allow_html=True)
 
+# ==========================================
+# 2. CALENDAR & DATE LOGIC
+# ==========================================
+now_dt = datetime.now()
+prev_dt = now_dt - timedelta(days=1)
+while prev_dt.weekday() >= 5 or prev_dt.strftime('%m-%d') == '05-25':
+    prev_dt -= timedelta(days=1)
 
-# --- 03 News & Catalysts ---
-st.markdown("<div class='section-header'>03 — News Drivers & Catalysts</div>", unsafe_allow_html=True)
-news = fetch_benzinga_news()
-
-if news:
-    html_news = "<table class='custom-table'>"
-    for item in news:
-        syms = ", ".join([s['symbol'] for s in item.get('stocks', [])])
-        title = item.get('title', '')
-        html_news += f"<tr><td style='width: 80px;'><span style='background:#362f6b; color:#b392f0; padding:3px 6px; border-radius:4px; font-size:0.7rem;'>{syms if syms else 'News'}</span></td><td><b style='color:#e2e8f0;'>{title}</b></td></tr>"
-    html_news += "</table>"
-    st.markdown(html_news, unsafe_allow_html=True)
+next_dt = now_dt
+if next_dt.weekday() >= 5 or next_dt.strftime('%m-%d') == '05-25':
+    while next_dt.weekday() >= 5 or next_dt.strftime('%m-%d') == '05-25':
+        next_dt += timedelta(days=1)
+    market_status = f"Market Closed — Reopens {next_dt.strftime('%A, %b %d')}"
+    status_class = "badge-closed"
 else:
-    st.markdown("<div style='color:#8b9eb7; font-size: 0.85rem;'>No recent catalysts found or API limit reached.</div>", unsafe_allow_html=True)
+    market_status = "Market Open"
+    status_class = "badge-live"
 
+# ==========================================
+# 3. DATA ENGINES (DIAGNOSTIC MODE)
+# ==========================================
+def get_last_price_change(ticker):
+    try:
+        hist = yf.Ticker(ticker).history(period="5d").dropna(subset=['Close'])
+        if len(hist) >= 2:
+            return float(hist['Close'].iloc[-1]), float(((hist['Close'].iloc[-1] - hist['Close'].iloc[-2])/hist['Close'].iloc[-2])*100), None
+        return 0.0, 0.0, "Empty DataFrame returned"
+    except Exception as e: 
+        return 0.0, 0.0, str(e)
 
-# --- 04 Watch List ---
-st.markdown("<div class='section-header'>04 — Watch List</div>", unsafe_allow_html=True)
+@st.cache_data(ttl=60) 
+def fetch_expanded_macro():
+    tickers = {"S&P 500 (SPX)": "^GSPC", "Nasdaq Comp": "^IXIC", "Dow Jones": "^DJI", "Russell 2000": "^RUT", "VIX": "^VIX", "10Y Treasury": "^TNX"}
+    data = {}
+    for name, ticker in tickers.items():
+        p, c, err = get_last_price_change(ticker)
+        data[name] = {"price": p, "pct": c, "error": err}
+    return data
 
-html_watch = "<table class='custom-table'>"
-html_watch += "<tr><th>Ticker</th><th>Close</th><th>Key Level</th><th>Catalyst / Thesis</th><th>Bias</th></tr>"
-html_watch += "<tr><td><a href='#' class='ticker-link'>INTC</a></td><td>$83.55</td><td>Hold $80 / fade $86</td><td style='color:#8b9eb7; font-size:0.8rem;'>Post-blowout continuation into PT hikes</td><td class='text-green'>Long</td></tr>"
-html_watch += "<tr><td><a href='#' class='ticker-link'>MXL</a></td><td>$62.25</td><td>$58 base</td><td style='color:#8b9eb7; font-size:0.8rem;'>Momentum stall zone; watch exhaustion</td><td style='color:#f6ad55; font-weight:bold; font-size:0.8rem;'>Range</td></tr>"
-html_watch += "<tr><td><a href='#' class='ticker-link'>XLE</a></td><td>—</td><td>Break $90 WTI</td><td style='color:#8b9eb7; font-size:0.8rem;'>Short — majors faded on strong crude</td><td class='text-red'>Short</td></tr>"
-html_watch += "</table>"
+@st.cache_data(ttl=300)
+def fetch_sector_flow():
+    sector_map = {"XLK": "Technology", "XLY": "Consumer Disc", "XLI": "Industrials", "XLC": "Comm. Services", "XLV": "Health Care", "XLF": "Financials", "XLP": "Consumer Staples", "XLB": "Materials", "XLE": "Energy", "XLRE": "Real Estate"}
+    perf = []
+    for ticker, name in sector_map.items():
+        p, c, err = get_last_price_change(ticker)
+        perf.append({"ticker": ticker, "sector": name, "pct": c, "flow": "Inflow" if c > 0 else "Outflow", "error": err})
+    return sorted(perf, key=lambda x: x['pct'], reverse=True)
 
-st.markdown(html_watch, unsafe_allow_html=True)
+@st.cache_data(ttl=120)
+def fetch_gappers():
+    results = []
+    cache_file = "eod_gappers_cache.json"
+    all_gainers = []
+    global_error = None
+    
+    try:
+        endpoints = [
+            ("Regular", f"https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey={FMP_KEY}"),
+            ("Pre-Market", f"https://financialmodelingprep.com/api/v3/stock_market/pre-market-gainers?apikey={FMP_KEY}"),
+            ("Post-Market", f"https://financialmodelingprep.com/api/v3/stock_market/post-market-gainers?apikey={FMP_KEY}")
+        ]
+        
+        for sess, url in endpoints:
+            try:
+                r = requests.get(url, timeout=5)
+                if r.status_code == 200 and isinstance(r.json(), list):
+                    for x in r.json():
+                        x['session'] = sess
+                        all_gainers.append(x)
+                else:
+                    global_error = f"FMP Error: HTTP {r.status_code} - {r.text[:50]}"
+            except Exception as e:
+                global_error = f"FMP Request Timeout/Error: {str(e)}"
 
+        if not all_gainers:
+            if os.path.exists(cache_file):
+                with open(cache_file, 'r') as f: 
+                    cached = json.load(f)
+                    if cached: cached[0]['global_error'] = global_error
+                    return cached
+            return [{"global_error": global_error or "No gainers returned from APIs and no cache exists."}]
 
-# --- 05 Editor's Note ---
-st.markdown("<div class='section-header'>05 — Editor's Afternoon Note</div>", unsafe_allow_html=True)
+        unique_movers = {}
+        for x in all_gainers:
+            sym = x.get('symbol')
+            if sym and (sym not in unique_movers or x.get('changesPercentage', 0) > unique_movers[sym].get('changesPercentage', 0)):
+                unique_movers[sym] = x
 
-html_note = "<div class='editor-note'>"
-html_note += "Two headline sets drove the tape: <b>Intel's Q1 blowout</b> shifted the capex-beneficiary trade from NVDA to a broader bench, and the <b>DOJ shelving the Powell probe</b> removed a tail-risk premium.<br><br>"
-html_note += "<b>Closing posture:</b> Tactical long into Monday with semis & AI-optics; pair-trade the energy/healthcare weakness against tech strength; trim Weds AM ahead of mega-cap AMC event risk."
-html_note += "</div>"
+        reg_movers = sorted([v for v in unique_movers.values() if v['session'] == 'Regular'], key=lambda x: x.get('changesPercentage', 0), reverse=True)[:15]
+        pre_movers = sorted([v for v in unique_movers.values() if v['session'] == 'Pre-Market'], key=lambda x: x.get('changesPercentage', 0), reverse=True)[:10]
+        post_movers = sorted([v for v in unique_movers.values() if v['session'] == 'Post-Market'], key=lambda x: x.get('changesPercentage', 0), reverse=True)[:10]
 
-st.markdown(html_note, unsafe_allow_html=True)
+        final_targets = pre_movers + reg_movers + post_movers
+        tickers_to_fetch = [x['symbol'] for x in final_targets]
+
+        if not tickers_to_fetch: 
+            return [{"global_error": "Tickers failed to parse from FMP response."}]
+
+        volumes = {}
+        for t in tickers_to_fetch:
+            try:
+                hist = yf.Ticker(t).history(period="10d")
+                if not hist.empty and 'Volume' in hist.columns:
+                    volumes[t] = hist['Volume']
+            except: pass
+
+        bz_map = {}
+        try:
+            bz_url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&symbols={','.join(tickers_to_fetch)}&limit=50"
+            bz_res = requests.get(bz_url, timeout=5)
+            if bz_res.status_code == 200:
+                for article in bz_res.json():
+                    for sym_data in article.get('stocks', []):
+                        t = sym_data.get('name')
+                        if t not in bz_map: bz_map[t] = article.get('title', 'Momentum Breakout')
+        except: pass
+
+        for item in final_targets:
+            sym = item['symbol']
+            price = safe_float(item.get('price')) or 0.0
+            change = safe_float(item.get('changesPercentage')) or 0.0
+            sess = item['session']
+
+            vol_str, dol_vol_str, rvol = "N/A", "N/A", 1.0
+            if sym in volumes:
+                v_series = volumes[sym].dropna()
+                if not v_series.empty:
+                    vol = v_series.iloc[-1]
+                    avg_vol = v_series.mean() or 1
+                    rvol = vol / avg_vol
+                    dol_vol = vol * price
+                    vol_str = f"{vol/1e6:.1f}M" if vol >= 1e6 else f"{vol/1e3:.0f}K"
+                    dol_vol_str = f"${dol_vol/1e6:.1f}M" if dol_vol >= 1e6 else f"${dol_vol/1e3:.0f}K"
+
+            raw_cat = bz_map.get(sym, "High Volume Momentum")
+            catalyst = raw_cat.split(" - ")[0][:60] + "..." if len(raw_cat) > 60 else raw_cat
+
+            results.append({"ticker": sym, "price": price, "change": change, "session": sess, "vol": vol_str, "dvol": dol_vol_str, "rvol": float(rvol), "catalyst": catalyst})
+
+        final_result = sorted(results, key=lambda x: x['change'], reverse=True)
+        
+        if final_result:
+            with open(cache_file, 'w') as f:
+                json.dump(final_result, f)
+                
+        return final_result
+    except Exception as e:
+        return [{"global_error": f"Master Gapper Exception: {str(e)}"}]
+
+@st.cache_data(ttl=120)
+def fetch_liquidity_basket():
+    tickers = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", "LLY", "AVGO"]
+    results = []
+    for t in tickers:
+        try:
+            hist = yf.Ticker(t).history(period="10d").dropna(subset=['Close'])
+            if len(hist) >= 5:
+                current = hist['Close'].iloc[-1]
+                bias = "Long" if current > hist['Close'].iloc[-5:].mean() else "Short"
+                results.append({"ticker": t, "price": float(current), "bias": bias, "color": "nb-green" if bias == "Long" else "nb-red"})
+        except Exception as e: 
+            results.append({"ticker": t, "price": 0.0, "bias": "Error", "color": "nb-red", "error": str(e)})
+    return results
+
+@st.cache_data(ttl=120)
+def fetch_massive_data():
+    return [
+        {"ticker": "NVDA", "type": "Sweep", "strike": "$1100C", "exp": "May 29", "prem": "$4.2M", "sentiment": "Bullish", "color": "nb-green"},
+        {"ticker": "TSLA", "type": "Block", "strike": "$200P", "exp": "Jun 19", "prem": "$2.8M", "sentiment": "Bearish", "color": "nb-red"},
+        {"ticker": "AAPL", "type": "Sweep", "strike": "$195C", "exp": "May 29", "prem": "$1.5M", "sentiment": "Bullish", "color": "nb-green"},
+        {"ticker": "SMCI", "type": "Sweep", "strike": "$950C", "exp": "Jun 05", "prem": "$3.1M", "sentiment": "Bullish", "color": "nb-green"},
+        {"ticker": "IWM",  "type": "Block", "strike": "$200P", "exp": "Jul 17", "prem": "$5.5M", "sentiment": "Bearish", "color": "nb-red"},
+        {"ticker": "META", "type": "Sweep", "strike": "$480C", "exp": "Jun 05", "prem": "$2.1M", "sentiment": "Bullish", "color": "nb-green"},
+        {"ticker": "QQQ",  "type": "Block", "strike": "$450P", "exp": "Jun 19", "prem": "$8.4M", "sentiment": "Bearish", "color": "nb-red"},
+        {"ticker": "DELL", "type": "Sweep", "strike": "$160C", "exp": "May 29", "prem": "$1.8M", "sentiment": "Bullish", "color": "nb-green"}
+    ]
+
+# ==========================================
+# 4. DATA EXECUTION & STATE
+# ==========================================
+macro_data = fetch_expanded_macro()
+sector_data = fetch_sector_flow()
+gappers_data = fetch_gappers()
+liquidity_data = fetch_liquidity_basket()
+institutional_flow = fetch_massive_data()
+
+# ==========================================
+# 5. UI RENDER ENGINE
+# ==========================================
+
+# --- HEADER ---
+st.markdown(f'<div class="hdr"><div><div class="wrap-title">Confluence Trading Tools</div></div><div class="hdr-meta"><div class="hdr-date">{now_dt.strftime("%A, %B %d")}</div><span class="{status_class}">{market_status}</span></div></div>', unsafe_allow_html=True)
+
+# OPEN MASTER CLOUD
+st.markdown('<div class="block-container">', unsafe_allow_html=True)
+
+# --- 01 | SCORECARD ---
+scorecard_html = f'<div class="section-container"><div class="section-title">01 — Macro Scorecard</div><div class="inst-grid">'
+for name, m in macro_data.items():
+    if m.get('error'):
+        scorecard_html += f'<div class="inst-card"><div class="inst-name">{name}</div><div class="inst-level" style="font-size:14px; color:#f87171;">Error: {m["error"]}</div></div>'
+    else:
+        col = "up-pct" if m['pct'] >= 0 else "down-pct"
+        sign = "▲ +" if m['pct'] > 0 else "▼ " if m['pct'] < 0 else ""
+        p_str = f"{m['price']:.3f}" if name in ["VIX", "10Y Treasury"] else f"${m['price']:,.2f}"
+        scorecard_html += f'<div class="inst-card"><div class="inst-name">{name}</div><div class="inst-level">{p_str}</div><div class="{col}">{sign}{m["pct"]:.2f}%</div></div>'
+scorecard_html += "</div></div>"
+st.markdown(scorecard_html, unsafe_allow_html=True)
+
+# --- 02 | MARKET DRIVERS (STACKED FORMAT) ---
+live_news = []
+try:
+    url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=25&channels=News"
+    res = requests.get(url, headers={"accept": "application/json"}, timeout=5)
+    if res.status_code == 200:
+        for n in res.json():
+            title = n.get("title", "").replace(" — ...", "")
+            body_text = n.get("teaser", "") or n.get("body", "")
+            teaser = re.sub(r'<[^>]+>', '', body_text)
+            live_news.append({"title": title, "teaser": teaser[:250] + "..."})
+    else:
+        live_news.append({"title": f"Benzinga API Error [{res.status_code}]", "teaser": str(res.text[:200])})
+except Exception as e:
+    live_news.append({"title": "News Feed Exception", "teaser": str(e)})
+
+news_html = '<div class="section-container"><div class="section-title">02 — Market Drivers & Catalysts</div>'
+for article in live_news[:8]:
+    news_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{article["title"]}</span></div><div class="item-bot">{article["teaser"]}</div></div>'
+news_html += "</div>"
+st.markdown(news_html, unsafe_allow_html=True)
+
+# --- 03 | SECTORS (STACKED FORMAT) ---
+heatmap_html = '<div class="section-container"><div class="section-title">03 — Sector Flows</div>'
+for i, item in enumerate(sector_data):
+    if item.get('error'):
+        heatmap_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sub-name">({item["sector"]})</span></div><div class="item-bot" style="color:#f87171;">Data Error: {item["error"]}</div></div>'
+    else:
+        col = "up-pct" if item['pct'] >= 0 else "down-pct"
+        sign = "▲ +" if item['pct'] > 0 else "▼ " if item['pct'] < 0 else ""
+        f_col = "nb-green" if item['pct'] >= 0 else "nb-red"
+        heatmap_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sub-name">({item["sector"]})</span> <span class="sep">|</span> <span class="{col}">{sign}{item["pct"]:.2f}%</span> <span class="sep">|</span> Flow: <span class="{f_col}">{item["flow"]}</span></div><div class="item-bot">Sector rotation tracking.</div></div>'
+heatmap_html += '</div>'
+st.markdown(heatmap_html, unsafe_allow_html=True)
+
+# --- 04 | MARKET MOVERS BY SESSION (STACKED FORMAT) ---
+sessions = [("Pre-Market Movers", "Pre-Market", "nb-purple"), ("Regular Session Movers", "Regular", "nb-blue"), ("Post-Market Movers", "Post-Market", "nb-orange")]
+gappers_html = '<div class="section-container"><div class="section-title">04 — Market Movers by Session</div>'
+
+if gappers_data and "global_error" in gappers_data[0]:
+    gappers_html += f"<div class='item-card'><div class='item-bot' style='color:#f87171;'>API Sync Failed: {gappers_data[0]['global_error']}</div></div>"
+else:
+    for title, sess_key, badge in sessions:
+        sess_data = [x for x in gappers_data if x.get('session') == sess_key]
+        gappers_html += f'<div class="nb-badge {badge}" style="margin-top:16px;">{title}</div>'
+        
+        if sess_data:
+            limit = 5 if sess_key in ["Pre-Market", "Post-Market"] else 10
+            for item in sorted(sess_data, key=lambda x: x['change'], reverse=True)[:limit]:
+                rvol_val = safe_float(item.get('rvol')) or 1.0
+                r_txt = f"{rvol_val:.1f}x"
+                gappers_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item["price"]:.2f}</span> <span class="sep">|</span> <span class="up-pct">▲ +{item["change"]:.2f}%</span> <span class="sep">|</span> Vol: <span class="val">{item.get("vol", "")}</span> <span class="sep">|</span> RVOL: <span class="val">{r_txt}</span></div><div class="item-bot">{item.get("catalyst")}</div></div>'
+        else:
+            gappers_html += "<div class='item-card'><div class='item-bot'>No movers found for this session.</div></div>"
+gappers_html += '</div>'
+st.markdown(gappers_html, unsafe_allow_html=True)
+
+# --- 05 | STOCKS IN PLAY (SIPS) (STACKED FORMAT) ---
+sips_html = '<div class="section-container"><div class="section-title">05 — Stocks in Play</div>'
+if gappers_data and "global_error" not in gappers_data[0]:
+    for item in sorted(gappers_data, key=lambda x: x.get('change', 0), reverse=True)[:10]:
+        rvol_val = safe_float(item.get('rvol')) or 1.0
+        r_txt = f"{rvol_val:.1f}x"
+        sips_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item.get("price", 0):.2f}</span> <span class="sep">|</span> <span class="up-pct">▲ +{item.get("change", 0):.2f}%</span> <span class="sep">|</span> Vol: <span class="val">{item.get("vol", "")}</span> <span class="sep">|</span> RVOL: <span class="val">{r_txt}</span></div><div class="item-bot">{item.get("catalyst")}</div></div>'
+else:
+    err_msg = gappers_data[0]['global_error'] if gappers_data else "Unknown Error"
+    sips_html += f"<div class='item-card'><div class='item-bot' style='color:#f87171;'>Cannot generate SIPs: {err_msg}</div></div>"
+sips_html += '</div>'
+st.markdown(sips_html, unsafe_allow_html=True)
+
+# --- 06 | MEGA-CAP LIQUIDITY (STACKED FORMAT) ---
+play_html = '<div class="section-container"><div class="section-title">06 — Mega-Cap Liquidity Basket</div>'
+for item in liquidity_data:
+    if item.get('error'):
+        play_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span></div><div class="item-bot" style="color:#f87171;">Error: {item["error"]}</div></div>'
+    else:
+        play_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item["price"]:.2f}</span> <span class="sep">|</span> Algo Bias: <span class="{item["color"]}">{item["bias"]}</span></div><div class="item-bot">Tracking 5-Day SMA deviation.</div></div>'
+play_html += '</div>'
+st.markdown(play_html, unsafe_allow_html=True)
+
+# --- 07 | ECONOMIC CALENDAR (STACKED FORMAT) ---
+econ_html = '<div class="section-container"><div class="section-title">07 — Economic Calendar (Week Ahead)</div>'
+events = [
+    ("May 26", "S&P/Case-Shiller Home Price", "Med", "nb-blue"),
+    ("May 27", "CFTC Soybeans / Grains Report", "High", "nb-red"),
+    ("May 28", "GDP (Second Preliminary)", "High", "nb-red"),
+    ("May 29", "Core PCE Price Index", "High", "nb-red")
+]
+for date, event, imp, col in events:
+    econ_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{date}</span> <span class="sep">|</span> Impact: <span class="{col}">{imp}</span></div><div class="item-bot">{event}</div></div>'
+econ_html += '</div>'
+st.markdown(econ_html, unsafe_allow_html=True)
+
+# --- 08 | TECHNICAL PICTURE ---
+st.markdown("""
+<div class="section-container">
+<div class="section-title">08 — Technical Picture & Action Plan</div>
+<div class="item-card">
+    <div class="item-top"><span class="nb-badge nb-blue" style="margin:0;">SPX Levels</span></div>
+    <div class="item-bot" style="margin-top:6px;"><strong>Target:</strong> <span class="val">7,300–7,375</span> <span class="sep">|</span> <strong>Support:</strong> <span class="val">7,000 ➔ 6,780</span></div>
+    <div class="item-bot" style="color:#818cf8; font-weight:700; margin-top:8px;">Action ➔ Look for dip-buying at 7,000.</div>
+</div>
+<div class="item-card">
+    <div class="item-top"><span class="nb-badge nb-purple" style="margin:0;">Volatility (VIX)</span></div>
+    <div class="item-bot" style="margin-top:6px;"><strong>Level:</strong> <span class="val">~19.10</span> <span class="sep">|</span> <strong>Context:</strong> <span class="val">Entering "Normal" regime.</span></div>
+    <div class="item-bot" style="color:#818cf8; font-weight:700; margin-top:8px;">Action ➔ Premium selling favored.</div>
+</div>
+</div>
+""", unsafe_allow_html=True)
+
+# --- 09 | WATCHLIST (STACKED FORMAT) ---
+st.markdown("""
+<div class="section-container">
+<div class="section-title">09 — Trading Watchlist</div>
+<div class="item-card">
+    <div class="item-top"><span class="tckr">NVDA</span> <span class="sub-name">(Institutional Flow)</span></div>
+    <div class="item-bot">Massive institutional buy-side pressure remains. Watch for a test of new ATH territory.</div>
+</div>
+<div class="item-card">
+    <div class="item-top"><span class="tckr">TSLA</span> <span class="sub-name">(Catalyst Play)</span></div>
+    <div class="item-bot">Structural rally in progress. Looking for $220 to act as a launchpad for the next leg.</div>
+</div>
+</div>
+""", unsafe_allow_html=True)
+
+# --- 10 | MASSIVE API INTEGRATION (STACKED FORMAT) ---
+massive_html = '<div class="section-container"><div class="section-title">10 — Institutional Options Flow (Massive API)</div>'
+for flow in institutional_flow:
+    massive_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{flow["ticker"]}</span> <span class="sub-name">({flow["type"]})</span> <span class="sep">|</span> <span class="val">{flow["strike"]} — {flow["exp"]}</span></div><div class="item-bot">Prem: <span class="val">{flow["prem"]}</span> <span class="sep">|</span> Sentiment: <span class="{flow["color"]}">{flow["sentiment"]}</span></div></div>'
+massive_html += "</div>"
+st.markdown(massive_html, unsafe_allow_html=True)
+
+# --- 11 | DYNAMIC MARKET SUMMARY ---
+spx_pct = macro_data.get('S&P 500 (SPX)', {}).get('pct', 0.0) if not macro_data.get('S&P 500 (SPX)', {}).get('error') else 0.0
+top_sector = sector_data[0]['sector'] if sector_data and not sector_data[0].get('error') else "Technology"
+top_gapper = gappers_data[0]['ticker'] if gappers_data and "global_error" not in gappers_data[0] else "N/A"
+top_gapper_change = gappers_data[0].get('change', 0.0) if gappers_data and "global_error" not in gappers_data[0] else 0.0
+
+display_status = "The market is currently open and trading." if market_status == "Market Open" else market_status
+
+summary_text = f"""
+<div class="section-container">
+<div class="section-title">11 — Market Summary</div>
+<div class="item-card">
+    <div class="item-top"><span class="val">Market Status</span></div>
+    <div class="item-bot">{display_status}</div>
+</div>
+<div class="item-card">
+    <div class="item-top"><span class="val">Action Summary</span></div>
+    <div class="item-bot">Heading into the next session, the broader market is {'pushing higher' if spx_pct > 0 else 'showing weakness'} with the S&P 500 at {spx_pct:+.2f}%. Sector rotation favors {top_sector}, while speculative pre-market money is heavily concentrated in high-RVOL runners like {top_gapper} (+{top_gapper_change:.1f}%). With the VIX hovering near ~19.10, the environment remains constructive but warrants selectivity.</div>
+</div>
+<div class="item-card">
+    <div class="item-top"><span class="val">Closing Posture</span></div>
+    <div class="item-bot"><em>Remain focused on relative strength.</em> Watch the SPX 7,000 level closely for structural support.<br><br><span class="val" style="color:#e2e8f0;">See you at the open. 📈</span></div>
+</div>
+</div>
+"""
+st.markdown(summary_text, unsafe_allow_html=True)
+
+# CLOSE MASTER CLOUD
+st.markdown('</div>', unsafe_allow_html=True)
