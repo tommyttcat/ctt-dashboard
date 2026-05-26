@@ -15,7 +15,7 @@ def safe_float(val):
 # ==========================================
 # API KEYS & CONFIG
 # ==========================================
-BZ_KEY = "bz.4DVR2L3LKQD6KU5Z4CHZPPNE5MPV2KLQ"
+FMP_KEY = "WMMhcffuHSYVTceXryrt4tHC8GXcsB0g"
 MASSIVE_KEY = "TfwImIVSEp2wLzNnXpwysYH9ccvjk6pv"
 
 st.set_page_config(page_title="Confluence Trading Tools", layout="wide", initial_sidebar_state="collapsed")
@@ -97,7 +97,7 @@ footer {visibility: hidden;}
 .c-vol  { display: inline-block; width: 120px; color: #f1f5f9; font-weight: 400; }
 .c-rvol { display: inline-block; width: 110px; color: #f1f5f9; font-weight: 400; }
 .c-sec  { display: inline-block; width: 170px; color: #f1f5f9; font-weight: 400; }
-.c-flow { display: inline-block; width: 130px; color: #f1f5f9; font-weight: 400; }
+.c-flow { display: inline-block; width: 130px; font-weight: 400; }
 .c-bias { display: inline-block; width: 160px; color: #f1f5f9; font-weight: 400; }
 .c-type { display: inline-block; width: 90px; color: #f1f5f9; font-weight: 400; }
 .c-strk { display: inline-block; width: 170px; color: #f1f5f9; font-weight: 400; }
@@ -124,6 +124,9 @@ footer {visibility: hidden;}
 .inst-name { font-size: 15px; color: #64748b; font-weight: 700; letter-spacing: 1px; margin-bottom: 4px; }
 .inst-level { font-size: 28px; font-weight: 400; color: #f1f5f9; margin-bottom: 4px; }
 
+/* STREAMLIT INPUT OVERRIDES */
+.stTextInput input { background-color: #1e293b !important; color: #f1f5f9 !important; border: 1px solid #475569 !important; border-radius: 8px !important; font-size: 18px !important; padding: 12px !important; }
+
 @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
 </style>
 """, unsafe_allow_html=True)
@@ -147,9 +150,23 @@ else:
     status_class = "badge-live"
 
 # ==========================================
-# 3. DATA ENGINES 
+# 3. DATA ENGINES (FMP OPTIMIZED)
 # ==========================================
 def get_last_price_change(ticker):
+    # FAST PATH: FMP Historical API
+    try:
+        t_fmp = ticker.replace("^", "%5E")
+        fmp_url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{t_fmp}?timeseries=5&apikey={FMP_KEY}"
+        res = requests.get(fmp_url, timeout=3)
+        if res.status_code == 200:
+            data = res.json().get('historical', [])
+            if len(data) >= 2:
+                curr = float(data[0]['close'])
+                prev = float(data[1]['close'])
+                return curr, ((curr - prev)/prev)*100, None
+    except: pass
+
+    # FALLBACK PATH: YFinance
     try:
         hist = yf.Ticker(ticker).history(period="5d").dropna(subset=['Close'])
         if len(hist) >= 2:
@@ -206,33 +223,26 @@ def core_scanner(scan_list, cache_file):
         
         final_result = sorted(results, key=lambda x: x['change'], reverse=True)
         
-        # Deep News Hydration
+        # Deep News Hydration via FMP
         top_tickers = [x['ticker'] for x in final_result[:10]]
         if top_tickers:
             try:
-                bz_url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&symbols={','.join(top_tickers)}&limit=20"
-                bz_res = requests.get(bz_url, timeout=5)
-                if bz_res.status_code == 200:
-                    bz_map = {}
-                    for article in bz_res.json():
-                        raw_text = article.get('teaser', '')
-                        if not raw_text or len(raw_text) < 15: 
-                            raw_text = article.get('body', '')
-                        if not raw_text or len(raw_text) < 15: 
-                            raw_text = article.get('title', '')
+                fmp_news_url = f"https://financialmodelingprep.com/api/v3/stock_news?tickers={','.join(top_tickers)}&limit=30&apikey={FMP_KEY}"
+                fmp_res = requests.get(fmp_news_url, timeout=5)
+                if fmp_res.status_code == 200:
+                    fmp_map = {}
+                    for article in fmp_res.json():
+                        sym = article.get('symbol')
+                        if sym and sym not in fmp_map:
+                            raw_text = article.get('text', '') or article.get('title', '')
+                            clean_text = re.sub(r'<[^>]+>', '', raw_text)
+                            clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+                            fmp_map[sym] = clean_text
                             
-                        clean_text = re.sub(r'<[^>]+>', '', raw_text)
-                        clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-                        
-                        for s in article.get('stocks', []):
-                            t = s.get('name')
-                            if t not in bz_map: 
-                                bz_map[t] = clean_text
-                    
                     for item in final_result:
-                        if item['ticker'] in bz_map:
-                            text_snippet = bz_map[item['ticker']][:250]
-                            item['catalyst'] = text_snippet + "..." if len(bz_map[item['ticker']]) > 250 else text_snippet
+                        if item['ticker'] in fmp_map:
+                            text_snippet = fmp_map[item['ticker']][:250]
+                            item['catalyst'] = text_snippet + "..." if len(fmp_map[item['ticker']]) > 250 else text_snippet
             except: pass
 
         if final_result:
@@ -266,6 +276,22 @@ def fetch_liquidity_basket():
     tickers = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", "LLY", "AVGO"]
     results = []
     for t in tickers:
+        try:
+            # FMP First (Handle Berkshire edge case)
+            t_fmp = t.replace("-", ".") 
+            url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{t_fmp}?timeseries=10&apikey={FMP_KEY}"
+            res = requests.get(url, timeout=3)
+            if res.status_code == 200 and 'historical' in res.json():
+                data = res.json()['historical']
+                if len(data) >= 5:
+                    current = data[0]['close']
+                    sma5 = sum([x['close'] for x in data[:5]]) / 5
+                    bias = "Long" if current > sma5 else "Short"
+                    results.append({"ticker": t, "price": float(current), "bias": bias})
+                    continue
+        except: pass
+        
+        # Yfinance Fallback
         try:
             hist = yf.Ticker(t).history(period="10d").dropna(subset=['Close'])
             if len(hist) >= 5:
@@ -309,6 +335,27 @@ st.markdown(f'<div class="hdr"><div><div class="wrap-title">Confluence Trading T
 # OPEN MASTER CLOUD
 st.markdown('<div class="block-container">', unsafe_allow_html=True)
 
+# --- 00 | SYMBOL SEARCH ---
+st.markdown('<div class="section-container"><div class="section-title">00 — Universal Ticker Search</div>', unsafe_allow_html=True)
+search_query = st.text_input("Search", placeholder="Enter a company name or ticker (e.g., Apple, TSLA, Bitcoin)...", label_visibility="collapsed")
+
+if search_query:
+    try:
+        search_url = f"https://financialmodelingprep.com/stable/search-name?query={search_query}&limit=5&apikey={FMP_KEY}"
+        s_res = requests.get(search_url, timeout=5)
+        if s_res.status_code == 200:
+            s_data = s_res.json()
+            if s_data:
+                for r in s_data:
+                    st.markdown(f'<div class="item-row"><span class="c-tckr">{r.get("symbol")}</span><span class="sep">|</span><span class="c-sec" style="width: 300px; white-space: normal;">{r.get("name")}</span><span class="sep">|</span><span class="c-desc">Exchange: {r.get("exchangeFullName", r.get("exchange", ""))}</span><span class="sep">|</span><span class="c-desc">Currency: {r.get("currency")}</span></div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="item-row"><span class="c-desc">No results found.</span></div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="item-row"><span class="c-desc" style="color:#f87171;">API Error: HTTP {s_res.status_code}</span></div>', unsafe_allow_html=True)
+    except Exception as e:
+        st.markdown(f'<div class="item-row"><span class="c-desc" style="color:#f87171;">Exception: {e}</span></div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
+
 # --- 01 | SCORECARD ---
 scorecard_html = f'<div class="section-container"><div class="section-title">01 — Macro Scorecard</div><div class="inst-grid">'
 for name, m in macro_data.items():
@@ -322,29 +369,34 @@ for name, m in macro_data.items():
 scorecard_html += "</div></div>"
 st.markdown(scorecard_html, unsafe_allow_html=True)
 
-# --- 02 | MARKET DRIVERS (WRAPPING) ---
+# --- 02 | MARKET DRIVERS (VIA FMP) ---
 live_news = []
 try:
-    url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=25&channels=News"
+    url = f"https://financialmodelingprep.com/stable/news/stock-latest?page=0&limit=20&apikey={FMP_KEY}"
     res = requests.get(url, headers={"accept": "application/json"}, timeout=5)
     if res.status_code == 200:
         for n in res.json():
             title = n.get("title", "").replace(" — ...", "")
-            raw_text = n.get("teaser", "")
-            if not raw_text or len(raw_text) < 20: raw_text = n.get("body", "")
-            if not raw_text or len(raw_text) < 20: raw_text = "No additional summary provided by the news desk."
+            raw_text = n.get("text", "")
             
             teaser = re.sub(r'<[^>]+>', '', raw_text)
             teaser = re.sub(r'\s+', ' ', teaser).strip()
-            live_news.append({"title": title, "teaser": teaser[:350] + ("..." if len(teaser) > 350 else "")})
+            
+            if not teaser or len(teaser) < 20 or teaser == title:
+                live_news.append({"title": title, "teaser": ""})
+            else:
+                live_news.append({"title": title, "teaser": teaser[:350] + ("..." if len(teaser) > 350 else "")})
     else:
-        live_news.append({"title": "API Error", "teaser": f"Status [{res.status_code}] - Check API key."})
+        live_news.append({"title": "FMP API Error", "teaser": f"Status [{res.status_code}] - Check API key."})
 except Exception as e:
     live_news.append({"title": "News Feed Exception", "teaser": str(e)})
 
 news_html = '<div class="section-container"><div class="section-title">02 — Market Drivers & Catalysts</div>'
 for article in live_news[:8]:
-    news_html += f'<div class="item-row-wrap"><span style="font-weight: 800; color: #f1f5f9; padding-right: 12px; max-width: 45%;">{article["title"]}</span> <span class="sep">|</span> <span class="c-desc" style="flex: 1;">{article["teaser"]}</span></div>'
+    if article["teaser"]:
+        news_html += f'<div class="item-row-wrap"><span style="font-weight: 400; color: #f1f5f9; padding-right: 12px; max-width: 45%;">{article["title"]}</span> <span class="sep">|</span> <span class="c-desc" style="flex: 1;">{article["teaser"]}</span></div>'
+    else:
+        news_html += f'<div class="item-row-wrap"><span style="font-weight: 400; color: #f1f5f9;">{article["title"]}</span></div>'
 news_html += "</div>"
 st.markdown(news_html, unsafe_allow_html=True)
 
@@ -356,7 +408,8 @@ for i, item in enumerate(sector_data):
     else:
         pct_color = "score-up" if item['pct'] >= 0 else "score-down"
         sign = "▲ +" if item['pct'] > 0 else "▼ " if item['pct'] < 0 else ""
-        heatmap_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-sec">({item["sector"]})</span><span class="sep">|</span><span class="c-pct {pct_color}">{sign}{item["pct"]:.2f}%</span><span class="sep">|</span><span class="c-flow">Flow: {item["flow"]}</span><span class="sep">—</span><span class="c-desc">Sector rotation tracking.</span></div>'
+        flow_color = "score-up" if item["flow"] == "Inflow" else "score-down"
+        heatmap_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-sec">({item["sector"]})</span><span class="sep">|</span><span class="c-pct {pct_color}">{sign}{item["pct"]:.2f}%</span><span class="sep">|</span><span class="c-flow {flow_color}">{item["flow"]}</span></div>'
 heatmap_html += '</div>'
 st.markdown(heatmap_html, unsafe_allow_html=True)
 
