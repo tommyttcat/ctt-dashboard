@@ -35,7 +35,7 @@ st.markdown("""
 header {visibility: hidden;}
 footer {visibility: hidden;}
 
-/* ONE BIG CLOUD - Master Container */
+/* NATIVE STREAMLIT MASTER CONTAINER OVERRIDE */
 .block-container { 
     background: #111827 !important; 
     border-radius: 16px !important; 
@@ -72,9 +72,6 @@ footer {visibility: hidden;}
     color: #64748b; 
     margin-bottom: 24px; 
     letter-spacing: 1.5px; 
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
 }
 
 /* PERFECT VERTICAL ALIGNMENT ROW CLASSES */
@@ -89,7 +86,7 @@ footer {visibility: hidden;}
 }
 .item-row:last-child { border-bottom: none; }
 
-/* TEXT WRAPPING ROW CLASS (For News & Dashboards) */
+/* TEXT WRAPPING ROW CLASS (For Dashboard Summaries) */
 .item-row-wrap { 
     display: flex; 
     align-items: flex-start; 
@@ -124,6 +121,12 @@ footer {visibility: hidden;}
 .score-up { color: #4ade80; }
 .score-down { color: #f87171; }
 
+/* NEWS 2-COLUMN GRID */
+.news-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+.news-card { padding: 16px; background: #1e293b; border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; display: flex; flex-direction: column; gap: 8px; }
+.news-title { font-weight: 800; color: #f1f5f9; font-size: 16px; line-height: 1.4; }
+.news-teaser { font-weight: 400; color: #cbd5e1; font-size: 15px; line-height: 1.5; }
+
 /* INLINE BADGES */
 .nb-badge { font-size: 16px; font-weight: 800; display: inline-block; margin-bottom: 8px; margin-top: 16px;}
 .nb-blue { color: #7dd3fc !important; }
@@ -133,10 +136,10 @@ footer {visibility: hidden;}
 .badge-closed { color: #f87171 !important; font-weight: 400; }
 
 /* INSTRUMENT GRID */
-.inst-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.inst-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 20px; }
 .inst-card { padding: 12px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
-.inst-name { font-size: 15px; color: #64748b; font-weight: 700; letter-spacing: 1px; margin-bottom: 4px; }
-.inst-level { font-size: 28px; font-weight: 400; color: #f1f5f9; margin-bottom: 4px; }
+.inst-name { font-size: 14px; color: #64748b; font-weight: 700; letter-spacing: 1px; margin-bottom: 4px; text-transform: uppercase; }
+.inst-level { font-size: 26px; font-weight: 400; color: #f1f5f9; margin-bottom: 4px; }
 
 @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
 </style>
@@ -296,19 +299,19 @@ def fetch_session_gappers():
                 volumes[t] = hist['Volume']
         except: pass
 
-    # Mass Catalyst Hydration via Benzinga
+    # Mass Catalyst Hydration via Benzinga (Direct ticker lookup)
     bz_map = {}
     try:
         bz_url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&symbols={','.join(tickers_to_fetch)}&limit=50"
         bz_res = requests.get(bz_url, timeout=5)
         if bz_res.status_code == 200:
             for article in bz_res.json():
-                raw_text = article.get('teaser', '')
-                if not raw_text or len(raw_text) < 15: raw_text = article.get('title', '')
-                clean_text = re.sub(r'<[^>]+>', '', raw_text).strip()
-                for s in article.get('stocks', []):
-                    t = s.get('name')
-                    if t not in bz_map: bz_map[t] = clean_text
+                title = article.get('title', '').strip()
+                if title:
+                    for s in article.get('stocks', []):
+                        t = s.get('name')
+                        if t and t not in bz_map: 
+                            bz_map[t] = title
     except: pass
 
     for item in final_targets:
@@ -344,7 +347,7 @@ def fetch_session_gappers():
         except: pass
 
         raw_cat = bz_map.get(sym, "Momentum Breakout / Volume Spike")
-        catalyst = raw_cat[:150] + "..." if len(raw_cat) > 150 else raw_cat
+        catalyst = raw_cat[:100] + "..." if len(raw_cat) > 100 else raw_cat
 
         results.append({"ticker": sym, "price": price, "change": change, "session": sess, "vol": vol_str, "rvol": float(rvol), "catalyst": catalyst, "sec_tag": sec_tag})
 
@@ -431,11 +434,11 @@ elif spx_pct < 0:
 # --- HEADER ---
 st.markdown(f'<div class="hdr"><div><div class="wrap-title">Confluence Trading Tools</div></div><div class="hdr-meta"><div class="hdr-date">{now_dt.strftime("%A, %B %d")}</div><span class="{status_class}">{market_status}</span></div></div>', unsafe_allow_html=True)
 
-# OPEN MASTER CLOUD
-st.markdown('<div class="block-container">', unsafe_allow_html=True)
-
 # --- 01 | SCORECARD ---
-scorecard_html = f'<div class="section-container"><div class="section-title"><span>01 — Macro Scorecard</span><span style="font-size: 16px; color: {regime_color}; border: 1px solid {regime_color}40; padding: 4px 12px; border-radius: 6px;">Market Regime: {regime_text}</span></div><div class="inst-grid">'
+scorecard_html = f'<div class="section-container"><div class="section-title">01 — Macro Scorecard</div><div class="inst-grid">'
+# Add Market Regime Card
+scorecard_html += f'<div class="inst-card"><div class="inst-name">MARKET REGIME</div><div class="inst-level" style="color: {regime_color}; font-weight: 800; font-size: 24px; padding-top: 2px;">{regime_text}</div></div>'
+
 for name, m in macro_data.items():
     if m.get('error'):
         scorecard_html += f'<div class="inst-card"><div class="inst-name">{name}</div><div class="inst-level" style="font-size:14px; color:#f87171;">Error: {m["error"]}</div></div>'
@@ -447,16 +450,15 @@ for name, m in macro_data.items():
 scorecard_html += "</div></div>"
 st.markdown(scorecard_html, unsafe_allow_html=True)
 
-# --- 02 | MARKET DRIVERS (WRAPPING) ---
+# --- 02 | MARKET DRIVERS (2-COLUMN GRID) ---
 live_news = []
 try:
-    url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=25&channels=News"
+    url = f"https://financialmodelingprep.com/stable/news/stock-latest?page=0&limit=20&apikey={FMP_KEY}"
     res = requests.get(url, headers={"accept": "application/json"}, timeout=5)
     if res.status_code == 200:
         for n in res.json():
             title = n.get("title", "").replace(" — ...", "")
-            raw_text = n.get("teaser", "")
-            if not raw_text or len(raw_text) < 20: raw_text = n.get("body", "")
+            raw_text = n.get("text", "")
             
             teaser = re.sub(r'<[^>]+>', '', raw_text)
             teaser = re.sub(r'\s+', ' ', teaser).strip()
@@ -464,19 +466,19 @@ try:
             if not teaser or len(teaser) < 20 or teaser == title:
                 live_news.append({"title": title, "teaser": ""})
             else:
-                live_news.append({"title": title, "teaser": teaser[:350] + ("..." if len(teaser) > 350 else "")})
+                live_news.append({"title": title, "teaser": teaser[:200] + ("..." if len(teaser) > 200 else "")})
     else:
-        live_news.append({"title": "API Error", "teaser": f"Status [{res.status_code}] - Check API key."})
+        live_news.append({"title": "FMP API Error", "teaser": f"Status [{res.status_code}] - Check API key."})
 except Exception as e:
     live_news.append({"title": "News Feed Exception", "teaser": str(e)})
 
-news_html = '<div class="section-container"><div class="section-title">02 — Market Drivers & Catalysts</div>'
+news_html = '<div class="section-container"><div class="section-title">02 — Market Drivers & Catalysts</div><div class="news-grid">'
 for article in live_news[:8]:
+    news_html += f'<div class="news-card"><div class="news-title">{article["title"]}</div>'
     if article["teaser"]:
-        news_html += f'<div class="item-row-wrap"><span style="font-weight: 400; color: #f1f5f9; padding-right: 12px; max-width: 45%;">{article["title"]}</span> <span class="sep">|</span> <span class="c-desc" style="flex: 1;">{article["teaser"]}</span></div>'
-    else:
-        news_html += f'<div class="item-row-wrap"><span style="font-weight: 400; color: #f1f5f9;">{article["title"]}</span></div>'
-news_html += "</div>"
+        news_html += f'<div class="news-teaser">{article["teaser"]}</div>'
+    news_html += '</div>'
+news_html += "</div></div>"
 st.markdown(news_html, unsafe_allow_html=True)
 
 # --- 03 | SECTORS ---
@@ -596,6 +598,3 @@ summary_text = f"""
 </div>
 """
 st.markdown(summary_text, unsafe_allow_html=True)
-
-# CLOSE MASTER CLOUD
-st.markdown('</div>', unsafe_allow_html=True)
