@@ -135,8 +135,8 @@ footer {visibility: hidden;}
 .badge-live { color: #4ade80 !important; font-weight: 400; animation: pulse 2s infinite; }
 .badge-closed { color: #f87171 !important; font-weight: 400; }
 
-/* INSTRUMENT GRID */
-.inst-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 20px; }
+/* INSTRUMENT GRID (Forced to 7 columns so Scorecard fits on one line) */
+.inst-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 16px; }
 .inst-card { padding: 12px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
 .inst-name { font-size: 14px; color: #64748b; font-weight: 700; letter-spacing: 1px; margin-bottom: 4px; text-transform: uppercase; }
 .inst-level { font-size: 26px; font-weight: 400; color: #f1f5f9; margin-bottom: 4px; }
@@ -237,7 +237,7 @@ def fetch_session_gappers():
                     all_movers.append(x)
         except: pass
     
-    # Fallback to local scan if FMP blocks the endpoints (HTTP 403)
+    # Fallback to local scan if FMP blocks the endpoints
     if not fmp_success:
         master_basket = [
             "NVDA", "TSLA", "AMD", "SMCI", "COIN", "PLTR", "MARA", "MSTR", 
@@ -266,7 +266,6 @@ def fetch_session_gappers():
             with open(cache_file, 'r') as f: return json.load(f)
         return []
 
-    # Map raw form types to readable insights
     sec_form_map = {
         "8-K": "Material Event", "10-Q": "Quarterly Earnings", "10-K": "Annual Report",
         "4": "Insider Trading", "S-1": "Securities Offering", "S-3": "Shelf Registration",
@@ -299,19 +298,18 @@ def fetch_session_gappers():
                 volumes[t] = hist['Volume']
         except: pass
 
-    # Mass Catalyst Hydration via Benzinga (Direct ticker lookup)
-    bz_map = {}
+    # Mass Catalyst Hydration via FMP
+    fmp_map = {}
     try:
-        bz_url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&symbols={','.join(tickers_to_fetch)}&limit=50"
-        bz_res = requests.get(bz_url, timeout=5)
-        if bz_res.status_code == 200:
-            for article in bz_res.json():
-                title = article.get('title', '').strip()
-                if title:
-                    for s in article.get('stocks', []):
-                        t = s.get('name')
-                        if t and t not in bz_map: 
-                            bz_map[t] = title
+        fmp_news_url = f"https://financialmodelingprep.com/api/v3/stock_news?tickers={','.join(tickers_to_fetch)}&limit=50&apikey={FMP_KEY}"
+        fmp_res = requests.get(fmp_news_url, timeout=5)
+        if fmp_res.status_code == 200:
+            for article in fmp_res.json():
+                sym = article.get('symbol')
+                if sym and sym not in fmp_map:
+                    raw_text = article.get('text', '') or article.get('title', '')
+                    clean_text = re.sub(r'<[^>]+>', '', raw_text)
+                    fmp_map[sym] = re.sub(r'\s+', ' ', clean_text).strip()
     except: pass
 
     for item in final_targets:
@@ -346,8 +344,8 @@ def fetch_session_gappers():
                             break
         except: pass
 
-        raw_cat = bz_map.get(sym, "Momentum Breakout / Volume Spike")
-        catalyst = raw_cat[:100] + "..." if len(raw_cat) > 100 else raw_cat
+        raw_cat = fmp_map.get(sym, "Momentum Breakout / Volume Spike")
+        catalyst = raw_cat[:150] + "..." if len(raw_cat) > 150 else raw_cat
 
         results.append({"ticker": sym, "price": price, "change": change, "session": sess, "vol": vol_str, "rvol": float(rvol), "catalyst": catalyst, "sec_tag": sec_tag})
 
