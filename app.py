@@ -52,7 +52,7 @@ footer {visibility: hidden;}
 .hdr-meta { text-align: right; font-size: 16px; color: #94a3b8; }
 .hdr-date { font-size: 20px; color: #c7d2fe; font-weight: 600; margin-bottom: 8px; }
 
-/* INDIVIDUAL SECTION WRAPPER (Spacing and Bottom Border) */
+/* INDIVIDUAL SECTION WRAPPER */
 .section-container {
     padding-bottom: 40px;
     margin-bottom: 40px;
@@ -64,10 +64,10 @@ footer {visibility: hidden;}
     padding-bottom: 0;
 }
 
-/* SECTION TITLE (Darker Gray Text) */
+/* SECTION TITLE */
 .section-title { font-size: 22px; font-weight: 800; color: #64748b; margin-bottom: 24px; letter-spacing: 1.5px; }
 
-/* STACKED LIST ITEMS (Replaces Tables) */
+/* STACKED LIST ITEMS */
 .item-card { padding: 20px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
 .item-card:last-child { border-bottom: none; }
 .item-top { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; font-size: 18px; }
@@ -91,7 +91,7 @@ footer {visibility: hidden;}
 .nb-red, .badge-miss, .badge-closed { color: #f87171 !important; font-weight: 800; }
 .badge-live { animation: pulse 2s infinite; }
 
-/* INSTRUMENT GRID (For Scorecard) */
+/* INSTRUMENT GRID */
 .inst-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
 .inst-card { padding: 12px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
 .inst-name { font-size: 15px; color: #64748b; font-weight: 700; letter-spacing: 1px; margin-bottom: 4px; }
@@ -120,23 +120,24 @@ else:
     status_class = "badge-live"
 
 # ==========================================
-# 3. DATA ENGINES (WITH BULLETPROOF ERROR HANDLING)
+# 3. DATA ENGINES (DIAGNOSTIC MODE)
 # ==========================================
 def get_last_price_change(ticker):
     try:
-        hist = yf.Ticker(ticker).history(period="5d").dropna(subset=['Close'])
+        hist = yf.Ticker(ticker).history(period="5d", progress=False).dropna(subset=['Close'])
         if len(hist) >= 2:
-            return float(hist['Close'].iloc[-1]), float(((hist['Close'].iloc[-1] - hist['Close'].iloc[-2])/hist['Close'].iloc[-2])*100)
-    except: pass
-    return 0.0, 0.0
+            return float(hist['Close'].iloc[-1]), float(((hist['Close'].iloc[-1] - hist['Close'].iloc[-2])/hist['Close'].iloc[-2])*100), None
+        return 0.0, 0.0, "Empty DataFrame returned"
+    except Exception as e: 
+        return 0.0, 0.0, str(e)
 
 @st.cache_data(ttl=60) 
 def fetch_expanded_macro():
     tickers = {"S&P 500 (SPX)": "^GSPC", "Nasdaq Comp": "^IXIC", "Dow Jones": "^DJI", "Russell 2000": "^RUT", "VIX": "^VIX", "10Y Treasury": "^TNX"}
     data = {}
     for name, ticker in tickers.items():
-        p, c = get_last_price_change(ticker)
-        data[name] = {"price": p, "pct": c}
+        p, c, err = get_last_price_change(ticker)
+        data[name] = {"price": p, "pct": c, "error": err}
     return data
 
 @st.cache_data(ttl=300)
@@ -144,8 +145,8 @@ def fetch_sector_flow():
     sector_map = {"XLK": "Technology", "XLY": "Consumer Disc", "XLI": "Industrials", "XLC": "Comm. Services", "XLV": "Health Care", "XLF": "Financials", "XLP": "Consumer Staples", "XLB": "Materials", "XLE": "Energy", "XLRE": "Real Estate"}
     perf = []
     for ticker, name in sector_map.items():
-        p, c = get_last_price_change(ticker)
-        perf.append({"ticker": ticker, "sector": name, "pct": c, "flow": "Inflow" if c > 0 else "Outflow"})
+        p, c, err = get_last_price_change(ticker)
+        perf.append({"ticker": ticker, "sector": name, "pct": c, "flow": "Inflow" if c > 0 else "Outflow", "error": err})
     return sorted(perf, key=lambda x: x['pct'], reverse=True)
 
 @st.cache_data(ttl=120)
@@ -153,6 +154,7 @@ def fetch_gappers():
     results = []
     cache_file = "eod_gappers_cache.json"
     all_gainers = []
+    global_error = None
     
     try:
         endpoints = [
@@ -168,13 +170,18 @@ def fetch_gappers():
                     for x in r.json():
                         x['session'] = sess
                         all_gainers.append(x)
+                else:
+                    global_error = f"FMP Error: HTTP {r.status_code} - {r.text[:50]}"
             except Exception as e:
-                print(f"FMP {sess} Error: {e}")
+                global_error = f"FMP Request Timeout/Error: {str(e)}"
 
         if not all_gainers:
             if os.path.exists(cache_file):
-                with open(cache_file, 'r') as f: return json.load(f)
-            return []
+                with open(cache_file, 'r') as f: 
+                    cached = json.load(f)
+                    if cached: cached[0]['global_error'] = global_error
+                    return cached
+            return [{"global_error": global_error or "No gainers returned from APIs and no cache exists."}]
 
         unique_movers = {}
         for x in all_gainers:
@@ -189,9 +196,9 @@ def fetch_gappers():
         final_targets = pre_movers + reg_movers + post_movers
         tickers_to_fetch = [x['symbol'] for x in final_targets]
 
-        if not tickers_to_fetch: return []
+        if not tickers_to_fetch: 
+            return [{"global_error": "Tickers failed to parse from FMP response."}]
 
-        # Bulletproof yfinance history fetch (avoids MultiIndex DataFrame crash)
         volumes = {}
         for t in tickers_to_fetch:
             try:
@@ -241,10 +248,7 @@ def fetch_gappers():
                 
         return final_result
     except Exception as e:
-        print(f"Master Gapper Exception: {e}")
-        if os.path.exists(cache_file):
-            with open(cache_file, 'r') as f: return json.load(f)
-        return []
+        return [{"global_error": f"Master Gapper Exception: {str(e)}"}]
 
 @st.cache_data(ttl=120)
 def fetch_liquidity_basket():
@@ -257,7 +261,8 @@ def fetch_liquidity_basket():
                 current = hist['Close'].iloc[-1]
                 bias = "Long" if current > hist['Close'].iloc[-5:].mean() else "Short"
                 results.append({"ticker": t, "price": float(current), "bias": bias, "color": "nb-green" if bias == "Long" else "nb-red"})
-        except: pass
+        except Exception as e: 
+            results.append({"ticker": t, "price": 0.0, "bias": "Error", "color": "nb-red", "error": str(e)})
     return results
 
 @st.cache_data(ttl=120)
@@ -295,10 +300,13 @@ st.markdown('<div class="block-container">', unsafe_allow_html=True)
 # --- 01 | SCORECARD ---
 scorecard_html = f'<div class="section-container"><div class="section-title">01 — Macro Scorecard</div><div class="inst-grid">'
 for name, m in macro_data.items():
-    col = "up-pct" if m['pct'] >= 0 else "down-pct"
-    sign = "▲ +" if m['pct'] > 0 else "▼ " if m['pct'] < 0 else ""
-    p_str = f"{m['price']:.3f}" if name in ["VIX", "10Y Treasury"] else f"${m['price']:,.2f}"
-    scorecard_html += f'<div class="inst-card"><div class="inst-name">{name}</div><div class="inst-level">{p_str}</div><div class="{col}">{sign}{m["pct"]:.2f}%</div></div>'
+    if m.get('error'):
+        scorecard_html += f'<div class="inst-card"><div class="inst-name">{name}</div><div class="inst-level" style="font-size:14px; color:#f87171;">Error: {m["error"]}</div></div>'
+    else:
+        col = "up-pct" if m['pct'] >= 0 else "down-pct"
+        sign = "▲ +" if m['pct'] > 0 else "▼ " if m['pct'] < 0 else ""
+        p_str = f"{m['price']:.3f}" if name in ["VIX", "10Y Treasury"] else f"${m['price']:,.2f}"
+        scorecard_html += f'<div class="inst-card"><div class="inst-name">{name}</div><div class="inst-level">{p_str}</div><div class="{col}">{sign}{m["pct"]:.2f}%</div></div>'
 scorecard_html += "</div></div>"
 st.markdown(scorecard_html, unsafe_allow_html=True)
 
@@ -314,9 +322,9 @@ try:
             teaser = re.sub(r'<[^>]+>', '', body_text)
             live_news.append({"title": title, "teaser": teaser[:250] + "..."})
     else:
-        live_news.append({"title": f"Benzinga API Error [{res.status_code}]", "teaser": "Authentication or endpoint failure. Check API key."})
+        live_news.append({"title": f"Benzinga API Error [{res.status_code}]", "teaser": str(res.text[:200])})
 except Exception as e:
-    live_news.append({"title": "News Feed Connection Timeout", "teaser": str(e)})
+    live_news.append({"title": "News Feed Exception", "teaser": str(e)})
 
 news_html = '<div class="section-container"><div class="section-title">02 — Market Drivers & Catalysts</div>'
 for article in live_news[:8]:
@@ -327,47 +335,58 @@ st.markdown(news_html, unsafe_allow_html=True)
 # --- 03 | SECTORS (STACKED FORMAT) ---
 heatmap_html = '<div class="section-container"><div class="section-title">03 — Sector Flows</div>'
 for i, item in enumerate(sector_data):
-    col = "up-pct" if item['pct'] >= 0 else "down-pct"
-    sign = "▲ +" if item['pct'] > 0 else "▼ " if item['pct'] < 0 else ""
-    f_col = "nb-green" if item['pct'] >= 0 else "nb-red"
-    heatmap_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sub-name">({item["sector"]})</span> <span class="sep">|</span> <span class="{col}">{sign}{item["pct"]:.2f}%</span> <span class="sep">|</span> Flow: <span class="{f_col}">{item["flow"]}</span></div><div class="item-bot">Sector rotation tracking.</div></div>'
+    if item.get('error'):
+        heatmap_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sub-name">({item["sector"]})</span></div><div class="item-bot" style="color:#f87171;">Data Error: {item["error"]}</div></div>'
+    else:
+        col = "up-pct" if item['pct'] >= 0 else "down-pct"
+        sign = "▲ +" if item['pct'] > 0 else "▼ " if item['pct'] < 0 else ""
+        f_col = "nb-green" if item['pct'] >= 0 else "nb-red"
+        heatmap_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sub-name">({item["sector"]})</span> <span class="sep">|</span> <span class="{col}">{sign}{item["pct"]:.2f}%</span> <span class="sep">|</span> Flow: <span class="{f_col}">{item["flow"]}</span></div><div class="item-bot">Sector rotation tracking.</div></div>'
 heatmap_html += '</div>'
 st.markdown(heatmap_html, unsafe_allow_html=True)
 
 # --- 04 | MARKET MOVERS BY SESSION (STACKED FORMAT) ---
 sessions = [("Pre-Market Movers", "Pre-Market", "nb-purple"), ("Regular Session Movers", "Regular", "nb-blue"), ("Post-Market Movers", "Post-Market", "nb-orange")]
 gappers_html = '<div class="section-container"><div class="section-title">04 — Market Movers by Session</div>'
-for title, sess_key, badge in sessions:
-    sess_data = [x for x in gappers_data if x['session'] == sess_key]
-    gappers_html += f'<div class="nb-badge {badge}" style="margin-top:16px;">{title}</div>'
-    
-    if sess_data:
-        limit = 5 if sess_key in ["Pre-Market", "Post-Market"] else 10
-        for item in sorted(sess_data, key=lambda x: x['change'], reverse=True)[:limit]:
-            rvol_val = safe_float(item.get('rvol')) or 1.0
-            r_txt = f"{rvol_val:.1f}x"
-            gappers_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item["price"]:.2f}</span> <span class="sep">|</span> <span class="up-pct">▲ +{item["change"]:.2f}%</span> <span class="sep">|</span> Vol: <span class="val">{item.get("vol", "")}</span> <span class="sep">|</span> RVOL: <span class="val">{r_txt}</span></div><div class="item-bot">{item.get("catalyst")}</div></div>'
-    else:
-        gappers_html += "<div class='item-card'><div class='item-bot'>Awaiting session market data (or FMP API Error). Check cache or keys.</div></div>"
+
+if gappers_data and "global_error" in gappers_data[0]:
+    gappers_html += f"<div class='item-card'><div class='item-bot' style='color:#f87171;'>API Sync Failed: {gappers_data[0]['global_error']}</div></div>"
+else:
+    for title, sess_key, badge in sessions:
+        sess_data = [x for x in gappers_data if x.get('session') == sess_key]
+        gappers_html += f'<div class="nb-badge {badge}" style="margin-top:16px;">{title}</div>'
+        
+        if sess_data:
+            limit = 5 if sess_key in ["Pre-Market", "Post-Market"] else 10
+            for item in sorted(sess_data, key=lambda x: x['change'], reverse=True)[:limit]:
+                rvol_val = safe_float(item.get('rvol')) or 1.0
+                r_txt = f"{rvol_val:.1f}x"
+                gappers_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item["price"]:.2f}</span> <span class="sep">|</span> <span class="up-pct">▲ +{item["change"]:.2f}%</span> <span class="sep">|</span> Vol: <span class="val">{item.get("vol", "")}</span> <span class="sep">|</span> RVOL: <span class="val">{r_txt}</span></div><div class="item-bot">{item.get("catalyst")}</div></div>'
+        else:
+            gappers_html += "<div class='item-card'><div class='item-bot'>No movers found for this session.</div></div>"
 gappers_html += '</div>'
 st.markdown(gappers_html, unsafe_allow_html=True)
 
 # --- 05 | STOCKS IN PLAY (SIPS) (STACKED FORMAT) ---
 sips_html = '<div class="section-container"><div class="section-title">05 — Stocks in Play</div>'
-if gappers_data:
-    for item in sorted(gappers_data, key=lambda x: x['change'], reverse=True)[:10]:
+if gappers_data and "global_error" not in gappers_data[0]:
+    for item in sorted(gappers_data, key=lambda x: x.get('change', 0), reverse=True)[:10]:
         rvol_val = safe_float(item.get('rvol')) or 1.0
         r_txt = f"{rvol_val:.1f}x"
-        sips_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item["price"]:.2f}</span> <span class="sep">|</span> <span class="up-pct">▲ +{item["change"]:.2f}%</span> <span class="sep">|</span> Vol: <span class="val">{item.get("vol", "")}</span> <span class="sep">|</span> RVOL: <span class="val">{r_txt}</span></div><div class="item-bot">{item.get("catalyst")}</div></div>'
+        sips_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item.get("price", 0):.2f}</span> <span class="sep">|</span> <span class="up-pct">▲ +{item.get("change", 0):.2f}%</span> <span class="sep">|</span> Vol: <span class="val">{item.get("vol", "")}</span> <span class="sep">|</span> RVOL: <span class="val">{r_txt}</span></div><div class="item-bot">{item.get("catalyst")}</div></div>'
 else:
-    sips_html += "<div class='item-card'><div class='item-bot'>Awaiting live market data (or FMP API Error).</div></div>"
+    err_msg = gappers_data[0]['global_error'] if gappers_data else "Unknown Error"
+    sips_html += f"<div class='item-card'><div class='item-bot' style='color:#f87171;'>Cannot generate SIPs: {err_msg}</div></div>"
 sips_html += '</div>'
 st.markdown(sips_html, unsafe_allow_html=True)
 
 # --- 06 | MEGA-CAP LIQUIDITY (STACKED FORMAT) ---
 play_html = '<div class="section-container"><div class="section-title">06 — Mega-Cap Liquidity Basket</div>'
 for item in liquidity_data:
-    play_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item["price"]:.2f}</span> <span class="sep">|</span> Algo Bias: <span class="{item["color"]}">{item["bias"]}</span></div><div class="item-bot">Tracking 5-Day SMA deviation.</div></div>'
+    if item.get('error'):
+        play_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span></div><div class="item-bot" style="color:#f87171;">Error: {item["error"]}</div></div>'
+    else:
+        play_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item["price"]:.2f}</span> <span class="sep">|</span> Algo Bias: <span class="{item["color"]}">{item["bias"]}</span></div><div class="item-bot">Tracking 5-Day SMA deviation.</div></div>'
 play_html += '</div>'
 st.markdown(play_html, unsafe_allow_html=True)
 
@@ -424,10 +443,10 @@ massive_html += "</div>"
 st.markdown(massive_html, unsafe_allow_html=True)
 
 # --- 11 | DYNAMIC MARKET SUMMARY ---
-spx_pct = macro_data.get('S&P 500 (SPX)', {}).get('pct', 0.0)
-top_sector = sector_data[0]['sector'] if sector_data else "Technology"
-top_gapper = gappers_data[0]['ticker'] if gappers_data else "N/A"
-top_gapper_change = gappers_data[0]['change'] if gappers_data else 0.0
+spx_pct = macro_data.get('S&P 500 (SPX)', {}).get('pct', 0.0) if not macro_data.get('S&P 500 (SPX)', {}).get('error') else 0.0
+top_sector = sector_data[0]['sector'] if sector_data and not sector_data[0].get('error') else "Technology"
+top_gapper = gappers_data[0]['ticker'] if gappers_data and "global_error" not in gappers_data[0] else "N/A"
+top_gapper_change = gappers_data[0].get('change', 0.0) if gappers_data and "global_error" not in gappers_data[0] else 0.0
 
 display_status = "The market is currently open and trading." if market_status == "Market Open" else market_status
 
