@@ -16,8 +16,8 @@ def safe_float(val):
 # API KEYS & CONFIG
 # ==========================================
 BZ_KEY = "bz.4DVR2L3LKQD6KU5Z4CHZPPNE5MPV2KLQ"
-FMP_KEY = "WMMhcffuHSYVTceXryrt4tHC8GXcsB0g"
 MASSIVE_KEY = "TfwImIVSEp2wLzNnXpwysYH9ccvjk6pv"
+# FMP_KEY removed due to legacy endpoint deprecation (HTTP 403)
 
 st.set_page_config(page_title="Confluence Trading Tools", layout="wide", initial_sidebar_state="collapsed")
 
@@ -120,14 +120,14 @@ else:
     status_class = "badge-live"
 
 # ==========================================
-# 3. DATA ENGINES (DIAGNOSTIC MODE)
+# 3. DATA ENGINES (SELF-CONTAINED)
 # ==========================================
 def get_last_price_change(ticker):
     try:
         hist = yf.Ticker(ticker).history(period="5d").dropna(subset=['Close'])
         if len(hist) >= 2:
             return float(hist['Close'].iloc[-1]), float(((hist['Close'].iloc[-1] - hist['Close'].iloc[-2])/hist['Close'].iloc[-2])*100), None
-        return 0.0, 0.0, "Empty DataFrame returned"
+        return 0.0, 0.0, "Empty DataFrame"
     except Exception as e: 
         return 0.0, 0.0, str(e)
 
@@ -151,104 +151,75 @@ def fetch_sector_flow():
 
 @st.cache_data(ttl=120)
 def fetch_gappers():
+    """Custom Scanner: Bypasses FMP completely to avoid 403 limits."""
     results = []
     cache_file = "eod_gappers_cache.json"
-    all_gainers = []
-    global_error = None
+    
+    # High-beta / High-volume basket
+    scan_list = [
+        "NVDA", "TSLA", "AMD", "SMCI", "COIN", "PLTR", "MARA", "MSTR", 
+        "AAPL", "META", "AMZN", "MSFT", "GOOGL", "AVGO", "ARM", "QCOM",
+        "NFLX", "GME", "AMC", "HOOD", "RCL", "CCL", "UBER", "DDOG", "CRWD"
+    ]
     
     try:
-        endpoints = [
-            ("Regular", f"https://financialmodelingprep.com/api/v3/stock_market/gainers?apikey={FMP_KEY}"),
-            ("Pre-Market", f"https://financialmodelingprep.com/api/v3/stock_market/pre-market-gainers?apikey={FMP_KEY}"),
-            ("Post-Market", f"https://financialmodelingprep.com/api/v3/stock_market/post-market-gainers?apikey={FMP_KEY}")
-        ]
-        
-        for sess, url in endpoints:
+        for sym in scan_list:
             try:
-                r = requests.get(url, timeout=5)
-                if r.status_code == 200 and isinstance(r.json(), list):
-                    for x in r.json():
-                        x['session'] = sess
-                        all_gainers.append(x)
-                else:
-                    global_error = f"FMP Error: HTTP {r.status_code} - {r.text[:50]}"
-            except Exception as e:
-                global_error = f"FMP Request Timeout/Error: {str(e)}"
-
-        if not all_gainers:
-            if os.path.exists(cache_file):
-                with open(cache_file, 'r') as f: 
-                    cached = json.load(f)
-                    if cached: cached[0]['global_error'] = global_error
-                    return cached
-            return [{"global_error": global_error or "No gainers returned from APIs and no cache exists."}]
-
-        unique_movers = {}
-        for x in all_gainers:
-            sym = x.get('symbol')
-            if sym and (sym not in unique_movers or x.get('changesPercentage', 0) > unique_movers[sym].get('changesPercentage', 0)):
-                unique_movers[sym] = x
-
-        reg_movers = sorted([v for v in unique_movers.values() if v['session'] == 'Regular'], key=lambda x: x.get('changesPercentage', 0), reverse=True)[:15]
-        pre_movers = sorted([v for v in unique_movers.values() if v['session'] == 'Pre-Market'], key=lambda x: x.get('changesPercentage', 0), reverse=True)[:10]
-        post_movers = sorted([v for v in unique_movers.values() if v['session'] == 'Post-Market'], key=lambda x: x.get('changesPercentage', 0), reverse=True)[:10]
-
-        final_targets = pre_movers + reg_movers + post_movers
-        tickers_to_fetch = [x['symbol'] for x in final_targets]
-
-        if not tickers_to_fetch: 
-            return [{"global_error": "Tickers failed to parse from FMP response."}]
-
-        volumes = {}
-        for t in tickers_to_fetch:
-            try:
-                hist = yf.Ticker(t).history(period="10d")
-                if not hist.empty and 'Volume' in hist.columns:
-                    volumes[t] = hist['Volume']
-            except: pass
-
-        bz_map = {}
-        try:
-            bz_url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&symbols={','.join(tickers_to_fetch)}&limit=50"
-            bz_res = requests.get(bz_url, timeout=5)
-            if bz_res.status_code == 200:
-                for article in bz_res.json():
-                    for sym_data in article.get('stocks', []):
-                        t = sym_data.get('name')
-                        if t not in bz_map: bz_map[t] = article.get('title', 'Momentum Breakout')
-        except: pass
-
-        for item in final_targets:
-            sym = item['symbol']
-            price = safe_float(item.get('price')) or 0.0
-            change = safe_float(item.get('changesPercentage')) or 0.0
-            sess = item['session']
-
-            vol_str, dol_vol_str, rvol = "N/A", "N/A", 1.0
-            if sym in volumes:
-                v_series = volumes[sym].dropna()
-                if not v_series.empty:
-                    vol = v_series.iloc[-1]
-                    avg_vol = v_series.mean() or 1
+                hist = yf.Ticker(sym).history(period="5d")
+                if len(hist) >= 2:
+                    price = float(hist['Close'].iloc[-1])
+                    prev = float(hist['Close'].iloc[-2])
+                    change = ((price - prev) / prev) * 100
+                    
+                    vol = float(hist['Volume'].iloc[-1])
+                    avg_vol = float(hist['Volume'].mean()) or 1.0
                     rvol = vol / avg_vol
                     dol_vol = vol * price
+                    
                     vol_str = f"{vol/1e6:.1f}M" if vol >= 1e6 else f"{vol/1e3:.0f}K"
-                    dol_vol_str = f"${dol_vol/1e6:.1f}M" if dol_vol >= 1e6 else f"${dol_vol/1e3:.0f}K"
-
-            raw_cat = bz_map.get(sym, "High Volume Momentum")
-            catalyst = raw_cat.split(" - ")[0][:60] + "..." if len(raw_cat) > 60 else raw_cat
-
-            results.append({"ticker": sym, "price": price, "change": change, "session": sess, "vol": vol_str, "dvol": dol_vol_str, "rvol": float(rvol), "catalyst": catalyst})
-
+                    
+                    # Store significant movers
+                    if abs(change) > 0.5:
+                        results.append({
+                            "ticker": sym, 
+                            "price": price, 
+                            "change": change, 
+                            "session": "Regular", 
+                            "vol": vol_str, 
+                            "rvol": float(rvol), 
+                            "catalyst": "Momentum Breakout / Sector Flow"
+                        })
+            except: pass
+        
+        # Sort by gainers
         final_result = sorted(results, key=lambda x: x['change'], reverse=True)
         
+        # Hydrate with Benzinga Catalysts for Top 10
+        top_tickers = [x['ticker'] for x in final_result[:10]]
+        if top_tickers:
+            try:
+                bz_url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&symbols={','.join(top_tickers)}&limit=20"
+                bz_res = requests.get(bz_url, timeout=5)
+                if bz_res.status_code == 200:
+                    bz_map = {}
+                    for article in bz_res.json():
+                        for s in article.get('stocks', []):
+                            t = s.get('name')
+                            if t not in bz_map: bz_map[t] = article.get('title', '')
+                    
+                    for item in final_result:
+                        if item['ticker'] in bz_map:
+                            item['catalyst'] = bz_map[item['ticker']][:65] + "..."
+            except: pass
+
         if final_result:
-            with open(cache_file, 'w') as f:
-                json.dump(final_result, f)
-                
+            with open(cache_file, 'w') as f: json.dump(final_result, f)
+            
         return final_result
     except Exception as e:
-        return [{"global_error": f"Master Gapper Exception: {str(e)}"}]
+        if os.path.exists(cache_file):
+            with open(cache_file, 'r') as f: return json.load(f)
+        return [{"global_error": f"Scanner Exception: {str(e)}"}]
 
 @st.cache_data(ttl=120)
 def fetch_liquidity_basket():
@@ -345,35 +316,34 @@ for i, item in enumerate(sector_data):
 heatmap_html += '</div>'
 st.markdown(heatmap_html, unsafe_allow_html=True)
 
-# --- 04 | MARKET MOVERS BY SESSION (STACKED FORMAT) ---
-sessions = [("Pre-Market Movers", "Pre-Market", "nb-purple"), ("Regular Session Movers", "Regular", "nb-blue"), ("Post-Market Movers", "Post-Market", "nb-orange")]
-gappers_html = '<div class="section-container"><div class="section-title">04 — Market Movers by Session</div>'
+# --- 04 | MARKET MOVERS (STACKED FORMAT) ---
+gappers_html = '<div class="section-container"><div class="section-title">04 — Live Market Movers</div>'
 
 if gappers_data and "global_error" in gappers_data[0]:
-    gappers_html += f"<div class='item-card'><div class='item-bot' style='color:#f87171;'>API Sync Failed: {gappers_data[0]['global_error']}</div></div>"
+    gappers_html += f"<div class='item-card'><div class='item-bot' style='color:#f87171;'>Scanner Failed: {gappers_data[0]['global_error']}</div></div>"
 else:
-    for title, sess_key, badge in sessions:
-        sess_data = [x for x in gappers_data if x.get('session') == sess_key]
-        gappers_html += f'<div class="nb-badge {badge}" style="margin-top:16px;">{title}</div>'
-        
-        if sess_data:
-            limit = 5 if sess_key in ["Pre-Market", "Post-Market"] else 10
-            for item in sorted(sess_data, key=lambda x: x['change'], reverse=True)[:limit]:
-                rvol_val = safe_float(item.get('rvol')) or 1.0
-                r_txt = f"{rvol_val:.1f}x"
-                gappers_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item["price"]:.2f}</span> <span class="sep">|</span> <span class="up-pct">▲ +{item["change"]:.2f}%</span> <span class="sep">|</span> Vol: <span class="val">{item.get("vol", "")}</span> <span class="sep">|</span> RVOL: <span class="val">{r_txt}</span></div><div class="item-bot">{item.get("catalyst")}</div></div>'
-        else:
-            gappers_html += "<div class='item-card'><div class='item-bot'>No movers found for this session.</div></div>"
+    gappers_html += f'<div class="nb-badge nb-blue" style="margin-top:16px;">Momentum Scanner (Beta Basket)</div>'
+    if gappers_data:
+        for item in gappers_data[:10]:
+            rvol_val = safe_float(item.get('rvol')) or 1.0
+            r_txt = f"{rvol_val:.1f}x"
+            col = "up-pct" if item["change"] >= 0 else "down-pct"
+            sign = "▲ +" if item["change"] >= 0 else "▼ "
+            gappers_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item["price"]:.2f}</span> <span class="sep">|</span> <span class="{col}">{sign}{item["change"]:.2f}%</span> <span class="sep">|</span> Vol: <span class="val">{item.get("vol", "")}</span> <span class="sep">|</span> RVOL: <span class="val">{r_txt}</span></div><div class="item-bot">{item.get("catalyst")}</div></div>'
+    else:
+        gappers_html += "<div class='item-card'><div class='item-bot'>No significant momentum in tracked basket.</div></div>"
 gappers_html += '</div>'
 st.markdown(gappers_html, unsafe_allow_html=True)
 
 # --- 05 | STOCKS IN PLAY (SIPS) (STACKED FORMAT) ---
 sips_html = '<div class="section-container"><div class="section-title">05 — Stocks in Play</div>'
 if gappers_data and "global_error" not in gappers_data[0]:
-    for item in sorted(gappers_data, key=lambda x: x.get('change', 0), reverse=True)[:10]:
+    for item in sorted(gappers_data, key=lambda x: abs(x.get('change', 0)), reverse=True)[:5]:
         rvol_val = safe_float(item.get('rvol')) or 1.0
         r_txt = f"{rvol_val:.1f}x"
-        sips_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item.get("price", 0):.2f}</span> <span class="sep">|</span> <span class="up-pct">▲ +{item.get("change", 0):.2f}%</span> <span class="sep">|</span> Vol: <span class="val">{item.get("vol", "")}</span> <span class="sep">|</span> RVOL: <span class="val">{r_txt}</span></div><div class="item-bot">{item.get("catalyst")}</div></div>'
+        col = "up-pct" if item["change"] >= 0 else "down-pct"
+        sign = "▲ +" if item["change"] >= 0 else "▼ "
+        sips_html += f'<div class="item-card"><div class="item-top"><span class="tckr">{item["ticker"]}</span> <span class="sep">|</span> <span class="val">${item.get("price", 0):.2f}</span> <span class="sep">|</span> <span class="{col}">{sign}{item.get("change", 0):.2f}%</span> <span class="sep">|</span> Vol: <span class="val">{item.get("vol", "")}</span> <span class="sep">|</span> RVOL: <span class="val">{r_txt}</span></div><div class="item-bot">{item.get("catalyst")}</div></div>'
 else:
     err_msg = gappers_data[0]['global_error'] if gappers_data else "Unknown Error"
     sips_html += f"<div class='item-card'><div class='item-bot' style='color:#f87171;'>Cannot generate SIPs: {err_msg}</div></div>"
@@ -459,7 +429,7 @@ summary_text = f"""
 </div>
 <div class="item-card">
     <div class="item-top"><span class="val">Action Summary</span></div>
-    <div class="item-bot">Heading into the next session, the broader market is {'pushing higher' if spx_pct > 0 else 'showing weakness'} with the S&P 500 at {spx_pct:+.2f}%. Sector rotation favors {top_sector}, while speculative pre-market money is heavily concentrated in high-RVOL runners like {top_gapper} (+{top_gapper_change:.1f}%). With the VIX hovering near ~19.10, the environment remains constructive but warrants selectivity.</div>
+    <div class="item-bot">Heading into the next session, the broader market is {'pushing higher' if spx_pct > 0 else 'showing weakness'} with the S&P 500 at {spx_pct:+.2f}%. Sector rotation favors {top_sector}, while speculative money is concentrated in names like {top_gapper} ({top_gapper_change:+.1f}%). With the VIX hovering near ~19.10, the environment remains constructive but warrants selectivity.</div>
 </div>
 <div class="item-card">
     <div class="item-top"><span class="val">Closing Posture</span></div>
