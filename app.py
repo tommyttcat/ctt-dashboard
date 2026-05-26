@@ -252,11 +252,10 @@ institutional_flow = fetch_massive_data()
 # ==========================================
 # 5. UI RENDER ENGINE (HARDCODED INLINE STYLES)
 # ==========================================
-GRID_CONTAINER = '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); column-gap: 48px;">'
-ROW_WRAPPER = 'style="padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 18px; line-height: 1.6; word-wrap: break-word;"'
+ROW_WRAPPER = 'style="display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 18px; line-height: 1.6;"'
 TICKER_STYLE = 'style="font-weight: 800; color: #f1f5f9; font-size: 20px;"'
 DATA_STYLE = 'style="font-weight: 400; color: #f1f5f9;"'
-SEP_STYLE = 'style="font-weight: 300; color: #475569; margin: 0 6px;"'
+SEP_STYLE = 'style="font-weight: 300; color: #475569; margin: 0 4px;"'
 DESC_STYLE = 'style="font-weight: 400; color: #cbd5e1; font-size: 16px;"'
 
 # --- HEADER ---
@@ -278,7 +277,7 @@ for name, m in macro_data.items():
 scorecard_html += "</div></div>"
 st.markdown(scorecard_html, unsafe_allow_html=True)
 
-# --- 02 | MARKET DRIVERS (Kept 1-column for readability of long text) ---
+# --- 02 | MARKET DRIVERS ---
 live_news = []
 try:
     url = f"https://api.benzinga.com/api/v2/news?token={BZ_KEY}&limit=25&channels=News"
@@ -301,8 +300,8 @@ for article in live_news[:8]:
 news_html += "</div>"
 st.markdown(news_html, unsafe_allow_html=True)
 
-# --- 03 | SECTORS (2-Column Grid) ---
-heatmap_html = f'<div class="section-container"><div class="section-title">03 — Sector Flows</div>{GRID_CONTAINER}'
+# --- 03 | SECTORS ---
+heatmap_html = f'<div class="section-container"><div class="section-title">03 — Sector Flows</div>'
 for i, item in enumerate(sector_data):
     if item.get('error'):
         heatmap_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>{item["ticker"]}</span> <span {DATA_STYLE}>({item["sector"]})</span> <span {SEP_STYLE}>|</span> <span {DESC_STYLE} style="color:#f87171;">Error: {item["error"]}</span></div>'
@@ -310,15 +309,15 @@ for i, item in enumerate(sector_data):
         pct_color = "#4ade80" if item['pct'] >= 0 else "#f87171"
         sign = "▲ +" if item['pct'] > 0 else "▼ " if item['pct'] < 0 else ""
         heatmap_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>{item["ticker"]}</span> <span {DATA_STYLE}>({item["sector"]})</span> <span {SEP_STYLE}>|</span> <span style="font-weight:400; color:{pct_color};">{sign}{item["pct"]:.2f}%</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Flow: {item["flow"]}</span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE}>Sector rotation tracking.</span></div>'
-heatmap_html += '</div></div>'
+heatmap_html += '</div>'
 st.markdown(heatmap_html, unsafe_allow_html=True)
 
-# --- 04 | MARKET MOVERS (2-Column Grid) ---
+# --- 04 | MARKET MOVERS ---
 gappers_html = f'<div class="section-container"><div class="section-title">04 — Live Market Movers</div>'
 if gappers_data and "global_error" in gappers_data[0]:
     gappers_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>Error</span> <span {SEP_STYLE}>|</span> <span {DESC_STYLE} style="color:#f87171;">Scanner Failed: {gappers_data[0]["global_error"]}</span></div>'
 else:
-    gappers_html += f'<div class="nb-badge nb-blue" style="margin-bottom:16px;">Momentum Scanner (Beta Basket)</div>{GRID_CONTAINER}'
+    gappers_html += f'<div class="nb-badge nb-blue" style="margin-bottom:16px;">Momentum Scanner (Beta Basket)</div>'
     if gappers_data:
         for item in gappers_data[:10]:
             rvol_val = safe_float(item.get('rvol')) or 1.0
@@ -327,11 +326,11 @@ else:
             gappers_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>{item["ticker"]}</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>${item["price"]:.2f}</span> <span {SEP_STYLE}>|</span> <span style="font-weight:400; color:{pct_color};">{sign}{item["change"]:.2f}%</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Vol: {item.get("vol", "")}</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>RVOL: {rvol_val:.1f}x</span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE}>{item.get("catalyst")}</span></div>'
     else:
         gappers_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>Status</span> <span {SEP_STYLE}>|</span> <span {DESC_STYLE}>No significant momentum in tracked basket.</span></div>'
-gappers_html += '</div></div>'
+gappers_html += '</div>'
 st.markdown(gappers_html, unsafe_allow_html=True)
 
-# --- 05 | STOCKS IN PLAY (SIPS) (2-Column Grid) ---
-sips_html = f'<div class="section-container"><div class="section-title">05 — Stocks in Play</div>{GRID_CONTAINER}'
+# --- 05 | STOCKS IN PLAY (SIPS) ---
+sips_html = f'<div class="section-container"><div class="section-title">05 — Stocks in Play</div>'
 if gappers_data and "global_error" not in gappers_data[0]:
     for item in sorted(gappers_data, key=lambda x: abs(x.get('change', 0)), reverse=True)[:6]:
         rvol_val = safe_float(item.get('rvol')) or 1.0
@@ -341,22 +340,22 @@ if gappers_data and "global_error" not in gappers_data[0]:
 else:
     err_msg = gappers_data[0]['global_error'] if gappers_data else "Unknown Error"
     sips_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>Error</span> <span {SEP_STYLE}>|</span> <span {DESC_STYLE} style="color:#f87171;">Cannot generate SIPs: {err_msg}</span></div>'
-sips_html += '</div></div>'
+sips_html += '</div>'
 st.markdown(sips_html, unsafe_allow_html=True)
 
-# --- 06 | MEGA-CAP LIQUIDITY (2-Column Grid) ---
-play_html = f'<div class="section-container"><div class="section-title">06 — Mega-Cap Liquidity Basket</div>{GRID_CONTAINER}'
+# --- 06 | MEGA-CAP LIQUIDITY ---
+play_html = f'<div class="section-container"><div class="section-title">06 — Mega-Cap Liquidity Basket</div>'
 for item in liquidity_data:
     if item.get('error'):
         play_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>{item["ticker"]}</span> <span {SEP_STYLE}>|</span> <span {DESC_STYLE} style="color:#f87171;">Error: {item["error"]}</span></div>'
     else:
         bias_color = "#4ade80" if item["bias"] == "Long" else "#f87171"
         play_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>{item["ticker"]}</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>${item["price"]:.2f}</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Algo Bias: <span style="color:{bias_color};">{item["bias"]}</span></span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE}>Tracking 5-Day SMA deviation.</span></div>'
-play_html += '</div></div>'
+play_html += '</div>'
 st.markdown(play_html, unsafe_allow_html=True)
 
-# --- 07 | ECONOMIC CALENDAR (2-Column Grid) ---
-econ_html = f'<div class="section-container"><div class="section-title">07 — Economic Calendar (Week Ahead)</div>{GRID_CONTAINER}'
+# --- 07 | ECONOMIC CALENDAR ---
+econ_html = f'<div class="section-container"><div class="section-title">07 — Economic Calendar (Week Ahead)</div>'
 events = [
     ("May 26", "S&P/Case-Shiller Home Price", "Med", "#7dd3fc"),
     ("May 27", "CFTC Soybeans / Grains Report", "High", "#f87171"),
@@ -365,36 +364,32 @@ events = [
 ]
 for date, event, imp, col in events:
     econ_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>{date}</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Impact: <span style="color:{col};">{imp}</span></span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE}>{event}</span></div>'
-econ_html += '</div></div>'
+econ_html += '</div>'
 st.markdown(econ_html, unsafe_allow_html=True)
 
-# --- 08 | TECHNICAL PICTURE (2-Column Grid) ---
+# --- 08 | TECHNICAL PICTURE ---
 st.markdown(f"""
 <div class="section-container">
 <div class="section-title">08 — Technical Picture & Action Plan</div>
-{GRID_CONTAINER}
 <div {ROW_WRAPPER}><span {TICKER_STYLE}>SPX Levels</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Target: 7,300–7,375</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Support: 7,000 ➔ 6,780</span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE} style="color:#818cf8;">Action ➔ Look for dip-buying at 7,000.</span></div>
 <div {ROW_WRAPPER}><span {TICKER_STYLE}>Volatility (VIX)</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Level: ~19.10</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Context: Entering "Normal" regime.</span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE} style="color:#818cf8;">Action ➔ Premium selling favored.</span></div>
 </div>
-</div>
 """, unsafe_allow_html=True)
 
-# --- 09 | WATCHLIST (2-Column Grid) ---
+# --- 09 | WATCHLIST ---
 st.markdown(f"""
 <div class="section-container">
 <div class="section-title">09 — Trading Watchlist</div>
-{GRID_CONTAINER}
 <div {ROW_WRAPPER}><span {TICKER_STYLE}>NVDA</span> <span {DATA_STYLE}>(Institutional Flow)</span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE}>Massive institutional buy-side pressure remains. Watch for a test of new ATH territory.</span></div>
 <div {ROW_WRAPPER}><span {TICKER_STYLE}>TSLA</span> <span {DATA_STYLE}>(Catalyst Play)</span> <span {SEP_STYLE}>—</span> <span {DESC_STYLE}>Structural rally in progress. Looking for $220 to act as a launchpad for the next leg.</span></div>
 </div>
-</div>
 """, unsafe_allow_html=True)
 
-# --- 10 | MASSIVE API INTEGRATION (2-Column Grid) ---
-massive_html = f'<div class="section-container"><div class="section-title">10 — Institutional Options Flow (Massive API)</div>{GRID_CONTAINER}'
+# --- 10 | MASSIVE API INTEGRATION ---
+massive_html = f'<div class="section-container"><div class="section-title">10 — Institutional Options Flow (Massive API)</div>'
 for flow in institutional_flow:
     massive_html += f'<div {ROW_WRAPPER}><span {TICKER_STYLE}>{flow["ticker"]}</span> <span {DATA_STYLE}>({flow["type"]})</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>{flow["strike"]} — {flow["exp"]}</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Prem: {flow["prem"]}</span> <span {SEP_STYLE}>|</span> <span {DATA_STYLE}>Sentiment: <span style="color:{flow["color"]};">{flow["sentiment"]}</span></span></div>'
-massive_html += "</div></div>"
+massive_html += "</div>"
 st.markdown(massive_html, unsafe_allow_html=True)
 
 # --- 11 | DYNAMIC MARKET SUMMARY ---
