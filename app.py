@@ -107,6 +107,7 @@ footer {visibility: hidden;}
 .c-imp  { display: inline-block; width: 140px; color: #f1f5f9; font-weight: 400; }
 
 .c-desc { color: #cbd5e1; font-size: 16px; font-weight: 400; white-space: normal; }
+.c-sec-tag { color: #fde047; font-weight: 600; margin-right: 6px; } /* SEC Tag Styling */
 .sep { display: inline-block; width: 24px; text-align: center; color: #475569; font-weight: 300; }
 
 .score-up { color: #4ade80; }
@@ -150,10 +151,9 @@ else:
     status_class = "badge-live"
 
 # ==========================================
-# 3. DATA ENGINES (FMP OPTIMIZED)
+# 3. DATA ENGINES (FMP OPTIMIZED + SEC)
 # ==========================================
 def get_last_price_change(ticker):
-    # FAST PATH: FMP Historical API
     try:
         t_fmp = ticker.replace("^", "%5E")
         fmp_url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{t_fmp}?timeseries=5&apikey={FMP_KEY}"
@@ -166,7 +166,6 @@ def get_last_price_change(ticker):
                 return curr, ((curr - prev)/prev)*100, None
     except: pass
 
-    # FALLBACK PATH: YFinance
     try:
         hist = yf.Ticker(ticker).history(period="5d").dropna(subset=['Close'])
         if len(hist) >= 2:
@@ -195,7 +194,23 @@ def fetch_sector_flow():
 
 def core_scanner(scan_list, cache_file):
     results = []
+    
+    # Map raw form types to readable insights
+    sec_form_map = {
+        "8-K": "Material Event",
+        "10-Q": "Quarterly Earnings",
+        "10-K": "Annual Report",
+        "4": "Insider Trading",
+        "S-1": "Securities Offering",
+        "S-3": "Shelf Registration (Dilution)",
+        "F-1": "Foreign Offering",
+        "13G": "Institutional Stake",
+        "13D": "Activist Stake",
+        "6-K": "Foreign Material Event"
+    }
+
     try:
+        # Phase 1: Scan Price and Volume
         for sym in scan_list:
             try:
                 hist = yf.Ticker(sym).history(period="5d")
@@ -211,21 +226,37 @@ def core_scanner(scan_list, cache_file):
                     
                     if abs(change) > 0.5:
                         results.append({
-                            "ticker": sym, 
-                            "price": price, 
-                            "change": change, 
-                            "session": "Regular", 
-                            "vol": vol_str, 
-                            "rvol": float(rvol), 
-                            "catalyst": "Momentum Breakout / Sector Flow"
+                            "ticker": sym, "price": price, "change": change, 
+                            "vol": vol_str, "rvol": float(rvol), 
+                            "catalyst": "Momentum Breakout / Sector Flow",
+                            "sec_tag": ""
                         })
             except: pass
         
         final_result = sorted(results, key=lambda x: x['change'], reverse=True)
-        
-        # Deep News Hydration via FMP
         top_tickers = [x['ticker'] for x in final_result[:10]]
+        
         if top_tickers:
+            # Phase 2: SEC Filings Hydration
+            for item in final_result[:10]:
+                sym = item['ticker']
+                try:
+                    sec_url = f"https://financialmodelingprep.com/stable/sec-filings-search/symbol?symbol={sym}&page=0&limit=2&apikey={FMP_KEY}"
+                    sec_res = requests.get(sec_url, timeout=3)
+                    if sec_res.status_code == 200:
+                        for filing in sec_res.json():
+                            date_str = filing.get('acceptedDate', '')[:10]
+                            if date_str:
+                                filing_date = datetime.strptime(date_str, '%Y-%m-%d')
+                                # Check if filing is within the last 5 days
+                                if (now_dt - filing_date).days <= 5:
+                                    form_type = filing.get('formType', '')
+                                    desc = sec_form_map.get(form_type, f"{form_type} Filing")
+                                    item['sec_tag'] = f"[SEC {form_type}: {desc}] "
+                                    break
+                except: pass
+
+            # Phase 3: FMP News Hydration
             try:
                 fmp_news_url = f"https://financialmodelingprep.com/api/v3/stock_news?tickers={','.join(top_tickers)}&limit=30&apikey={FMP_KEY}"
                 fmp_res = requests.get(fmp_news_url, timeout=5)
@@ -277,7 +308,6 @@ def fetch_liquidity_basket():
     results = []
     for t in tickers:
         try:
-            # FMP First (Handle Berkshire edge case)
             t_fmp = t.replace("-", ".") 
             url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{t_fmp}?timeseries=10&apikey={FMP_KEY}"
             res = requests.get(url, timeout=3)
@@ -291,7 +321,6 @@ def fetch_liquidity_basket():
                     continue
         except: pass
         
-        # Yfinance Fallback
         try:
             hist = yf.Ticker(t).history(period="10d").dropna(subset=['Close'])
             if len(hist) >= 5:
@@ -369,7 +398,7 @@ for name, m in macro_data.items():
 scorecard_html += "</div></div>"
 st.markdown(scorecard_html, unsafe_allow_html=True)
 
-# --- 02 | MARKET DRIVERS (VIA FMP) ---
+# --- 02 | MARKET DRIVERS ---
 live_news = []
 try:
     url = f"https://financialmodelingprep.com/stable/news/stock-latest?page=0&limit=20&apikey={FMP_KEY}"
@@ -424,7 +453,8 @@ else:
             rvol_val = safe_float(item.get('rvol')) or 1.0
             pct_color = "score-up" if item["change"] >= 0 else "score-down"
             sign = "▲ +" if item["change"] >= 0 else "▼ "
-            gappers_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-prc">${item["price"]:.2f}</span><span class="sep">|</span><span class="c-pct {pct_color}">{sign}{item["change"]:.2f}%</span><span class="sep">|</span><span class="c-vol">Vol: {item.get("vol", "")}</span><span class="sep">|</span><span class="c-rvol">RVOL: {rvol_val:.1f}x</span><span class="sep">—</span><span class="c-desc">{item.get("catalyst")}</span></div>'
+            sec_tag_html = f'<span class="c-sec-tag">{item["sec_tag"]}</span>' if item.get('sec_tag') else ''
+            gappers_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-prc">${item["price"]:.2f}</span><span class="sep">|</span><span class="c-pct {pct_color}">{sign}{item["change"]:.2f}%</span><span class="sep">|</span><span class="c-vol">Vol: {item.get("vol", "")}</span><span class="sep">|</span><span class="c-rvol">RVOL: {rvol_val:.1f}x</span><span class="sep">—</span><span class="c-desc">{sec_tag_html}{item.get("catalyst")}</span></div>'
     else:
         gappers_html += f'<div class="item-row"><span class="c-tckr">Status</span><span class="sep">|</span><span class="c-desc">No significant momentum in tracked basket.</span></div>'
 gappers_html += '</div>'
@@ -437,7 +467,8 @@ if gappers_data and "global_error" not in gappers_data[0]:
         rvol_val = safe_float(item.get('rvol')) or 1.0
         pct_color = "score-up" if item["change"] >= 0 else "score-down"
         sign = "▲ +" if item["change"] >= 0 else "▼ "
-        sips_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-prc">${item.get("price", 0):.2f}</span><span class="sep">|</span><span class="c-pct {pct_color}">{sign}{item.get("change", 0):.2f}%</span><span class="sep">|</span><span class="c-vol">Vol: {item.get("vol", "")}</span><span class="sep">|</span><span class="c-rvol">RVOL: {rvol_val:.1f}x</span><span class="sep">—</span><span class="c-desc">{item.get("catalyst")}</span></div>'
+        sec_tag_html = f'<span class="c-sec-tag">{item["sec_tag"]}</span>' if item.get('sec_tag') else ''
+        sips_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-prc">${item.get("price", 0):.2f}</span><span class="sep">|</span><span class="c-pct {pct_color}">{sign}{item.get("change", 0):.2f}%</span><span class="sep">|</span><span class="c-vol">Vol: {item.get("vol", "")}</span><span class="sep">|</span><span class="c-rvol">RVOL: {rvol_val:.1f}x</span><span class="sep">—</span><span class="c-desc">{sec_tag_html}{item.get("catalyst")}</span></div>'
 else:
     err_msg = gappers_data[0]['global_error'] if gappers_data else "Unknown Error"
     sips_html += f'<div class="item-row"><span class="c-tckr">Error</span><span class="sep">|</span><span class="c-desc" style="color:#f87171;">Cannot generate SIPs: {err_msg}</span></div>'
@@ -466,7 +497,8 @@ else:
             rvol_val = safe_float(item.get('rvol')) or 1.0
             pct_color = "score-up" if item["change"] >= 0 else "score-down"
             sign = "▲ +" if item["change"] >= 0 else "▼ "
-            micro_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-prc">${item["price"]:.2f}</span><span class="sep">|</span><span class="c-pct {pct_color}">{sign}{item["change"]:.2f}%</span><span class="sep">|</span><span class="c-vol">Vol: {item.get("vol", "")}</span><span class="sep">|</span><span class="c-rvol">RVOL: {rvol_val:.1f}x</span><span class="sep">—</span><span class="c-desc">{item.get("catalyst")}</span></div>'
+            sec_tag_html = f'<span class="c-sec-tag">{item["sec_tag"]}</span>' if item.get('sec_tag') else ''
+            micro_html += f'<div class="item-row"><span class="c-tckr">{item["ticker"]}</span><span class="sep">|</span><span class="c-prc">${item["price"]:.2f}</span><span class="sep">|</span><span class="c-pct {pct_color}">{sign}{item["change"]:.2f}%</span><span class="sep">|</span><span class="c-vol">Vol: {item.get("vol", "")}</span><span class="sep">|</span><span class="c-rvol">RVOL: {rvol_val:.1f}x</span><span class="sep">—</span><span class="c-desc">{sec_tag_html}{item.get("catalyst")}</span></div>'
     else:
         micro_html += f'<div class="item-row"><span class="c-tckr">Status</span><span class="sep">|</span><span class="c-desc">No significant momentum in tracked micro-cap basket.</span></div>'
 micro_html += '</div>'
