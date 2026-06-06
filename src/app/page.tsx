@@ -1,5 +1,7 @@
+// Tell Vercel NOT to statically prerender this real-time dashboard
+export const dynamic = 'force-dynamic';
+
 import React, { Suspense } from 'react';
-// 1. IMPORT THE PROVIDER
 import { MarketDataProvider } from '../components/MarketDataContext'; 
 
 import Scorecard from '../components/Scorecard';
@@ -16,10 +18,8 @@ import AutoRefresh from '../components/AutoRefresh';
 export default function DailySetupsPage() {
   return (
     <div className="min-h-screen bg-[#05080f] text-slate-300 font-sans md:py-10 flex justify-center">
-      {/* ADD SUSPENSE BOUNDARY HERE TO FIX VERCEL BUILD ERROR */}
       <Suspense fallback={<div className="flex h-screen w-full items-center justify-center text-slate-500 font-bold tracking-widest uppercase">Loading Workspace...</div>}>
         
-        {/* 2. WRAP THE CONTENT IN THE PROVIDER */}
         <MarketDataProvider>
           <AutoRefresh interval={30000} />
           
