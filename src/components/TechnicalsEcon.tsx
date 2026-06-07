@@ -37,9 +37,17 @@ const formatTime = (date: Date) => {
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
 };
 
+// Formats JS Date to strict YYYY-MM-DD for FMP API
+const getIsoDateString = (d: Date) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
 // Safe date formatter that handles FMP's string format (YYYY-MM-DD HH:mm:ss)
 const formatEventDate = (dateStr: string) => {
-  if (!dateStr) return '—';
+  if (!dateStr) return '-';
   try {
     const safeStr = dateStr.replace(' ', 'T');
     const d = new Date(safeStr);
@@ -68,8 +76,9 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
 export default function EconomicCalendar() {
   const searchParams = useSearchParams();
   
-  // 1. URL State Management 
-  const todayStr = new Date().toISOString().split('T')[0];
+  // 1. Core Date Management (Anchored to EST)
+  const estNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const todayStr = getIsoDateString(estNow);
   const selectedDate = searchParams.get('date') || todayStr;
   const isHistorical = selectedDate !== todayStr;
 
@@ -95,9 +104,27 @@ export default function EconomicCalendar() {
         if (isMounted) setSession(currentSession);
         setStatus(`Scouting...`);
 
-        // 🔥 BULLETPROOF FETCH: Hitting the exact endpoint with NO date parameters.
-        // This forces FMP to dump its entire default payload, preventing empty array errors.
-        const targetUrl = `https://financialmodelingprep.com/stable/economic-calendar?apikey=${fmpApiKey}`;
+        // Smart Rolling Window Calculation
+        const [y, m, d] = selectedDate.split('-').map(Number);
+        const baseDate = new Date(y, m - 1, d);
+        
+        // Always anchor the 'from' date to the most recent Friday (or yesterday if mid-week)
+        const fromDate = new Date(baseDate);
+        const dayOfWeek = fromDate.getDay(); 
+        if (dayOfWeek === 0) fromDate.setDate(baseDate.getDate() - 2); // Sunday goes back to Friday
+        else if (dayOfWeek === 6) fromDate.setDate(baseDate.getDate() - 1); // Saturday goes back to Friday
+        else if (dayOfWeek === 1) fromDate.setDate(baseDate.getDate() - 3); // Monday goes back to Friday
+        else fromDate.setDate(baseDate.getDate() - 1); // Tue-Fri go back 1 day
+
+        const fromStr = getIsoDateString(fromDate);
+
+        // Look forward 10 days to guarantee we capture the entire upcoming week
+        const toDate = new Date(fromDate);
+        toDate.setDate(fromDate.getDate() + 10); 
+        const toStrCutoff = getIsoDateString(toDate);
+
+        // 🔥 CRITICAL FIX: Appended 'from' and 'to' to the stable endpoint to force future data
+        const targetUrl = `https://financialmodelingprep.com/stable/economic-calendar?from=${fromStr}&to=${toStrCutoff}&apikey=${fmpApiKey}`;
         const rawEvents = await fetchSafeJson(targetUrl, []);
 
         if (!Array.isArray(rawEvents)) {
@@ -110,52 +137,33 @@ export default function EconomicCalendar() {
           return;
         }
 
-        // Calculate a strict 14-day cutoff window locally
-        const [y, m, d] = selectedDate.split('-').map(Number);
-        const lookForward = new Date(y, m - 1, d);
-        lookForward.setDate(lookForward.getDate() + 14); 
-        
-        const toYear = lookForward.getFullYear();
-        const toMonth = String(lookForward.getMonth() + 1).padStart(2, '0');
-        const toDay = String(lookForward.getDate()).padStart(2, '0');
-        const toStrCutoff = `${toYear}-${toMonth}-${toDay}`;
-
-        // Process, map, and filter locally
+        // Process, map, and strictly filter the payload to our date window
         const processedEvents: EconEvent[] = rawEvents
           .filter((e: any) => {
-            // 1. Is it a US event?
             const countryStr = (e.country || '').toUpperCase();
             const currencyStr = (e.currency || '').toUpperCase();
             const isUS = countryStr.includes('US') || countryStr === 'UNITED STATES' || currencyStr === 'USD';
             
-            // 2. Is it within our Time Machine window?
-            const eventDateStr = e.date ? e.date.split(' ')[0] : '';
-            const isWithinWindow = eventDateStr >= selectedDate && eventDateStr <= toStrCutoff;
+            const eventDateStr = e.date ? e.date.substring(0, 10) : '';
+            const isWithinWindow = eventDateStr >= fromStr && eventDateStr <= toStrCutoff;
 
             return isUS && isWithinWindow;
           })
-          .map((e: any, index: number) => {
-            return {
-              id: `${e.event}-${index}`,
-              event: e.event,
-              date: e.date,
-              country: e.country || '',
-              currency: e.currency || '',
-              actual: e.actual,
-              previous: e.previous,
-              estimate: e.estimate,
-              impact: e.impact || 'Low',
-              rawDateString: e.date || '' 
-            };
-          });
+          .map((e: any, index: number) => ({
+            id: `${e.event}-${index}`,
+            event: e.event,
+            date: e.date,
+            country: e.country || '',
+            currency: e.currency || '',
+            actual: e.actual,
+            previous: e.previous,
+            estimate: e.estimate,
+            impact: e.impact || 'Low',
+            rawDateString: e.date || '' 
+          }));
 
         if (isMounted) {
-          // Fallback just in case the filtered window is completely empty
-          setEvents(processedEvents.length > 0 ? processedEvents : rawEvents.slice(0, 15).map((e: any, i: number) => ({
-             id: `fallback-${i}`, event: e.event, date: e.date, country: e.country, currency: e.currency,
-             actual: e.actual, previous: e.previous, estimate: e.estimate, impact: e.impact || 'Low', rawDateString: e.date || ''
-          })));
-          
+          setEvents(processedEvents);
           setLastUpdated(new Date());
           setStatus('Live'); 
         }
@@ -185,7 +193,7 @@ export default function EconomicCalendar() {
   const sortedEvents = useMemo(() => {
     const list = [...filteredEvents];
     if (!sortConfig) {
-      // Default sort by raw string (alphabetical ISO sorting is 100% accurate)
+      // Default sort by raw string (chronological ISO sorting is 100% accurate)
       return list.sort((a, b) => a.rawDateString.localeCompare(b.rawDateString));
     }
     return list.sort((a, b) => {
@@ -225,7 +233,6 @@ export default function EconomicCalendar() {
         className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-6 border-b border-white/5 pb-4' : ''}`}
       >
         <div className="flex items-center gap-3">
-          {/* UPDATED: Matches the specific indigo color from the screenshot */}
           <span className={`text-xs md:text-sm font-bold border px-3 py-1.5 rounded tracking-widest uppercase flex items-center gap-2 transition-colors ${isHistorical ? 'text-amber-400 bg-amber-500/10 border-amber-500/20 group-hover:bg-amber-500/20' : 'text-[#7c8bfa] bg-[#161c2a]/40 border-white/5 group-hover:bg-white/[0.02]'}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${isHistorical ? 'bg-amber-400' : 'bg-[#7c8bfa]'}`}></span>
             ECONOMIC CALENDAR
@@ -240,7 +247,7 @@ export default function EconomicCalendar() {
           </div>
           {lastUpdated && (
              <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
-               Updated: {formatTime(lastUpdated)}
+               Updated: {formatTime(lastUpdated)} EST
              </span>
           )}
         </div>
@@ -296,7 +303,7 @@ export default function EconomicCalendar() {
                   <tr>
                     <td colSpan={6} className="py-12 text-center">
                       <div className="w-5 h-5 border-2 border-cyan-500/20 border-t-cyan-400 rounded-full animate-spin mx-auto mb-3"></div>
-                      <span className="text-xs text-slate-500 font-medium">Fetching 14-Day Economic Outlook...</span>
+                      <span className="text-xs text-slate-500 font-medium">Fetching Economic Outlook...</span>
                     </td>
                   </tr>
                 ) : sortedEvents.length === 0 ? (
@@ -307,9 +314,9 @@ export default function EconomicCalendar() {
                   </tr>
                 ) : (
                   sortedEvents.map((row) => {
-                    // Determine if event is past using the raw string to compare against current local ISO
                     const nowIsoStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
                     const isPast = row.rawDateString < nowIsoStr;
+                    // Lower opacity for events that have already happened
                     const opacityClass = isPast ? 'opacity-50' : 'opacity-100';
 
                     return (
@@ -332,15 +339,15 @@ export default function EconomicCalendar() {
                         </td>
 
                         <td className="py-3.5 text-xs text-slate-200 font-bold whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '12px' }}>
-                          {row.actual !== null ? row.actual.toLocaleString() : '—'}
+                          {row.actual !== null ? row.actual.toLocaleString() : '-'}
                         </td>
 
                         <td className="py-3.5 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '12px' }}>
-                          {row.estimate !== null ? row.estimate.toLocaleString() : '—'}
+                          {row.estimate !== null ? row.estimate.toLocaleString() : '-'}
                         </td>
                         
                         <td className="py-3.5 text-xs text-slate-500 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '12px' }}>
-                          {row.previous !== null ? row.previous.toLocaleString() : '—'}
+                          {row.previous !== null ? row.previous.toLocaleString() : '-'}
                         </td>
                         
                       </tr>

@@ -4,20 +4,53 @@ import React, { useState, useEffect, useMemo } from 'react';
 
 // --- INTERFACES ---
 interface EarningEvent {
+  id: string;
+  date: string; 
   ticker: string;
   name: string;
-  date: string;
-  rawDate: string; 
-  time: 'BMO' | 'AMC' | 'TBD';
+  sector: string;
+  mktCap: number | null;
   epsEst: number | null;
-  epsAct: number | null;
   revEst: number | null;
-  revAct: number | null;
-  parsedDate: Date;
+  rawDateString: string; 
+  isThematic?: boolean;
 }
 
-type SortDirection = 'asc' | 'desc';
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
+type SortDirection = 'asc' | 'desc';
+type CapTier = 'SMALL' | 'MID' | 'MEGA';
+
+// --- CONSTANTS & MAPS ---
+const SECTOR_MAP: Record<string, string> = {
+  // Semiconductors & IT
+  'AAPL': 'IT', 'MSFT': 'IT', 'SMCI': 'IT',
+  'NVDA': "Semi's", 'AMD': "Semi's", 'INTC': "Semi's", 
+  'AVGO': "Semi's", 'MU': "Semi's", 'ARM': "Semi's", 
+  'QCOM': "Semi's", 'TSM': "Semi's", 'ALOT': 'IT',
+  
+  // AI, Cyber, Quantum, Fintech
+  'PLTR': 'AI', 'SOUN': 'AI', 'BBAI': 'AI', 'AI': 'AI',
+  'CRWD': 'Cyber', 'PANW': 'Cyber', 'ZS': 'Cyber',
+  'IONQ': 'Quantum', 'RGTI': 'Quantum', 'QBTS': 'Quantum', 
+  'COIN': 'Fintech', 'MSTR': 'Fintech', 'MARA': 'Fintech', 'RIOT': 'Fintech', 'HOOD': 'Fintech', 'SOFI': 'Fintech',
+  
+  // EVs & Aerospace
+  'TSLA': 'EV', 'NIO': 'EV', 'LI': 'EV', 'XPEV': 'EV',
+  'LUNR': 'Aerospace', 'ASTS': 'Aerospace', 'RKLB': 'Aerospace', 
+  
+  // Clean Energy & Nuclear
+  'CEG': 'Nuclear', 'OKLO': 'Nuclear', 'CCJ': 'Nuclear', 'SMR': 'Nuclear', 'LEU': 'Nuclear',
+  'FSLR': 'Solar', 'ENPH': 'Solar', 'RUN': 'Solar',
+  
+  // Healthcare & Biotech
+  'HIMS': 'Healthcare', 'NVO': 'Healthcare', 'LLY': 'Healthcare', 'ASTX': 'Biotech', 'COO': 'Healthcare',
+  
+  // Discretionary, Staples, Comms, Industrials
+  'AMZN': 'Con Disc', 'UBER': 'Con Disc', 'BABA': 'Con Disc', 'DLTH': 'Con Disc',
+  'PG': 'Con Staples', 'CPB': 'Con Staples', 'AVO': 'Con Staples',
+  'META': 'Comm Serv', 'GOOGL': 'Comm Serv', 'NFLX': 'Comm Serv', 
+  'GHM': 'Industrials'
+};
 
 // --- HELPERS ---
 const getMarketSession = (): MarketSession => {
@@ -32,17 +65,37 @@ const getMarketSession = (): MarketSession => {
 };
 
 const formatTime = (date: Date) => {
-  return date.toLocaleTimeString('en-US', { 
-    hour: 'numeric', 
-    minute: '2-digit', 
-    second: '2-digit',
-    timeZone: 'America/New_York'
-  });
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
 };
 
-const formatCurrency = (num: number | null | undefined) => {
-  if (typeof num !== 'number' || isNaN(num)) return '-';
-  if (num >= 1e9) return '$' + (num / 1e9).toFixed(2) + 'B';
+const getIsoDateString = (d: Date) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+const formatEventDate = (dateStr: string) => {
+  if (!dateStr) return '-';
+  try {
+    const d = new Date(`${dateStr}T12:00:00Z`); 
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  } catch (e) {
+    return dateStr;
+  }
+};
+
+const formatNumber = (num: number | null) => {
+  if (num === null || num === 0 || isNaN(num)) return '-';
+  if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
+  if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
+  if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
+  return num.toLocaleString();
+};
+
+const formatCurrency = (num: number | null) => {
+  if (num === null || num === 0 || isNaN(num)) return '-';
+  if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
   if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
   return '$' + num.toLocaleString();
 };
@@ -61,17 +114,65 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
   }
 };
 
+const cleanSectorDescription = (sic: string | undefined, sector: string | undefined, industry: string | undefined) => {
+  const ind = (industry || '').toLowerCase();
+  if (ind.includes('nuclear')) return 'Nuclear';
+  if (ind.includes('solar')) return 'Solar';
+  if (ind.includes('electric vehicle') || ind.includes('auto manufacturer')) return 'EV';
+  if (ind.includes('biotechnology')) return 'Biotech';
+  if (ind.includes('semiconductor')) return "Semi's";
+  if (ind.includes('artificial intelligence') || ind.includes('ai ')) return 'AI';
+  if (ind.includes('cybersecurity') || ind.includes('security software')) return 'Cyber';
+  if (ind.includes('fintech') || ind.includes('financial technology')) return 'Fintech';
+  if (ind.includes('aerospace') || ind.includes('defense')) return 'Aerospace';
+
+  const sec = (sector || '').toLowerCase();
+  if (sec.includes('technology')) return 'IT';
+  if (sec.includes('healthcare') || sec.includes('health care')) return 'Healthcare';
+  if (sec.includes('financial')) return 'Financials';
+  if (sec.includes('consumer discretionary')) return 'Con Disc';
+  if (sec.includes('consumer staples')) return 'Con Staples';
+  if (sec.includes('energy')) return 'Energy';
+  if (sec.includes('materials')) return 'Materials';
+  if (sec.includes('industrials')) return 'Industrials';
+  if (sec.includes('real estate')) return 'Real Estate';
+  if (sec.includes('utilities')) return 'Utilities';
+  if (sec.includes('communication')) return 'Comm Serv';
+
+  const s = (sic || '').toLowerCase();
+  if (!s) return 'General'; 
+
+  if (s.includes('semiconductor')) return "Semi's";
+  if (s.includes('biological products') || s.includes('in vitro')) return 'Biotech';
+  if (s.includes('aircraft') || s.includes('defense')) return 'Aerospace';
+  if (s.includes('prepackaged software') || s.includes('computer programming') || s.includes('tech')) return 'IT';
+  if (s.includes('pharmaceutical') || s.includes('surgical') || s.includes('medical') || s.includes('health') || s.includes('drug') || s.includes('ophthalmic')) return 'Healthcare';
+  if (s.includes('bank') || s.includes('financial') || s.includes('trust') || s.includes('broker') || s.includes('investment') || s.includes('commodity') || s.includes('fund') || s.includes('blank check')) return 'Financials';
+  if (s.includes('real estate') || s.includes('reit')) return 'Real Estate';
+  if (s.includes('petroleum') || s.includes('drilling') || s.includes('oil') || s.includes('gas') || s.includes('energy')) return 'Energy';
+  if (s.includes('motor') || s.includes('retail') || s.includes('apparel') || s.includes('restaurant') || s.includes('eating') || s.includes('entertainment')) return 'Con Disc';
+  if (s.includes('soap') || s.includes('detergent') || s.includes('food') || s.includes('beverage') || s.includes('grocery') || s.includes('staple') || s.includes('tobacco')) return 'Con Staples';
+  if (s.includes('transport') || s.includes('freight') || s.includes('machinery') || s.includes('industrial') || s.includes('airline') || s.includes('air transportation')) return 'Industrials';
+  if (s.includes('telecommunication') || s.includes('telephone') || s.includes('radio') || s.includes('communication')) return 'Comm Serv';
+  if (s.includes('metal') || s.includes('mining') || s.includes('gold') || s.includes('chemical') || s.includes('wood') || s.includes('paper')) return 'Materials';
+  if (s.includes('electric services') || s.includes('utilities') || s.includes('water')) return 'Utilities';
+
+  return 'General';
+};
+
 export default function EarningsCalendar() {
-  const [earnings, setEarnings] = useState<EarningEvent[]>([]);
+  const [events, setEvents] = useState<EarningEvent[]>([]);
   const [status, setStatus] = useState<string>('Offline');
   const [session, setSession] = useState<MarketSession>('Closed');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: keyof EarningEvent; direction: SortDirection } | null>(null);
-
-  // --- COLLAPSE STATE ---
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
+  
+  // Strictly locked to actionable sizes
+  const [tier, setTier] = useState<CapTier>('SMALL');
 
   const fmpApiKey = process.env.NEXT_PUBLIC_FMP_API_KEY || '';
+  const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || '';
 
   useEffect(() => {
     let isMounted = true;
@@ -81,151 +182,114 @@ export default function EarningsCalendar() {
       try {
         const currentSession = getMarketSession();
         if (isMounted) setSession(currentSession);
-        setStatus(`Scouting...`);
+        setStatus('Scouting Calendar...');
 
-        const today = new Date();
-        const estToday = new Date(today.toLocaleString("en-US", { timeZone: "America/New_York" }));
-        const todayStr = estToday.toISOString().split('T')[0];
+        // Calculate Date Window (Friday Anchor to 14 Days Forward)
+        const estNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+        const baseDate = new Date(estNow);
         
-        // PULL BACK 3 DAYS to capture Friday's earnings on the weekend
-        const pastDate = new Date(estToday);
-        pastDate.setDate(estToday.getDate() - 3);
+        const fromDate = new Date(baseDate);
+        const dayOfWeek = fromDate.getDay(); 
+        if (dayOfWeek === 0) fromDate.setDate(baseDate.getDate() - 2); 
+        else if (dayOfWeek === 6) fromDate.setDate(baseDate.getDate() - 1); 
+        else if (dayOfWeek === 1) fromDate.setDate(baseDate.getDate() - 3); 
+        else fromDate.setDate(baseDate.getDate() - 1); 
 
-        const futureDate = new Date(estToday);
-        futureDate.setDate(estToday.getDate() + 14); 
-        
-        const fromStr = pastDate.toISOString().split('T')[0];
-        const toStr = futureDate.toISOString().split('T')[0];
+        const fromStr = getIsoDateString(fromDate);
 
-        const targetUrl = `https://financialmodelingprep.com/stable/earnings-calendar?from=${fromStr}&to=${toStr}&apikey=${fmpApiKey}`;
-        const rawEarnings = await fetchSafeJson(targetUrl, []);
+        const toDate = new Date(fromDate);
+        toDate.setDate(fromDate.getDate() + 14); 
+        const toStrCutoff = getIsoDateString(toDate);
+
+        // Fetch PURE STABLE Earnings Endpoint
+        const calendarUrl = `https://financialmodelingprep.com/stable/earnings-calendar?from=${fromStr}&to=${toStrCutoff}&apikey=${fmpApiKey}`;
+        const rawEarnings = await fetchSafeJson(calendarUrl, []);
 
         if (!Array.isArray(rawEarnings) || rawEarnings.length === 0) {
-          if (isMounted) setStatus('No Valid Data Found');
+          if (isMounted) setStatus('No Events Scheduled');
           return;
         }
 
-        // --- STRICT CLIENT-SIDE FILTERS ---
-        const validUpcomingEarnings = rawEarnings.filter((e: any) => {
-          if (!e.date || !e.symbol) return false;
-          
-          const eventDateStr = e.date.split(' ')[0]; 
-          const isWithinWindow = eventDateStr >= fromStr && eventDateStr <= toStr;
-          
-          // Exclude foreign exchanges, numbered tickers, and OTCs (anything over 4 characters)
-          const isStandardUS = !e.symbol.includes('.') && !/\d/.test(e.symbol) && e.symbol.length <= 4;
-          
-          // Small Cap Floor Proxy: Drop anything with less than $20M est. quarterly revenue
-          const isSmallCapOrLarger = e.revenueEstimated !== null && e.revenueEstimated >= 20000000;
-
-          // If the date is deeply in the past, verify it has actuals (otherwise it's dead data)
-          const isPast = eventDateStr < todayStr;
-          const hasActualsIfPast = !isPast || (e.eps !== null || e.revenue !== null);
-
-          return isWithinWindow && isStandardUS && isSmallCapOrLarger && hasActualsIfPast;
+        // Wipe out explicitly bad OTC symbols and enforce window
+        const usEarnings = rawEarnings.filter((e: any) => {
+            if (!e.symbol || e.symbol.includes('.')) return false;
+            // Immediate OTC Hammer: Drop anything with 5 or more letters.
+            if (e.symbol.length >= 5) return false;
+            const eventDateStr = e.date ? e.date.substring(0, 10) : '';
+            return eventDateStr >= fromStr && eventDateStr <= toStrCutoff;
         });
 
-        if (validUpcomingEarnings.length === 0) {
-          if (isMounted) setStatus('No Valid Data Found');
-          return;
+        if (usEarnings.length === 0) {
+            if (isMounted) setStatus('No US Events Scheduled');
+            return;
         }
 
-        // 1. Sort initially by revenue estimate to isolate the top companies
-        const sortedByRev = validUpcomingEarnings.sort((a: any, b: any) => {
-          return (b.revenueEstimated || 0) - (a.revenueEstimated || 0);
-        });
+        const uniqueTickers = Array.from(new Set(usEarnings.map((e: any) => e.symbol)));
 
-        // Slice top 20, then re-sort them chronologically for the display
-        const chronologicalTop20 = sortedByRev.slice(0, 20).sort((a: any, b: any) => {
-            const dateA = new Date(a.date).getTime();
-            const dateB = new Date(b.date).getTime();
-            return dateA - dateB;
-        });
+        if (isMounted) setStatus('Enriching Market Caps...');
 
-        // 2. Map payload initially
-        const processedEvents: EarningEvent[] = chronologicalTop20.map((e: any) => {
-            const parsedDate = new Date(e.date);
-            const formattedDate = parsedDate.toLocaleDateString('en-US', { 
-              weekday: 'short', 
-              month: 'short', 
-              day: 'numeric',
-              timeZone: 'America/New_York'
+        // Fetch Market Caps via Massive (Polygon) API
+        const massiveDataMap = new Map();
+        if (polygonApiKey) {
+            const chunkSize = 15; 
+            for (let i = 0; i < uniqueTickers.length; i += chunkSize) {
+                const chunk = uniqueTickers.slice(i, i + chunkSize);
+                const chunkPromises = chunk.map(async (sym) => {
+                    const res = await fetchSafeJson(`https://api.massive.com/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {});
+                    return { sym, details: res?.results || res || null };
+                });
+                
+                const chunkResults = await Promise.all(chunkPromises);
+                chunkResults.forEach(({ sym, details }) => {
+                    if (details) massiveDataMap.set(sym, details);
+                });
+                
+                await new Promise(r => setTimeout(r, 100)); // Rate limit buffer
+            }
+        }
+
+        // Process and bundle all available events into state
+        const processedEvents: EarningEvent[] = usEarnings.reduce((acc: EarningEvent[], e: any, index: number) => {
+            const sym = e.symbol;
+            const massiveInfo = massiveDataMap.get(sym);
+            
+            const mktCap = massiveInfo?.market_cap || null;
+            const companyName = massiveInfo?.name || sym;
+            
+            let mappedSector = SECTOR_MAP[sym] || massiveInfo?.sector || 'General';
+            const isThematic = ['AI', 'Nuclear', 'Quantum', "Semi's", 'Cyber', 'Aerospace'].includes(mappedSector);
+
+            acc.push({
+                id: `${sym}-${e.date}-${index}`,
+                date: formatEventDate(e.date),
+                rawDateString: e.date,
+                ticker: sym,
+                name: companyName,
+                sector: mappedSector,
+                mktCap: mktCap,
+                epsEst: e.epsEstimated !== null ? e.epsEstimated : null,
+                revEst: e.revenueEstimated !== null ? e.revenueEstimated : null,
+                isThematic: isThematic
             });
             
-            const rawDateStr = e.date.split(' ')[0]; 
-            
-            let timeCode: 'BMO' | 'AMC' | 'TBD' = 'TBD';
-            if (e.time === 'bmo') timeCode = 'BMO';
-            if (e.time === 'amc') timeCode = 'AMC';
-
-            return {
-              ticker: e.symbol || 'N/A',
-              name: '', // Will be populated in the enrichment phase
-              date: formattedDate,
-              rawDate: rawDateStr, 
-              time: timeCode,
-              epsEst: e.epsEstimated,
-              epsAct: e.eps,
-              revEst: e.revenueEstimated,
-              revAct: e.revenue,
-              parsedDate: parsedDate
-            };
-          });
-
-        if (isMounted) setStatus('Enriching...');
-
-        // 3. Robust Enrichment 
-        if (processedEvents.length > 0) {
-           // A. Fetch ALL Company Names in one clean batch to avoid rate limits
-           const allTickers = processedEvents.map(e => e.ticker).join(',');
-           const quoteUrl = `https://financialmodelingprep.com/api/v3/quote/${allTickers}?apikey=${fmpApiKey}`;
-           const quotesData = await fetchSafeJson(quoteUrl, []);
-           
-           if (Array.isArray(quotesData)) {
-               processedEvents.forEach(event => {
-                   const match = quotesData.find((q: any) => q.symbol === event.ticker);
-                   if (match && match.name) {
-                       event.name = match.name; 
-                   }
-               });
-           }
-
-           // B. Fetch Missing Historical Actuals for any event today or in the past
-           for (const event of processedEvents) {
-               const isPastOrToday = event.rawDate <= todayStr;
-               
-               if (isPastOrToday && (event.epsAct === null || event.revAct === null)) {
-                   const histUrl = `https://financialmodelingprep.com/api/v3/historical/earning_calendar/${event.ticker}?limit=3&apikey=${fmpApiKey}`;
-                   const histData = await fetchSafeJson(histUrl, []);
-                   
-                   if (Array.isArray(histData) && histData.length > 0) {
-                       // Looser match: Ensure it's the exact same Year and Month to prevent strict day-shift misses
-                       const eventMonth = event.rawDate.substring(0, 7); 
-                       const matchingReport = histData.find((h: any) => h.date && h.date.startsWith(eventMonth));
-                       
-                       if (matchingReport) {
-                           event.epsAct = matchingReport.eps !== null ? matchingReport.eps : event.epsAct;
-                           event.revAct = matchingReport.revenue !== null ? matchingReport.revenue : event.revAct;
-                       }
-                   }
-               }
-           }
-        }
+            return acc;
+        }, []);
 
         if (isMounted) {
-          setEarnings(processedEvents);
+          setEvents(processedEvents);
           setLastUpdated(new Date());
           setStatus('Live'); 
         }
+
       } catch (error: any) {
         if (isMounted) setStatus('Offline');
       }
     };
 
     fetchEarningsData();
-    const interval = setInterval(fetchEarningsData, 300000); 
+    const interval = setInterval(fetchEarningsData, 43200000); 
     return () => { isMounted = false; clearInterval(interval); };
-  }, [fmpApiKey]);
+  }, [fmpApiKey, polygonApiKey]);
 
   const handleSort = (key: keyof EarningEvent) => {
     let direction: SortDirection = 'desc'; 
@@ -234,12 +298,27 @@ export default function EarningsCalendar() {
     setSortConfig({ key, direction });
   };
 
-  const sortedEarnings = useMemo(() => {
-    const list = [...earnings];
+  const finalRenderedEvents = useMemo(() => {
+    // 1. Dynamic Tier Gatekeeper
+    let list = events.filter(e => {
+        // Thematic assets always bypass filters
+        if (e.isThematic) return true;
+        
+        const m = e.mktCap || 0;
+        
+        if (tier === 'SMALL') return m >= 100000000 && m < 2000000000;  // $100M to $2B
+        if (tier === 'MID') return m >= 2000000000 && m < 10000000000;   // $2B to $10B
+        if (tier === 'MEGA') return m >= 10000000000;                    // $10B+
+        
+        return false;
+    });
+
+    // 2. Sorting
     if (!sortConfig) {
-      return list; // Defaults to chronological
+      return list.sort((a, b) => a.rawDateString.localeCompare(b.rawDateString)).slice(0, 20);
     }
-    return list.sort((a, b) => {
+    
+    list.sort((a, b) => {
       const aVal = a[sortConfig.key];
       const bVal = b[sortConfig.key];
       if (aVal === null || aVal === undefined) return 1;
@@ -248,9 +327,11 @@ export default function EarningsCalendar() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [earnings, sortConfig]);
 
-  const isLoading = status.includes('Scouting') || status.includes('Enriching') || status.includes('Connecting');
+    return list.slice(0, 20);
+  }, [events, sortConfig, tier]);
+
+  const isLoading = status.includes('Scouting') || status.includes('Enriching');
   const getSortIcon = (columnKey: keyof EarningEvent) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
   const getSessionTextColor = () => {
@@ -262,19 +343,34 @@ export default function EarningsCalendar() {
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-5 md:p-8 relative overflow-hidden shadow-xl w-full">
-      {/* Background aesthetic glow */}
-      <div className="absolute left-0 top-0 w-64 h-64 bg-indigo-500/5 blur-3xl rounded-full -translate-y-1/2 -translate-x-1/3 pointer-events-none"></div>
+      
+      {/* HEADER CONTAINER */}
+      <div className="flex justify-between items-center mb-6 border-b border-white/5 pb-4 relative z-10 group transition-all duration-200">
+        
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
+              EARNINGS
+            </span>
+          </div>
 
-      {/* HEADER CONTAINER - CLICKABLE */}
-      <div 
-        onClick={() => setIsExpanded(!isExpanded)}
-        className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-6 border-b border-white/5 pb-4' : ''}`}
-      >
-        <div className="flex items-center gap-3">
-          <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
-            TOP EARNINGS
-          </span>
+          {/* CLASSIFICATION TOGGLE */}
+          <div className="hidden md:flex items-center gap-1 bg-[#161c2a] border border-white/5 rounded-lg p-1">
+            {(['SMALL', 'MID', 'MEGA'] as CapTier[]).map(t => (
+               <button
+                  key={t}
+                  onClick={() => setTier(t)}
+                  className={`px-3 py-1.5 rounded-md text-[10px] font-bold tracking-wide uppercase transition-all duration-300 ${
+                    tier === t 
+                      ? 'bg-indigo-500/20 text-[#7c8bfa] border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' 
+                      : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                  }`}
+                >
+                  {t}
+                </button>
+            ))}
+          </div>
         </div>
 
         <div className="flex flex-col items-center gap-1.5">
@@ -290,123 +386,122 @@ export default function EarningsCalendar() {
           )}
         </div>
       </div>
-      
-      {/* COLLAPSIBLE CONTENT */}
-      {isExpanded && (
-        <div className="overflow-x-auto custom-scrollbar relative z-10 mt-6" style={{ scrollbarWidth: 'none' }}>
-          <table className="w-full min-w-[900px] border-collapse">
-            <thead>
-              <tr className="border-b border-white/5 select-none">
-                <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('ticker')}>
-                  TICKER{getSortIcon('ticker')}
-                </th>
-                <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[18%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('parsedDate')}>
-                  REPORT DATE{getSortIcon('parsedDate')}
-                </th>
-                <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('time')}>
-                  TIME{getSortIcon('time')}
-                </th>
-                <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[15%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('epsEst')}>
-                  EPS EST{getSortIcon('epsEst')}
-                </th>
-                <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[15%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('epsAct')}>
-                  EPS ACTUAL{getSortIcon('epsAct')}
-                </th>
-                <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[15%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('revEst')}>
-                  REV EST{getSortIcon('revEst')}
-                </th>
-                <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[15%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('revAct')}>
-                  REV ACTUAL{getSortIcon('revAct')}
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5">
-              {isLoading && earnings.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center">
-                    <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
-                    <span className="text-xs text-slate-500 font-medium">Fetching Upcoming Earnings...</span>
-                  </td>
-                </tr>
-              ) : sortedEarnings.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-500 text-sm font-medium">
-                    No major earnings data found in the current window.
-                  </td>
-                </tr>
-              ) : (
-                sortedEarnings.map((row, i) => {
-                  const now = new Date();
-                  
-                  // Keep opacity 100% for today, yesterday, and future. Only dim older events.
-                  const isPastAndNotYesterday = row.parsedDate < now && 
-                                                row.parsedDate.getDate() !== now.getDate() &&
-                                                (now.getTime() - row.parsedDate.getTime()) > (24 * 60 * 60 * 1000 * 2);
-                  const opacityClass = isPastAndNotYesterday ? 'opacity-40' : 'opacity-100';
 
-                  // --- BEAT / MISS LOGIC ---
-                  let epsColor = 'text-slate-300';
-                  if (row.epsAct !== null && row.epsEst !== null) {
-                      if (row.epsAct > row.epsEst) epsColor = 'text-emerald-400';
-                      if (row.epsAct < row.epsEst) epsColor = 'text-rose-400';
-                  }
-
-                  let revColor = 'text-slate-300';
-                  if (row.revAct !== null && row.revEst !== null) {
-                      if (row.revAct > row.revEst) revColor = 'text-emerald-400';
-                      if (row.revAct < row.revEst) revColor = 'text-rose-400';
-                  }
-
-                  return (
-                    <tr key={i} className={`hover:bg-white/[0.02] transition-colors group ${opacityClass}`}>
-                      
-                      {/* TICKER CELL WITH CUSTOM COMPANY NAME TOOLTIP */}
-                      <td className="py-3.5 relative" style={{ textAlign: 'left', paddingLeft: '12px' }}>
-                        <div className="relative inline-flex items-center group/ticker">
-                          <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">
-                            {row.ticker}
-                          </span>
-                          {/* POP-OUT TOOLTIP */}
-                          <div className="absolute left-full ml-3 px-3 py-1.5 bg-[#1e293b] border border-white/10 text-slate-200 text-xs font-semibold tracking-wide rounded-md shadow-2xl opacity-0 invisible group-hover/ticker:opacity-100 group-hover/ticker:visible transition-all z-[60] whitespace-nowrap pointer-events-none">
-                            {row.name || row.ticker}
-                          </div>
-                        </div>
-                      </td>
-                      
-                      <td className="py-3.5 text-xs text-slate-300 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '12px' }}>
-                        {row.date}
-                      </td>
-                      
-                      <td className="py-3.5" style={{ textAlign: 'left', paddingLeft: '12px' }}>
-                        <span className={`text-[10px] font-bold tracking-widest px-1.5 py-0.5 rounded border inline-block ${row.time === 'BMO' ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' : row.time === 'AMC' ? 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' : 'text-slate-400 bg-slate-500/10 border-slate-500/20'}`}>
-                          {row.time}
-                        </span>
-                      </td>
-
-                      <td className="py-3.5 text-xs text-slate-500 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '12px' }}>
-                        {typeof row.epsEst === 'number' ? `$${row.epsEst.toFixed(2)}` : '-'}
-                      </td>
-
-                      <td className={`py-3.5 text-xs font-bold whitespace-nowrap ${epsColor}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>
-                        {typeof row.epsAct === 'number' ? `$${row.epsAct.toFixed(2)}` : '-'}
-                      </td>
-
-                      <td className="py-3.5 text-xs text-slate-500 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '12px' }}>
-                        {typeof row.revEst === 'number' ? formatCurrency(row.revEst) : '-'}
-                      </td>
-                      
-                      <td className={`py-3.5 text-xs font-bold whitespace-nowrap ${revColor}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>
-                        {typeof row.revAct === 'number' ? formatCurrency(row.revAct) : '-'}
-                      </td>
-                      
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+      {/* MOBILE TOGGLE */}
+      <div className="md:hidden mb-4 flex justify-start relative z-10">
+        <div className="flex items-center gap-1 bg-[#161c2a] border border-white/5 rounded-lg p-1">
+          {(['SMALL', 'MID', 'MEGA'] as CapTier[]).map(t => (
+              <button
+                key={t}
+                onClick={() => setTier(t)}
+                className={`px-3 py-1.5 rounded-md text-[10px] font-bold tracking-wide uppercase transition-all duration-300 ${
+                  tier === t 
+                    ? 'bg-indigo-500/20 text-[#7c8bfa] border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' 
+                    : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                }`}
+              >
+                {t}
+              </button>
+          ))}
         </div>
-      )}
+      </div>
+
+      <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
+        <table className="w-full min-w-[900px] border-collapse">
+          <thead>
+            <tr className="border-b border-white/5 select-none">
+              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rawDateString')}>
+                DATE{getSortIcon('rawDateString')}
+              </th>
+              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>
+                TICKER{getSortIcon('ticker')}
+              </th>
+              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[32%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('name')}>
+                COMPANY{getSortIcon('name')}
+              </th>
+              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[16%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>
+                SECTOR{getSortIcon('sector')}
+              </th>
+              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>
+                MCAP{getSortIcon('mktCap')}
+              </th>
+              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('epsEst')}>
+                EST EPS{getSortIcon('epsEst')}
+              </th>
+              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('revEst')}>
+                EST REV{getSortIcon('revEst')}
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/5">
+            {isLoading && events.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="py-12 text-center">
+                  <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
+                  <span className="text-xs text-slate-500 font-medium">Scouting {tier} Market Caps...</span>
+                </td>
+              </tr>
+            ) : finalRenderedEvents.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="py-12 text-center">
+                  <div className="text-slate-400 text-sm font-medium mb-2">
+                    No matching earnings scheduled for the {tier} tier.
+                  </div>
+                  <div className="text-slate-500 text-xs">
+                    The engine scanned and filtered the raw earnings data.<br/>Toggle a different tier above to view more setups.
+                  </div>
+                </td>
+              </tr>
+            ) : (
+              finalRenderedEvents.map((row) => {
+                const nowIsoStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
+                const isPast = row.rawDateString < nowIsoStr;
+                const opacityClass = isPast ? 'opacity-50' : 'opacity-100';
+
+                return (
+                  <tr key={row.id} className={`hover:bg-white/[0.02] transition-colors group ${opacityClass}`}>
+                    
+                    <td className="py-3.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                      <span className="text-xs font-bold text-slate-300 whitespace-nowrap">
+                        {row.date}
+                      </span>
+                    </td>
+                    
+                    <td className="py-3.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                      <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20">
+                        {row.ticker}
+                      </span>
+                    </td>
+
+                    <td className="py-3.5 text-xs text-slate-200 font-medium whitespace-nowrap truncate max-w-[250px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                      {row.name}
+                    </td>
+
+                    <td className="py-3.5 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                      <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block" title={row.sector}>
+                        {row.sector}
+                      </div>
+                    </td>
+
+                    <td className="py-3.5 text-xs font-bold text-slate-300 whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                      {formatNumber(row.mktCap)}
+                    </td>
+
+                    <td className="py-3.5 text-xs text-emerald-400/90 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                      {row.epsEst !== null ? `$${row.epsEst.toFixed(2)}` : '-'}
+                    </td>
+                    
+                    <td className="py-3.5 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                      {formatCurrency(row.revEst)}
+                    </td>
+                    
+                  </tr>
+                )
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
