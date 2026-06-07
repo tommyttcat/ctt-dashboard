@@ -7,6 +7,7 @@ interface NewsItem {
   id: string;
   ticker: string;
   companyName: string;
+  sector: string;
   title: string;
   source: string;
   url: string;
@@ -15,7 +16,49 @@ interface NewsItem {
   tag: { label: string; color: string };
 }
 
-// --- HELPERS ---
+// --- CONSTANTS & MAPS (Unified with Earnings) ---
+const SECTOR_MAP: Record<string, string> = {
+  // Semiconductors & IT
+  'AAPL': 'IT', 'MSFT': 'IT', 'SMCI': 'IT',
+  'NVDA': "Semi's", 'AMD': "Semi's", 'INTC': "Semi's", 
+  'AVGO': "Semi's", 'MU': "Semi's", 'ARM': "Semi's", 
+  'QCOM': "Semi's", 'TSM': "Semi's", 'ALOT': 'IT',
+  
+  // AI, Cyber, Quantum, Fintech
+  'PLTR': 'AI', 'SOUN': 'AI', 'BBAI': 'AI', 'AI': 'AI',
+  'CRWD': 'Cyber', 'PANW': 'Cyber', 'ZS': 'Cyber',
+  'IONQ': 'Quantum', 'RGTI': 'Quantum', 'QBTS': 'Quantum', 
+  'COIN': 'Fintech', 'MSTR': 'Fintech', 'MARA': 'Fintech', 'RIOT': 'Fintech', 'HOOD': 'Fintech', 'SOFI': 'Fintech',
+  
+  // EVs & Aerospace
+  'TSLA': 'EV', 'NIO': 'EV', 'LI': 'EV', 'XPEV': 'EV',
+  'LUNR': 'Aerospace', 'ASTS': 'Aerospace', 'RKLB': 'Aerospace', 
+  
+  // Clean Energy & Nuclear
+  'CEG': 'Nuclear', 'OKLO': 'Nuclear', 'CCJ': 'Nuclear', 'SMR': 'Nuclear', 'LEU': 'Nuclear',
+  'FSLR': 'Solar', 'ENPH': 'Solar', 'RUN': 'Solar',
+  
+  // Healthcare & Biotech
+  'HIMS': 'Healthcare', 'NVO': 'Healthcare', 'LLY': 'Healthcare', 'ASTX': 'Biotech', 'COO': 'Healthcare',
+  
+  // Discretionary, Staples, Comms, Industrials
+  'AMZN': 'Con Disc', 'UBER': 'Con Disc', 'BABA': 'Con Disc', 'DLTH': 'Con Disc',
+  'PG': 'Con Staples', 'CPB': 'Con Staples', 'AVO': 'Con Staples',
+  'META': 'Comm Serv', 'GOOGL': 'Comm Serv', 'NFLX': 'Comm Serv', 
+  'GHM': 'Industrials'
+};
+
+const getSectorBadgeStyles = (sector: string) => {
+  if (sector === 'AI') return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20';
+  if (sector === 'Nuclear' || sector === 'Solar') return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+  if (sector === "Semi's") return 'bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20';
+  if (sector === 'Quantum' || sector === 'Cyber') return 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20';
+  if (sector === 'EV' || sector === 'Aerospace') return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+  if (sector === 'Fintech') return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+  if (sector === 'Biotech' || sector === 'Healthcare') return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+  return 'bg-[#161c2a] text-slate-400 border-white/5';
+};
+
 const getCatalystTag = (site: string | undefined, title: string | undefined) => {
   const sStr = (site || '').toLowerCase();
   const tStr = (title || '').toLowerCase();
@@ -49,8 +92,6 @@ export default function NewsFeed() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [status, setStatus] = useState<string>('Offline');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  
-  // --- COLLAPSE STATE ---
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
 
   const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || '';
@@ -72,7 +113,6 @@ export default function NewsFeed() {
       try {
         if (isMounted) setStatus('Scouting...');
 
-        // Fetch streaming financial news from the unified market data router
         const res = await fetch(`https://api.massive.com/v2/reference/news?limit=25&apiKey=${polygonApiKey}`);
         if (!res.ok) throw new Error('Network error');
         
@@ -93,13 +133,19 @@ export default function NewsFeed() {
             const timePart = pubDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
             const displayTime = isToday ? timePart : `${pubDate.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })} ${timePart}`;
 
+            const ticker = item.tickers[0];
             const publisherName = item.publisher?.name || 'MASSIVE';
             const dynamicTag = getCatalystTag(publisherName, item.title);
 
+            // Extract native fields if available, otherwise check internal mapping
+            const fallbackSector = item.ticker_details?.find((d: any) => d.ticker === ticker)?.sector || '-';
+            const sector = SECTOR_MAP[ticker] || fallbackSector;
+
             return {
               id: item.id,
-              ticker: item.tickers[0],
-              companyName: item.ticker_details?.find((d: any) => d.ticker === item.tickers[0])?.name || item.tickers[0],
+              ticker: ticker,
+              companyName: item.ticker_details?.find((d: any) => d.ticker === ticker)?.name || ticker,
+              sector: sector,
               title: item.title,
               source: publisherName,
               url: item.article_url || '#',
@@ -120,7 +166,7 @@ export default function NewsFeed() {
     };
 
     fetchNewsFeed();
-    const interval = setInterval(fetchNewsFeed, 30000); // 30-second interval cycle
+    const interval = setInterval(fetchNewsFeed, 30000);
     return () => { isMounted = false; clearInterval(interval); };
   }, [polygonApiKey]);
 
@@ -131,7 +177,7 @@ export default function NewsFeed() {
     const min = estDate.getMinutes();
     const timeStr = hour + min / 60;
 
-    if (day === 0 || day === 6) return 'text-slate-500'; // Weekend Force
+    if (day === 0 || day === 6) return 'text-slate-500';
     if (timeStr >= 4 && timeStr < 9.5) return 'text-amber-500';
     if (timeStr >= 9.5 && timeStr < 16) return 'text-[#00e676]';
     if (timeStr >= 16 && timeStr < 20) return 'text-indigo-400';
@@ -198,28 +244,34 @@ export default function NewsFeed() {
             </div>
           ) : (
             news.map((item) => (
-              <div key={item.id} className="py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-white/[0.01] px-2 rounded-xl transition-colors group">
+              <div key={item.id} className="py-4 flex flex-col xl:flex-row xl:items-center justify-between gap-4 hover:bg-white/[0.01] px-2 rounded-xl transition-colors group">
                 
-                {/* LEFT: TIME + TICKER */}
-                <div className="flex items-start gap-3 shrink-0">
-                  <span className="text-xs text-slate-500 font-medium whitespace-nowrap pt-1 w-16 text-right">
-                    {item.timeStr}
-                  </span>
-
-                  {/* STANDARDIZED TICKER CELL WITH NAME HOVER */}
-                  <div className="relative inline-flex items-center group/ticker pt-0.5">
-                    <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">
+                {/* LEFT BLOCK: TICKER -> SECTOR -> TIME */}
+                <div className="flex items-center gap-3 shrink-0 flex-wrap sm:flex-nowrap">
+                  
+                  {/* TICKER CELL WITH NAME HOVER */}
+                  <div className="relative inline-flex items-center group/ticker">
+                    <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help w-14 text-center">
                       {item.ticker}
                     </span>
-                    {/* POP-OUT TOOLTIP BOX */}
                     <div className="absolute left-full ml-3 px-3 py-1.5 bg-[#1e293b] border border-white/10 text-slate-200 text-xs font-semibold tracking-wide rounded-md shadow-2xl opacity-0 invisible group-hover/ticker:opacity-100 group-hover/ticker:visible transition-all z-[60] whitespace-nowrap pointer-events-none">
                       {item.companyName || item.ticker}
                     </div>
                   </div>
+
+                  {/* UNIFIED SECTOR BADGE */}
+                  <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold tracking-wide border whitespace-nowrap w-20 text-center ${getSectorBadgeStyles(item.sector)}`}>
+                    {item.sector}
+                  </span>
+
+                  {/* TIMESTAMP */}
+                  <span className="text-xs text-slate-500 font-medium whitespace-nowrap w-16">
+                    {item.timeStr}
+                  </span>
                 </div>
 
-                {/* MIDDLE: INTERACTIVE CLICK-THROUGH NEWS HEADLINE WITH ADDED GAP */}
-                <div className="min-w-0 flex-1 pl-2 md:pl-4">
+                {/* MIDDLE: INTERACTIVE CLICK-THROUGH NEWS HEADLINE */}
+                <div className="min-w-0 flex-1 xl:pl-2">
                   <a 
                     href={item.url}
                     target="_blank"
@@ -230,8 +282,8 @@ export default function NewsFeed() {
                   </a>
                 </div>
 
-                {/* RIGHT: DYNAMIC SIPs STYLE CATEGORY BADGE */}
-                <div className="shrink-0 flex items-center md:justify-end">
+                {/* RIGHT: DYNAMIC CATALYST TYPE BADGE */}
+                <div className="shrink-0 flex items-center xl:justify-end">
                   <span className={`text-[10px] font-bold tracking-widest px-1.5 py-0.5 rounded border uppercase ${item.tag.color}`}>
                     {item.tag.label}
                   </span>
