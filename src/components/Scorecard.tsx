@@ -20,7 +20,8 @@ const MACRO_ASSETS = [
 
 interface TickData {
   price: number;
-  open: number;
+  baseline: number; 
+  pct: number; 
   tickDirection: 'up' | 'down' | 'flat';
   synced: boolean;
   isAH?: boolean;
@@ -67,7 +68,6 @@ export default function MacroScorecard() {
   const [riskMode, setRiskMode] = useState<'ON' | 'OFF'>('ON');
   const [marketTone, setMarketTone] = useState<'BULLISH' | 'NEUTRAL' | 'BEARISH'>('NEUTRAL');
   
-  // --- COLLAPSE STATE ---
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
 
   const cryptoWs = useRef<WebSocket | null>(null);
@@ -76,11 +76,7 @@ export default function MacroScorecard() {
   useEffect(() => {
     if (!quotes['SPY'] || !quotes['QQQ'] || !quotes['VIXY']) return;
 
-    const getPct = (id: string) => {
-      const q = quotes[id];
-      if (!q || !q.open) return 0;
-      return ((q.price - q.open) / q.open) * 100;
-    };
+    const getPct = (id: string) => quotes[id]?.pct || 0;
 
     const eqScore = (getPct('SPY') * 2.0) + (getPct('QQQ') * 2.0) + (getPct('IWM') * 1.0);
     const volScore = (getPct('VIXY') * -3.0); 
@@ -100,7 +96,6 @@ export default function MacroScorecard() {
     }
   }, [quotes]);
 
-
   // --- ENGINE 2: FMP STABLE ENDPOINT POLLING ---
   useEffect(() => {
     let isMounted = true;
@@ -117,7 +112,7 @@ export default function MacroScorecard() {
       
       try {
         const stdPromises = stockAssets.map(asset => 
-          fetch(`https://financialmodelingprep.com/stable/quote?symbol=${asset.fmp}&apikey=${fmpApiKey}`)
+          fetch(`https://financialmodelingprep.com/stable/quote?symbol=${asset.fmp}&apikey=${fmpApiKey}`, { cache: 'no-store' })
             .then(res => {
               if (res.status === 401) throw new Error('401_UNAUTHORIZED');
               if (res.status === 403) throw new Error('403_FORBIDDEN');
@@ -135,7 +130,7 @@ export default function MacroScorecard() {
         let ahData: any[] = [];
         try {
           const ahPromises = stockAssets.map(asset => 
-            fetch(`https://financialmodelingprep.com/stable/aftermarket-quote?symbol=${asset.fmp}&apikey=${fmpApiKey}`)
+            fetch(`https://financialmodelingprep.com/stable/aftermarket-quote?symbol=${asset.fmp}&apikey=${fmpApiKey}`, { cache: 'no-store' })
               .then(res => res.ok ? res.json() : [])
               .catch(() => [])
           );
@@ -155,6 +150,10 @@ export default function MacroScorecard() {
               const asset = MACRO_ASSETS.find(a => a.fmp === q.symbol && a.type === 'stock');
               if (asset) {
                 const ahMatch = ahData.find(a => a.symbol === q.symbol);
+                
+                // CRITICAL FIX: The Chronological Gatekeeper
+                // FMP sends live pre-market data in the standard 'q' object. 
+                // We only use the aftermarket quote if its timestamp is strictly newer than the standard quote.
                 const stdTime = getTimestampMs(q.timestamp || q.date);
                 const ahTime = getTimestampMs(ahMatch?.timestamp || ahMatch?.date);
                 
@@ -162,7 +161,8 @@ export default function MacroScorecard() {
                 const currentPrice = useAh ? ahMatch.price : (q.price || 0);
                 
                 const prevQuote = prev[asset.id];
-                const baseline = prevQuote?.open || q.open || q.previousClose || currentPrice;
+                const baseline = q.previousClose || prevQuote?.baseline || q.open || currentPrice;
+                const pct = baseline > 0 ? ((currentPrice - baseline) / baseline) * 100 : 0;
                 
                 let direction: 'up' | 'down' | 'flat' = prevQuote?.tickDirection || 'flat';
                 if (prevQuote && currentPrice > prevQuote.price) direction = 'up';
@@ -171,7 +171,8 @@ export default function MacroScorecard() {
                 if (currentPrice > 0) {
                   next[asset.id] = { 
                     price: currentPrice, 
-                    open: baseline, 
+                    baseline: baseline, 
+                    pct: pct, 
                     tickDirection: direction, 
                     synced: true,
                     isAH: useAh
@@ -236,13 +237,17 @@ export default function MacroScorecard() {
             if (asset && currentPrice > 0) {
               setQuotes(prev => {
                 const prevQuote = prev[asset.id];
-                const baseline = prevQuote?.open || parseFloat(msg.open_24h || msg.price);
-                let direction: 'up' | 'down' | 'flat' = prevQuote?.tickDirection || 'flat';
                 
+                const msgOpen = msg.open_24h ? parseFloat(msg.open_24h) : 0;
+                const baseline = msgOpen > 0 ? msgOpen : (prevQuote?.baseline || currentPrice);
+                
+                const pct = baseline > 0 ? ((currentPrice - baseline) / baseline) * 100 : 0;
+
+                let direction: 'up' | 'down' | 'flat' = prevQuote?.tickDirection || 'flat';
                 if (prevQuote && currentPrice > prevQuote.price) direction = 'up';
                 else if (prevQuote && currentPrice < prevQuote.price) direction = 'down';
 
-                return { ...prev, [asset.id]: { price: currentPrice, open: baseline, tickDirection: direction, synced: true } };
+                return { ...prev, [asset.id]: { price: currentPrice, baseline, pct, tickDirection: direction, synced: true } };
               });
             }
           }
@@ -291,7 +296,6 @@ export default function MacroScorecard() {
           </span>
         </div>
 
-        {/* Integrated Risk & Tone Badges - CENTERED */}
         <div className="hidden sm:flex absolute left-1/2 -translate-x-1/2 items-center gap-3">
           <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${
               riskMode === 'ON' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
@@ -326,7 +330,6 @@ export default function MacroScorecard() {
       {/* COLLAPSIBLE CONTENT */}
       {isExpanded && (
         <>
-          {/* Mobile-Only Risk & Tone Badges */}
           <div className="flex sm:hidden justify-center items-center gap-3 mb-6 relative z-10">
             <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${
                 riskMode === 'ON' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
@@ -344,7 +347,6 @@ export default function MacroScorecard() {
             </div>
           </div>
 
-          {/* Quote Grid */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4 relative z-10">
             {MACRO_ASSETS.map((asset) => {
               const q = quotes[asset.id];
@@ -363,12 +365,12 @@ export default function MacroScorecard() {
                 );
               }
 
-              const change = q.price - q.open;
-              const pct = q.open > 0 ? (change / q.open) * 100 : 0;
+              const pct = q.pct || 0;
               const isPositive = pct >= 0;
               
               const cardBg = isPositive ? 'bg-emerald-950/10' : 'bg-rose-950/10';
               const cardBorder = isPositive ? 'border-emerald-500/20' : 'border-rose-500/20';
+              
               const tickColor = q.tickDirection === 'up' ? 'text-emerald-300' : q.tickDirection === 'down' ? 'text-rose-300' : 'text-slate-100';
 
               return (
@@ -386,7 +388,6 @@ export default function MacroScorecard() {
                       <span className={`text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded ${isPositive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
                         {isPositive ? '+' : ''}{pct.toFixed(2)}%
                       </span>
-                      {/* Subtle AH Badge */}
                       {q.isAH && (
                         <span className="text-[8px] font-bold text-amber-500/80 tracking-wider mt-1 uppercase">
                           AH Price
