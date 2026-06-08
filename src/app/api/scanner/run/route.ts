@@ -304,23 +304,19 @@ export async function GET(request: Request) {
     if (rawSnapshot.length === 0) return NextResponse.json({ error: 'No snapshot data returned' }, { status: 500 });
 
     // =========================================================================
-    // 2. LIVE MATH INJECTION: Bypassing the 4:00 PM Freeze
-    // We prioritize the most recent extended hours prints over the frozen day bar
+    // 2. LIVE MATH INJECTION
     // =========================================================================
     const processedSnapshot = rawSnapshot.map((t: any) => {
-      // The hierarchy of live data: Last Matched Trade -> Last Minute Bar -> Today's Freeze -> Yesterday
       const livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || 0;
       const prevClose = t.prevDay?.c || 0;
       const vol = t.day?.v || t.prevDay?.v || t.min?.v || 0;
       const vwap = t.day?.vw || t.prevDay?.vw || livePrice;
 
-      // Force recalculation of percentage change so Pre/Post/Weekend math never drops to zero
       let liveChg = t.todaysChangePerc || 0;
       if (prevClose > 0 && livePrice > 0) {
         liveChg = ((livePrice - prevClose) / prevClose) * 100;
       }
 
-      // Attach these true-live variables to the object for the rest of the engine to use
       t._livePrice = livePrice;
       t._liveChg = liveChg;
       t._liveVol = vol;
@@ -329,7 +325,7 @@ export async function GET(request: Request) {
       return t;
     });
 
-    // 3. Base Filters (Using Live Data)
+    // 3. Base Filters 
     const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= 1.00 && t._liveVol >= 500000);
 
     const dailyCandidates = [...viableSetups]
@@ -339,7 +335,7 @@ export async function GET(request: Request) {
       .filter((t: any) => t._liveChg >= 4.0 && t._livePrice >= t._liveVwap)
       .sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 30);
 
-    // 4. TOP MOVERS SORTING ENGINE (Using Live Data)
+    // 4. TOP MOVERS SORTING ENGINE
     const megaCapsRaw = processedSnapshot
       .filter((t: any) => MEGA_CAP_TICKERS.has(t.ticker))
       .sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
@@ -361,8 +357,6 @@ export async function GET(request: Request) {
     // 5. Massive Enrichment Engine
     const enrichCandidate = async (t: any) => {
       const sym = t.ticker || t.single_ticker;
-      
-      // Pulling directly from our Live Math injection
       const price = t._livePrice;
       const vol = t._liveVol;
       const chgPct = t._liveChg;
@@ -389,13 +383,16 @@ export async function GET(request: Request) {
       }
       const rvol = (avgVol > 0 && vol > 0) ? (vol / avgVol) : null;
 
-      // Because we pass the Live Price into detectPattern, your technicals now factor in AH moves!
       const setupMatched = detectPattern(dailyBars, price, currentOpen, vwap, rvol);
       
       const marketCap = details?.results?.market_cap || 0;
-      if (marketCap < 20000000) return null; // Hard limit below 20m
-
       const companyName = details?.results?.name || sym;
+
+      // Identify if the ticker is an ETF to exempt it from the $20M Cap Rule
+      const isETF = !!ETF_TARGET_MAP[sym] || companyName.toLowerCase().includes(' etf') || companyName.toLowerCase().includes(' fund') || companyName.toLowerCase().includes(' trust');
+      
+      if (!isETF && marketCap < 20000000) return null;
+
       let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
       if (vwap > 0 && price > 0) vwapStatus = price >= vwap ? 'above' : 'below';
 

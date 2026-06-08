@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET() {
   try {
     console.log("Fetching raw scanner data from KV...");
@@ -49,6 +52,6 @@ export async function GET() {
       stocksInPlay: [],
       topMovers: { 'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': [] },
       lastScanTime: null
-    }, { status: 200 }); // Return 200 fallback so the frontend never freezes
+    }, { status: 200 }); 
   }
 }
