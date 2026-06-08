@@ -22,30 +22,19 @@ type CapTier = 'SMALL' | 'MID' | 'MEGA';
 
 // --- CONSTANTS & MAPS ---
 const SECTOR_MAP: Record<string, string> = {
-  // Semiconductors & IT
   'AAPL': 'IT', 'MSFT': 'IT', 'SMCI': 'IT',
   'NVDA': "Semi's", 'AMD': "Semi's", 'INTC': "Semi's", 
   'AVGO': "Semi's", 'MU': "Semi's", 'ARM': "Semi's", 
   'QCOM': "Semi's", 'TSM': "Semi's", 'ALOT': 'IT',
-  
-  // AI, Cyber, Quantum, Fintech
   'PLTR': 'AI', 'SOUN': 'AI', 'BBAI': 'AI', 'AI': 'AI',
   'CRWD': 'Cyber', 'PANW': 'Cyber', 'ZS': 'Cyber',
   'IONQ': 'Quantum', 'RGTI': 'Quantum', 'QBTS': 'Quantum', 
   'COIN': 'Fintech', 'MSTR': 'Fintech', 'MARA': 'Fintech', 'RIOT': 'Fintech', 'HOOD': 'Fintech', 'SOFI': 'Fintech',
-  
-  // EVs & Aerospace
   'TSLA': 'EV', 'NIO': 'EV', 'LI': 'EV', 'XPEV': 'EV',
   'LUNR': 'Aerospace', 'ASTS': 'Aerospace', 'RKLB': 'Aerospace', 
-  
-  // Clean Energy & Nuclear
   'CEG': 'Nuclear', 'OKLO': 'Nuclear', 'CCJ': 'Nuclear', 'SMR': 'Nuclear', 'LEU': 'Nuclear',
   'FSLR': 'Solar', 'ENPH': 'Solar', 'RUN': 'Solar',
-  
-  // Healthcare & Biotech
   'HIMS': 'Healthcare', 'NVO': 'Healthcare', 'LLY': 'Healthcare', 'ASTX': 'Biotech', 'COO': 'Healthcare',
-  
-  // Discretionary, Staples, Comms, Industrials
   'AMZN': 'Con Disc', 'UBER': 'Con Disc', 'BABA': 'Con Disc', 'DLTH': 'Con Disc',
   'PG': 'Con Staples', 'CPB': 'Con Staples', 'AVO': 'Con Staples',
   'META': 'Comm Serv', 'GOOGL': 'Comm Serv', 'NFLX': 'Comm Serv', 
@@ -343,12 +332,13 @@ export default function EarningsCalendar() {
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-5 md:p-8 relative overflow-hidden shadow-xl w-full">
+      <div className="absolute right-0 top-0 w-64 h-64 bg-cyan-500/5 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
       
       {/* HEADER CONTAINER */}
       <div className="flex justify-between items-center mb-6 border-b border-white/5 pb-4 relative z-10 group transition-all duration-200">
         
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
             <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
               <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
               EARNINGS
@@ -454,26 +444,36 @@ export default function EarningsCalendar() {
               </tr>
             ) : (
               finalRenderedEvents.map((row) => {
-                const nowIsoStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
+                const nowEst = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+                const pad = (n: number) => String(n).padStart(2, '0');
+                const nowIsoStr = `${nowEst.getFullYear()}-${pad(nowEst.getMonth()+1)}-${pad(nowEst.getDate())} ${pad(nowEst.getHours())}:${pad(nowEst.getMinutes())}:${pad(nowEst.getSeconds())}`;
+                const todayStr = `${nowEst.getFullYear()}-${pad(nowEst.getMonth()+1)}-${pad(nowEst.getDate())}`;
+
                 const isPast = row.rawDateString < nowIsoStr;
-                const opacityClass = isPast ? 'opacity-50' : 'opacity-100';
+                const isToday = row.rawDateString.startsWith(todayStr);
+                
+                const rowBgClass = isToday ? 'bg-cyan-500/[0.06]' : 'hover:bg-white/[0.02]';
+                const opacityClass = isPast && !isToday ? 'opacity-40' : 'opacity-100';
+                const dateTextColor = isToday ? 'text-cyan-400 font-bold' : 'text-slate-300 font-bold';
+                const tickerBgColor = isToday ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30 shadow-[0_0_8px_rgba(34,211,238,0.2)]' : 'bg-indigo-500/10 text-[#7c8bfa] border border-indigo-500/20';
+                const nameTextColor = isToday ? 'text-white font-bold' : 'text-slate-200 font-medium';
 
                 return (
-                  <tr key={row.id} className={`hover:bg-white/[0.02] transition-colors group ${opacityClass}`}>
+                  <tr key={row.id} className={`transition-colors group ${rowBgClass} ${opacityClass}`}>
                     
                     <td className="py-3.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                      <span className="text-xs font-bold text-slate-300 whitespace-nowrap">
+                      <span className={`text-xs whitespace-nowrap ${dateTextColor}`}>
                         {row.date}
                       </span>
                     </td>
                     
                     <td className="py-3.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                      <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20">
+                      <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded border ${tickerBgColor}`}>
                         {row.ticker}
                       </span>
                     </td>
 
-                    <td className="py-3.5 text-xs text-slate-200 font-medium whitespace-nowrap truncate max-w-[250px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                    <td className={`py-3.5 text-xs whitespace-nowrap truncate max-w-[250px] ${nameTextColor}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>
                       {row.name}
                     </td>
 
@@ -483,15 +483,15 @@ export default function EarningsCalendar() {
                       </div>
                     </td>
 
-                    <td className="py-3.5 text-xs font-bold text-slate-300 whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                    <td className={`py-3.5 text-xs font-bold whitespace-nowrap ${isToday ? 'text-slate-100' : 'text-slate-300'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>
                       {formatNumber(row.mktCap)}
                     </td>
 
-                    <td className="py-3.5 text-xs text-emerald-400/90 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                    <td className={`py-3.5 text-xs font-medium whitespace-nowrap ${isToday ? 'text-emerald-400' : 'text-emerald-400/90'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>
                       {row.epsEst !== null ? `$${row.epsEst.toFixed(2)}` : '-'}
                     </td>
                     
-                    <td className="py-3.5 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                    <td className={`py-3.5 text-xs font-medium whitespace-nowrap ${isToday ? 'text-slate-300' : 'text-slate-400'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>
                       {formatCurrency(row.revEst)}
                     </td>
                     

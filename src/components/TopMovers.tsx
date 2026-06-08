@@ -40,12 +40,14 @@ const FALLBACK_ETFS = [
   'ZSL','URAA','ASMG','ARCX','CRWV','IONX','XRPT','BITX','LUNL','OKLL',
   'SOLT','INTW','SMU','DLLL','GDXD','UUUG','RIOX','QPUX','FNGU','CRDU',
   'MRAL','APLX','TECL','RGTX','RGTU','AAOX','LABX','AMDL','KORU','AVGX'
-].join(',');
+];
+const FALLBACK_ETFS_SET = new Set(FALLBACK_ETFS);
 
 const MEGA_CAPS = [
   'AAPL','NVDA','TSLA','MSFT','AMZN','META','GOOGL','AMD','INTC',
   'NFLX','PLTR','COIN','MSTR','SMCI','MARA','RIOT','HOOD','UBER','AVGO','MU'
-].join(',');
+];
+const MEGA_CAPS_SET = new Set(MEGA_CAPS);
 
 // --- CONSTANTS & MAPS ---
 const SECTOR_MAP: Record<string, string> = {
@@ -123,26 +125,21 @@ const ETF_TARGET_MAP: Record<string, string> = {
 
 // --- SMART ETF FALLBACK ENGINE ---
 const resolveEtfSector = (sym: string, isEtfTab: boolean, apiSector: string | undefined, apiName: string | undefined): string => {
-  // 1. Check Hardcoded Maps
   if (ETF_TARGET_MAP[sym]) return ETF_TARGET_MAP[sym];
-  if (SECTOR_MAP[sym]) return SECTOR_MAP[sym]; // Regular stocks bypass ETF dashes
+  if (SECTOR_MAP[sym]) return SECTOR_MAP[sym]; 
 
-  // 2. Intelligent Root Symbol Extractor (e.g. QBTZ -> QBTS)
-  // Most leveraged ETFs are 4 letters, ending in X, Z, D, S, L, U, Q
   if (sym.length === 4) {
-    const rootCandidate = sym.substring(0, 3) + 'S'; // Standard swap format
+    const rootCandidate = sym.substring(0, 3) + 'S'; 
     if (SECTOR_MAP[rootCandidate]) {
        return `${rootCandidate} - ${SECTOR_MAP[rootCandidate]}`;
     }
   }
 
-  // 3. Name-based ETF Detection
   const n = (apiName || '').toLowerCase();
   const isFund = isEtfTab || n.includes(' etf') || n.includes('proshares') || n.includes('direxion') || n.includes('defiance') || n.includes('fund') || n.includes('trust');
   
   if (isFund) return `${sym} - ETF`;
 
-  // 4. Ultimate Fallback
   return apiSector || 'Financials';
 };
 
@@ -233,12 +230,12 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
 };
 
 export default function TopMovers() {
-  const { session } = useMarketData();
+  // Use rawSnapshot as the single source of truth for the entire market
+  const { rawSnapshot, session, lastUpdated: contextLastUpdated, isLoading: isContextLoading } = useMarketData();
   
   const [activeTab, setActiveTab] = useState<TabType>('Mega Caps');
   const [stocks, setStocks] = useState<StockData[]>([]);
   const [status, setStatus] = useState<string>('Offline');
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: keyof StockData; direction: SortDirection } | null>(null);
 
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
@@ -250,59 +247,54 @@ export default function TopMovers() {
 
   useEffect(() => {
     let isMounted = true;
-    if (!polygonApiKey) { setStatus('Offline'); return; }
+    if (!polygonApiKey || rawSnapshot.length === 0) { 
+      if (isMounted) setStatus(isContextLoading ? 'Syncing...' : 'Offline'); 
+      return; 
+    }
 
-    const fetchMarketData = async () => {
+    const assembleMovers = async () => {
+      if (isMounted) setStatus(`Scouting ${activeTab}...`);
+      
       try {
-        setStatus(`Scouting...`);
-        
-        let targetUrl = '';
-        let isV3Engine = false;
-        
-        if (activeTab === 'Gainers') targetUrl = `https://api.massive.com/v2/snapshot/locale/us/markets/stocks/gainers?apiKey=${polygonApiKey}`;
-        else if (activeTab === 'Losers') targetUrl = `https://api.massive.com/v2/snapshot/locale/us/markets/stocks/losers?apiKey=${polygonApiKey}`;
-        else if (activeTab === 'Mega Caps') { isV3Engine = true; targetUrl = `https://api.massive.com/v3/snapshot?ticker.any_of=${MEGA_CAPS}&limit=250&apiKey=${polygonApiKey}`; }
-        else { isV3Engine = true; targetUrl = `https://api.massive.com/v3/snapshot?ticker.any_of=${FALLBACK_ETFS}&limit=250&apiKey=${polygonApiKey}`; }
+        // 1. Filter the massive 12,000 ticker snapshot based on the active tab
+        let filteredCandidates = rawSnapshot.filter((t: any) => {
+          const sym = t.ticker || t.single_ticker || '';
+          const price = t.day?.c || t.prevDay?.c || 0;
+          const vol = (t.day?.v > 0 ? t.day.v : t.prevDay?.v) || 0;
+          
+          if (price < 1.0) return false;
 
-        const snapshotData = await fetchSafeJson(targetUrl, { results: [], tickers: [] });
-        let rawTickers = isV3Engine ? (snapshotData.results || []) : (snapshotData.tickers || []);
+          if (activeTab === 'Mega Caps') return MEGA_CAPS_SET.has(sym);
+          if (activeTab.includes('ETF')) return FALLBACK_ETFS_SET.has(sym);
 
-        if (rawTickers.length === 0) { if (isMounted) setStatus('No Valid Data Found'); return; }
+          // For generic Gainers and Losers, enforce strict volume rule
+          return vol >= 500000;
+        });
 
-        rawTickers = rawTickers.map((t: any) => {
-           const symbol = t.ticker || t.single_ticker || '';
-           const dayClose = t.day?.c || t.session?.close || t.min?.c || 0;
-           const prevClose = t.prevDay?.c || t.session?.previous_close || 0;
-           let chg = t.todaysChangePerc || t.session?.change_percent || 0;
-           if (chg === 0 && prevClose > 0) chg = ((dayClose - prevClose) / prevClose) * 100;
-           
-           const vwap = t.day?.vw || t.session?.vwap || 0;
-           let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
-           if (vwap > 0 && dayClose > 0) {
-             vwapStatus = dayClose >= vwap ? 'above' : 'below';
-           }
-
-           return { ...t, normalizedTicker: symbol, smartChg: chg, computedPrice: dayClose, computedVwapStatus: vwapStatus };
-        })
-        .filter((t: any) => t.computedPrice >= 1.0); 
-
+        // 2. Sort the filtered lists using Context's normalized change percentage
         if (activeTab === 'Gainers' || activeTab === 'ETF Gainers') {
-           rawTickers = rawTickers.filter((t: any) => t.smartChg > 0).sort((a: any, b: any) => b.smartChg - a.smartChg); 
+          filteredCandidates = filteredCandidates.filter((t: any) => t.todaysChangePerc > 0)
+            .sort((a: any, b: any) => b.todaysChangePerc - a.todaysChangePerc);
         } else if (activeTab === 'Losers' || activeTab === 'ETF Losers') {
-           rawTickers = rawTickers.filter((t: any) => t.smartChg < 0).sort((a: any, b: any) => a.smartChg - b.smartChg);
+          filteredCandidates = filteredCandidates.filter((t: any) => t.todaysChangePerc < 0)
+            .sort((a: any, b: any) => a.todaysChangePerc - b.todaysChangePerc);
         } else if (activeTab === 'Mega Caps') {
-           rawTickers = rawTickers.sort((a: any, b: any) => {
-             const volA = a.session?.volume || a.day?.v || 0;
-             const volB = b.session?.volume || b.day?.v || 0;
-             return volB - volA;
-           });
+          filteredCandidates = filteredCandidates.sort((a: any, b: any) => {
+            const volA = a.day?.v || a.prevDay?.v || 0;
+            const volB = b.day?.v || b.prevDay?.v || 0;
+            return volB - volA;
+          });
         }
 
-        const topTickersCandidate = rawTickers.slice(0, 50);
+        // Take Top 30 initial matches
+        const topTickersCandidate = filteredCandidates.slice(0, 30);
 
-        if (topTickersCandidate.length === 0) { if (isMounted) setStatus('No Valid Data Found'); return; }
+        if (topTickersCandidate.length === 0) { 
+          if (isMounted) setStatus('No Valid Data Found'); 
+          return; 
+        }
 
-        setStatus('Enriching...');
+        if (isMounted) setStatus('Enriching...');
 
         const today = new Date();
         const thirtyDaysAgo = new Date();
@@ -313,21 +305,38 @@ export default function TopMovers() {
         const enrichments: any[] = [];
         const chunkSize = 5; 
         
+        // 3. ENRICH AND RECALCULATE TRUE HISTORICAL METRICS
         for (let i = 0; i < topTickersCandidate.length; i += chunkSize) {
             const chunk = topTickersCandidate.slice(i, i + chunkSize);
             const chunkPromises = chunk.map(async (item: any) => {
-                const sym = item.normalizedTicker;
-                const price = item.computedPrice || 0;
+                const sym = item.ticker;
 
+                // Proxy calls for rate limit protection
                 const [details, aggs, newsData, shortData] = await Promise.all([
                     fetchSafeJson(`https://api.massive.com/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {}),
                     fetchSafeJson(`https://api.massive.com/v2/aggs/ticker/${sym}/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=desc&limit=30&apiKey=${polygonApiKey}`, { results: [] }),
-                    fetchSafeJson(`https://api.massive.com/v2/reference/news?ticker=${sym}&limit=10&apiKey=${polygonApiKey}`, { results: [] }),
+                    fetchSafeJson(`https://api.massive.com/v2/reference/news?ticker=${sym}&limit=5&apiKey=${polygonApiKey}`, { results: [] }),
                     fetchSafeJson(`https://api.massive.com/stocks/v1/short-interest?ticker=${sym}&apiKey=${polygonApiKey}`, { results: [] })
                 ]);
 
+                // True historical array sorting
+                const rawBars = aggs.results || [];
+                const dailyBars = rawBars.sort((a: any, b: any) => b.t - a.t); 
+
+                const price = item.day?.c || item.prevDay?.c || 0;
+                let chgPct = item.todaysChangePerc || 0;
+
+                // Accurate Close-to-Close Recalculation
+                if (dailyBars.length >= 2) {
+                  const currentBarClose = dailyBars[0].c;
+                  const priorBarClose = dailyBars[1].c;
+                  if (priorBarClose > 0) {
+                    chgPct = ((currentBarClose - priorBarClose) / priorBarClose) * 100;
+                  }
+                }
+
                 const mktCap = details.results?.market_cap || null;
-                const name = details.results?.name || sym;
+                const name = details.results?.name || details.name || sym;
                 
                 const apiSector = cleanSectorDescription(
                   details.results?.sic_description, 
@@ -338,10 +347,10 @@ export default function TopMovers() {
                 const specificNews = newsData.results || [];
                 
                 let avgVol = 0;
-                if (aggs.results && aggs.results.length > 0) {
+                if (dailyBars.length > 0) {
                     let totalVol = 0;
-                    aggs.results.forEach((b: any) => totalVol += (b.v || 0));
-                    avgVol = totalVol / aggs.results.length;
+                    dailyBars.forEach((b: any) => totalVol += (b.v || 0));
+                    avgVol = totalVol / dailyBars.length;
                 }
 
                 const float = details.results?.share_class_shares_outstanding || (mktCap && price ? mktCap / price : null);
@@ -351,24 +360,23 @@ export default function TopMovers() {
                     shortPct = (shortShares / float) * 100;
                 }
 
-                return { ticker: sym, mktCap, float, shortPct, avgVol, name, apiSector, specificNews };
+                return { ticker: sym, chgPct, mktCap, float, shortPct, avgVol, name, apiSector, specificNews };
             });
             
             const chunkResults = await Promise.all(chunkPromises);
             enrichments.push(...chunkResults);
             
-            await new Promise(r => setTimeout(r, 200)); 
+            await new Promise(r => setTimeout(r, 100)); 
         }
 
         if (isMounted) {
           let mergedList = topTickersCandidate.map((item: any) => {
-            const sym = item.normalizedTicker;
+            const sym = item.ticker;
             const enriched = enrichments.find((e: any) => e.ticker === sym);
             
             const newsList = enriched?.specificNews || [];
             let relatedNews = null;
             let finalCatalyst = null;
-            let finalTag = null;
             let finalCatalystUrl = null;
 
             if (newsList.length > 0) {
@@ -391,15 +399,20 @@ export default function TopMovers() {
                }
             }
             
-            const price = item.computedPrice || 0;
-            const liveVolume = item.day?.v || item.session?.volume || 0;
-            const chgPct = item.smartChg || 0;
-            const vwap = item.day?.vw || item.session?.vwap || price;
+            const price = item.day?.c || item.prevDay?.c || 0;
+            const liveVolume = (item.day?.v > 0 ? item.day.v : item.prevDay?.v) || 0;
+            const chgPct = enriched?.chgPct || item.todaysChangePerc || 0;
+            const vwap = item.day?.vw || item.prevDay?.vw || price;
             const liveDollarVol = liveVolume > 0 ? liveVolume * vwap : null;
             
             let realRvol = null;
             const avgVol = enriched?.avgVol || 0;
             if (avgVol > 0 && liveVolume > 0) realRvol = liveVolume / avgVol;
+            
+            let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
+            if (vwap > 0 && price > 0) {
+              vwapStatus = price >= vwap ? 'above' : 'below';
+            }
             
             const deepSector = resolveEtfSector(sym, isEtfTab, enriched?.apiSector, enriched?.name);
             
@@ -408,7 +421,7 @@ export default function TopMovers() {
               name: enriched?.name || sym, 
               sector: deepSector, 
               price: price,
-              vwapStatus: item.computedVwapStatus,
+              vwapStatus: vwapStatus,
               changesPercentage: chgPct,
               volume: liveVolume > 0 ? liveVolume : null,
               dollarVolume: liveDollarVol,
@@ -417,20 +430,21 @@ export default function TopMovers() {
               float: enriched?.float || null,
               shortPct: enriched?.shortPct || null,
               catalyst: finalCatalyst,
-              catalystTag: finalTag,
-              catalystUrl: finalCatalystUrl
+              catalystTag: null,
+              catalystUrl: finalCatalystUrl,
+              stage: '-',
+              setupName: ''
             };
           });
 
-          mergedList = mergedList.filter((item: StockData) => {
-              if (!isEtfTab) {
-                  return item.mktCap === null || item.mktCap >= 10000000;
-              }
-              return true;
-          }).slice(0, 20); 
+          // Final strict re-sort and truncation after true percentage recalculation
+          if (activeTab === 'Gainers' || activeTab === 'ETF Gainers') {
+            mergedList.sort((a, b) => b.changesPercentage - a.changesPercentage);
+          } else if (activeTab === 'Losers' || activeTab === 'ETF Losers') {
+            mergedList.sort((a, b) => a.changesPercentage - b.changesPercentage);
+          }
 
-          setStocks(mergedList);
-          setLastUpdated(new Date());
+          setStocks(mergedList.slice(0, 20));
           setStatus('Live'); 
         }
       } catch (error: any) {
@@ -438,10 +452,10 @@ export default function TopMovers() {
       }
     };
 
-    fetchMarketData();
-    const interval = setInterval(fetchMarketData, 60000);
-    return () => { isMounted = false; clearInterval(interval); };
-  }, [activeTab, polygonApiKey]);
+    assembleMovers();
+    
+    return () => { isMounted = false; };
+  }, [activeTab, rawSnapshot, polygonApiKey]);
 
   const handleSort = (key: keyof StockData) => {
     let direction: SortDirection = 'desc'; 
@@ -463,7 +477,7 @@ export default function TopMovers() {
     });
   }, [stocks, sortConfig]);
 
-  const isLoading = status.includes('Scouting') || status.includes('Enriching') || status.includes('Connecting');
+  const isLoading = isContextLoading || status.includes('Scouting') || status.includes('Enriching') || status.includes('Syncing');
   const getSortIcon = (columnKey: keyof StockData) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
   const getSessionTextColor = () => {
@@ -515,9 +529,9 @@ export default function TopMovers() {
               {status === 'Live' ? session : status}
             </span>
           </div>
-          {lastUpdated && (
+          {contextLastUpdated && (
              <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
-               Updated: {formatTime(lastUpdated)} EST
+               Updated: {formatTime(contextLastUpdated)} EST
              </span>
           )}
         </div>

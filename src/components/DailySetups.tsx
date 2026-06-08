@@ -27,30 +27,19 @@ type SortDirection = 'asc' | 'desc';
 
 // --- CONSTANTS & MAPS ---
 const SECTOR_MAP: Record<string, string> = {
-  // Semiconductors & IT
   'AAPL': 'IT', 'MSFT': 'IT', 'SMCI': 'IT',
   'NVDA': "Semi's", 'AMD': "Semi's", 'INTC': "Semi's", 
   'AVGO': "Semi's", 'MU': "Semi's", 'ARM': "Semi's", 
   'QCOM': "Semi's", 'TSM': "Semi's",
-  
-  // AI, Cyber, Fintech
   'PLTR': 'AI', 'SOUN': 'AI', 'BBAI': 'AI', 
   'AI': 'AI', 'CRWD': 'Cyber', 'PANW': 'Cyber', 'ZS': 'Cyber',
   'COIN': 'Fintech', 'MSTR': 'Fintech', 'MARA': 'Fintech', 'RIOT': 'Fintech', 'CLSK': 'Fintech', 
   'IREN': 'Fintech', 'CIFR': 'Fintech', 'HUT': 'Fintech', 'HOOD': 'Fintech', 'SOFI': 'Fintech', 'UPST': 'Fintech',
-  
-  // EVs & Aerospace
   'TSLA': 'EV', 'NIO': 'EV', 'LI': 'EV', 'XPEV': 'EV',
   'LUNR': 'Aerospace', 'ASTS': 'Aerospace', 'RKLB': 'Aerospace', 
-  
-  // Clean Energy & Nuclear
   'CEG': 'Nuclear', 'OKLO': 'Nuclear', 'CCJ': 'Nuclear', 'SMR': 'Nuclear', 'LEU': 'Nuclear',
   'FSLR': 'Solar', 'ENPH': 'Solar', 'RUN': 'Solar',
-  
-  // Healthcare & Biotech
   'HIMS': 'Healthcare', 'NVO': 'Healthcare', 'LLY': 'Healthcare', 'ASTX': 'Biotech', 'COO': 'Healthcare',
-  
-  // Discretionary, Staples, Comms
   'AMZN': 'Con Disc', 'UBER': 'Con Disc', 'BABA': 'Con Disc', 
   'PDD': 'Con Disc', 'JD': 'Con Disc',
   'PG': 'Con Staples',
@@ -59,14 +48,11 @@ const SECTOR_MAP: Record<string, string> = {
 };
 
 const ETF_TARGET_MAP: Record<string, string> = {
-  // Leveraged Crypto & Digital Assets
   'MSTX': 'MSTR - Fintech', 'MSTU': 'MSTR - Fintech', 'MSTZ': 'MSTR - Fintech', 'MSTD': 'MSTR - Fintech',
   'CONL': 'COIN - Fintech', 'CONZ': 'COIN - Fintech', 'COND': 'COIN - Fintech',
   'MRAL': 'MARA - Fintech', 'RIOX': 'RIOT - Fintech',
   'BITX': 'BTC - Bitcoin', 'BITZ': 'BTC - Bitcoin', 'BTCZ': 'BTC - Bitcoin', 'IBIT': 'BTC - Bitcoin', 'BITO': 'BTC - Bitcoin', 
   'ETHU': 'ETH - Ethereum', 'ETHZ': 'ETH - Ethereum', 'ETU': 'ETH - Ethereum', 'SOLT': 'SOL - Solana', 'XRPT': 'XRP - Crypto',
-  
-  // Single Stock ETFs
   'TSLL': 'TSLA - EV', 'TSLS': 'TSLA - EV', 'TSLQ': 'TSLA - EV', 'TSDD': 'TSLA - EV',
   'NVDL': "NVDA - Semi's", 'NVDX': "NVDA - Semi's", 'NVD': "NVDA - Semi's", 'NVDD': "NVDA - Semi's", 'NVDQ': "NVDA - Semi's",
   'AMZU': 'AMZN - Con Disc', 'AMZD': 'AMZN - Con Disc',
@@ -86,8 +72,6 @@ const ETF_TARGET_MAP: Record<string, string> = {
   'ASMG': "ASML - Semi's", 'UUUG': 'U - IT', 'AAOX': 'AI - AI', 'FBL': 'META - Comm Serv', 'HIMZ': 'HIMS - Healthcare', 
   'RDTL': 'RDDT - Comm Serv', 'RKLX': 'RKLB - Aerospace', 'RCAX': 'RCAT - Aerospace', 'SOUX': 'SOUN - AI', 'ASTX': 'ASTS - Aerospace',
   'RGTX': 'RGT - IT', 'RGTU': 'RGT - IT', 'RGTZ': 'RGT - IT',
-  
-  // Market / Sector / Volatility ETFs 
   'TQQQ': 'QQQ - Nasdaq 3X', 'SQQQ': 'QQQ - Nasdaq -3X', 'QID': 'QQQ - Nasdaq -2X', 'QLD': 'QQQ - Nasdaq 2X', 'SNDQ': 'QQQ - Nasdaq ETF',
   'SOXL': "SOXX - Semi's 3X", 'SOXS': "SOXX - Semi's -3X", 'TECL': 'XLK - Tech 3X', 'TECS': 'XLK - Tech -3X',
   'FNGU': 'FNGU - Big Tech 3X', 'FNGD': 'FNGD - Big Tech -3X', 
@@ -99,8 +83,7 @@ const ETF_TARGET_MAP: Record<string, string> = {
   'QQQ': 'QQQ - Nasdaq', 'IWM': 'IWM - Small Cap', 'DIA': 'DIA - Dow Jones', 'VOO': 'VOO - S&P 500', 'VTI': 'VTI - Total Market'
 };
 
-// --- SMART ETF FALLBACK ENGINE ---
-const resolveEtfSector = (sym: string, apiSector: string | undefined, apiName: string | undefined): string => {
+const resolveEtfSector = (sym: string, isEtfTab: boolean, apiSector: string | undefined, apiName: string | undefined): string => {
   if (ETF_TARGET_MAP[sym]) return ETF_TARGET_MAP[sym];
   if (SECTOR_MAP[sym]) return SECTOR_MAP[sym]; 
 
@@ -112,14 +95,13 @@ const resolveEtfSector = (sym: string, apiSector: string | undefined, apiName: s
   }
 
   const n = (apiName || '').toLowerCase();
-  const isFund = n.includes(' etf') || n.includes('proshares') || n.includes('direxion') || n.includes('defiance') || n.includes('fund') || n.includes('trust');
+  const isFund = isEtfTab || n.includes(' etf') || n.includes('proshares') || n.includes('direxion') || n.includes('defiance') || n.includes('fund') || n.includes('trust');
   
   if (isFund) return `${sym} - ETF`;
 
   return apiSector || 'Financials';
 };
 
-// --- HELPERS ---
 const cleanSectorDescription = (sic: string | undefined, sector: string | undefined, industry: string | undefined) => {
   const ind = (industry || '').toLowerCase();
   if (ind.includes('nuclear')) return 'Nuclear';
@@ -151,7 +133,6 @@ const cleanSectorDescription = (sic: string | undefined, sector: string | undefi
   if (s.includes('semiconductor')) return "Semi's";
   if (s.includes('biological products') || s.includes('in vitro')) return 'Biotech';
   if (s.includes('aircraft') || s.includes('defense')) return 'Aerospace';
-
   if (s.includes('prepackaged software') || s.includes('computer programming') || s.includes('tech')) return 'IT';
   if (s.includes('pharmaceutical') || s.includes('surgical') || s.includes('medical') || s.includes('health') || s.includes('drug') || s.includes('ophthalmic')) return 'Healthcare';
   if (s.includes('bank') || s.includes('financial') || s.includes('trust') || s.includes('broker') || s.includes('investment') || s.includes('commodity') || s.includes('fund') || s.includes('blank check')) return 'Financials';
@@ -168,16 +149,11 @@ const cleanSectorDescription = (sic: string | undefined, sector: string | undefi
 };
 
 const formatTime = (date: Date) => {
-  return date.toLocaleTimeString('en-US', { 
-    hour: 'numeric', 
-    minute: '2-digit', 
-    second: '2-digit',
-    timeZone: 'America/New_York'
-  });
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
 };
 
 const formatNumber = (num: number | null) => {
-  if (num === null || num === 0 || isNaN(num)) return '-';
+  if (num === null || num === 0 || isNaN(num)) return '—';
   if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
   if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
   if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
@@ -185,13 +161,13 @@ const formatNumber = (num: number | null) => {
 };
 
 const formatCurrency = (num: number | null) => {
-  if (num === null || num === 0 || isNaN(num)) return '-';
+  if (num === null || num === 0 || isNaN(num)) return '—';
   if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
   if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
   return '$' + num.toLocaleString();
 };
 
-const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 10000) => {
+const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -206,13 +182,13 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 10000) => {
 };
 
 // --- ALGORITHMIC PATTERN ENGINE ---
-const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, vwap: number, rvol: number | null): { name: string, stage: string } | null => {
-  if (!bars || bars.length < 80) return null; 
+const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, vwap: number, rvol: number | null): { name: string | null, stage: string } => {
+  let stage = '-';
+  if (!bars || bars.length < 80) return { name: null, stage }; 
   
   const yest = bars[1];
   const day3 = bars[2];
 
-  // True 20 EMA Rolling Calculation (Needed for Stage A/B calculation)
   const warmUpBars = Math.min(100, bars.length - 1);
   let ema20 = bars[warmUpBars].c;
   const k20 = 2 / (20 + 1);
@@ -220,8 +196,6 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
       ema20 = (bars[i].c * k20) + (ema20 * (1 - k20));
   }
 
-  // Weinstein Stage Analysis Computation with A/B Sub-Stages
-  let stage = '-';
   if (bars.length >= 210) {
     const getSMA = (startIndex: number, periods: number) => {
       if (bars.length < startIndex + periods) return 0;
@@ -236,7 +210,7 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
 
     if (sma150_now > 0 && sma150_20d > 0 && sma150_60d > 0) {
       const slope = (sma150_now - sma150_20d) / sma150_20d;
-      const subStage = currentPrice >= ema20 ? 'A' : 'B'; // A = Price > 20EMA, B = Price < 20EMA
+      const subStage = currentPrice >= ema20 ? 'A' : 'B'; 
 
       if (slope > 0.015 && currentPrice > sma150_now) {
         stage = `2${subStage}`; 
@@ -252,7 +226,6 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
     }
   }
 
-  // Helper: Bollinger Band & Keltner Channel Calculations
   const checkSqueeze = (offset: number) => {
     let sum = 0;
     for(let i=offset; i<offset+20; i++) sum += bars[i].c;
@@ -283,18 +256,16 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
   const isSqueezingToday = checkSqueeze(0);
   const wasSqueezingYest = checkSqueeze(1);
 
-  // Squeeze Trigger Evaluation
   if (wasSqueezingYest && !isSqueezingToday && currentPrice > ema20) {
       return { name: 'BB SQZ Fired', stage };
   }
 
-  // Pullback Check (Blue Dot Reversal)
   const getRawK = (idx: number) => {
-    const slice = bars.slice(idx, idx + 10);
-    const high10 = Math.max(...slice.map(b => b.h));
-    const low10 = Math.min(...slice.map(b => b.l));
-    if (high10 === low10) return 50; 
-    return ((bars[idx].c - low10) / (high10 - low10)) * 100;
+    const slice = bars.slice(idx, idx + 14); 
+    const highPeriod = Math.max(...slice.map(b => b.h));
+    const lowPeriod = Math.min(...slice.map(b => b.l));
+    if (highPeriod === lowPeriod) return 50; 
+    return ((bars[idx].c - lowPeriod) / (highPeriod - lowPeriod)) * 100;
   };
 
   const getSmoothedK = (idx: number) => {
@@ -329,10 +300,9 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
     return { name: 'Blue Dot Rev', stage };
   }
 
-  // Volume-Assisted Breakout Evaluations
   const hasConvictionVol = rvol !== null && rvol >= 1.0;
-
   const high3Months = Math.max(...bars.slice(1, 65).map(b => b.h));
+
   if (hasConvictionVol && currentPrice > high3Months && yest.c <= high3Months && currentPrice >= Math.max(...bars.slice(1, 80).map(b => b.h))) {
     return { name: 'GLB', stage };
   }
@@ -349,7 +319,6 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
     return { name: 'Inside Day BRK', stage };
   }
 
-  // Standard Trend/Consolidation Fallbacks
   if (currentPrice > ema20 && yest.l <= (ema20 * 1.02) && currentPrice > yest.h) {
     return { name: '20 EMA PB', stage };
   }
@@ -362,18 +331,18 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
     return { name: 'Trend Hold', stage };
   }
 
-  return null;
+  return { name: null, stage }; 
 };
 
 export default function DailySetups() {
-  const { sipsUniverse, session, lastUpdated: contextLastUpdated, isLoading: isContextLoading } = useMarketData();
+  // WE PULL FROM RAW SNAPSHOT TO MATCH TOP MOVERS SORTING POOL EXACTLY
+  const { rawSnapshot = [], session, lastUpdated: contextLastUpdated, isLoading: isContextLoading } = useMarketData();
   
   const [setups, setSetups] = useState<SetupData[]>([]);
   const [status, setStatus] = useState<string>('Offline');
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [sortConfig, setSortConfig] = useState<{ key: keyof SetupData; direction: SortDirection } | null>(null);
 
-  // --- COMPONENT STATE ---
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const [showStage2Only, setShowStage2Only] = useState<boolean>(false); 
 
@@ -382,7 +351,7 @@ export default function DailySetups() {
   useEffect(() => {
     let isMounted = true;
 
-    if (!polygonApiKey || sipsUniverse.length === 0) {
+    if (!polygonApiKey || rawSnapshot.length === 0) {
       if (isMounted) {
         setIsScanning(false);
         setStatus(isContextLoading ? 'Syncing...' : 'Offline');
@@ -393,65 +362,30 @@ export default function DailySetups() {
     const runStructuralEnrichment = async () => {
       if (isMounted) {
         setIsScanning(true);
-        setStatus('Scanning Technicals...');
+        setStatus('Aligning with Top Movers...');
       }
 
       try {
-        const today = new Date();
-        const lookbackDate = new Date();
-        lookbackDate.setDate(today.getDate() - 400); 
-        const toStr = today.toISOString().split('T')[0];
-        const fromStr = lookbackDate.toISOString().split('T')[0];
+        // --- INTAKE VALVE: IDENTICAL TO TOP MOVERS ---
+        let viableSetups = rawSnapshot.filter((t: any) => {
+          const price = t.day?.c || t.prevDay?.c || 0;
+          const vol = (t.day?.v > 0 ? t.day.v : t.prevDay?.v) || 0;
 
-        // PHASE 1: Fetch ONLY the daily bars for the whole universe
-        const aggsData: any[] = [];
-        const chunkSize = 15;
-        
-        for (let i = 0; i < sipsUniverse.length; i += chunkSize) {
-          const chunk = sipsUniverse.slice(i, i + chunkSize);
-          const chunkPromises = chunk.map(async (t: any) => {
-            const sym = t.ticker;
-            const aggs = await fetchSafeJson(`https://api.massive.com/v2/aggs/ticker/${sym}/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=desc&limit=350&apiKey=${polygonApiKey}`, { results: [] });
-            return { sym, t, aggs };
-          });
-          
-          const chunkResults = await Promise.all(chunkPromises);
-          aggsData.push(...chunkResults);
-          
-          await new Promise(r => setTimeout(r, 150)); 
-        }
-
-        if (isMounted) setStatus('Analyzing Patterns...');
-
-        // PHASE 2: Detect patterns BEFORE fetching heavy detail/short/news payloads
-        const preliminarySetups: any[] = [];
-        
-        aggsData.forEach(({ sym, t, aggs }) => {
-          const currentPrice = t.day?.c || t.min?.c || 0;
-          const currentOpen = t.day?.o || currentPrice;
-          const vwap = t.day?.vw || currentPrice;
-          const chg = t.todaysChangePerc || 0;
-          const dailyBars = aggs.results || [];
-          const vol = t.day?.v || 0;
-          
-          // Strict Filtering Rule Engine
-          if (currentPrice < 1.00 || chg < 4.0) return;
-
-          let sumVol = 0;
-          let barCount = 0;
-          dailyBars.forEach((bar: any) => {
-            if (bar.v) { sumVol += bar.v; barCount++; }
-          });
-          const avgVol = barCount > 0 ? sumVol / barCount : 0;
-          const rvol = (avgVol > 0 && vol > 0) ? (vol / avgVol) : null;
-
-          const setupMatched = detectPattern(dailyBars, currentPrice, currentOpen, vwap, rvol);
-          if (setupMatched) {
-            preliminarySetups.push({ sym, t, dailyBars, setupMatched, currentPrice, vwap, currentOpen, rvol, vol });
-          }
+          // 1. Mandatory Volume & Price Baseline
+          return price >= 1.00 && vol >= 500000;
         });
 
-        if (preliminarySetups.length === 0) {
+        // 2. Sort by the exact same Normalized Change % as Top Movers Gainers
+        const sortedMovers = viableSetups.sort((a: any, b: any) => {
+          const cA = a.todaysChangePerc || 0;
+          const cB = b.todaysChangePerc || 0;
+          return cB - cA; // Descending (Biggest % Gainers First)
+        });
+
+        // 3. Take the exact Top 30 % Gainers to search for patterns
+        const top30Candidates = sortedMovers.slice(0, 30);
+        
+        if (top30Candidates.length === 0) {
           if (isMounted) {
             setSetups([]);
             setStatus('Live');
@@ -460,34 +394,79 @@ export default function DailySetups() {
           return;
         }
 
-        if (isMounted) setStatus('Enriching Matches...');
+        if (isMounted) setStatus('Scanning Technicals...');
 
-        // PHASE 3: Fetch Details/Short/News data ONLY for the matches
+        const today = new Date();
+        const lookbackDate = new Date();
+        lookbackDate.setDate(today.getDate() - 400); 
+        const toStr = today.toISOString().split('T')[0];
+        const fromStr = lookbackDate.toISOString().split('T')[0];
+
+        // --- PHASE 2: MASSIVE FETCH & PATTERN MATCHING ---
         const detectedSetups: SetupData[] = [];
-        const setupsToEnrich = preliminarySetups.slice(0, 20); // Cap at 20 to keep UI clean
+        const chunkSize = 5; 
         
-        for (let i = 0; i < setupsToEnrich.length; i += 5) {
-          const chunk = setupsToEnrich.slice(i, i + 5);
-          const chunkPromises = chunk.map(async ({ sym, t, setupMatched, currentPrice, vwap, rvol, vol }) => {
-            
-            const [details, shortData, newsData] = await Promise.all([
+        for (let i = 0; i < top30Candidates.length; i += chunkSize) {
+          const chunk = top30Candidates.slice(i, i + chunkSize);
+          const chunkPromises = chunk.map(async (t: any) => {
+            const sym = t.ticker || t.single_ticker;
+            const price = t.day?.c || t.prevDay?.c || 0;
+            const vol = (t.day?.v > 0 ? t.day.v : t.prevDay?.v) || 0;
+            const currentOpen = t.day?.o || t.prevDay?.o || price;
+            const vwap = t.day?.vw || t.prevDay?.vw || price;
+            const dVol = vol * vwap;
+
+            const [details, aggs, newsData, shortData] = await Promise.all([
               fetchSafeJson(`https://api.massive.com/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {}),
-              fetchSafeJson(`https://api.massive.com/stocks/v1/short-interest?ticker=${sym}&apiKey=${polygonApiKey}`, { results: [] }),
-              fetchSafeJson(`https://api.massive.com/v2/reference/news?ticker=${sym}&limit=5&apiKey=${polygonApiKey}`, { results: [] })
+              fetchSafeJson(`https://api.massive.com/v2/aggs/ticker/${sym}/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=desc&limit=350&apiKey=${polygonApiKey}`, { results: [] }),
+              fetchSafeJson(`https://api.massive.com/v2/reference/news?ticker=${sym}&limit=5&apiKey=${polygonApiKey}`, { results: [] }),
+              fetchSafeJson(`https://api.massive.com/stocks/v1/short-interest?ticker=${sym}&apiKey=${polygonApiKey}`, { results: [] })
             ]);
 
-            const marketCap = details?.results?.market_cap || 0;
-            const companyName = details?.results?.name || details?.name || sym;
+            const rawBars = aggs.results || [];
+            const dailyBars = rawBars.sort((a: any, b: any) => b.t - a.t); 
 
-            const chgPct = t.todaysChangePerc || 0;
-            const dVol = vol * vwap;
+            let chgPct = t.todaysChangePerc || 0;
             
-            let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
-            if (vwap > 0 && currentPrice > 0) {
-              vwapStatus = currentPrice >= vwap ? 'above' : 'below';
+            // True Historic Close-to-Close computation
+            if (dailyBars.length >= 2) {
+              const currentBarClose = dailyBars[0].c;
+              const priorBarClose = dailyBars[1].c;
+              if (priorBarClose > 0) {
+                chgPct = ((currentBarClose - priorBarClose) / priorBarClose) * 100;
+              }
             }
 
-            const float = details?.results?.share_class_shares_outstanding || (marketCap && currentPrice ? marketCap / currentPrice : null);
+            // Reject if it fails the true 4% gate
+            if (chgPct < 4.0) return null;
+
+            let avgVol = 0;
+            if (dailyBars.length > 0) {
+              let sumVol = 0;
+              let barCount = 0;
+              dailyBars.forEach((bar: any) => {
+                if (bar.v) { sumVol += bar.v; barCount++; }
+              });
+              avgVol = barCount > 0 ? sumVol / barCount : 0;
+            }
+            const rvol = (avgVol > 0 && vol > 0) ? (vol / avgVol) : null;
+
+            const setupMatched = detectPattern(dailyBars, price, currentOpen, vwap, rvol);
+            
+            // Strict Filter: Only return setups with a named pattern
+            if (!setupMatched || setupMatched.name === null) return null;
+
+            const marketCap = details?.results?.market_cap || 0;
+            if (marketCap < 20000000) return null;
+
+            const companyName = details?.results?.name || sym;
+            
+            let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
+            if (vwap > 0 && price > 0) {
+              vwapStatus = price >= vwap ? 'above' : 'below';
+            }
+
+            const float = details?.results?.share_class_shares_outstanding || (marketCap && price ? marketCap / price : null);
             let shortPct = null;
             if (shortData?.results && shortData.results.length > 0 && float) {
                 const shortShares = shortData.results[0].short_interest || 0;
@@ -500,9 +479,8 @@ export default function DailySetups() {
               details?.results?.industry
             );
             
-            const deepSector = resolveEtfSector(sym, apiSectorRaw, companyName); 
+            const deepSector = resolveEtfSector(sym, false, apiSectorRaw, companyName); 
 
-            // Extract Catalyst
             const newsList = newsData?.results || [];
             let finalCatalyst = null;
             let finalCatalystUrl = null;
@@ -531,33 +509,35 @@ export default function DailySetups() {
               ticker: sym,
               name: companyName,
               sector: deepSector,
-              price: currentPrice,
+              price: price,
               vwapStatus: vwapStatus,
               changePct: chgPct,
               vol: vol,
               dVol: dVol,
-              rvol: rvol,
+              rvol: rvol ? parseFloat(rvol.toFixed(2)) : null,
               float: float,
               shortPct: shortPct,
               mktCap: marketCap,
-              stage: setupMatched.stage || '-',
+              stage: setupMatched.stage,
               setupName: setupMatched.name,
               catalyst: finalCatalyst || null,
+              catalystTag: null,
               catalystUrl: finalCatalystUrl
             };
           });
 
           const enrichedResults = await Promise.all(chunkPromises);
+          const validEnriched = enrichedResults.filter(r => r !== null) as SetupData[];
           
-          // Final cleanup filter -> Require 20M Market Cap floor
-          const validEnriched = enrichedResults.filter(r => r.mktCap >= 20000000);
           detectedSetups.push(...validEnriched);
-
           await new Promise(r => setTimeout(r, 100)); 
         }
 
         if (isMounted) {
-          setSetups(detectedSetups.slice(0, 15));
+          // Final sort to make sure the found patterns stay ordered by true percentage gain
+          detectedSetups.sort((a, b) => b.changePct - a.changePct);
+          
+          setSetups(detectedSetups.slice(0, 20));
           setStatus('Live');
           setIsScanning(false);
         }
@@ -573,7 +553,7 @@ export default function DailySetups() {
     runStructuralEnrichment();
 
     return () => { isMounted = false; };
-  }, [sipsUniverse, polygonApiKey]);
+  }, [rawSnapshot, polygonApiKey]);
 
   // --- SORTING LOGIC ---
   const handleSort = (key: keyof SetupData) => {
@@ -586,7 +566,6 @@ export default function DailySetups() {
   const filteredAndSortedSetups = useMemo(() => {
     let filtered = setups;
     
-    // Apply Stage 2 Quick Filter
     if (showStage2Only) {
         filtered = filtered.filter(s => s.stage.includes('2'));
     }
@@ -627,9 +606,9 @@ export default function DailySetups() {
   
   const getRvolColor = (rvol: number | null) => {
     if (!rvol) return 'text-slate-500';
-    if (rvol >= 3) return 'text-amber-400';
+    if (rvol >= 2) return 'text-amber-400';
     if (rvol >= 1.5) return 'text-emerald-400';
-    return 'text-slate-300';
+    return 'text-slate-500';
   };
 
   const getFloatColor = (float: number | null) => {
@@ -647,7 +626,7 @@ export default function DailySetups() {
   };
 
   return (
-    <div className="bg-[#101623] border border-white/5 rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-xl w-full">
+    <div className="bg-[#101623] border border-white/5 rounded-2xl p-5 md:p-8 relative overflow-hidden shadow-xl w-full">
       
       {/* HEADER CONTAINER - CLICKABLE */}
       <div 
@@ -731,7 +710,7 @@ export default function DailySetups() {
             </div>
           </div>
           
-          <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
+          <div className="overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
             <table className="w-full min-w-[1300px] border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
@@ -784,15 +763,15 @@ export default function DailySetups() {
                   <tr>
                     <td colSpan={13} className="py-12 text-center">
                       <div className="flex flex-col items-center justify-center gap-3">
-                        <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto"></div>
-                        <span className="text-xs text-slate-500 font-medium">Scanning Market Data...</span>
+                        <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
+                        <span className="text-xs text-slate-500 font-medium">Scanning Top Movers...</span>
                       </div>
                     </td>
                   </tr>
                 ) : filteredAndSortedSetups.length === 0 ? (
                   <tr>
                     <td colSpan={13} className="py-12 text-center text-slate-500 text-sm font-medium">
-                      No high-probability setups detected matching active filters.
+                      No tracking instruments currently found matching criteria.
                     </td>
                   </tr>
                 ) : (
@@ -809,7 +788,7 @@ export default function DailySetups() {
                               {row.ticker}
                             </span>
                             <div className="absolute left-full ml-3 px-3 py-1.5 bg-[#1e293b] border border-white/10 text-slate-200 text-xs font-semibold tracking-wide rounded-md shadow-2xl opacity-0 invisible group-hover/ticker:opacity-100 group-hover/ticker:visible transition-all z-[60] whitespace-nowrap pointer-events-none">
-                              {row.name}
+                              {row.name || row.ticker}
                             </div>
                           </div>
                         </td>
@@ -837,7 +816,7 @@ export default function DailySetups() {
                           {formatCurrency(row.dVol)}
                         </td>
                         <td className={`py-3 text-xs font-bold whitespace-nowrap ${getRvolColor(row.rvol)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          {row.rvol ? `${row.rvol.toFixed(1)}x` : '-'}
+                          {row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}
                         </td>
 
                         {/* ASSET METRICS */}
@@ -845,7 +824,7 @@ export default function DailySetups() {
                           {formatNumber(row.float)}
                         </td>
                         <td className={`py-3 text-xs font-bold whitespace-nowrap ${getShortColor(row.shortPct)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          {row.shortPct ? `${row.shortPct.toFixed(1)}%` : '-'}
+                          {row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}
                         </td>
                         <td className="py-3 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           {formatNumber(row.mktCap)}
@@ -857,7 +836,7 @@ export default function DailySetups() {
                             className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block" 
                             title={row.sector || ''}
                           >
-                            {row.sector || '-'}
+                            {row.sector || '—'}
                           </div>
                         </td>
                         
@@ -887,21 +866,21 @@ export default function DailySetups() {
                                   href={row.catalystUrl} 
                                   target="_blank" 
                                   rel="noopener noreferrer" 
-                                  className="truncate max-w-[350px] lg:max-w-[450px] xl:max-w-[650px] group-hover/cat:text-[#7c8bfa] transition-colors underline-offset-4 hover:underline"
+                                  className="truncate max-w-[450px] md:max-w-[550px] lg:max-w-[750px] xl:max-w-[950px] group-hover/cat:text-[#7c8bfa] transition-colors underline-offset-4 hover:underline"
                                   title={row.catalyst}
                                 >
                                   {row.catalyst}
                                 </a>
                               ) : (
                                 <span 
-                                  className="truncate max-w-[350px] lg:max-w-[450px] xl:max-w-[650px] group-hover/cat:text-slate-200 transition-colors"
+                                  className="truncate max-w-[450px] md:max-w-[550px] lg:max-w-[750px] xl:max-w-[950px] group-hover/cat:text-slate-200 transition-colors"
                                   title={row.catalyst}
                                 >
                                   {row.catalyst}
                                 </span>
                               )
                             ) : (
-                              <span className="text-slate-600 font-medium">-</span>
+                              <span className="text-slate-600 font-medium">—</span>
                             )}
                           </div>
                         </td>

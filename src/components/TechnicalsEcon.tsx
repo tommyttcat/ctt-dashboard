@@ -123,7 +123,6 @@ export default function EconomicCalendar() {
         toDate.setDate(fromDate.getDate() + 10); 
         const toStrCutoff = getIsoDateString(toDate);
 
-        // 🔥 CRITICAL FIX: Appended 'from' and 'to' to the stable endpoint to force future data
         const targetUrl = `https://financialmodelingprep.com/stable/economic-calendar?from=${fromStr}&to=${toStrCutoff}&apikey=${fmpApiKey}`;
         const rawEvents = await fetchSafeJson(targetUrl, []);
 
@@ -314,21 +313,30 @@ export default function EconomicCalendar() {
                   </tr>
                 ) : (
                   sortedEvents.map((row) => {
-                    const nowIsoStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
+                    // Create an accurate EST "Now" string for fading past events safely
+                    const nowEst = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+                    const pad = (n: number) => String(n).padStart(2, '0');
+                    const nowIsoStr = `${nowEst.getFullYear()}-${pad(nowEst.getMonth()+1)}-${pad(nowEst.getDate())} ${pad(nowEst.getHours())}:${pad(nowEst.getMinutes())}:${pad(nowEst.getSeconds())}`;
+                    
                     const isPast = row.rawDateString < nowIsoStr;
-                    // Lower opacity for events that have already happened
-                    const opacityClass = isPast ? 'opacity-50' : 'opacity-100';
+                    const isSelectedDay = row.rawDateString.startsWith(selectedDate);
+
+                    // Dynamic Styling Based on Day and Time (Aligned with Earnings)
+                    const rowBgClass = isSelectedDay ? 'bg-cyan-500/[0.06]' : 'hover:bg-white/[0.02]';
+                    const opacityClass = isPast && !isSelectedDay ? 'opacity-40' : 'opacity-100';
+                    const dateTextColor = isSelectedDay ? 'text-cyan-400 font-bold' : 'text-slate-300 font-bold';
+                    const eventTextColor = isSelectedDay ? 'text-white font-bold' : 'text-slate-200 font-medium';
 
                     return (
-                      <tr key={row.id} className={`hover:bg-white/[0.02] transition-colors group ${opacityClass}`}>
+                      <tr key={row.id} className={`transition-colors group ${rowBgClass} ${opacityClass}`}>
                         
                         <td className="py-3.5" style={{ textAlign: 'left', paddingLeft: '12px' }}>
-                          <span className="text-xs font-semibold text-slate-300 whitespace-nowrap">
+                          <span className={`text-xs whitespace-nowrap ${dateTextColor}`}>
                             {formatEventDate(row.rawDateString)}
                           </span>
                         </td>
                         
-                        <td className="py-3.5 text-xs text-slate-200 font-medium whitespace-nowrap truncate max-w-[300px]" style={{ textAlign: 'left', paddingLeft: '12px' }}>
+                        <td className={`py-3.5 text-xs whitespace-nowrap truncate max-w-[300px] ${eventTextColor}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>
                           {row.event}
                         </td>
 
@@ -338,15 +346,15 @@ export default function EconomicCalendar() {
                           </span>
                         </td>
 
-                        <td className="py-3.5 text-xs text-slate-200 font-bold whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '12px' }}>
+                        <td className={`py-3.5 text-xs font-bold whitespace-nowrap ${isSelectedDay ? 'text-slate-100' : 'text-slate-300'}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>
                           {row.actual !== null ? row.actual.toLocaleString() : '-'}
                         </td>
 
-                        <td className="py-3.5 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '12px' }}>
+                        <td className={`py-3.5 text-xs font-medium whitespace-nowrap ${isSelectedDay ? 'text-slate-300' : 'text-slate-400'}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>
                           {row.estimate !== null ? row.estimate.toLocaleString() : '-'}
                         </td>
                         
-                        <td className="py-3.5 text-xs text-slate-500 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '12px' }}>
+                        <td className={`py-3.5 text-xs font-medium whitespace-nowrap ${isSelectedDay ? 'text-slate-400' : 'text-slate-500'}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>
                           {row.previous !== null ? row.previous.toLocaleString() : '-'}
                         </td>
                         
