@@ -13,7 +13,6 @@ import TechnicalsEcon from '../components/TechnicalsEcon';
 import EarningsCalendar from '../components/EarningsCalendar';
 import MarketSummary from '../components/MarketSummary';
 import TopMovers from '../components/TopMovers';
-import AutoRefresh from '../components/AutoRefresh';
 
 export default function DailySetupsPage() {
   return (
@@ -21,7 +20,6 @@ export default function DailySetupsPage() {
       <Suspense fallback={<div className="flex h-screen w-full items-center justify-center text-slate-500 font-bold tracking-widest uppercase">Loading Workspace...</div>}>
         
         <MarketDataProvider>
-          <AutoRefresh interval={30000} />
           
           <div className="w-full max-w-[1200px] bg-[#0b101a] md:rounded-[2rem] border-x md:border border-white/5 overflow-hidden shadow-2xl relative pb-20">
             
