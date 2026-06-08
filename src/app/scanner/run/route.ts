@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 
+export const dynamic = 'force-dynamic';
+
 const SECTOR_MAP: Record<string, string> = {
   'AAPL': 'IT', 'MSFT': 'IT', 'SMCI': 'IT',
   'NVDA': "Semi's", 'AMD': "Semi's", 'INTC': "Semi's", 
@@ -296,8 +298,8 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 2. Fetch the entire market snapshot
-    const snapRes = await fetchSafeJson(`https://api.massive.com/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`, { tickers: [] });
+    // 2. Fetch the entire market snapshot using real Polygon endpoint
+    const snapRes = await fetchSafeJson(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`, { tickers: [] });
     const rawSnapshot = snapRes.tickers || [];
 
     if (rawSnapshot.length === 0) {
@@ -342,10 +344,10 @@ export async function GET(request: Request) {
       const dVol = vol * vwap;
 
       const [details, aggs, newsData, shortData] = await Promise.all([
-        fetchSafeJson(`https://api.massive.com/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {}),
-        fetchSafeJson(`https://api.massive.com/v2/aggs/ticker/${sym}/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=desc&limit=350&apiKey=${polygonApiKey}`, { results: [] }),
-        fetchSafeJson(`https://api.massive.com/v2/reference/news?ticker=${sym}&limit=5&apiKey=${polygonApiKey}`, { results: [] }),
-        fetchSafeJson(`https://api.massive.com/stocks/v1/short-interest?ticker=${sym}&apiKey=${polygonApiKey}`, { results: [] })
+        fetchSafeJson(`https://api.polygon.io/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {}),
+        fetchSafeJson(`https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=desc&limit=350&apiKey=${polygonApiKey}`, { results: [] }),
+        fetchSafeJson(`https://api.polygon.io/v2/reference/news?ticker=${sym}&limit=5&apiKey=${polygonApiKey}`, { results: [] }),
+        fetchSafeJson(`https://api.polygon.io/stocks/v1/short-interest?ticker=${sym}&apiKey=${polygonApiKey}`, { results: [] })
       ]);
 
       const rawBars = aggs.results || [];
@@ -429,7 +431,7 @@ export async function GET(request: Request) {
         mktCap: marketCap,
         stage: setupMatched.stage,
         setupName: setupMatched.name,
-        catalyst: finalCatalyst || null,
+        catalyst: finalCatalyst || '-',
         catalystUrl: finalCatalystUrl
       };
     };
