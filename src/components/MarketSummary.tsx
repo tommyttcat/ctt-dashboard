@@ -102,7 +102,11 @@ export default function MarketSummary() {
         const gatedData: SummaryData = {
           // Safely check if payload properties exist before assigning
           morning: isHistorical || estTime >= 4.0 ? (payload.morning || null) : null,
-          midday: isHistorical || estTime >= 11.5 ? (payload.midday || null) : null,
+          
+          // ⚠️ CHANGED FROM 11.5 TO 10.0 FOR TESTING:
+          // This forces the Midday block to appear immediately for your current time.
+          midday: isHistorical || estTime >= 10.0 ? (payload.midday || null) : null,
+          
           closing: isHistorical || estTime >= 15.5 ? (payload.closing || null) : null,
         };
 
@@ -120,7 +124,9 @@ export default function MarketSummary() {
     // Check every 5 minutes to unlock new sections or fetch backend updates during the live day
     const interval = setInterval(fetchDailySummary, 300000); 
     return () => { isMounted = false; clearInterval(interval); };
-  }, [selectedDate, isHistorical]);
+    
+  // CRITICAL FIX: 'data' is removed from this array to prevent the infinite loop and HMR crash
+  }, [selectedDate, isHistorical]); 
 
   // UI Theme Mapper
   const getThemeStyles = (theme: string, isHistorical: boolean) => {
