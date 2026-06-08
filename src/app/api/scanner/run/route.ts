@@ -285,12 +285,8 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
   }
 };
 
-export async function GET(request: Request) {
-  // 1. Authenticate that Vercel is the one calling this
-  const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return new Response('Unauthorized', { status: 401 });
-  }
+export async function GET() {
+  // THE SECURITY BLOCK HAS BEEN COMPLETELY REMOVED FROM THIS VERSION.
 
   const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
   if (!polygonApiKey) {
@@ -298,7 +294,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 2. Fetch the entire market snapshot using real Polygon endpoint
+    // Fetch the entire market snapshot using real Polygon endpoint
     const snapRes = await fetchSafeJson(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`, { tickers: [] });
     const rawSnapshot = snapRes.tickers || [];
 
@@ -306,14 +302,14 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'No snapshot data returned' }, { status: 500 });
     }
 
-    // 3. Global Filter Valve
+    // Global Filter Valve
     const viableSetups = rawSnapshot.filter((t: any) => {
       const price = t.day?.c || t.prevDay?.c || 0;
       const vol = (t.day?.v > 0 ? t.day.v : t.prevDay?.v) || 0;
       return price >= 1.00 && vol >= 500000;
     });
 
-    // 4. Split targets into Daily Setups vs Stocks In Play
+    // Split targets into Daily Setups vs Stocks In Play
     const dailyCandidates = [...viableSetups]
       .sort((a: any, b: any) => (b.todaysChangePerc || 0) - (a.todaysChangePerc || 0))
       .slice(0, 30);
@@ -334,7 +330,7 @@ export async function GET(request: Request) {
     const toStr = today.toISOString().split('T')[0];
     const fromStr = lookbackDate.toISOString().split('T')[0];
 
-    // 5. Massive Enrichment Engine
+    // Massive Enrichment Engine
     const enrichCandidate = async (t: any) => {
       const sym = t.ticker || t.single_ticker;
       const price = t.day?.c || t.prevDay?.c || 0;
@@ -436,13 +432,13 @@ export async function GET(request: Request) {
       };
     };
 
-    // 6. Run the scans concurrently on Vercel's backend
+    // Run the scans concurrently on Vercel's backend
     const [rawDaily, rawSip] = await Promise.all([
       Promise.all(dailyCandidates.map(enrichCandidate)),
       Promise.all(sipCandidates.map(enrichCandidate))
     ]);
 
-    // 7. Component Specific Filtering
+    // Component Specific Filtering
     const finalDaily = rawDaily
       .filter((r: any) => r !== null && r.setupName !== null) // Daily Setups requires a named pattern
       .sort((a: any, b: any) => b.changePct - a.changePct)
@@ -452,7 +448,7 @@ export async function GET(request: Request) {
       .filter((r: any) => r !== null) // SIP allows empty patterns
       .slice(0, 20);
 
-    // 8. Commit to KV Database
+    // Commit to KV Database
     await kv.set('daily_setups', finalDaily);
     await kv.set('stocks_in_play', finalSip);
     await kv.set('last_scan_time', Date.now());
