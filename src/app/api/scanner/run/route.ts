@@ -285,44 +285,49 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
   }
 };
 
-export async function GET() {
-  // THE SECURITY BLOCK HAS BEEN COMPLETELY REMOVED FROM THIS VERSION.
+const MEGA_CAP_TICKERS = new Set(['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'BRK.B', 'AVGO', 'LLY', 'JPM', 'XOM', 'UNH', 'V', 'PG', 'MA', 'JNJ', 'HD']);
+
+export async function GET(request: Request) {
+  // SECURITY (Bypassed for testing. Uncomment later!)
+  // const authHeader = request.headers.get('authorization');
+  // if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  //   return new Response('Unauthorized', { status: 401 });
+  // }
 
   const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
-  if (!polygonApiKey) {
-    return NextResponse.json({ error: 'Missing API Key' }, { status: 500 });
-  }
+  if (!polygonApiKey) return NextResponse.json({ error: 'Missing API Key' }, { status: 500 });
 
   try {
-    // Fetch the entire market snapshot using real Polygon endpoint
+    // 1. Fetch Market Snapshot
     const snapRes = await fetchSafeJson(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`, { tickers: [] });
     const rawSnapshot = snapRes.tickers || [];
+    if (rawSnapshot.length === 0) return NextResponse.json({ error: 'No snapshot data returned' }, { status: 500 });
 
-    if (rawSnapshot.length === 0) {
-      return NextResponse.json({ error: 'No snapshot data returned' }, { status: 500 });
-    }
-
-    // Global Filter Valve
+    // 2. Base Filters
     const viableSetups = rawSnapshot.filter((t: any) => {
       const price = t.day?.c || t.prevDay?.c || 0;
       const vol = (t.day?.v > 0 ? t.day.v : t.prevDay?.v) || 0;
       return price >= 1.00 && vol >= 500000;
     });
 
-    // Split targets into Daily Setups vs Stocks In Play
-    const dailyCandidates = [...viableSetups]
-      .sort((a: any, b: any) => (b.todaysChangePerc || 0) - (a.todaysChangePerc || 0))
-      .slice(0, 30);
-
-    const sipCandidates = [...viableSetups]
-      .filter((t: any) => {
+    const dailyCandidates = [...viableSetups].sort((a: any, b: any) => (b.todaysChangePerc || 0) - (a.todaysChangePerc || 0)).slice(0, 30);
+    const sipCandidates = [...viableSetups].filter((t: any) => {
         const price = t.day?.c || t.prevDay?.c || 0;
         const vwap = t.day?.vw || t.prevDay?.vw || 0;
         const chg = t.todaysChangePerc || 0;
         return chg >= 4.0 && price >= vwap;
-      })
-      .sort((a: any, b: any) => ((b.day?.v > 0 ? b.day.v : b.prevDay?.v) || 0) - ((a.day?.v > 0 ? a.day.v : a.prevDay?.v) || 0))
-      .slice(0, 30);
+      }).sort((a: any, b: any) => ((b.day?.v > 0 ? b.day.v : b.prevDay?.v) || 0) - ((a.day?.v > 0 ? a.day.v : a.prevDay?.v) || 0)).slice(0, 30);
+
+    // 3. TOP MOVERS SORTING ENGINE
+    const megaCapsRaw = rawSnapshot.filter((t: any) => MEGA_CAP_TICKERS.has(t.ticker)).sort((a: any, b: any) => (b.todaysChangePerc || 0) - (a.todaysChangePerc || 0)).slice(0, 20);
+    
+    const knownEtfsRaw = viableSetups.filter((t: any) => ETF_TARGET_MAP[t.ticker]);
+    const etfGainersRaw = [...knownEtfsRaw].sort((a: any, b: any) => (b.todaysChangePerc || 0) - (a.todaysChangePerc || 0)).slice(0, 20);
+    const etfLosersRaw = [...knownEtfsRaw].sort((a: any, b: any) => (a.todaysChangePerc || 0) - (b.todaysChangePerc || 0)).slice(0, 20);
+    
+    const regularStocksRaw = viableSetups.filter((t: any) => !ETF_TARGET_MAP[t.ticker]);
+    const gainersRaw = [...regularStocksRaw].sort((a: any, b: any) => (b.todaysChangePerc || 0) - (a.todaysChangePerc || 0)).slice(0, 20);
+    const losersRaw = [...regularStocksRaw].sort((a: any, b: any) => (a.todaysChangePerc || 0) - (b.todaysChangePerc || 0)).slice(0, 20);
 
     const today = new Date();
     const lookbackDate = new Date();
@@ -330,7 +335,7 @@ export async function GET() {
     const toStr = today.toISOString().split('T')[0];
     const fromStr = lookbackDate.toISOString().split('T')[0];
 
-    // Massive Enrichment Engine
+    // 4. Massive Enrichment Engine
     const enrichCandidate = async (t: any) => {
       const sym = t.ticker || t.single_ticker;
       const price = t.day?.c || t.prevDay?.c || 0;
@@ -356,24 +361,17 @@ export async function GET() {
         if (priorBarClose > 0) chgPct = ((currentBarClose - priorBarClose) / priorBarClose) * 100;
       }
 
-      if (chgPct < 4.0) return null;
-
       let avgVol = 0;
       if (dailyBars.length > 0) {
         let sumVol = 0;
         let barCount = 0;
-        dailyBars.forEach((bar: any) => {
-          if (bar.v) { sumVol += bar.v; barCount++; }
-        });
+        dailyBars.forEach((bar: any) => { if (bar.v) { sumVol += bar.v; barCount++; } });
         avgVol = barCount > 0 ? sumVol / barCount : 0;
       }
       const rvol = (avgVol > 0 && vol > 0) ? (vol / avgVol) : null;
 
       const setupMatched = detectPattern(dailyBars, price, currentOpen, vwap, rvol);
-
       const marketCap = details?.results?.market_cap || 0;
-      if (marketCap < 20000000) return null;
-
       const companyName = details?.results?.name || sym;
       let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
       if (vwap > 0 && price > 0) vwapStatus = price >= vwap ? 'above' : 'below';
@@ -381,8 +379,7 @@ export async function GET() {
       const float = details?.results?.share_class_shares_outstanding || (marketCap && price ? marketCap / price : null);
       let shortPct = null;
       if (shortData?.results && shortData.results.length > 0 && float) {
-          const shortShares = shortData.results[0].short_interest || 0;
-          shortPct = (shortShares / float) * 100;
+          shortPct = (shortData.results[0].short_interest / float) * 100;
       }
 
       const apiSectorRaw = cleanSectorDescription(details?.results?.sic_description, details?.results?.sector, details?.results?.industry);
@@ -391,21 +388,16 @@ export async function GET() {
       const newsList = newsData?.results || [];
       let finalCatalyst = null;
       let finalCatalystUrl = null;
-
       if (newsList.length > 0) {
-        const relatedNews = newsList.find((n: any) => {
-          const pub = (n.publisher?.name || '').toLowerCase();
-          return pub.includes('benzinga') || pub.includes('massive') || pub.includes('yahoo') || pub.includes('google');
-        }) || newsList[0];
-        
+        const relatedNews = newsList.find((n: any) => ['benzinga', 'massive', 'yahoo', 'google'].some(p => (n.publisher?.name || '').toLowerCase().includes(p))) || newsList[0];
         if (relatedNews) {
           const pubDate = relatedNews.published_utc;
           let formattedDateStr = '';
           if (pubDate) {
              const d = new Date(pubDate);
-             const isToday = d.toDateString() === new Date().toDateString();
-             const timePart = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-             formattedDateStr = isToday ? timePart : `${d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })} ${timePart}`;
+             formattedDateStr = d.toDateString() === new Date().toDateString() 
+               ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) 
+               : `${d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })} ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
           }
           finalCatalyst = formattedDateStr ? `${formattedDateStr} — ${relatedNews.title}` : relatedNews.title;
           finalCatalystUrl = relatedNews.article_url || null;
@@ -413,50 +405,43 @@ export async function GET() {
       }
 
       return {
-        ticker: sym,
-        name: companyName,
-        sector: deepSector,
-        price: price,
-        vwapStatus: vwapStatus,
-        changePct: chgPct,
-        vol: vol,
-        dVol: dVol,
-        rvol: rvol ? parseFloat(rvol.toFixed(2)) : null,
-        float: float,
-        shortPct: shortPct,
-        mktCap: marketCap,
-        stage: setupMatched.stage,
-        setupName: setupMatched.name,
-        catalyst: finalCatalyst || '-',
-        catalystUrl: finalCatalystUrl
+        ticker: sym, name: companyName, sector: deepSector, price, vwapStatus, changePct: chgPct, vol, dVol, rvol: rvol ? parseFloat(rvol.toFixed(2)) : null,
+        float, shortPct, mktCap: marketCap, stage: setupMatched.stage, setupName: setupMatched.name, catalyst: finalCatalyst || '-', catalystUrl: finalCatalystUrl
       };
     };
 
-    // Run the scans concurrently on Vercel's backend
-    const [rawDaily, rawSip] = await Promise.all([
-      Promise.all(dailyCandidates.map(enrichCandidate)),
-      Promise.all(sipCandidates.map(enrichCandidate))
-    ]);
+    // 5. Gather unique tickers to prevent duplicate API hits
+    const allCandidates = [...dailyCandidates, ...sipCandidates, ...megaCapsRaw, ...gainersRaw, ...losersRaw, ...etfGainersRaw, ...etfLosersRaw];
+    const uniqueCandidates = Array.from(new Map(allCandidates.map(item => [item.ticker, item])).values());
 
-    // Component Specific Filtering
-    const finalDaily = rawDaily
-      .filter((r: any) => r !== null && r.setupName !== null) // Daily Setups requires a named pattern
-      .sort((a: any, b: any) => b.changePct - a.changePct)
-      .slice(0, 20);
+    // 6. Enrich all unique stocks
+    const enrichedDataRaw = await Promise.all(uniqueCandidates.map(enrichCandidate));
+    const enrichedMap = new Map();
+    enrichedDataRaw.forEach(item => { if (item) enrichedMap.set(item.ticker, item); });
 
-    const finalSip = rawSip
-      .filter((r: any) => r !== null) // SIP allows empty patterns
-      .slice(0, 20);
+    // 7. Route the enriched data back into their specific groups
+    const finalDaily = dailyCandidates.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.setupName !== null).slice(0, 20);
+    const finalSip = sipCandidates.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 20);
+    
+    const finalTopMovers = {
+      'Mega Caps': megaCapsRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined),
+      'Gainers': gainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined),
+      'Losers': losersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined),
+      'ETF Gainers': etfGainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined),
+      'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined)
+    };
 
-    // Commit to KV Database
+    // 8. Commit everything to Upstash KV
     await kv.set('daily_setups', finalDaily);
     await kv.set('stocks_in_play', finalSip);
+    await kv.set('top_movers', finalTopMovers);
     await kv.set('last_scan_time', Date.now());
 
     return NextResponse.json({ 
       success: true, 
       dailyCount: finalDaily.length,
-      sipCount: finalSip.length
+      sipCount: finalSip.length,
+      topMoversGenerated: true
     });
 
   } catch (error: any) {
