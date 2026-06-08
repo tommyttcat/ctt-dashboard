@@ -30,13 +30,6 @@ interface TickData {
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
 
 // --- HELPERS ---
-const getTimestampMs = (val: string | number | undefined | null) => {
-  if (!val) return 0;
-  if (typeof val === 'string') return new Date(val).getTime();
-  if (typeof val === 'number') return val > 1e11 ? val : val * 1000;
-  return 0;
-};
-
 const getMarketSession = (): MarketSession => {
   const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
   const day = estDate.getDay();
@@ -109,6 +102,7 @@ export default function MacroScorecard() {
 
     const fetchEquities = async () => {
       const stockAssets = MACRO_ASSETS.filter(a => a.type === 'stock');
+      const currentSession = getMarketSession();
       
       try {
         const stdPromises = stockAssets.map(asset => 
@@ -139,7 +133,7 @@ export default function MacroScorecard() {
         } catch (e) {}
         
         if (stdData.length > 0 && isMounted) {
-          setSession(getMarketSession());
+          setSession(currentSession);
           setLastUpdated(new Date());
           setStockStatus('LIVE'); 
 
@@ -151,13 +145,10 @@ export default function MacroScorecard() {
               if (asset) {
                 const ahMatch = ahData.find(a => a.symbol === q.symbol);
                 
-                // CRITICAL FIX: The Chronological Gatekeeper
-                // FMP sends live pre-market data in the standard 'q' object. 
-                // We only use the aftermarket quote if its timestamp is strictly newer than the standard quote.
-                const stdTime = getTimestampMs(q.timestamp || q.date);
-                const ahTime = getTimestampMs(ahMatch?.timestamp || ahMatch?.date);
-                
-                const useAh = ahMatch && ahMatch.price > 0 && (ahTime > stdTime);
+                // CRITICAL FIX: Session-Based Override
+                // If it's pre/post-market, immediately prioritize the AH price. If it's regular hours, stick to the standard quote.
+                const isExtendedHours = currentSession === 'Post-Market' || currentSession === 'Pre-Market' || currentSession === 'Closed';
+                const useAh = isExtendedHours && ahMatch && ahMatch.price > 0 && ahMatch.price !== q.price;
                 const currentPrice = useAh ? ahMatch.price : (q.price || 0);
                 
                 const prevQuote = prev[asset.id];
