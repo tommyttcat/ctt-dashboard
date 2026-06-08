@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useMarketData } from './MarketDataContext';
 
 interface StockInPlay {
@@ -336,15 +336,22 @@ export default function StocksInPlay() {
   const contextLastUpdated = contextData?.lastUpdated;
   const isContextLoading = contextData?.isLoading;
   const scanUniverse = contextData?.topMovers || [];
+  const rawSnapshot = contextData?.rawSnapshot || [];
 
   const [stocks, setStocks] = useState<StockInPlay[]>([]);
   const [status, setStatus] = useState<string>('Initializing');
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [sortConfig, setSortConfig] = useState<{ key: keyof StockInPlay; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
-  const [showStage2Only, setShowStage2Only] = useState<boolean>(false); 
+  
+  // --- NEW FILTERS ---
+  const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(true); 
+  const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
 
   const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || '';
+
+  const lastHeavyScanTime = useRef<number>(0);
+  const hasInitialScanCompleted = useRef<boolean>(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -363,11 +370,42 @@ export default function StocksInPlay() {
     }
 
     const scanMarket = async () => {
-      if (isMounted) setIsScanning(true);
+      const now = Date.now();
+
+      // --- PHASE 1: LIGHTWEIGHT SILENT PRICE SYNC ---
+      if (hasInitialScanCompleted.current && now - lastHeavyScanTime.current < 300000) {
+        if (isMounted) {
+          setStocks(prev => prev.map(stock => {
+            const snap = rawSnapshot.find((t: any) => (t.ticker || t.single_ticker) === stock.ticker);
+            if (snap) {
+              const currentPrice = snap.day?.c || snap.prevDay?.c || stock.price;
+              const vol = (snap.day?.v > 0 ? snap.day.v : snap.prevDay?.v) || stock.vol;
+              const vwap = snap.day?.vw || snap.prevDay?.vw || stock.price;
+              
+              let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
+              if (vwap > 0 && currentPrice > 0) {
+                vwapStatus = currentPrice >= vwap ? 'above' : 'below';
+              }
+              const dVol = vol * vwap;
+              
+              return { ...stock, price: currentPrice, vol, vwapStatus, dVol };
+            }
+            return stock;
+          }));
+          setStatus('Live');
+        }
+        return; 
+      }
+
+      // --- PHASE 2: HEAVY STRUCTURAL SCAN ---
+      lastHeavyScanTime.current = now;
+
+      if (isMounted) {
+        setIsScanning(true);
+        setStatus(hasInitialScanCompleted.current ? 'Background Sync...' : 'Scanning Momentum Snapshot...');
+      }
 
       try {
-        setStatus('Scanning Momentum Snapshot...');
-
         const viableSetups = scanUniverse.filter((t: any) => {
           const price = t.day?.c || 0;
           const vol = t.day?.v || 0;
@@ -402,7 +440,7 @@ export default function StocksInPlay() {
         });
 
         const top30 = sortedInPlay.slice(0, 30);
-        setStatus('Enriching...');
+        if (isMounted && !hasInitialScanCompleted.current) setStatus('Enriching...');
 
         const today = new Date();
         const thirtyDaysAgo = new Date();
@@ -419,7 +457,6 @@ export default function StocksInPlay() {
           const vwap = t.day?.vw || price;
           const dVol = vol * vwap;
 
-          // --- API RESTORED: Back to massive proxy to bypass rate limits ---
           const [details, aggs, news, shortData] = await Promise.all([
             fetchSafeJson(`https://api.massive.com/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {}),
             fetchSafeJson(`https://api.massive.com/v2/aggs/ticker/${sym}/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=desc&limit=350&apiKey=${polygonApiKey}`, { results: [] }),
@@ -520,7 +557,6 @@ export default function StocksInPlay() {
             setupCategory: null, 
             setupName: setupMatched?.name || null,
             catalyst: finalCatalyst || null, 
-            catalystTag: null, 
             catalystUrl: finalCatalystUrl
           };
         });
@@ -530,6 +566,7 @@ export default function StocksInPlay() {
 
         if (isMounted) {
           setStocks(finalData.slice(0, 20)); 
+          hasInitialScanCompleted.current = true;
           setStatus('Live');
           setIsScanning(false);
         }
@@ -545,7 +582,7 @@ export default function StocksInPlay() {
     scanMarket();
 
     return () => { isMounted = false; };
-  }, [scanUniverse, polygonApiKey]);
+  }, [scanUniverse, polygonApiKey, rawSnapshot]);
 
   const handleSort = (key: keyof StockInPlay) => {
     let direction: SortDirection = 'desc'; 
@@ -560,7 +597,25 @@ export default function StocksInPlay() {
 
   const filteredAndSortedStocks = useMemo(() => {
     let filtered = stocks;
-    if (showStage2Only) filtered = filtered.filter(s => s.stage.includes('2'));
+    
+    // 1. Stage 2A Filter
+    if (showStage2AOnly) {
+      filtered = filtered.filter(s => s.stage === '2A');
+    }
+    
+    // 2. Market Cap Filter
+    if (marketCapFilter !== 'All') {
+      filtered = filtered.filter(s => {
+        const mc = s.mktCap;
+        if (!mc) return false;
+        if (marketCapFilter === 'Mega') return mc >= 200e9;
+        if (marketCapFilter === 'Large') return mc >= 10e9 && mc < 200e9;
+        if (marketCapFilter === 'Mid') return mc >= 2e9 && mc < 10e9;
+        if (marketCapFilter === 'Small') return mc >= 300e6 && mc < 2e9;
+        return true;
+      });
+    }
+
     if (!sortConfig) return filtered;
     
     return [...filtered].sort((a, b) => {
@@ -574,7 +629,7 @@ export default function StocksInPlay() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [stocks, sortConfig, showStage2Only]);
+  }, [stocks, sortConfig, showStage2AOnly, marketCapFilter]);
 
   const getSortIcon = (columnKey: keyof StockInPlay) => {
     if (sortConfig?.key !== columnKey) return '';
@@ -620,7 +675,7 @@ export default function StocksInPlay() {
     return 'text-slate-500';
   };
 
-  const isLoading = isContextLoading || isScanning || status.includes('Initializing') || status.includes('Enriching') || status.includes('Scouting');
+  const isLoading = isContextLoading || (isScanning && stocks.length === 0) || status.includes('Initializing') || status.includes('Enriching');
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-xl w-full">
@@ -655,17 +710,38 @@ export default function StocksInPlay() {
       {isExpanded && (
         <>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 relative z-10">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
+              {/* STAGE 2A TOGGLE */}
               <button
-                onClick={(e) => { e.stopPropagation(); setShowStage2Only(!showStage2Only); }}
-                className={`px-4 py-1.5 rounded-lg text-[10px] font-bold tracking-wide uppercase transition-all duration-300 ${
-                  showStage2Only 
+                onClick={(e) => { e.stopPropagation(); setShowStage2AOnly(!showStage2AOnly); }}
+                className={`px-4 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${
+                  showStage2AOnly 
                     ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(52,211,153,0.1)]' 
                     : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'
                 }`}
               >
-                {showStage2Only ? 'Showing Stage 2 Only' : 'Filter: Stage 2 Only'}
+                {showStage2AOnly ? 'Showing Stage 2A Only' : 'Filter: Stage 2A'}
               </button>
+
+              {/* MARKET CAP SEGMENTED CONTROL */}
+              <div 
+                className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {['All', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
+                  <button
+                    key={cap}
+                    onClick={() => setMarketCapFilter(cap)}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${
+                      marketCapFilter === cap
+                        ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]'
+                        : 'text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]'
+                    }`}
+                  >
+                    {cap}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="flex items-center gap-4">
@@ -715,7 +791,7 @@ export default function StocksInPlay() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                {isLoading && stocks.length === 0 ? (
+                {isLoading ? (
                   <tr>
                     <td colSpan={13} className="py-12 text-center">
                       <div className="flex flex-col items-center justify-center gap-3">

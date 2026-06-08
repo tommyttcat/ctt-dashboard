@@ -335,7 +335,6 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
 };
 
 export default function DailySetups() {
-  // WE PULL FROM RAW SNAPSHOT TO MATCH TOP MOVERS SORTING POOL EXACTLY
   const { rawSnapshot = [], session, lastUpdated: contextLastUpdated, isLoading: isContextLoading } = useMarketData();
   
   const [setups, setSetups] = useState<SetupData[]>([]);
@@ -344,11 +343,13 @@ export default function DailySetups() {
   const [sortConfig, setSortConfig] = useState<{ key: keyof SetupData; direction: SortDirection } | null>(null);
 
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
-  const [showStage2Only, setShowStage2Only] = useState<boolean>(false); 
+  
+  // --- NEW FILTERS ---
+  const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(true); // Stage 2A Default ON
+  const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
 
   const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || '';
   
-  // 🚀 CRITICAL FIX: Track scan times to decouple price updates from heavy API fetches
   const lastHeavyScanTime = useRef<number>(0);
   const hasInitialScanCompleted = useRef<boolean>(false);
 
@@ -367,8 +368,6 @@ export default function DailySetups() {
       const now = Date.now();
       
       // --- PHASE 1: LIGHTWEIGHT SILENT PRICE SYNC ---
-      // If we already did the heavy Polygon scan in the last 5 minutes (300000ms),
-      // do NOT wipe the table or re-scan patterns. Just quietly update prices.
       if (hasInitialScanCompleted.current && now - lastHeavyScanTime.current < 300000) {
         if (isMounted) {
           setSetups(prev => prev.map(setup => {
@@ -390,21 +389,18 @@ export default function DailySetups() {
           }));
           setStatus('Live');
         }
-        return; // Exit here. Do not run the heavy fetch below!
+        return; 
       }
 
       // --- PHASE 2: HEAVY STRUCTURAL SCAN ---
-      // We only reach this point on initial load OR every 5 minutes.
       lastHeavyScanTime.current = now;
 
       if (isMounted) {
         setIsScanning(true);
-        // Only show "Aligning" on first load. Afterwards, do it silently.
         setStatus(hasInitialScanCompleted.current ? 'Background Sync...' : 'Aligning with Top Movers...');
       }
 
       try {
-        // Intake Valve: Identical to Top Movers
         let viableSetups = rawSnapshot.filter((t: any) => {
           const price = t.day?.c || t.prevDay?.c || 0;
           const vol = (t.day?.v > 0 ? t.day.v : t.prevDay?.v) || 0;
@@ -551,7 +547,6 @@ export default function DailySetups() {
               stage: setupMatched.stage,
               setupName: setupMatched.name,
               catalyst: finalCatalyst || null,
-              catalystTag: null,
               catalystUrl: finalCatalystUrl
             };
           });
@@ -567,7 +562,7 @@ export default function DailySetups() {
           detectedSetups.sort((a, b) => b.changePct - a.changePct);
           setSetups(detectedSetups.slice(0, 20));
           
-          hasInitialScanCompleted.current = true; // Mark initial load as complete!
+          hasInitialScanCompleted.current = true;
           setStatus('Live');
           setIsScanning(false);
         }
@@ -596,8 +591,23 @@ export default function DailySetups() {
   const filteredAndSortedSetups = useMemo(() => {
     let filtered = setups;
     
-    if (showStage2Only) {
-        filtered = filtered.filter(s => s.stage.includes('2'));
+    // 1. Stage 2A Filter
+    if (showStage2AOnly) {
+        filtered = filtered.filter(s => s.stage === '2A');
+    }
+
+    // 2. Market Cap Filter
+    if (marketCapFilter !== 'All') {
+      filtered = filtered.filter(s => {
+        const mc = s.mktCap;
+        if (!mc) return false;
+        if (marketCapFilter === 'Mega') return mc >= 200e9;
+        if (marketCapFilter === 'Large') return mc >= 10e9 && mc < 200e9;
+        if (marketCapFilter === 'Mid') return mc >= 2e9 && mc < 10e9;
+        if (marketCapFilter === 'Small') return mc >= 300e6 && mc < 2e9;
+        if (marketCapFilter === 'Micro') return mc < 300e6;
+        return true;
+      });
     }
 
     if (!sortConfig) return filtered;
@@ -611,7 +621,7 @@ export default function DailySetups() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [setups, sortConfig, showStage2Only]);
+  }, [setups, sortConfig, showStage2AOnly, marketCapFilter]);
 
   const getSortIcon = (columnKey: keyof SetupData) => {
     if (sortConfig?.key !== columnKey) return '';
@@ -627,13 +637,6 @@ export default function DailySetups() {
     return 'text-slate-500'; 
   };
 
-  const getSessionTextColor = () => {
-    if (session === 'Pre-Market') return 'text-amber-500';
-    if (session === 'Open') return 'text-[#00e676]';
-    if (session === 'Post-Market') return 'text-indigo-400';
-    return 'text-slate-500';
-  };
-  
   const getRvolColor = (rvol: number | null) => {
     if (!rvol) return 'text-slate-500';
     if (rvol >= 2) return 'text-amber-400';
@@ -655,6 +658,18 @@ export default function DailySetups() {
     return 'text-slate-300';
   };
 
+  // 🚀 Synced Perfectly with StocksInPlay
+  const getSessionTextColor = () => {
+    if (status.includes('Err') || status.includes('Missing')) return 'text-rose-500';
+    if (status.includes('Offline')) return 'text-amber-500';
+    if (session === 'Pre-Market') return 'text-amber-500';
+    if (session === 'Open') return 'text-[#00e676]';
+    if (session === 'Post-Market') return 'text-indigo-400';
+    return 'text-slate-500';
+  };
+
+  const isLoading = isContextLoading || (isScanning && setups.length === 0) || status.includes('Aligning');
+
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-5 md:p-8 relative overflow-hidden shadow-xl w-full">
       
@@ -672,7 +687,7 @@ export default function DailySetups() {
 
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${status === 'Live' ? getSessionTextColor() : 'text-slate-500'}`}>
+            <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>
               {status === 'Live' ? session : status}
             </span>
           </div>
@@ -689,22 +704,42 @@ export default function DailySetups() {
         <>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 relative z-10">
             
-            {/* QUICK FILTERS */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
+              {/* STAGE 2A TOGGLE */}
               <button
-                onClick={(e) => { e.stopPropagation(); setShowStage2Only(!showStage2Only); }}
-                className={`px-4 py-1.5 rounded-lg text-[10px] font-bold tracking-wide uppercase transition-all duration-300 ${
-                  showStage2Only 
+                onClick={(e) => { e.stopPropagation(); setShowStage2AOnly(!showStage2AOnly); }}
+                className={`px-4 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${
+                  showStage2AOnly 
                     ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(52,211,153,0.1)]' 
                     : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'
                 }`}
               >
-                {showStage2Only ? 'Showing Stage 2 Only' : 'Filter: Stage 2 Only'}
+                {showStage2AOnly ? 'Showing Stage 2A Only' : 'Filter: Stage 2A'}
               </button>
+
+              {/* MARKET CAP SEGMENTED CONTROL */}
+              <div 
+                className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {['All', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
+                  <button
+                    key={cap}
+                    onClick={() => setMarketCapFilter(cap)}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${
+                      marketCapFilter === cap
+                        ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]'
+                        : 'text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]'
+                    }`}
+                  >
+                    {cap}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="flex items-center gap-4">
-              {/* STAGE LEGEND (TEXT ONLY) */}
+              {/* STAGE LEGEND */}
               <div className="flex items-center gap-4 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
                 <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">STAGE</span>
                 <div className="flex items-center gap-3">
@@ -744,53 +779,23 @@ export default function DailySetups() {
             <table className="w-full min-w-[1300px] border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  {/* RE-BALANCED COLUMN WIDTHS */}
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>
-                    TICKER{getSortIcon('ticker')}
-                  </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('price')}>
-                    PRICE{getSortIcon('price')}
-                  </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('changePct')}>
-                    CHG%{getSortIcon('changePct')}
-                  </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('vol')}>
-                    VOL{getSortIcon('vol')}
-                  </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('dVol')}>
-                    $VOL{getSortIcon('dVol')}
-                  </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rvol')}>
-                    RVOL{getSortIcon('rvol')}
-                  </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('float')}>
-                    FLOAT{getSortIcon('float')}
-                  </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('shortPct')}>
-                    SHT%{getSortIcon('shortPct')}
-                  </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>
-                    MCAP{getSortIcon('mktCap')}
-                  </th>
-                  
-                  {/* IDENTIFIERS PUSHED RIGHT WITH NARROWED STAGE AND EXPANDED STRATEGY/CATALYST */}
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[11%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>
-                    SECTOR{getSortIcon('sector')}
-                  </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('stage')}>
-                    STAGE{getSortIcon('stage')}
-                  </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[11%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('setupName')}>
-                    STRATEGY{getSortIcon('setupName')}
-                  </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[18%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '24px' }} onClick={() => handleSort('catalyst')}>
-                    CATALYST'S{getSortIcon('catalyst')}
-                  </th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[11%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[11%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('setupName')}>STRATEGY{getSortIcon('setupName')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[18%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '24px' }} onClick={() => handleSort('catalyst')}>CATALYST'S{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                {/* 🚀 CRITICAL FIX: Only show the big loading spinner if we don't have ANY setups yet. */}
-                {isContextLoading || (isScanning && setups.length === 0) ? (
+                {isLoading ? (
                   <tr>
                     <td colSpan={13} className="py-12 text-center">
                       <div className="flex flex-col items-center justify-center gap-3">
@@ -812,7 +817,6 @@ export default function DailySetups() {
                     return (
                       <tr key={i} className="hover:bg-white/[0.02] transition-colors group">
                         
-                        {/* TICKER CELL */}
                         <td className="py-3" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           <div className="relative inline-flex items-center group/ticker">
                             <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">
@@ -824,7 +828,6 @@ export default function DailySetups() {
                           </div>
                         </td>
 
-                        {/* PRICE */}
                         <td className="py-3 text-xs text-slate-300 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           <div className="flex items-center gap-1.5">
                             ${row.price.toFixed(2)}
@@ -834,12 +837,10 @@ export default function DailySetups() {
                           </div>
                         </td>
 
-                        {/* CHG% */}
                         <td className={`py-3 text-xs font-bold whitespace-nowrap ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           {isPositive ? '+' : ''}{row.changePct.toFixed(2)}%
                         </td>
 
-                        {/* VOLUME METRICS */}
                         <td className="py-3 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           {formatNumber(row.vol)}
                         </td>
@@ -850,7 +851,6 @@ export default function DailySetups() {
                           {row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}
                         </td>
 
-                        {/* ASSET METRICS */}
                         <td className={`py-3 text-xs font-bold whitespace-nowrap ${getFloatColor(row.float)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           {formatNumber(row.float)}
                         </td>
@@ -861,7 +861,6 @@ export default function DailySetups() {
                           {formatNumber(row.mktCap)}
                         </td>
 
-                        {/* COMPACT SECTOR BADGE CELL */}
                         <td className="py-3 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           <div 
                             className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block" 
@@ -871,14 +870,12 @@ export default function DailySetups() {
                           </div>
                         </td>
                         
-                        {/* TEXT-ONLY STAGE WITH A/B SUB-STAGES */}
                         <td className="py-3 text-xs font-bold whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           <span className={getStageColor(row.stage)}>
                             {row.stage}
                           </span>
                         </td>
                         
-                        {/* STRATEGY */}
                         <td className="py-3 text-[11px] text-slate-200 font-semibold truncate max-w-[280px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           <div className="flex items-center gap-1.5">
                             {row.setupName === 'Blue Dot Rev' && (
@@ -888,7 +885,6 @@ export default function DailySetups() {
                           </div>
                         </td>
 
-                        {/* CATALYST CELL - TEXT ONLY */}
                         <td className="py-3 text-[11px] text-slate-400 font-medium" style={{ textAlign: 'left', paddingLeft: '24px' }}>
                           <div className="flex items-center gap-2 group/cat">
                             {row.catalyst ? (
