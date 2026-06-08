@@ -288,7 +288,7 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
 const MEGA_CAP_TICKERS = new Set(['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'BRK.B', 'AVGO', 'LLY', 'JPM', 'XOM', 'UNH', 'V', 'PG', 'MA', 'JNJ', 'HD']);
 
 export async function GET(request: Request) {
-  // SECURITY (Bypassed for testing. Uncomment later!)
+  // SECURITY (Bypassed for testing. Uncomment later when setting up auto-cron)
   // const authHeader = request.headers.get('authorization');
   // if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
   //   return new Response('Unauthorized', { status: 401 });
@@ -303,31 +303,54 @@ export async function GET(request: Request) {
     const rawSnapshot = snapRes.tickers || [];
     if (rawSnapshot.length === 0) return NextResponse.json({ error: 'No snapshot data returned' }, { status: 500 });
 
-    // 2. Base Filters
-    const viableSetups = rawSnapshot.filter((t: any) => {
-      const price = t.day?.c || t.prevDay?.c || 0;
-      const vol = (t.day?.v > 0 ? t.day.v : t.prevDay?.v) || 0;
-      return price >= 1.00 && vol >= 500000;
+    // =========================================================================
+    // 2. LIVE MATH INJECTION: Bypassing the 4:00 PM Freeze
+    // We prioritize the most recent extended hours prints over the frozen day bar
+    // =========================================================================
+    const processedSnapshot = rawSnapshot.map((t: any) => {
+      // The hierarchy of live data: Last Matched Trade -> Last Minute Bar -> Today's Freeze -> Yesterday
+      const livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || 0;
+      const prevClose = t.prevDay?.c || 0;
+      const vol = t.day?.v || t.prevDay?.v || t.min?.v || 0;
+      const vwap = t.day?.vw || t.prevDay?.vw || livePrice;
+
+      // Force recalculation of percentage change so Pre/Post/Weekend math never drops to zero
+      let liveChg = t.todaysChangePerc || 0;
+      if (prevClose > 0 && livePrice > 0) {
+        liveChg = ((livePrice - prevClose) / prevClose) * 100;
+      }
+
+      // Attach these true-live variables to the object for the rest of the engine to use
+      t._livePrice = livePrice;
+      t._liveChg = liveChg;
+      t._liveVol = vol;
+      t._liveVwap = vwap;
+
+      return t;
     });
 
-    const dailyCandidates = [...viableSetups].sort((a: any, b: any) => (b.todaysChangePerc || 0) - (a.todaysChangePerc || 0)).slice(0, 30);
-    const sipCandidates = [...viableSetups].filter((t: any) => {
-        const price = t.day?.c || t.prevDay?.c || 0;
-        const vwap = t.day?.vw || t.prevDay?.vw || 0;
-        const chg = t.todaysChangePerc || 0;
-        return chg >= 4.0 && price >= vwap;
-      }).sort((a: any, b: any) => ((b.day?.v > 0 ? b.day.v : b.prevDay?.v) || 0) - ((a.day?.v > 0 ? a.day.v : a.prevDay?.v) || 0)).slice(0, 30);
+    // 3. Base Filters (Using Live Data)
+    const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= 1.00 && t._liveVol >= 500000);
 
-    // 3. TOP MOVERS SORTING ENGINE
-    const megaCapsRaw = rawSnapshot.filter((t: any) => MEGA_CAP_TICKERS.has(t.ticker)).sort((a: any, b: any) => (b.todaysChangePerc || 0) - (a.todaysChangePerc || 0)).slice(0, 20);
+    const dailyCandidates = [...viableSetups]
+      .sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 30);
+      
+    const sipCandidates = [...viableSetups]
+      .filter((t: any) => t._liveChg >= 4.0 && t._livePrice >= t._liveVwap)
+      .sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 30);
+
+    // 4. TOP MOVERS SORTING ENGINE (Using Live Data)
+    const megaCapsRaw = processedSnapshot
+      .filter((t: any) => MEGA_CAP_TICKERS.has(t.ticker))
+      .sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
     
     const knownEtfsRaw = viableSetups.filter((t: any) => ETF_TARGET_MAP[t.ticker]);
-    const etfGainersRaw = [...knownEtfsRaw].sort((a: any, b: any) => (b.todaysChangePerc || 0) - (a.todaysChangePerc || 0)).slice(0, 20);
-    const etfLosersRaw = [...knownEtfsRaw].sort((a: any, b: any) => (a.todaysChangePerc || 0) - (b.todaysChangePerc || 0)).slice(0, 20);
+    const etfGainersRaw = [...knownEtfsRaw].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
+    const etfLosersRaw = [...knownEtfsRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 20);
     
     const regularStocksRaw = viableSetups.filter((t: any) => !ETF_TARGET_MAP[t.ticker]);
-    const gainersRaw = [...regularStocksRaw].sort((a: any, b: any) => (b.todaysChangePerc || 0) - (a.todaysChangePerc || 0)).slice(0, 20);
-    const losersRaw = [...regularStocksRaw].sort((a: any, b: any) => (a.todaysChangePerc || 0) - (b.todaysChangePerc || 0)).slice(0, 20);
+    const gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= 4.0).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
+    const losersRaw = [...regularStocksRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 20);
 
     const today = new Date();
     const lookbackDate = new Date();
@@ -335,13 +358,16 @@ export async function GET(request: Request) {
     const toStr = today.toISOString().split('T')[0];
     const fromStr = lookbackDate.toISOString().split('T')[0];
 
-    // 4. Massive Enrichment Engine
+    // 5. Massive Enrichment Engine
     const enrichCandidate = async (t: any) => {
       const sym = t.ticker || t.single_ticker;
-      const price = t.day?.c || t.prevDay?.c || 0;
-      const vol = (t.day?.v > 0 ? t.day.v : t.prevDay?.v) || 0;
+      
+      // Pulling directly from our Live Math injection
+      const price = t._livePrice;
+      const vol = t._liveVol;
+      const chgPct = t._liveChg;
+      const vwap = t._liveVwap;
       const currentOpen = t.day?.o || t.prevDay?.o || price;
-      const vwap = t.day?.vw || t.prevDay?.vw || price;
       const dVol = vol * vwap;
 
       const [details, aggs, newsData, shortData] = await Promise.all([
@@ -354,13 +380,6 @@ export async function GET(request: Request) {
       const rawBars = aggs.results || [];
       const dailyBars = rawBars.sort((a: any, b: any) => b.t - a.t); 
 
-      let chgPct = t.todaysChangePerc || 0;
-      if (dailyBars.length >= 2) {
-        const currentBarClose = dailyBars[0].c;
-        const priorBarClose = dailyBars[1].c;
-        if (priorBarClose > 0) chgPct = ((currentBarClose - priorBarClose) / priorBarClose) * 100;
-      }
-
       let avgVol = 0;
       if (dailyBars.length > 0) {
         let sumVol = 0;
@@ -370,8 +389,12 @@ export async function GET(request: Request) {
       }
       const rvol = (avgVol > 0 && vol > 0) ? (vol / avgVol) : null;
 
+      // Because we pass the Live Price into detectPattern, your technicals now factor in AH moves!
       const setupMatched = detectPattern(dailyBars, price, currentOpen, vwap, rvol);
+      
       const marketCap = details?.results?.market_cap || 0;
+      if (marketCap < 20000000) return null; // Hard limit below 20m
+
       const companyName = details?.results?.name || sym;
       let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
       if (vwap > 0 && price > 0) vwapStatus = price >= vwap ? 'above' : 'below';
@@ -410,16 +433,16 @@ export async function GET(request: Request) {
       };
     };
 
-    // 5. Gather unique tickers to prevent duplicate API hits
+    // 6. Gather unique tickers to prevent duplicate API hits
     const allCandidates = [...dailyCandidates, ...sipCandidates, ...megaCapsRaw, ...gainersRaw, ...losersRaw, ...etfGainersRaw, ...etfLosersRaw];
     const uniqueCandidates = Array.from(new Map(allCandidates.map(item => [item.ticker, item])).values());
 
-    // 6. Enrich all unique stocks
+    // 7. Enrich all unique stocks
     const enrichedDataRaw = await Promise.all(uniqueCandidates.map(enrichCandidate));
     const enrichedMap = new Map();
     enrichedDataRaw.forEach(item => { if (item) enrichedMap.set(item.ticker, item); });
 
-    // 7. Route the enriched data back into their specific groups
+    // 8. Route the enriched data back into their specific groups
     const finalDaily = dailyCandidates.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.setupName !== null).slice(0, 20);
     const finalSip = sipCandidates.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 20);
     
@@ -431,7 +454,7 @@ export async function GET(request: Request) {
       'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined)
     };
 
-    // 8. Commit everything to Upstash KV
+    // 9. Commit everything to Upstash KV
     await kv.set('daily_setups', finalDaily);
     await kv.set('stocks_in_play', finalSip);
     await kv.set('top_movers', finalTopMovers);
