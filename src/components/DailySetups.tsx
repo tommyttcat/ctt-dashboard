@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useMarketData } from './MarketDataContext';
 
 // --- INTERFACES ---
@@ -347,6 +347,10 @@ export default function DailySetups() {
   const [showStage2Only, setShowStage2Only] = useState<boolean>(false); 
 
   const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || '';
+  
+  // 🚀 CRITICAL FIX: Track scan times to decouple price updates from heavy API fetches
+  const lastHeavyScanTime = useRef<number>(0);
+  const hasInitialScanCompleted = useRef<boolean>(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -360,29 +364,59 @@ export default function DailySetups() {
     }
 
     const runStructuralEnrichment = async () => {
+      const now = Date.now();
+      
+      // --- PHASE 1: LIGHTWEIGHT SILENT PRICE SYNC ---
+      // If we already did the heavy Polygon scan in the last 5 minutes (300000ms),
+      // do NOT wipe the table or re-scan patterns. Just quietly update prices.
+      if (hasInitialScanCompleted.current && now - lastHeavyScanTime.current < 300000) {
+        if (isMounted) {
+          setSetups(prev => prev.map(setup => {
+            const snap = rawSnapshot.find((t: any) => (t.ticker || t.single_ticker) === setup.ticker);
+            if (snap) {
+              const currentPrice = snap.day?.c || snap.prevDay?.c || setup.price;
+              const vol = (snap.day?.v > 0 ? snap.day.v : snap.prevDay?.v) || setup.vol;
+              const vwap = snap.day?.vw || snap.prevDay?.vw || setup.price;
+              
+              let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
+              if (vwap > 0 && currentPrice > 0) {
+                vwapStatus = currentPrice >= vwap ? 'above' : 'below';
+              }
+              const dVol = vol * vwap;
+              
+              return { ...setup, price: currentPrice, vol, vwapStatus, dVol };
+            }
+            return setup;
+          }));
+          setStatus('Live');
+        }
+        return; // Exit here. Do not run the heavy fetch below!
+      }
+
+      // --- PHASE 2: HEAVY STRUCTURAL SCAN ---
+      // We only reach this point on initial load OR every 5 minutes.
+      lastHeavyScanTime.current = now;
+
       if (isMounted) {
         setIsScanning(true);
-        setStatus('Aligning with Top Movers...');
+        // Only show "Aligning" on first load. Afterwards, do it silently.
+        setStatus(hasInitialScanCompleted.current ? 'Background Sync...' : 'Aligning with Top Movers...');
       }
 
       try {
-        // --- INTAKE VALVE: IDENTICAL TO TOP MOVERS ---
+        // Intake Valve: Identical to Top Movers
         let viableSetups = rawSnapshot.filter((t: any) => {
           const price = t.day?.c || t.prevDay?.c || 0;
           const vol = (t.day?.v > 0 ? t.day.v : t.prevDay?.v) || 0;
-
-          // 1. Mandatory Volume & Price Baseline
           return price >= 1.00 && vol >= 500000;
         });
 
-        // 2. Sort by the exact same Normalized Change % as Top Movers Gainers
         const sortedMovers = viableSetups.sort((a: any, b: any) => {
           const cA = a.todaysChangePerc || 0;
           const cB = b.todaysChangePerc || 0;
-          return cB - cA; // Descending (Biggest % Gainers First)
+          return cB - cA; 
         });
 
-        // 3. Take the exact Top 30 % Gainers to search for patterns
         const top30Candidates = sortedMovers.slice(0, 30);
         
         if (top30Candidates.length === 0) {
@@ -394,7 +428,7 @@ export default function DailySetups() {
           return;
         }
 
-        if (isMounted) setStatus('Scanning Technicals...');
+        if (isMounted && !hasInitialScanCompleted.current) setStatus('Scanning Technicals...');
 
         const today = new Date();
         const lookbackDate = new Date();
@@ -402,7 +436,6 @@ export default function DailySetups() {
         const toStr = today.toISOString().split('T')[0];
         const fromStr = lookbackDate.toISOString().split('T')[0];
 
-        // --- PHASE 2: MASSIVE FETCH & PATTERN MATCHING ---
         const detectedSetups: SetupData[] = [];
         const chunkSize = 5; 
         
@@ -428,7 +461,6 @@ export default function DailySetups() {
 
             let chgPct = t.todaysChangePerc || 0;
             
-            // True Historic Close-to-Close computation
             if (dailyBars.length >= 2) {
               const currentBarClose = dailyBars[0].c;
               const priorBarClose = dailyBars[1].c;
@@ -437,7 +469,6 @@ export default function DailySetups() {
               }
             }
 
-            // Reject if it fails the true 4% gate
             if (chgPct < 4.0) return null;
 
             let avgVol = 0;
@@ -453,7 +484,6 @@ export default function DailySetups() {
 
             const setupMatched = detectPattern(dailyBars, price, currentOpen, vwap, rvol);
             
-            // Strict Filter: Only return setups with a named pattern
             if (!setupMatched || setupMatched.name === null) return null;
 
             const marketCap = details?.results?.market_cap || 0;
@@ -534,10 +564,10 @@ export default function DailySetups() {
         }
 
         if (isMounted) {
-          // Final sort to make sure the found patterns stay ordered by true percentage gain
           detectedSetups.sort((a, b) => b.changePct - a.changePct);
-          
           setSetups(detectedSetups.slice(0, 20));
+          
+          hasInitialScanCompleted.current = true; // Mark initial load as complete!
           setStatus('Live');
           setIsScanning(false);
         }
@@ -759,7 +789,8 @@ export default function DailySetups() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                {isContextLoading || isScanning ? (
+                {/* 🚀 CRITICAL FIX: Only show the big loading spinner if we don't have ANY setups yet. */}
+                {isContextLoading || (isScanning && setups.length === 0) ? (
                   <tr>
                     <td colSpan={13} className="py-12 text-center">
                       <div className="flex flex-col items-center justify-center gap-3">
