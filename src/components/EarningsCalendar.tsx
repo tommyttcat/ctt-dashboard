@@ -217,14 +217,19 @@ export default function EarningsCalendar() {
 
         if (isMounted) setStatus('Enriching Market Caps...');
 
-        // Fetch Market Caps via Massive (Polygon) API
+        // Fetch Market Caps via Polygon API
         const massiveDataMap = new Map();
         if (polygonApiKey) {
             const chunkSize = 15; 
             for (let i = 0; i < uniqueTickers.length; i += chunkSize) {
                 const chunk = uniqueTickers.slice(i, i + chunkSize);
                 const chunkPromises = chunk.map(async (sym) => {
-                    const res = await fetchSafeJson(`https://api.massive.com/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {});
+                    let res = null;
+                    try {
+                      res = await fetchSafeJson(`https://api.polygon.io/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {});
+                    } catch (error) {
+                      console.warn(`Polygon skipped ticker ${sym} in Earnings`);
+                    }
                     return { sym, details: res?.results || res || null };
                 });
                 

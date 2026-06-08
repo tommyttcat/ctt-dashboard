@@ -200,7 +200,7 @@ export default function StocksInPlay() {
                     : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'
                 }`}
               >
-                {showStage2AOnly ? 'Showing Stage 2A Only' : 'Filter: Stage 2A'}
+                {showStage2AOnly ? 'Stage 2A Only' : 'Filter: Stage 2A'}
               </button>
 
               <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1" onClick={(e) => e.stopPropagation()}>

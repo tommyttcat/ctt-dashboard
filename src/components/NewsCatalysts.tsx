@@ -211,8 +211,8 @@ export default function NewsFeed() {
       try {
         if (isMounted && news.length === 0) setStatus('Scouting...');
 
-        // 1. Fetch raw news
-        const res = await fetch(`https://api.massive.com/v2/reference/news?limit=25&apiKey=${polygonApiKey}`);
+        // 1. Fetch raw news - Fixed URL to Polygon
+        const res = await fetch(`https://api.polygon.io/v2/reference/news?limit=25&apiKey=${polygonApiKey}`);
         if (!res.ok) throw new Error('Network error');
         
         const data = await res.json();
@@ -237,11 +237,16 @@ export default function NewsFeed() {
             return typeof t === 'string' && t.includes(':') ? t.split(':')[1].toUpperCase() : t.toUpperCase();
         })));
 
-        // 3. EXACT SIPs PROMISE.ALL FETCH
+        // 3. EXACT SIPs PROMISE.ALL FETCH - Fixed URL to Polygon and Added Try/Catch Isolation
         const profileDataMap = new Map();
         const profilePromises = uniqueTickers.map(async (sym: any) => {
-            const details = await fetchSafeJson(`https://api.massive.com/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {});
-            profileDataMap.set(sym, details.results || {});
+            let details = null;
+            try {
+              details = await fetchSafeJson(`https://api.polygon.io/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {});
+            } catch (error) {
+              console.warn(`Polygon skipped ticker ${sym} in News`);
+            }
+            profileDataMap.set(sym, details?.results || {});
         });
         
         await Promise.all(profilePromises);
