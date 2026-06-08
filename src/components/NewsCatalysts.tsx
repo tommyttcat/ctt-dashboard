@@ -16,7 +16,7 @@ interface NewsItem {
   tag: { label: string; color: string };
 }
 
-// --- CONSTANTS & MAPS (Identical to SIPs) ---
+// --- CONSTANTS & MAPS ---
 const SECTOR_MAP: Record<string, string> = {
   'AAPL': 'IT', 'MSFT': 'IT', 'SMCI': 'IT',
   'NVDA': "Semi's", 'AMD': "Semi's", 'INTC': "Semi's", 
@@ -74,7 +74,7 @@ const ETF_TARGET_MAP: Record<string, string> = {
   'QQQ': 'QQQ - Nasdaq', 'IWM': 'IWM - Small Cap', 'DIA': 'DIA - Dow Jones', 'VOO': 'VOO - S&P 500', 'VTI': 'VTI - Total Market'
 };
 
-// --- SIPs-IDENTICAL HELPERS ---
+// --- HELPERS ---
 const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 10000) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
@@ -183,7 +183,7 @@ const getCatalystTag = (site: string | undefined, title: string | undefined) => 
     return { label: formattedSite, color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' };
   }
 
-  return { label: 'NEWS', color: 'text-slate-400 bg-slate-500/10 border-slate-500/20' };
+  return { label: '-', color: 'text-slate-400 bg-slate-500/10 border-slate-500/20' };
 };
 
 export default function NewsFeed() {
@@ -211,8 +211,8 @@ export default function NewsFeed() {
       try {
         if (isMounted && news.length === 0) setStatus('Scouting...');
 
-        // 1. Fetch raw news - Fixed URL to Polygon
-        const res = await fetch(`https://api.polygon.io/v2/reference/news?limit=25&apiKey=${polygonApiKey}`);
+        // CRITICAL: Massive API Endpoint Base Route
+        const res = await fetch(`https://api.massive.com/v2/reference/news?limit=25&apiKey=${polygonApiKey}`);
         if (!res.ok) throw new Error('Network error');
         
         const data = await res.json();
@@ -231,33 +231,30 @@ export default function NewsFeed() {
 
         if (isMounted) setStatus('Enriching Sectors...');
 
-        // 2. EXTRACT UNIQUE TICKERS
         const uniqueTickers = Array.from(new Set(validNews.map((item: any) => {
             let t = item.tickers[0];
             return typeof t === 'string' && t.includes(':') ? t.split(':')[1].toUpperCase() : t.toUpperCase();
         })));
 
-        // 3. EXACT SIPs PROMISE.ALL FETCH - Fixed URL to Polygon and Added Try/Catch Isolation
         const profileDataMap = new Map();
         const profilePromises = uniqueTickers.map(async (sym: any) => {
             let details = null;
             try {
-              details = await fetchSafeJson(`https://api.polygon.io/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {});
+              // Isolated inside a separate try/catch safety net to completely absorb 404s on missing tickers
+              details = await fetchSafeJson(`https://api.massive.com/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {});
             } catch (error) {
-              console.warn(`Polygon skipped ticker ${sym} in News`);
+              console.warn(`Massive API skipped ticker ${sym} in News`);
             }
             profileDataMap.set(sym, details?.results || {});
         });
         
         await Promise.all(profilePromises);
 
-        // 4. MAP AND RENDER
         const processedNews: NewsItem[] = validNews.map((item: any) => {
             let ticker = item.tickers[0];
             if (typeof ticker === 'string' && ticker.includes(':')) ticker = ticker.split(':')[1].toUpperCase();
             else if (typeof ticker === 'string') ticker = ticker.toUpperCase();
 
-            // Pull from our freshly fetched map
             const profile = profileDataMap.get(ticker) || {};
 
             const apiSectorRaw = cleanSectorDescription(
@@ -269,7 +266,6 @@ export default function NewsFeed() {
             const companyName = profile.name || item.ticker_details?.find((d: any) => d.ticker === ticker)?.name || ticker;
             const deepSector = resolveEtfSector(ticker, apiSectorRaw, companyName);
 
-            // Parse Date
             const pubDate = new Date(item.published_utc);
             const isToday = pubDate.toDateString() === new Date().toDateString();
             const timePart = pubDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
@@ -303,8 +299,6 @@ export default function NewsFeed() {
     };
 
     fetchNewsFeed();
-    
-    // 60-second standard interval
     const interval = setInterval(fetchNewsFeed, 60000);
     return () => { isMounted = false; clearInterval(interval); };
   }, [polygonApiKey]);
@@ -343,7 +337,6 @@ export default function NewsFeed() {
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-xl w-full">
       
-      {/* HEADER CONTAINER */}
       <div 
         onClick={() => setIsExpanded(!isExpanded)}
         className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-6 border-b border-white/5 pb-4' : ''}`}
@@ -369,7 +362,6 @@ export default function NewsFeed() {
         </div>
       </div>
 
-      {/* COLLAPSIBLE CONTENT */}
       {isExpanded && (
         <div className="relative z-10 custom-scrollbar max-h-[600px] overflow-y-auto pr-2 divide-y divide-white/5" style={{ scrollbarWidth: 'none' }}>
           {isLoading && news.length === 0 ? (
@@ -385,10 +377,8 @@ export default function NewsFeed() {
             news.map((item) => (
               <div key={item.id} className="py-4 flex flex-col xl:flex-row xl:items-center justify-between gap-4 hover:bg-white/[0.01] px-2 rounded-xl transition-colors group">
                 
-                {/* LEFT BLOCK: TICKER -> SECTOR -> TIME */}
                 <div className="flex items-center gap-3 shrink-0 flex-wrap sm:flex-nowrap">
                   
-                  {/* TICKER */}
                   <div className="relative inline-flex items-center group/ticker">
                     <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help w-14 text-center">
                       {item.ticker}
@@ -398,18 +388,15 @@ export default function NewsFeed() {
                     </div>
                   </div>
 
-                  {/* SECTOR */}
                   <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold tracking-wide border whitespace-nowrap w-[88px] text-center truncate ${getSectorBadgeStyles(item.sector)}`} title={item.sector}>
                     {item.sector}
                   </span>
 
-                  {/* TIME */}
                   <span className="text-[11px] text-slate-500 font-medium whitespace-nowrap w-[60px] text-right">
                     {item.timeStr}
                   </span>
                 </div>
 
-                {/* MIDDLE: INTERACTIVE TITLE - Updated to text-xs */}
                 <div className="min-w-0 flex-1 xl:pl-4">
                   <a 
                     href={item.url}
@@ -421,7 +408,6 @@ export default function NewsFeed() {
                   </a>
                 </div>
 
-                {/* RIGHT: CATALYST TAG */}
                 <div className="shrink-0 flex items-center xl:justify-end">
                   <span className={`text-[10px] font-bold tracking-widest px-1.5 py-0.5 rounded border uppercase ${item.tag.color}`}>
                     {item.tag.label}

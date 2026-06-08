@@ -157,7 +157,6 @@ export default function EarningsCalendar() {
   const [sortConfig, setSortConfig] = useState<{ key: keyof EarningEvent; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   
-  // Strictly locked to actionable sizes
   const [tier, setTier] = useState<CapTier>('SMALL');
 
   const fmpApiKey = process.env.NEXT_PUBLIC_FMP_API_KEY || '';
@@ -173,7 +172,6 @@ export default function EarningsCalendar() {
         if (isMounted) setSession(currentSession);
         setStatus('Scouting Calendar...');
 
-        // Calculate Date Window (Friday Anchor to 14 Days Forward)
         const estNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
         const baseDate = new Date(estNow);
         
@@ -190,7 +188,6 @@ export default function EarningsCalendar() {
         toDate.setDate(fromDate.getDate() + 14); 
         const toStrCutoff = getIsoDateString(toDate);
 
-        // Fetch PURE STABLE Earnings Endpoint
         const calendarUrl = `https://financialmodelingprep.com/stable/earnings-calendar?from=${fromStr}&to=${toStrCutoff}&apikey=${fmpApiKey}`;
         const rawEarnings = await fetchSafeJson(calendarUrl, []);
 
@@ -199,10 +196,8 @@ export default function EarningsCalendar() {
           return;
         }
 
-        // Wipe out explicitly bad OTC symbols and enforce window
         const usEarnings = rawEarnings.filter((e: any) => {
             if (!e.symbol || e.symbol.includes('.')) return false;
-            // Immediate OTC Hammer: Drop anything with 5 or more letters.
             if (e.symbol.length >= 5) return false;
             const eventDateStr = e.date ? e.date.substring(0, 10) : '';
             return eventDateStr >= fromStr && eventDateStr <= toStrCutoff;
@@ -217,7 +212,6 @@ export default function EarningsCalendar() {
 
         if (isMounted) setStatus('Enriching Market Caps...');
 
-        // Fetch Market Caps via Polygon API
         const massiveDataMap = new Map();
         if (polygonApiKey) {
             const chunkSize = 15; 
@@ -226,9 +220,10 @@ export default function EarningsCalendar() {
                 const chunkPromises = chunk.map(async (sym) => {
                     let res = null;
                     try {
-                      res = await fetchSafeJson(`https://api.polygon.io/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {});
+                      // REVERTED BACK TO MASSIVE API WITH SAFETY NET
+                      res = await fetchSafeJson(`https://api.massive.com/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {});
                     } catch (error) {
-                      console.warn(`Polygon skipped ticker ${sym} in Earnings`);
+                      console.warn(`Massive API skipped ticker ${sym} in Earnings`);
                     }
                     return { sym, details: res?.results || res || null };
                 });
@@ -238,11 +233,10 @@ export default function EarningsCalendar() {
                     if (details) massiveDataMap.set(sym, details);
                 });
                 
-                await new Promise(r => setTimeout(r, 100)); // Rate limit buffer
+                await new Promise(r => setTimeout(r, 100));
             }
         }
 
-        // Process and bundle all available events into state
         const processedEvents: EarningEvent[] = usEarnings.reduce((acc: EarningEvent[], e: any, index: number) => {
             const sym = e.symbol;
             const massiveInfo = massiveDataMap.get(sym);
@@ -293,21 +287,18 @@ export default function EarningsCalendar() {
   };
 
   const finalRenderedEvents = useMemo(() => {
-    // 1. Dynamic Tier Gatekeeper
     let list = events.filter(e => {
-        // Thematic assets always bypass filters
         if (e.isThematic) return true;
         
         const m = e.mktCap || 0;
         
-        if (tier === 'SMALL') return m >= 100000000 && m < 2000000000;  // $100M to $2B
-        if (tier === 'MID') return m >= 2000000000 && m < 10000000000;   // $2B to $10B
-        if (tier === 'MEGA') return m >= 10000000000;                    // $10B+
+        if (tier === 'SMALL') return m >= 100000000 && m < 2000000000;
+        if (tier === 'MID') return m >= 2000000000 && m < 10000000000;
+        if (tier === 'MEGA') return m >= 10000000000;
         
         return false;
     });
 
-    // 2. Sorting
     if (!sortConfig) {
       return list.sort((a, b) => a.rawDateString.localeCompare(b.rawDateString)).slice(0, 20);
     }
@@ -339,7 +330,6 @@ export default function EarningsCalendar() {
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-5 md:p-8 relative overflow-hidden shadow-xl w-full">
       <div className="absolute right-0 top-0 w-64 h-64 bg-cyan-500/5 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
       
-      {/* HEADER CONTAINER */}
       <div className="flex justify-between items-center mb-6 border-b border-white/5 pb-4 relative z-10 group transition-all duration-200">
         
         <div className="flex items-center gap-4">
@@ -350,7 +340,6 @@ export default function EarningsCalendar() {
             </span>
           </div>
 
-          {/* CLASSIFICATION TOGGLE */}
           <div className="hidden md:flex items-center gap-1 bg-[#161c2a] border border-white/5 rounded-lg p-1">
             {(['SMALL', 'MID', 'MEGA'] as CapTier[]).map(t => (
                <button
@@ -382,7 +371,6 @@ export default function EarningsCalendar() {
         </div>
       </div>
 
-      {/* MOBILE TOGGLE */}
       <div className="md:hidden mb-4 flex justify-start relative z-10">
         <div className="flex items-center gap-1 bg-[#161c2a] border border-white/5 rounded-lg p-1">
           {(['SMALL', 'MID', 'MEGA'] as CapTier[]).map(t => (
@@ -405,27 +393,13 @@ export default function EarningsCalendar() {
         <table className="w-full min-w-[900px] border-collapse">
           <thead>
             <tr className="border-b border-white/5 select-none">
-              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rawDateString')}>
-                DATE{getSortIcon('rawDateString')}
-              </th>
-              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>
-                TICKER{getSortIcon('ticker')}
-              </th>
-              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[32%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('name')}>
-                COMPANY{getSortIcon('name')}
-              </th>
-              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[16%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>
-                SECTOR{getSortIcon('sector')}
-              </th>
-              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>
-                MCAP{getSortIcon('mktCap')}
-              </th>
-              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('epsEst')}>
-                EST EPS{getSortIcon('epsEst')}
-              </th>
-              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('revEst')}>
-                EST REV{getSortIcon('revEst')}
-              </th>
+              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rawDateString')}>DATE{getSortIcon('rawDateString')}</th>
+              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[32%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('name')}>COMPANY{getSortIcon('name')}</th>
+              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[16%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('epsEst')}>EST EPS{getSortIcon('epsEst')}</th>
+              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('revEst')}>EST REV{getSortIcon('revEst')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">
@@ -467,38 +441,24 @@ export default function EarningsCalendar() {
                   <tr key={row.id} className={`transition-colors group ${rowBgClass} ${opacityClass}`}>
                     
                     <td className="py-3.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                      <span className={`text-xs whitespace-nowrap ${dateTextColor}`}>
-                        {row.date}
-                      </span>
+                      <span className={`text-xs whitespace-nowrap ${dateTextColor}`}>{row.date}</span>
                     </td>
                     
                     <td className="py-3.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                      <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded border ${tickerBgColor}`}>
-                        {row.ticker}
-                      </span>
+                      <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded border ${tickerBgColor}`}>{row.ticker}</span>
                     </td>
 
-                    <td className={`py-3.5 text-xs whitespace-nowrap truncate max-w-[250px] ${nameTextColor}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                      {row.name}
-                    </td>
+                    <td className={`py-3.5 text-xs whitespace-nowrap truncate max-w-[250px] ${nameTextColor}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.name}</td>
 
                     <td className="py-3.5 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                      <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block" title={row.sector}>
-                        {row.sector}
-                      </div>
+                      <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block" title={row.sector}>{row.sector}</div>
                     </td>
 
-                    <td className={`py-3.5 text-xs font-bold whitespace-nowrap ${isToday ? 'text-slate-100' : 'text-slate-300'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                      {formatNumber(row.mktCap)}
-                    </td>
+                    <td className={`py-3.5 text-xs font-bold whitespace-nowrap ${isToday ? 'text-slate-100' : 'text-slate-300'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.mktCap)}</td>
 
-                    <td className={`py-3.5 text-xs font-medium whitespace-nowrap ${isToday ? 'text-emerald-400' : 'text-emerald-400/90'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                      {row.epsEst !== null ? `$${row.epsEst.toFixed(2)}` : '-'}
-                    </td>
+                    <td className={`py-3.5 text-xs font-medium whitespace-nowrap ${isToday ? 'text-emerald-400' : 'text-emerald-400/90'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.epsEst !== null ? `$${row.epsEst.toFixed(2)}` : '-'}</td>
                     
-                    <td className={`py-3.5 text-xs font-medium whitespace-nowrap ${isToday ? 'text-slate-300' : 'text-slate-400'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                      {formatCurrency(row.revEst)}
-                    </td>
+                    <td className={`py-3.5 text-xs font-medium whitespace-nowrap ${isToday ? 'text-slate-300' : 'text-slate-400'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatCurrency(row.revEst)}</td>
                     
                   </tr>
                 )
