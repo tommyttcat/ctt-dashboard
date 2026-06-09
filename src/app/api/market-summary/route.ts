@@ -6,6 +6,8 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const dateParam = searchParams.get('date');
+  // CACHE BUSTER: Passing ?refresh=true will bypass KV and overwrite with live data
+  const forceRefresh = searchParams.get('refresh') === 'true';
 
   let targetDate = dateParam;
   if (!targetDate) {
@@ -14,10 +16,12 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 1. Check Cache
-    const cachedSummary = await kv.get(`market_narrative_${targetDate}`);
-    if (cachedSummary) {
-      return NextResponse.json(cachedSummary);
+    // 1. Check Cache (Skip if forceRefresh is true)
+    if (!forceRefresh) {
+      const cachedSummary = await kv.get(`market_narrative_${targetDate}`);
+      if (cachedSummary) {
+        return NextResponse.json(cachedSummary);
+      }
     }
 
     const polygonKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY;
@@ -32,9 +36,9 @@ export async function GET(request: Request) {
       
       if (snapData.tickers && snapData.tickers.length > 0) {
         tapeContext = snapData.tickers.map((t: any) => {
-          const m = t.min || t.day || {};
           const today = t.day || {};
-          return `- ${t.ticker}: Open: ${today.o}, High: ${today.h}, Low: ${today.l}, Current: ${today.c || t.todaysChange}%`;
+          const currentChange = t.todaysChangePerc !== undefined ? t.todaysChangePerc.toFixed(2) : '0.00';
+          return `- ${t.ticker}: Open: ${today.o}, High: ${today.h}, Low: ${today.l}, Current Close/Last: ${today.c}, Daily Change: ${currentChange}%`;
         }).join('\n');
       }
     } catch (e) {
@@ -63,14 +67,15 @@ export async function GET(request: Request) {
       You are an elite, institutional day/swing trader analyzer. 
       You have access to two datasets for today (${targetDate}):
       
-      INTRADAY PRICE TAPE (Check Open vs Low vs High vs Close to identify morning flushes, selloffs, or afternoon recoveries):
+      INTRADAY PRICE TAPE (Compare the Open vs Low vs High vs Current Close to track the exact trend trajectory):
       ${tapeContext}
       
       MARKET NEWS HEADLINES:
       ${newsContext}
       
       Synthesize this into a highly actionable, institutional-grade market summary. 
-      CRITICAL: Compare the Open, Low, and High/Current levels of the SPY and Mega-caps from the tape data to describe the true price trajectory (e.g., if Current is near Highs but far above Lows, note the intraday recovery from the morning low).
+      CRITICAL PRICE REALITY CHECK: 
+      Look closely at the INTRADAY PRICE TAPE. Compare the Open to the Low, and then look at the Current Close. If the Current Close is significantly higher than the Low, and near or above the Open, there was an explicit morning selloff followed by a structural recovery. You MUST explicitly break down this price action pattern (e.g., morning liquidation, liquidity sweeps, afternoon v-bottom) across the morning, midday, and closing paragraphs. Do not ignore the numbers.
       
       Filter out noise. Focus on breadth, structural levels, mega-cap flow, and actionable setups. If there are no major binary events today (like FOMC or CPI), leave the actionableEvents array empty. Do not invent events.
       
@@ -80,21 +85,21 @@ export async function GET(request: Request) {
         "morning": {
           "phase": "PRE-MARKET & MORNING TAPE",
           "timestamp": "10:30 AM EST",
-          "paragraphs": ["Analyze the structural opening metrics. Highlight if there was a heavy morning selloff, trapping longs, or an early liquidity sweep based on the tape data.", "Note specific individual alpha drivers from the headlines."],
+          "paragraphs": ["Analyze the structural opening matrix. Explicitly note if the hard tape numbers show an immediate opening selloff/flush that trapped early longs or swept liquidity down to the session Lows.", "Note specific individual alpha drivers from the news headlines."],
           "takeaway": "Actionable Morning Posture / Gameplan",
           "colorTheme": "cyan"
         },
         "midday": {
           "phase": "MID-DAY ROTATION",
           "timestamp": "01:00 PM EST",
-          "paragraphs": ["Analyze how the midday volume shifted. Note if the morning selloff began stabilizing, or if rotation into mega-caps (NVDA, AAPL) started setting up a structural bottom."],
+          "paragraphs": ["Analyze how the volume and price trends shifted at midday. Highlight if the initial morning selloff began to find dynamic structural support near the session Lows, leading to a stabilization or early rotation back into mega-caps."],
           "takeaway": "Actionable Midday Adjustment",
           "colorTheme": "emerald"
         },
         "closing": {
           "phase": "CLOSING POSTURE",
           "timestamp": "04:00 PM EST",
-          "paragraphs": ["Analyze the closing tape. Highlight the afternoon recovery if prices clawed back toward the highs, identifying who led the charge and what the overnight risk posture is."],
+          "paragraphs": ["Analyze the final cash print. Highlight the afternoon recovery if the current prices successfully clawed all the way back from the deep morning lows toward the session Highs. Identify who led the charge and what the overnight risk posture is based on this strength."],
           "takeaway": "Overnight hold posture and what to look for tomorrow.",
           "colorTheme": "indigo"
         }
@@ -108,7 +113,7 @@ export async function GET(request: Request) {
         contents: [{ parts: [{ text: aiPrompt }] }],
         generationConfig: {
           responseMimeType: "application/json",
-          temperature: 0.15 // Lowered slightly to focus closer on mathematical price realities
+          temperature: 0.1
         },
         safetySettings: [
           { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
