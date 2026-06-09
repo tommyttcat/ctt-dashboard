@@ -68,11 +68,39 @@ export default function TopMovers() {
     let isMounted = true;
     const fetchDatabaseSnapshot = async () => {
       try {
+        // FIXED URL: Now points to the correct Next.js route
         const res = await fetch('/api/scanner/latest');
         const data = await res.json();
         
         if (isMounted && data.success && data.topMovers) {
-          setTopMoversData(data.topMovers);
+          
+          // SAFETY TRANSLATOR: Maps backend keys to frontend expectations
+          const safeData: Record<string, StockData[]> = {};
+          const categories: TabType[] = ['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'];
+          
+          categories.forEach(category => {
+            const rawList = data.topMovers[category] || [];
+            safeData[category] = rawList.map((item: any) => ({
+              ticker: item.ticker || '—',
+              name: item.name || '',
+              sector: item.sector || '',
+              price: Number(item.price) || 0,
+              vwapStatus: item.vwapStatus || 'neutral',
+              changePct: Number(item.change ?? item.changePct) || 0, 
+              vol: Number(item.volume ?? item.vol) || 0,
+              dVol: Number(item.dVol) || (Number(item.price || 0) * Number((item.volume ?? item.vol) || 0)),
+              rvol: item.rvol || null,
+              mktCap: item.mktCap || null,
+              float: item.float || null,
+              shortPct: item.shortPct || null,
+              catalyst: item.catalyst || null,
+              catalystUrl: item.catalystUrl || null,
+              stage: item.stage || 'Stage 2A',
+              setupName: item.setupName || null,
+            }));
+          });
+
+          setTopMoversData(safeData);
           setLastScanTime(data.lastScanTime);
           setStatus('Live');
         }
@@ -99,7 +127,7 @@ export default function TopMovers() {
     if (marketCapFilter !== 'All') {
       currentList = currentList.filter(s => {
         const mc = s.mktCap;
-        if (!mc) return false;
+        if (!mc) return true; 
         if (marketCapFilter === 'Mega') return mc >= 200e9;
         if (marketCapFilter === 'Large') return mc >= 10e9 && mc < 200e9;
         if (marketCapFilter === 'Mid') return mc >= 2e9 && mc < 10e9;
@@ -292,7 +320,7 @@ export default function TopMovers() {
                           </>
                         )}
                         <td className="py-3 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.sector || '—'}</div>
+                          <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.stage || '—'}</div>
                         </td>
                         <td className="py-3 text-[11px] text-slate-400 font-medium" style={{ textAlign: 'left', paddingLeft: '24px' }}>
                           <div className="flex items-center gap-2 group/cat">
