@@ -324,18 +324,50 @@ export async function GET(request: Request) {
 
     const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= 1.00 && t._liveVol >= currentVolumeThreshold);
 
-    // CORE LISTS RESTORED
-    const dailyCandidates = [...viableSetups].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
-    const sipCandidates = [...viableSetups].filter((t: any) => Math.abs(t._liveChg) >= 4.0 && t._livePrice >= t._liveVwap).sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 20);
+    // =========================================================================
+    // 1. LIGHTWEIGHT PIPELINE (Top Movers) - No API Calls Needed
+    // =========================================================================
+    const mapLightweight = (t: any) => ({
+      ticker: t.ticker,
+      name: t.ticker, 
+      sector: resolveEtfSector(t.ticker, undefined, t.ticker),
+      price: t._livePrice,
+      vwapStatus: t._livePrice >= t._liveVwap ? 'above' : 'below',
+      changePct: t._liveChg,
+      vol: t._liveVol,
+      dVol: t._liveVol * t._liveVwap,
+      rvol: null,
+      float: null,
+      shortPct: null,
+      mktCap: null,
+      stage: '—',
+      setupName: null,
+      catalyst: '—',
+      catalystUrl: null
+    });
 
-    const megaCapsRaw = processedSnapshot.filter((t: any) => MEGA_CAP_TICKERS.has(t.ticker)).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
+    const megaCapsRaw = processedSnapshot.filter((t: any) => MEGA_CAP_TICKERS.has(t.ticker)).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15).map(mapLightweight);
     const knownEtfsRaw = viableSetups.filter((t: any) => ETF_TARGET_MAP[t.ticker]);
-    const etfGainersRaw = [...knownEtfsRaw].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
-    const etfLosersRaw = [...knownEtfsRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 15);
+    const etfGainersRaw = [...knownEtfsRaw].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15).map(mapLightweight);
+    const etfLosersRaw = [...knownEtfsRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 15).map(mapLightweight);
     
     const regularStocksRaw = viableSetups.filter((t: any) => !ETF_TARGET_MAP[t.ticker]);
-    const gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= 4.0).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
-    const losersRaw = [...regularStocksRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 15);
+    const gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= 4.0).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15).map(mapLightweight);
+    const losersRaw = [...regularStocksRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 15).map(mapLightweight);
+
+    const finalTopMovers = {
+      'Mega Caps': megaCapsRaw,
+      'Gainers': gainersRaw,
+      'Losers': losersRaw,
+      'ETF Gainers': etfGainersRaw,
+      'ETF Losers': etfLosersRaw
+    };
+
+    // =========================================================================
+    // 2. HEAVY PIPELINE (Daily Setups & SIPs) - 4x Polygon Calls per Ticker
+    // =========================================================================
+    const dailyCandidates = [...viableSetups].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
+    const sipCandidates = [...viableSetups].filter((t: any) => Math.abs(t._liveChg) >= 4.0 && t._livePrice >= t._liveVwap).sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 20);
 
     const today = new Date();
     const lookbackDate = new Date();
@@ -343,8 +375,7 @@ export async function GET(request: Request) {
     const toStr = today.toISOString().split('T')[0];
     const fromStr = lookbackDate.toISOString().split('T')[0];
 
-    const allCandidates = [...dailyCandidates, ...sipCandidates, ...megaCapsRaw, ...gainersRaw, ...losersRaw, ...etfGainersRaw, ...etfLosersRaw];
-    const uniqueCandidates = Array.from(new Map(allCandidates.map(item => [item.ticker, item])).values());
+    const uniqueHeavyCandidates = Array.from(new Map([...dailyCandidates, ...sipCandidates].map(item => [item.ticker, item])).values());
     
     const enrichCandidate = async (t: any) => {
       const sym = t.ticker || t.single_ticker;
@@ -378,10 +409,6 @@ export async function GET(request: Request) {
       
       const marketCap = details?.results?.market_cap || 0;
       const companyName = details?.results?.name || sym;
-
-      const isETF = !!ETF_TARGET_MAP[sym] || companyName.toLowerCase().includes(' etf') || companyName.toLowerCase().includes(' fund') || companyName.toLowerCase().includes(' trust');
-      
-      if (!isETF && marketCap < 20000000) return null;
 
       let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
       if (vwap > 0 && price > 0) vwapStatus = price >= vwap ? 'above' : 'below';
@@ -426,23 +453,20 @@ export async function GET(request: Request) {
 
     const enrichedList: any[] = [];
     const chunkSize = 15;
-    for (let i = 0; i < uniqueCandidates.length; i += chunkSize) {
-      const chunk = uniqueCandidates.slice(i, i + chunkSize);
+    for (let i = 0; i < uniqueHeavyCandidates.length; i += chunkSize) {
+      const chunk = uniqueHeavyCandidates.slice(i, i + chunkSize);
       const results = await Promise.all(chunk.map(enrichCandidate));
       enrichedList.push(...results.filter(item => item !== null));
     }
 
     // =========================================================================
-    // GEMINI BATCH CONFLUENCE SCORER (FILTERED FOR DAILY & SIPS ONLY)
+    // 3. GEMINI AI SCORING (Only for Heavy Pipeline)
     // =========================================================================
     const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey) {
       try {
-        // ONLY collect tickers that are specifically designated as Daily Setups or SIPs
-        const aiTargets = new Set([...dailyCandidates, ...sipCandidates].map(t => t.ticker));
-
         const analysisMap = enrichedList
-          .filter((t: any) => aiTargets.has(t.ticker) && (t.setupName !== null || (t._rawHeadline && t._rawHeadline !== '-')))
+          .filter((t: any) => t.setupName !== null || (t._rawHeadline && t._rawHeadline !== '-'))
           .map((t: any) => `"${t.ticker}": { "Headline": "${(t._rawHeadline || '').replace(/"/g, '\\"')}", "MathPattern": "${t.setupName || 'None'}", "Stage": "${t.stage}", "RecentTrend_Last5Days": [${t._recentTrend.join(',')}] }`)
           .join(',\n');
           
@@ -489,14 +513,12 @@ export async function GET(request: Request) {
                   t.conviction = confluenceDict[t.ticker].conviction;
                   t.thesis = confluenceDict[t.ticker].thesis;
                 } else if (t._rawHeadline) {
-                  // Fallback for Top Movers and items that skipped the AI payload
                   t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
                 }
               });
             }
           }
         } else {
-          // If the AI payload was entirely empty, still map standard headlines
           enrichedList.forEach((t: any) => {
             if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
           });
@@ -505,7 +527,6 @@ export async function GET(request: Request) {
         console.error("Gemini Batch Confluence Scorer Failed:", e);
       }
     } else {
-      // If no API key, fallback to standard headlines
       enrichedList.forEach((t: any) => {
          if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
       });
@@ -516,15 +537,10 @@ export async function GET(request: Request) {
 
     const finalDaily = dailyCandidates.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.setupName !== null).slice(0, 20);
     const finalSip = sipCandidates.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 20);
-    
-    const finalTopMovers = {
-      'Mega Caps': megaCapsRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined),
-      'Gainers': gainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined),
-      'Losers': losersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined),
-      'ETF Gainers': etfGainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined),
-      'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined)
-    };
 
+    // =========================================================================
+    // 4. COMMIT EVERYTHING TO KV
+    // =========================================================================
     await kv.set('daily_setups', finalDaily);
     await kv.set('stocks_in_play', finalSip);
     await kv.set('top_movers', finalTopMovers);
