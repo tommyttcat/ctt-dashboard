@@ -36,14 +36,14 @@ export async function GET(request: Request) {
     if (!POLYGON_KEY) throw new Error("Missing POLYGON API KEY");
 
     // ====================================================================
-    // PHASE 1: THE SPEED SCAN (Polygon)
+    // PHASE 1: THE SPEED SCAN (Massive / Polygon)
     // ====================================================================
     const response = await fetch(
       `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${POLYGON_KEY}`,
       { cache: 'no-store' } 
     );
     
-    if (!response.ok) throw new Error(`Polygon API returned ${response.status}`);
+    if (!response.ok) throw new Error(`Massive/Polygon API returned ${response.status}`);
     const data = await response.json();
     const tickers = data.tickers || [];
 
@@ -72,7 +72,8 @@ export async function GET(request: Request) {
         mktCap: null,
         sector: "—",
         float: null,     
-        shortPct: null
+        shortPct: null,
+        rvol: null
       };
 
       if (targetETFs.includes(stock.ticker)) { etfs.push(tickerData); continue; }
@@ -99,15 +100,12 @@ export async function GET(request: Request) {
     dailySetups = dailySetups.slice(0, 30);
 
     // ====================================================================
-    // PHASE 2: THE HYDRATION ENGINE (FMP Chunking)
+    // PHASE 2: THE HYDRATION ENGINE (FMP Chunking for MCAP, RVOL, FLOAT)
     // ====================================================================
-    // FIX: Engine now accepts either variable name format
-    const FMP_KEY = process.env.FMP_API_KEY || process.env.NEXT_PUBLIC_FMP_API_KEY; 
+    const FMP_KEY = process.env.FMP_API_KEY; 
 
     if (FMP_KEY) {
-      // Sanitize Tickers for FMP (Replace Polygon dots with FMP dashes)
       const sanitize = (t: string) => t.replace('.', '-');
-      
       const allUniqueTickers = Array.from(new Set([
         ...gainers.map(t => sanitize(t.ticker)),
         ...losers.map(t => sanitize(t.ticker)),
@@ -118,23 +116,39 @@ export async function GET(request: Request) {
       ]));
 
       const profileMap: Record<string, any> = {};
-
-      // Chunk Requests to prevent FMP 400 Errors
       const chunkSize = 50;
+
       for (let i = 0; i < allUniqueTickers.length; i += chunkSize) {
         const chunk = allUniqueTickers.slice(i, i + chunkSize);
         try {
-          const fmpRes = await fetch(
+          // Fetch Profile for Sector and MCAP
+          const profileRes = await fetch(
             `https://financialmodelingprep.com/api/v3/profile/${chunk.join(',')}?apikey=${FMP_KEY}`,
             { cache: 'no-store' }
           );
           
-          if (fmpRes.ok) {
-            const profiles = await fmpRes.json();
+          // Fetch Quote for Avg Volume (to calculate RVOL) and Shares Outstanding (Float)
+          const quoteRes = await fetch(
+            `https://financialmodelingprep.com/api/v3/quote/${chunk.join(',')}?apikey=${FMP_KEY}`,
+            { cache: 'no-store' }
+          );
+          
+          if (profileRes.ok && quoteRes.ok) {
+            const profiles = await profileRes.json();
+            const quotes = await quoteRes.json();
+            
             profiles.forEach((p: any) => { 
-              // Map back to Polygon's dot notation so the UI matches
               const originalTicker = p.symbol.replace('-', '.');
-              profileMap[originalTicker] = p; 
+              if (!profileMap[originalTicker]) profileMap[originalTicker] = {};
+              profileMap[originalTicker].mktCap = p.mktCap;
+              profileMap[originalTicker].sector = p.sector;
+            });
+
+            quotes.forEach((q: any) => {
+              const originalTicker = q.symbol.replace('-', '.');
+              if (!profileMap[originalTicker]) profileMap[originalTicker] = {};
+              profileMap[originalTicker].avgVolume = q.avgVolume;
+              profileMap[originalTicker].float = q.sharesOutstanding; 
             });
           }
         } catch (e) {
@@ -143,11 +157,24 @@ export async function GET(request: Request) {
       }
 
       // Map fundamental data onto existing lists
-      const hydrate = (list: any[]) => list.map(item => ({
-        ...item,
-        mktCap: profileMap[item.ticker]?.mktCap || null,
-        sector: profileMap[item.ticker]?.sector || "—"
-      }));
+      const hydrate = (list: any[]) => list.map(item => {
+        const fmpData = profileMap[item.ticker] || {};
+        
+        // Calculate RVOL dynamically
+        let calculatedRvol = null;
+        if (item.volume && fmpData.avgVolume && fmpData.avgVolume > 0) {
+           calculatedRvol = item.volume / fmpData.avgVolume;
+        }
+
+        return {
+          ...item,
+          mktCap: fmpData.mktCap || null,
+          sector: fmpData.sector || "—",
+          rvol: calculatedRvol,
+          float: fmpData.float || null,
+          shortPct: null // Short Interest requires an enterprise key, leaving safe for now
+        };
+      });
 
       gainers = hydrate(gainers);
       losers = hydrate(losers);
@@ -155,8 +182,6 @@ export async function GET(request: Request) {
       etfs = hydrate(etfs);
       stocksInPlay = hydrate(stocksInPlay);
       dailySetups = hydrate(dailySetups);
-    } else {
-      console.warn("FMP API KEY NOT DETECTED IN VERCEL ENVIRONMENT");
     }
 
     // ====================================================================
