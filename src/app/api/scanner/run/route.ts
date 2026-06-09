@@ -30,7 +30,6 @@ export async function GET(request: Request) {
   }
 
   try {
-    // ALIGNED EXACTLY WITH YOUR VERCEL VARIABLES
     const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY;
     if (!POLYGON_KEY) throw new Error("Missing POLYGON API KEY");
 
@@ -95,7 +94,6 @@ export async function GET(request: Request) {
     stocksInPlay = stocksInPlay.slice(0, 30);
     dailySetups = dailySetups.slice(0, 30);
 
-    // ALIGNED EXACTLY WITH YOUR VERCEL VARIABLES
     const FMP_KEY = process.env.NEXT_PUBLIC_FMP_API_KEY; 
 
     if (FMP_KEY) {
@@ -110,47 +108,38 @@ export async function GET(request: Request) {
       ]));
 
       const profileMap: Record<string, any> = {};
-      const chunkSize = 50;
-
-      for (let i = 0; i < allUniqueTickers.length; i += chunkSize) {
-        const chunk = allUniqueTickers.slice(i, i + chunkSize);
-        try {
-          const profileRes = await fetch(
-            `https://financialmodelingprep.com/stable/profile?symbol=${chunk.join(',')}&apikey=${FMP_KEY}`,
-            { cache: 'no-store' }
-          );
-          
-          const quoteRes = await fetch(
-            `https://financialmodelingprep.com/stable/quote?symbol=${chunk.join(',')}&apikey=${FMP_KEY}`,
-            { cache: 'no-store' }
-          );
-          
-          if (profileRes.ok && quoteRes.ok) {
-            const rawProfiles = await profileRes.json();
-            const rawQuotes = await quoteRes.json();
+      
+      // FIX: Break FMP requests into individual parallel promises to bypass strict batch blocks
+      const batchSize = 10;
+      for (let i = 0; i < allUniqueTickers.length; i += batchSize) {
+        const batch = allUniqueTickers.slice(i, i + batchSize);
+        await Promise.all(batch.map(async (ticker) => {
+          try {
+            const profileRes = await fetch(`https://financialmodelingprep.com/stable/profile?symbol=${ticker}&apikey=${FMP_KEY}`, { cache: 'no-store' });
+            const quoteRes = await fetch(`https://financialmodelingprep.com/stable/quote?symbol=${ticker}&apikey=${FMP_KEY}`, { cache: 'no-store' });
             
-            const profiles = Array.isArray(rawProfiles) ? rawProfiles : (rawProfiles?.data || [rawProfiles]);
-            const quotes = Array.isArray(rawQuotes) ? rawQuotes : (rawQuotes?.data || [rawQuotes]);
-            
-            profiles.forEach((p: any) => { 
-              if (!p || !p.symbol) return;
-              const originalTicker = p.symbol.replace('-', '.');
+            if (profileRes.ok && quoteRes.ok) {
+              const rawProfiles = await profileRes.json();
+              const rawQuotes = await quoteRes.json();
+              
+              const p = Array.isArray(rawProfiles) ? rawProfiles[0] : (rawProfiles?.data ? rawProfiles.data[0] : rawProfiles);
+              const q = Array.isArray(rawQuotes) ? rawQuotes[0] : (rawQuotes?.data ? rawQuotes.data[0] : rawQuotes);
+              
+              const originalTicker = ticker.replace('-', '.');
               if (!profileMap[originalTicker]) profileMap[originalTicker] = {};
-              profileMap[originalTicker].mktCap = p.mktCap;
-              profileMap[originalTicker].sector = p.sector;
-            });
-
-            quotes.forEach((q: any) => {
-              if (!q || !q.symbol) return;
-              const originalTicker = q.symbol.replace('-', '.');
-              if (!profileMap[originalTicker]) profileMap[originalTicker] = {};
-              profileMap[originalTicker].avgVolume = q.avgVolume;
-              profileMap[originalTicker].float = q.sharesOutstanding; 
-            });
+              if (p) {
+                profileMap[originalTicker].mktCap = p.mktCap;
+                profileMap[originalTicker].sector = p.sector;
+              }
+              if (q) {
+                profileMap[originalTicker].avgVolume = q.avgVolume;
+                profileMap[originalTicker].float = q.sharesOutstanding; 
+              }
+            }
+          } catch (e) {
+             // Silent fail for individual bad tickers
           }
-        } catch (e) {
-          console.error("FMP Hydration chunk failed", e);
-        }
+        }));
       }
 
       const hydrate = (list: any[]) => list.map(item => {
@@ -176,10 +165,7 @@ export async function GET(request: Request) {
       megaCaps = hydrate(megaCaps);
       etfs = hydrate(etfs);
       stocksInPlay = hydrate(stocksInPlay);
-      
-      // STRICT MARKET CAP FILTER RESTORED
       stocksInPlay = stocksInPlay.filter(stock => stock.mktCap && stock.mktCap >= 20000000);
-
       dailySetups = hydrate(dailySetups);
     }
 
