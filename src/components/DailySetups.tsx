@@ -23,6 +23,7 @@ interface SetupData {
 }
 
 type SortDirection = 'asc' | 'desc';
+type ConvictionFilterType = 'All' | 'High' | 'Med' | 'Low';
 
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
@@ -69,6 +70,7 @@ export default function DailySetups() {
   
   const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(true); 
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
+  const [convictionFilter, setConvictionFilter] = useState<ConvictionFilterType>('All');
 
   useEffect(() => {
     let isMounted = true;
@@ -145,6 +147,16 @@ export default function DailySetups() {
       });
     }
 
+    if (convictionFilter !== 'All') {
+      filtered = filtered.filter(s => {
+        if (s.conviction == null) return false;
+        if (convictionFilter === 'High') return s.conviction >= 85;
+        if (convictionFilter === 'Med') return s.conviction >= 70 && s.conviction < 85;
+        if (convictionFilter === 'Low') return s.conviction < 70;
+        return true;
+      });
+    }
+
     if (!sortConfig) return filtered;
     
     return [...filtered].sort((a, b) => {
@@ -156,7 +168,7 @@ export default function DailySetups() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [setups, sortConfig, showStage2AOnly, marketCapFilter]);
+  }, [setups, sortConfig, showStage2AOnly, marketCapFilter, convictionFilter]);
 
   const getSortIcon = (columnKey: keyof SetupData) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
   const getStageColor = (stage: string | undefined) => {
@@ -226,7 +238,7 @@ export default function DailySetups() {
       {isExpanded && (
         <>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 relative z-10">
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-4">
               <button
                 onClick={(e) => { e.stopPropagation(); setShowStage2AOnly(!showStage2AOnly); }}
                 className={`px-4 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${
@@ -250,6 +262,26 @@ export default function DailySetups() {
                     }`}
                   >
                     {cap}
+                  </button>
+                ))}
+              </div>
+
+              {/* NEW CONVICTION FILTER */}
+              <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1" onClick={(e) => e.stopPropagation()}>
+                <div className="px-2 border-r border-white/10 mr-1">
+                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">CONF</span>
+                </div>
+                {['All', 'High', 'Med', 'Low'].map((level) => (
+                  <button
+                    key={level}
+                    onClick={() => setConvictionFilter(level as ConvictionFilterType)}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${
+                      convictionFilter === level
+                        ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]'
+                        : 'text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]'
+                    }`}
+                  >
+                    {level}
                   </button>
                 ))}
               </div>
@@ -367,7 +399,7 @@ export default function DailySetups() {
                                 </span>
                               </div>
                               {row.thesis && (
-                                <p className="text-[11px] text-slate-400 leading-relaxed truncate max-w-[350px] xl:max-w-[450px]" title={row.thesis}>
+                                <p className="text-[11px] text-slate-400 leading-relaxed line-clamp-3 max-w-[350px] xl:max-w-[450px] whitespace-normal" title={row.thesis}>
                                   {row.thesis}
                                 </p>
                               )}
