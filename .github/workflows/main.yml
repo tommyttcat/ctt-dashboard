@@ -2,30 +2,25 @@ name: Market Scanner Automator
 
 on:
   schedule:
-    # Runs every 5 minutes from 4 AM to 8 PM EST (8:00 UTC - 01:59 UTC) Monday-Friday
-    - cron: '*/5 8-23,0-1 * * 1-5'
-  workflow_dispatch: # This adds a button so you can manually trigger it from GitHub anytime
+    # Runs every 5 minutes, Monday through Friday
+    - cron: '*/5 * * * 1-5'
+  workflow_dispatch: # Allows you to manually click "Run workflow"
 
 jobs:
-  ping-engine:
+  run-scanner:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Vercel Scanner Engine
-        env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      - name: Trigger Vercel Scanner Route
         run: |
-          echo "Pinging scanner engine..."
-          response=$(curl -s -w "\n%{http_code}" -X GET "https://ctt-dashboard.vercel.app/api/scanner/run" \
-          -H "Authorization: Bearer $CRON_SECRET")
+          response=$(curl -s -w "%{http_code}" -X GET "https://ctt-dashboard.vercel.app/api/scanner/run" -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
           
-          # Extract body and status code for debugging
-          http_code=$(echo "$response" | tail -n1)
-          body=$(echo "$response" | head -n-1)
+          # Extract the HTTP status code from the end of the response
+          http_code=$(echo "$response" | tail -c 4)
           
-          echo "Response Code: $http_code"
-          echo "Response Body: $body"
-          
-          if [ "$http_code" -ne 200 ]; then
-            echo "Scanner failed to run."
+          if [ "$http_code" -eq 200 ]; then
+            echo "Scanner ran successfully!"
+          else
+            echo "Error: Scanner failed with status $http_code"
+            echo "Full response: $response"
             exit 1
           fi
