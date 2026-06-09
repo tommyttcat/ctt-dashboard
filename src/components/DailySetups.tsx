@@ -17,7 +17,7 @@ interface SetupData {
   shortPct: number | null;
   mktCap: number | null;
   stage: string;
-  setupName: string;
+  setupName: string | null;
   catalyst: string | null;
   catalystUrl: string | null;
 }
@@ -47,14 +47,15 @@ const formatCurrency = (num: number | null) => {
 
 export default function DailySetups() {
   const { session } = useMarketData(); 
-  
+
   const [setups, setSetups] = useState<SetupData[]>([]);
   const [status, setStatus] = useState<string>('Syncing DB...');
   const [lastScanTime, setLastScanTime] = useState<number | null>(null);
   
   const [sortConfig, setSortConfig] = useState<{ key: keyof SetupData; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
-  const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(true);
+  
+  const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(true); 
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
 
   useEffect(() => {
@@ -72,7 +73,7 @@ export default function DailySetups() {
           const safeData = rawList.map((item: any) => ({
             ticker: item.ticker || '—',
             name: item.name || '',
-            sector: item.sector || '',
+            sector: item.sector && item.sector !== '—' ? item.sector : '—',
             price: Number(item.price) || 0,
             vwapStatus: item.vwapStatus || 'neutral',
             changePct: Number(item.change ?? item.changePct) || 0,
@@ -83,7 +84,7 @@ export default function DailySetups() {
             shortPct: item.shortPct || null,
             mktCap: item.mktCap || null,
             stage: item.stage || 'Stage 2A',
-            setupName: item.setupName || '—',
+            setupName: item.setupName || null,
             catalyst: item.catalyst || null,
             catalystUrl: item.catalystUrl || null,
           }));
@@ -116,15 +117,15 @@ export default function DailySetups() {
   const filteredAndSortedSetups = useMemo(() => {
     let filtered = setups;
     
-    // FIXED FILTER: Now strictly checks for "Stage 2A" instead of just "2A"
+    // STRICT FILTER: Exact case matching
     if (showStage2AOnly) {
       filtered = filtered.filter(s => s.stage === 'Stage 2A');
     }
-
+    
     if (marketCapFilter !== 'All') {
       filtered = filtered.filter(s => {
         const mc = s.mktCap;
-        if (!mc) return true; // Keeps items visible if market cap is missing
+        if (!mc) return true; 
         if (marketCapFilter === 'Mega') return mc >= 200e9;
         if (marketCapFilter === 'Large') return mc >= 10e9 && mc < 200e9;
         if (marketCapFilter === 'Mid') return mc >= 2e9 && mc < 10e9;
@@ -211,7 +212,7 @@ export default function DailySetups() {
           )}
         </div>
       </div>
-
+      
       {isExpanded && (
         <>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 relative z-10">
@@ -270,24 +271,24 @@ export default function DailySetups() {
               </div>
             </div>
           </div>
-          
-          <div className="overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
+
+          <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
             <table className="w-full min-w-[1300px] border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[11%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[4%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[11%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('setupName')}>STRATEGY{getSortIcon('setupName')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[18%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '24px' }} onClick={() => handleSort('catalyst')}>CATALYST'S{getSortIcon('catalyst')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[25%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '24px' }} onClick={() => handleSort('catalyst')}>CATALYST'S{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -300,7 +301,7 @@ export default function DailySetups() {
                   </tr>
                 ) : filteredAndSortedSetups.length === 0 ? (
                   <tr>
-                    <td colSpan={13} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td>
+                    <td colSpan={13} className="py-12 text-center text-slate-500 text-sm font-medium">No daily setups currently matching momentum criteria.</td>
                   </tr>
                 ) : (
                   filteredAndSortedSetups.map((row, i) => {
@@ -310,7 +311,7 @@ export default function DailySetups() {
                         <td className="py-3" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           <div className="relative inline-flex items-center group/ticker">
                             <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
-                            <div className="absolute left-full ml-3 px-3 py-1.5 bg-[#1e293b] border border-white/10 text-slate-200 text-xs font-semibold tracking-wide rounded-md shadow-2xl opacity-0 invisible group-hover/ticker:opacity-100 group-hover/ticker:visible transition-all z-[60] whitespace-nowrap pointer-events-none">{row.name || row.ticker}</div>
+                            <div className="absolute left-full ml-3 px-3 py-1.5 bg-[#1e293b] border border-white/10 text-slate-200 text-xs font-semibold tracking-wide rounded-md shadow-2xl opacity-0 invisible group-hover/ticker:opacity-100 group-hover/ticker:visible transition-all z-50 whitespace-nowrap pointer-events-none">{row.name || row.ticker}</div>
                           </div>
                         </td>
                         <td className="py-3 text-xs text-slate-300 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
@@ -335,12 +336,12 @@ export default function DailySetups() {
                         <td className="py-3 text-[11px] text-slate-200 font-semibold truncate max-w-[280px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           <div className="flex items-center gap-1.5">
                             {row.setupName === 'Blue Dot Rev' && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"></div>}
-                            <span>{row.setupName}</span>
+                            <span>{row.setupName || '—'}</span>
                           </div>
                         </td>
                         <td className="py-3 text-[11px] text-slate-400 font-medium" style={{ textAlign: 'left', paddingLeft: '24px' }}>
                           <div className="flex items-center gap-2 group/cat">
-                            {row.catalyst ? (
+                            {row.catalyst && row.catalyst !== '—' ? (
                               row.catalystUrl ? (
                                 <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="truncate max-w-[450px] md:max-w-[550px] lg:max-w-[750px] xl:max-w-[950px] group-hover/cat:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>
                               ) : (<span className="truncate max-w-[450px] md:max-w-[550px] lg:max-w-[750px] xl:max-w-[950px] group-hover/cat:text-slate-200 transition-colors">{row.catalyst}</span>)

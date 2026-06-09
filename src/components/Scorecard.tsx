@@ -1,410 +1,151 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 
-// Unified Asset Dictionary
-const MACRO_ASSETS = [
-  { id: 'SPY', fmp: 'SPY', ws: 'SPY', name: 'S&P 500', type: 'stock' },
-  { id: 'QQQ', fmp: 'QQQ', ws: 'QQQ', name: 'Nasdaq 100', type: 'stock' },
-  { id: 'DIA', fmp: 'DIA', ws: 'DIA', name: 'Dow Jones', type: 'stock' },
-  { id: 'IWM', fmp: 'IWM', ws: 'IWM', name: 'Russell 2000', type: 'stock' },
-  { id: 'VIX', fmp: '^VIX', ws: 'VIX', name: 'VIX Index', type: 'stock' },
-  { id: 'TLT', fmp: 'TLT', ws: 'TLT', name: '20Y Treasury', type: 'stock' },
-  { id: 'GLD', fmp: 'GLD', ws: 'GLD', name: 'Gold ETF', type: 'stock' },
-  { id: 'SLV', fmp: 'SLV', ws: 'SLV', name: 'Silver ETF', type: 'stock' },
-  { id: 'USO', fmp: 'USO', ws: 'USO', name: 'Crude Oil', type: 'stock' },
-  { id: 'BTC', fmp: 'BTCUSD', ws: 'BTC-USD', name: 'Bitcoin', type: 'crypto' },
-  { id: 'ETH', fmp: 'ETHUSD', ws: 'ETH-USD', name: 'Ethereum', type: 'crypto' },
-  { id: 'SOL', fmp: 'SOLUSD', ws: 'SOL-USD', name: 'Solana', type: 'crypto' }
-];
-
-interface TickData {
+interface MacroData {
+  symbol: string;
   price: number;
-  baseline: number; 
-  pct: number; 
-  tickDirection: 'up' | 'down' | 'flat';
-  synced: boolean;
-  isExtended?: boolean;
+  changePct: number;
 }
 
-type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
-
-// --- HELPERS ---
-const getMarketSession = (): MarketSession => {
-  const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const day = estDate.getDay();
-  const timeStr = estDate.getHours() + estDate.getMinutes() / 60;
-  if (day === 0 || day === 6) return 'Closed';
-  if (timeStr >= 4 && timeStr < 9.5) return 'Pre-Market';
-  if (timeStr >= 9.5 && timeStr < 16) return 'Open';
-  if (timeStr >= 16 && timeStr < 20) return 'Post-Market';
-  return 'Closed'; 
-};
-
-const formatTime = (date: Date) => {
-  return date.toLocaleTimeString('en-US', { 
-    hour: 'numeric', 
-    minute: '2-digit', 
-    second: '2-digit',
-    timeZone: 'America/New_York' 
-  });
-};
+const ASSETS = [
+  { ticker: 'SPY', fmpSymbol: 'SPY', name: 'S&P 500' },
+  { ticker: 'QQQ', fmpSymbol: 'QQQ', name: 'NASDAQ 100' },
+  { ticker: 'DIA', fmpSymbol: 'DIA', name: 'DOW JONES' },
+  { ticker: 'IWM', fmpSymbol: 'IWM', name: 'RUSSELL 2000' },
+  { ticker: 'VIX', fmpSymbol: '^VIX', name: 'VIX INDEX' },
+  { ticker: 'TLT', fmpSymbol: 'TLT', name: '20Y TREASURY' },
+  { ticker: 'GLD', fmpSymbol: 'GLD', name: 'GOLD ETF' },
+  { ticker: 'SLV', fmpSymbol: 'SLV', name: 'SILVER ETF' },
+  { ticker: 'USO', fmpSymbol: 'USO', name: 'CRUDE OIL' },
+  { ticker: 'BTC', fmpSymbol: 'BTCUSD', name: 'BITCOIN' },
+  { ticker: 'ETH', fmpSymbol: 'ETHUSD', name: 'ETHEREUM' },
+  { ticker: 'SOL', fmpSymbol: 'SOLUSD', name: 'SOLANA' }
+];
 
 export default function MacroScorecard() {
-  const [quotes, setQuotes] = useState<Record<string, TickData>>({});
-  const [stockStatus, setStockStatus] = useState<'CONNECTING' | 'LIVE' | 'ERROR' | 'AUTH_ERROR'>('CONNECTING');
-  const [session, setSession] = useState<MarketSession>('Closed');
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [data, setData] = useState<Record<string, MacroData>>({});
+  const [status, setStatus] = useState<string>('Syncing...');
 
-  const [riskMode, setRiskMode] = useState<'ON' | 'OFF'>('ON');
-  const [marketTone, setMarketTone] = useState<'BULLISH' | 'NEUTRAL' | 'BEARISH'>('NEUTRAL');
-  const [isExpanded, setIsExpanded] = useState<boolean>(true);
-
-  const cryptoWs = useRef<WebSocket | null>(null);
-
-  // --- ENGINE 1: AUTO-MACRO SENTIMENT ALGO ---
-  useEffect(() => {
-    if (!quotes['SPY'] || !quotes['QQQ'] || !quotes['VIX']) return;
-
-    const getPct = (id: string) => quotes[id]?.pct || 0;
-
-    const eqScore = (getPct('SPY') * 2.0) + (getPct('QQQ') * 2.0) + (getPct('IWM') * 1.0);
-    const volScore = (getPct('VIX') * -3.0); 
-    const cryptoScore = (getPct('BTC') * 0.5); 
-
-    const totalScore = eqScore + volScore + cryptoScore;
-
-    if (totalScore >= 1.2) {
-      setMarketTone('BULLISH');
-      setRiskMode('ON');
-    } else if (totalScore <= -1.2) {
-      setMarketTone('BEARISH');
-      setRiskMode('OFF');
-    } else {
-      setMarketTone('NEUTRAL');
-      setRiskMode(totalScore >= 0 ? 'ON' : 'OFF');
-    }
-  }, [quotes]);
-
-  // --- ENGINE 2: FMP 5-MIN HISTORICAL OVERRIDE ENGINE ---
   useEffect(() => {
     let isMounted = true;
-    const fmpApiKey = (process.env.NEXT_PUBLIC_FMP_API_KEY || '').trim();
 
-    if (!fmpApiKey) {
-      setStockStatus('AUTH_ERROR');
-      return;
-    }
-
-    const fetchEquities = async () => {
-      const stockAssets = MACRO_ASSETS.filter(a => a.type === 'stock');
-      const currentSession = getMarketSession();
-      
+    const fetchMacro = async () => {
       try {
-        // 1. Fetch the Standard Quote
-        const stdPromises = stockAssets.map(asset => 
-          fetch(`https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(asset.fmp)}&apikey=${fmpApiKey}`, { cache: 'no-store' })
-            .then(res => {
-              if (res.status === 401) throw new Error('401_UNAUTHORIZED');
-              return res.ok ? res.json() : [];
-            })
-            .catch((err) => {
-              if (err.message === '401_UNAUTHORIZED') throw err; 
-              return []; 
-            }) 
-        );
-        
-        const stdResults = await Promise.all(stdPromises);
-        const stdData = stdResults.flat();
-
-        // 2. Fetch the 5-Minute Chart for After-Hours Data
-        let ahData: Record<string, number> = {};
-        const isExtendedHours = currentSession === 'Post-Market' || currentSession === 'Pre-Market' || currentSession === 'Closed';
-
-        if (isExtendedHours) {
-          const ahPromises = stockAssets.map(asset => 
-            fetch(`https://financialmodelingprep.com/stable/historical-chart/5min?symbol=${encodeURIComponent(asset.fmp)}&extended=true&apikey=${fmpApiKey}`, { cache: 'no-store' })
-              .then(res => res.ok ? res.json() : [])
-              .then(data => {
-                if (Array.isArray(data) && data.length > 0) {
-                  return { symbol: asset.fmp, price: data[0].close };
-                }
-                return null;
-              })
-              .catch(() => null)
-          );
-          
-          const ahResults = await Promise.all(ahPromises);
-          ahResults.forEach(r => {
-            if (r) ahData[r.symbol] = r.price;
-          });
+        const FMP_KEY = process.env.NEXT_PUBLIC_FMP_API_KEY;
+        if (!FMP_KEY) {
+           setStatus('API Key Missing');
+           return;
         }
-        
-        // 3. Merge and Mount
-        if (stdData.length > 0 && isMounted) {
-          setSession(currentSession);
-          setLastUpdated(new Date());
-          setStockStatus('LIVE'); 
 
-          setQuotes(prev => {
-            const next = { ...prev };
-            
-            stdData.forEach(q => {
-              const asset = MACRO_ASSETS.find(a => a.fmp === q.symbol && a.type === 'stock');
-              if (asset) {
-                
-                const ahPrice = ahData[asset.fmp];
-                const useAh = isExtendedHours && ahPrice !== undefined && ahPrice > 0;
-                const currentPrice = useAh ? ahPrice : (q.price || 0);
-                
-                const prevQuote = prev[asset.id];
-                const baseline = q.previousClose || prevQuote?.baseline || q.open || currentPrice;
-                const pct = baseline > 0 ? ((currentPrice - baseline) / baseline) * 100 : 0;
-                
-                let direction: 'up' | 'down' | 'flat' = prevQuote?.tickDirection || 'flat';
-                if (prevQuote && currentPrice > prevQuote.price) direction = 'up';
-                else if (prevQuote && currentPrice < prevQuote.price) direction = 'down';
+        // Chunking the array into groups of 4 to completely bypass FMP batch blocks
+        const chunks = [
+          ['SPY', 'QQQ', 'DIA', 'IWM'],
+          ['^VIX', 'TLT', 'GLD', 'SLV'],
+          ['USO', 'BTCUSD', 'ETHUSD', 'SOLUSD']
+        ];
 
-                if (currentPrice > 0) {
-                  next[asset.id] = { 
-                    price: currentPrice, 
-                    baseline: baseline, 
-                    pct: pct, 
-                    tickDirection: direction, 
-                    synced: true,
-                    isExtended: useAh
-                  };
-                }
-              }
-            });
-            return next;
-          });
-        }
-      } catch (err: any) {
-        if (!isMounted) return;
-        if (err.message === '401_UNAUTHORIZED') {
-          setStockStatus('AUTH_ERROR');
-        } else {
-          setStockStatus('ERROR');
-        }
-      }
-    };
+        const allResults = [];
 
-    fetchEquities();
-    
-    const pollingInterval = setInterval(() => {
-      if (isMounted && stockStatus !== 'AUTH_ERROR') {
-        fetchEquities();
-      }
-    }, 10000);
-
-    return () => {
-      isMounted = false;
-      clearInterval(pollingInterval);
-    };
-  }, []);
-
-  // --- ENGINE 3: COINBASE WEBSOCKET (CRYPTO) ---
-  useEffect(() => {
-    let isMounted = true;
-    const connectCoinbase = () => {
-      if (cryptoWs.current && (cryptoWs.current.readyState === 0 || cryptoWs.current.readyState === 1)) return;
-
-      const cWs = new WebSocket('wss://ws-feed.exchange.coinbase.com');
-      cryptoWs.current = cWs;
-
-      cWs.onopen = () => {
-        if (!isMounted) return;
-        const cryptoTickers = MACRO_ASSETS.filter(a => a.type === 'crypto').map(a => a.ws);
-        cWs.send(JSON.stringify({
-          type: 'subscribe',
-          product_ids: cryptoTickers,
-          channels: ['ticker']
-        }));
-      };
-      
-      cWs.onmessage = (event) => {
-        if (!isMounted) return;
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === 'ticker' && msg.product_id && msg.price) {
-            const asset = MACRO_ASSETS.find(a => a.ws === msg.product_id && a.type === 'crypto');
-            const currentPrice = parseFloat(msg.price);
-            
-            if (asset && currentPrice > 0) {
-              setQuotes(prev => {
-                const prevQuote = prev[asset.id];
-                
-                const msgOpen = msg.open_24h ? parseFloat(msg.open_24h) : 0;
-                const baseline = msgOpen > 0 ? msgOpen : (prevQuote?.baseline || currentPrice);
-                
-                const pct = baseline > 0 ? ((currentPrice - baseline) / baseline) * 100 : 0;
-
-                let direction: 'up' | 'down' | 'flat' = prevQuote?.tickDirection || 'flat';
-                if (prevQuote && currentPrice > prevQuote.price) direction = 'up';
-                else if (prevQuote && currentPrice < prevQuote.price) direction = 'down';
-
-                return { ...prev, [asset.id]: { price: currentPrice, baseline, pct, tickDirection: direction, synced: true } };
-              });
-            }
+        for (const chunk of chunks) {
+          // STRICTLY using stable routing architecture
+          const res = await fetch(`https://financialmodelingprep.com/stable/quote?symbol=${chunk.join(',')}&apikey=${FMP_KEY}`, { cache: 'no-store' });
+          if (res.ok) {
+            const rawData = await res.json();
+            const arr = Array.isArray(rawData) ? rawData : (rawData?.data || [rawData]);
+            if (arr) allResults.push(...arr);
           }
-        } catch (e) {}
-      };
-      
-      cWs.onclose = () => {
-        if (isMounted) {
-          setTimeout(connectCoinbase, 3000);
         }
-      };
+
+        if (isMounted && allResults.length > 0) {
+          const newData: Record<string, MacroData> = {};
+          allResults.forEach((item: any) => {
+            if (!item || !item.symbol) return;
+            newData[item.symbol] = {
+              symbol: item.symbol,
+              price: item.price || 0,
+              changePct: item.changesPercentage || 0
+            };
+          });
+          setData(newData);
+          setStatus('LIVE');
+        }
+      } catch (error) {
+        if (isMounted) setStatus('OFFLINE');
+      }
     };
 
-    connectCoinbase();
-
+    fetchMacro();
+    const interval = setInterval(fetchMacro, 60000);
+    
     return () => {
       isMounted = false;
-      if (cryptoWs.current) {
-        cryptoWs.current.onclose = null; 
-        cryptoWs.current.close();
-      }
+      clearInterval(interval);
     };
   }, []);
 
-  const getSessionTextColor = () => {
-    if (session === 'Pre-Market') return 'text-amber-500';
-    if (session === 'Open') return 'text-[#00e676]';
-    if (session === 'Post-Market') return 'text-indigo-400';
-    return 'text-slate-500';
+  const getRiskTone = () => {
+    if (!data['SPY'] || !data['^VIX']) return { mode: 'NEUTRAL', color: 'text-amber-500', bg: 'bg-amber-500/10 border-amber-500/20' };
+    
+    const spyUp = data['SPY'].changePct > 0;
+    const vixDown = data['^VIX'].changePct < 0;
+
+    if (spyUp && vixDown) return { mode: 'RISK ON', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20' };
+    if (!spyUp && !vixDown) return { mode: 'RISK OFF', color: 'text-rose-400', bg: 'bg-rose-500/10 border-rose-500/20' };
+    return { mode: 'NEUTRAL', color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20' };
   };
 
-  return (
-    <div className="bg-[#101623] border border-white/5 rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-xl">
-      
-      <div className="absolute right-0 top-0 w-64 h-64 bg-indigo-500/5 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
+  const tone = getRiskTone();
 
-      {/* HEADER CONTAINER */}
-      <div 
-        onClick={() => setIsExpanded(!isExpanded)}
-        className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-6 border-b border-white/5 pb-4' : ''}`}
-      >
-        <div className="flex items-center gap-3">
-          <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
+  return (
+    <div className="w-full">
+      <div className="flex justify-between items-center mb-6">
+        <div className="flex items-center gap-4">
+          <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
             MACRO SCORECARD
           </span>
-        </div>
-
-        <div className="hidden sm:flex absolute left-1/2 -translate-x-1/2 items-center gap-3">
-          <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${
-              riskMode === 'ON' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-            }`}
-          >
-            RISK {riskMode}
-          </div>
-          <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${
-              marketTone === 'BULLISH' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
-              marketTone === 'BEARISH' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
-              'bg-amber-500/10 text-amber-400 border-amber-500/20'
-            }`}
-          >
-            TONE: {marketTone}
+          
+          <div className={`px-3 py-1 rounded-md border text-[10px] font-bold tracking-widest uppercase ${tone.bg} ${tone.color}`}>
+            TONE: {tone.mode}
           </div>
         </div>
 
-        <div className="flex flex-col items-center gap-1.5">
-          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${stockStatus === 'LIVE' ? getSessionTextColor() : 'text-slate-500'}`}>
-              {stockStatus === 'LIVE' ? session : stockStatus === 'CONNECTING' ? 'Scouting...' : 'Offline'}
-            </span>
-          </div>
-          {lastUpdated && (
-             <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
-               Updated: {formatTime(lastUpdated)} EST
-             </span>
-          )}
+        <div className="flex items-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px]">
+          <span className={`text-[10px] font-bold tracking-widest uppercase ${status === 'LIVE' ? 'text-emerald-400' : 'text-slate-500'}`}>
+            {status}
+          </span>
         </div>
       </div>
 
-      {/* COLLAPSIBLE CONTENT */}
-      {isExpanded && (
-        <>
-          <div className="flex sm:hidden justify-center items-center gap-3 mb-6 relative z-10">
-            <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${
-                riskMode === 'ON' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-              }`}
-            >
-              RISK {riskMode}
-            </div>
-            <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${
-                marketTone === 'BULLISH' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
-                marketTone === 'BEARISH' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
-                'bg-amber-500/10 text-amber-400 border-amber-500/20'
-              }`}
-            >
-              TONE: {marketTone}
-            </div>
-          </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {ASSETS.map((asset) => {
+          const quote = data[asset.fmpSymbol];
+          const isPositive = quote?.changePct >= 0;
 
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4 relative z-10">
-            {MACRO_ASSETS.map((asset) => {
-              const q = quotes[asset.id];
-              
-              if (!q || !q.synced || q.price === 0) {
-                return (
-                  <div key={asset.id} className="bg-[#161c2a]/60 border border-white/5 rounded-xl p-4 flex flex-col justify-between h-24 opacity-60">
-                    <div className="flex justify-between items-start">
-                      <span className="text-sm font-bold text-slate-300">{asset.id}</span>
-                      <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">{asset.name}</span>
-                    </div>
-                    <div className="flex flex-col mt-2">
-                      <span className="text-sm font-medium text-slate-500 animate-pulse">Syncing...</span>
-                    </div>
-                  </div>
-                );
-              }
+          return (
+            <div key={asset.ticker} className="bg-[#161c2a] border border-white/5 rounded-xl p-4 flex flex-col justify-between h-[85px] hover:bg-white/[0.02] transition-colors">
+              <div className="flex justify-between items-start">
+                <span className="text-sm font-bold text-slate-200">{asset.ticker}</span>
+                <span className="text-[9px] font-bold tracking-widest text-slate-500 uppercase">{asset.name}</span>
+              </div>
 
-              const pct = q.pct || 0;
-              const isPositive = pct >= 0;
-              
-              const cardBg = isPositive ? 'bg-emerald-950/10' : 'bg-rose-950/10';
-              const cardBorder = isPositive ? 'border-emerald-500/20' : 'border-rose-500/20';
-              
-              const tickColor = q.tickDirection === 'up' ? 'text-emerald-300' : q.tickDirection === 'down' ? 'text-rose-300' : 'text-slate-100';
-
-              return (
-                <div key={asset.id} className={`rounded-xl p-4 flex flex-col justify-between h-24 transition-colors duration-300 border ${cardBg} ${cardBorder} hover:bg-white/[0.02] shadow-sm`}>
-                  
-                  <div className="flex justify-between items-start">
-                    <div className="flex flex-col">
-                      <span className="text-sm font-bold text-slate-200">{asset.id}</span>
-                      <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500 truncate max-w-[90px]">
-                        {asset.name}
-                      </span>
-                    </div>
-                    
-                    <div className="flex flex-col items-end">
-                      <span className={`text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded ${isPositive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-                        {isPositive ? '+' : ''}{pct.toFixed(2)}%
-                      </span>
-                      {q.isExtended && (
-                        <span className="text-[8px] font-bold text-amber-500/80 tracking-wider mt-1 uppercase">
-                          {session === 'Pre-Market' ? 'PRE' : 'POST'}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div className="flex flex-col items-start mt-2">
-                    <span className={`text-2xl font-semibold tracking-tight transition-colors duration-200 ${tickColor}`}>
-                      {asset.type === 'crypto' && q.price > 100 ? q.price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : q.price.toFixed(2)}
+              <div className="flex justify-between items-end mt-2">
+                {quote ? (
+                  <>
+                    <span className="text-lg font-bold text-white">${quote.price.toFixed(2)}</span>
+                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded-md ${isPositive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                      {isPositive ? '+' : ''}{quote.changePct.toFixed(2)}%
                     </span>
-                  </div>
-
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
+                  </>
+                ) : (
+                  <span className="text-xs text-slate-500 font-medium">Syncing...</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

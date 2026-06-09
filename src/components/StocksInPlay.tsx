@@ -73,7 +73,7 @@ export default function StocksInPlay() {
           const safeData = rawList.map((item: any) => ({
             ticker: item.ticker || '—',
             name: item.name || '',
-            sector: item.sector || '',
+            sector: item.sector && item.sector !== '—' ? item.sector : '—',
             price: Number(item.price) || 0,
             vwapStatus: item.vwapStatus || 'neutral',
             changePct: Number(item.change ?? item.changePct) || 0,
@@ -117,7 +117,7 @@ export default function StocksInPlay() {
   const filteredAndSortedStocks = useMemo(() => {
     let filtered = stocks;
     
-    // FIXED FILTER: Now strictly checks for "Stage 2A" instead of just "2A"
+    // STRICT FILTER: Exact case matching
     if (showStage2AOnly) {
       filtered = filtered.filter(s => s.stage === 'Stage 2A');
     }
@@ -125,7 +125,7 @@ export default function StocksInPlay() {
     if (marketCapFilter !== 'All') {
       filtered = filtered.filter(s => {
         const mc = s.mktCap;
-        if (!mc) return true; // Keeps items visible if market cap is missing
+        if (!mc) return true; 
         if (marketCapFilter === 'Mega') return mc >= 200e9;
         if (marketCapFilter === 'Large') return mc >= 10e9 && mc < 200e9;
         if (marketCapFilter === 'Mid') return mc >= 2e9 && mc < 10e9;
