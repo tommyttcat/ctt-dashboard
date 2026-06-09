@@ -1,14 +1,13 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
-import { headers } from 'next/headers'; // 1. Import Next.js headers API
+import { headers } from 'next/headers'; 
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 export async function GET() {
   try {
-    // 2. THE SLEDGEHAMMER: By invoking headers(), Next.js is permanently 
-    // banned from caching this route. It MUST pull fresh from Upstash.
+    // Permanent cache ban
     headers();
 
     console.log("Fetching raw scanner data from KV...");
@@ -36,16 +35,24 @@ export async function GET() {
     const dailySetups = safeParse(rawDailySetups, []);
     const stocksInPlay = safeParse(rawStocksInPlay, []);
     
-    // (If the scanner sends camelCase like 'gainers', map them to what the UI expects)
     let topMovers = safeParse(rawTopMovers, null);
+    
+    // 4. Map and Split the Data
     if (!topMovers || !topMovers['Gainers']) {
-      // Map the new scanner engine keys to the exact labels your UI is looking for
+      
+      // Grab the master ETF list
+      const allETFs = topMovers?.etfs || [];
+      
+      // Split them by positive/negative change
+      const etfGainers = allETFs.filter((e: any) => e.change >= 0);
+      const etfLosers = allETFs.filter((e: any) => e.change < 0);
+
       topMovers = {
         'Mega Caps': topMovers?.megaCaps || [],
         'Gainers': topMovers?.gainers || [],
         'Losers': topMovers?.losers || [],
-        'ETF Gainers': topMovers?.etfs || [],
-        'ETF Losers': []
+        'ETF Gainers': etfGainers,
+        'ETF Losers': etfLosers
       };
     }
 
