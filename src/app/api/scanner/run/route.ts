@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { kv } from "@vercel/kv"; // Vercel/Upstash KV database
+import { kv } from "@vercel/kv";
 
 // Prevents Next.js from caching this route so it runs fresh every 5 minutes
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  // 0. Security Gatekeeper
+  // 0. Security Gatekeeper (LOCKED FOR PRODUCTION)
   const authHeader = request.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return new NextResponse("Unauthorized", { status: 401 });
@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
   const timeStr = estDate.getHours() + estDate.getMinutes() / 60;
   
-  let currentVolumeThreshold = 500000; // Default regular hours
+  let currentVolumeThreshold = 500000;
   let currentMarketStatus = "Closed";
   
   if (timeStr >= 4 && timeStr < 9.5) {
@@ -33,9 +33,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    console.log(`Scanner running: ${currentMarketStatus} | Volume Threshold: ${currentVolumeThreshold}`);
-
-    // 2. Fetch Polygon Data (All US Equities Snapshot)
+    // 2. Fetch Polygon Data
     const API_KEY = process.env.POLYGON_API_KEY;
     if (!API_KEY) throw new Error("Missing POLYGON_API_KEY");
 
@@ -47,9 +45,18 @@ export async function GET(request: Request) {
     const data = await response.json();
     const tickers = data.tickers || [];
 
-    // 3. Filter Engine
-    const stocksInPlay = [];
+    // 3. Filter Engine Setup
+    const gainers = [];
+    const losers = [];
     const megaCaps = []; 
+    const etfs = [];
+
+    // Your specific 20 Mega Cap list
+    const megaCapTickers = [
+      "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD", 
+      "NFLX", "AVGO", "COST", "TMUS", "CSCO", "INTC", "QCOM", "TXN", 
+      "AMAT", "ISRG", "HON", "BKNG"
+    ];
 
     for (const stock of tickers) {
       const volume = stock.day?.v || 0;
@@ -57,55 +64,62 @@ export async function GET(request: Request) {
       const currentPrice = stock.day?.c || stock.lastTrade?.p || stock.min?.c || prevClose;
       const percentChange = ((currentPrice - prevClose) / prevClose) * 100;
       
-      // Basic Market Cap proxy (you can replace with a strict FMP/Massive API call if needed)
-      // Assuming a standard $20M threshold bypass for ETFs
-      const isETF = stock.ticker.includes("QQQ") || stock.ticker.includes("SPY"); 
-      const meetsMarketCap = isETF ? true : true; // Expand this if you pull live MCAP from Polygon
+      const isETF = stock.ticker.includes("QQQ") || stock.ticker.includes("SPY") || stock.ticker.includes("IWM");
+      
+      const tickerData = {
+        ticker: stock.ticker,
+        price: currentPrice,
+        change: percentChange,
+        volume: volume,
+        stage: "Stage 2A"
+      };
 
-      // Stocks In Play: Min 4% gain, Min Volume Threshold, >$20M Market Cap
-      if (percentChange >= 4 && volume >= currentVolumeThreshold && meetsMarketCap) {
-        stocksInPlay.push({
-          ticker: stock.ticker,
-          price: currentPrice,
-          change: percentChange,
-          volume: volume,
-          stage: "Stage 2A"
-        });
+      // Populate Mega Caps
+      if (megaCapTickers.includes(stock.ticker)) {
+        megaCaps.push(tickerData);
       }
 
-      // Mega Caps List (Keep strictly to 20 stocks)
-      // Note: Add your specific array of 20 Mega Cap tickers here to filter them
-      const isMegaCapTicker = ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD"].includes(stock.ticker);
-      if (isMegaCapTicker && megaCaps.length < 20) {
-        megaCaps.push({
-          ticker: stock.ticker,
-          price: currentPrice,
-          change: percentChange,
-          volume: volume,
-          stage: "Stage 2A"
-        });
+      // Populate ETFs
+      if (isETF) {
+        etfs.push(tickerData);
+      }
+
+      // Populate Gainers and Losers (Price >= $1.00 and Meets Volume Threshold)
+      if (volume >= currentVolumeThreshold && currentPrice >= 1.00) {
+        if (percentChange >= 4) {
+          gainers.push(tickerData);
+        } else if (percentChange <= -4) {
+          losers.push(tickerData);
+        }
       }
     }
 
-    // Sort SIPs by highest percentage gainer
-    stocksInPlay.sort((a, b) => b.change - a.change);
+    // Sort arrays by biggest movers
+    gainers.sort((a, b) => b.change - a.change);
+    losers.sort((a, b) => a.change - b.change);
+    megaCaps.sort((a, b) => b.change - a.change);
 
-    // 4. Update Database (Upstash/Vercel KV)
-    await kv.set("stocksInPlay", stocksInPlay);
-    await kv.set("megaCaps", megaCaps);
+    // 4. Construct the final object exactly as the frontend expects it
+    const finalTopMovers = {
+      gainers: gainers.slice(0, 50),
+      losers: losers.slice(0, 50),
+      megaCaps: megaCaps,
+      etfs: etfs
+    };
+
+    // 5. Update Database (Upstash/Vercel KV)
+    await kv.set("top_movers", finalTopMovers);
     await kv.set("marketStatus", currentMarketStatus);
     await kv.set("lastUpdated", new Date().toISOString());
 
     return NextResponse.json({ 
       success: true, 
-      message: "Scanner run complete",
       marketStatus: currentMarketStatus,
-      thresholdUsed: currentVolumeThreshold,
-      sipCount: stocksInPlay.length
+      gainersFound: gainers.length
     });
 
-  } catch (error) {
-    console.error("Scanner Engine Error:", error);
-    return NextResponse.json({ error: "Scanner failed to run" }, { status: 500 });
+  } catch (error: any) {
+    console.error("Scanner Engine Error:", error.message);
+    return NextResponse.json({ error: "Scanner failed to run", details: error.message }, { status: 500 });
   }
 }
