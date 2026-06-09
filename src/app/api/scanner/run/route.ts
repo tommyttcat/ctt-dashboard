@@ -298,14 +298,20 @@ export async function GET(request: Request) {
   if (!polygonApiKey) return NextResponse.json({ error: 'Missing API Key' }, { status: 500 });
 
   try {
-    // 1. Fetch Market Snapshot
+    // 1. Session Awareness Math
+    const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const timeStr = estDate.getHours() + estDate.getMinutes() / 60;
+    const isPreMarket = timeStr >= 4 && timeStr < 9.5;
+    
+    // During Pre-Market, drop the required volume from 500,000 to 25,000 so the engine doesn't break
+    const currentVolumeThreshold = isPreMarket ? 25000 : 500000;
+
+    // 2. Fetch Market Snapshot
     const snapRes = await fetchSafeJson(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`, { tickers: [] });
     const rawSnapshot = snapRes.tickers || [];
     if (rawSnapshot.length === 0) return NextResponse.json({ error: 'No snapshot data returned' }, { status: 500 });
 
-    // =========================================================================
-    // 2. LIVE MATH INJECTION
-    // =========================================================================
+    // 3. LIVE MATH INJECTION
     const processedSnapshot = rawSnapshot.map((t: any) => {
       const livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || 0;
       const prevClose = t.prevDay?.c || 0;
@@ -325,8 +331,8 @@ export async function GET(request: Request) {
       return t;
     });
 
-    // 3. Base Filters 
-    const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= 1.00 && t._liveVol >= 500000);
+    // 4. Base Filters (Using the dynamic Session-Aware volume limit)
+    const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= 1.00 && t._liveVol >= currentVolumeThreshold);
 
     const dailyCandidates = [...viableSetups]
       .sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 30);
@@ -335,7 +341,7 @@ export async function GET(request: Request) {
       .filter((t: any) => t._liveChg >= 4.0 && t._livePrice >= t._liveVwap)
       .sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 30);
 
-    // 4. TOP MOVERS SORTING ENGINE
+    // 5. TOP MOVERS SORTING ENGINE
     const megaCapsRaw = processedSnapshot
       .filter((t: any) => MEGA_CAP_TICKERS.has(t.ticker))
       .sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
@@ -354,7 +360,7 @@ export async function GET(request: Request) {
     const toStr = today.toISOString().split('T')[0];
     const fromStr = lookbackDate.toISOString().split('T')[0];
 
-    // 5. Massive Enrichment Engine
+    // 6. Massive Enrichment Engine
     const enrichCandidate = async (t: any) => {
       const sym = t.ticker || t.single_ticker;
       const price = t._livePrice;
@@ -388,7 +394,6 @@ export async function GET(request: Request) {
       const marketCap = details?.results?.market_cap || 0;
       const companyName = details?.results?.name || sym;
 
-      // Identify if the ticker is an ETF to exempt it from the $20M Cap Rule
       const isETF = !!ETF_TARGET_MAP[sym] || companyName.toLowerCase().includes(' etf') || companyName.toLowerCase().includes(' fund') || companyName.toLowerCase().includes(' trust');
       
       if (!isETF && marketCap < 20000000) return null;
@@ -430,16 +435,16 @@ export async function GET(request: Request) {
       };
     };
 
-    // 6. Gather unique tickers to prevent duplicate API hits
+    // 7. Gather unique tickers
     const allCandidates = [...dailyCandidates, ...sipCandidates, ...megaCapsRaw, ...gainersRaw, ...losersRaw, ...etfGainersRaw, ...etfLosersRaw];
     const uniqueCandidates = Array.from(new Map(allCandidates.map(item => [item.ticker, item])).values());
 
-    // 7. Enrich all unique stocks
+    // 8. Enrich all unique stocks
     const enrichedDataRaw = await Promise.all(uniqueCandidates.map(enrichCandidate));
     const enrichedMap = new Map();
     enrichedDataRaw.forEach(item => { if (item) enrichedMap.set(item.ticker, item); });
 
-    // 8. Route the enriched data back into their specific groups
+    // 9. Route the enriched data back into their specific groups
     const finalDaily = dailyCandidates.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.setupName !== null).slice(0, 20);
     const finalSip = sipCandidates.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 20);
     
@@ -451,7 +456,7 @@ export async function GET(request: Request) {
       'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined)
     };
 
-    // 9. Commit everything to Upstash KV
+    // 10. Commit everything to Upstash KV
     await kv.set('daily_setups', finalDaily);
     await kv.set('stocks_in_play', finalSip);
     await kv.set('top_movers', finalTopMovers);
