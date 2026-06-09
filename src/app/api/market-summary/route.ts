@@ -76,7 +76,8 @@ export async function GET(request: Request) {
       }
     `;
 
-    const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+    // CRITICAL FIX: Updated endpoint to gemini-2.5-flash to bypass the 404 deprecation error
+    const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -85,7 +86,6 @@ export async function GET(request: Request) {
           responseMimeType: "application/json",
           temperature: 0.2
         },
-        // Force Gemini to ignore safety triggers so it doesn't block financial news
         safetySettings: [
           { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
           { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
@@ -99,17 +99,13 @@ export async function GET(request: Request) {
     
     const aiData = await aiRes.json();
     
-    // Safety check for empty or blocked responses
     if (!aiData.candidates || !aiData.candidates[0].content) {
       console.error("Gemini Response Failed:", JSON.stringify(aiData));
       throw new Error("Gemini returned an empty response. Check Vercel logs.");
     }
 
     let generatedText = aiData.candidates[0].content.parts[0].text;
-    
-    // STRIP THE MARKDOWN TRAP: Aggressively remove ```json and ``` before parsing
     generatedText = generatedText.replace(/```json/gi, '').replace(/```/g, '').trim();
-
     const generatedSummary = JSON.parse(generatedText);
 
     // 5. Cache and Return
