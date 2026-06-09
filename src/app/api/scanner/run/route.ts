@@ -4,13 +4,11 @@ import { kv } from "@vercel/kv";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  // 0. Security Gatekeeper
   const authHeader = request.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
 
-  // 1. Session Awareness
   const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
   const timeStr = estDate.getHours() + estDate.getMinutes() / 60;
   
@@ -32,18 +30,16 @@ export async function GET(request: Request) {
   }
 
   try {
-    const POLYGON_KEY = process.env.POLYGON_API_KEY || process.env.NEXT_PUBLIC_POLYGON_API_KEY;
+    // ALIGNED EXACTLY WITH YOUR VERCEL VARIABLES
+    const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY;
     if (!POLYGON_KEY) throw new Error("Missing POLYGON API KEY");
 
-    // ====================================================================
-    // PHASE 1: THE SPEED SCAN (Massive / Polygon)
-    // ====================================================================
     const response = await fetch(
       `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${POLYGON_KEY}`,
       { cache: 'no-store' } 
     );
     
-    if (!response.ok) throw new Error(`Massive/Polygon API returned ${response.status}`);
+    if (!response.ok) throw new Error(`Polygon API returned ${response.status}`);
     const data = await response.json();
     const tickers = data.tickers || [];
 
@@ -99,10 +95,8 @@ export async function GET(request: Request) {
     stocksInPlay = stocksInPlay.slice(0, 30);
     dailySetups = dailySetups.slice(0, 30);
 
-    // ====================================================================
-    // PHASE 2: THE HYDRATION ENGINE (Modern FMP /stable/ Endpoints)
-    // ====================================================================
-    const FMP_KEY = process.env.FMP_API_KEY || process.env.NEXT_PUBLIC_FMP_API_KEY; 
+    // ALIGNED EXACTLY WITH YOUR VERCEL VARIABLES
+    const FMP_KEY = process.env.NEXT_PUBLIC_FMP_API_KEY; 
 
     if (FMP_KEY) {
       const sanitize = (t: string) => t.replace('.', '-');
@@ -121,7 +115,6 @@ export async function GET(request: Request) {
       for (let i = 0; i < allUniqueTickers.length; i += chunkSize) {
         const chunk = allUniqueTickers.slice(i, i + chunkSize);
         try {
-          // FIXED: Upgraded to FMP's modern /stable/ routing architecture
           const profileRes = await fetch(
             `https://financialmodelingprep.com/stable/profile?symbol=${chunk.join(',')}&apikey=${FMP_KEY}`,
             { cache: 'no-store' }
@@ -136,7 +129,6 @@ export async function GET(request: Request) {
             const rawProfiles = await profileRes.json();
             const rawQuotes = await quoteRes.json();
             
-            // Safety wrapper in case the new endpoints return objects instead of arrays
             const profiles = Array.isArray(rawProfiles) ? rawProfiles : (rawProfiles?.data || [rawProfiles]);
             const quotes = Array.isArray(rawQuotes) ? rawQuotes : (rawQuotes?.data || [rawQuotes]);
             
@@ -184,12 +176,13 @@ export async function GET(request: Request) {
       megaCaps = hydrate(megaCaps);
       etfs = hydrate(etfs);
       stocksInPlay = hydrate(stocksInPlay);
+      
+      // STRICT MARKET CAP FILTER RESTORED
+      stocksInPlay = stocksInPlay.filter(stock => stock.mktCap && stock.mktCap >= 20000000);
+
       dailySetups = hydrate(dailySetups);
     }
 
-    // ====================================================================
-    // PHASE 3: DATABASE SAVE
-    // ====================================================================
     const finalTopMovers = { gainers, losers, megaCaps, etfs };
 
     await kv.set("top_movers", finalTopMovers);
