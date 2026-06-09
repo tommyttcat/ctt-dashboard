@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { kv } from "@vercel/kv";
 
-// Prevents Next.js from caching this route so it runs fresh every 5 minutes
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
@@ -34,8 +33,8 @@ export async function GET(request: Request) {
 
   try {
     // 2. Fetch Polygon Data
-    const API_KEY = process.env.POLYGON_API_KEY;
-    if (!API_KEY) throw new Error("Missing POLYGON_API_KEY");
+    const API_KEY = process.env.POLYGON_API_KEY || process.env.NEXT_PUBLIC_POLYGON_API_KEY;
+    if (!API_KEY) throw new Error("Missing POLYGON_API_KEY or NEXT_PUBLIC_POLYGON_API_KEY");
 
     const response = await fetch(
       `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${API_KEY}`
@@ -51,7 +50,6 @@ export async function GET(request: Request) {
     const megaCaps = []; 
     const etfs = [];
 
-    // Your specific 20 Mega Cap list
     const megaCapTickers = [
       "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD", 
       "NFLX", "AVGO", "COST", "TMUS", "CSCO", "INTC", "QCOM", "TXN", 
@@ -74,17 +72,14 @@ export async function GET(request: Request) {
         stage: "Stage 2A"
       };
 
-      // Populate Mega Caps
       if (megaCapTickers.includes(stock.ticker)) {
         megaCaps.push(tickerData);
       }
 
-      // Populate ETFs
       if (isETF) {
         etfs.push(tickerData);
       }
 
-      // Populate Gainers and Losers (Price >= $1.00 and Meets Volume Threshold)
       if (volume >= currentVolumeThreshold && currentPrice >= 1.00) {
         if (percentChange >= 4) {
           gainers.push(tickerData);
@@ -94,7 +89,6 @@ export async function GET(request: Request) {
       }
     }
 
-    // Sort arrays by biggest movers
     gainers.sort((a, b) => b.change - a.change);
     losers.sort((a, b) => a.change - b.change);
     megaCaps.sort((a, b) => b.change - a.change);
