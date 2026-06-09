@@ -288,11 +288,12 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
 const MEGA_CAP_TICKERS = new Set(['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'BRK.B', 'AVGO', 'LLY', 'JPM', 'XOM', 'UNH', 'V', 'PG', 'MA', 'JNJ', 'HD']);
 
 export async function GET(request: Request) {
-  // SECURITY (Bypassed for testing. Uncomment later when setting up auto-cron)
-  // const authHeader = request.headers.get('authorization');
-  // if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-  //   return new Response('Unauthorized', { status: 401 });
-  // }
+  // CRON GATEKEEPER SECURITY PROTOCOL
+  // Ensures only Vercel's internal cron machine can invoke this heavy query pipeline
+  const authHeader = request.headers.get('authorization');
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return new Response('Unauthorized', { status: 401 });
+  }
 
   const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
   if (!polygonApiKey) return NextResponse.json({ error: 'Missing API Key' }, { status: 500 });
@@ -303,7 +304,6 @@ export async function GET(request: Request) {
     const timeStr = estDate.getHours() + estDate.getMinutes() / 60;
     const isPreMarket = timeStr >= 4 && timeStr < 9.5;
     
-    // During Pre-Market, drop the required volume from 500,000 to 25,000 so the engine doesn't break
     const currentVolumeThreshold = isPreMarket ? 25000 : 500000;
 
     // 2. Fetch Market Snapshot
@@ -331,7 +331,7 @@ export async function GET(request: Request) {
       return t;
     });
 
-    // 4. Base Filters (Using the dynamic Session-Aware volume limit)
+    // 4. Base Filters
     const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= 1.00 && t._liveVol >= currentVolumeThreshold);
 
     const dailyCandidates = [...viableSetups]
