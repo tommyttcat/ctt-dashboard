@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 
 export const dynamic = 'force-dynamic';
+// VERCEL TIMEOUT OVERRIDE: Allow this heavy scanner to run for up to 60 seconds
+export const maxDuration = 60; 
 
 const SECTOR_MAP: Record<string, string> = {
   'AAPL': 'IT', 'MSFT': 'IT', 'SMCI': 'IT',
@@ -354,6 +356,10 @@ export async function GET(request: Request) {
     const toStr = today.toISOString().split('T')[0];
     const fromStr = lookbackDate.toISOString().split('T')[0];
 
+    // CHUNKED ENRICHMENT TO PREVENT POLYGON RATE LIMITS / TIMEOUTS
+    const allCandidates = [...dailyCandidates, ...sipCandidates, ...megaCapsRaw, ...gainersRaw, ...losersRaw, ...etfGainersRaw, ...etfLosersRaw];
+    const uniqueCandidates = Array.from(new Map(allCandidates.map(item => [item.ticker, item])).values());
+    
     const enrichCandidate = async (t: any) => {
       const sym = t.ticker || t.single_ticker;
       const price = t._livePrice;
@@ -424,7 +430,6 @@ export async function GET(request: Request) {
         }
       }
       
-      // Grab the last 5 days of closing prices for Gemini Trend Context
       const recentTrend = dailyBars.slice(0, 5).map((b: any) => b.c);
 
       return {
@@ -434,14 +439,17 @@ export async function GET(request: Request) {
       };
     };
 
-    const allCandidates = [...dailyCandidates, ...sipCandidates, ...megaCapsRaw, ...gainersRaw, ...losersRaw, ...etfGainersRaw, ...etfLosersRaw];
-    const uniqueCandidates = Array.from(new Map(allCandidates.map(item => [item.ticker, item])).values());
-
-    const enrichedDataRaw = await Promise.all(uniqueCandidates.map(enrichCandidate));
-    const enrichedList = enrichedDataRaw.filter(item => item !== null);
+    // Staggered batching to protect Polygon connections
+    const enrichedList = [];
+    const chunkSize = 15;
+    for (let i = 0; i < uniqueCandidates.length; i += chunkSize) {
+      const chunk = uniqueCandidates.slice(i, i + chunkSize);
+      const results = await Promise.all(chunk.map(enrichCandidate));
+      enrichedList.push(...results.filter(item => item !== null));
+    }
 
     // =========================================================================
-    // GEMINI BATCH CONFLUENCE SCORER & EXTRACTOR
+    // GEMINI BATCH CONFLUENCE SCORER & EXTRACTOR (SINGLE UNIFIED CALL)
     // =========================================================================
     const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey) {
@@ -491,7 +499,6 @@ export async function GET(request: Request) {
                 if (confluenceDict[t.ticker]) {
                   const tag = confluenceDict[t.ticker].catalyst;
                   t.catalyst = t._catalystDate ? `${t._catalystDate} — ${tag}` : tag;
-                  // Inject the new AI properties directly into the object for the frontend to render
                   t.conviction = confluenceDict[t.ticker].conviction;
                   t.thesis = confluenceDict[t.ticker].thesis;
                 } else if (t._rawHeadline) {
