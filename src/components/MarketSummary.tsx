@@ -22,25 +22,46 @@ interface SummaryData {
   morning: UpdateBlock | null;
   midday: UpdateBlock | null;
   closing: UpdateBlock | null;
-  actionableEvents?: ActionableEvent[]; // <-- NEW CATALYST RADAR ARRAY
+  actionableEvents?: ActionableEvent[]; 
 }
 
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
 
+const getEstDateInfo = () => {
+  return new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+};
+
 const getCurrentEstDecimal = () => {
-  const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  return estDate.getHours() + estDate.getMinutes() / 60;
+  const est = getEstDateInfo();
+  return est.getHours() + est.getMinutes() / 60;
 };
 
 const getMarketSession = (): MarketSession => {
-  const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const day = estDate.getDay();
-  const timeStr = estDate.getHours() + estDate.getMinutes() / 60;
+  const est = getEstDateInfo();
+  const day = est.getDay();
+  const timeStr = est.getHours() + est.getMinutes() / 60;
   if (day === 0 || day === 6) return 'Closed';
   if (timeStr >= 4 && timeStr < 9.5) return 'Pre-Market';
   if (timeStr >= 9.5 && timeStr < 16) return 'Open';
   if (timeStr >= 16 && timeStr < 20) return 'Post-Market';
   return 'Closed'; 
+};
+
+// Advanced Effective Date Engine
+const getEffectiveTradingDate = () => {
+  const est = getEstDateInfo();
+  const day = est.getDay();
+  const time = est.getHours() + est.getMinutes() / 60;
+
+  if (day === 6) est.setDate(est.getDate() - 1); // Saturday -> Friday
+  else if (day === 0) est.setDate(est.getDate() - 2); // Sunday -> Friday
+  else if (day === 1 && time < 4) est.setDate(est.getDate() - 3); // Mon before 4am -> Friday
+  else if (time < 4) est.setDate(est.getDate() - 1); // Tue-Fri before 4am -> Yesterday
+
+  const y = est.getFullYear();
+  const m = String(est.getMonth() + 1).padStart(2, '0');
+  const d = String(est.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 };
 
 const formatTime = (date: Date) => {
@@ -55,9 +76,20 @@ const formatTime = (date: Date) => {
 export default function MarketSummary() {
   const searchParams = useSearchParams();
   
-  const todayStr = new Date().toISOString().split('T')[0];
-  const selectedDate = searchParams.get('date') || todayStr;
-  const isHistorical = selectedDate !== todayStr;
+  // DATE ROUTING LOGIC
+  const est = getEstDateInfo();
+  const actualTodayStr = `${est.getFullYear()}-${String(est.getMonth() + 1).padStart(2, '0')}-${String(est.getDate()).padStart(2, '0')}`;
+  const effectiveTodayStr = getEffectiveTradingDate();
+  
+  // Use URL parameter if it exists, otherwise fall back to the calculated effective trading date
+  const selectedDate = searchParams.get('date') || effectiveTodayStr;
+  
+  // Are we looking at a past day (or weekend view)?
+  const isArchiveView = selectedDate !== actualTodayStr;
+  const isWeekend = est.getDay() === 0 || est.getDay() === 6;
+  
+  // Time gating ONLY applies if we are actively inside a current weekday trading session
+  const applyTimeGating = selectedDate === actualTodayStr && !isWeekend;
 
   const [data, setData] = useState<SummaryData | null>(null);
   const [status, setStatus] = useState<'Loading' | 'Synced' | 'Error'>('Loading');
@@ -89,14 +121,15 @@ export default function MarketSummary() {
         }
 
         const payload: SummaryData = await res.json();
-
         if (!isMounted) return;
 
         const estTime = getCurrentEstDecimal();
+        
+        // GATING ENGINE: If !applyTimeGating is true, it instantly unlocks everything.
         const gatedData: SummaryData = {
-          morning: isHistorical || estTime >= 4.0 ? (payload.morning || null) : null,
-          midday: isHistorical || estTime >= 10.0 ? (payload.midday || null) : null,
-          closing: isHistorical || estTime >= 15.5 ? (payload.closing || null) : null,
+          morning: (!applyTimeGating || estTime >= 4.0) ? (payload.morning || null) : null,
+          midday: (!applyTimeGating || estTime >= 11.5) ? (payload.midday || null) : null,
+          closing: (!applyTimeGating || estTime >= 15.5) ? (payload.closing || null) : null,
           actionableEvents: payload.actionableEvents || [] 
         };
 
@@ -112,10 +145,10 @@ export default function MarketSummary() {
     fetchDailySummary();
     const interval = setInterval(fetchDailySummary, 300000); 
     return () => { isMounted = false; clearInterval(interval); };
-  }, [selectedDate, isHistorical]); 
+  }, [selectedDate, applyTimeGating]); 
 
-  const getThemeStyles = (theme: string, isHistorical: boolean) => {
-    if (isHistorical) return {
+  const getThemeStyles = (theme: string, isArchiveView: boolean) => {
+    if (isArchiveView) return {
       border: 'border-amber-500/30', bg: 'bg-amber-500/5', text: 'text-amber-400',
       boxBg: 'bg-amber-500/10', boxBorder: 'border-amber-500', boxText: 'text-amber-100/90'
     };
@@ -138,7 +171,7 @@ export default function MarketSummary() {
 
   const renderUpdateBlock = (block: UpdateBlock | null, isLast: boolean) => {
     if (!block) return null;
-    const styles = getThemeStyles(block.colorTheme, isHistorical);
+    const styles = getThemeStyles(block.colorTheme, isArchiveView);
 
     return (
       <div className={`relative pl-6 md:pl-8 pb-8 ${isLast ? '' : 'border-l border-white/10'}`}>
@@ -159,11 +192,9 @@ export default function MarketSummary() {
           ))}
         </div>
 
+        {/* REFINED BOX LAYOUT: Label removed, just rendering the takeaway text */}
         <div className={`border-l-[4px] p-4 rounded-r-xl transition-colors duration-300 ${styles.boxBg} ${styles.boxBorder}`}>
           <p className={`text-sm leading-relaxed ${styles.boxText}`}>
-            <strong className={`tracking-wider uppercase text-[10px] mr-2 ${styles.text}`}>
-              {block.takeawayLabel}:
-            </strong> 
             {block.takeaway}
           </p>
         </div>
@@ -180,9 +211,9 @@ export default function MarketSummary() {
         className={`flex justify-between items-start md:items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-8 border-b border-white/5 pb-4' : ''}`}
       >
         <div className="flex items-center gap-3">
-          <span className={`text-xs md:text-sm font-bold border px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 transition-colors ${isHistorical ? 'text-amber-400 bg-amber-500/10 border-amber-500/20 group-hover:bg-amber-500/20' : 'text-[#7c8bfa] bg-[#161c2a]/40 border-white/5 group-hover:bg-white/[0.02]'}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${isHistorical ? 'bg-amber-400' : 'bg-[#7c8bfa]'}`}></span>
-            {isHistorical ? `ARCHIVE: ${selectedDate}` : 'SESSION NARRATIVE'}
+          <span className={`text-xs md:text-sm font-bold border px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 transition-colors ${isArchiveView ? 'text-amber-400 bg-amber-500/10 border-amber-500/20 group-hover:bg-amber-500/20' : 'text-[#7c8bfa] bg-[#161c2a]/40 border-white/5 group-hover:bg-white/[0.02]'}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${isArchiveView ? 'bg-amber-400' : 'bg-[#7c8bfa]'}`}></span>
+            {isArchiveView ? `ARCHIVE: ${selectedDate}` : 'SESSION NARRATIVE'}
           </span>
         </div>
 
@@ -202,7 +233,6 @@ export default function MarketSummary() {
 
       {isExpanded && (
         <>
-          {/* ACTIONABLE EVENT RADAR */}
           {data?.actionableEvents && data.actionableEvents.length > 0 && (
             <div className="mb-8 bg-rose-500/5 border border-rose-500/20 rounded-xl p-4 animate-in fade-in">
               <div className="flex items-center gap-2 mb-3">
