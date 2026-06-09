@@ -3,10 +3,20 @@ import { kv } from '@vercel/kv';
 
 export const dynamic = 'force-dynamic';
 
+// Helper: Determine if the market is actively trading (Pre-Market through Post-Market)
+const getIsMarketActive = () => {
+  const est = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const day = est.getDay();
+  const timeStr = est.getHours() + est.getMinutes() / 60;
+  
+  if (day === 0 || day === 6) return false; // Weekend
+  if (timeStr >= 4 && timeStr < 20) return true; // 4:00 AM to 8:00 PM EST
+  return false; // Overnight
+};
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const dateParam = searchParams.get('date');
-  // CACHE BUSTER: Passing ?refresh=true will bypass KV and overwrite with live data
   const forceRefresh = searchParams.get('refresh') === 'true';
 
   let targetDate = dateParam;
@@ -138,7 +148,11 @@ export async function GET(request: Request) {
     const generatedSummary = JSON.parse(generatedText);
 
     // 6. Cache and Return
-    await kv.set(`market_narrative_${targetDate}`, generatedSummary, { ex: 7200 });
+    // DYNAMIC CACHE: 30 minutes during market hours, 12 hours overnight/weekends
+    const isMarketActive = getIsMarketActive();
+    const cacheExpiration = isMarketActive ? 1800 : 43200; 
+
+    await kv.set(`market_narrative_${targetDate}`, generatedSummary, { ex: cacheExpiration });
 
     return NextResponse.json(generatedSummary);
 
