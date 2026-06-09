@@ -4,7 +4,7 @@ import { kv } from "@vercel/kv";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  // 0. Security Gatekeeper (LOCKED FOR PRODUCTION)
+  // 0. Security Gatekeeper
   const authHeader = request.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return new NextResponse("Unauthorized", { status: 401 });
@@ -32,12 +32,13 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 2. Fetch Polygon Data
     const API_KEY = process.env.POLYGON_API_KEY || process.env.NEXT_PUBLIC_POLYGON_API_KEY;
-    if (!API_KEY) throw new Error("Missing POLYGON_API_KEY or NEXT_PUBLIC_POLYGON_API_KEY");
+    if (!API_KEY) throw new Error("Missing POLYGON API KEY");
 
+    // 2. THE CACHE KILLER: Forces Vercel to pull live data from Polygon every single time
     const response = await fetch(
-      `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${API_KEY}`
+      `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${API_KEY}`,
+      { cache: 'no-store' } 
     );
     
     if (!response.ok) throw new Error(`Polygon API returned ${response.status}`);
@@ -50,27 +51,15 @@ export async function GET(request: Request) {
     const megaCaps = []; 
     const etfs = [];
 
-    // EXACT MATCH LISTS: Prevents garbage tickers from polluting the tables
     const megaCapTickers = [
       "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD", 
       "NFLX", "AVGO", "COST", "TMUS", "CSCO", "INTC", "QCOM", "TXN", 
       "AMAT", "ISRG", "HON", "BKNG"
     ];
 
-    // Expanded ETF list: Majors + Leveraged/Inverse + Volatility
     const targetETFs = [
-      // Majors
-      "SPY", "QQQ", "IWM", "DIA",
-      // Tech/Semi Leveraged
-      "TQQQ", "SQQQ", "SOXL", "SOXS",
-      // S&P Leveraged
-      "SPXL", "SPXS", "UPRO", "SPXU",
-      // Small Cap Leveraged
-      "TNA", "TZA",
-      // Dow Leveraged
-      "UDOW", "SDOW",
-      // Volatility
-      "UVXY", "VIXY"
+      "SPY", "QQQ", "IWM", "DIA", "TQQQ", "SQQQ", "SOXL", "SOXS",
+      "SPXL", "SPXS", "UPRO", "SPXU", "TNA", "TZA", "UDOW", "SDOW", "UVXY", "VIXY"
     ];
 
     for (const stock of tickers) {
@@ -87,17 +76,12 @@ export async function GET(request: Request) {
         stage: "Stage 2A"
       };
 
-      // Populate Mega Caps (Strict Exact Match)
       if (megaCapTickers.includes(stock.ticker)) {
         megaCaps.push(tickerData);
       }
-
-      // Populate ETFs (Strict Exact Match)
       if (targetETFs.includes(stock.ticker)) {
         etfs.push(tickerData);
       }
-
-      // Populate Gainers and Losers (Price >= $1.00 and Meets Volume Threshold)
       if (volume >= currentVolumeThreshold && currentPrice >= 1.00) {
         if (percentChange >= 4) {
           gainers.push(tickerData);
@@ -107,12 +91,10 @@ export async function GET(request: Request) {
       }
     }
 
-    // Sort arrays by biggest movers
     gainers.sort((a, b) => b.change - a.change);
     losers.sort((a, b) => a.change - b.change);
     megaCaps.sort((a, b) => b.change - a.change);
 
-    // 4. Construct the final object exactly as the frontend expects it
     const finalTopMovers = {
       gainers: gainers.slice(0, 50),
       losers: losers.slice(0, 50),
@@ -120,10 +102,12 @@ export async function GET(request: Request) {
       etfs: etfs
     };
 
-    // 5. Update Database (Upstash/Vercel KV)
+    // 5. Update Database
     await kv.set("top_movers", finalTopMovers);
     await kv.set("marketStatus", currentMarketStatus);
-    await kv.set("lastUpdated", new Date().toISOString());
+    
+    // Fixed timestamp key so the UI reads it correctly
+    await kv.set("last_scan_time", Date.now()); 
 
     return NextResponse.json({ 
       success: true, 
