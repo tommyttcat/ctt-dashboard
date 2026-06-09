@@ -1,11 +1,16 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
+import { headers } from 'next/headers'; // 1. Import Next.js headers API
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 export async function GET() {
   try {
+    // 2. THE SLEDGEHAMMER: By invoking headers(), Next.js is permanently 
+    // banned from caching this route. It MUST pull fresh from Upstash.
+    headers();
+
     console.log("Fetching raw scanner data from KV...");
 
     // 1. Safely fetch each key individually
@@ -30,9 +35,20 @@ export async function GET() {
     // 3. Parse everything cleanly without throwing errors
     const dailySetups = safeParse(rawDailySetups, []);
     const stocksInPlay = safeParse(rawStocksInPlay, []);
-    const topMovers = safeParse(rawTopMovers, {
-      'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': []
-    });
+    
+    // (If the scanner sends camelCase like 'gainers', map them to what the UI expects)
+    let topMovers = safeParse(rawTopMovers, null);
+    if (!topMovers || !topMovers['Gainers']) {
+      // Map the new scanner engine keys to the exact labels your UI is looking for
+      topMovers = {
+        'Mega Caps': topMovers?.megaCaps || [],
+        'Gainers': topMovers?.gainers || [],
+        'Losers': topMovers?.losers || [],
+        'ETF Gainers': topMovers?.etfs || [],
+        'ETF Losers': []
+      };
+    }
+
     const lastScanTime = safeParse(rawLastScanTime, null);
 
     return NextResponse.json({ 
