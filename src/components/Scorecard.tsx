@@ -4,18 +4,18 @@ import React, { useEffect, useState, useRef } from 'react';
 
 // Unified Asset Dictionary
 const MACRO_ASSETS = [
-  { id: 'SPY', yahooSymbol: 'SPY', name: 'S&P 500', type: 'stock' },
-  { id: 'QQQ', yahooSymbol: 'QQQ', name: 'Nasdaq 100', type: 'stock' },
-  { id: 'DIA', yahooSymbol: 'DIA', name: 'Dow Jones', type: 'stock' },
-  { id: 'IWM', yahooSymbol: 'IWM', name: 'Russell 2000', type: 'stock' },
-  { id: 'VIX', yahooSymbol: '^VIX', name: 'VIX Index', type: 'stock' },
-  { id: 'TLT', yahooSymbol: 'TLT', name: '20Y Treasury', type: 'stock' },
-  { id: 'GLD', yahooSymbol: 'GLD', name: 'Gold ETF', type: 'stock' },
-  { id: 'SLV', yahooSymbol: 'SLV', name: 'Silver ETF', type: 'stock' },
-  { id: 'USO', yahooSymbol: 'USO', name: 'Crude Oil', type: 'stock' },
-  { id: 'BTC', yahooSymbol: 'BTC-USD', name: 'Bitcoin', type: 'crypto' },
-  { id: 'ETH', yahooSymbol: 'ETH-USD', name: 'Ethereum', type: 'crypto' },
-  { id: 'SOL', yahooSymbol: 'SOL-USD', name: 'Solana', type: 'crypto' }
+  { id: 'SPY', fmp: 'SPY', ws: 'SPY', name: 'S&P 500', type: 'stock' },
+  { id: 'QQQ', fmp: 'QQQ', ws: 'QQQ', name: 'Nasdaq 100', type: 'stock' },
+  { id: 'DIA', fmp: 'DIA', ws: 'DIA', name: 'Dow Jones', type: 'stock' },
+  { id: 'IWM', fmp: 'IWM', ws: 'IWM', name: 'Russell 2000', type: 'stock' },
+  { id: 'VIX', fmp: '^VIX', ws: 'VIX', name: 'VIX Index', type: 'stock' },
+  { id: 'TLT', fmp: 'TLT', ws: 'TLT', name: '20Y Treasury', type: 'stock' },
+  { id: 'GLD', fmp: 'GLD', ws: 'GLD', name: 'Gold ETF', type: 'stock' },
+  { id: 'SLV', fmp: 'SLV', ws: 'SLV', name: 'Silver ETF', type: 'stock' },
+  { id: 'USO', fmp: 'USO', ws: 'USO', name: 'Crude Oil', type: 'stock' },
+  { id: 'BTC', fmp: 'BTCUSD', ws: 'BTC-USD', name: 'Bitcoin', type: 'crypto' },
+  { id: 'ETH', fmp: 'ETHUSD', ws: 'ETH-USD', name: 'Ethereum', type: 'crypto' },
+  { id: 'SOL', fmp: 'SOLUSD', ws: 'SOL-USD', name: 'Solana', type: 'crypto' }
 ];
 
 interface TickData {
@@ -68,7 +68,6 @@ export default function MacroScorecard() {
 
     const getPct = (id: string) => quotes[id]?.pct || 0;
 
-    // Shift logic to look at true spot VIX movement for sentiment tracking
     const eqScore = (getPct('SPY') * 2.0) + (getPct('QQQ') * 2.0) + (getPct('IWM') * 1.0);
     const volScore = (getPct('VIX') * -3.0); 
     const cryptoScore = (getPct('BTC') * 0.5); 
@@ -87,18 +86,64 @@ export default function MacroScorecard() {
     }
   }, [quotes]);
 
-  // --- ENGINE 2: YAHOO FINANCE REAL-TIME POLLING ---
+  // --- ENGINE 2: FMP 5-MIN HISTORICAL OVERRIDE ENGINE ---
   useEffect(() => {
     let isMounted = true;
+    const fmpApiKey = (process.env.NEXT_PUBLIC_FMP_API_KEY || '').trim();
+
+    if (!fmpApiKey) {
+      setStockStatus('AUTH_ERROR');
+      return;
+    }
 
     const fetchEquities = async () => {
+      const stockAssets = MACRO_ASSETS.filter(a => a.type === 'stock');
       const currentSession = getMarketSession();
       
       try {
-        const res = await fetch('/api/macro', { cache: 'no-store' });
-        const json = await res.json();
+        // 1. Fetch the Standard Quote (Provides Baseline & Regular Prices)
+        const stdPromises = stockAssets.map(asset => 
+          fetch(`https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(asset.fmp)}&apikey=${fmpApiKey}`, { cache: 'no-store' })
+            .then(res => {
+              if (res.status === 401) throw new Error('401_UNAUTHORIZED');
+              return res.ok ? res.json() : [];
+            })
+            .catch((err) => {
+              if (err.message === '401_UNAUTHORIZED') throw err; 
+              return []; 
+            }) 
+        );
         
-        if (json.success && json.data && isMounted) {
+        const stdResults = await Promise.all(stdPromises);
+        const stdData = stdResults.flat();
+
+        // 2. Fetch the 5-Minute Chart for After-Hours Data (Only if market is closed)
+        let ahData: Record<string, number> = {};
+        const isExtendedHours = currentSession === 'Post-Market' || currentSession === 'Pre-Market' || currentSession === 'Closed';
+
+        if (isExtendedHours) {
+          const ahPromises = stockAssets.map(asset => 
+            // Using the exact endpoint provided by FMP Support
+            fetch(`https://financialmodelingprep.com/stable/historical-chart/5min?symbol=${encodeURIComponent(asset.fmp)}&extended=true&apikey=${fmpApiKey}`, { cache: 'no-store' })
+              .then(res => res.ok ? res.json() : [])
+              .then(data => {
+                // Grab the very latest 5-minute candle print
+                if (Array.isArray(data) && data.length > 0) {
+                  return { symbol: asset.fmp, price: data[0].close };
+                }
+                return null;
+              })
+              .catch(() => null)
+          );
+          
+          const ahResults = await Promise.all(ahPromises);
+          ahResults.forEach(r => {
+            if (r) ahData[r.symbol] = r.price;
+          });
+        }
+        
+        // 3. Merge and Mount
+        if (stdData.length > 0 && isMounted) {
           setSession(currentSession);
           setLastUpdated(new Date());
           setStockStatus('LIVE'); 
@@ -106,23 +151,17 @@ export default function MacroScorecard() {
           setQuotes(prev => {
             const next = { ...prev };
             
-            json.data.forEach((q: any) => {
-              const asset = MACRO_ASSETS.find(a => a.yahooSymbol === q.symbol);
+            stdData.forEach(q => {
+              const asset = MACRO_ASSETS.find(a => a.fmp === q.symbol && a.type === 'stock');
               if (asset) {
-                let currentPrice = q.regularMarketPrice || 0;
-                let isExtended = false;
-
-                // Index assets like ^VIX do not contain pre/post fields. Fall back gracefully to standard fields if missing.
-                if ((currentSession === 'Post-Market' || currentSession === 'Closed') && q.postMarketPrice > 0) {
-                  currentPrice = q.postMarketPrice;
-                  isExtended = true;
-                } else if (currentSession === 'Pre-Market' && q.preMarketPrice > 0) {
-                  currentPrice = q.preMarketPrice;
-                  isExtended = true;
-                }
+                
+                // If we are in extended hours AND the 5-min chart returned a valid AH price, use it.
+                const ahPrice = ahData[asset.fmp];
+                const useAh = isExtendedHours && ahPrice !== undefined && ahPrice > 0;
+                const currentPrice = useAh ? ahPrice : (q.price || 0);
                 
                 const prevQuote = prev[asset.id];
-                const baseline = q.regularMarketPreviousClose || prevQuote?.baseline || currentPrice;
+                const baseline = q.previousClose || prevQuote?.baseline || q.open || currentPrice;
                 const pct = baseline > 0 ? ((currentPrice - baseline) / baseline) * 100 : 0;
                 
                 let direction: 'up' | 'down' | 'flat' = prevQuote?.tickDirection || 'flat';
@@ -136,7 +175,7 @@ export default function MacroScorecard() {
                     pct: pct, 
                     tickDirection: direction, 
                     synced: true,
-                    isAH: isExtended
+                    isAH: useAh
                   };
                 }
               }
@@ -146,17 +185,22 @@ export default function MacroScorecard() {
         }
       } catch (err: any) {
         if (!isMounted) return;
-        setStockStatus('ERROR');
+        if (err.message === '401_UNAUTHORIZED') {
+          setStockStatus('AUTH_ERROR');
+        } else {
+          setStockStatus('ERROR');
+        }
       }
     };
 
     fetchEquities();
     
+    // Poll the endpoints every 10 seconds (Slowed down slightly to respect FMP rate limits while pulling multiple charts)
     const pollingInterval = setInterval(() => {
-      if (isMounted) {
+      if (isMounted && stockStatus !== 'AUTH_ERROR') {
         fetchEquities();
       }
-    }, 4000);
+    }, 10000);
 
     return () => {
       isMounted = false;
@@ -175,7 +219,7 @@ export default function MacroScorecard() {
 
       cWs.onopen = () => {
         if (!isMounted) return;
-        const cryptoTickers = MACRO_ASSETS.filter(a => a.type === 'crypto').map(a => a.yahooSymbol);
+        const cryptoTickers = MACRO_ASSETS.filter(a => a.type === 'crypto').map(a => a.ws);
         cWs.send(JSON.stringify({
           type: 'subscribe',
           product_ids: cryptoTickers,
@@ -188,7 +232,7 @@ export default function MacroScorecard() {
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === 'ticker' && msg.product_id && msg.price) {
-            const asset = MACRO_ASSETS.find(a => a.yahooSymbol === msg.product_id && a.type === 'crypto');
+            const asset = MACRO_ASSETS.find(a => a.ws === msg.product_id && a.type === 'crypto');
             const currentPrice = parseFloat(msg.price);
             
             if (asset && currentPrice > 0) {
