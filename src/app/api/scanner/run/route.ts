@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 
 export const dynamic = 'force-dynamic';
-// VERCEL TIMEOUT OVERRIDE: Allow this heavy scanner to run for up to 60 seconds
 export const maxDuration = 60; 
 
 const SECTOR_MAP: Record<string, string> = {
@@ -290,12 +289,6 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
 const MEGA_CAP_TICKERS = new Set(['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'BRK.B', 'AVGO', 'LLY', 'JPM', 'XOM', 'UNH', 'V', 'PG', 'MA', 'JNJ', 'HD']);
 
 export async function GET(request: Request) {
-  // SECURITY (Bypassed for testing)
-  // const authHeader = request.headers.get('authorization');
-  // if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-  //   return new NextResponse('Unauthorized', { status: 401 });
-  // }
-
   const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
   if (!polygonApiKey) return NextResponse.json({ error: 'Missing API Key' }, { status: 500 });
 
@@ -331,24 +324,18 @@ export async function GET(request: Request) {
 
     const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= 1.00 && t._liveVol >= currentVolumeThreshold);
 
-    const dailyCandidates = [...viableSetups]
-      .sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 30);
-      
-    const sipCandidates = [...viableSetups]
-      .filter((t: any) => Math.abs(t._liveChg) >= 4.0 && t._livePrice >= t._liveVwap)
-      .sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 30);
+    // CORE LISTS RESTORED
+    const dailyCandidates = [...viableSetups].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
+    const sipCandidates = [...viableSetups].filter((t: any) => Math.abs(t._liveChg) >= 4.0 && t._livePrice >= t._liveVwap).sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 20);
 
-    const megaCapsRaw = processedSnapshot
-      .filter((t: any) => MEGA_CAP_TICKERS.has(t.ticker))
-      .sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
-    
+    const megaCapsRaw = processedSnapshot.filter((t: any) => MEGA_CAP_TICKERS.has(t.ticker)).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
     const knownEtfsRaw = viableSetups.filter((t: any) => ETF_TARGET_MAP[t.ticker]);
-    const etfGainersRaw = [...knownEtfsRaw].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
-    const etfLosersRaw = [...knownEtfsRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 20);
+    const etfGainersRaw = [...knownEtfsRaw].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
+    const etfLosersRaw = [...knownEtfsRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 15);
     
     const regularStocksRaw = viableSetups.filter((t: any) => !ETF_TARGET_MAP[t.ticker]);
-    const gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= 4.0).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
-    const losersRaw = [...regularStocksRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 20);
+    const gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= 4.0).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
+    const losersRaw = [...regularStocksRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 15);
 
     const today = new Date();
     const lookbackDate = new Date();
@@ -356,7 +343,6 @@ export async function GET(request: Request) {
     const toStr = today.toISOString().split('T')[0];
     const fromStr = lookbackDate.toISOString().split('T')[0];
 
-    // CHUNKED ENRICHMENT TO PREVENT POLYGON RATE LIMITS / TIMEOUTS
     const allCandidates = [...dailyCandidates, ...sipCandidates, ...megaCapsRaw, ...gainersRaw, ...losersRaw, ...etfGainersRaw, ...etfLosersRaw];
     const uniqueCandidates = Array.from(new Map(allCandidates.map(item => [item.ticker, item])).values());
     
@@ -409,7 +395,6 @@ export async function GET(request: Request) {
       const apiSectorRaw = cleanSectorDescription(details?.results?.sic_description, details?.results?.sector, details?.results?.industry);
       const deepSector = resolveEtfSector(sym, apiSectorRaw, companyName); 
 
-      // News Extraction mapping
       const newsList = newsData?.results || [];
       let finalCatalystUrl = null;
       let rawHeadline = null;
@@ -439,8 +424,7 @@ export async function GET(request: Request) {
       };
     };
 
-    // Staggered batching to protect Polygon connections
-    const enrichedList = [];
+    const enrichedList: any[] = [];
     const chunkSize = 15;
     for (let i = 0; i < uniqueCandidates.length; i += chunkSize) {
       const chunk = uniqueCandidates.slice(i, i + chunkSize);
@@ -449,13 +433,16 @@ export async function GET(request: Request) {
     }
 
     // =========================================================================
-    // GEMINI BATCH CONFLUENCE SCORER & EXTRACTOR (SINGLE UNIFIED CALL)
+    // GEMINI BATCH CONFLUENCE SCORER (FILTERED FOR DAILY & SIPS ONLY)
     // =========================================================================
     const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey) {
       try {
+        // ONLY collect tickers that are specifically designated as Daily Setups or SIPs
+        const aiTargets = new Set([...dailyCandidates, ...sipCandidates].map(t => t.ticker));
+
         const analysisMap = enrichedList
-          .filter((t: any) => t.setupName !== null || (t._rawHeadline && t._rawHeadline !== '-'))
+          .filter((t: any) => aiTargets.has(t.ticker) && (t.setupName !== null || (t._rawHeadline && t._rawHeadline !== '-')))
           .map((t: any) => `"${t.ticker}": { "Headline": "${(t._rawHeadline || '').replace(/"/g, '\\"')}", "MathPattern": "${t.setupName || 'None'}", "Stage": "${t.stage}", "RecentTrend_Last5Days": [${t._recentTrend.join(',')}] }`)
           .join(',\n');
           
@@ -468,7 +455,7 @@ export async function GET(request: Request) {
             
             Return ONLY a valid JSON object where the keys are the tickers. For each ticker, provide:
             1. "catalyst": A punchy 2-5 word summary of the headline. If there is no specific news, return "Technical Setup".
-            2. "conviction": A score from 1-100 rating the synergy of the setup. (e.g., A 'BB SQZ Fired' in 'Stage 2A' with a strong earnings catalyst gets a 90+. A counter-trend bounce in Stage 4 gets a lower score).
+            2. "conviction": A score from 1-100 rating the synergy of the setup.
             3. "thesis": A brutal, 1-sentence institutional tape-reading thesis explaining why this is or isn't a high-probability setup.
             
             Do not include markdown formatting like \`\`\`json.
@@ -502,15 +489,26 @@ export async function GET(request: Request) {
                   t.conviction = confluenceDict[t.ticker].conviction;
                   t.thesis = confluenceDict[t.ticker].thesis;
                 } else if (t._rawHeadline) {
+                  // Fallback for Top Movers and items that skipped the AI payload
                   t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
                 }
               });
             }
           }
+        } else {
+          // If the AI payload was entirely empty, still map standard headlines
+          enrichedList.forEach((t: any) => {
+            if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
+          });
         }
       } catch (e) {
         console.error("Gemini Batch Confluence Scorer Failed:", e);
       }
+    } else {
+      // If no API key, fallback to standard headlines
+      enrichedList.forEach((t: any) => {
+         if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
+      });
     }
 
     const enrichedMap = new Map();
