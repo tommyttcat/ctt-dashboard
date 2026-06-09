@@ -14,15 +14,15 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 1. Check if we already have an AI-generated narrative for today in the database
+    // 1. Check Cache
     const cachedSummary = await kv.get(`market_narrative_${targetDate}`);
     if (cachedSummary) {
       return NextResponse.json(cachedSummary);
     }
 
-    // 2. Fetch raw news from Polygon to feed the AI
+    // 2. Fetch News
     const polygonKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY;
-    if (!polygonKey) return NextResponse.json({ error: 'Missing Polygon Key' }, { status: 500 });
+    if (!polygonKey) throw new Error('Missing Polygon API Key');
 
     const newsUrl = `https://api.polygon.io/v2/reference/news?published_utc.gte=${targetDate}T00:00:00Z&published_utc.lte=${targetDate}T23:59:59Z&limit=50&sort=published_utc&order=desc&apiKey=${polygonKey}`;
     const response = await fetch(newsUrl, { cache: 'no-store' });
@@ -32,21 +32,14 @@ export async function GET(request: Request) {
        return NextResponse.json({ status: 404, message: "No market data recorded yet." }, { status: 404 });
     }
 
-    // 3. STRICT FILTER: Strip out clickbait and automated PR wire trash
+    // 3. Filter Trash
     const trashPublishers = ['the motley fool', 'zacks investment research', 'globe newswire', 'pr newswire', 'business wire'];
     const premiumNews = data.results.filter((a: any) => !trashPublishers.includes((a.publisher?.name || '').toLowerCase())).slice(0, 15);
-
     const newsContext = premiumNews.map((n: any) => `- ${n.title}: ${n.description}`).join('\n');
 
-    // 4. Synthesize with Google Gemini
+    // 4. Synthesize with Gemini
     const geminiKey = process.env.GEMINI_API_KEY;
-    
-    if (!geminiKey) {
-      return NextResponse.json({
-        morning: { phase: "SYSTEM ALERT", timestamp: "00:00 AM EST", paragraphs: ["GEMINI_API_KEY is missing from Vercel Environment Variables."], takeaway: "Add your Gemini API key to generate daily actionable market synthesis.", colorTheme: "rose" },
-        midday: null, closing: null, actionableEvents: []
-      });
-    }
+    if (!geminiKey) throw new Error('Missing Gemini API Key');
 
     const aiPrompt = `
       You are an elite, institutional swing trader. Review the following market news headlines from today:
@@ -56,7 +49,7 @@ export async function GET(request: Request) {
       Synthesize this into a highly actionable, institutional-grade market summary. 
       Filter out noise. Focus on breadth, key levels, mega-cap flow, and actionable setups. If there are no major binary events today (like FOMC or CPI), leave the actionableEvents array empty. Do not invent events.
       
-      Return EXACTLY this JSON structure and nothing else:
+      Return EXACTLY this JSON structure and nothing else. Do NOT include markdown formatting like \`\`\`json:
       {
         "actionableEvents": [{"time": "e.g., 2:00 PM", "event": "FOMC", "impact": "High"}],
         "morning": {
@@ -83,36 +76,49 @@ export async function GET(request: Request) {
       }
     `;
 
-    // Direct REST call to Gemini 1.5 Flash
     const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: aiPrompt }] }],
         generationConfig: {
           responseMimeType: "application/json",
           temperature: 0.2
-        }
+        },
+        // Force Gemini to ignore safety triggers so it doesn't block financial news
+        safetySettings: [
+          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+        ]
       })
     });
 
-    if (!aiRes.ok) {
-        throw new Error(`Gemini API Error: ${aiRes.statusText}`);
+    if (!aiRes.ok) throw new Error(`Gemini API Error: ${aiRes.statusText}`);
+    
+    const aiData = await aiRes.json();
+    
+    // Safety check for empty or blocked responses
+    if (!aiData.candidates || !aiData.candidates[0].content) {
+      console.error("Gemini Response Failed:", JSON.stringify(aiData));
+      throw new Error("Gemini returned an empty response. Check Vercel logs.");
     }
 
-    const aiData = await aiRes.json();
-    const generatedText = aiData.candidates[0].content.parts[0].text;
+    let generatedText = aiData.candidates[0].content.parts[0].text;
+    
+    // STRIP THE MARKDOWN TRAP: Aggressively remove ```json and ``` before parsing
+    generatedText = generatedText.replace(/```json/gi, '').replace(/```/g, '').trim();
+
     const generatedSummary = JSON.parse(generatedText);
 
-    // 5. Save to Vercel KV
-    // Expire the cache every 2 hours (7200 seconds) so the narrative naturally updates as the trading day evolves
+    // 5. Cache and Return
     await kv.set(`market_narrative_${targetDate}`, generatedSummary, { ex: 7200 });
 
     return NextResponse.json(generatedSummary);
 
   } catch (error: any) {
+     console.error("Market Summary API Error:", error);
      return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
