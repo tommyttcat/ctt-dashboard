@@ -35,7 +35,7 @@ export async function GET(request: Request) {
     const API_KEY = process.env.POLYGON_API_KEY || process.env.NEXT_PUBLIC_POLYGON_API_KEY;
     if (!API_KEY) throw new Error("Missing POLYGON API KEY");
 
-    // 2. THE CACHE KILLER: Forces Vercel to pull live data from Polygon every single time
+    // Live, cache-busted fetch to eliminate frozen data
     const response = await fetch(
       `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${API_KEY}`,
       { cache: 'no-store' } 
@@ -45,11 +45,13 @@ export async function GET(request: Request) {
     const data = await response.json();
     const tickers = data.tickers || [];
 
-    // 3. Filter Engine Setup
+    // Arrays for all sections of the dashboard
     const gainers = [];
     const losers = [];
     const megaCaps = []; 
     const etfs = [];
+    const stocksInPlay = [];
+    const dailySetups = [];
 
     const megaCapTickers = [
       "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD", 
@@ -76,24 +78,42 @@ export async function GET(request: Request) {
         stage: "Stage 2A"
       };
 
-      if (megaCapTickers.includes(stock.ticker)) {
-        megaCaps.push(tickerData);
-      }
+      // 1. Process ETFs
       if (targetETFs.includes(stock.ticker)) {
         etfs.push(tickerData);
       }
+
+      // 2. Process Mega Caps
+      if (megaCapTickers.includes(stock.ticker)) {
+        megaCaps.push(tickerData);
+      }
+
+      // 3. Liquidity Filter for general scanners (Price >= $1.00 and meets current volume threshold)
       if (volume >= currentVolumeThreshold && currentPrice >= 1.00) {
         if (percentChange >= 4) {
           gainers.push(tickerData);
         } else if (percentChange <= -4) {
           losers.push(tickerData);
         }
+
+        // 4. Stocks In Play Filter (Minimum absolute 4% change + high relative day volume)
+        if (Math.abs(percentChange) >= 4) {
+          stocksInPlay.push(tickerData);
+        }
+
+        // 5. Daily Setups Filter (High volume momentum breakouts/breakdowns)
+        if (Math.abs(percentChange) >= 6 && volume > 1000000) {
+          dailySetups.push(tickerData);
+        }
       }
     }
 
+    // Sort everything by most active/biggest moves
     gainers.sort((a, b) => b.change - a.change);
     losers.sort((a, b) => a.change - b.change);
     megaCaps.sort((a, b) => b.change - a.change);
+    stocksInPlay.sort((a, b) => b.volume - a.volume); // High volume focus
+    dailySetups.sort((a, b) => b.change - a.change);
 
     const finalTopMovers = {
       gainers: gainers.slice(0, 50),
@@ -102,17 +122,19 @@ export async function GET(request: Request) {
       etfs: etfs
     };
 
-    // 5. Update Database
+    // 5. Overwrite EVERY key simultaneously to eliminate stale data cross-contamination
     await kv.set("top_movers", finalTopMovers);
+    await kv.set("stocks_in_play", stocksInPlay.slice(0, 30));
+    await kv.set("daily_setups", dailySetups.slice(0, 30));
     await kv.set("marketStatus", currentMarketStatus);
-    
-    // Fixed timestamp key so the UI reads it correctly
     await kv.set("last_scan_time", Date.now()); 
 
     return NextResponse.json({ 
       success: true, 
       marketStatus: currentMarketStatus,
-      gainersFound: gainers.length
+      topMoversCount: gainers.length + losers.length,
+      sipsCount: stocksInPlay.length,
+      setupsCount: dailySetups.length
     });
 
   } catch (error: any) {
