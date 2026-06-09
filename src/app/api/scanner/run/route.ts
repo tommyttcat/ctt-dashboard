@@ -36,7 +36,7 @@ export async function GET(request: Request) {
     if (!POLYGON_KEY) throw new Error("Missing POLYGON API KEY");
 
     // ====================================================================
-    // PHASE 1: THE SPEED SCAN (Powered by Polygon)
+    // PHASE 1: THE SPEED SCAN (Polygon)
     // ====================================================================
     const response = await fetch(
       `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${POLYGON_KEY}`,
@@ -54,16 +54,8 @@ export async function GET(request: Request) {
     let stocksInPlay = [];
     let dailySetups = [];
 
-    const megaCapTickers = [
-      "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD", 
-      "NFLX", "AVGO", "COST", "TMUS", "CSCO", "INTC", "QCOM", "TXN", 
-      "AMAT", "ISRG", "HON", "BKNG"
-    ];
-
-    const targetETFs = [
-      "SPY", "QQQ", "IWM", "DIA", "TQQQ", "SQQQ", "SOXL", "SOXS",
-      "SPXL", "SPXS", "UPRO", "SPXU", "TNA", "TZA", "UDOW", "SDOW", "UVXY", "VIXY"
-    ];
+    const megaCapTickers = ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD", "NFLX", "AVGO", "COST", "TMUS", "CSCO", "INTC", "QCOM", "TXN", "AMAT", "ISRG", "HON", "BKNG"];
+    const targetETFs = ["SPY", "QQQ", "IWM", "DIA", "TQQQ", "SQQQ", "SOXL", "SOXS", "SPXL", "SPXS", "UPRO", "SPXU", "TNA", "TZA", "UDOW", "SDOW", "UVXY", "VIXY"];
 
     for (const stock of tickers) {
       const volume = stock.day?.v || 0;
@@ -77,19 +69,14 @@ export async function GET(request: Request) {
         change: percentChange,
         volume: volume,
         stage: "Stage 2A",
-        // Placeholders waiting for FMP Hydration
         mktCap: null,
-        sector: "—"
+        sector: "—",
+        float: null,     
+        shortPct: null
       };
 
-      if (targetETFs.includes(stock.ticker)) {
-        etfs.push(tickerData);
-        continue; 
-      }
-      if (megaCapTickers.includes(stock.ticker)) {
-        megaCaps.push(tickerData);
-        continue; 
-      }
+      if (targetETFs.includes(stock.ticker)) { etfs.push(tickerData); continue; }
+      if (megaCapTickers.includes(stock.ticker)) { megaCaps.push(tickerData); continue; }
 
       if (volume >= currentVolumeThreshold && currentPrice >= 1.00) {
         if (percentChange >= 4) gainers.push(tickerData);
@@ -106,62 +93,69 @@ export async function GET(request: Request) {
     stocksInPlay.sort((a, b) => b.volume - a.volume);
     dailySetups.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
 
-    // Cap sizes to prevent massive payload limits
     gainers = gainers.slice(0, 50);
     losers = losers.slice(0, 50);
     stocksInPlay = stocksInPlay.slice(0, 30);
     dailySetups = dailySetups.slice(0, 30);
 
     // ====================================================================
-    // PHASE 2: THE HYDRATION ENGINE (Powered by Financial Modeling Prep)
+    // PHASE 2: THE HYDRATION ENGINE (FMP Chunking)
     // ====================================================================
     const FMP_KEY = process.env.FMP_API_KEY; 
 
     if (FMP_KEY) {
-      // Gather every unique ticker that made it through the Polygon filters
+      // Sanitize Tickers for FMP (Replace Polygon dots with FMP dashes)
+      const sanitize = (t: string) => t.replace('.', '-');
+      
       const allUniqueTickers = Array.from(new Set([
-        ...gainers.map(t => t.ticker),
-        ...losers.map(t => t.ticker),
-        ...megaCaps.map(t => t.ticker),
-        ...etfs.map(t => t.ticker),
-        ...stocksInPlay.map(t => t.ticker),
-        ...dailySetups.map(t => t.ticker)
+        ...gainers.map(t => sanitize(t.ticker)),
+        ...losers.map(t => sanitize(t.ticker)),
+        ...megaCaps.map(t => sanitize(t.ticker)),
+        ...etfs.map(t => sanitize(t.ticker)),
+        ...stocksInPlay.map(t => sanitize(t.ticker)),
+        ...dailySetups.map(t => sanitize(t.ticker))
       ]));
 
-      // Fetch fundamentals in one massive batch
-      if (allUniqueTickers.length > 0) {
+      const profileMap: Record<string, any> = {};
+
+      // Chunk Requests to prevent FMP 400 Errors
+      const chunkSize = 50;
+      for (let i = 0; i < allUniqueTickers.length; i += chunkSize) {
+        const chunk = allUniqueTickers.slice(i, i + chunkSize);
         try {
           const fmpRes = await fetch(
-            `https://financialmodelingprep.com/api/v3/profile/${allUniqueTickers.join(',')}?apikey=${FMP_KEY}`,
+            `https://financialmodelingprep.com/api/v3/profile/${chunk.join(',')}?apikey=${FMP_KEY}`,
             { cache: 'no-store' }
           );
           
           if (fmpRes.ok) {
             const profiles = await fmpRes.json();
-            const profileMap: Record<string, any> = {};
-            profiles.forEach((p: any) => { profileMap[p.symbol] = p; });
-
-            // Helper to map fundamentals back onto the objects
-            const hydrate = (list: any[]) => list.map(item => ({
-              ...item,
-              mktCap: profileMap[item.ticker]?.mktCap || null,
-              sector: profileMap[item.ticker]?.sector || "—"
-            }));
-
-            // Apply hydration
-            gainers = hydrate(gainers);
-            losers = hydrate(losers);
-            megaCaps = hydrate(megaCaps);
-            etfs = hydrate(etfs);
-            stocksInPlay = hydrate(stocksInPlay);
-            dailySetups = hydrate(dailySetups);
+            profiles.forEach((p: any) => { 
+              // Map back to Polygon's dot notation so the UI matches
+              const originalTicker = p.symbol.replace('-', '.');
+              profileMap[originalTicker] = p; 
+            });
           }
         } catch (e) {
-          console.error("FMP Hydration failed, saving standard Polygon data instead.", e);
+          console.error("FMP Hydration chunk failed", e);
         }
       }
+
+      // Map fundamental data onto existing lists
+      const hydrate = (list: any[]) => list.map(item => ({
+        ...item,
+        mktCap: profileMap[item.ticker]?.mktCap || null,
+        sector: profileMap[item.ticker]?.sector || "—"
+      }));
+
+      gainers = hydrate(gainers);
+      losers = hydrate(losers);
+      megaCaps = hydrate(megaCaps);
+      etfs = hydrate(etfs);
+      stocksInPlay = hydrate(stocksInPlay);
+      dailySetups = hydrate(dailySetups);
     } else {
-      console.warn("No FMP_API_KEY found in Vercel. Skipping fundamental hydration.");
+      console.warn("FMP API KEY NOT DETECTED IN VERCEL ENVIRONMENT");
     }
 
     // ====================================================================
