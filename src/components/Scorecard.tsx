@@ -32,49 +32,23 @@ export default function MacroScorecard() {
 
     const fetchMacro = async () => {
       try {
-        const FMP_KEY = process.env.NEXT_PUBLIC_FMP_API_KEY;
-        if (!FMP_KEY) {
-           setStatus('API Key Missing');
-           return;
-        }
+        const res = await fetch('/api/macro', { cache: 'no-store' });
+        const json = await res.json();
 
-        // FMP's new stable endpoints strictly reject comma-separated batches (e.g., symbol=SPY,QQQ).
-        // We execute 12 parallel requests directly to bypass the block completely.
-        const promises = ASSETS.map(async (asset) => {
-          try {
-            const res = await fetch(`https://financialmodelingprep.com/stable/quote?symbol=${asset.fmpSymbol}&apikey=${FMP_KEY}`, { cache: 'no-store' });
-            if (!res.ok) return null;
-            
-            const rawData = await res.json();
-            // Catch silent JSON errors from FMP
-            if (rawData && rawData["Error Message"]) return null;
-            
-            // Handle both object and array responses seamlessly
-            const item = Array.isArray(rawData) ? rawData[0] : (rawData?.data ? rawData.data[0] : rawData);
-            return item && item.symbol ? item : null;
-          } catch (e) {
-            return null;
-          }
-        });
-
-        const results = await Promise.all(promises);
-        const validResults = results.filter(Boolean);
-
-        if (isMounted) {
-          if (validResults.length > 0) {
-            const newData: Record<string, MacroData> = {};
-            validResults.forEach((item: any) => {
-              newData[item.symbol] = {
-                symbol: item.symbol,
-                price: item.price || 0,
-                changePct: item.changesPercentage || 0
-              };
-            });
-            setData(newData);
-            setStatus('LIVE');
-          } else {
-            setStatus('API BLOCKED');
-          }
+        if (isMounted && json.success && json.data) {
+          const newData: Record<string, MacroData> = {};
+          json.data.forEach((item: any) => {
+            newData[item.symbol] = {
+              symbol: item.symbol,
+              price: item.price || 0,
+              // FIX: FMP's /stable/ endpoint drops the "s" and uses changePercentage
+              changePct: item.changePercentage ?? item.changesPercentage ?? 0
+            };
+          });
+          setData(newData);
+          setStatus('LIVE');
+        } else if (isMounted) {
+          setStatus('OFFLINE');
         }
       } catch (error) {
         if (isMounted) setStatus('OFFLINE');
