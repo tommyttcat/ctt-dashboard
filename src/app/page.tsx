@@ -1,5 +1,7 @@
 // Tell Vercel NOT to statically prerender this real-time dashboard
 export const dynamic = 'force-dynamic';
+// KILL-SWITCH FOR CACHE: Force zero caching across the board
+export const revalidate = 0;
 
 import React, { Suspense } from 'react';
 import { MarketDataProvider } from '../components/MarketDataContext'; 
