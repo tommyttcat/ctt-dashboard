@@ -47,7 +47,14 @@ const formatCurrency = (num: number | null) => {
 
 const formatStageText = (stage: string | undefined) => {
   if (!stage || stage === '-' || stage === '—') return '—';
-  return stage.replace(/Stage\s*/i, ''); // "Stage 2A" -> "2A"
+  return stage.replace(/Stage\s*/i, ''); 
+};
+
+const formatSetupName = (name: string | null) => {
+  if (!name || name === '-' || name === '—') return '—';
+  if (name.includes('BB SQZ')) return 'BB SQZ';
+  if (name === 'Blue Dot Rev') return 'BD Rev';
+  return name;
 };
 
 export default function StocksInPlay() {
@@ -339,7 +346,7 @@ export default function StocksInPlay() {
                         <td className="py-3 text-[11px] text-slate-200 font-semibold truncate max-w-[150px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           <div className="flex items-center gap-1.5">
                             {row.setupName === 'Blue Dot Rev' && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"></div>}
-                            <span>{row.setupName || '—'}</span>
+                            <span>{formatSetupName(row.setupName)}</span>
                           </div>
                         </td>
                         <td className="py-3" style={{ textAlign: 'left', paddingLeft: '24px' }}>
