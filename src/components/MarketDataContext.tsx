@@ -8,6 +8,7 @@ interface MarketDataContextType {
   topMovers: any[];
   sipsUniverse: any[]; 
   session: string;
+  effectiveDate: string; // <-- INJECTED EFFECTIVE DATE
   lastUpdated: Date | null;
   isLoading: boolean;
 }
@@ -17,6 +18,7 @@ const MarketDataContext = createContext<MarketDataContextType>({
   topMovers: [],
   sipsUniverse: [],
   session: 'Unknown',
+  effectiveDate: '',
   lastUpdated: null,
   isLoading: true,
 });
@@ -40,10 +42,28 @@ const getMarketSession = () => {
   return 'Closed';
 };
 
+// --- HELPER: CALCULATE EFFECTIVE TRADING DATE ---
+const getEffectiveTradingDate = () => {
+  const est = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const day = est.getDay();
+  const time = est.getHours() + est.getMinutes() / 60;
+
+  if (day === 6) est.setDate(est.getDate() - 1); // Saturday snaps to Friday
+  else if (day === 0) est.setDate(est.getDate() - 2); // Sunday snaps to Friday
+  else if (day === 1 && time < 4) est.setDate(est.getDate() - 3); // Monday before 4am snaps to Friday
+  else if (time < 4) est.setDate(est.getDate() - 1); // Tue-Fri before 4am snaps to Yesterday
+
+  const y = est.getFullYear();
+  const m = String(est.getMonth() + 1).padStart(2, '0');
+  const d = String(est.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
 // --- THE PROVIDER COMPONENT ---
 export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
   const [rawSnapshot, setRawSnapshot] = useState<any[]>([]);
   const [session, setSession] = useState<string>('Unknown');
+  const [effectiveDate, setEffectiveDate] = useState<string>(''); // <-- STATE ADDED
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -57,6 +77,11 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
 
+    // Set the initial date immediately so children don't wait
+    if (isMounted) {
+       setEffectiveDate(getEffectiveTradingDate());
+    }
+
     const fetchMasterSnapshot = async () => {
       try {
         const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`;
@@ -68,25 +93,21 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
         const tickers = data.tickers || [];
 
         const currentSess = getMarketSession();
+        const currentEffDate = getEffectiveTradingDate();
 
         const normalizedTickers = tickers.map((t: any) => {
           if (!t.day) t.day = { c: 0, v: 0, o: 0, h: 0, l: 0 };
 
-          // =========================================================================
-          // LIVE MATH INJECTION (Matches the Backend exactly)
-          // Prioritize the actual last print over the frozen day bar
-          // =========================================================================
+          // LIVE MATH INJECTION
           const livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || 0;
           const prevClose = t.prevDay?.c || 0;
           const vol = t.day?.v || t.prevDay?.v || t.min?.v || 0;
 
-          // Force precise percentage calculation
           let liveChg = t.todaysChangePerc || 0;
           if (prevClose > 0 && livePrice > 0) {
              liveChg = ((livePrice - prevClose) / prevClose) * 100;
           }
           
-          // Overwrite Polygon's frozen data with our true live data
           t.day.c = livePrice;
           t.todaysChangePerc = liveChg;
           t.day.v = vol;
@@ -97,6 +118,7 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
         if (isMounted) {
           setRawSnapshot(normalizedTickers);
           setSession(currentSess);
+          setEffectiveDate(currentEffDate);
           setLastUpdated(new Date());
           setIsLoading(false);
         }
@@ -104,6 +126,7 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
         console.error("Market Engine Error:", error);
         if (isMounted) {
           setSession(getMarketSession());
+          setEffectiveDate(getEffectiveTradingDate());
           setIsLoading(false);
         }
       }
@@ -157,6 +180,7 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
         topMovers, 
         sipsUniverse: topMovers, 
         session, 
+        effectiveDate,
         lastUpdated, 
         isLoading 
       }}
