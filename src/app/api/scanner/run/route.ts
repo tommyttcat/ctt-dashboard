@@ -78,14 +78,16 @@ export async function GET(request: Request) {
         stage: "Stage 2A"
       };
 
-      // 1. Process ETFs
+      // 1. Process ETFs (STRICT ISOLATION)
       if (targetETFs.includes(stock.ticker)) {
         etfs.push(tickerData);
+        continue; // Prevents ETFs from bleeding into Gainers/SIPS
       }
 
-      // 2. Process Mega Caps
+      // 2. Process Mega Caps (STRICT ISOLATION)
       if (megaCapTickers.includes(stock.ticker)) {
         megaCaps.push(tickerData);
+        continue; // Prevents Mega Caps from dominating the general scanners
       }
 
       // 3. Liquidity Filter for general scanners (Price >= $1.00 and meets current volume threshold)
@@ -96,12 +98,12 @@ export async function GET(request: Request) {
           losers.push(tickerData);
         }
 
-        // 4. Stocks In Play Filter (Minimum absolute 4% change + high relative day volume)
+        // 4. Stocks In Play Filter (Minimum absolute 4% change)
         if (Math.abs(percentChange) >= 4) {
           stocksInPlay.push(tickerData);
         }
 
-        // 5. Daily Setups Filter (High volume momentum breakouts/breakdowns)
+        // 5. Daily Setups Filter (Minimum absolute 6% change + high volume momentum)
         if (Math.abs(percentChange) >= 6 && volume > 1000000) {
           dailySetups.push(tickerData);
         }
@@ -113,7 +115,7 @@ export async function GET(request: Request) {
     losers.sort((a, b) => a.change - b.change);
     megaCaps.sort((a, b) => b.change - a.change);
     stocksInPlay.sort((a, b) => b.volume - a.volume); // High volume focus
-    dailySetups.sort((a, b) => b.change - a.change);
+    dailySetups.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
 
     const finalTopMovers = {
       gainers: gainers.slice(0, 50),
@@ -122,7 +124,7 @@ export async function GET(request: Request) {
       etfs: etfs
     };
 
-    // 5. Overwrite EVERY key simultaneously to eliminate stale data cross-contamination
+    // 5. Overwrite EVERY key simultaneously
     await kv.set("top_movers", finalTopMovers);
     await kv.set("stocks_in_play", stocksInPlay.slice(0, 30));
     await kv.set("daily_setups", dailySetups.slice(0, 30));
