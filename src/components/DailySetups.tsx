@@ -46,7 +46,7 @@ const formatCurrency = (num: number | null) => {
 };
 
 export default function DailySetups() {
-  const { session } = useMarketData(); // We only need the global session status now!
+  const { session } = useMarketData(); 
   
   const [setups, setSetups] = useState<SetupData[]>([]);
   const [status, setStatus] = useState<string>('Syncing DB...');
@@ -66,7 +66,29 @@ export default function DailySetups() {
         const data = await res.json();
         
         if (isMounted && data.success) {
-          setSetups(data.dailySetups || []);
+          
+          // SAFETY TRANSLATOR: Maps backend keys to frontend expectations
+          const rawList = data.dailySetups || [];
+          const safeData = rawList.map((item: any) => ({
+            ticker: item.ticker || '—',
+            name: item.name || '',
+            sector: item.sector || '',
+            price: Number(item.price) || 0,
+            vwapStatus: item.vwapStatus || 'neutral',
+            changePct: Number(item.change ?? item.changePct) || 0,
+            vol: Number(item.volume ?? item.vol) || 0,
+            dVol: Number(item.dVol) || (Number(item.price || 0) * Number((item.volume ?? item.vol) || 0)),
+            rvol: item.rvol || null,
+            float: item.float || null,
+            shortPct: item.shortPct || null,
+            mktCap: item.mktCap || null,
+            stage: item.stage || 'Stage 2A',
+            setupName: item.setupName || '—',
+            catalyst: item.catalyst || null,
+            catalystUrl: item.catalystUrl || null,
+          }));
+
+          setSetups(safeData);
           setLastScanTime(data.lastScanTime);
           setStatus('Live');
         }
@@ -75,7 +97,6 @@ export default function DailySetups() {
       }
     };
 
-    // Fetch instantly on load, then silently check the DB every 60 seconds
     fetchDatabaseSnapshot();
     const interval = setInterval(fetchDatabaseSnapshot, 60000);
 
@@ -95,12 +116,15 @@ export default function DailySetups() {
   const filteredAndSortedSetups = useMemo(() => {
     let filtered = setups;
     
-    if (showStage2AOnly) filtered = filtered.filter(s => s.stage === '2A');
+    // FIXED FILTER: Now strictly checks for "Stage 2A" instead of just "2A"
+    if (showStage2AOnly) {
+      filtered = filtered.filter(s => s.stage === 'Stage 2A');
+    }
 
     if (marketCapFilter !== 'All') {
       filtered = filtered.filter(s => {
         const mc = s.mktCap;
-        if (!mc) return false;
+        if (!mc) return true; // Keeps items visible if market cap is missing
         if (marketCapFilter === 'Mega') return mc >= 200e9;
         if (marketCapFilter === 'Large') return mc >= 10e9 && mc < 200e9;
         if (marketCapFilter === 'Mid') return mc >= 2e9 && mc < 10e9;
