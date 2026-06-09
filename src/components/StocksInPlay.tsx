@@ -18,10 +18,8 @@ interface StockInPlay {
   mktCap: number | null;
   stage: string;
   setupName: string | null;
-  catalyst: string | null;
-  catalystUrl: string | null;
-  conviction?: number | null; // <-- ADDED: Confluence Score
-  thesis?: string | null;     // <-- ADDED: Trading Thesis
+  conviction?: number | null; 
+  thesis?: string | null;     
 }
 
 type SortDirection = 'asc' | 'desc';
@@ -45,6 +43,11 @@ const formatCurrency = (num: number | null) => {
   if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
   if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
   return '$' + num.toLocaleString();
+};
+
+const formatStageText = (stage: string | undefined) => {
+  if (!stage || stage === '-' || stage === '—') return '—';
+  return stage.replace(/Stage\s*/i, ''); // "Stage 2A" -> "2A"
 };
 
 export default function StocksInPlay() {
@@ -84,12 +87,10 @@ export default function StocksInPlay() {
             float: item.float || null,
             shortPct: item.shortPct || null,
             mktCap: item.mktCap || null,
-            stage: item.stage || 'Stage 2A',
+            stage: item.stage || '2A',
             setupName: item.setupName || null,
-            catalyst: item.catalyst || null,
-            catalystUrl: item.catalystUrl || null,
-            conviction: item.conviction || null, // <-- ADDED: Pulls from DB
-            thesis: item.thesis || null,         // <-- ADDED: Pulls from DB
+            conviction: item.conviction || null, 
+            thesis: item.thesis || null,         
           }));
 
           setStocks(safeData);
@@ -121,7 +122,7 @@ export default function StocksInPlay() {
     let filtered = stocks;
     
     if (showStage2AOnly) {
-      filtered = filtered.filter(s => s.stage === 'Stage 2A');
+      filtered = filtered.filter(s => s.stage && s.stage.includes('2A'));
     }
     
     if (marketCapFilter !== 'All') {
@@ -227,7 +228,7 @@ export default function StocksInPlay() {
                     : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'
                 }`}
               >
-                {showStage2AOnly ? 'Stage 2A' : 'Filter: Stage 2A'}
+                {showStage2AOnly ? '2A' : 'Filter: 2A'}
               </button>
 
               <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1" onClick={(e) => e.stopPropagation()}>
@@ -275,7 +276,7 @@ export default function StocksInPlay() {
           </div>
 
           <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[1500px] border-collapse">
+            <table className="w-full min-w-[1300px] border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
@@ -289,22 +290,21 @@ export default function StocksInPlay() {
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[4%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('setupName')}>STRATEGY{getSortIcon('setupName')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '24px' }} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[20%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('conviction')}>CONFLUENCE{getSortIcon('conviction')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('setupName')}>STRATEGY{getSortIcon('setupName')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[30%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '24px' }} onClick={() => handleSort('conviction')}>CONFLUENCE{getSortIcon('conviction')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {status.includes('Syncing') && stocks.length === 0 ? (
                   <tr>
-                    <td colSpan={14} className="py-12 text-center">
+                    <td colSpan={13} className="py-12 text-center">
                       <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
                       <span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span>
                     </td>
                   </tr>
                 ) : filteredAndSortedStocks.length === 0 ? (
                   <tr>
-                    <td colSpan={14} className="py-12 text-center text-slate-500 text-sm font-medium">No active tracking items currently matching momentum criteria.</td>
+                    <td colSpan={13} className="py-12 text-center text-slate-500 text-sm font-medium">No active tracking items currently matching momentum criteria.</td>
                   </tr>
                 ) : (
                   filteredAndSortedStocks.map((row, i) => {
@@ -334,42 +334,33 @@ export default function StocksInPlay() {
                           <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.sector || '—'}</div>
                         </td>
                         <td className="py-3 text-xs font-bold whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <span className={getStageColor(row.stage)}>{row.stage}</span>
+                          <span className={getStageColor(row.stage)}>{formatStageText(row.stage)}</span>
                         </td>
-                        <td className="py-3 text-[11px] text-slate-200 font-semibold truncate max-w-[280px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                        <td className="py-3 text-[11px] text-slate-200 font-semibold truncate max-w-[150px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           <div className="flex items-center gap-1.5">
                             {row.setupName === 'Blue Dot Rev' && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"></div>}
                             <span>{row.setupName || '—'}</span>
                           </div>
                         </td>
-                        <td className="py-3 text-[11px] text-slate-400 font-medium" style={{ textAlign: 'left', paddingLeft: '24px' }}>
-                          <div className="flex items-center gap-2 group/cat">
-                            {row.catalyst && row.catalyst !== '—' ? (
-                              row.catalystUrl ? (
-                                <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="truncate max-w-[200px] xl:max-w-[300px] group-hover/cat:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>
-                              ) : (<span className="truncate max-w-[200px] xl:max-w-[300px] group-hover/cat:text-slate-200 transition-colors">{row.catalyst}</span>)
-                            ) : (<span className="text-slate-600 font-medium">—</span>)}
-                          </div>
-                        </td>
-                        <td className="py-3" style={{ textAlign: 'left', paddingLeft: '16px', minWidth: '220px' }}>
+                        <td className="py-3" style={{ textAlign: 'left', paddingLeft: '24px' }}>
                           {row.conviction ? (
-                            <div className="flex flex-col pr-4">
-                              <div className="flex items-center gap-2">
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            <div className="flex flex-col pr-4 my-1">
+                              <div className="flex items-center gap-3 mb-1.5">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
                                   row.conviction >= 85 
-                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
                                     : row.conviction >= 70 
-                                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' 
-                                    : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' 
+                                    : 'bg-zinc-800 text-zinc-400 border-zinc-700'
                                 }`}>
                                   {row.conviction}%
                                 </span>
-                                <span className="text-[10px] text-zinc-400 font-medium tracking-wider uppercase">
-                                  {row.conviction >= 85 ? 'High' : row.conviction >= 70 ? 'Med' : 'Low'} Conviction
+                                <span className="text-[10px] text-zinc-300 font-bold tracking-widest uppercase">
+                                  {row.conviction >= 85 ? 'High Conviction' : row.conviction >= 70 ? 'Med Conviction' : 'Low Conviction'}
                                 </span>
                               </div>
                               {row.thesis && (
-                                <p className="text-[10px] text-zinc-500 leading-tight mt-1 truncate group-hover:text-zinc-300 transition-colors" title={row.thesis}>
+                                <p className="text-[11px] text-slate-400 leading-relaxed truncate max-w-[350px] xl:max-w-[450px]" title={row.thesis}>
                                   {row.thesis}
                                 </p>
                               )}
