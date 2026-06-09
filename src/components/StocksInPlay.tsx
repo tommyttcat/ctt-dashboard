@@ -20,6 +20,8 @@ interface StockInPlay {
   setupName: string | null;
   catalyst: string | null;
   catalystUrl: string | null;
+  conviction?: number | null; // <-- ADDED: Confluence Score
+  thesis?: string | null;     // <-- ADDED: Trading Thesis
 }
 
 type SortDirection = 'asc' | 'desc';
@@ -68,7 +70,6 @@ export default function StocksInPlay() {
         
         if (isMounted && data.success) {
           
-          // SAFETY TRANSLATOR: Maps backend keys to frontend expectations
           const rawList = data.stocksInPlay || [];
           const safeData = rawList.map((item: any) => ({
             ticker: item.ticker || '—',
@@ -87,6 +88,8 @@ export default function StocksInPlay() {
             setupName: item.setupName || null,
             catalyst: item.catalyst || null,
             catalystUrl: item.catalystUrl || null,
+            conviction: item.conviction || null, // <-- ADDED: Pulls from DB
+            thesis: item.thesis || null,         // <-- ADDED: Pulls from DB
           }));
 
           setStocks(safeData);
@@ -117,7 +120,6 @@ export default function StocksInPlay() {
   const filteredAndSortedStocks = useMemo(() => {
     let filtered = stocks;
     
-    // STRICT FILTER: Exact case matching
     if (showStage2AOnly) {
       filtered = filtered.filter(s => s.stage === 'Stage 2A');
     }
@@ -273,7 +275,7 @@ export default function StocksInPlay() {
           </div>
 
           <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[1300px] border-collapse">
+            <table className="w-full min-w-[1500px] border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
@@ -285,23 +287,24 @@ export default function StocksInPlay() {
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[4%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[11%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('setupName')}>STRATEGY{getSortIcon('setupName')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[25%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '24px' }} onClick={() => handleSort('catalyst')}>CATALYST'S{getSortIcon('catalyst')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('setupName')}>STRATEGY{getSortIcon('setupName')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '24px' }} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[20%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('conviction')}>CONFLUENCE{getSortIcon('conviction')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {status.includes('Syncing') && stocks.length === 0 ? (
                   <tr>
-                    <td colSpan={13} className="py-12 text-center">
+                    <td colSpan={14} className="py-12 text-center">
                       <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
                       <span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span>
                     </td>
                   </tr>
                 ) : filteredAndSortedStocks.length === 0 ? (
                   <tr>
-                    <td colSpan={13} className="py-12 text-center text-slate-500 text-sm font-medium">No active tracking items currently matching momentum criteria.</td>
+                    <td colSpan={14} className="py-12 text-center text-slate-500 text-sm font-medium">No active tracking items currently matching momentum criteria.</td>
                   </tr>
                 ) : (
                   filteredAndSortedStocks.map((row, i) => {
@@ -343,10 +346,37 @@ export default function StocksInPlay() {
                           <div className="flex items-center gap-2 group/cat">
                             {row.catalyst && row.catalyst !== '—' ? (
                               row.catalystUrl ? (
-                                <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="truncate max-w-[450px] md:max-w-[550px] lg:max-w-[750px] xl:max-w-[950px] group-hover/cat:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>
-                              ) : (<span className="truncate max-w-[450px] md:max-w-[550px] lg:max-w-[750px] xl:max-w-[950px] group-hover/cat:text-slate-200 transition-colors">{row.catalyst}</span>)
+                                <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="truncate max-w-[200px] xl:max-w-[300px] group-hover/cat:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>
+                              ) : (<span className="truncate max-w-[200px] xl:max-w-[300px] group-hover/cat:text-slate-200 transition-colors">{row.catalyst}</span>)
                             ) : (<span className="text-slate-600 font-medium">—</span>)}
                           </div>
+                        </td>
+                        <td className="py-3" style={{ textAlign: 'left', paddingLeft: '16px', minWidth: '220px' }}>
+                          {row.conviction ? (
+                            <div className="flex flex-col pr-4">
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  row.conviction >= 85 
+                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                                    : row.conviction >= 70 
+                                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' 
+                                    : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                                }`}>
+                                  {row.conviction}%
+                                </span>
+                                <span className="text-[10px] text-zinc-400 font-medium tracking-wider uppercase">
+                                  {row.conviction >= 85 ? 'High' : row.conviction >= 70 ? 'Med' : 'Low'} Conviction
+                                </span>
+                              </div>
+                              {row.thesis && (
+                                <p className="text-[10px] text-zinc-500 leading-tight mt-1 truncate group-hover:text-zinc-300 transition-colors" title={row.thesis}>
+                                  {row.thesis}
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-zinc-600 text-xs">—</span>
+                          )}
                         </td>
                       </tr>
                     );

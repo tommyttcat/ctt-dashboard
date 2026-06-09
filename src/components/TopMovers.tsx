@@ -20,6 +20,8 @@ interface StockData {
   catalystUrl: string | null;
   stage: string;
   setupName: string | null;
+  conviction?: number | null; // <-- ADDED: Confluence Score
+  thesis?: string | null;     // <-- ADDED: Trading Thesis
 }
 
 type TabType = 'Mega Caps' | 'Gainers' | 'Losers' | 'ETF Gainers' | 'ETF Losers';
@@ -68,13 +70,11 @@ export default function TopMovers() {
     let isMounted = true;
     const fetchDatabaseSnapshot = async () => {
       try {
-        // FIXED URL: Now points to the correct Next.js route
         const res = await fetch('/api/scanner/latest');
         const data = await res.json();
         
         if (isMounted && data.success && data.topMovers) {
           
-          // SAFETY TRANSLATOR: Maps backend keys to frontend expectations
           const safeData: Record<string, StockData[]> = {};
           const categories: TabType[] = ['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'];
           
@@ -97,6 +97,8 @@ export default function TopMovers() {
               catalystUrl: item.catalystUrl || null,
               stage: item.stage || 'Stage 2A',
               setupName: item.setupName || null,
+              conviction: item.conviction || null, // <-- ADDED: Pulls from DB
+              thesis: item.thesis || null,         // <-- ADDED: Pulls from DB
             }));
           });
 
@@ -259,7 +261,7 @@ export default function TopMovers() {
           </div>
           
           <div className="overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[1200px] border-collapse">
+            <table className="w-full min-w-[1400px] border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300" style={{ width: isEtfTab ? '9%' : '6%', textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
@@ -276,20 +278,21 @@ export default function TopMovers() {
                     </>
                   )}
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300" style={{ width: isEtfTab ? '16%' : '11%', textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>{isEtfTab ? 'ETF' : 'SECTOR'}{getSortIcon('sector')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300" style={{ width: isEtfTab ? '30%' : '41%', textAlign: 'left', paddingLeft: '24px' }} onClick={() => handleSort('catalyst')}>CATALYST'S{getSortIcon('catalyst')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300" style={{ width: isEtfTab ? '15%' : '15%', textAlign: 'left', paddingLeft: '24px' }} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300" style={{ width: isEtfTab ? '15%' : '20%', textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('conviction')}>CONFLUENCE{getSortIcon('conviction')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {status.includes('Syncing') && topMoversData[activeTab].length === 0 ? (
                   <tr>
-                    <td colSpan={isEtfTab ? 8 : 11} className="py-12 text-center">
+                    <td colSpan={isEtfTab ? 9 : 12} className="py-12 text-center">
                       <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
                       <span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span>
                     </td>
                   </tr>
                 ) : sortedStocks.length === 0 ? (
                   <tr>
-                    <td colSpan={isEtfTab ? 8 : 11} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td>
+                    <td colSpan={isEtfTab ? 9 : 12} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td>
                   </tr>
                 ) : (
                   sortedStocks.map((row, i) => {
@@ -326,10 +329,37 @@ export default function TopMovers() {
                           <div className="flex items-center gap-2 group/cat">
                             {row.catalyst ? (
                               row.catalystUrl ? (
-                                <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="truncate max-w-[450px] md:max-w-[550px] lg:max-w-[750px] xl:max-w-[950px] group-hover/cat:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>
-                              ) : (<span className="truncate max-w-[450px] md:max-w-[550px] lg:max-w-[750px] xl:max-w-[950px] group-hover/cat:text-slate-200 transition-colors">{row.catalyst}</span>)
+                                <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="truncate max-w-[200px] xl:max-w-[300px] group-hover/cat:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>
+                              ) : (<span className="truncate max-w-[200px] xl:max-w-[300px] group-hover/cat:text-slate-200 transition-colors">{row.catalyst}</span>)
                             ) : (<span className="text-slate-600 font-medium">—</span>)}
                           </div>
+                        </td>
+                        <td className="py-3" style={{ textAlign: 'left', paddingLeft: '16px', minWidth: '220px' }}>
+                          {row.conviction ? (
+                            <div className="flex flex-col pr-4">
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  row.conviction >= 85 
+                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                                    : row.conviction >= 70 
+                                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' 
+                                    : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                                }`}>
+                                  {row.conviction}%
+                                </span>
+                                <span className="text-[10px] text-zinc-400 font-medium tracking-wider uppercase">
+                                  {row.conviction >= 85 ? 'High' : row.conviction >= 70 ? 'Med' : 'Low'} Conviction
+                                </span>
+                              </div>
+                              {row.thesis && (
+                                <p className="text-[10px] text-zinc-500 leading-tight mt-1 truncate group-hover:text-zinc-300 transition-colors" title={row.thesis}>
+                                  {row.thesis}
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-zinc-600 text-xs">—</span>
+                          )}
                         </td>
                       </tr>
                     );
