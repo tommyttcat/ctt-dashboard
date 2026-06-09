@@ -57,8 +57,21 @@ export async function GET(request: Request) {
       "AMAT", "ISRG", "HON", "BKNG"
     ];
 
-    // Add any specific leveraged ETFs here if you want them (e.g., TQQQ, SQQQ)
-    const targetETFs = ["SPY", "QQQ", "IWM", "DIA"];
+    // Expanded ETF list: Majors + Leveraged/Inverse + Volatility
+    const targetETFs = [
+      // Majors
+      "SPY", "QQQ", "IWM", "DIA",
+      // Tech/Semi Leveraged
+      "TQQQ", "SQQQ", "SOXL", "SOXS",
+      // S&P Leveraged
+      "SPXL", "SPXS", "UPRO", "SPXU",
+      // Small Cap Leveraged
+      "TNA", "TZA",
+      // Dow Leveraged
+      "UDOW", "SDOW",
+      // Volatility
+      "UVXY", "VIXY"
+    ];
 
     for (const stock of tickers) {
       const volume = stock.day?.v || 0;
