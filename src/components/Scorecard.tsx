@@ -145,8 +145,9 @@ export default function MacroScorecard() {
               if (asset) {
                 const ahMatch = ahData.find(a => a.symbol === q.symbol);
                 
-                // CRITICAL FIX: Session-Based Override
-                // If it's pre/post-market, immediately prioritize the AH price. If it's regular hours, stick to the standard quote.
+                // CRITICAL FIX: The Clock Gatekeeper
+                // If the market is closed, pre-market, or post-market, immediately use the AH price if it exists.
+                // Ignore the timestamp discrepancies from FMP entirely.
                 const isExtendedHours = currentSession === 'Post-Market' || currentSession === 'Pre-Market' || currentSession === 'Closed';
                 const useAh = isExtendedHours && ahMatch && ahMatch.price > 0 && ahMatch.price !== q.price;
                 const currentPrice = useAh ? ahMatch.price : (q.price || 0);
