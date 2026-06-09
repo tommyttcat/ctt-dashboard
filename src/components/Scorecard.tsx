@@ -8,7 +8,7 @@ const MACRO_ASSETS = [
   { id: 'QQQ', fmp: 'QQQ', ws: 'QQQ', name: 'Nasdaq 100', type: 'stock' },
   { id: 'DIA', fmp: 'DIA', ws: 'DIA', name: 'Dow Jones', type: 'stock' },
   { id: 'IWM', fmp: 'IWM', ws: 'IWM', name: 'Russell 2000', type: 'stock' },
-  { id: 'VIXY', fmp: 'VIXY', ws: 'VIXY', name: 'Volatility ETF', type: 'stock' },
+  { id: 'VIX', fmp: '^VIX', ws: 'VIX', name: 'VIX Index', type: 'stock' },
   { id: 'TLT', fmp: 'TLT', ws: 'TLT', name: '20Y Treasury', type: 'stock' },
   { id: 'GLD', fmp: 'GLD', ws: 'GLD', name: 'Gold ETF', type: 'stock' },
   { id: 'SLV', fmp: 'SLV', ws: 'SLV', name: 'Silver ETF', type: 'stock' },
@@ -24,7 +24,7 @@ interface TickData {
   pct: number; 
   tickDirection: 'up' | 'down' | 'flat';
   synced: boolean;
-  isAH?: boolean;
+  isExtended?: boolean;
 }
 
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
@@ -64,12 +64,12 @@ export default function MacroScorecard() {
 
   // --- ENGINE 1: AUTO-MACRO SENTIMENT ALGO ---
   useEffect(() => {
-    if (!quotes['SPY'] || !quotes['QQQ'] || !quotes['VIXY']) return;
+    if (!quotes['SPY'] || !quotes['QQQ'] || !quotes['VIX']) return;
 
     const getPct = (id: string) => quotes[id]?.pct || 0;
 
     const eqScore = (getPct('SPY') * 2.0) + (getPct('QQQ') * 2.0) + (getPct('IWM') * 1.0);
-    const volScore = (getPct('VIXY') * -3.0); 
+    const volScore = (getPct('VIX') * -3.0); 
     const cryptoScore = (getPct('BTC') * 0.5); 
 
     const totalScore = eqScore + volScore + cryptoScore;
@@ -86,18 +86,62 @@ export default function MacroScorecard() {
     }
   }, [quotes]);
 
-  // --- ENGINE 2: YAHOO FINANCE REAL-TIME POLLING ---
+  // --- ENGINE 2: FMP 5-MIN HISTORICAL OVERRIDE ENGINE ---
   useEffect(() => {
     let isMounted = true;
+    const fmpApiKey = (process.env.NEXT_PUBLIC_FMP_API_KEY || '').trim();
+
+    if (!fmpApiKey) {
+      setStockStatus('AUTH_ERROR');
+      return;
+    }
 
     const fetchEquities = async () => {
+      const stockAssets = MACRO_ASSETS.filter(a => a.type === 'stock');
       const currentSession = getMarketSession();
       
       try {
-        const res = await fetch('/api/macro', { cache: 'no-store' });
-        const json = await res.json();
+        // 1. Fetch the Standard Quote
+        const stdPromises = stockAssets.map(asset => 
+          fetch(`https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(asset.fmp)}&apikey=${fmpApiKey}`, { cache: 'no-store' })
+            .then(res => {
+              if (res.status === 401) throw new Error('401_UNAUTHORIZED');
+              return res.ok ? res.json() : [];
+            })
+            .catch((err) => {
+              if (err.message === '401_UNAUTHORIZED') throw err; 
+              return []; 
+            }) 
+        );
         
-        if (json.success && json.data && isMounted) {
+        const stdResults = await Promise.all(stdPromises);
+        const stdData = stdResults.flat();
+
+        // 2. Fetch the 5-Minute Chart for After-Hours Data
+        let ahData: Record<string, number> = {};
+        const isExtendedHours = currentSession === 'Post-Market' || currentSession === 'Pre-Market' || currentSession === 'Closed';
+
+        if (isExtendedHours) {
+          const ahPromises = stockAssets.map(asset => 
+            fetch(`https://financialmodelingprep.com/stable/historical-chart/5min?symbol=${encodeURIComponent(asset.fmp)}&extended=true&apikey=${fmpApiKey}`, { cache: 'no-store' })
+              .then(res => res.ok ? res.json() : [])
+              .then(data => {
+                if (Array.isArray(data) && data.length > 0) {
+                  return { symbol: asset.fmp, price: data[0].close };
+                }
+                return null;
+              })
+              .catch(() => null)
+          );
+          
+          const ahResults = await Promise.all(ahPromises);
+          ahResults.forEach(r => {
+            if (r) ahData[r.symbol] = r.price;
+          });
+        }
+        
+        // 3. Merge and Mount
+        if (stdData.length > 0 && isMounted) {
           setSession(currentSession);
           setLastUpdated(new Date());
           setStockStatus('LIVE'); 
@@ -105,24 +149,16 @@ export default function MacroScorecard() {
           setQuotes(prev => {
             const next = { ...prev };
             
-            json.data.forEach((q: any) => {
-              const asset = MACRO_ASSETS.find(a => a.id === q.symbol);
+            stdData.forEach(q => {
+              const asset = MACRO_ASSETS.find(a => a.fmp === q.symbol && a.type === 'stock');
               if (asset) {
                 
-                // 1. Target the correct live price based on the clock
-                let currentPrice = q.regularMarketPrice || 0;
-                let isExtended = false;
-
-                if ((currentSession === 'Post-Market' || currentSession === 'Closed') && q.postMarketPrice > 0) {
-                  currentPrice = q.postMarketPrice;
-                  isExtended = true;
-                } else if (currentSession === 'Pre-Market' && q.preMarketPrice > 0) {
-                  currentPrice = q.preMarketPrice;
-                  isExtended = true;
-                }
+                const ahPrice = ahData[asset.fmp];
+                const useAh = isExtendedHours && ahPrice !== undefined && ahPrice > 0;
+                const currentPrice = useAh ? ahPrice : (q.price || 0);
                 
                 const prevQuote = prev[asset.id];
-                const baseline = q.regularMarketPreviousClose || prevQuote?.baseline || currentPrice;
+                const baseline = q.previousClose || prevQuote?.baseline || q.open || currentPrice;
                 const pct = baseline > 0 ? ((currentPrice - baseline) / baseline) * 100 : 0;
                 
                 let direction: 'up' | 'down' | 'flat' = prevQuote?.tickDirection || 'flat';
@@ -136,7 +172,7 @@ export default function MacroScorecard() {
                     pct: pct, 
                     tickDirection: direction, 
                     synced: true,
-                    isAH: isExtended
+                    isExtended: useAh
                   };
                 }
               }
@@ -146,18 +182,21 @@ export default function MacroScorecard() {
         }
       } catch (err: any) {
         if (!isMounted) return;
-        setStockStatus('ERROR');
+        if (err.message === '401_UNAUTHORIZED') {
+          setStockStatus('AUTH_ERROR');
+        } else {
+          setStockStatus('ERROR');
+        }
       }
     };
 
     fetchEquities();
     
-    // Poll the Yahoo proxy every 3 seconds
     const pollingInterval = setInterval(() => {
-      if (isMounted) {
+      if (isMounted && stockStatus !== 'AUTH_ERROR') {
         fetchEquities();
       }
-    }, 3000);
+    }, 10000);
 
     return () => {
       isMounted = false;
@@ -242,7 +281,7 @@ export default function MacroScorecard() {
       
       <div className="absolute right-0 top-0 w-64 h-64 bg-indigo-500/5 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
 
-      {/* HEADER CONTAINER - CLICKABLE */}
+      {/* HEADER CONTAINER */}
       <div 
         onClick={() => setIsExpanded(!isExpanded)}
         className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-6 border-b border-white/5 pb-4' : ''}`}
@@ -346,9 +385,9 @@ export default function MacroScorecard() {
                       <span className={`text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded ${isPositive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
                         {isPositive ? '+' : ''}{pct.toFixed(2)}%
                       </span>
-                      {q.isAH && (
+                      {q.isExtended && (
                         <span className="text-[8px] font-bold text-amber-500/80 tracking-wider mt-1 uppercase">
-                          AH Price
+                          {session === 'Pre-Market' ? 'PRE' : 'POST'}
                         </span>
                       )}
                     </div>
