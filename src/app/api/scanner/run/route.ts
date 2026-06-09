@@ -50,19 +50,21 @@ export async function GET(request: Request) {
     const megaCaps = []; 
     const etfs = [];
 
+    // EXACT MATCH LISTS: Prevents garbage tickers from polluting the tables
     const megaCapTickers = [
       "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD", 
       "NFLX", "AVGO", "COST", "TMUS", "CSCO", "INTC", "QCOM", "TXN", 
       "AMAT", "ISRG", "HON", "BKNG"
     ];
 
+    // Add any specific leveraged ETFs here if you want them (e.g., TQQQ, SQQQ)
+    const targetETFs = ["SPY", "QQQ", "IWM", "DIA"];
+
     for (const stock of tickers) {
       const volume = stock.day?.v || 0;
       const prevClose = stock.prevDay?.c || stock.day?.c || 1;
       const currentPrice = stock.day?.c || stock.lastTrade?.p || stock.min?.c || prevClose;
       const percentChange = ((currentPrice - prevClose) / prevClose) * 100;
-      
-      const isETF = stock.ticker.includes("QQQ") || stock.ticker.includes("SPY") || stock.ticker.includes("IWM");
       
       const tickerData = {
         ticker: stock.ticker,
@@ -72,14 +74,17 @@ export async function GET(request: Request) {
         stage: "Stage 2A"
       };
 
+      // Populate Mega Caps (Strict Exact Match)
       if (megaCapTickers.includes(stock.ticker)) {
         megaCaps.push(tickerData);
       }
 
-      if (isETF) {
+      // Populate ETFs (Strict Exact Match)
+      if (targetETFs.includes(stock.ticker)) {
         etfs.push(tickerData);
       }
 
+      // Populate Gainers and Losers (Price >= $1.00 and Meets Volume Threshold)
       if (volume >= currentVolumeThreshold && currentPrice >= 1.00) {
         if (percentChange >= 4) {
           gainers.push(tickerData);
@@ -89,6 +94,7 @@ export async function GET(request: Request) {
       }
     }
 
+    // Sort arrays by biggest movers
     gainers.sort((a, b) => b.change - a.change);
     losers.sort((a, b) => a.change - b.change);
     megaCaps.sort((a, b) => b.change - a.change);
