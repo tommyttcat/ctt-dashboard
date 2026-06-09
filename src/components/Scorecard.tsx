@@ -38,37 +38,43 @@ export default function MacroScorecard() {
            return;
         }
 
-        // Chunking the array into groups of 4 to completely bypass FMP batch blocks
-        const chunks = [
-          ['SPY', 'QQQ', 'DIA', 'IWM'],
-          ['^VIX', 'TLT', 'GLD', 'SLV'],
-          ['USO', 'BTCUSD', 'ETHUSD', 'SOLUSD']
-        ];
-
-        const allResults = [];
-
-        for (const chunk of chunks) {
-          // STRICTLY using stable routing architecture
-          const res = await fetch(`https://financialmodelingprep.com/stable/quote?symbol=${chunk.join(',')}&apikey=${FMP_KEY}`, { cache: 'no-store' });
-          if (res.ok) {
+        // FMP's new stable endpoints strictly reject comma-separated batches (e.g., symbol=SPY,QQQ).
+        // We execute 12 parallel requests directly to bypass the block completely.
+        const promises = ASSETS.map(async (asset) => {
+          try {
+            const res = await fetch(`https://financialmodelingprep.com/stable/quote?symbol=${asset.fmpSymbol}&apikey=${FMP_KEY}`, { cache: 'no-store' });
+            if (!res.ok) return null;
+            
             const rawData = await res.json();
-            const arr = Array.isArray(rawData) ? rawData : (rawData?.data || [rawData]);
-            if (arr) allResults.push(...arr);
+            // Catch silent JSON errors from FMP
+            if (rawData && rawData["Error Message"]) return null;
+            
+            // Handle both object and array responses seamlessly
+            const item = Array.isArray(rawData) ? rawData[0] : (rawData?.data ? rawData.data[0] : rawData);
+            return item && item.symbol ? item : null;
+          } catch (e) {
+            return null;
           }
-        }
+        });
 
-        if (isMounted && allResults.length > 0) {
-          const newData: Record<string, MacroData> = {};
-          allResults.forEach((item: any) => {
-            if (!item || !item.symbol) return;
-            newData[item.symbol] = {
-              symbol: item.symbol,
-              price: item.price || 0,
-              changePct: item.changesPercentage || 0
-            };
-          });
-          setData(newData);
-          setStatus('LIVE');
+        const results = await Promise.all(promises);
+        const validResults = results.filter(Boolean);
+
+        if (isMounted) {
+          if (validResults.length > 0) {
+            const newData: Record<string, MacroData> = {};
+            validResults.forEach((item: any) => {
+              newData[item.symbol] = {
+                symbol: item.symbol,
+                price: item.price || 0,
+                changePct: item.changesPercentage || 0
+              };
+            });
+            setData(newData);
+            setStatus('LIVE');
+          } else {
+            setStatus('API BLOCKED');
+          }
         }
       } catch (error) {
         if (isMounted) setStatus('OFFLINE');
