@@ -24,7 +24,7 @@ interface TickData {
   pct: number; 
   tickDirection: 'up' | 'down' | 'flat';
   synced: boolean;
-  isAH?: boolean;
+  isExtended?: boolean;
 }
 
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
@@ -101,7 +101,7 @@ export default function MacroScorecard() {
       const currentSession = getMarketSession();
       
       try {
-        // 1. Fetch the Standard Quote (Provides Baseline & Regular Prices)
+        // 1. Fetch the Standard Quote
         const stdPromises = stockAssets.map(asset => 
           fetch(`https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(asset.fmp)}&apikey=${fmpApiKey}`, { cache: 'no-store' })
             .then(res => {
@@ -117,17 +117,15 @@ export default function MacroScorecard() {
         const stdResults = await Promise.all(stdPromises);
         const stdData = stdResults.flat();
 
-        // 2. Fetch the 5-Minute Chart for After-Hours Data (Only if market is closed)
+        // 2. Fetch the 5-Minute Chart for After-Hours Data
         let ahData: Record<string, number> = {};
         const isExtendedHours = currentSession === 'Post-Market' || currentSession === 'Pre-Market' || currentSession === 'Closed';
 
         if (isExtendedHours) {
           const ahPromises = stockAssets.map(asset => 
-            // Using the exact endpoint provided by FMP Support
             fetch(`https://financialmodelingprep.com/stable/historical-chart/5min?symbol=${encodeURIComponent(asset.fmp)}&extended=true&apikey=${fmpApiKey}`, { cache: 'no-store' })
               .then(res => res.ok ? res.json() : [])
               .then(data => {
-                // Grab the very latest 5-minute candle print
                 if (Array.isArray(data) && data.length > 0) {
                   return { symbol: asset.fmp, price: data[0].close };
                 }
@@ -155,7 +153,6 @@ export default function MacroScorecard() {
               const asset = MACRO_ASSETS.find(a => a.fmp === q.symbol && a.type === 'stock');
               if (asset) {
                 
-                // If we are in extended hours AND the 5-min chart returned a valid AH price, use it.
                 const ahPrice = ahData[asset.fmp];
                 const useAh = isExtendedHours && ahPrice !== undefined && ahPrice > 0;
                 const currentPrice = useAh ? ahPrice : (q.price || 0);
@@ -175,7 +172,7 @@ export default function MacroScorecard() {
                     pct: pct, 
                     tickDirection: direction, 
                     synced: true,
-                    isAH: useAh
+                    isExtended: useAh
                   };
                 }
               }
@@ -195,7 +192,6 @@ export default function MacroScorecard() {
 
     fetchEquities();
     
-    // Poll the endpoints every 10 seconds (Slowed down slightly to respect FMP rate limits while pulling multiple charts)
     const pollingInterval = setInterval(() => {
       if (isMounted && stockStatus !== 'AUTH_ERROR') {
         fetchEquities();
@@ -285,7 +281,7 @@ export default function MacroScorecard() {
       
       <div className="absolute right-0 top-0 w-64 h-64 bg-indigo-500/5 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
 
-      {/* HEADER CONTAINER - CLICKABLE */}
+      {/* HEADER CONTAINER */}
       <div 
         onClick={() => setIsExpanded(!isExpanded)}
         className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-6 border-b border-white/5 pb-4' : ''}`}
@@ -389,9 +385,9 @@ export default function MacroScorecard() {
                       <span className={`text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded ${isPositive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
                         {isPositive ? '+' : ''}{pct.toFixed(2)}%
                       </span>
-                      {q.isAH && (
+                      {q.isExtended && (
                         <span className="text-[8px] font-bold text-amber-500/80 tracking-wider mt-1 uppercase">
-                          AH Price
+                          {session === 'Pre-Market' ? 'PRE' : 'POST'}
                         </span>
                       )}
                     </div>
