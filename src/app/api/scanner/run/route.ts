@@ -101,7 +101,8 @@ export async function GET(request: Request) {
     // ====================================================================
     // PHASE 2: THE HYDRATION ENGINE (FMP Chunking)
     // ====================================================================
-    const FMP_KEY = process.env.FMP_API_KEY; 
+    // FIX: Engine now accepts either variable name format
+    const FMP_KEY = process.env.FMP_API_KEY || process.env.NEXT_PUBLIC_FMP_API_KEY; 
 
     if (FMP_KEY) {
       // Sanitize Tickers for FMP (Replace Polygon dots with FMP dashes)
