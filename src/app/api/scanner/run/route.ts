@@ -100,9 +100,9 @@ export async function GET(request: Request) {
     dailySetups = dailySetups.slice(0, 30);
 
     // ====================================================================
-    // PHASE 2: THE HYDRATION ENGINE (FMP Chunking for MCAP, RVOL, FLOAT)
+    // PHASE 2: THE HYDRATION ENGINE (Modern FMP /stable/ Endpoints)
     // ====================================================================
-    const FMP_KEY = process.env.FMP_API_KEY; 
+    const FMP_KEY = process.env.FMP_API_KEY || process.env.NEXT_PUBLIC_FMP_API_KEY; 
 
     if (FMP_KEY) {
       const sanitize = (t: string) => t.replace('.', '-');
@@ -121,23 +121,27 @@ export async function GET(request: Request) {
       for (let i = 0; i < allUniqueTickers.length; i += chunkSize) {
         const chunk = allUniqueTickers.slice(i, i + chunkSize);
         try {
-          // Fetch Profile for Sector and MCAP
+          // FIXED: Upgraded to FMP's modern /stable/ routing architecture
           const profileRes = await fetch(
-            `https://financialmodelingprep.com/api/v3/profile/${chunk.join(',')}?apikey=${FMP_KEY}`,
+            `https://financialmodelingprep.com/stable/profile?symbol=${chunk.join(',')}&apikey=${FMP_KEY}`,
             { cache: 'no-store' }
           );
           
-          // Fetch Quote for Avg Volume (to calculate RVOL) and Shares Outstanding (Float)
           const quoteRes = await fetch(
-            `https://financialmodelingprep.com/api/v3/quote/${chunk.join(',')}?apikey=${FMP_KEY}`,
+            `https://financialmodelingprep.com/stable/quote?symbol=${chunk.join(',')}&apikey=${FMP_KEY}`,
             { cache: 'no-store' }
           );
           
           if (profileRes.ok && quoteRes.ok) {
-            const profiles = await profileRes.json();
-            const quotes = await quoteRes.json();
+            const rawProfiles = await profileRes.json();
+            const rawQuotes = await quoteRes.json();
+            
+            // Safety wrapper in case the new endpoints return objects instead of arrays
+            const profiles = Array.isArray(rawProfiles) ? rawProfiles : (rawProfiles?.data || [rawProfiles]);
+            const quotes = Array.isArray(rawQuotes) ? rawQuotes : (rawQuotes?.data || [rawQuotes]);
             
             profiles.forEach((p: any) => { 
+              if (!p || !p.symbol) return;
               const originalTicker = p.symbol.replace('-', '.');
               if (!profileMap[originalTicker]) profileMap[originalTicker] = {};
               profileMap[originalTicker].mktCap = p.mktCap;
@@ -145,6 +149,7 @@ export async function GET(request: Request) {
             });
 
             quotes.forEach((q: any) => {
+              if (!q || !q.symbol) return;
               const originalTicker = q.symbol.replace('-', '.');
               if (!profileMap[originalTicker]) profileMap[originalTicker] = {};
               profileMap[originalTicker].avgVolume = q.avgVolume;
@@ -156,11 +161,9 @@ export async function GET(request: Request) {
         }
       }
 
-      // Map fundamental data onto existing lists
       const hydrate = (list: any[]) => list.map(item => {
         const fmpData = profileMap[item.ticker] || {};
         
-        // Calculate RVOL dynamically
         let calculatedRvol = null;
         if (item.volume && fmpData.avgVolume && fmpData.avgVolume > 0) {
            calculatedRvol = item.volume / fmpData.avgVolume;
@@ -172,7 +175,7 @@ export async function GET(request: Request) {
           sector: fmpData.sector || "—",
           rvol: calculatedRvol,
           float: fmpData.float || null,
-          shortPct: null // Short Interest requires an enterprise key, leaving safe for now
+          shortPct: null 
         };
       });
 
