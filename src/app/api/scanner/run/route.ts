@@ -150,14 +150,14 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
       const subStage = currentPrice >= ema20 ? 'A' : 'B'; 
 
       if (slope > 0.015 && currentPrice > sma150_now) {
-        stage = `2${subStage}`; 
+        stage = `Stage 2${subStage}`; 
       } else if (slope < -0.015 && currentPrice < sma150_now) {
-        stage = `4${subStage}`; 
+        stage = `Stage 4${subStage}`; 
       } else {
         if (sma150_20d > sma150_60d) {
-          stage = `3${subStage}`; 
+          stage = `Stage 3${subStage}`; 
         } else {
-          stage = `1${subStage}`; 
+          stage = `Stage 1${subStage}`; 
         }
       }
     }
@@ -288,30 +288,26 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
 const MEGA_CAP_TICKERS = new Set(['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'BRK.B', 'AVGO', 'LLY', 'JPM', 'XOM', 'UNH', 'V', 'PG', 'MA', 'JNJ', 'HD']);
 
 export async function GET(request: Request) {
-  // SECURITY (Bypassed for testing. Uncomment later when setting up auto-cron)
+  // SECURITY (Bypassed for testing)
   // const authHeader = request.headers.get('authorization');
   // if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-  //   return new Response('Unauthorized', { status: 401 });
+  //   return new NextResponse('Unauthorized', { status: 401 });
   // }
 
   const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
   if (!polygonApiKey) return NextResponse.json({ error: 'Missing API Key' }, { status: 500 });
 
   try {
-    // 1. Session Awareness Math
     const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
     const timeStr = estDate.getHours() + estDate.getMinutes() / 60;
     const isPreMarket = timeStr >= 4 && timeStr < 9.5;
     
-    // During Pre-Market, drop the required volume from 500,000 to 25,000 so the engine doesn't break
     const currentVolumeThreshold = isPreMarket ? 25000 : 500000;
 
-    // 2. Fetch Market Snapshot
     const snapRes = await fetchSafeJson(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`, { tickers: [] });
     const rawSnapshot = snapRes.tickers || [];
     if (rawSnapshot.length === 0) return NextResponse.json({ error: 'No snapshot data returned' }, { status: 500 });
 
-    // 3. LIVE MATH INJECTION
     const processedSnapshot = rawSnapshot.map((t: any) => {
       const livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || 0;
       const prevClose = t.prevDay?.c || 0;
@@ -331,17 +327,15 @@ export async function GET(request: Request) {
       return t;
     });
 
-    // 4. Base Filters (Using the dynamic Session-Aware volume limit)
     const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= 1.00 && t._liveVol >= currentVolumeThreshold);
 
     const dailyCandidates = [...viableSetups]
       .sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 30);
       
     const sipCandidates = [...viableSetups]
-      .filter((t: any) => t._liveChg >= 4.0 && t._livePrice >= t._liveVwap)
+      .filter((t: any) => Math.abs(t._liveChg) >= 4.0 && t._livePrice >= t._liveVwap)
       .sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 30);
 
-    // 5. TOP MOVERS SORTING ENGINE
     const megaCapsRaw = processedSnapshot
       .filter((t: any) => MEGA_CAP_TICKERS.has(t.ticker))
       .sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
@@ -360,7 +354,6 @@ export async function GET(request: Request) {
     const toStr = today.toISOString().split('T')[0];
     const fromStr = lookbackDate.toISOString().split('T')[0];
 
-    // 6. Massive Enrichment Engine
     const enrichCandidate = async (t: any) => {
       const sym = t.ticker || t.single_ticker;
       const price = t._livePrice;
@@ -410,41 +403,112 @@ export async function GET(request: Request) {
       const apiSectorRaw = cleanSectorDescription(details?.results?.sic_description, details?.results?.sector, details?.results?.industry);
       const deepSector = resolveEtfSector(sym, apiSectorRaw, companyName); 
 
+      // News Extraction mapping
       const newsList = newsData?.results || [];
-      let finalCatalyst = null;
       let finalCatalystUrl = null;
+      let rawHeadline = null;
+      let formattedDateStr = '';
+
       if (newsList.length > 0) {
         const relatedNews = newsList.find((n: any) => ['benzinga', 'massive', 'yahoo', 'google'].some(p => (n.publisher?.name || '').toLowerCase().includes(p))) || newsList[0];
         if (relatedNews) {
           const pubDate = relatedNews.published_utc;
-          let formattedDateStr = '';
           if (pubDate) {
              const d = new Date(pubDate);
              formattedDateStr = d.toDateString() === new Date().toDateString() 
                ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) 
-               : `${d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })} ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+               : `${d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}`;
           }
-          finalCatalyst = formattedDateStr ? `${formattedDateStr} — ${relatedNews.title}` : relatedNews.title;
+          rawHeadline = relatedNews.title;
           finalCatalystUrl = relatedNews.article_url || null;
         }
       }
+      
+      // Grab the last 5 days of closing prices for Gemini Trend Context
+      const recentTrend = dailyBars.slice(0, 5).map((b: any) => b.c);
 
       return {
         ticker: sym, name: companyName, sector: deepSector, price, vwapStatus, changePct: chgPct, vol, dVol, rvol: rvol ? parseFloat(rvol.toFixed(2)) : null,
-        float, shortPct, mktCap: marketCap, stage: setupMatched.stage, setupName: setupMatched.name, catalyst: finalCatalyst || '-', catalystUrl: finalCatalystUrl
+        float, shortPct, mktCap: marketCap, stage: setupMatched.stage, setupName: setupMatched.name, catalyst: rawHeadline || '-', catalystUrl: finalCatalystUrl,
+        _rawHeadline: rawHeadline, _catalystDate: formattedDateStr, _recentTrend: recentTrend
       };
     };
 
-    // 7. Gather unique tickers
     const allCandidates = [...dailyCandidates, ...sipCandidates, ...megaCapsRaw, ...gainersRaw, ...losersRaw, ...etfGainersRaw, ...etfLosersRaw];
     const uniqueCandidates = Array.from(new Map(allCandidates.map(item => [item.ticker, item])).values());
 
-    // 8. Enrich all unique stocks
     const enrichedDataRaw = await Promise.all(uniqueCandidates.map(enrichCandidate));
-    const enrichedMap = new Map();
-    enrichedDataRaw.forEach(item => { if (item) enrichedMap.set(item.ticker, item); });
+    const enrichedList = enrichedDataRaw.filter(item => item !== null);
 
-    // 9. Route the enriched data back into their specific groups
+    // =========================================================================
+    // GEMINI BATCH CONFLUENCE SCORER & EXTRACTOR
+    // =========================================================================
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (geminiKey) {
+      try {
+        const analysisMap = enrichedList
+          .filter((t: any) => t.setupName !== null || (t._rawHeadline && t._rawHeadline !== '-'))
+          .map((t: any) => `"${t.ticker}": { "Headline": "${(t._rawHeadline || '').replace(/"/g, '\\"')}", "MathPattern": "${t.setupName || 'None'}", "Stage": "${t.stage}", "RecentTrend_Last5Days": [${t._recentTrend.join(',')}] }`)
+          .join(',\n');
+          
+        if (analysisMap.length > 0) {
+          const aiPrompt = `
+            You are an elite quantitative technical analyst. 
+            I am providing a JSON map of stock setups. Each contains a recent news headline, a mathematically detected technical pattern (like BB Squeeze, Blue Dot, GLB), its structural market stage, and its closing prices over the last 5 days.
+            
+            For EACH stock, evaluate the confluence of the news catalyst and the technical structure.
+            
+            Return ONLY a valid JSON object where the keys are the tickers. For each ticker, provide:
+            1. "catalyst": A punchy 2-5 word summary of the headline. If there is no specific news, return "Technical Setup".
+            2. "conviction": A score from 1-100 rating the synergy of the setup. (e.g., A 'BB SQZ Fired' in 'Stage 2A' with a strong earnings catalyst gets a 90+. A counter-trend bounce in Stage 4 gets a lower score).
+            3. "thesis": A brutal, 1-sentence institutional tape-reading thesis explaining why this is or isn't a high-probability setup.
+            
+            Do not include markdown formatting like \`\`\`json.
+            
+            Setups:
+            {
+              ${analysisMap}
+            }
+          `;
+
+          const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: aiPrompt }] }],
+              generationConfig: { responseMimeType: "application/json", temperature: 0.1 }
+            })
+          });
+
+          if (aiRes.ok) {
+            const aiData = await aiRes.json();
+            if (aiData.candidates && aiData.candidates[0].content) {
+              let text = aiData.candidates[0].content.parts[0].text;
+              text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+              const confluenceDict = JSON.parse(text);
+              
+              enrichedList.forEach((t: any) => {
+                if (confluenceDict[t.ticker]) {
+                  const tag = confluenceDict[t.ticker].catalyst;
+                  t.catalyst = t._catalystDate ? `${t._catalystDate} — ${tag}` : tag;
+                  // Inject the new AI properties directly into the object for the frontend to render
+                  t.conviction = confluenceDict[t.ticker].conviction;
+                  t.thesis = confluenceDict[t.ticker].thesis;
+                } else if (t._rawHeadline) {
+                  t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
+                }
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Gemini Batch Confluence Scorer Failed:", e);
+      }
+    }
+
+    const enrichedMap = new Map();
+    enrichedList.forEach((item: any) => { enrichedMap.set(item.ticker, item); });
+
     const finalDaily = dailyCandidates.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.setupName !== null).slice(0, 20);
     const finalSip = sipCandidates.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 20);
     
@@ -456,7 +520,6 @@ export async function GET(request: Request) {
       'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined)
     };
 
-    // 10. Commit everything to Upstash KV
     await kv.set('daily_setups', finalDaily);
     await kv.set('stocks_in_play', finalSip);
     await kv.set('top_movers', finalTopMovers);
