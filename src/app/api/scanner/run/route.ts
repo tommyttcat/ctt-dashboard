@@ -272,8 +272,7 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
   return { name: null, stage }; 
 };
 
-// Shorter timeout so Vercel doesn't kill us if Polygon hangs
-const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 6000) => {
+const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -320,7 +319,7 @@ export async function GET(request: Request) {
     const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= 1.00 && t._liveVol >= currentVolumeThreshold);
 
     // =========================================================================
-    // SLIGHTLY SMALLER LISTS TO BEAT VERCEL'S 60-SECOND TIMEOUT
+    // RESTORED 15 ITEM LIMIT TO PREVENT JSON CRASHING
     // =========================================================================
     const dailyCandidates = [...viableSetups].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
     const sipCandidates = [...viableSetups].filter((t: any) => Math.abs(t._liveChg) >= 4.0 && t._livePrice >= t._liveVwap).sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 15);
@@ -422,19 +421,18 @@ export async function GET(request: Request) {
     };
 
     const enrichedList: any[] = [];
-    const chunkSize = 25; 
+    const chunkSize = 20; 
     for (let i = 0; i < uniqueCandidates.length; i += chunkSize) {
       const chunk = uniqueCandidates.slice(i, i + chunkSize);
       const results = await Promise.all(chunk.map(enrichCandidate));
       enrichedList.push(...results.filter(item => item !== null));
-      
       if (i + chunkSize < uniqueCandidates.length) {
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => setTimeout(resolve, 250));
       }
     }
 
     // =========================================================================
-    // GEMINI AI SCORING (Now perfectly routed to 1.5-flash)
+    // GEMINI AI SCORING
     // =========================================================================
     const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey) {
@@ -466,7 +464,8 @@ export async function GET(request: Request) {
             }
           `;
 
-          const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+          // STRICTLY RESTORED: gemini-2.5-flash
+          const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -479,24 +478,28 @@ export async function GET(request: Request) {
             const aiData = await aiRes.json();
             if (aiData.candidates && aiData.candidates[0].content) {
               let text = aiData.candidates[0].content.parts[0].text;
-              text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
-              const confluenceDict = JSON.parse(text);
               
-              enrichedList.forEach((t: any) => {
-                if (confluenceDict[t.ticker]) {
-                  const tag = confluenceDict[t.ticker].catalyst;
-                  t.catalyst = t._catalystDate ? `${t._catalystDate} — ${tag}` : tag;
-                  t.conviction = confluenceDict[t.ticker].conviction;
-                  t.thesis = confluenceDict[t.ticker].thesis;
-                } else if (t._rawHeadline) {
-                  t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
-                }
-              });
+              // NEW FAIL-SAFE: Strips all markdown and forces strict JSON extraction
+              const match = text.match(/\{[\s\S]*\}/);
+              if (match) {
+                const confluenceDict = JSON.parse(match[0]);
+                
+                enrichedList.forEach((t: any) => {
+                  if (confluenceDict[t.ticker]) {
+                    const tag = confluenceDict[t.ticker].catalyst;
+                    t.catalyst = t._catalystDate ? `${t._catalystDate} — ${tag}` : tag;
+                    t.conviction = confluenceDict[t.ticker].conviction;
+                    t.thesis = confluenceDict[t.ticker].thesis;
+                  } else if (t._rawHeadline) {
+                    t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
+                  }
+                });
+              }
             }
           }
         } else {
           enrichedList.forEach((t: any) => {
-            if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
+            if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._rawHeadline}` : t._rawHeadline;
           });
         }
       } catch (e) {
