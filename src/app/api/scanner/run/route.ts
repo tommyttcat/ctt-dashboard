@@ -99,6 +99,7 @@ const cleanSectorDescription = (sic: string | undefined, sector: string | undefi
   if (sec.includes('real estate')) return 'Real Estate';
   if (sec.includes('utilities')) return 'Utilities';
   if (sec.includes('communication')) return 'Comm Serv';
+
   const s = (sic || '').toLowerCase();
   if (!s) return 'Financials'; 
   if (s.includes('semiconductor')) return "Semi's";
@@ -122,13 +123,16 @@ const cleanSectorDescription = (sic: string | undefined, sector: string | undefi
 const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, vwap: number, rvol: number | null): { name: string | null, stage: string } => {
   let stage = '-';
   if (!bars || bars.length < 80) return { name: null, stage }; 
+  
   const yest = bars[1];
   const day3 = bars[2];
 
   const warmUpBars = Math.min(100, bars.length - 1);
   let ema20 = bars[warmUpBars].c;
   const k20 = 2 / (20 + 1);
-  for (let i = warmUpBars - 1; i >= 0; i--) { ema20 = (bars[i].c * k20) + (ema20 * (1 - k20)); }
+  for (let i = warmUpBars - 1; i >= 0; i--) {
+      ema20 = (bars[i].c * k20) + (ema20 * (1 - k20));
+  }
 
   if (bars.length >= 210) {
     const getSMA = (startIndex: number, periods: number) => {
@@ -137,6 +141,7 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
       for (let i = startIndex; i < startIndex + periods; i++) sum += bars[i].c;
       return sum / periods;
     };
+
     const sma150_now = getSMA(0, 150);
     const sma150_20d = getSMA(20, 150);
     const sma150_60d = getSMA(60, 150);
@@ -144,9 +149,18 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
     if (sma150_now > 0 && sma150_20d > 0 && sma150_60d > 0) {
       const slope = (sma150_now - sma150_20d) / sma150_20d;
       const subStage = currentPrice >= ema20 ? 'A' : 'B'; 
-      if (slope > 0.015 && currentPrice > sma150_now) stage = `Stage 2${subStage}`; 
-      else if (slope < -0.015 && currentPrice < sma150_now) stage = `Stage 4${subStage}`; 
-      else stage = sma150_20d > sma150_60d ? `Stage 3${subStage}` : `Stage 1${subStage}`; 
+
+      if (slope > 0.015 && currentPrice > sma150_now) {
+        stage = `Stage 2${subStage}`; 
+      } else if (slope < -0.015 && currentPrice < sma150_now) {
+        stage = `Stage 4${subStage}`; 
+      } else {
+        if (sma150_20d > sma150_60d) {
+          stage = `Stage 3${subStage}`; 
+        } else {
+          stage = `Stage 1${subStage}`; 
+        }
+      }
     }
   }
 
@@ -154,9 +168,11 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
     let sum = 0;
     for(let i=offset; i<offset+20; i++) sum += bars[i].c;
     const sma = sum / 20;
+
     let variance = 0;
     for(let i=offset; i<offset+20; i++) variance += Math.pow(bars[i].c - sma, 2);
     const stdDev = Math.sqrt(variance / 20);
+
     const upperBB = sma + (2.0 * stdDev);
     const lowerBB = sma - (2.0 * stdDev);
 
@@ -168,15 +184,19 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
       sumTR += Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
     }
     const avgTR = sumTR / 20;
+
     const upperKC = sma + (1.5 * avgTR);
     const lowerKC = sma - (1.5 * avgTR);
+
     return (upperBB < upperKC && lowerBB > lowerKC);
   };
 
   const isSqueezingToday = checkSqueeze(0);
   const wasSqueezingYest = checkSqueeze(1);
 
-  if (wasSqueezingYest && !isSqueezingToday && currentPrice > ema20) return { name: 'BB SQZ Fired', stage };
+  if (wasSqueezingYest && !isSqueezingToday && currentPrice > ema20) {
+      return { name: 'BB SQZ Fired', stage };
+  }
 
   const getRawK = (idx: number) => {
     const slice = bars.slice(idx, idx + 14); 
@@ -214,18 +234,40 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
   const prevStochStdDev = Math.sqrt(prevStochVar / 10);
   const prevLowerStochBB = prevStochSma - (1.0 * prevStochStdDev);
 
-  if (prevK <= prevLowerStochBB && currentK > currentLowerStochBB) return { name: 'Blue Dot Rev', stage };
+  if (prevK <= prevLowerStochBB && currentK > currentLowerStochBB) {
+    return { name: 'Blue Dot Rev', stage };
+  }
 
   const hasConvictionVol = rvol !== null && rvol >= 1.0;
   const high3Months = Math.max(...bars.slice(1, 65).map(b => b.h));
 
-  if (hasConvictionVol && currentPrice > high3Months && yest.c <= high3Months && currentPrice >= Math.max(...bars.slice(1, 80).map(b => b.h))) return { name: 'GLB', stage };
-  if (hasConvictionVol && currentOpen > (yest.h * 1.01) && currentPrice >= currentOpen) return { name: 'Gap & Go', stage };
-  if (hasConvictionVol && currentOpen <= yest.c && currentPrice > yest.c) return { name: 'R2G', stage };
-  if (hasConvictionVol && yest.h < day3.h && yest.l > day3.l && currentPrice > yest.h) return { name: 'Inside Day BRK', stage };
-  if (currentPrice > ema20 && yest.l <= (ema20 * 1.02) && currentPrice > yest.h) return { name: '20 EMA PB', stage };
-  if (isSqueezingToday) return { name: 'BB SQZ Building', stage };
-  if (currentPrice > ema20 && currentPrice > vwap) return { name: 'Trend Hold', stage };
+  if (hasConvictionVol && currentPrice > high3Months && yest.c <= high3Months && currentPrice >= Math.max(...bars.slice(1, 80).map(b => b.h))) {
+    return { name: 'GLB', stage };
+  }
+
+  if (hasConvictionVol && currentOpen > (yest.h * 1.01) && currentPrice >= currentOpen) {
+    return { name: 'Gap & Go', stage };
+  }
+
+  if (hasConvictionVol && currentOpen <= yest.c && currentPrice > yest.c) {
+    return { name: 'R2G', stage };
+  }
+
+  if (hasConvictionVol && yest.h < day3.h && yest.l > day3.l && currentPrice > yest.h) {
+    return { name: 'Inside Day BRK', stage };
+  }
+
+  if (currentPrice > ema20 && yest.l <= (ema20 * 1.02) && currentPrice > yest.h) {
+    return { name: '20 EMA PB', stage };
+  }
+
+  if (isSqueezingToday) {
+      return { name: 'BB SQZ Building', stage };
+  }
+
+  if (currentPrice > ema20 && currentPrice > vwap) {
+    return { name: 'Trend Hold', stage };
+  }
 
   return { name: null, stage }; 
 };
