@@ -77,7 +77,6 @@ export default function StocksInPlay() {
 
     const fetchDatabaseSnapshot = async () => {
       try {
-        // FIXED: Cache buster + no-store ensures we pull fresh AI data every time
         const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
         const data = await res.json();
         
@@ -352,12 +351,11 @@ export default function StocksInPlay() {
                 ) : (
                   filteredAndSortedStocks.map((row, i) => {
                     const isPositive = row.changePct >= 0;
-                    const hasConfluence = row.conviction != null || row.thesis != null;
                     
                     return (
                       <React.Fragment key={i}>
-                        {/* MAIN METRIC ROW */}
-                        <tr className={`hover:bg-white/[0.02] transition-colors group ${hasConfluence ? 'border-b-0' : 'border-b border-white/5'}`}>
+                        {/* MAIN METRIC ROW - Never has a bottom border so it connects to the sub-row */}
+                        <tr className="hover:bg-white/[0.02] transition-colors group border-b-0">
                           <td className="py-3" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                             <div className="relative inline-flex items-center group/ticker">
                               <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
@@ -391,34 +389,48 @@ export default function StocksInPlay() {
                           </td>
                         </tr>
 
-                        {/* NESTED SUB-ROW FOR CONFLUENCE */}
-                        {hasConfluence && (
-                          <tr className="border-b border-white/5 bg-white/[0.01] hover:bg-white/[0.02] transition-colors group">
-                            <td colSpan={12} className="py-2.5 px-4 pl-[16px]">
-                              <div className="flex items-start gap-4">
-                                {row.conviction != null && (
-                                  <div className="shrink-0 mt-[1px]">
-                                    <span className={`px-2 py-1 rounded text-[9px] font-bold border tracking-wider uppercase ${
-                                      row.conviction! >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
-                                      row.conviction! >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 
-                                      'bg-zinc-800 text-zinc-400 border-zinc-700'
-                                    }`}>
-                                      {row.conviction}% CONF
-                                    </span>
-                                  </div>
-                                )}
-                                {row.thesis && (
-                                  <div className="flex-1 pb-1">
-                                    <p className="text-[11px] text-slate-400/90 leading-relaxed pr-8 whitespace-normal">
-                                      <span className="text-indigo-400/80 font-bold mr-2 text-[10px] tracking-widest uppercase">THESIS:</span>
-                                      {row.thesis}
-                                    </p>
-                                  </div>
+                        {/* ALWAYS-ON NESTED SUB-ROW FOR CONFLUENCE */}
+                        <tr className="border-b border-white/5 bg-white/[0.01] hover:bg-white/[0.02] transition-colors group">
+                          <td colSpan={12} className="py-2.5 px-4 pl-[16px]">
+                            <div className="flex items-start gap-4">
+                              
+                              {/* Conviction Badge with Empty State Fallback */}
+                              {row.conviction != null ? (
+                                <div className="shrink-0 mt-[1px]">
+                                  <span className={`px-2 py-1 rounded text-[9px] font-bold border tracking-wider uppercase ${
+                                    row.conviction >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
+                                    row.conviction >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 
+                                    'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                  }`}>
+                                    {row.conviction}% CONF
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="shrink-0 mt-[1px]">
+                                  <span className="px-2 py-1 rounded text-[9px] font-bold border tracking-wider uppercase bg-zinc-800/50 text-zinc-500 border-zinc-700/50">
+                                    --% CONF
+                                  </span>
+                                </div>
+                              )}
+
+                              {/* Thesis Text with Awaiting Fallback */}
+                              <div className="flex-1 pb-1">
+                                {row.thesis ? (
+                                  <p className="text-[11px] text-slate-400/90 leading-relaxed pr-8 whitespace-normal">
+                                    <span className="text-indigo-400/80 font-bold mr-2 text-[10px] tracking-widest uppercase">THESIS:</span>
+                                    {row.thesis}
+                                  </p>
+                                ) : (
+                                  <p className="text-[11px] text-slate-600 italic leading-relaxed pr-8 whitespace-normal mt-0.5">
+                                    Awaiting quantitative confluence analysis...
+                                  </p>
                                 )}
                               </div>
-                            </td>
-                          </tr>
-                        )}
+
+                            </div>
+                          </td>
+                        </tr>
+
                       </React.Fragment>
                     );
                   })
