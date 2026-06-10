@@ -295,6 +295,7 @@ export async function GET(request: Request) {
     const timeStr = estDate.getHours() + estDate.getMinutes() / 60;
     const isPreMarket = timeStr >= 4 && timeStr < 9.5;
     
+    // Using a flat 100k volume threshold
     const currentVolumeThreshold = 100000;
 
     const snapRes = await fetchSafeJson(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`, { tickers: [] });
@@ -323,7 +324,7 @@ export async function GET(request: Request) {
     const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= 1.00 && t._liveVol >= currentVolumeThreshold);
 
     // =========================================================================
-    // RESTORED FULL LIST SIZES: 20 for core tracking, 15 for top movers
+    // LIST SIZES RESTORED: 20 for core tracking, 15 for top movers
     // =========================================================================
     const dailyCandidates = [...viableSetups].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
     const sipCandidates = [...viableSetups].filter((t: any) => Math.abs(t._liveChg) >= 4.0 && t._livePrice >= t._liveVwap).sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 20);
@@ -424,7 +425,6 @@ export async function GET(request: Request) {
       };
     };
 
-    // RESTORED CHUNKING LOOP TO PREVENT POLYGON 429 ERRORS / CONNECTION DROPS
     const enrichedList: any[] = [];
     const chunkSize = 20; 
     for (let i = 0; i < uniqueCandidates.length; i += chunkSize) {
@@ -466,7 +466,6 @@ export async function GET(request: Request) {
             }
           `;
 
-          // Restored user's exact model string
           const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
