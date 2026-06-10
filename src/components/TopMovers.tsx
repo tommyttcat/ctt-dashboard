@@ -93,7 +93,7 @@ export default function TopMovers() {
               shortPct: item.shortPct || null,
               catalyst: item.catalyst || null,
               catalystUrl: item.catalystUrl || null,
-              stage: item.stage || 'Stage 2A',
+              stage: item.stage || '—',
               setupName: item.setupName || null,
             }));
           });
@@ -318,7 +318,7 @@ export default function TopMovers() {
                           </>
                         )}
                         <td className="py-3 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.stage || '—'}</div>
+                          <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.sector || '—'}</div>
                         </td>
                         <td className="py-3 text-[11px] text-slate-400 font-medium" style={{ textAlign: 'left', paddingLeft: '24px' }}>
                           <div className="flex items-center gap-2 group/cat">

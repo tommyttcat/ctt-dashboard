@@ -48,7 +48,12 @@ const formatCurrency = (num: number | null) => {
 
 const formatStageText = (stage: string | undefined) => {
   if (!stage || stage === '-' || stage === '—') return '—';
-  return stage.replace(/Stage\s*/i, ''); 
+  // Ensure strict casing preference for Market Stages
+  const match = stage.match(/stage\s*(\w+)/i);
+  if (match) {
+    return `Stage ${match[1].toUpperCase()}`;
+  }
+  return stage.toUpperCase();
 };
 
 const formatSetupName = (name: string | null) => {
@@ -81,7 +86,6 @@ export default function StocksInPlay() {
         const data = await res.json();
         
         if (isMounted && data.success) {
-          
           const rawList = data.stocksInPlay || [];
           const safeData = rawList.map((item: any) => ({
             ticker: item.ticker || '—',
@@ -96,7 +100,7 @@ export default function StocksInPlay() {
             float: item.float || null,
             shortPct: item.shortPct || null,
             mktCap: item.mktCap || null,
-            stage: item.stage || '2A',
+            stage: item.stage || 'Stage 2A',
             setupName: item.setupName || null,
             conviction: item.conviction ? Number(item.conviction) : null, 
             thesis: item.thesis || null,         
@@ -131,7 +135,7 @@ export default function StocksInPlay() {
     let filtered = stocks;
     
     if (showStage2AOnly) {
-      filtered = filtered.filter(s => s.stage && s.stage.includes('2A'));
+      filtered = filtered.filter(s => s.stage && s.stage.toUpperCase().includes('2A'));
     }
     
     if (marketCapFilter !== 'All') {
@@ -333,8 +337,7 @@ export default function StocksInPlay() {
                 </tr>
               </thead>
               
-              {/* IMPORTANT: Removed divide-y here to manually control row borders */}
-              <tbody className="">
+              <tbody>
                 {status.includes('Syncing') && stocks.length === 0 ? (
                   <tr>
                     <td colSpan={12} className="py-12 text-center border-b border-white/5">
@@ -354,7 +357,7 @@ export default function StocksInPlay() {
                     return (
                       <React.Fragment key={i}>
                         {/* MAIN METRIC ROW */}
-                        <tr className={`hover:bg-white/[0.02] transition-colors group ${hasConfluence ? 'border-b-0' : 'border-b border-white/5'}`}>
+                        <tr className={`hover:bg-white/[0.03] transition-colors group ${hasConfluence ? 'border-b-0' : 'border-b border-white/5'}`}>
                           <td className="py-3" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                             <div className="relative inline-flex items-center group/ticker">
                               <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
@@ -390,22 +393,22 @@ export default function StocksInPlay() {
 
                         {/* NESTED SUB-ROW FOR CONFLUENCE */}
                         {hasConfluence && (
-                          <tr className="border-b border-white/5 bg-white/[0.01]">
-                            <td colSpan={12} className="py-2.5 px-4 pl-[16px]">
-                              <div className="flex items-start gap-4">
-                                <div className="shrink-0 mt-[1px]">
-                                  <span className={`px-2 py-1 rounded text-[9px] font-bold border tracking-wider uppercase ${
+                          <tr className="border-b border-white/5 bg-[#161c2a]/20 group-hover:bg-white/[0.01] transition-colors">
+                            <td colSpan={12} className="py-3 px-4 pl-[16px]">
+                              <div className="flex items-center gap-4">
+                                <div className="shrink-0">
+                                  <span className={`px-2.5 py-1 rounded-[6px] text-[10px] font-bold border tracking-widest uppercase shadow-sm ${
                                     row.conviction! >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
                                     row.conviction! >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 
                                     'bg-zinc-800 text-zinc-400 border-zinc-700'
                                   }`}>
-                                    {row.conviction}% CONF
+                                    {row.conviction}% CNF
                                   </span>
                                 </div>
-                                <div className="flex-1 pb-1">
-                                  <p className="text-[11px] text-slate-400/90 leading-relaxed pr-8">
-                                    <span className="text-indigo-400/80 font-bold mr-2 text-[10px] tracking-widest">THESIS:</span>
-                                    {row.thesis}
+                                <div className="flex-1">
+                                  <p className="text-[11.5px] text-slate-300 leading-relaxed italic">
+                                    <span className="text-indigo-400 font-bold mr-2 text-[10px] tracking-widest not-italic uppercase">AI Thesis:</span>
+                                    "{row.thesis}"
                                   </p>
                                 </div>
                               </div>

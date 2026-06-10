@@ -287,15 +287,12 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
 };
 
 export async function GET(request: Request) {
-  // --- SECURITY CHECK ---
   const authHeader = request.headers.get('authorization');
   const expectedSecret = process.env.CRON_SECRET;
   
-  // Verify the request has the correct Authorization header if a secret is set in environment
   if (expectedSecret && authHeader !== `Bearer ${expectedSecret}`) {
     return NextResponse.json({ error: 'Unauthorized: Invalid or missing CRON_SECRET' }, { status: 401 });
   }
-  // ----------------------
 
   const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
   if (!polygonApiKey) return NextResponse.json({ error: 'Missing API Key' }, { status: 500 });
@@ -333,7 +330,12 @@ export async function GET(request: Request) {
     );
 
     const dailyCandidates = [...viableSetups].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
-    const sipCandidates = [...viableSetups].filter((t: any) => t._livePrice >= t._liveVwap).sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 20);
+    
+    // FIX: Enforce strictly positive % change for Stocks In Play 
+    const sipCandidates = [...viableSetups]
+      .filter((t: any) => t._livePrice >= t._liveVwap && t._liveChg >= CHG_THRESHOLD)
+      .sort((a: any, b: any) => b._liveVol - a._liveVol)
+      .slice(0, 20);
 
     const MEGA_CAP_TICKERS = new Set(['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'BRK.B', 'AVGO', 'LLY', 'JPM', 'XOM', 'UNH', 'V', 'PG', 'MA', 'JNJ', 'HD']);
     const megaCapsRaw = processedSnapshot.filter((t: any) => MEGA_CAP_TICKERS.has(t.ticker)).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
@@ -467,20 +469,28 @@ export async function GET(request: Request) {
             const aiData = await aiRes.json();
             if (aiData.candidates && aiData.candidates.length > 0 && aiData.candidates[0].content) {
               let text = aiData.candidates[0].content.parts[0].text;
-              text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
               
-              const confluenceDict = JSON.parse(text);
+              // FIX: Robust JSON extraction in case Gemini wraps the response
+              const jsonMatch = text.match(/\{[\s\S]*\}/);
               
-              enrichedList.forEach((t: any) => {
-                if (confluenceDict[t.ticker]) {
-                  const tag = confluenceDict[t.ticker].catalyst;
-                  t.catalyst = t._catalystDate ? `${t._catalystDate} — ${tag}` : tag;
-                  t.conviction = confluenceDict[t.ticker].conviction;
-                  t.thesis = confluenceDict[t.ticker].thesis;
-                } else if (t._rawHeadline) {
-                  t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
-                }
-              });
+              if (jsonMatch) {
+                const confluenceDict = JSON.parse(jsonMatch[0]);
+                console.log("Confluence Scores successfully mapped!");
+                
+                enrichedList.forEach((t: any) => {
+                  if (confluenceDict[t.ticker]) {
+                    const tag = confluenceDict[t.ticker].catalyst;
+                    t.catalyst = t._catalystDate ? `${t._catalystDate} — ${tag}` : tag;
+                    t.conviction = confluenceDict[t.ticker].conviction;
+                    t.thesis = confluenceDict[t.ticker].thesis;
+                  } else if (t._rawHeadline) {
+                    t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
+                  }
+                });
+              } else {
+                console.warn("Gemini returned text but no JSON object was found:", text);
+                enrichedList.forEach((t: any) => { if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline; });
+              }
             } else {
               console.warn("Gemini returned unexpected format or was blocked:", aiData);
               enrichedList.forEach((t: any) => { if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline; });
@@ -497,6 +507,7 @@ export async function GET(request: Request) {
         enrichedList.forEach((t: any) => { if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline; });
       }
     } else {
+      console.warn("No GEMINI_API_KEY found in Environment Variables - Skipping AI Scoring.");
       enrichedList.forEach((t: any) => { if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline; });
     }
 
