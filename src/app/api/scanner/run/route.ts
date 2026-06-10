@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300; 
+export const maxDuration = 60; 
 
 const SECTOR_MAP: Record<string, string> = {
   'AAPL': 'IT', 'MSFT': 'IT', 'SMCI': 'IT',
@@ -272,7 +272,7 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
   return { name: null, stage }; 
 };
 
-// 10s fetch timeout
+// Graceful 10s fetch timeout
 const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 10000) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
@@ -293,7 +293,6 @@ export async function GET(request: Request) {
 
   try {
     const currentVolumeThreshold = 500000;
-    const MARKET_CAP_MIN_THRESHOLD = 20000000; // $20 Million Floor
 
     const snapRes = await fetchSafeJson(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`, { tickers: [] });
     const rawSnapshot = snapRes.tickers || [];
@@ -318,12 +317,11 @@ export async function GET(request: Request) {
       return t;
     });
 
-    // Baseline filters: Price above $1 and volume above 500k
     const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= 1.00 && t._liveVol >= currentVolumeThreshold);
 
-    // Grab larger slices (25 instead of 15) before enrichment so we have padding when filtering out sub-20M micro-caps
-    const dailyCandidates = [...viableSetups].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 25);
-    const sipCandidates = [...viableSetups].filter((t: any) => t._liveChg >= 4.0 && t._livePrice >= t._liveVwap).sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 25);
+    // Kept to 15 to ensure execution speed for Vercel Hobby tier
+    const dailyCandidates = [...viableSetups].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
+    const sipCandidates = [...viableSetups].filter((t: any) => Math.abs(t._liveChg) >= 4.0 && t._livePrice >= t._liveVwap).sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 15);
 
     const MEGA_CAP_TICKERS = new Set(['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'BRK.B', 'AVGO', 'LLY', 'JPM', 'XOM', 'UNH', 'V', 'PG', 'MA', 'JNJ', 'HD']);
     const megaCapsRaw = processedSnapshot.filter((t: any) => MEGA_CAP_TICKERS.has(t.ticker)).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 10);
@@ -345,7 +343,7 @@ export async function GET(request: Request) {
     const uniqueCandidates = Array.from(new Map(allCandidates.map(item => [item.ticker, item])).values());
     
     // =========================================================================
-    // ENRICHMENT PIPELINE (Where Market Cap is Fetched)
+    // ENRICHMENT PIPELINE
     // =========================================================================
     const enrichCandidate = async (t: any) => {
       const sym = t.ticker || t.single_ticker;
@@ -354,6 +352,7 @@ export async function GET(request: Request) {
       const chgPct = t._liveChg;
       const vwap = t._liveVwap;
       const currentOpen = t.day?.o || t.prevDay?.o || price;
+      const dVol = vol * vwap;
 
       const [details, aggs, newsData, shortData] = await Promise.all([
         fetchSafeJson(`https://api.polygon.io/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {}),
@@ -414,7 +413,7 @@ export async function GET(request: Request) {
       const recentTrend = dailyBars.slice(0, 5).map((b: any) => b.c);
 
       return {
-        ticker: sym, name: companyName, sector: deepSector, price, vwapStatus, changePct: chgPct, vol, dVol: vol * vwap, rvol: rvol ? parseFloat(rvol.toFixed(2)) : null,
+        ticker: sym, name: companyName, sector: deepSector, price, vwapStatus, changePct: chgPct, vol, dVol, rvol: rvol ? parseFloat(rvol.toFixed(2)) : null,
         float, shortPct, mktCap: marketCap, stage: setupMatched.stage, setupName: setupMatched.name, catalyst: rawHeadline || '-', catalystUrl: finalCatalystUrl,
         _rawHeadline: rawHeadline, _catalystDate: formattedDateStr, _recentTrend: recentTrend
       };
@@ -432,7 +431,7 @@ export async function GET(request: Request) {
     }
 
     // =========================================================================
-    // GEMINI AI SCORING
+    // GEMINI AI SCORING (STRICTLY GEMINI 3.5 FLASH)
     // =========================================================================
     const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey) {
@@ -440,7 +439,7 @@ export async function GET(request: Request) {
         const aiTargets = new Set([...dailyCandidates, ...sipCandidates].map(t => t.ticker));
 
         const analysisMap = enrichedList
-          .filter((t: any) => aiTargets.has(t.ticker) && t.mktCap >= MARKET_CAP_MIN_THRESHOLD && (t.setupName !== null || (t._rawHeadline && t._rawHeadline !== '-')))
+          .filter((t: any) => aiTargets.has(t.ticker) && (t.setupName !== null || (t._rawHeadline && t._rawHeadline !== '-')))
           .map((t: any) => `"${t.ticker}": { "Headline": "${(t._rawHeadline || '').replace(/"/g, '\\"')}", "MathPattern": "${t.setupName || 'None'}", "Stage": "${t.stage}", "RecentTrend_Last5Days": [${t._recentTrend.join(',')}] }`)
           .join(',\n');
           
@@ -464,7 +463,8 @@ export async function GET(request: Request) {
             }
           `;
 
-          const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
+          // The true 2026 API Model exactly as verified
+          const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -478,6 +478,7 @@ export async function GET(request: Request) {
             if (aiData.candidates && aiData.candidates[0].content) {
               let text = aiData.candidates[0].content.parts[0].text;
               
+              // Robust Regex parser to bypass JSON formatting crashes
               const match = text.match(/\{[\s\S]*\}/);
               if (match) {
                 const confluenceDict = JSON.parse(match[0]);
@@ -505,30 +506,20 @@ export async function GET(request: Request) {
       }
     } else {
       enrichedList.forEach((t: any) => {
-         if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._rawHeadline}` : t._rawHeadline;
+         if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
       });
     }
 
     const enrichedMap = new Map();
     enrichedList.forEach((item: any) => { enrichedMap.set(item.ticker, item); });
 
-    // =========================================================================
-    // POST-ENRICHMENT FILTERS: Enforce $20 Million Market Cap Minimum
-    // =========================================================================
-    const finalDaily = dailyCandidates
-      .map((t: any) => enrichedMap.get(t.ticker))
-      .filter((r: any) => r !== undefined && r.setupName !== null && r.mktCap >= MARKET_CAP_MIN_THRESHOLD)
-      .slice(0, 15);
-
-    const finalSip = sipCandidates
-      .map((t: any) => enrichedMap.get(t.ticker))
-      .filter((r: any) => r !== undefined && r.mktCap >= MARKET_CAP_MIN_THRESHOLD)
-      .slice(0, 15);
+    const finalDaily = dailyCandidates.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.setupName !== null);
+    const finalSip = sipCandidates.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined);
     
     const finalTopMovers = {
       'Mega Caps': megaCapsRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined),
-      'Gainers': gainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.mktCap >= MARKET_CAP_MIN_THRESHOLD),
-      'Losers': losersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.mktCap >= MARKET_CAP_MIN_THRESHOLD),
+      'Gainers': gainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined),
+      'Losers': losersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined),
       'ETF Gainers': etfGainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined),
       'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined)
     };
