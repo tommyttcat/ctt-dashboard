@@ -324,7 +324,7 @@ export async function GET(request: Request) {
     const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= 1.00 && t._liveVol >= currentVolumeThreshold);
 
     // =========================================================================
-    // LIST SIZES RESTORED: 20 for core tracking, 15 for top movers
+    // RESTORED FULL LIST SIZES: 20 for core tracking, 15 for top movers
     // =========================================================================
     const dailyCandidates = [...viableSetups].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
     const sipCandidates = [...viableSetups].filter((t: any) => Math.abs(t._liveChg) >= 4.0 && t._livePrice >= t._liveVwap).sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 20);
@@ -349,7 +349,7 @@ export async function GET(request: Request) {
     const uniqueCandidates = Array.from(new Map(allCandidates.map(item => [item.ticker, item])).values());
     
     // =========================================================================
-    // ENRICHMENT PIPELINE
+    // ENRICHMENT PIPELINE - 100% PARALLELIZED TO PREVENT TIMEOUTS
     // =========================================================================
     const enrichCandidate = async (t: any) => {
       const sym = t.ticker || t.single_ticker;
@@ -425,13 +425,8 @@ export async function GET(request: Request) {
       };
     };
 
-    const enrichedList: any[] = [];
-    const chunkSize = 20; 
-    for (let i = 0; i < uniqueCandidates.length; i += chunkSize) {
-      const chunk = uniqueCandidates.slice(i, i + chunkSize);
-      const results = await Promise.all(chunk.map(enrichCandidate));
-      enrichedList.push(...results.filter(item => item !== null));
-    }
+    // Fast parallel execution instead of slow chunking
+    const enrichedList = (await Promise.all(uniqueCandidates.map(enrichCandidate))).filter(item => item !== null);
 
     // =========================================================================
     // GEMINI AI SCORING
@@ -466,6 +461,7 @@ export async function GET(request: Request) {
             }
           `;
 
+          // Using standard gemini-1.5-flash
           const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
