@@ -77,7 +77,6 @@ export default function DailySetups() {
 
     const fetchDatabaseSnapshot = async () => {
       try {
-        // FIXED: Cache buster + no-store ensures we pull fresh AI data every time
         const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
         const data = await res.json();
         
@@ -98,7 +97,6 @@ export default function DailySetups() {
             mktCap: item.mktCap || null,
             stage: item.stage || '2A',
             setupName: item.setupName || null,
-            // Defensive Parsing: Resolves TS/null issues
             conviction: item.conviction != null ? Number(item.conviction) : (item.aiScore ?? item.score ?? null), 
             thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
           }));
@@ -267,7 +265,6 @@ export default function DailySetups() {
                 ))}
               </div>
 
-              {/* CONVICTION FILTER */}
               <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1" onClick={(e) => e.stopPropagation()}>
                 <div className="px-2 border-r border-white/10 mr-1">
                   <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">CONF</span>
@@ -319,23 +316,24 @@ export default function DailySetups() {
             <table className="w-full min-w-[1200px] border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                  {/* REDISTRIBUTED WIDTHS TO PULL STAGE & STRATEGY MASSIVELY TO THE LEFT */}
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                     <div className="flex items-center gap-3">
                       <span className="cursor-pointer hover:text-slate-300" onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</span>
                       <span className="cursor-pointer text-indigo-400/60 hover:text-indigo-400" onClick={() => handleSort('conviction')}>CONF{getSortIcon('conviction')}</span>
                     </div>
                   </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[14%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('setupName')}>STRATEGY{getSortIcon('setupName')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[28%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('setupName')}>STRATEGY{getSortIcon('setupName')}</th>
                 </tr>
               </thead>
               
@@ -351,7 +349,7 @@ export default function DailySetups() {
               ) : filteredAndSortedSetups.length === 0 ? (
                 <tbody>
                   <tr>
-                    <td colSpan={12} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">No daily setups currently matching momentum criteria.</td>
+                    <td colSpan={12} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">No active tracking items currently matching momentum criteria.</td>
                   </tr>
                 </tbody>
               ) : (
@@ -387,7 +385,7 @@ export default function DailySetups() {
                         <td className="pt-3 pb-1.5 text-xs font-bold whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           <span className={getStageColor(row.stage)}>{formatStageText(row.stage)}</span>
                         </td>
-                        <td className="pt-3 pb-1.5 text-[11px] text-slate-200 font-semibold truncate max-w-[150px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                        <td className="pt-3 pb-1.5 text-[11px] text-slate-200 font-semibold truncate max-w-[200px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           <div className="flex items-center gap-1.5">
                             {row.setupName === 'Blue Dot Rev' && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"></div>}
                             <span>{formatSetupName(row.setupName)}</span>
@@ -397,27 +395,27 @@ export default function DailySetups() {
 
                       {/* ALWAYS-ON NESTED SUB-ROW FOR CONFLUENCE */}
                       <tr className="bg-transparent">
-                        <td colSpan={12} className="pb-3 pt-1 px-4 pl-[16px]">
+                        <td colSpan={12} className="pb-3 pt-0.5 px-4 pl-[16px]">
                           <div className="flex items-start gap-3">
                             
-                            {/* Anchor the Badge Width to perfectly align the text block across rows */}
-                            <div className="shrink-0 w-[64px]">
+                            {/* UNRESTRICTED SINGLE-LINE BADGE */}
+                            <div className="w-[70px] shrink-0 pt-0.5">
                               {row.conviction != null ? (
-                                <div className={`px-1.5 py-[3px] text-center rounded text-[9px] font-bold border tracking-wider uppercase ${
+                                <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[8px] font-bold border tracking-widest uppercase ${
                                   row.conviction >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_8px_rgba(52,211,153,0.1)]' : 
                                   row.conviction >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 shadow-[0_0_8px_rgba(251,191,36,0.1)]' : 
                                   'bg-zinc-800/50 text-zinc-400 border-zinc-700/50'
                                 }`}>
                                   {row.conviction}% CONF
-                                </div>
+                                </span>
                               ) : (
-                                <div className="px-1.5 py-[3px] text-center rounded text-[9px] font-bold border tracking-wider uppercase bg-white/[0.02] text-slate-600 border-white/5">
+                                <span className="inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[8px] font-bold border tracking-widest uppercase bg-white/[0.02] text-slate-600 border-white/5">
                                   --% CONF
-                                </div>
+                                </span>
                               )}
                             </div>
 
-                            {/* Thesis Text with Awaiting Fallback */}
+                            {/* Thesis Text */}
                             <div className="flex-1 mt-[1px]">
                               {row.thesis ? (
                                 <p className="text-[11px] text-slate-400/90 leading-relaxed pr-8 whitespace-normal line-clamp-3">
