@@ -272,7 +272,8 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
   return { name: null, stage }; 
 };
 
-const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
+// FASTER TIMEOUT: Drops from 15s to 8s so a hanging Polygon request doesn't kill the Vercel Action
+const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 8000) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -291,7 +292,7 @@ export async function GET(request: Request) {
   if (!polygonApiKey) return NextResponse.json({ error: 'Missing API Key' }, { status: 500 });
 
   try {
-    // Lock volume threshold at a flat 500k for both pre-market and regular hours
+    // Lock volume threshold at a flat 500k across the board
     const currentVolumeThreshold = 500000;
 
     const snapRes = await fetchSafeJson(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`, { tickers: [] });
@@ -422,11 +423,17 @@ export async function GET(request: Request) {
     };
 
     const enrichedList: any[] = [];
-    const chunkSize = 20; 
+    // GOLDILOCKS ZONE: Bumped to 40 items per chunk (3 rounds max) 
+    const chunkSize = 40; 
     for (let i = 0; i < uniqueCandidates.length; i += chunkSize) {
       const chunk = uniqueCandidates.slice(i, i + chunkSize);
       const results = await Promise.all(chunk.map(enrichCandidate));
       enrichedList.push(...results.filter(item => item !== null));
+      
+      // Essential 250ms breather so Polygon doesn't block the connection
+      if (i + chunkSize < uniqueCandidates.length) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
     }
 
     // =========================================================================
