@@ -316,7 +316,6 @@ export default function StocksInPlay() {
             <table className="w-full min-w-[1200px] border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  {/* ADJUSTED WIDTHS TO ACCOMMODATE "CONFLUENCE" TEXT IN HEADER */}
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[14%]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                     <div className="flex items-center gap-3">
                       <span className="cursor-pointer hover:text-slate-300" onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</span>
@@ -396,21 +395,21 @@ export default function StocksInPlay() {
                       {/* ALWAYS-ON NESTED SUB-ROW FOR CONFLUENCE */}
                       <tr className="bg-transparent">
                         <td colSpan={12} className="pb-3 pt-0.5 px-4 pl-[16px]">
-                          <div className="flex items-start gap-3">
+                          <div className="flex items-start gap-4">
                             
                             {/* UNRESTRICTED SINGLE-LINE BADGE */}
-                            <div className="w-[70px] shrink-0 pt-0.5">
+                            <div className="w-[40px] shrink-0 pt-0.5">
                               {row.conviction != null ? (
-                                <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[8px] font-bold border tracking-widest uppercase ${
+                                <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[8px] font-bold border uppercase ${
                                   row.conviction >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_8px_rgba(52,211,153,0.1)]' : 
                                   row.conviction >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 shadow-[0_0_8px_rgba(251,191,36,0.1)]' : 
                                   'bg-zinc-800/50 text-zinc-400 border-zinc-700/50'
                                 }`}>
-                                  {row.conviction}% CNF
+                                  {row.conviction}%
                                 </span>
                               ) : (
-                                <span className="inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[8px] font-bold border tracking-widest uppercase bg-white/[0.02] text-slate-600 border-white/5">
-                                  --% CNF
+                                <span className="inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[8px] font-bold border uppercase bg-white/[0.02] text-slate-600 border-white/5">
+                                  --%
                                 </span>
                               )}
                             </div>
