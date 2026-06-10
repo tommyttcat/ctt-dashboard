@@ -316,11 +316,11 @@ export default function StocksInPlay() {
             <table className="w-full min-w-[1200px] border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  {/* REDISTRIBUTED WIDTHS TO PULL STAGE & STRATEGY MASSIVELY TO THE LEFT */}
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                  {/* ADJUSTED WIDTHS TO ACCOMMODATE "CONFLUENCE" TEXT IN HEADER */}
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[14%]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                     <div className="flex items-center gap-3">
                       <span className="cursor-pointer hover:text-slate-300" onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</span>
-                      <span className="cursor-pointer text-indigo-400/60 hover:text-indigo-400" onClick={() => handleSort('conviction')}>CONF{getSortIcon('conviction')}</span>
+                      <span className="cursor-pointer text-indigo-400/60 hover:text-indigo-400" onClick={() => handleSort('conviction')}>CONFLUENCE{getSortIcon('conviction')}</span>
                     </div>
                   </th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
@@ -333,7 +333,7 @@ export default function StocksInPlay() {
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[28%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('setupName')}>STRATEGY{getSortIcon('setupName')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[26%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('setupName')}>STRATEGY{getSortIcon('setupName')}</th>
                 </tr>
               </thead>
               
@@ -396,7 +396,7 @@ export default function StocksInPlay() {
                       {/* ALWAYS-ON NESTED SUB-ROW FOR CONFLUENCE */}
                       <tr className="bg-transparent">
                         <td colSpan={12} className="pb-3 pt-0.5 px-4 pl-[16px]">
-                          <div className="flex items-start gap-4">
+                          <div className="flex items-start gap-3">
                             
                             {/* UNRESTRICTED SINGLE-LINE BADGE */}
                             <div className="w-[70px] shrink-0 pt-0.5">
@@ -406,11 +406,11 @@ export default function StocksInPlay() {
                                   row.conviction >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 shadow-[0_0_8px_rgba(251,191,36,0.1)]' : 
                                   'bg-zinc-800/50 text-zinc-400 border-zinc-700/50'
                                 }`}>
-                                  {row.conviction}% CONF
+                                  {row.conviction}% CNF
                                 </span>
                               ) : (
                                 <span className="inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[8px] font-bold border tracking-widest uppercase bg-white/[0.02] text-slate-600 border-white/5">
-                                  --% CONF
+                                  --% CNF
                                 </span>
                               )}
                             </div>
