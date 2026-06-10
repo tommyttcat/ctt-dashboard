@@ -272,7 +272,8 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
   return { name: null, stage }; 
 };
 
-const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
+// Graceful 10s fetch timeout
+const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 10000) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -318,9 +319,7 @@ export async function GET(request: Request) {
 
     const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= 1.00 && t._liveVol >= currentVolumeThreshold);
 
-    // =========================================================================
-    // RESTORED 15 ITEM LIMIT TO PREVENT JSON CRASHING
-    // =========================================================================
+    // Kept to 15 to ensure execution speed for Vercel Hobby tier
     const dailyCandidates = [...viableSetups].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
     const sipCandidates = [...viableSetups].filter((t: any) => Math.abs(t._liveChg) >= 4.0 && t._livePrice >= t._liveVwap).sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 15);
 
@@ -421,18 +420,18 @@ export async function GET(request: Request) {
     };
 
     const enrichedList: any[] = [];
-    const chunkSize = 20; 
+    const chunkSize = 25; 
     for (let i = 0; i < uniqueCandidates.length; i += chunkSize) {
       const chunk = uniqueCandidates.slice(i, i + chunkSize);
       const results = await Promise.all(chunk.map(enrichCandidate));
       enrichedList.push(...results.filter(item => item !== null));
       if (i + chunkSize < uniqueCandidates.length) {
-        await new Promise(resolve => setTimeout(resolve, 250));
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
     }
 
     // =========================================================================
-    // GEMINI AI SCORING
+    // GEMINI AI SCORING (STRICTLY GEMINI 3.5 FLASH)
     // =========================================================================
     const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey) {
@@ -464,8 +463,8 @@ export async function GET(request: Request) {
             }
           `;
 
-          // STRICTLY RESTORED: gemini-2.5-flash
-          const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
+          // The true 2026 API Model exactly as verified
+          const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -479,7 +478,7 @@ export async function GET(request: Request) {
             if (aiData.candidates && aiData.candidates[0].content) {
               let text = aiData.candidates[0].content.parts[0].text;
               
-              // NEW FAIL-SAFE: Strips all markdown and forces strict JSON extraction
+              // Robust Regex parser to bypass JSON formatting crashes
               const match = text.match(/\{[\s\S]*\}/);
               if (match) {
                 const confluenceDict = JSON.parse(match[0]);

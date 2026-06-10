@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60; // Added a generous buffer just in case the news payload is heavy
 
 // Helper: Determine if the market is actively trading (Pre-Market through Post-Market)
 const getIsMarketActive = () => {
@@ -116,7 +117,8 @@ export async function GET(request: Request) {
       }
     `;
 
-    const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
+    // THE REAL API ENDPOINT: gemini-3.5-flash
+    const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -144,8 +146,17 @@ export async function GET(request: Request) {
     }
 
     let generatedText = aiData.candidates[0].content.parts[0].text;
-    generatedText = generatedText.replace(/```json/gi, '').replace(/```/g, '').trim();
-    const generatedSummary = JSON.parse(generatedText);
+    
+    // Robust Regex parser to bypass JSON formatting crashes
+    let generatedSummary;
+    const match = generatedText.match(/\{[\s\S]*\}/);
+    if (match) {
+      generatedSummary = JSON.parse(match[0]);
+    } else {
+      // Fallback if the regex somehow misses
+      generatedText = generatedText.replace(/```json/gi, '').replace(/```/g, '').trim();
+      generatedSummary = JSON.parse(generatedText);
+    }
 
     // 6. Cache and Return
     // DYNAMIC CACHE: 30 minutes during market hours, 12 hours overnight/weekends
