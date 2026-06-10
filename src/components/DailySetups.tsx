@@ -77,6 +77,7 @@ export default function DailySetups() {
 
     const fetchDatabaseSnapshot = async () => {
       try {
+        // FIXED: Cache buster + no-store ensures we pull fresh AI data every time
         const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
         const data = await res.json();
         
@@ -97,6 +98,7 @@ export default function DailySetups() {
             mktCap: item.mktCap || null,
             stage: item.stage || '2A',
             setupName: item.setupName || null,
+            // Defensive Parsing: Resolves TS/null issues
             conviction: item.conviction != null ? Number(item.conviction) : (item.aiScore ?? item.score ?? null), 
             thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
           }));
@@ -173,7 +175,7 @@ export default function DailySetups() {
   const getStageColor = (stage: string | undefined) => {
     if (!stage || stage === '-') return 'text-slate-500';
     if (stage.includes('1')) return 'text-slate-400';
-    if (stage.includes('2')) return 'textemerald-400';
+    if (stage.includes('2')) return 'text-emerald-400';
     if (stage.includes('3')) return 'text-amber-400';
     if (stage.includes('4')) return 'text-rose-400';
     return 'text-slate-500'; 
@@ -265,6 +267,7 @@ export default function DailySetups() {
                 ))}
               </div>
 
+              {/* CONVICTION FILTER */}
               <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1" onClick={(e) => e.stopPropagation()}>
                 <div className="px-2 border-r border-white/10 mr-1">
                   <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">CONF</span>
@@ -336,106 +339,105 @@ export default function DailySetups() {
                 </tr>
               </thead>
               
-              <tbody className="">
-                {status.includes('Syncing') && setups.length === 0 ? (
+              {status.includes('Syncing') && setups.length === 0 ? (
+                <tbody>
                   <tr>
                     <td colSpan={12} className="py-12 text-center border-b border-white/5">
                       <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
                       <span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span>
                     </td>
                   </tr>
-                ) : filteredAndSortedSetups.length === 0 ? (
+                </tbody>
+              ) : filteredAndSortedSetups.length === 0 ? (
+                <tbody>
                   <tr>
                     <td colSpan={12} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">No daily setups currently matching momentum criteria.</td>
                   </tr>
-                ) : (
-                  filteredAndSortedSetups.map((row, i) => {
-                    const isPositive = row.changePct >= 0;
-                    
-                    return (
-                      <React.Fragment key={i}>
-                        {/* MAIN METRIC ROW - Never has a bottom border so it connects to the sub-row */}
-                        <tr className="hover:bg-white/[0.02] transition-colors group border-b-0">
-                          <td className="py-3" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                            <div className="relative inline-flex items-center group/ticker">
-                              <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
-                              <div className="absolute left-full ml-3 px-3 py-1.5 bg-[#1e293b] border border-white/10 text-slate-200 text-xs font-semibold tracking-wide rounded-md shadow-2xl opacity-0 invisible group-hover/ticker:opacity-100 group-hover/ticker:visible transition-all z-[60] whitespace-nowrap pointer-events-none">{row.name || row.ticker}</div>
-                            </div>
-                          </td>
-                          <td className="py-3 text-xs text-slate-300 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                            <div className="flex items-center gap-1.5">
-                              ${row.price.toFixed(2)}
-                              {row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>)}
-                            </div>
-                          </td>
-                          <td className={`py-3 text-xs font-bold whitespace-nowrap ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
-                          <td className="py-3 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.vol)}</td>
-                          <td className="py-3 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatCurrency(row.dVol)}</td>
-                          <td className={`py-3 text-xs font-bold whitespace-nowrap ${getRvolColor(row.rvol)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
-                          <td className={`py-3 text-xs font-bold whitespace-nowrap ${getFloatColor(row.float)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.float)}</td>
-                          <td className={`py-3 text-xs font-bold whitespace-nowrap ${getShortColor(row.shortPct)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
-                          <td className="py-3 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.mktCap)}</td>
-                          <td className="py-3 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                            <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.sector || '—'}</div>
-                          </td>
-                          <td className="py-3 text-xs font-bold whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                            <span className={getStageColor(row.stage)}>{formatStageText(row.stage)}</span>
-                          </td>
-                          <td className="py-3 text-[11px] text-slate-200 font-semibold truncate max-w-[150px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                            <div className="flex items-center gap-1.5">
-                              {row.setupName === 'Blue Dot Rev' && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"></div>}
-                              <span>{formatSetupName(row.setupName)}</span>
-                            </div>
-                          </td>
-                        </tr>
+                </tbody>
+              ) : (
+                filteredAndSortedSetups.map((row, i) => {
+                  const isPositive = row.changePct >= 0;
+                  
+                  return (
+                    <tbody key={i} className="group border-b border-white/5 hover:bg-white/[0.02] transition-colors">
+                      {/* MAIN METRIC ROW */}
+                      <tr className="bg-transparent">
+                        <td className="pt-3 pb-1.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                          <div className="relative inline-flex items-center group/ticker">
+                            <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
+                            <div className="absolute left-full ml-3 px-3 py-1.5 bg-[#1e293b] border border-white/10 text-slate-200 text-xs font-semibold tracking-wide rounded-md shadow-2xl opacity-0 invisible group-hover/ticker:opacity-100 group-hover/ticker:visible transition-all z-[60] whitespace-nowrap pointer-events-none">{row.name || row.ticker}</div>
+                          </div>
+                        </td>
+                        <td className="pt-3 pb-1.5 text-xs text-slate-300 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                          <div className="flex items-center gap-1.5">
+                            ${row.price.toFixed(2)}
+                            {row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>)}
+                          </div>
+                        </td>
+                        <td className={`pt-3 pb-1.5 text-xs font-bold whitespace-nowrap ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
+                        <td className="pt-3 pb-1.5 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.vol)}</td>
+                        <td className="pt-3 pb-1.5 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatCurrency(row.dVol)}</td>
+                        <td className={`pt-3 pb-1.5 text-xs font-bold whitespace-nowrap ${getRvolColor(row.rvol)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
+                        <td className={`pt-3 pb-1.5 text-xs font-bold whitespace-nowrap ${getFloatColor(row.float)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.float)}</td>
+                        <td className={`pt-3 pb-1.5 text-xs font-bold whitespace-nowrap ${getShortColor(row.shortPct)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
+                        <td className="pt-3 pb-1.5 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.mktCap)}</td>
+                        <td className="pt-3 pb-1.5 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                          <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.sector || '—'}</div>
+                        </td>
+                        <td className="pt-3 pb-1.5 text-xs font-bold whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                          <span className={getStageColor(row.stage)}>{formatStageText(row.stage)}</span>
+                        </td>
+                        <td className="pt-3 pb-1.5 text-[11px] text-slate-200 font-semibold truncate max-w-[150px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                          <div className="flex items-center gap-1.5">
+                            {row.setupName === 'Blue Dot Rev' && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"></div>}
+                            <span>{formatSetupName(row.setupName)}</span>
+                          </div>
+                        </td>
+                      </tr>
 
-                        {/* ALWAYS-ON NESTED SUB-ROW FOR CONFLUENCE */}
-                        <tr className="border-b border-white/5 bg-white/[0.01] hover:bg-white/[0.02] transition-colors group">
-                          <td colSpan={12} className="py-2.5 px-4 pl-[16px]">
-                            <div className="flex items-start gap-4">
-                              
-                              {/* Conviction Badge with Empty State Fallback */}
+                      {/* ALWAYS-ON NESTED SUB-ROW FOR CONFLUENCE */}
+                      <tr className="bg-transparent">
+                        <td colSpan={12} className="pb-3 pt-1 px-4 pl-[16px]">
+                          <div className="flex items-start gap-3">
+                            
+                            {/* Anchor the Badge Width to perfectly align the text block across rows */}
+                            <div className="shrink-0 w-[64px]">
                               {row.conviction != null ? (
-                                <div className="shrink-0 mt-[1px]">
-                                  <span className={`px-2 py-1 rounded text-[9px] font-bold border tracking-wider uppercase ${
-                                    row.conviction >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
-                                    row.conviction >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 
-                                    'bg-zinc-800 text-zinc-400 border-zinc-700'
-                                  }`}>
-                                    {row.conviction}% CONF
-                                  </span>
+                                <div className={`px-1.5 py-[3px] text-center rounded text-[9px] font-bold border tracking-wider uppercase ${
+                                  row.conviction >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_8px_rgba(52,211,153,0.1)]' : 
+                                  row.conviction >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 shadow-[0_0_8px_rgba(251,191,36,0.1)]' : 
+                                  'bg-zinc-800/50 text-zinc-400 border-zinc-700/50'
+                                }`}>
+                                  {row.conviction}% CONF
                                 </div>
                               ) : (
-                                <div className="shrink-0 mt-[1px]">
-                                  <span className="px-2 py-1 rounded text-[9px] font-bold border tracking-wider uppercase bg-zinc-800/50 text-zinc-500 border-zinc-700/50">
-                                    --% CONF
-                                  </span>
+                                <div className="px-1.5 py-[3px] text-center rounded text-[9px] font-bold border tracking-wider uppercase bg-white/[0.02] text-slate-600 border-white/5">
+                                  --% CONF
                                 </div>
                               )}
-
-                              {/* Thesis Text with Awaiting Fallback */}
-                              <div className="flex-1 pb-1">
-                                {row.thesis ? (
-                                  <p className="text-[11px] text-slate-400/90 leading-relaxed pr-8 whitespace-normal">
-                                    <span className="text-indigo-400/80 font-bold mr-2 text-[10px] tracking-widest uppercase">THESIS:</span>
-                                    {row.thesis}
-                                  </p>
-                                ) : (
-                                  <p className="text-[11px] text-slate-600 italic leading-relaxed pr-8 whitespace-normal mt-0.5">
-                                    Awaiting quantitative confluence analysis...
-                                  </p>
-                                )}
-                              </div>
-
                             </div>
-                          </td>
-                        </tr>
 
-                      </React.Fragment>
-                    );
-                  })
-                )}
-              </tbody>
+                            {/* Thesis Text with Awaiting Fallback */}
+                            <div className="flex-1 mt-[1px]">
+                              {row.thesis ? (
+                                <p className="text-[11px] text-slate-400/90 leading-relaxed pr-8 whitespace-normal line-clamp-3">
+                                  <span className="text-indigo-400/80 font-bold mr-2 text-[10px] tracking-widest uppercase">THESIS:</span>
+                                  {row.thesis}
+                                </p>
+                              ) : (
+                                <p className="text-[11px] text-slate-600 italic leading-relaxed pr-8 whitespace-normal mt-0.5">
+                                  Awaiting quantitative confluence analysis...
+                                </p>
+                              )}
+                            </div>
+
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  );
+                })
+              )}
             </table>
           </div>
         </>
