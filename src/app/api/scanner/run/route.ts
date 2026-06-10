@@ -272,7 +272,8 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
   return { name: null, stage }; 
 };
 
-const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
+// FIXED TIMEOUT: Down from 15s to 8s
+const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 8000) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -291,7 +292,7 @@ export async function GET(request: Request) {
   if (!polygonApiKey) return NextResponse.json({ error: 'Missing API Key' }, { status: 500 });
 
   try {
-    // Flat 500k volume threshold across all hours
+    // Volume threshold strictly locked at 500k
     const currentVolumeThreshold = 500000;
 
     const snapRes = await fetchSafeJson(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`, { tickers: [] });
@@ -422,11 +423,17 @@ export async function GET(request: Request) {
     };
 
     const enrichedList: any[] = [];
-    const chunkSize = 20; 
+    // FIXED: Increased to 40 items per chunk to drop the loop from 6 rounds to 3 rounds.
+    const chunkSize = 40; 
     for (let i = 0; i < uniqueCandidates.length; i += chunkSize) {
       const chunk = uniqueCandidates.slice(i, i + chunkSize);
       const results = await Promise.all(chunk.map(enrichCandidate));
       enrichedList.push(...results.filter(item => item !== null));
+      
+      // FIXED: Added 300ms breather to appease Polygon rate limits.
+      if (i + chunkSize < uniqueCandidates.length) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
     }
 
     // =========================================================================
@@ -462,7 +469,6 @@ export async function GET(request: Request) {
             }
           `;
 
-          // STRICTLY RESTORED: gemini-2.5-flash
           const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -493,7 +499,7 @@ export async function GET(request: Request) {
           }
         } else {
           enrichedList.forEach((t: any) => {
-            if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
+            if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._rawHeadline}` : t._rawHeadline;
           });
         }
       } catch (e) {
