@@ -272,8 +272,7 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
   return { name: null, stage }; 
 };
 
-// FASTER TIMEOUT: Drops from 15s to 8s so a hanging Polygon request doesn't kill the Vercel Action
-const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 8000) => {
+const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -292,7 +291,7 @@ export async function GET(request: Request) {
   if (!polygonApiKey) return NextResponse.json({ error: 'Missing API Key' }, { status: 500 });
 
   try {
-    // Lock volume threshold at a flat 500k across the board
+    // Volume threshold strictly locked at 500k
     const currentVolumeThreshold = 500000;
 
     const snapRes = await fetchSafeJson(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`, { tickers: [] });
@@ -423,17 +422,11 @@ export async function GET(request: Request) {
     };
 
     const enrichedList: any[] = [];
-    // GOLDILOCKS ZONE: Bumped to 40 items per chunk (3 rounds max) 
-    const chunkSize = 40; 
+    const chunkSize = 20; 
     for (let i = 0; i < uniqueCandidates.length; i += chunkSize) {
       const chunk = uniqueCandidates.slice(i, i + chunkSize);
       const results = await Promise.all(chunk.map(enrichCandidate));
       enrichedList.push(...results.filter(item => item !== null));
-      
-      // Essential 250ms breather so Polygon doesn't block the connection
-      if (i + chunkSize < uniqueCandidates.length) {
-        await new Promise(resolve => setTimeout(resolve, 250));
-      }
     }
 
     // =========================================================================
@@ -469,7 +462,8 @@ export async function GET(request: Request) {
             }
           `;
 
-          const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
+          // FIXED THE TYPO: Swapped gemini-2.5-flash for the actual production model (gemini-1.5-flash)
+          const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
