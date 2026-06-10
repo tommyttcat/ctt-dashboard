@@ -331,7 +331,6 @@ export async function GET(request: Request) {
 
     const dailyCandidates = [...viableSetups].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
     
-    // FIX: Enforce strictly positive % change for Stocks In Play 
     const sipCandidates = [...viableSetups]
       .filter((t: any) => t._livePrice >= t._liveVwap && t._liveChg >= CHG_THRESHOLD)
       .sort((a: any, b: any) => b._liveVol - a._liveVol)
@@ -437,18 +436,18 @@ export async function GET(request: Request) {
           .join(',\n');
           
         if (analysisMap.length > 0) {
+          // FIX: Updated prompt to strictly prohibit wrapping arrays or outer objects
           const aiPrompt = `
             You are an elite quantitative technical analyst. 
             I am providing a JSON map of stock setups. Each contains a recent news headline, a mathematically detected technical pattern (like BB Squeeze, Blue Dot, GLB), its structural market stage, and its closing prices over the last 5 days.
             
             For EACH stock, evaluate the confluence of the news catalyst and the technical structure.
             
-            Return ONLY a valid JSON object where the keys are the tickers. For each ticker, provide:
+            Return ONLY a raw, flat JSON dictionary where the ROOT keys are the tickers. Do NOT wrap the response in any outer objects (like "setups") or arrays.
+            For each ticker, provide:
             1. "catalyst": A punchy 2-5 word summary of the headline. If there is no specific news, return "Technical Setup".
             2. "conviction": A score from 1-100 rating the synergy of the setup.
             3. "thesis": A brutal, 1-sentence institutional tape-reading thesis explaining why this is or isn't a high-probability setup.
-            
-            Do not include markdown formatting like \`\`\`json.
             
             Setups:
             {
@@ -461,6 +460,7 @@ export async function GET(request: Request) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               contents: [{ parts: [{ text: aiPrompt }] }],
+              // FIX: Forcing JSON mime type
               generationConfig: { responseMimeType: "application/json", temperature: 0.1 }
             })
           });
@@ -468,27 +468,38 @@ export async function GET(request: Request) {
           if (aiRes.ok) {
             const aiData = await aiRes.json();
             if (aiData.candidates && aiData.candidates.length > 0 && aiData.candidates[0].content) {
-              let text = aiData.candidates[0].content.parts[0].text;
+              const text = aiData.candidates[0].content.parts[0].text;
               
-              // FIX: Robust JSON extraction in case Gemini wraps the response
-              const jsonMatch = text.match(/\{[\s\S]*\}/);
+              // FIX: Robust fallback parser in case Gemini ignores the mime-type or injects markdown
+              let confluenceDict: any = null;
+              try {
+                confluenceDict = JSON.parse(text);
+              } catch (parseError) {
+                const jsonMatch = text.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                  confluenceDict = JSON.parse(jsonMatch[0]);
+                }
+              }
               
-              if (jsonMatch) {
-                const confluenceDict = JSON.parse(jsonMatch[0]);
-                console.log("Confluence Scores successfully mapped!");
+              if (confluenceDict) {
+                // Handle edge case where Gemini wraps the output anyway
+                if (confluenceDict.setups) confluenceDict = confluenceDict.setups;
+
+                console.log("Confluence Scores successfully parsed and mapped!");
                 
                 enrichedList.forEach((t: any) => {
-                  if (confluenceDict[t.ticker]) {
-                    const tag = confluenceDict[t.ticker].catalyst;
+                  const aiDataForTicker = confluenceDict[t.ticker];
+                  if (aiDataForTicker) {
+                    const tag = aiDataForTicker.catalyst;
                     t.catalyst = t._catalystDate ? `${t._catalystDate} — ${tag}` : tag;
-                    t.conviction = confluenceDict[t.ticker].conviction;
-                    t.thesis = confluenceDict[t.ticker].thesis;
+                    t.conviction = aiDataForTicker.conviction;
+                    t.thesis = aiDataForTicker.thesis;
                   } else if (t._rawHeadline) {
                     t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
                   }
                 });
               } else {
-                console.warn("Gemini returned text but no JSON object was found:", text);
+                console.warn("Gemini returned text but JSON parsing completely failed:", text);
                 enrichedList.forEach((t: any) => { if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline; });
               }
             } else {
