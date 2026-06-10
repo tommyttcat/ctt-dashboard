@@ -295,7 +295,6 @@ export async function GET(request: Request) {
     const timeStr = estDate.getHours() + estDate.getMinutes() / 60;
     const isPreMarket = timeStr >= 4 && timeStr < 9.5;
     
-    // Using a flat 100k volume threshold
     const currentVolumeThreshold = 100000;
 
     const snapRes = await fetchSafeJson(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`, { tickers: [] });
@@ -349,7 +348,7 @@ export async function GET(request: Request) {
     const uniqueCandidates = Array.from(new Map(allCandidates.map(item => [item.ticker, item])).values());
     
     // =========================================================================
-    // ENRICHMENT PIPELINE - 100% PARALLELIZED TO PREVENT TIMEOUTS
+    // ENRICHMENT PIPELINE
     // =========================================================================
     const enrichCandidate = async (t: any) => {
       const sym = t.ticker || t.single_ticker;
@@ -425,8 +424,14 @@ export async function GET(request: Request) {
       };
     };
 
-    // Fast parallel execution instead of slow chunking
-    const enrichedList = (await Promise.all(uniqueCandidates.map(enrichCandidate))).filter(item => item !== null);
+    // RESTORED CHUNKING LOOP TO PREVENT POLYGON 429 ERRORS / CONNECTION DROPS
+    const enrichedList: any[] = [];
+    const chunkSize = 20; 
+    for (let i = 0; i < uniqueCandidates.length; i += chunkSize) {
+      const chunk = uniqueCandidates.slice(i, i + chunkSize);
+      const results = await Promise.all(chunk.map(enrichCandidate));
+      enrichedList.push(...results.filter(item => item !== null));
+    }
 
     // =========================================================================
     // GEMINI AI SCORING
@@ -461,7 +466,7 @@ export async function GET(request: Request) {
             }
           `;
 
-          // Using standard gemini-1.5-flash
+          // Restored user's exact model string
           const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
