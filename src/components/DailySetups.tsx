@@ -360,9 +360,26 @@ export default function DailySetups() {
                       {/* MAIN METRIC ROW */}
                       <tr className="bg-transparent">
                         <td className="pt-3 pb-1.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <div className="relative inline-flex items-center group/ticker">
-                            <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
-                            <div className="absolute left-full ml-3 px-3 py-1.5 bg-[#1e293b] border border-white/10 text-slate-200 text-xs font-semibold tracking-wide rounded-md shadow-2xl opacity-0 invisible group-hover/ticker:opacity-100 group-hover/ticker:visible transition-all z-[60] whitespace-nowrap pointer-events-none">{row.name || row.ticker}</div>
+                          <div className="flex items-center gap-2">
+                            <div className="relative inline-flex items-center group/ticker">
+                              <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
+                              <div className="absolute left-full ml-3 px-3 py-1.5 bg-[#1e293b] border border-white/10 text-slate-200 text-xs font-semibold tracking-wide rounded-md shadow-2xl opacity-0 invisible group-hover/ticker:opacity-100 group-hover/ticker:visible transition-all z-[60] whitespace-nowrap pointer-events-none">{row.name || row.ticker}</div>
+                            </div>
+                            
+                            {/* CONVICTION BADGE MOVED NEXT TO TICKER */}
+                            {row.conviction != null ? (
+                              <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border uppercase ${
+                                row.conviction >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_8px_rgba(52,211,153,0.1)]' : 
+                                row.conviction >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 shadow-[0_0_8px_rgba(251,191,36,0.1)]' : 
+                                'bg-zinc-800/50 text-zinc-400 border-zinc-700/50'
+                              }`}>
+                                {row.conviction}%
+                              </span>
+                            ) : (
+                              <span className="inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border uppercase bg-white/[0.02] text-slate-600 border-white/5">
+                                --%
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td className="pt-3 pb-1.5 text-xs text-slate-300 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
@@ -392,29 +409,10 @@ export default function DailySetups() {
                         </td>
                       </tr>
 
-                      {/* ALWAYS-ON NESTED SUB-ROW FOR CONFLUENCE */}
+                      {/* ALWAYS-ON NESTED SUB-ROW FOR THESIS ONLY */}
                       <tr className="bg-transparent">
                         <td colSpan={12} className="pb-3 pt-0.5 px-4 pl-[16px]">
-                          <div className="flex items-start gap-4">
-                            
-                            {/* UNRESTRICTED SINGLE-LINE BADGE */}
-                            <div className="w-[40px] shrink-0 pt-0.5">
-                              {row.conviction != null ? (
-                                <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[8px] font-bold border uppercase ${
-                                  row.conviction >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_8px_rgba(52,211,153,0.1)]' : 
-                                  row.conviction >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 shadow-[0_0_8px_rgba(251,191,36,0.1)]' : 
-                                  'bg-zinc-800/50 text-zinc-400 border-zinc-700/50'
-                                }`}>
-                                  {row.conviction}%
-                                </span>
-                              ) : (
-                                <span className="inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[8px] font-bold border uppercase bg-white/[0.02] text-slate-600 border-white/5">
-                                  --%
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Thesis Text */}
+                          <div className="flex items-start">
                             <div className="flex-1 mt-[1px]">
                               {row.thesis ? (
                                 <p className="text-[11px] text-slate-400/90 leading-relaxed pr-8 whitespace-normal line-clamp-3">
@@ -427,7 +425,6 @@ export default function DailySetups() {
                                 </p>
                               )}
                             </div>
-
                           </div>
                         </td>
                       </tr>

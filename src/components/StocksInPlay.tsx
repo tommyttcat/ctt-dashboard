@@ -368,7 +368,7 @@ export default function StocksInPlay() {
                             
                             {/* CONVICTION BADGE MOVED NEXT TO TICKER */}
                             {row.conviction != null ? (
-                              <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[8px] font-bold border uppercase ${
+                              <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border uppercase ${
                                 row.conviction >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_8px_rgba(52,211,153,0.1)]' : 
                                 row.conviction >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 shadow-[0_0_8px_rgba(251,191,36,0.1)]' : 
                                 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50'
@@ -376,7 +376,7 @@ export default function StocksInPlay() {
                                 {row.conviction}%
                               </span>
                             ) : (
-                              <span className="inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[8px] font-bold border uppercase bg-white/[0.02] text-slate-600 border-white/5">
+                              <span className="inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border uppercase bg-white/[0.02] text-slate-600 border-white/5">
                                 --%
                               </span>
                             )}
