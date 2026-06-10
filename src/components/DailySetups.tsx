@@ -81,7 +81,6 @@ export default function DailySetups() {
         const data = await res.json();
         
         if (isMounted && data.success) {
-          
           const rawList = data.dailySetups || [];
           const safeData = rawList.map((item: any) => ({
             ticker: item.ticker || '—',
@@ -315,105 +314,103 @@ export default function DailySetups() {
           </div>
 
           <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[1300px] border-collapse">
+            <table className="w-full min-w-[1200px] border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('setupName')}>STRATEGY{getSortIcon('setupName')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[24%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '24px' }} onClick={() => handleSort('conviction')}>CONFLUENCE{getSortIcon('conviction')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[14%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('setupName')}>STRATEGY{getSortIcon('setupName')}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5">
+              
+              <tbody className="">
                 {status.includes('Syncing') && setups.length === 0 ? (
                   <tr>
-                    <td colSpan={13} className="py-12 text-center">
+                    <td colSpan={12} className="py-12 text-center border-b border-white/5">
                       <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
                       <span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span>
                     </td>
                   </tr>
                 ) : filteredAndSortedSetups.length === 0 ? (
                   <tr>
-                    <td colSpan={13} className="py-12 text-center text-slate-500 text-sm font-medium">No daily setups currently matching momentum criteria.</td>
+                    <td colSpan={12} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">No daily setups currently matching momentum criteria.</td>
                   </tr>
                 ) : (
                   filteredAndSortedSetups.map((row, i) => {
                     const isPositive = row.changePct >= 0;
+                    const hasConfluence = row.conviction != null && row.thesis != null;
+                    
                     return (
-                      <tr key={i} className="hover:bg-white/[0.02] transition-colors group">
-                        
-                        <td className="py-3" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <div className="relative inline-flex items-center group/ticker">
-                            <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
-                            <div className="absolute left-full ml-3 px-3 py-1.5 bg-[#1e293b] border border-white/10 text-slate-200 text-xs font-semibold tracking-wide rounded-md shadow-2xl opacity-0 invisible group-hover/ticker:opacity-100 group-hover/ticker:visible transition-all z-50 whitespace-nowrap pointer-events-none">{row.name || row.ticker}</div>
-                          </div>
-                        </td>
-
-                        <td className="py-3 text-xs text-slate-300 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <div className="flex items-center gap-1.5">
-                            ${row.price.toFixed(2)}
-                            {row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>)}
-                          </div>
-                        </td>
-                        <td className={`py-3 text-xs font-bold whitespace-nowrap ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
-                        <td className="py-3 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.vol)}</td>
-                        <td className="py-3 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatCurrency(row.dVol)}</td>
-                        <td className={`py-3 text-xs font-bold whitespace-nowrap ${getRvolColor(row.rvol)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
-                        <td className={`py-3 text-xs font-bold whitespace-nowrap ${getFloatColor(row.float)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.float)}</td>
-                        <td className={`py-3 text-xs font-bold whitespace-nowrap ${getShortColor(row.shortPct)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
-                        <td className="py-3 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.mktCap)}</td>
-                        <td className="py-3 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.sector || '—'}</div>
-                        </td>
-                        <td className="py-3 text-xs font-bold whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <span className={getStageColor(row.stage)}>{formatStageText(row.stage)}</span>
-                        </td>
-                        <td className="py-3 text-[11px] text-slate-200 font-semibold truncate max-w-[150px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <div className="flex items-center gap-1.5">
-                            {row.setupName === 'Blue Dot Rev' && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"></div>}
-                            <span>{formatSetupName(row.setupName)}</span>
-                          </div>
-                        </td>
-
-                        {/* RESTORED SEPARATE CONFLUENCE COLUMN WITH NATIVE WRAPPING */}
-                        <td className="py-3" style={{ textAlign: 'left', paddingLeft: '24px' }}>
-                          {row.conviction ? (
-                            <div className="flex flex-col pr-4 my-1">
-                              <div className="flex items-center gap-3 mb-1.5">
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                                  row.conviction >= 85 
-                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
-                                    : row.conviction >= 70 
-                                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' 
-                                    : 'bg-zinc-800 text-zinc-400 border-zinc-700'
-                                }`}>
-                                  {row.conviction}%
-                                </span>
-                                <span className="text-[10px] text-zinc-300 font-bold tracking-widest uppercase">
-                                  {row.conviction >= 85 ? 'High Conviction' : row.conviction >= 70 ? 'Med Conviction' : 'Low Conviction'}
-                                </span>
-                              </div>
-                              {row.thesis && (
-                                <p className="text-[11px] text-slate-400 leading-relaxed whitespace-normal line-clamp-3" title={row.thesis}>
-                                  {row.thesis}
-                                </p>
-                              )}
+                      <React.Fragment key={i}>
+                        {/* MAIN METRIC ROW */}
+                        <tr className={`hover:bg-white/[0.02] transition-colors group ${hasConfluence ? 'border-b-0' : 'border-b border-white/5'}`}>
+                          <td className="py-3" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                            <div className="relative inline-flex items-center group/ticker">
+                              <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
+                              <div className="absolute left-full ml-3 px-3 py-1.5 bg-[#1e293b] border border-white/10 text-slate-200 text-xs font-semibold tracking-wide rounded-md shadow-2xl opacity-0 invisible group-hover/ticker:opacity-100 group-hover/ticker:visible transition-all z-[60] whitespace-nowrap pointer-events-none">{row.name || row.ticker}</div>
                             </div>
-                          ) : (
-                            <span className="text-zinc-600 text-xs">—</span>
-                          )}
-                        </td>
+                          </td>
+                          <td className="py-3 text-xs text-slate-300 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                            <div className="flex items-center gap-1.5">
+                              ${row.price.toFixed(2)}
+                              {row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>)}
+                            </div>
+                          </td>
+                          <td className={`py-3 text-xs font-bold whitespace-nowrap ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
+                          <td className="py-3 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.vol)}</td>
+                          <td className="py-3 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatCurrency(row.dVol)}</td>
+                          <td className={`py-3 text-xs font-bold whitespace-nowrap ${getRvolColor(row.rvol)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
+                          <td className={`py-3 text-xs font-bold whitespace-nowrap ${getFloatColor(row.float)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.float)}</td>
+                          <td className={`py-3 text-xs font-bold whitespace-nowrap ${getShortColor(row.shortPct)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
+                          <td className="py-3 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.mktCap)}</td>
+                          <td className="py-3 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                            <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.sector || '—'}</div>
+                          </td>
+                          <td className="py-3 text-xs font-bold whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                            <span className={getStageColor(row.stage)}>{formatStageText(row.stage)}</span>
+                          </td>
+                          <td className="py-3 text-[11px] text-slate-200 font-semibold truncate max-w-[150px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                            <div className="flex items-center gap-1.5">
+                              {row.setupName === 'Blue Dot Rev' && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"></div>}
+                              <span>{formatSetupName(row.setupName)}</span>
+                            </div>
+                          </td>
+                        </tr>
 
-                      </tr>
+                        {/* NESTED SUB-ROW FOR CONFLUENCE (ONE LINE UNDER TICKER, PRICE, ETC.) */}
+                        {hasConfluence && (
+                          <tr className="border-b border-white/5 bg-white/[0.01]">
+                            <td colSpan={12} className="py-2.5 px-4 pl-[16px]">
+                              <div className="flex items-start gap-4">
+                                <div className="shrink-0 mt-[1px]">
+                                  <span className={`px-2 py-1 rounded text-[9px] font-bold border tracking-wider uppercase ${
+                                    row.conviction! >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
+                                    row.conviction! >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 
+                                    'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                  }`}>
+                                    {row.conviction}% CONF
+                                  </span>
+                                </div>
+                                <div className="flex-1 pb-1">
+                                  <p className="text-[11px] text-slate-400/90 leading-relaxed pr-8 whitespace-normal">
+                                    <span className="text-indigo-400/80 font-bold mr-2 text-[10px] tracking-widest uppercase">THESIS:</span>
+                                    {row.thesis}
+                                  </p>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     );
                   })
                 )}
