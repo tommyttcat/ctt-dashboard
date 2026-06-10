@@ -77,7 +77,8 @@ export default function DailySetups() {
 
     const fetchDatabaseSnapshot = async () => {
       try {
-        const res = await fetch('/api/scanner/latest');
+        // FIXED: Cache buster + no-store ensures we pull fresh AI data every time
+        const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
         const data = await res.json();
         
         if (isMounted && data.success) {
@@ -97,7 +98,6 @@ export default function DailySetups() {
             mktCap: item.mktCap || null,
             stage: item.stage || '2A',
             setupName: item.setupName || null,
-            // Defensive Parsing: Resolves TS/null issues
             conviction: item.conviction != null ? Number(item.conviction) : (item.aiScore ?? item.score ?? null), 
             thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
           }));
@@ -394,7 +394,7 @@ export default function DailySetups() {
 
                         {/* NESTED SUB-ROW FOR CONFLUENCE */}
                         {hasConfluence && (
-                          <tr className="border-b border-white/5 bg-white/[0.01]">
+                          <tr className="border-b border-white/5 bg-white/[0.01] hover:bg-white/[0.02] transition-colors group">
                             <td colSpan={12} className="py-2.5 px-4 pl-[16px]">
                               <div className="flex items-start gap-4">
                                 {row.conviction != null && (
