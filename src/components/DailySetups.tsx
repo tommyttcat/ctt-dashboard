@@ -97,8 +97,9 @@ export default function DailySetups() {
             mktCap: item.mktCap || null,
             stage: item.stage || '2A',
             setupName: item.setupName || null,
-            conviction: item.conviction ? Number(item.conviction) : null, 
-            thesis: item.thesis || null,         
+            // Defensive Parsing: Resolves TS/null issues
+            conviction: item.conviction != null ? Number(item.conviction) : (item.aiScore ?? item.score ?? null), 
+            thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
           }));
 
           setSetups(safeData);
@@ -317,7 +318,12 @@ export default function DailySetups() {
             <table className="w-full min-w-[1200px] border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                    <div className="flex items-center gap-3">
+                      <span className="cursor-pointer hover:text-slate-300" onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</span>
+                      <span className="cursor-pointer text-indigo-400/60 hover:text-indigo-400" onClick={() => handleSort('conviction')}>CONF{getSortIcon('conviction')}</span>
+                    </div>
+                  </th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
@@ -347,7 +353,7 @@ export default function DailySetups() {
                 ) : (
                   filteredAndSortedSetups.map((row, i) => {
                     const isPositive = row.changePct >= 0;
-                    const hasConfluence = row.conviction != null && row.thesis != null;
+                    const hasConfluence = row.conviction != null || row.thesis != null;
                     
                     return (
                       <React.Fragment key={i}>
@@ -386,26 +392,30 @@ export default function DailySetups() {
                           </td>
                         </tr>
 
-                        {/* NESTED SUB-ROW FOR CONFLUENCE (ONE LINE UNDER TICKER, PRICE, ETC.) */}
+                        {/* NESTED SUB-ROW FOR CONFLUENCE */}
                         {hasConfluence && (
                           <tr className="border-b border-white/5 bg-white/[0.01]">
                             <td colSpan={12} className="py-2.5 px-4 pl-[16px]">
                               <div className="flex items-start gap-4">
-                                <div className="shrink-0 mt-[1px]">
-                                  <span className={`px-2 py-1 rounded text-[9px] font-bold border tracking-wider uppercase ${
-                                    row.conviction! >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
-                                    row.conviction! >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 
-                                    'bg-zinc-800 text-zinc-400 border-zinc-700'
-                                  }`}>
-                                    {row.conviction}% CONF
-                                  </span>
-                                </div>
-                                <div className="flex-1 pb-1">
-                                  <p className="text-[11px] text-slate-400/90 leading-relaxed pr-8 whitespace-normal">
-                                    <span className="text-indigo-400/80 font-bold mr-2 text-[10px] tracking-widest uppercase">THESIS:</span>
-                                    {row.thesis}
-                                  </p>
-                                </div>
+                                {row.conviction != null && (
+                                  <div className="shrink-0 mt-[1px]">
+                                    <span className={`px-2 py-1 rounded text-[9px] font-bold border tracking-wider uppercase ${
+                                      row.conviction! >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
+                                      row.conviction! >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 
+                                      'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                    }`}>
+                                      {row.conviction}% CONF
+                                    </span>
+                                  </div>
+                                )}
+                                {row.thesis && (
+                                  <div className="flex-1 pb-1">
+                                    <p className="text-[11px] text-slate-400/90 leading-relaxed pr-8 whitespace-normal">
+                                      <span className="text-indigo-400/80 font-bold mr-2 text-[10px] tracking-widest uppercase">THESIS:</span>
+                                      {row.thesis}
+                                    </p>
+                                  </div>
+                                )}
                               </div>
                             </td>
                           </tr>
