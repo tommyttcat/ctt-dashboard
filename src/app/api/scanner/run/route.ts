@@ -291,7 +291,7 @@ export async function GET(request: Request) {
   if (!polygonApiKey) return NextResponse.json({ error: 'Missing API Key' }, { status: 500 });
 
   try {
-    // Volume threshold strictly locked at 500k
+    // Flat 500k volume threshold across all hours
     const currentVolumeThreshold = 500000;
 
     const snapRes = await fetchSafeJson(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`, { tickers: [] });
@@ -462,8 +462,8 @@ export async function GET(request: Request) {
             }
           `;
 
-          // UPDATED: Using gemini-3.5-flash
-          const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`, {
+          // STRICTLY RESTORED: gemini-2.5-flash
+          const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -493,7 +493,7 @@ export async function GET(request: Request) {
           }
         } else {
           enrichedList.forEach((t: any) => {
-            if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._rawHeadline}` : t._rawHeadline;
+            if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
           });
         }
       } catch (e) {
