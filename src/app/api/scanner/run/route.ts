@@ -462,8 +462,8 @@ export async function GET(request: Request) {
             }
           `;
 
-          // FIXED THE TYPO: Swapped gemini-2.5-flash for the actual production model (gemini-1.5-flash)
-          const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+          // UPDATED: Using gemini-3.5-flash
+          const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -493,7 +493,7 @@ export async function GET(request: Request) {
           }
         } else {
           enrichedList.forEach((t: any) => {
-            if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
+            if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._rawHeadline}` : t._rawHeadline;
           });
         }
       } catch (e) {
