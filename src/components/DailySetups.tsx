@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 
-interface StockInPlay {
+interface SetupData {
   ticker: string;
   name: string;
   sector: string;
@@ -58,14 +58,14 @@ const formatSetupName = (name: string | null) => {
   return name;
 };
 
-export default function StocksInPlay() {
+export default function DailySetups() {
   const { session } = useMarketData(); 
 
-  const [stocks, setStocks] = useState<StockInPlay[]>([]);
+  const [setups, setSetups] = useState<SetupData[]>([]);
   const [status, setStatus] = useState<string>('Syncing DB...');
   const [lastScanTime, setLastScanTime] = useState<number | null>(null);
   
-  const [sortConfig, setSortConfig] = useState<{ key: keyof StockInPlay; direction: SortDirection } | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: keyof SetupData; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   
   const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(true); 
@@ -81,7 +81,9 @@ export default function StocksInPlay() {
         const data = await res.json();
         
         if (isMounted && data.success) {
-          const rawList = data.stocksInPlay || [];
+          
+          // IMPORTANT: Explicitly pulling data.dailySetups
+          const rawList = data.dailySetups || [];
           const safeData = rawList.map((item: any) => ({
             ticker: item.ticker || '—',
             name: item.name || '',
@@ -101,7 +103,7 @@ export default function StocksInPlay() {
             thesis: item.thesis || null,         
           }));
 
-          setStocks(safeData);
+          setSetups(safeData);
           setLastScanTime(data.lastScanTime);
           setStatus('Live');
         }
@@ -119,15 +121,15 @@ export default function StocksInPlay() {
     };
   }, []);
 
-  const handleSort = (key: keyof StockInPlay) => {
+  const handleSort = (key: keyof SetupData) => {
     let direction: SortDirection = 'desc'; 
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
     else if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') { setSortConfig(null); return; }
     setSortConfig({ key, direction });
   };
 
-  const filteredAndSortedStocks = useMemo(() => {
-    let filtered = stocks;
+  const filteredAndSortedSetups = useMemo(() => {
+    let filtered = setups;
     
     if (showStage2AOnly) {
       filtered = filtered.filter(s => s.stage && s.stage.includes('2A'));
@@ -167,9 +169,9 @@ export default function StocksInPlay() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [stocks, sortConfig, showStage2AOnly, marketCapFilter, convictionFilter]);
+  }, [setups, sortConfig, showStage2AOnly, marketCapFilter, convictionFilter]);
 
-  const getSortIcon = (columnKey: keyof StockInPlay) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
+  const getSortIcon = (columnKey: keyof SetupData) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
   const getStageColor = (stage: string | undefined) => {
     if (!stage || stage === '-') return 'text-slate-500';
     if (stage.includes('1')) return 'text-slate-400';
@@ -216,7 +218,7 @@ export default function StocksInPlay() {
         <div className="flex items-center gap-3">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
-            STOCKS IN PLAY
+            DAILY SETUPS
           </span>
         </div>
 
@@ -338,19 +340,19 @@ export default function StocksInPlay() {
               </thead>
               
               <tbody className="">
-                {status.includes('Syncing') && stocks.length === 0 ? (
+                {status.includes('Syncing') && setups.length === 0 ? (
                   <tr>
                     <td colSpan={12} className="py-12 text-center border-b border-white/5">
                       <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
                       <span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span>
                     </td>
                   </tr>
-                ) : filteredAndSortedStocks.length === 0 ? (
+                ) : filteredAndSortedSetups.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">No active tracking items currently matching momentum criteria.</td>
+                    <td colSpan={12} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">No daily setups currently matching momentum criteria.</td>
                   </tr>
                 ) : (
-                  filteredAndSortedStocks.map((row, i) => {
+                  filteredAndSortedSetups.map((row, i) => {
                     const isPositive = row.changePct >= 0;
                     const hasConfluence = row.conviction != null && row.thesis != null;
                     
@@ -393,7 +395,7 @@ export default function StocksInPlay() {
 
                         {/* NESTED SUB-ROW FOR CONFLUENCE */}
                         {hasConfluence && (
-                          <tr className="border-b border-white/5 bg-white/[0.01] hover:bg-white/[0.02] transition-colors">
+                          <tr className="border-b border-white/5 bg-white/[0.01] hover:bg-white/[0.02] transition-colors group">
                             <td colSpan={12} className="py-2.5 px-4 pl-[16px]">
                               <div className="flex items-start gap-4">
                                 <div className="shrink-0 mt-[1px]">

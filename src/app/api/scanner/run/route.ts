@@ -287,15 +287,22 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
 };
 
 export async function GET(request: Request) {
+  // --- SECURITY CHECK ---
+  const authHeader = request.headers.get('authorization');
+  const expectedSecret = process.env.CRON_SECRET;
+  
+  // Verify the request has the correct Authorization header if a secret is set in environment
+  if (expectedSecret && authHeader !== `Bearer ${expectedSecret}`) {
+    return NextResponse.json({ error: 'Unauthorized: Invalid or missing CRON_SECRET' }, { status: 401 });
+  }
+  // ----------------------
+
   const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
   if (!polygonApiKey) return NextResponse.json({ error: 'Missing API Key' }, { status: 500 });
 
   try {
-    const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const timeStr = estDate.getHours() + estDate.getMinutes() / 60;
-    const isPreMarket = timeStr >= 4 && timeStr < 9.5;
-    
-    const currentVolumeThreshold = isPreMarket ? 25000 : 500000;
+    const VOLUME_THRESHOLD = 500000;
+    const CHG_THRESHOLD = 4.0;
 
     const snapRes = await fetchSafeJson(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`, { tickers: [] });
     const rawSnapshot = snapRes.tickers || [];
@@ -319,21 +326,25 @@ export async function GET(request: Request) {
       return t;
     });
 
-    const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= 1.00 && t._liveVol >= currentVolumeThreshold);
+    const viableSetups = processedSnapshot.filter((t: any) => 
+      t._livePrice >= 1.00 && 
+      t._liveVol >= VOLUME_THRESHOLD && 
+      Math.abs(t._liveChg) >= CHG_THRESHOLD
+    );
 
-    // RESTORING FULL ORIGINAL LIST SIZES
     const dailyCandidates = [...viableSetups].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
-    const sipCandidates = [...viableSetups].filter((t: any) => Math.abs(t._liveChg) >= 4.0 && t._livePrice >= t._liveVwap).sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 20);
+    const sipCandidates = [...viableSetups].filter((t: any) => t._livePrice >= t._liveVwap).sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 20);
 
     const MEGA_CAP_TICKERS = new Set(['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'BRK.B', 'AVGO', 'LLY', 'JPM', 'XOM', 'UNH', 'V', 'PG', 'MA', 'JNJ', 'HD']);
     const megaCapsRaw = processedSnapshot.filter((t: any) => MEGA_CAP_TICKERS.has(t.ticker)).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
+    
     const knownEtfsRaw = viableSetups.filter((t: any) => ETF_TARGET_MAP[t.ticker]);
-    const etfGainersRaw = [...knownEtfsRaw].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
-    const etfLosersRaw = [...knownEtfsRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 15);
+    const etfGainersRaw = [...knownEtfsRaw].filter((t: any) => t._liveChg > 0).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
+    const etfLosersRaw = [...knownEtfsRaw].filter((t: any) => t._liveChg < 0).sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 15);
     
     const regularStocksRaw = viableSetups.filter((t: any) => !ETF_TARGET_MAP[t.ticker]);
-    const gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= 4.0).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
-    const losersRaw = [...regularStocksRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 15);
+    const gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg > 0).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
+    const losersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg < 0).sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 15);
 
     const today = new Date();
     const lookbackDate = new Date();
@@ -344,9 +355,6 @@ export async function GET(request: Request) {
     const allCandidates = [...dailyCandidates, ...sipCandidates, ...megaCapsRaw, ...gainersRaw, ...losersRaw, ...etfGainersRaw, ...etfLosersRaw];
     const uniqueCandidates = Array.from(new Map(allCandidates.map(item => [item.ticker, item])).values());
     
-    // =========================================================================
-    // ENRICHMENT PIPELINE (NOW FIRES 100% PARALLEL - KILLS THE 504 TIMEOUT)
-    // =========================================================================
     const enrichCandidate = async (t: any) => {
       const sym = t.ticker || t.single_ticker;
       const price = t._livePrice;
@@ -414,12 +422,8 @@ export async function GET(request: Request) {
       };
     };
 
-    // FIRES ALL API REQUESTS AT ONCE INSTEAD OF CHUNKS
     const enrichedList = (await Promise.all(uniqueCandidates.map(enrichCandidate))).filter(item => item !== null);
 
-    // =========================================================================
-    // GEMINI AI SCORING (STRICTLY FILTERED TO ONLY SCORE DAILY & SIPS)
-    // =========================================================================
     const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey) {
       try {
@@ -450,7 +454,7 @@ export async function GET(request: Request) {
             }
           `;
 
-          const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
+          const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -461,9 +465,10 @@ export async function GET(request: Request) {
 
           if (aiRes.ok) {
             const aiData = await aiRes.json();
-            if (aiData.candidates && aiData.candidates[0].content) {
+            if (aiData.candidates && aiData.candidates.length > 0 && aiData.candidates[0].content) {
               let text = aiData.candidates[0].content.parts[0].text;
               text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+              
               const confluenceDict = JSON.parse(text);
               
               enrichedList.forEach((t: any) => {
@@ -476,13 +481,20 @@ export async function GET(request: Request) {
                   t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
                 }
               });
+            } else {
+              console.warn("Gemini returned unexpected format or was blocked:", aiData);
+              enrichedList.forEach((t: any) => { if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline; });
             }
+          } else {
+             console.error("Gemini API Error Status:", aiRes.status);
+             enrichedList.forEach((t: any) => { if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline; });
           }
         } else {
           enrichedList.forEach((t: any) => { if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline; });
         }
       } catch (e) {
         console.error("Gemini Batch Confluence Scorer Failed:", e);
+        enrichedList.forEach((t: any) => { if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline; });
       }
     } else {
       enrichedList.forEach((t: any) => { if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline; });
