@@ -295,7 +295,8 @@ export async function GET(request: Request) {
     const timeStr = estDate.getHours() + estDate.getMinutes() / 60;
     const isPreMarket = timeStr >= 4 && timeStr < 9.5;
     
-    const currentVolumeThreshold = isPreMarket ? 25000 : 500000;
+    // Using a flat 100k volume threshold
+    const currentVolumeThreshold = 100000;
 
     const snapRes = await fetchSafeJson(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`, { tickers: [] });
     const rawSnapshot = snapRes.tickers || [];
@@ -323,20 +324,20 @@ export async function GET(request: Request) {
     const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= 1.00 && t._liveVol >= currentVolumeThreshold);
 
     // =========================================================================
-    // MODIFIED SIZING - Trimmed slightly to keep Polygon + AI strictly under 10s
+    // RESTORED FULL LIST SIZES: 20 for core tracking, 15 for top movers
     // =========================================================================
-    const dailyCandidates = [...viableSetups].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
-    const sipCandidates = [...viableSetups].filter((t: any) => Math.abs(t._liveChg) >= 4.0 && t._livePrice >= t._liveVwap).sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 15);
+    const dailyCandidates = [...viableSetups].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
+    const sipCandidates = [...viableSetups].filter((t: any) => Math.abs(t._liveChg) >= 4.0 && t._livePrice >= t._liveVwap).sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 20);
 
     const MEGA_CAP_TICKERS = new Set(['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'BRK.B', 'AVGO', 'LLY', 'JPM', 'XOM', 'UNH', 'V', 'PG', 'MA', 'JNJ', 'HD']);
-    const megaCapsRaw = processedSnapshot.filter((t: any) => MEGA_CAP_TICKERS.has(t.ticker)).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 10);
+    const megaCapsRaw = processedSnapshot.filter((t: any) => MEGA_CAP_TICKERS.has(t.ticker)).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
     const knownEtfsRaw = viableSetups.filter((t: any) => ETF_TARGET_MAP[t.ticker]);
-    const etfGainersRaw = [...knownEtfsRaw].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 10);
-    const etfLosersRaw = [...knownEtfsRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 10);
+    const etfGainersRaw = [...knownEtfsRaw].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
+    const etfLosersRaw = [...knownEtfsRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 15);
     
     const regularStocksRaw = viableSetups.filter((t: any) => !ETF_TARGET_MAP[t.ticker]);
-    const gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= 4.0).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 10);
-    const losersRaw = [...regularStocksRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 10);
+    const gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= 4.0).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
+    const losersRaw = [...regularStocksRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 15);
 
     const today = new Date();
     const lookbackDate = new Date();
@@ -348,7 +349,7 @@ export async function GET(request: Request) {
     const uniqueCandidates = Array.from(new Map(allCandidates.map(item => [item.ticker, item])).values());
     
     // =========================================================================
-    // ENRICHMENT PIPELINE
+    // ENRICHMENT PIPELINE - 100% PARALLELIZED TO PREVENT TIMEOUTS
     // =========================================================================
     const enrichCandidate = async (t: any) => {
       const sym = t.ticker || t.single_ticker;
@@ -424,17 +425,11 @@ export async function GET(request: Request) {
       };
     };
 
-    const enrichedList: any[] = [];
-    // Increased chunk size to parallelize more Polygon calls at once to save time
-    const chunkSize = 20; 
-    for (let i = 0; i < uniqueCandidates.length; i += chunkSize) {
-      const chunk = uniqueCandidates.slice(i, i + chunkSize);
-      const results = await Promise.all(chunk.map(enrichCandidate));
-      enrichedList.push(...results.filter(item => item !== null));
-    }
+    // Fast parallel execution instead of slow chunking
+    const enrichedList = (await Promise.all(uniqueCandidates.map(enrichCandidate))).filter(item => item !== null);
 
     // =========================================================================
-    // GEMINI AI SCORING (STRICTLY FILTERED TO ONLY SCORE DAILY & SIPS)
+    // GEMINI AI SCORING
     // =========================================================================
     const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey) {
@@ -466,7 +461,8 @@ export async function GET(request: Request) {
             }
           `;
 
-          const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
+          // Using standard gemini-1.5-flash
+          const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
