@@ -97,9 +97,7 @@ export default function MarketSummary() {
           if (narrativeRes.status === 404 && isMounted) {
             setData({ morning: null, midday: null, closing: null, actionableEvents: [] });
           } else {
-            console.error(`Narrative API returned status: ${narrativeRes.status}`);
-            if (isMounted) setStatus('Error');
-            return; // Exit early instead of crashing
+            throw new Error(`Narrative API returned status: ${narrativeRes.status}`);
           }
         } else {
           const payload: SummaryData = await narrativeRes.json();
@@ -116,19 +114,12 @@ export default function MarketSummary() {
         }
       } catch (error) {
         console.error("Narrative Sync Error:", error);
-        if (isMounted) setStatus('Error');
-        return;
       }
 
       // 2. Fetch AI Macro Insights & Watchlist
       try {
         const scannerRes = await fetch('/api/scanner/latest', { cache: 'no-store' });
-        
-        if (!scannerRes.ok) {
-          console.error(`Scanner API returned status: ${scannerRes.status}`);
-          if (isMounted) setStatus('Error');
-          return; // Exit early instead of crashing
-        }
+        if (!scannerRes.ok) throw new Error(`Scanner API returned status: ${scannerRes.status}`);
         
         const scannerData = await scannerRes.json();
         
@@ -141,8 +132,6 @@ export default function MarketSummary() {
         }
       } catch (error) {
         console.error("Scanner Macro Sync Error:", error);
-        if (isMounted) setStatus('Error');
-        return;
       }
 
       // Finish Sync
@@ -280,6 +269,7 @@ export default function MarketSummary() {
                       return (
                         <li key={idx} className="flex flex-col gap-2 bg-[#161c2a]/60 p-3.5 rounded-xl border border-white/5 hover:border-cyan-500/20 transition-colors">
                           <div className="flex items-center justify-between">
+                            {/* STRIPPED font-mono HERE */}
                             <span className="text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider">
                               {symbol}
                             </span>
