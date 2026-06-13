@@ -65,6 +65,10 @@ const ETF_TARGET_MAP: Record<string, string> = {
 
 const getMarketStatus = () => {
   const now = new Date();
+  const day = now.getUTCDay();
+  
+  if (day === 0 || day === 6) return 'Closed';
+
   const hours = now.getUTCHours();
   const minutes = now.getUTCMinutes();
   const time = hours + (minutes / 60);
@@ -181,8 +185,11 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
     for(let i=offset; i<offset+20; i++) variance += Math.pow(bars[i].c - sma, 2);
     const stdDev = Math.sqrt(variance / 20);
 
-    const upperBB = sma + (2.5 * stdDev);
-    const lowerBB = sma - (2.5 * stdDev);
+    const upperBB2_5 = sma + (2.5 * stdDev);
+    const lowerBB2_5 = sma - (2.5 * stdDev);
+    
+    const upperBB3_5 = sma + (3.5 * stdDev);
+    const lowerBB3_5 = sma - (3.5 * stdDev);
 
     let sumTR = 0;
     for(let i=offset; i<offset+20; i++) {
@@ -196,7 +203,7 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
     const upperKC = sma + (1.5 * avgTR);
     const lowerKC = sma - (1.5 * avgTR);
 
-    return (upperBB < upperKC && lowerBB > lowerKC);
+    return (upperBB2_5 < upperKC && lowerBB2_5 > lowerKC);
   };
 
   const isSqueezingToday = checkSqueeze(0);
@@ -341,13 +348,19 @@ export async function GET(request: Request) {
     if (rawSnapshot.length === 0) return NextResponse.json({ error: 'No snapshot data returned' }, { status: 500 });
 
     const processedSnapshot = rawSnapshot.map((t: any) => {
-      const livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || 0;
+      let livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || 0;
+      if (livePrice === 0) livePrice = t.prevDay?.c || 0;
+
       const prevClose = t.prevDay?.c || 0;
-      const vol = t.day?.v || t.prevDay?.v || t.min?.v || 0;
-      const vwap = t.day?.vw || t.prevDay?.vw || livePrice;
+
+      let vol = t.day?.v || t.min?.v || 0;
+      if (vol === 0) vol = t.prevDay?.v || 0;
+
+      let vwap = t.day?.vw || 0;
+      if (vwap === 0) vwap = t.prevDay?.vw || livePrice;
 
       let liveChg = 0;
-      if (t.todaysChangePerc !== undefined && t.todaysChangePerc !== null) {
+      if (t.todaysChangePerc !== undefined && t.todaysChangePerc !== null && t.todaysChangePerc !== 0) {
         liveChg = t.todaysChangePerc;
       } else if (prevClose > 0 && livePrice > 0) {
         liveChg = ((livePrice - prevClose) / prevClose) * 100;
