@@ -18,6 +18,7 @@ interface SetupData {
   mktCap: number | null;
   stage: string;
   setupName: string | null;
+  catalyst?: string | null;
   conviction?: number | null; 
   thesis?: string | null;     
 }
@@ -68,7 +69,7 @@ export default function DailySetups() {
   const [sortConfig, setSortConfig] = useState<{ key: keyof SetupData; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   
-  const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(true); 
+  const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(false); 
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
   const [convictionFilter, setConvictionFilter] = useState<ConvictionFilterType>('All');
 
@@ -97,6 +98,7 @@ export default function DailySetups() {
             mktCap: item.mktCap || null,
             stage: item.stage || '2A',
             setupName: item.setupName || null,
+            catalyst: item.catalyst || null,
             conviction: item.conviction != null ? Number(item.conviction) : (item.aiScore ?? item.score ?? null), 
             thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
           }));
@@ -127,7 +129,11 @@ export default function DailySetups() {
   };
 
   const filteredAndSortedSetups = useMemo(() => {
-    let filtered = setups;
+    let filtered = setups.filter(s => 
+      s.changePct >= 4.0 && 
+      s.vol >= 500000 && 
+      s.mktCap !== null && s.mktCap >= 20000000
+    );
     
     if (showStage2AOnly) {
       filtered = filtered.filter(s => s.stage && s.stage.includes('2A'));
@@ -331,15 +337,16 @@ export default function DailySetups() {
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[26%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('setupName')}>STRATEGY{getSortIcon('setupName')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[14%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('setupName')}>STRATEGY{getSortIcon('setupName')}</th>
                 </tr>
               </thead>
               
               {status.includes('Syncing') && setups.length === 0 ? (
                 <tbody>
                   <tr>
-                    <td colSpan={12} className="py-12 text-center border-b border-white/5">
+                    <td colSpan={13} className="py-12 text-center border-b border-white/5">
                       <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
                       <span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span>
                     </td>
@@ -348,7 +355,7 @@ export default function DailySetups() {
               ) : filteredAndSortedSetups.length === 0 ? (
                 <tbody>
                   <tr>
-                    <td colSpan={12} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">No active tracking items currently matching momentum criteria.</td>
+                    <td colSpan={13} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">No active tracking items currently matching momentum criteria.</td>
                   </tr>
                 </tbody>
               ) : (
@@ -357,7 +364,6 @@ export default function DailySetups() {
                   
                   return (
                     <tbody key={i} className="group border-b border-white/5 hover:bg-white/[0.02] transition-colors">
-                      {/* MAIN METRIC ROW */}
                       <tr className="bg-transparent">
                         <td className="pt-3 pb-1.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           <div className="flex items-center gap-2">
@@ -366,7 +372,6 @@ export default function DailySetups() {
                               <div className="absolute left-full ml-3 px-3 py-1.5 bg-[#1e293b] border border-white/10 text-slate-200 text-xs font-semibold tracking-wide rounded-md shadow-2xl opacity-0 invisible group-hover/ticker:opacity-100 group-hover/ticker:visible transition-all z-[60] whitespace-nowrap pointer-events-none">{row.name || row.ticker}</div>
                             </div>
                             
-                            {/* CONVICTION BADGE MOVED NEXT TO TICKER */}
                             {row.conviction != null ? (
                               <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border uppercase ${
                                 row.conviction >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_8px_rgba(52,211,153,0.1)]' : 
@@ -398,6 +403,9 @@ export default function DailySetups() {
                         <td className="pt-3 pb-1.5 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.sector || '—'}</div>
                         </td>
+                        <td className="pt-3 pb-1.5 text-[11px] text-indigo-300/90 font-medium truncate max-w-[140px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                          {row.catalyst || '—'}
+                        </td>
                         <td className="pt-3 pb-1.5 text-xs font-bold whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           <span className={getStageColor(row.stage)}>{formatStageText(row.stage)}</span>
                         </td>
@@ -409,9 +417,8 @@ export default function DailySetups() {
                         </td>
                       </tr>
 
-                      {/* ALWAYS-ON NESTED SUB-ROW FOR THESIS ONLY */}
                       <tr className="bg-transparent">
-                        <td colSpan={12} className="pb-3 pt-0.5 px-4 pl-[16px]">
+                        <td colSpan={13} className="pb-3 pt-0.5 px-4 pl-[16px]">
                           <div className="flex items-start">
                             <div className="flex-1 mt-[1px]">
                               {row.thesis ? (

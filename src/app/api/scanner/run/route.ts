@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60; 
+export const maxDuration = 300; 
 
 const SECTOR_MAP: Record<string, string> = {
   'AAPL': 'IT', 'MSFT': 'IT', 'SMCI': 'IT',
@@ -17,7 +17,7 @@ const SECTOR_MAP: Record<string, string> = {
   'LUNR': 'Aerospace', 'ASTS': 'Aerospace', 'RKLB': 'Aerospace', 
   'CEG': 'Nuclear', 'OKLO': 'Nuclear', 'CCJ': 'Nuclear', 'SMR': 'Nuclear', 'LEU': 'Nuclear',
   'FSLR': 'Solar', 'ENPH': 'Solar', 'RUN': 'Solar',
-  'HIMS': 'Healthcare', 'NVO': 'Healthcare', 'LLY': 'Healthcare', 'ASTX': 'Biotech', 'COO': 'Healthcare',
+  'HIMS': 'Healthcare', 'NVO': 'Healthcare', 'LLY': 'Healthcare', 'COO': 'Healthcare',
   'AMZN': 'Con Disc', 'UBER': 'Con Disc', 'BABA': 'Con Disc', 
   'PDD': 'Con Disc', 'JD': 'Con Disc',
   'PG': 'Con Staples',
@@ -48,7 +48,9 @@ const ETF_TARGET_MAP: Record<string, string> = {
   'GMEU': 'GME - Con Disc', 'APPX': 'APP - IT', 'SNXX': 'SNOW - IT', 'AXTX': 'AXON - Industrials', 
   'IONX': 'IONQ - IT', 'IONZ': 'IONQ - IT', 'QPUX': 'IONQ - IT', 'CEGX': 'CEG - Nuclear', 
   'ASMG': "ASML - Semi's", 'UUUG': 'U - IT', 'AAOX': 'AI - AI', 'FBL': 'META - Comm Serv', 'HIMZ': 'HIMS - Healthcare', 
-  'RDTL': 'RDDT - Comm Serv', 'RKLB': 'RKLB - Aerospace', 'RCAX': 'RCAT - Aerospace', 'SOUX': 'SOUN - AI', 'ASTS': 'ASTS - Aerospace',
+  'RDTL': 'RDDT - Comm Serv', 'RCAX': 'RCAT - Aerospace', 'SOUX': 'SOUN - AI', 
+  'RKLB': 'RKLB - Aerospace', 'RKLX': 'RKLB - Aerospace', 
+  'ASTS': 'ASTS - Aerospace', 'ASTX': 'ASTS - Aerospace',
   'RGTX': 'RGT - IT', 'RGTU': 'RGT - IT', 'RGTZ': 'RGT - IT',
   'TQQQ': 'QQQ - Nasdaq 3X', 'SQQQ': 'QQQ - Nasdaq -3X', 'QID': 'QQQ - Nasdaq -2X', 'QLD': 'QQQ - Nasdaq 2X', 'SNDQ': 'QQQ - Nasdaq ETF',
   'SOXL': "SOXX - Semi's 3X", 'SOXS': "SOXX - Semi's -3X", 'TECL': 'XLK - Tech 3X', 'TECS': 'XLK - Tech -3X',
@@ -59,6 +61,30 @@ const ETF_TARGET_MAP: Record<string, string> = {
   'MSOX': 'MSOS - Cannabis 2X', 'NAIL': 'XHB - Homebuilders 3X', 'LABX': 'XBI - Biotech 2X', 'KORU': 'EWY - South Korea 3X', 
   'ZSL': 'SLV - Silver -2X', 'URAA': 'URA - Uranium 2X', 'GDXD': 'GDX - Gold Miners -3X', 
   'QQQ': 'QQQ - Nasdaq', 'IWM': 'IWM - Small Cap', 'DIA': 'DIA - Dow Jones', 'VOO': 'VOO - S&P 500', 'VTI': 'VTI - Total Market'
+};
+
+const getMarketStatus = () => {
+  const now = new Date();
+  const hours = now.getUTCHours();
+  const minutes = now.getUTCMinutes();
+  const time = hours + (minutes / 60);
+  
+  if (time >= 8 && time < 13.5) return 'Pre-Market';
+  if (time >= 13.5 && time < 20) return 'Open';
+  if (time >= 20 && time < 24) return 'Post-Market';
+  return 'Closed';
+};
+
+const isSpamNews = (title: string) => {
+  if (!title) return true;
+  const lower = title.toLowerCase();
+  const spamTriggers = [
+    'lawsuit', 'class action', 'investigation', 'shareholder', 'investors alerted', 
+    'pomerantz', 'rosen law', 'glancy', 'kaskela', 'bronstein', 'schall', 
+    'johnson fistel', 'deadline', 'reminder', 'bragar', 'eagel', 'squire',
+    'gross law', 'faruqi', 'portnoy', 'investors reminded', 'purchasers of'
+  ];
+  return spamTriggers.some(w => lower.includes(w));
 };
 
 const resolveEtfSector = (sym: string, apiSector: string | undefined, apiName: string | undefined): string => {
@@ -100,23 +126,6 @@ const cleanSectorDescription = (sic: string | undefined, sector: string | undefi
   if (sec.includes('utilities')) return 'Utilities';
   if (sec.includes('communication')) return 'Comm Serv';
 
-  const s = (sic || '').toLowerCase();
-  if (!s) return 'Financials'; 
-  if (s.includes('semiconductor')) return "Semi's";
-  if (s.includes('biological products') || s.includes('in vitro')) return 'Biotech';
-  if (s.includes('aircraft') || s.includes('defense')) return 'Aerospace';
-  if (s.includes('prepackaged software') || s.includes('computer programming') || s.includes('tech')) return 'IT';
-  if (s.includes('pharmaceutical') || s.includes('surgical') || s.includes('medical') || s.includes('health') || s.includes('drug') || s.includes('ophthalmic')) return 'Healthcare';
-  if (s.includes('bank') || s.includes('financial') || s.includes('trust') || s.includes('broker') || s.includes('investment') || s.includes('commodity') || s.includes('fund') || s.includes('blank check')) return 'Financials';
-  if (s.includes('real estate') || s.includes('reit')) return 'Real Estate';
-  if (s.includes('petroleum') || s.includes('drilling') || s.includes('oil') || s.includes('gas') || s.includes('energy')) return 'Energy';
-  if (s.includes('motor') || s.includes('retail') || s.includes('apparel') || s.includes('restaurant') || s.includes('eating') || s.includes('entertainment')) return 'Con Disc';
-  if (s.includes('soap') || s.includes('detergent') || s.includes('food') || s.includes('beverage') || s.includes('grocery') || s.includes('staple') || s.includes('tobacco')) return 'Con Staples';
-  if (s.includes('transport') || s.includes('freight') || s.includes('machinery') || s.includes('industrial') || s.includes('airline') || s.includes('air transportation')) return 'Industrials';
-  if (s.includes('telecommunication') || s.includes('telephone') || s.includes('radio') || s.includes('communication')) return 'Comm Serv';
-  if (s.includes('metal') || s.includes('mining') || s.includes('gold') || s.includes('chemical') || s.includes('wood') || s.includes('paper')) return 'Materials';
-  if (s.includes('electric services') || s.includes('utilities') || s.includes('water')) return 'Utilities';
-
   return 'Financials';
 };
 
@@ -148,17 +157,16 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
 
     if (sma150_now > 0 && sma150_20d > 0 && sma150_60d > 0) {
       const slope = (sma150_now - sma150_20d) / sma150_20d;
-      const subStage = currentPrice >= ema20 ? 'A' : 'B'; 
 
       if (slope > 0.015 && currentPrice > sma150_now) {
-        stage = `Stage 2${subStage}`; 
+        stage = `Stage 2A`; 
       } else if (slope < -0.015 && currentPrice < sma150_now) {
-        stage = `Stage 4${subStage}`; 
+        stage = `Stage 4A`; 
       } else {
         if (sma150_20d > sma150_60d) {
-          stage = `Stage 3${subStage}`; 
+          stage = `Stage 3A`; 
         } else {
-          stage = `Stage 1${subStage}`; 
+          stage = `Stage 1A`; 
         }
       }
     }
@@ -173,8 +181,8 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
     for(let i=offset; i<offset+20; i++) variance += Math.pow(bars[i].c - sma, 2);
     const stdDev = Math.sqrt(variance / 20);
 
-    const upperBB = sma + (2.0 * stdDev);
-    const lowerBB = sma - (2.0 * stdDev);
+    const upperBB = sma + (2.5 * stdDev);
+    const lowerBB = sma - (2.5 * stdDev);
 
     let sumTR = 0;
     for(let i=offset; i<offset+20; i++) {
@@ -272,7 +280,6 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
   return { name: null, stage }; 
 };
 
-// Graceful 10s fetch timeout
 const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 10000) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
@@ -288,11 +295,46 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 10000) => {
 };
 
 export async function GET(request: Request) {
+  try {
+    const CACHE_MINUTES = 5; 
+    const lastScanTime = (await kv.get<number>('last_scan_time')) || 0;
+    const now = Date.now();
+    const currentMarketStatus = getMarketStatus();
+    
+    if (now - lastScanTime < CACHE_MINUTES * 60 * 1000) {
+      const cachedDaily = await kv.get<any[]>('daily_setups');
+      const cachedSip = await kv.get<any[]>('stocks_in_play');
+      const cachedTopMovers = await kv.get<any>('top_movers');
+      const cachedMacro = await kv.get<any>('macro_insights');
+      
+      if (cachedDaily && cachedSip && cachedTopMovers) {
+        return NextResponse.json({
+          success: true,
+          marketStatus: currentMarketStatus,
+          dailyCount: cachedDaily.length,
+          sipCount: cachedSip.length,
+          topMoversGenerated: true,
+          topMovers: cachedTopMovers,
+          macroInsights: cachedMacro,
+          sips: cachedSip,
+          dailySetups: cachedDaily,
+          fromCache: true
+        });
+      }
+    }
+  } catch (cacheErr) {
+    console.error("Cache read failed, proceeding with fresh scan.", cacheErr);
+  }
+
   const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
   if (!polygonApiKey) return NextResponse.json({ error: 'Missing API Key' }, { status: 500 });
 
   try {
-    const currentVolumeThreshold = 500000;
+    const MIN_VOLUME = 500000;
+    const MIN_AVG_VOL = 2000000; 
+    const MIN_MARKET_CAP = 20000000; 
+    const MIN_CHANGE = 4.0;
+    const MIN_PRICE = 1.00;
 
     const snapRes = await fetchSafeJson(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`, { tickers: [] });
     const rawSnapshot = snapRes.tickers || [];
@@ -304,47 +346,54 @@ export async function GET(request: Request) {
       const vol = t.day?.v || t.prevDay?.v || t.min?.v || 0;
       const vwap = t.day?.vw || t.prevDay?.vw || livePrice;
 
-      let liveChg = t.todaysChangePerc || 0;
-      if (prevClose > 0 && livePrice > 0) {
+      let liveChg = 0;
+      if (t.todaysChangePerc !== undefined && t.todaysChangePerc !== null) {
+        liveChg = t.todaysChangePerc;
+      } else if (prevClose > 0 && livePrice > 0) {
         liveChg = ((livePrice - prevClose) / prevClose) * 100;
       }
 
       t._livePrice = livePrice;
-      t._liveChg = liveChg;
+      t._liveChg = Number.isNaN(liveChg) ? 0 : liveChg;
       t._liveVol = vol;
       t._liveVwap = vwap;
 
       return t;
     });
 
-    const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= 1.00 && t._liveVol >= currentVolumeThreshold);
+    const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= MIN_PRICE && t._liveVol >= MIN_VOLUME);
 
-    // Kept to 15 to ensure execution speed for Vercel Hobby tier
-    const dailyCandidates = [...viableSetups].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 15);
-    const sipCandidates = [...viableSetups].filter((t: any) => Math.abs(t._liveChg) >= 4.0 && t._livePrice >= t._liveVwap).sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 15);
+    const dailyCandidates = [...viableSetups]
+      .filter((t: any) => t._liveChg >= MIN_CHANGE)
+      .sort((a: any, b: any) => (b._livePrice * b._liveVol) - (a._livePrice * a._liveVol))
+      .slice(0, 30);
+      
+    const sipCandidates = [...viableSetups]
+      .filter((t: any) => Math.abs(t._liveChg) >= MIN_CHANGE && t._livePrice >= t._liveVwap)
+      .sort((a: any, b: any) => b._liveVol - a._liveVol)
+      .slice(0, 40);
 
-    const MEGA_CAP_TICKERS = new Set(['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'BRK.B', 'AVGO', 'LLY', 'JPM', 'XOM', 'UNH', 'V', 'PG', 'MA', 'JNJ', 'HD']);
-    const megaCapsRaw = processedSnapshot.filter((t: any) => MEGA_CAP_TICKERS.has(t.ticker)).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 10);
-    const knownEtfsRaw = viableSetups.filter((t: any) => ETF_TARGET_MAP[t.ticker]);
-    const etfGainersRaw = [...knownEtfsRaw].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 10);
-    const etfLosersRaw = [...knownEtfsRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 10);
+    const MEGA_CAP_TICKERS = new Set(['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'BRK.B', 'AVGO', 'LLY', 'JPM', 'XOM', 'UNH', 'V', 'PG', 'MA', 'JNJ', 'HD', 'AMD', 'NFLX', 'COST']);
     
-    const regularStocksRaw = viableSetups.filter((t: any) => !ETF_TARGET_MAP[t.ticker]);
-    const gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= 4.0).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 10);
-    const losersRaw = [...regularStocksRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 10);
+    const megaCapsRaw = processedSnapshot.filter((t: any) => MEGA_CAP_TICKERS.has(t.ticker)).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
+    const knownEtfsRaw = viableSetups.filter((t: any) => ETF_TARGET_MAP[t.ticker]);
+    const etfGainersRaw = [...knownEtfsRaw].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
+    const etfLosersRaw = [...knownEtfsRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 20);
+    
+    const regularStocksRaw = viableSetups.filter((t: any) => !ETF_TARGET_MAP[t.ticker] && !MEGA_CAP_TICKERS.has(t.ticker));
+    
+    const gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= MIN_CHANGE).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 40);
+    const losersRaw = [...regularStocksRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 40);
 
-    const today = new Date();
+    const todayDate = new Date();
     const lookbackDate = new Date();
-    lookbackDate.setDate(today.getDate() - 400); 
-    const toStr = today.toISOString().split('T')[0];
+    lookbackDate.setDate(todayDate.getDate() - 400); 
+    const toStr = todayDate.toISOString().split('T')[0];
     const fromStr = lookbackDate.toISOString().split('T')[0];
 
     const allCandidates = [...dailyCandidates, ...sipCandidates, ...megaCapsRaw, ...gainersRaw, ...losersRaw, ...etfGainersRaw, ...etfLosersRaw];
     const uniqueCandidates = Array.from(new Map(allCandidates.map(item => [item.ticker, item])).values());
     
-    // =========================================================================
-    // ENRICHMENT PIPELINE
-    // =========================================================================
     const enrichCandidate = async (t: any) => {
       const sym = t.ticker || t.single_ticker;
       const price = t._livePrice;
@@ -352,30 +401,42 @@ export async function GET(request: Request) {
       const chgPct = t._liveChg;
       const vwap = t._liveVwap;
       const currentOpen = t.day?.o || t.prevDay?.o || price;
-      const dVol = vol * vwap;
 
       const [details, aggs, newsData, shortData] = await Promise.all([
         fetchSafeJson(`https://api.polygon.io/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {}),
         fetchSafeJson(`https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=desc&limit=350&apiKey=${polygonApiKey}`, { results: [] }),
-        fetchSafeJson(`https://api.polygon.io/v2/reference/news?ticker=${sym}&limit=5&apiKey=${polygonApiKey}`, { results: [] }),
+        fetchSafeJson(`https://api.polygon.io/v2/reference/news?ticker=${sym}&limit=10&apiKey=${polygonApiKey}`, { results: [] }),
         fetchSafeJson(`https://api.polygon.io/stocks/v1/short-interest?ticker=${sym}&apiKey=${polygonApiKey}`, { results: [] })
       ]);
 
+      const marketCap = details?.results?.market_cap || 0;
       const rawBars = aggs.results || [];
       const dailyBars = rawBars.sort((a: any, b: any) => b.t - a.t); 
 
       let avgVol = 0;
+      let atr = 0;
       if (dailyBars.length > 0) {
         let sumVol = 0;
         let barCount = 0;
-        dailyBars.forEach((bar: any) => { if (bar.v) { sumVol += bar.v; barCount++; } });
+        let sumTR = 0;
+        let trCount = 0;
+        
+        dailyBars.slice(0, 20).forEach((bar: any, index: number) => { 
+          if (bar.v) { sumVol += bar.v; barCount++; }
+          if (index < 14 && dailyBars[index+1]) {
+            const high = bar.h;
+            const low = bar.l;
+            const prevClose = dailyBars[index+1].c;
+            sumTR += Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+            trCount++;
+          }
+        });
         avgVol = barCount > 0 ? sumVol / barCount : 0;
+        atr = trCount > 0 ? sumTR / trCount : 0;
       }
-      const rvol = (avgVol > 0 && vol > 0) ? (vol / avgVol) : null;
-
-      const setupMatched = detectPattern(dailyBars, price, currentOpen, vwap, rvol);
       
-      const marketCap = details?.results?.market_cap || 0;
+      const rvol = (avgVol > 0 && vol > 0) ? (vol / avgVol) : null;
+      const setupMatched = detectPattern(dailyBars, price, currentOpen, vwap, rvol);
       const companyName = details?.results?.name || sym;
 
       let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
@@ -390,138 +451,252 @@ export async function GET(request: Request) {
       const apiSectorRaw = cleanSectorDescription(details?.results?.sic_description, details?.results?.sector, details?.results?.industry);
       const deepSector = resolveEtfSector(sym, apiSectorRaw, companyName); 
 
-      const newsList = newsData?.results || [];
+      const rawNewsList = newsData?.results || [];
+      const validNewsList = rawNewsList.filter((n: any) => !isSpamNews(n.title));
+
       let finalCatalystUrl = null;
       let rawHeadline = null;
-      let formattedDateStr = '';
+      let daysOld = 999;
 
-      if (newsList.length > 0) {
-        const relatedNews = newsList.find((n: any) => ['benzinga', 'massive', 'yahoo', 'google'].some(p => (n.publisher?.name || '').toLowerCase().includes(p))) || newsList[0];
-        if (relatedNews) {
-          const pubDate = relatedNews.published_utc;
-          if (pubDate) {
-             const d = new Date(pubDate);
-             formattedDateStr = d.toDateString() === new Date().toDateString() 
-               ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) 
-               : `${d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}`;
+      if (validNewsList.length > 0) {
+        const relatedNews = validNewsList.find((n: any) => ['benzinga', 'massive', 'yahoo', 'google', 'pr newswire', 'globe newswire'].some(p => (n.publisher?.name || '').toLowerCase().includes(p))) || validNewsList[0];
+        
+        if (relatedNews && relatedNews.published_utc) {
+          const pubDate = new Date(relatedNews.published_utc);
+          const diffMs = todayDate.getTime() - pubDate.getTime();
+          daysOld = diffMs / (1000 * 60 * 60 * 24); 
+          
+          if (daysOld <= 4) {
+            rawHeadline = relatedNews.title;
+            finalCatalystUrl = relatedNews.article_url || null;
           }
-          rawHeadline = relatedNews.title;
-          finalCatalystUrl = relatedNews.article_url || null;
         }
       }
       
-      const recentTrend = dailyBars.slice(0, 5).map((b: any) => b.c);
-
       return {
-        ticker: sym, name: companyName, sector: deepSector, price, vwapStatus, changePct: chgPct, vol, dVol, rvol: rvol ? parseFloat(rvol.toFixed(2)) : null,
-        float, shortPct, mktCap: marketCap, stage: setupMatched.stage, setupName: setupMatched.name, catalyst: rawHeadline || '-', catalystUrl: finalCatalystUrl,
-        _rawHeadline: rawHeadline, _catalystDate: formattedDateStr, _recentTrend: recentTrend
+        ticker: sym, name: companyName, sector: deepSector, price, vwapStatus, changePct: chgPct, vol, avgVol, atr, dVol: vol * vwap, rvol: rvol ? parseFloat(rvol.toFixed(2)) : null,
+        float, shortPct, mktCap: marketCap, stage: setupMatched.stage, setupName: setupMatched.name, catalystUrl: finalCatalystUrl,
+        _rawHeadline: rawHeadline, _daysOld: daysOld
       };
     };
 
     const enrichedList: any[] = [];
-    const chunkSize = 25; 
+    const chunkSize = 10; 
     for (let i = 0; i < uniqueCandidates.length; i += chunkSize) {
       const chunk = uniqueCandidates.slice(i, i + chunkSize);
       const results = await Promise.all(chunk.map(enrichCandidate));
-      enrichedList.push(...results.filter(item => item !== null));
+      enrichedList.push(...results.filter(item => item !== null && item !== undefined));
       if (i + chunkSize < uniqueCandidates.length) {
         await new Promise(resolve => setTimeout(resolve, 200));
       }
     }
 
-    // =========================================================================
-    // GEMINI AI SCORING (STRICTLY GEMINI 3.5 FLASH)
-    // =========================================================================
-    const geminiKey = process.env.GEMINI_API_KEY;
-    if (geminiKey) {
+    const geminiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+    
+    let aiErrorMessage: string | null = null;
+    let confluenceDict: any = {};
+
+    if (!geminiKey) {
+        aiErrorMessage = "ERROR: Missing GEMINI_API_KEY in environment variables.";
+        console.error(aiErrorMessage);
+    } else {
       try {
-        const aiTargets = new Set([...dailyCandidates, ...sipCandidates].map(t => t.ticker));
+        const topGainersString = gainersRaw.slice(0, 10).map((t: any) => `${t.ticker} (+${t._liveChg.toFixed(2)}%)`).join(', ');
+        const topEtfsString = etfGainersRaw.slice(0, 10).map((t: any) => `${t.ticker} (+${t._liveChg.toFixed(2)}%)`).join(', ');
+        const megasString = megaCapsRaw.slice(0, 5).map((t: any) => `${t.ticker} (${t._liveChg > 0 ? '+' : ''}${t._liveChg.toFixed(2)}%)`).join(', ');
 
-        const analysisMap = enrichedList
-          .filter((t: any) => aiTargets.has(t.ticker) && (t.setupName !== null || (t._rawHeadline && t._rawHeadline !== '-')))
-          .map((t: any) => `"${t.ticker}": { "Headline": "${(t._rawHeadline || '').replace(/"/g, '\\"')}", "MathPattern": "${t.setupName || 'None'}", "Stage": "${t.stage}", "RecentTrend_Last5Days": [${t._recentTrend.join(',')}] }`)
-          .join(',\n');
-          
-        if (analysisMap.length > 0) {
-          const aiPrompt = `
-            You are an elite quantitative technical analyst. 
-            I am providing a JSON map of stock setups. Each contains a recent news headline, a mathematically detected technical pattern (like BB Squeeze, Blue Dot, GLB), its structural market stage, and its closing prices over the last 5 days.
-            
-            For EACH stock, evaluate the confluence of the news catalyst and the technical structure.
-            
-            Return ONLY a valid JSON object where the keys are the tickers. For each ticker, provide:
-            1. "catalyst": A punchy 2-5 word summary of the headline. If there is no specific news, return "Technical Setup".
-            2. "conviction": A score from 1-100 rating the synergy of the setup.
-            3. "thesis": A brutal, 1-sentence institutional tape-reading thesis explaining why this is or isn't a high-probability setup.
-            
-            Do not include markdown formatting like \`\`\`json.
-            
-            Setups:
-            {
-              ${analysisMap}
+        const aiTargets = new Set([
+            ...dailyCandidates, 
+            ...sipCandidates, 
+            ...gainersRaw.slice(0, 15), 
+            ...losersRaw.slice(0, 15)
+        ].map(t => t.ticker));
+
+        const analysisPayload: any = {};
+        enrichedList.forEach((t: any) => {
+            if ((aiTargets.has(t.ticker) || MEGA_CAP_TICKERS.has(t.ticker)) && t.vol >= MIN_VOLUME && t.mktCap >= MIN_MARKET_CAP) {
+                const safeHeadline = (t._rawHeadline || '').replace(/[^a-zA-Z0-9\s.,!?'-]/g, '').trim();
+                analysisPayload[t.ticker] = {
+                    Sector: t.sector || 'Unknown',
+                    Today_Change: `${t.changePct > 0 ? '+' : ''}${t.changePct.toFixed(2)}%`,
+                    Headline: safeHeadline,
+                    MathPattern: t.setupName || 'None',
+                    Stage: t.stage,
+                    ATR: t.atr,
+                    AvgVol: t.avgVol
+                };
             }
-          `;
+        });
+        const analysisMapString = JSON.stringify(analysisPayload, null, 2);
+          
+        const sipString = sipCandidates.map((t: any) => t.ticker).join(', ');
+        const dailyString = dailyCandidates.map((t: any) => t.ticker).join(', ');
 
-          // The true 2026 API Model exactly as verified
-          const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: aiPrompt }] }],
-              generationConfig: { responseMimeType: "application/json", temperature: 0.1 }
-            })
-          });
+        const aiPrompt = `
+          You are an elite quantitative technical analyst.
+          
+          MARKET CONTEXT:
+          Mega Caps: ${megasString}
+          Stocks In Play (SIPs): ${sipString}
+          Daily Setups: ${dailyString}
+          Top Gainers (Raw): ${topGainersString}
+          Top ETFs/Thematics: ${topEtfsString}
 
-          if (aiRes.ok) {
-            const aiData = await aiRes.json();
-            if (aiData.candidates && aiData.candidates[0].content) {
-              let text = aiData.candidates[0].content.parts[0].text;
-              
-              // Robust Regex parser to bypass JSON formatting crashes
-              const match = text.match(/\{[\s\S]*\}/);
-              if (match) {
-                const confluenceDict = JSON.parse(match[0]);
-                
-                enrichedList.forEach((t: any) => {
-                  if (confluenceDict[t.ticker]) {
-                    const tag = confluenceDict[t.ticker].catalyst;
-                    t.catalyst = t._catalystDate ? `${t._catalystDate} — ${tag}` : tag;
-                    t.conviction = confluenceDict[t.ticker].conviction;
-                    t.thesis = confluenceDict[t.ticker].thesis;
-                  } else if (t._rawHeadline) {
-                    t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
-                  }
-                });
+          CRITICAL MANDATES:
+          1. Evaluate and return structural objects for EVERY single ticker present in the payload. Do not skip any.
+          2. Score each setup utilizing the "Stocks In Play" framework:
+             - REASON: Does the Headline constitute a true catalyst?
+             - PARTICIPATION: Are AvgVol > 2M and ATR > 1.0 driving range?
+             - STRUCTURE: Is the MathPattern and Stage confluence clean on higher time frames?
+          3. For the 'conviction' field, ASSIGN A NUMERICAL SCORE (integer 1-100) based on this framework.
+          4. For the 'catalyst' field, summarize the Headline into a strict 1-3 word punchy category (e.g., "FDA Approval", "Earnings Beat", "Guidance Cut", "Analyst Upgrade"). If no news or empty headline, strictly return "Technical Momentum".
+          5. For the 'watching' array, select 5 to 8 total symbols representing the highest confluence.
+          
+          BRIEFING INSTRUCTIONS:
+          Your 'briefing' string must be an in-depth synthesis highlighting:
+          - SIPs Thesis: Core drivers behind the high-relative-volume stocks.
+          - Daily Setups Thesis: Structural context behind setups or breakouts.
+          - Sector Flow: Capital allocation trends seen across categories.
+          
+          Use the exact labels "SIPs Thesis:", "Daily Setups Thesis:", and "Sector Flow:" inside the briefing text.
+
+          PAYLOAD TO ANALYZE:
+          ${analysisMapString}
+        `;
+
+        const responseSchema = {
+          type: "OBJECT",
+          properties: {
+            macro: {
+              type: "OBJECT",
+              properties: {
+                theme: { type: "STRING", description: "The dominant industry sector active today." },
+                briefing: { type: "STRING", description: "Comprehensive tracking summary text matching instructions." },
+                watching: { 
+                  type: "ARRAY", 
+                  items: { 
+                    type: "OBJECT",
+                    properties: {
+                      symbol: { type: "STRING" },
+                      score: { type: "INTEGER", description: "Confluence alignment score (pure integer from 1 to 100)." },
+                      reason: { type: "STRING", description: "Direct setup trigger context." }
+                    },
+                    required: ["symbol", "score", "reason"]
+                  } 
+                }
+              },
+              required: ["theme", "briefing", "watching"]
+            },
+            tickers: {
+              type: "ARRAY",
+              items: {
+                type: "OBJECT",
+                properties: {
+                  symbol: { type: "STRING" },
+                  catalyst: { type: "STRING", description: "Ultra-brief 1-3 word catalyst category. Default to 'Technical Momentum'." },
+                  conviction: { type: "INTEGER", description: "Confluence alignment score (pure integer from 1 to 100)." },
+                  thesis: { type: "STRING" }
+                },
+                required: ["symbol", "catalyst", "conviction", "thesis"]
               }
             }
-          }
+          },
+          required: ["macro", "tickers"]
+        };
+
+        const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: aiPrompt }] }],
+            generationConfig: { 
+              responseMimeType: "application/json", 
+              responseSchema: responseSchema,
+              temperature: 0.1 
+            }
+          })
+        });
+
+        if (!aiRes.ok) {
+          aiErrorMessage = `ERROR: Gemini API Rejected (${aiRes.status})`;
         } else {
-          enrichedList.forEach((t: any) => {
-            if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._rawHeadline}` : t._rawHeadline;
-          });
+          const aiData = await aiRes.json();
+          if (aiData.candidates && aiData.candidates[0].content) {
+            const text = aiData.candidates[0].content.parts[0].text;
+            
+            try {
+              const parsed = JSON.parse(text);
+              if (parsed.macro) {
+                await kv.set('macro_insights', parsed.macro);
+              }
+              if (parsed.tickers && Array.isArray(parsed.tickers)) {
+                parsed.tickers.forEach((t: any) => {
+                   confluenceDict[t.symbol] = t;
+                });
+              }
+            } catch (parseErr: any) {
+              aiErrorMessage = `ERROR: JSON Parsing Failed`;
+            }
+          }
         }
-      } catch (e) {
-        console.error("Gemini Batch Confluence Scorer Failed:", e);
+      } catch (e: any) {
+        aiErrorMessage = `ERROR: AI Request Failed`;
       }
-    } else {
-      enrichedList.forEach((t: any) => {
-         if (t._rawHeadline) t.catalyst = t._catalystDate ? `${t._catalystDate} — ${t._rawHeadline}` : t._rawHeadline;
-      });
     }
 
     const enrichedMap = new Map();
-    enrichedList.forEach((item: any) => { enrichedMap.set(item.ticker, item); });
+    enrichedList.forEach((t: any) => { 
+      if (confluenceDict[t.ticker]) {
+        let tag = confluenceDict[t.ticker].catalyst;
+        
+        // Append "(Delayed)" if the news was 1.5 to 4 days ago
+        if (tag !== "Technical Momentum" && t._daysOld >= 1.5 && t._daysOld <= 4) {
+           tag = `${tag} (Delayed)`; 
+        } else if (tag === "Technical Momentum" || t._daysOld > 4) {
+           tag = "Technical Momentum";
+        }
+        
+        t.catalyst = tag;
+        t.conviction = confluenceDict[t.ticker].conviction;
+        t.thesis = confluenceDict[t.ticker].thesis;
+      } else {
+        if (t._rawHeadline && t._daysOld < 1.5) t.catalyst = "Recent News";
+        else if (t._rawHeadline && t._daysOld >= 1.5 && t._daysOld <= 4) t.catalyst = "Delayed Reaction";
+        else t.catalyst = 'Technical Momentum';
+        
+        t.thesis = aiErrorMessage ? aiErrorMessage : 'Awaiting quantitative confluence analysis...';
+      }
+      enrichedMap.set(t.ticker, t); 
+    });
+    
+    const finalSip = sipCandidates
+      .map((t: any) => enrichedMap.get(t.ticker))
+      .filter((r: any) => 
+         r !== undefined && 
+         r.vol >= MIN_VOLUME && 
+         r.mktCap >= MIN_MARKET_CAP &&
+         r.changePct >= MIN_CHANGE &&
+         r.atr >= 1.0 && 
+         r.avgVol >= MIN_AVG_VOL
+      )
+      .slice(0, 10);
 
-    const finalDaily = dailyCandidates.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.setupName !== null);
-    const finalSip = sipCandidates.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined);
+    const finalDaily = dailyCandidates
+      .map((t: any) => enrichedMap.get(t.ticker))
+      .filter((r: any) => 
+         r !== undefined && 
+         r.vol >= MIN_VOLUME && 
+         r.mktCap >= MIN_MARKET_CAP &&
+         r.changePct >= MIN_CHANGE
+      )
+      .slice(0, 10);
     
     const finalTopMovers = {
-      'Mega Caps': megaCapsRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined),
-      'Gainers': gainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined),
-      'Losers': losersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined),
-      'ETF Gainers': etfGainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined),
-      'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined)
+      'Mega Caps': megaCapsRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10),
+      'Gainers': gainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.vol >= MIN_VOLUME && r.mktCap >= MIN_MARKET_CAP).slice(0, 10),
+      'Losers': losersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.mktCap >= MIN_MARKET_CAP).slice(0, 10),
+      'ETF Gainers': etfGainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10),
+      'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10)
     };
 
     await kv.set('daily_setups', finalDaily);
@@ -529,14 +704,26 @@ export async function GET(request: Request) {
     await kv.set('top_movers', finalTopMovers);
     await kv.set('last_scan_time', Date.now());
 
+    let macroInsights = null;
+    try {
+      macroInsights = await kv.get('macro_insights');
+    } catch(e) {}
+
     return NextResponse.json({ 
       success: true, 
+      marketStatus: getMarketStatus(),
       dailyCount: finalDaily.length,
       sipCount: finalSip.length,
-      topMoversGenerated: true
+      topMoversGenerated: true,
+      topMovers: finalTopMovers,
+      macroInsights,
+      sips: finalSip,            
+      dailySetups: finalDaily,
+      fromCache: false
     });
 
   } catch (error: any) {
+    console.error("Scanner Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

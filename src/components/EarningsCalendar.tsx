@@ -220,7 +220,6 @@ export default function EarningsCalendar() {
                 const chunkPromises = chunk.map(async (sym) => {
                     let res = null;
                     try {
-                      // REVERTED BACK TO MASSIVE API WITH SAFETY NET
                       res = await fetchSafeJson(`https://api.massive.com/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {});
                     } catch (error) {
                       console.warn(`Massive API skipped ticker ${sym} in Earnings`);
@@ -330,30 +329,17 @@ export default function EarningsCalendar() {
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-5 md:p-8 relative overflow-hidden shadow-xl w-full">
       <div className="absolute right-0 top-0 w-64 h-64 bg-cyan-500/5 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
       
-      <div className="flex justify-between items-center mb-6 border-b border-white/5 pb-4 relative z-10 group transition-all duration-200">
-        
+      {/* Clickable Header for Collapsing */}
+      <div 
+        onClick={() => setIsExpanded(!isExpanded)}
+        className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-6 border-b border-white/5 pb-4' : ''}`}
+      >
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
+          <div className="flex items-center gap-3">
             <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
               <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
               EARNINGS
             </span>
-          </div>
-
-          <div className="hidden md:flex items-center gap-1 bg-[#161c2a] border border-white/5 rounded-lg p-1">
-            {(['SMALL', 'MID', 'MEGA'] as CapTier[]).map(t => (
-               <button
-                  key={t}
-                  onClick={() => setTier(t)}
-                  className={`px-3 py-1.5 rounded-md text-[10px] font-bold tracking-wide uppercase transition-all duration-300 ${
-                    tier === t 
-                      ? 'bg-indigo-500/20 text-[#7c8bfa] border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' 
-                      : 'text-slate-500 hover:text-slate-300 border border-transparent'
-                  }`}
-                >
-                  {t}
-                </button>
-            ))}
           </div>
         </div>
 
@@ -371,102 +357,109 @@ export default function EarningsCalendar() {
         </div>
       </div>
 
-      <div className="md:hidden mb-4 flex justify-start relative z-10">
-        <div className="flex items-center gap-1 bg-[#161c2a] border border-white/5 rounded-lg p-1">
-          {(['SMALL', 'MID', 'MEGA'] as CapTier[]).map(t => (
-              <button
-                key={t}
-                onClick={() => setTier(t)}
-                className={`px-3 py-1.5 rounded-md text-[10px] font-bold tracking-wide uppercase transition-all duration-300 ${
-                  tier === t 
-                    ? 'bg-indigo-500/20 text-[#7c8bfa] border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' 
-                    : 'text-slate-500 hover:text-slate-300 border border-transparent'
-                }`}
-              >
-                {t}
-              </button>
-          ))}
-        </div>
-      </div>
+      {/* Expanded Content Wrapper */}
+      {isExpanded && (
+        <>
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 relative z-10 pb-2">
+            <div className="flex gap-3 overflow-x-auto custom-scrollbar w-full md:w-auto" style={{ scrollbarWidth: 'none' }}>
+              <div className="flex items-center gap-1 bg-[#161c2a] border border-white/5 rounded-lg p-1">
+                {(['SMALL', 'MID', 'MEGA'] as CapTier[]).map(t => (
+                  <button
+                    key={t}
+                    onClick={(e) => { e.stopPropagation(); setTier(t); }}
+                    className={`px-3 py-1.5 rounded-md text-[10px] font-bold tracking-wide uppercase transition-all duration-300 ${
+                      tier === t 
+                        ? 'bg-indigo-500/20 text-[#7c8bfa] border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' 
+                        : 'text-slate-500 hover:text-slate-300 border border-transparent hover:bg-white/[0.02]'
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
 
-      <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
-        <table className="w-full min-w-[900px] border-collapse">
-          <thead>
-            <tr className="border-b border-white/5 select-none">
-              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rawDateString')}>DATE{getSortIcon('rawDateString')}</th>
-              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
-              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[32%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('name')}>COMPANY{getSortIcon('name')}</th>
-              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[16%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('epsEst')}>EST EPS{getSortIcon('epsEst')}</th>
-              <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('revEst')}>EST REV{getSortIcon('revEst')}</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/5">
-            {isLoading && events.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="py-12 text-center">
-                  <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
-                  <span className="text-xs text-slate-500 font-medium">Scouting {tier} Market Caps...</span>
-                </td>
-              </tr>
-            ) : finalRenderedEvents.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="py-12 text-center">
-                  <div className="text-slate-400 text-sm font-medium mb-2">
-                    No matching earnings scheduled for the {tier} tier.
-                  </div>
-                  <div className="text-slate-500 text-xs">
-                    The engine scanned and filtered the raw earnings data.<br/>Toggle a different tier above to view more setups.
-                  </div>
-                </td>
-              </tr>
-            ) : (
-              finalRenderedEvents.map((row) => {
-                const nowEst = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-                const pad = (n: number) => String(n).padStart(2, '0');
-                const nowIsoStr = `${nowEst.getFullYear()}-${pad(nowEst.getMonth()+1)}-${pad(nowEst.getDate())} ${pad(nowEst.getHours())}:${pad(nowEst.getMinutes())}:${pad(nowEst.getSeconds())}`;
-                const todayStr = `${nowEst.getFullYear()}-${pad(nowEst.getMonth()+1)}-${pad(nowEst.getDate())}`;
-
-                const isPast = row.rawDateString < nowIsoStr;
-                const isToday = row.rawDateString.startsWith(todayStr);
-                
-                const rowBgClass = isToday ? 'bg-cyan-500/[0.06]' : 'hover:bg-white/[0.02]';
-                const opacityClass = isPast && !isToday ? 'opacity-40' : 'opacity-100';
-                const dateTextColor = isToday ? 'text-cyan-400 font-bold' : 'text-slate-300 font-bold';
-                const tickerBgColor = isToday ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30 shadow-[0_0_8px_rgba(34,211,238,0.2)]' : 'bg-indigo-500/10 text-[#7c8bfa] border border-indigo-500/20';
-                const nameTextColor = isToday ? 'text-white font-bold' : 'text-slate-200 font-medium';
-
-                return (
-                  <tr key={row.id} className={`transition-colors group ${rowBgClass} ${opacityClass}`}>
-                    
-                    <td className="py-3.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                      <span className={`text-xs whitespace-nowrap ${dateTextColor}`}>{row.date}</span>
+          <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
+            <table className="w-full min-w-[900px] border-collapse">
+              <thead>
+                <tr className="border-b border-white/5 select-none">
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rawDateString')}>DATE{getSortIcon('rawDateString')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[32%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('name')}>COMPANY{getSortIcon('name')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[16%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('epsEst')}>EST EPS{getSortIcon('epsEst')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('revEst')}>EST REV{getSortIcon('revEst')}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {isLoading && events.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center">
+                      <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
+                      <span className="text-xs text-slate-500 font-medium">Scouting {tier} Market Caps...</span>
                     </td>
-                    
-                    <td className="py-3.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                      <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded border ${tickerBgColor}`}>{row.ticker}</span>
-                    </td>
-
-                    <td className={`py-3.5 text-xs whitespace-nowrap truncate max-w-[250px] ${nameTextColor}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.name}</td>
-
-                    <td className="py-3.5 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                      <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block" title={row.sector}>{row.sector}</div>
-                    </td>
-
-                    <td className={`py-3.5 text-xs font-bold whitespace-nowrap ${isToday ? 'text-slate-100' : 'text-slate-300'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.mktCap)}</td>
-
-                    <td className={`py-3.5 text-xs font-medium whitespace-nowrap ${isToday ? 'text-emerald-400' : 'text-emerald-400/90'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.epsEst !== null ? `$${row.epsEst.toFixed(2)}` : '-'}</td>
-                    
-                    <td className={`py-3.5 text-xs font-medium whitespace-nowrap ${isToday ? 'text-slate-300' : 'text-slate-400'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatCurrency(row.revEst)}</td>
-                    
                   </tr>
-                )
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+                ) : finalRenderedEvents.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center">
+                      <div className="text-slate-400 text-sm font-medium mb-2">
+                        No matching earnings scheduled for the {tier} tier.
+                      </div>
+                      <div className="text-slate-500 text-xs">
+                        The engine scanned and filtered the raw earnings data.<br/>Toggle a different tier above to view more setups.
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  finalRenderedEvents.map((row) => {
+                    const nowEst = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+                    const pad = (n: number) => String(n).padStart(2, '0');
+                    const nowIsoStr = `${nowEst.getFullYear()}-${pad(nowEst.getMonth()+1)}-${pad(nowEst.getDate())} ${pad(nowEst.getHours())}:${pad(nowEst.getMinutes())}:${pad(nowEst.getSeconds())}`;
+                    const todayStr = `${nowEst.getFullYear()}-${pad(nowEst.getMonth()+1)}-${pad(nowEst.getDate())}`;
+
+                    const isPast = row.rawDateString < nowIsoStr;
+                    const isToday = row.rawDateString.startsWith(todayStr);
+                    
+                    const rowBgClass = isToday ? 'bg-cyan-500/[0.06]' : 'hover:bg-white/[0.02]';
+                    const opacityClass = isPast && !isToday ? 'opacity-40' : 'opacity-100';
+                    const dateTextColor = isToday ? 'text-cyan-400 font-bold' : 'text-slate-300 font-bold';
+                    const tickerBgColor = isToday ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30 shadow-[0_0_8px_rgba(34,211,238,0.2)]' : 'bg-indigo-500/10 text-[#7c8bfa] border border-indigo-500/20';
+                    const nameTextColor = isToday ? 'text-white font-bold' : 'text-slate-200 font-medium';
+
+                    return (
+                      <tr key={row.id} className={`transition-colors group ${rowBgClass} ${opacityClass}`}>
+                        
+                        <td className="py-3.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                          <span className={`text-xs whitespace-nowrap ${dateTextColor}`}>{row.date}</span>
+                        </td>
+                        
+                        <td className="py-3.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                          <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded border ${tickerBgColor}`}>{row.ticker}</span>
+                        </td>
+
+                        <td className={`py-3.5 text-xs whitespace-nowrap truncate max-w-[250px] ${nameTextColor}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.name}</td>
+
+                        <td className="py-3.5 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                          <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block" title={row.sector}>{row.sector}</div>
+                        </td>
+
+                        <td className={`py-3.5 text-xs font-bold whitespace-nowrap ${isToday ? 'text-slate-100' : 'text-slate-300'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.mktCap)}</td>
+
+                        <td className={`py-3.5 text-xs font-medium whitespace-nowrap ${isToday ? 'text-emerald-400' : 'text-emerald-400/90'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.epsEst !== null ? `$${row.epsEst.toFixed(2)}` : '-'}</td>
+                        
+                        <td className={`py-3.5 text-xs font-medium whitespace-nowrap ${isToday ? 'text-slate-300' : 'text-slate-400'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatCurrency(row.revEst)}</td>
+                        
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }

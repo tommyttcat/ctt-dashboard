@@ -363,12 +363,20 @@ export default function MacroScorecard() {
               }
 
               const pct = q.pct || 0;
-              const isPositive = pct >= 0;
+              const isMathPositive = pct >= 0;
               
-              const cardBg = isPositive ? 'bg-emerald-950/10' : 'bg-rose-950/10';
-              const cardBorder = isPositive ? 'border-emerald-500/20' : 'border-rose-500/20';
+              // Invert VIX color logic: Drop = Green (Bullish), Spike = Red (Bearish)
+              const isBullish = asset.id === 'VIX' ? pct <= 0 : pct >= 0;
               
-              const tickColor = q.tickDirection === 'up' ? 'text-emerald-300' : q.tickDirection === 'down' ? 'text-rose-300' : 'text-slate-100';
+              const cardBg = isBullish ? 'bg-emerald-950/10' : 'bg-rose-950/10';
+              const cardBorder = isBullish ? 'border-emerald-500/20' : 'border-rose-500/20';
+              
+              let tickColor = 'text-slate-100';
+              if (q.tickDirection === 'up') {
+                tickColor = asset.id === 'VIX' ? 'text-rose-300' : 'text-emerald-300';
+              } else if (q.tickDirection === 'down') {
+                tickColor = asset.id === 'VIX' ? 'text-emerald-300' : 'text-rose-300';
+              }
 
               return (
                 <div key={asset.id} className={`rounded-xl p-4 flex flex-col justify-between h-24 transition-colors duration-300 border ${cardBg} ${cardBorder} hover:bg-white/[0.02] shadow-sm`}>
@@ -382,8 +390,8 @@ export default function MacroScorecard() {
                     </div>
                     
                     <div className="flex flex-col items-end">
-                      <span className={`text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded ${isPositive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-                        {isPositive ? '+' : ''}{pct.toFixed(2)}%
+                      <span className={`text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded ${isBullish ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                        {isMathPositive ? '+' : ''}{pct.toFixed(2)}%
                       </span>
                       {q.isExtended && (
                         <span className="text-[8px] font-bold text-amber-500/80 tracking-wider mt-1 uppercase">

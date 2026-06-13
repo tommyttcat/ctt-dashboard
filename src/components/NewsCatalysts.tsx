@@ -74,68 +74,7 @@ const ETF_TARGET_MAP: Record<string, string> = {
   'QQQ': 'QQQ - Nasdaq', 'IWM': 'IWM - Small Cap', 'DIA': 'DIA - Dow Jones', 'VOO': 'VOO - S&P 500', 'VTI': 'VTI - Total Market'
 };
 
-// --- HELPERS ---
-const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 10000) => {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(id);
-    if (!res.ok) return fallback;
-    return await res.json();
-  } catch (error) {
-    clearTimeout(id);
-    return fallback;
-  }
-};
-
-const cleanSectorDescription = (sic: string | undefined, sector: string | undefined, industry: string | undefined) => {
-  const ind = (industry || '').toLowerCase();
-  if (ind.includes('nuclear')) return 'Nuclear';
-  if (ind.includes('solar')) return 'Solar';
-  if (ind.includes('electric vehicle') || ind.includes('auto manufacturer')) return 'EV';
-  if (ind.includes('biotechnology')) return 'Biotech';
-  if (ind.includes('semiconductor')) return "Semi's";
-  if (ind.includes('artificial intelligence') || ind.includes('ai ')) return 'AI';
-  if (ind.includes('cybersecurity') || ind.includes('security software')) return 'Cyber';
-  if (ind.includes('fintech') || ind.includes('financial technology')) return 'Fintech';
-  if (ind.includes('aerospace') || ind.includes('defense')) return 'Aerospace';
-
-  const sec = (sector || '').toLowerCase();
-  if (sec.includes('technology')) return 'IT';
-  if (sec.includes('healthcare') || sec.includes('health care')) return 'Healthcare';
-  if (sec.includes('financial')) return 'Financials';
-  if (sec.includes('consumer discretionary')) return 'Con Disc';
-  if (sec.includes('consumer staples')) return 'Con Staples';
-  if (sec.includes('energy')) return 'Energy';
-  if (sec.includes('materials')) return 'Materials';
-  if (sec.includes('industrials')) return 'Industrials';
-  if (sec.includes('real estate')) return 'Real Estate';
-  if (sec.includes('utilities')) return 'Utilities';
-  if (sec.includes('communication')) return 'Comm Serv';
-
-  const s = (sic || '').toLowerCase();
-  if (!s) return 'Financials'; 
-
-  if (s.includes('semiconductor')) return "Semi's";
-  if (s.includes('biological products') || s.includes('in vitro')) return 'Biotech';
-  if (s.includes('aircraft') || s.includes('defense')) return 'Aerospace';
-  if (s.includes('prepackaged software') || s.includes('computer programming') || s.includes('tech')) return 'IT';
-  if (s.includes('pharmaceutical') || s.includes('surgical') || s.includes('medical') || s.includes('health') || s.includes('drug') || s.includes('ophthalmic')) return 'Healthcare';
-  if (s.includes('bank') || s.includes('financial') || s.includes('trust') || s.includes('broker') || s.includes('investment') || s.includes('commodity') || s.includes('fund') || s.includes('blank check')) return 'Financials';
-  if (s.includes('real estate') || s.includes('reit')) return 'Real Estate';
-  if (s.includes('petroleum') || s.includes('drilling') || s.includes('oil') || s.includes('gas') || s.includes('energy')) return 'Energy';
-  if (s.includes('motor') || s.includes('retail') || s.includes('apparel') || s.includes('restaurant') || s.includes('eating') || s.includes('entertainment')) return 'Con Disc';
-  if (s.includes('soap') || s.includes('detergent') || s.includes('food') || s.includes('beverage') || s.includes('grocery') || s.includes('staple') || s.includes('tobacco')) return 'Con Staples';
-  if (s.includes('transport') || s.includes('freight') || s.includes('machinery') || s.includes('industrial') || s.includes('airline') || s.includes('air transportation')) return 'Industrials';
-  if (s.includes('telecommunication') || s.includes('telephone') || s.includes('radio') || s.includes('communication')) return 'Comm Serv';
-  if (s.includes('metal') || s.includes('mining') || s.includes('gold') || s.includes('chemical') || s.includes('wood') || s.includes('paper')) return 'Materials';
-  if (s.includes('electric services') || s.includes('utilities') || s.includes('water')) return 'Utilities';
-
-  return 'Financials';
-};
-
-const resolveEtfSector = (sym: string, apiSector: string | undefined, apiName: string | undefined): string => {
+const resolveEtfSector = (sym: string): string => {
   if (ETF_TARGET_MAP[sym]) return ETF_TARGET_MAP[sym];
   if (SECTOR_MAP[sym]) return SECTOR_MAP[sym]; 
 
@@ -146,15 +85,9 @@ const resolveEtfSector = (sym: string, apiSector: string | undefined, apiName: s
     }
   }
 
-  const n = (apiName || '').toLowerCase();
-  const isFund = n.includes(' etf') || n.includes('proshares') || n.includes('direxion') || n.includes('defiance') || n.includes('fund') || n.includes('trust');
-  
-  if (isFund) return `${sym} - ETF`;
-
-  return apiSector || 'Financials';
+  return 'Financials';
 };
 
-// --- VISUAL BADGES ---
 const getSectorBadgeStyles = (sector: string) => {
   if (sector === 'AI') return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20';
   if (sector === 'Nuclear' || sector === 'Solar') return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
@@ -167,23 +100,18 @@ const getSectorBadgeStyles = (sector: string) => {
   return 'bg-[#161c2a] text-slate-400 border-white/5';
 };
 
-const getCatalystTag = (site: string | undefined, title: string | undefined) => {
-  const sStr = (site || '').toLowerCase();
-  const tStr = (title || '').toLowerCase();
-  const hasInsider = tStr.includes('form 4') || tStr.includes('insider');
-
-  if (hasInsider) return { label: 'INSIDER BUY', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
-  if (sStr.includes('analyst') || /upgrade|downgrade|price target/i.test(tStr)) return { label: 'ANALYST', color: 'text-purple-400 bg-purple-500/10 border-purple-500/20' };
-  if (sStr.includes('earnings') || /earn|q[1-4]|revenue|eps/i.test(tStr)) return { label: 'EARNINGS', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
-  if (sStr.includes('fda') || sStr.includes('biotech') || /fda|clinical|trial/i.test(tStr)) return { label: 'BIOTECH', color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20' };
-  if (sStr.includes('m&a') || sStr.includes('merger') || /buyout|takeover/i.test(tStr)) return { label: 'M&A', color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' };
+// Maps AI structured outputs to strict styling rules
+const getAiCatalystTagStyles = (tag: string) => {
+  const upperTag = (tag || '').toUpperCase();
+  if (upperTag === 'EARNINGS') return { label: upperTag, color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
+  if (upperTag === 'UPGRADE' || upperTag === 'DOWNGRADE') return { label: upperTag, color: 'text-purple-400 bg-purple-500/10 border-purple-500/20' };
+  if (upperTag === 'FDA' || upperTag === 'BIOTECH') return { label: upperTag, color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20' };
+  if (upperTag === 'M&A') return { label: upperTag, color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' };
+  if (upperTag === 'INSIDER') return { label: upperTag, color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
+  if (upperTag === 'GUIDANCE') return { label: upperTag, color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' };
+  if (upperTag === 'OFFERING') return { label: upperTag, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' };
   
-  if (site) {
-    const formattedSite = site.substring(0, 10).toUpperCase();
-    return { label: formattedSite, color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' };
-  }
-
-  return { label: '-', color: 'text-slate-400 bg-slate-500/10 border-slate-500/20' };
+  return { label: upperTag || 'CATALYST', color: 'text-slate-400 bg-slate-500/10 border-slate-500/20' };
 };
 
 export default function NewsFeed() {
@@ -191,8 +119,6 @@ export default function NewsFeed() {
   const [status, setStatus] = useState<string>('Offline');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
-
-  const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || '';
 
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString('en-US', { 
@@ -205,14 +131,13 @@ export default function NewsFeed() {
 
   useEffect(() => {
     let isMounted = true;
-    if (!polygonApiKey) { setStatus('Offline'); return; }
 
     const fetchNewsFeed = async () => {
       try {
-        if (isMounted && news.length === 0) setStatus('Scouting...');
+        if (isMounted && news.length === 0) setStatus('Scouting & AI Processing...');
 
-        // CRITICAL: Massive API Endpoint Base Route
-        const res = await fetch(`https://api.massive.com/v2/reference/news?limit=25&apiKey=${polygonApiKey}`);
+        // Hit the newly created Next.js internal API endpoint
+        const res = await fetch(`/api/news?t=${Date.now()}`, { cache: 'no-store' });
         if (!res.ok) throw new Error('Network error');
         
         const data = await res.json();
@@ -223,68 +148,23 @@ export default function NewsFeed() {
           return;
         }
 
-        const validNews = results
-          .filter((item: any) => item.tickers && item.tickers.length > 0)
-          .slice(0, 15);
-
-        if (validNews.length === 0) return;
-
-        if (isMounted) setStatus('Enriching Sectors...');
-
-        const uniqueTickers = Array.from(new Set(validNews.map((item: any) => {
-            let t = item.tickers[0];
-            return typeof t === 'string' && t.includes(':') ? t.split(':')[1].toUpperCase() : t.toUpperCase();
-        })));
-
-        const profileDataMap = new Map();
-        const profilePromises = uniqueTickers.map(async (sym: any) => {
-            let details = null;
-            try {
-              // Isolated inside a separate try/catch safety net to completely absorb 404s on missing tickers
-              details = await fetchSafeJson(`https://api.massive.com/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {});
-            } catch (error) {
-              console.warn(`Massive API skipped ticker ${sym} in News`);
-            }
-            profileDataMap.set(sym, details?.results || {});
-        });
-        
-        await Promise.all(profilePromises);
-
-        const processedNews: NewsItem[] = validNews.map((item: any) => {
-            let ticker = item.tickers[0];
-            if (typeof ticker === 'string' && ticker.includes(':')) ticker = ticker.split(':')[1].toUpperCase();
-            else if (typeof ticker === 'string') ticker = ticker.toUpperCase();
-
-            const profile = profileDataMap.get(ticker) || {};
-
-            const apiSectorRaw = cleanSectorDescription(
-                profile.sic_description, 
-                profile.sector, 
-                profile.industry
-            );
-            
-            const companyName = profile.name || item.ticker_details?.find((d: any) => d.ticker === ticker)?.name || ticker;
-            const deepSector = resolveEtfSector(ticker, apiSectorRaw, companyName);
-
-            const pubDate = new Date(item.published_utc);
+        const processedNews: NewsItem[] = results.map((item: any) => {
+            const pubDate = new Date(item.publishedUtc);
             const isToday = pubDate.toDateString() === new Date().toDateString();
             const timePart = pubDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
             const displayTime = isToday ? timePart : `${pubDate.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })} ${timePart}`;
 
-            const publisherName = item.publisher?.name || 'MASSIVE';
-            const dynamicTag = getCatalystTag(publisherName, item.title);
-
             return {
               id: item.id,
-              ticker: ticker,
-              companyName: companyName,
-              sector: deepSector,
-              title: item.title,
-              source: publisherName,
-              url: item.article_url || '#',
+              ticker: item.ticker,
+              companyName: item.ticker, 
+              sector: resolveEtfSector(item.ticker),
+              title: item.cleanHeadline, // Render the short, sanitized AI headline
+              source: item.publisher,
+              url: item.url || '#',
               timeStr: displayTime,
               publishedUtc: pubDate,
-              tag: dynamicTag
+              tag: getAiCatalystTagStyles(item.aiTag) // Render standardized AI tag
             };
         });
 
@@ -301,7 +181,7 @@ export default function NewsFeed() {
     fetchNewsFeed();
     const interval = setInterval(fetchNewsFeed, 60000);
     return () => { isMounted = false; clearInterval(interval); };
-  }, [polygonApiKey]);
+  }, []);
 
   const getSessionTextColor = () => {
     const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
@@ -332,7 +212,7 @@ export default function NewsFeed() {
     return 'Closed';
   };
 
-  const isLoading = status.includes('Scouting') || status.includes('Enriching');
+  const isLoading = status.includes('Scouting');
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-xl w-full">
@@ -367,7 +247,7 @@ export default function NewsFeed() {
           {isLoading && news.length === 0 ? (
             <div className="py-12 text-center">
               <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
-              <span className="text-xs text-slate-500 font-medium">Connecting Catalyst Stream...</span>
+              <span className="text-xs text-slate-500 font-medium">Processing & Sanitizing Catalyst Stream...</span>
             </div>
           ) : news.length === 0 ? (
             <div className="py-12 text-center text-slate-500 text-sm font-medium">
