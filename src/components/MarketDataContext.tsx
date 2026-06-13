@@ -8,7 +8,7 @@ interface MarketDataContextType {
   topMovers: any[];
   sipsUniverse: any[]; 
   session: string;
-  effectiveDate: string; // <-- INJECTED EFFECTIVE DATE
+  effectiveDate: string; 
   lastUpdated: Date | null;
   isLoading: boolean;
 }
@@ -63,7 +63,7 @@ const getEffectiveTradingDate = () => {
 export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
   const [rawSnapshot, setRawSnapshot] = useState<any[]>([]);
   const [session, setSession] = useState<string>('Unknown');
-  const [effectiveDate, setEffectiveDate] = useState<string>(''); // <-- STATE ADDED
+  const [effectiveDate, setEffectiveDate] = useState<string>(''); 
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -77,7 +77,6 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
 
-    // Set the initial date immediately so children don't wait
     if (isMounted) {
        setEffectiveDate(getEffectiveTradingDate());
     }
@@ -103,8 +102,11 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
           const prevClose = t.prevDay?.c || 0;
           const vol = t.day?.v || t.prevDay?.v || t.min?.v || 0;
 
-          let liveChg = t.todaysChangePerc || 0;
-          if (prevClose > 0 && livePrice > 0) {
+          // Preserve Polygon's frozen percentage first
+          let liveChg = t.todaysChangePerc !== undefined ? t.todaysChangePerc : 0;
+          
+          // Only calculate manually if the prices are actively moving (prevents 0% weekend overwrite)
+          if (prevClose > 0 && livePrice > 0 && livePrice !== prevClose) {
              liveChg = ((livePrice - prevClose) / prevClose) * 100;
           }
           

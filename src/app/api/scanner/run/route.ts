@@ -359,11 +359,10 @@ export async function GET(request: Request) {
       let vwap = t.day?.vw || 0;
       if (vwap === 0) vwap = t.prevDay?.vw || livePrice;
 
-      let liveChg = 0;
-      if (t.todaysChangePerc !== undefined && t.todaysChangePerc !== null && t.todaysChangePerc !== 0) {
-        liveChg = t.todaysChangePerc;
-      } else if (prevClose > 0 && livePrice > 0) {
-        liveChg = ((livePrice - prevClose) / prevClose) * 100;
+      // MATH FIX: Trust Polygon's frozen data, only overwrite if prices are actively moving
+      let liveChg = t.todaysChangePerc !== undefined ? t.todaysChangePerc : 0;
+      if (prevClose > 0 && livePrice > 0 && livePrice !== prevClose) {
+         liveChg = ((livePrice - prevClose) / prevClose) * 100;
       }
 
       t._livePrice = livePrice;
