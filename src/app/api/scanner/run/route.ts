@@ -303,7 +303,7 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 10000) => {
 
 export async function GET(request: Request) {
   try {
-    const CACHE_MINUTES = 5; 
+    const CACHE_MINUTES = 0; 
     const lastScanTime = (await kv.get<number>('last_scan_time')) || 0;
     const now = Date.now();
     const currentMarketStatus = getMarketStatus();
