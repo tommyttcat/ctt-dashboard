@@ -30,7 +30,7 @@ const getMarketSession = () => {
   const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
   const day = estDate.getDay();
   
-  if (day === 0 || day === 6) return 'Weekend';
+  if (day === 0 || day === 6) return 'Closed';
 
   const hour = estDate.getHours();
   const min = estDate.getMinutes();
@@ -134,11 +134,13 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
 
     fetchMasterSnapshot();
 
-    const initialSession = getMarketSession();
     let intervalId: NodeJS.Timeout;
     
     // Suspend API polling entirely if it's the weekend to save data limits and freeze the UI
-    if (initialSession !== 'Weekend') {
+    const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const isWeekend = estDate.getDay() === 0 || estDate.getDay() === 6;
+
+    if (!isWeekend) {
        intervalId = setInterval(fetchMasterSnapshot, 60000);
     }
 
@@ -157,9 +159,9 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
       const pct = t.todaysChangePerc || 0;
       const mktCap = t.marketCap || t.market_cap || t.fm || 0;
       
-      const meetsPrice = price >= 1.00;
-      const meetsGain = pct >= 4.0; 
-      const meetsCap = mktCap === 0 || mktCap >= 20000000; 
+      const meetsPrice = price > 1.00;
+      const meetsGain = pct > 4.0; 
+      const meetsCap = mktCap > 20000000; 
 
       return meetsPrice && meetsGain && meetsCap;
     });
