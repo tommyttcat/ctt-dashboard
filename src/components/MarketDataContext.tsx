@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
 // --- INTERFACES ---
 interface MarketDataContextType {
@@ -62,20 +62,15 @@ const getEffectiveTradingDate = () => {
 // --- THE PROVIDER COMPONENT ---
 export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
   const [rawSnapshot, setRawSnapshot] = useState<any[]>([]);
+  const [topMovers, setTopMovers] = useState<any[]>([]);
+  const [sipsUniverse, setSipsUniverse] = useState<any[]>([]);
   const [session, setSession] = useState<string>('Unknown');
   const [effectiveDate, setEffectiveDate] = useState<string>(''); 
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || '';
-
   useEffect(() => {
     let isMounted = true;
-
-    if (!polygonApiKey) {
-      if (isMounted) setIsLoading(false);
-      return;
-    }
 
     if (isMounted) {
        setEffectiveDate(getEffectiveTradingDate());
@@ -83,41 +78,49 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
 
     const fetchMasterSnapshot = async () => {
       try {
-        const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`;
-        const res = await fetch(url, { cache: 'no-store' }); 
+        // THE FIX: Fetch from our internal backend API, NOT Polygon directly
+        const res = await fetch('/api/scanner/run', { cache: 'no-store' });
         
-        if (!res.ok) throw new Error(`Status ${res.status}`);
+        if (!res.ok) throw new Error(`API Status ${res.status}`);
         
         const data = await res.json();
-        const tickers = data.tickers || [];
-
-        const currentSess = getMarketSession();
-        const currentEffDate = getEffectiveTradingDate();
-
-        const normalizedTickers = tickers.map((t: any) => {
-          if (!t.day) t.day = { c: 0, v: 0, o: 0, h: 0, l: 0 };
-
-          const livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || 0;
-          const prevClose = t.prevDay?.c || 0;
-          const vol = t.day?.v || t.prevDay?.v || t.min?.v || 0;
-
-          let liveChg = t.todaysChangePerc !== undefined ? t.todaysChangePerc : 0;
-          
-          if (prevClose > 0 && livePrice > 0 && livePrice !== prevClose) {
-             liveChg = ((livePrice - prevClose) / prevClose) * 100;
-          }
-          
-          t.day.c = livePrice;
-          t.todaysChangePerc = liveChg;
-          t.day.v = vol;
-
-          return t;
-        });
 
         if (isMounted) {
-          setRawSnapshot(normalizedTickers);
-          setSession(currentSess);
-          setEffectiveDate(currentEffDate);
+          // Flatten the categorized Top Movers from the API into a single array for the UI
+          const combinedMovers: any[] = [];
+          if (data.topMovers) {
+            Object.values(data.topMovers).forEach((categoryArray: any) => {
+              if (Array.isArray(categoryArray)) {
+                combinedMovers.push(...categoryArray);
+              }
+            });
+          }
+
+          // Deduplicate the combined list
+          const uniqueMap = new Map();
+          combinedMovers.forEach(t => uniqueMap.set(t.ticker, t));
+          
+          // Ensure backward compatibility with UI components expecting legacy Polygon naming
+          const flattenedUniqueMovers = Array.from(uniqueMap.values()).map((t: any) => ({
+             ...t,
+             day: { c: t.price, v: t.vol },
+             todaysChangePerc: t.changePct,
+             marketCap: t.mktCap
+          }));
+
+          const formattedSips = (data.sips || []).map((t: any) => ({
+             ...t,
+             day: { c: t.price, v: t.vol },
+             todaysChangePerc: t.changePct,
+             marketCap: t.mktCap
+          }));
+
+          setRawSnapshot(flattenedUniqueMovers);
+          setTopMovers(flattenedUniqueMovers);
+          setSipsUniverse(formattedSips);
+
+          setSession(data.marketStatus || getMarketSession());
+          setEffectiveDate(getEffectiveTradingDate());
           setLastUpdated(new Date());
           setIsLoading(false);
         }
@@ -134,7 +137,6 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
     fetchMasterSnapshot();
 
     let intervalId: NodeJS.Timeout;
-    
     const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
     const isWeekend = estDate.getDay() === 0 || estDate.getDay() === 6;
 
@@ -146,51 +148,14 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
       isMounted = false;
       if (intervalId) clearInterval(intervalId);
     };
-  }, [polygonApiKey]);
-
-  // --- TOP MOVERS GENERATOR ---
-  const topMovers = useMemo(() => {
-    if (!rawSnapshot || rawSnapshot.length === 0) return [];
-
-    const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const isWeekend = estDate.getDay() === 0 || estDate.getDay() === 6;
-
-    const filtered = rawSnapshot.filter((t: any) => {
-      const price = t.day?.c || 0;
-      const pct = t.todaysChangePerc || 0;
-      const mktCap = t.marketCap || t.market_cap || t.fm || 0;
-      const vol = t.day?.v || 0;
-      
-      const meetsPrice = price > 1.00;
-      
-      // WEEKEND BYPASS: Polygon zeroes out the % on weekends. Use high volume to pass stocks instead.
-      const meetsGain = isWeekend ? (vol > 500000) : (pct > 4.0); 
-      const meetsCap = mktCap > 20000000; 
-
-      return meetsPrice && meetsGain && meetsCap;
-    });
-
-    const sorted = filtered.sort((a: any, b: any) => {
-      if (isWeekend) {
-         // Sort by volume on weekends to show true market movers
-         const volA = a.day?.v || 0;
-         const volB = b.day?.v || 0;
-         return volB - volA;
-      }
-      const pctA = Math.abs(a.todaysChangePerc || 0);
-      const pctB = Math.abs(b.todaysChangePerc || 0);
-      return pctB - pctA; 
-    });
-
-    return sorted.slice(0, 300);
-  }, [rawSnapshot, session]);
+  }, []);
 
   return (
     <MarketDataContext.Provider 
       value={{ 
         rawSnapshot, 
         topMovers, 
-        sipsUniverse: topMovers, 
+        sipsUniverse, 
         session, 
         effectiveDate,
         lastUpdated, 
