@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 
 interface StockInPlay {
@@ -26,33 +26,33 @@ interface StockInPlay {
 type SortDirection = 'asc' | 'desc';
 type ConvictionFilterType = 'All' | 'High' | 'Med' | 'Low';
 
-const formatTime = (timestamp: number | Date | null) => {
+const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
   const date = new Date(timestamp);
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
 };
 
-const formatNumber = (num: number | null | undefined) => {
-  if (num === null || num === undefined || num === 0 || isNaN(num)) return '—';
+const formatNumber = (num: number | null) => {
+  if (num === null || num === 0 || isNaN(num)) return '—';
   if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
   if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
   if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
   return num.toLocaleString();
 };
 
-const formatCurrency = (num: number | null | undefined) => {
-  if (num === null || num === undefined || num === 0 || isNaN(num)) return '—';
+const formatCurrency = (num: number | null) => {
+  if (num === null || num === 0 || isNaN(num)) return '—';
   if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
   if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
   return '$' + num.toLocaleString();
 };
 
-const formatStageText = (stage: string | undefined | null) => {
+const formatStageText = (stage: string | undefined) => {
   if (!stage || stage === '-' || stage === '—') return '—';
   return stage.replace(/Stage\s*/i, ''); 
 };
 
-const formatSetupName = (name: string | null | undefined) => {
+const formatSetupName = (name: string | null) => {
   if (!name || name === '-' || name === '—') return '—';
   if (name.includes('BB SQZ')) return 'BB SQZ';
   if (name === 'Blue Dot Rev') return 'BD Rev';
@@ -60,8 +60,12 @@ const formatSetupName = (name: string | null | undefined) => {
 };
 
 export default function StocksInPlay() {
-  const { session, sipsUniverse, lastUpdated, isLoading } = useMarketData(); 
+  const { session } = useMarketData(); 
 
+  const [stocks, setStocks] = useState<StockInPlay[]>([]);
+  const [status, setStatus] = useState<string>('Syncing DB...');
+  const [lastScanTime, setLastScanTime] = useState<number | null>(null);
+  
   const [sortConfig, setSortConfig] = useState<{ key: keyof StockInPlay; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   
@@ -69,40 +73,53 @@ export default function StocksInPlay() {
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
   const [convictionFilter, setConvictionFilter] = useState<ConvictionFilterType>('All');
 
-  const stocks: StockInPlay[] = useMemo(() => {
-    if (!sipsUniverse || !Array.isArray(sipsUniverse)) return [];
-    
-    return sipsUniverse.map((item: any): StockInPlay => {
-      let vwap = 'neutral';
-      if (item.vwapStatus === 'above' || item.vwapStatus === 'below') {
-        vwap = item.vwapStatus;
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchDatabaseSnapshot = async () => {
+      try {
+        const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
+        const data = await res.json();
+        
+        if (isMounted && data.success) {
+          const rawList = data.stocksInPlay || [];
+          const safeData = rawList.map((item: any) => ({
+            ticker: item.ticker || '—',
+            name: item.name || '',
+            sector: item.sector && item.sector !== '—' ? item.sector : '—',
+            price: Number(item.price) || 0,
+            vwapStatus: item.vwapStatus || 'neutral',
+            changePct: Number((item.change ?? item.changePct) || 0),
+            vol: Number((item.volume ?? item.vol) || 0),
+            dVol: Number(item.dVol) || (Number(item.price || 0) * Number((item.volume ?? item.vol) || 0)),
+            rvol: item.rvol || null,
+            float: item.float || null,
+            shortPct: item.shortPct || null,
+            mktCap: item.mktCap || null,
+            stage: item.stage || '2A',
+            setupName: item.setupName || null,
+            catalyst: item.catalyst || null,
+            conviction: item.conviction != null ? Number(item.conviction) : ((item.aiScore ?? item.score) ?? null), 
+            thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
+          }));
+
+          setStocks(safeData);
+          setLastScanTime(data.lastScanTime);
+          setStatus('Live');
+        }
+      } catch (error) {
+        if (isMounted) setStatus('DB Offline');
       }
+    };
 
-      // Dynamic field fallbacks to ensure no tickers drop out
-      const price = Number((item.price ?? item.day?.c) || 0);
-      const vol = Number((item.vol ?? item.volume ?? item.day?.v) || 0);
+    fetchDatabaseSnapshot();
+    const interval = setInterval(fetchDatabaseSnapshot, 60000);
 
-      return {
-        ticker: item.ticker || '—',
-        name: item.name || '',
-        sector: item.sector && item.sector !== '—' ? item.sector : '—',
-        price,
-        vwapStatus: vwap as 'above' | 'below' | 'neutral',
-        changePct: Number((item.changePct ?? item.todaysChangePerc ?? item.change) || 0),
-        vol,
-        dVol: Number(item.dVol) || (price * vol),
-        rvol: item.rvol ?? null,
-        float: item.float ?? null,
-        shortPct: item.shortPct ?? null,
-        mktCap: item.mktCap ?? item.marketCap ?? null,
-        stage: item.stage || '2A',
-        setupName: item.setupName || null,
-        catalyst: item.catalyst || null,
-        conviction: item.conviction != null ? Number(item.conviction) : ((item.aiScore ?? item.score) ?? null), 
-        thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
-      };
-    });
-  }, [sipsUniverse]);
+    return () => { 
+      isMounted = false; 
+      clearInterval(interval); 
+    };
+  }, []);
 
   const handleSort = (key: keyof StockInPlay) => {
     let direction: SortDirection = 'desc'; 
@@ -111,9 +128,8 @@ export default function StocksInPlay() {
     setSortConfig({ key, direction });
   };
 
-  const filteredAndSortedStocks: StockInPlay[] = useMemo(() => {
+  const filteredAndSortedStocks = useMemo(() => {
     let filtered = stocks.filter(s => 
-      s.price >= 1.00 &&
       s.changePct >= 4.0 && 
       s.vol >= 500000 && 
       s.mktCap !== null && s.mktCap >= 20000000
@@ -146,12 +162,9 @@ export default function StocksInPlay() {
       });
     }
 
-    if (!sortConfig) {
-      return [...filtered].sort((a, b) => b.changePct - a.changePct);
-    }
+    if (!sortConfig) return filtered;
     
     return [...filtered].sort((a, b) => {
-      // OVERRIDE: Silence TypeScript Union checks for sorting
       const aVal = a[sortConfig.key] as any;
       const bVal = b[sortConfig.key] as any;
       if (aVal === null || aVal === undefined) return 1;
@@ -191,7 +204,8 @@ export default function StocksInPlay() {
   };
 
   const getSessionTextColor = () => {
-    if (isLoading) return 'text-amber-500';
+    if (status.includes('Err') || status.includes('Offline')) return 'text-rose-500';
+    if (status.includes('Syncing')) return 'text-amber-500';
     if (session === 'Pre-Market') return 'text-amber-500';
     if (session === 'Open') return 'text-[#00e676]';
     if (session === 'Post-Market') return 'text-indigo-400';
@@ -215,12 +229,12 @@ export default function StocksInPlay() {
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
             <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>
-              {isLoading ? 'Syncing...' : session}
+              {status === 'Live' ? session : status}
             </span>
           </div>
-          {lastUpdated && !isLoading && (
+          {lastScanTime && (
              <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
-               Updated: {formatTime(lastUpdated)} EST
+               Updated: {formatTime(lastScanTime)} EST
              </span>
           )}
         </div>
@@ -329,7 +343,7 @@ export default function StocksInPlay() {
                 </tr>
               </thead>
               
-              {isLoading && stocks.length === 0 ? (
+              {status.includes('Syncing') && stocks.length === 0 ? (
                 <tbody>
                   <tr>
                     <td colSpan={13} className="py-12 text-center border-b border-white/5">
