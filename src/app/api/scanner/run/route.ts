@@ -337,7 +337,6 @@ export async function GET(request: Request) {
       const cachedTopMovers = await kv.get<any>('top_movers');
       const cachedMacro = await kv.get<any>('macro_insights');
       
-      // Strict Cache Buster: if Gainers array is missing or entirely empty, force a fresh pull.
       const isCacheValid = cachedTopMovers && cachedTopMovers['Gainers'] && cachedTopMovers['Gainers'].length > 0;
 
       if (cachedDaily && cachedSip && cachedTopMovers && isCacheValid) {
@@ -376,10 +375,9 @@ export async function GET(request: Request) {
       const targetDate = getEffectiveTradingDate();
       const prevDate = getPreviousTradingDate(targetDate);
 
-      // The Dual-Fetch Strategy: Get Friday AND Thursday to calculate accurate daily % change
       const [groupedRes, prevGroupedRes] = await Promise.all([
-        fetchSafeJson(`https://api.polygon.io/v2/aggs/grouped/locale/us/markets/stocks/${targetDate}?adjusted=true&apiKey=${polygonApiKey}`, { results: [] }),
-        fetchSafeJson(`https://api.polygon.io/v2/aggs/grouped/locale/us/markets/stocks/${prevDate}?adjusted=true&apiKey=${polygonApiKey}`, { results: [] })
+        fetchSafeJson(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonApiKey}`, { results: [] }),
+        fetchSafeJson(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${prevDate}?adjusted=true&apiKey=${polygonApiKey}`, { results: [] })
       ]);
 
       const rawResults = groupedRes.results || [];
@@ -387,7 +385,6 @@ export async function GET(request: Request) {
 
       if (rawResults.length === 0) return NextResponse.json({ error: `No historical data returned for ${targetDate}` }, { status: 500 });
 
-      // Build a dictionary of Thursday's closes
       const prevCloseMap = new Map();
       prevResults.forEach((t: any) => {
         prevCloseMap.set(t.T, t.c);
@@ -398,10 +395,8 @@ export async function GET(request: Request) {
         const vol = t.v || 0;
         const vwap = t.vw || livePrice;
         
-        // Use Thursday's close as the mathematical baseline. If missing, fallback to open.
         const prevClose = prevCloseMap.get(t.T) || t.o || livePrice;
         
-        // This is the true Daily Change calculation, replacing the broken intraday calculation.
         const liveChg = prevClose > 0 ? ((livePrice - prevClose) / prevClose) * 100 : 0;
 
         return {
