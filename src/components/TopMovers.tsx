@@ -46,18 +46,6 @@ const formatCurrency = (num: number | null) => {
   return '$' + num.toLocaleString();
 };
 
-const formatStageText = (stage: string | undefined) => {
-  if (!stage || stage === '-' || stage === '—') return '—';
-  return stage.replace(/Stage\s*/i, ''); 
-};
-
-const formatSetupName = (name: string | null) => {
-  if (!name || name === '-' || name === '—') return '—';
-  if (name.includes('BB SQZ')) return 'BB SQZ';
-  if (name === 'Blue Dot Rev') return 'BD Rev';
-  return name;
-};
-
 export default function TopMovers() {
   const { session } = useMarketData();
   
@@ -84,7 +72,6 @@ export default function TopMovers() {
         const data = await res.json();
         
         if (isMounted && data.success && data.topMovers) {
-          
           const safeData: Record<TabType, StockData[]> = {
             'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': []
           };
@@ -93,7 +80,6 @@ export default function TopMovers() {
           
           categories.forEach(category => {
             const rawList = data.topMovers[category] || [];
-            
             safeData[category] = rawList.map((item: any) => ({
               ticker: item.ticker || '—',
               name: item.name || '',
@@ -198,29 +184,18 @@ export default function TopMovers() {
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-hidden shadow-xl w-full">
-      
-      <div 
-        onClick={() => setIsExpanded(!isExpanded)}
-        className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-6 border-b border-white/5 pb-4' : ''}`}
-      >
+      <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-6 border-b border-white/5 pb-4' : ''}`}>
         <div className="flex items-center gap-3">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
             TOP MOVERS
           </span>
         </div>
-
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>
-              {status === 'Live' ? session : status}
-            </span>
+            <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>{status === 'Live' ? session : status}</span>
           </div>
-          {lastScanTime && (
-             <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
-               Updated: {formatTime(lastScanTime)} EST
-             </span>
-          )}
+          {lastScanTime && (<span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">Updated: {formatTime(lastScanTime)} EST</span>)}
         </div>
       </div>
 
@@ -230,47 +205,23 @@ export default function TopMovers() {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 w-full">
               <div className="flex gap-3 overflow-x-auto custom-scrollbar w-full md:w-auto" style={{ scrollbarWidth: 'none' }}>
                 {(['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'] as TabType[]).map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={(e) => { e.stopPropagation(); setActiveTab(tab); }}
-                    className={`px-5 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all duration-300 ${
-                      activeTab === tab 
-                        ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' 
-                        : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'
-                    }`}
-                  >
+                  <button key={tab} onClick={(e) => { e.stopPropagation(); setActiveTab(tab); }} className={`px-5 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all duration-300 ${activeTab === tab ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'}`}>
                     {tab}
                   </button>
                 ))}
               </div>
-
               <div className="flex items-center gap-4 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0 w-full md:w-auto">
                 <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">VWAP</span>
                 <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
-                    <span className="text-[10px] font-medium text-slate-400">Above</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>
-                    <span className="text-[10px] font-medium text-slate-400">Below</span>
-                  </div>
+                  <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div><span className="text-[10px] font-medium text-slate-400">Above</span></div>
+                  <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div><span className="text-[10px] font-medium text-slate-400">Below</span></div>
                 </div>
               </div>
             </div>
-
             <div className="flex items-center w-full">
               <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1 overflow-x-auto custom-scrollbar w-full md:w-auto" onClick={(e) => e.stopPropagation()}>
                 {['All', 'Micro', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
-                  <button
-                    key={cap}
-                    onClick={() => setMarketCapFilter(cap)}
-                    className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${
-                      marketCapFilter === cap
-                        ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]'
-                        : 'text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]'
-                    }`}
-                  >
+                  <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${marketCapFilter === cap ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' : 'text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]'}`}>
                     {cap}
                   </button>
                 ))}
@@ -279,38 +230,31 @@ export default function TopMovers() {
           </div>
           
           <div className="overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[1250px] table-fixed border-collapse">
+            <table className="w-full min-w-[1100px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] text-left pl-4" onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] text-left pl-4" onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   {!isEtfTab && (
                     <>
-                      <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                      <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                      <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                      <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
                       <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                     </>
                   )}
-                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left pl-2 ${isEtfTab ? 'w-[14%]' : 'w-[10%]'}`} onClick={() => handleSort('sector')}>{isEtfTab ? 'ETF' : 'SECTOR'}{getSortIcon('sector')}</th>
-                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left pr-4 ${isEtfTab ? 'w-[30%]' : 'w-[25%]'}`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left pl-2 ${isEtfTab ? 'w-[15%]' : 'w-[10%]'}`} onClick={() => handleSort('sector')}>{isEtfTab ? 'ETF' : 'SECTOR'}{getSortIcon('sector')}</th>
+                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left pr-4 ${isEtfTab ? 'w-[38%]' : 'w-[22%]'}`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {status.includes('Syncing') && topMoversData[activeTab].length === 0 ? (
-                  <tr>
-                    <td colSpan={isEtfTab ? 8 : 11} className="py-12 text-center">
-                      <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
-                      <span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span>
-                    </td>
-                  </tr>
+                  <tr><td colSpan={isEtfTab ? 8 : 11} className="py-12 text-center"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
                 ) : sortedStocks.length === 0 ? (
-                  <tr>
-                    <td colSpan={isEtfTab ? 8 : 11} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td>
-                  </tr>
+                  <tr><td colSpan={isEtfTab ? 8 : 11} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td></tr>
                 ) : (
                   sortedStocks.map((row, i) => {
                     const isPositive = row.changePct >= 0;
@@ -323,10 +267,7 @@ export default function TopMovers() {
                           </div>
                         </td>
                         <td className="py-3 text-xs text-slate-300 font-medium whitespace-nowrap text-left">
-                          <div className="flex items-center gap-1.5">
-                            ${row.price.toFixed(2)}
-                            {row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>)}
-                          </div>
+                          <div className="flex items-center gap-1.5">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>)}</div>
                         </td>
                         <td className={`py-3 text-xs font-bold whitespace-nowrap text-left ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
                         <td className="py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatNumber(row.vol)}</td>
@@ -343,11 +284,7 @@ export default function TopMovers() {
                           <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.sector || '—'}</div>
                         </td>
                         <td className="py-3 text-[11px] text-indigo-300/90 font-medium text-left pr-4 whitespace-normal break-words">
-                          {row.catalyst ? (
-                            row.catalystUrl ? (
-                              <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="group-hover/cat:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>
-                            ) : (<span className="group-hover/cat:text-slate-200 transition-colors">{row.catalyst}</span>)
-                          ) : (<span className="text-slate-600 font-medium">—</span>)}
+                          {row.catalyst ? (row.catalystUrl ? (<a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="group-hover/cat:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>) : (<span className="group-hover/cat:text-slate-200 transition-colors">{row.catalyst}</span>)) : (<span className="text-slate-600 font-medium">—</span>)}
                         </td>
                       </tr>
                     );
