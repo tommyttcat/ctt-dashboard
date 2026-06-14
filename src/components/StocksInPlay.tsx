@@ -60,9 +60,12 @@ const formatSetupName = (name: string | null) => {
 };
 
 export default function StocksInPlay() {
-  // THE FIX: Pull everything directly from the Context Provider
-  const { session, sipsUniverse, lastUpdated, isLoading } = useMarketData(); 
+  const { session } = useMarketData(); 
 
+  const [stocks, setStocks] = useState<StockInPlay[]>([]);
+  const [status, setStatus] = useState<string>('Syncing DB...');
+  const [lastScanTime, setLastScanTime] = useState<number | null>(null);
+  
   const [sortConfig, setSortConfig] = useState<{ key: keyof StockInPlay; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   
@@ -70,30 +73,53 @@ export default function StocksInPlay() {
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
   const [convictionFilter, setConvictionFilter] = useState<ConvictionFilterType>('All');
 
-  // Format the context universe to strictly match the component interface
-  const stocks = useMemo(() => {
-    if (!sipsUniverse || sipsUniverse.length === 0) return [];
-    
-    return sipsUniverse.map((item: any) => ({
-      ticker: item.ticker || '—',
-      name: item.name || '',
-      sector: item.sector && item.sector !== '—' ? item.sector : '—',
-      price: Number(item.price || item.day?.c) || 0,
-      vwapStatus: item.vwapStatus || 'neutral',
-      changePct: Number(item.changePct ?? item.todaysChangePerc) || 0,
-      vol: Number(item.vol ?? item.day?.v) || 0,
-      dVol: Number(item.dVol) || (Number(item.price || item.day?.c || 0) * Number(item.vol ?? item.day?.v || 0)),
-      rvol: item.rvol || null,
-      float: item.float || null,
-      shortPct: item.shortPct || null,
-      mktCap: item.mktCap ?? item.marketCap ?? null,
-      stage: item.stage || '2A',
-      setupName: item.setupName || null,
-      catalyst: item.catalyst || null,
-      conviction: item.conviction != null ? Number(item.conviction) : (item.aiScore ?? item.score ?? null), 
-      thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
-    }));
-  }, [sipsUniverse]);
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchDatabaseSnapshot = async () => {
+      try {
+        const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
+        const data = await res.json();
+        
+        if (isMounted && data.success) {
+          const rawList = data.stocksInPlay || [];
+          const safeData = rawList.map((item: any) => ({
+            ticker: item.ticker || '—',
+            name: item.name || '',
+            sector: item.sector && item.sector !== '—' ? item.sector : '—',
+            price: Number(item.price) || 0,
+            vwapStatus: item.vwapStatus || 'neutral',
+            changePct: Number(item.change ?? item.changePct) || 0,
+            vol: Number(item.volume ?? item.vol) || 0,
+            dVol: Number(item.dVol) || (Number(item.price || 0) * Number((item.volume ?? item.vol) || 0)),
+            rvol: item.rvol || null,
+            float: item.float || null,
+            shortPct: item.shortPct || null,
+            mktCap: item.mktCap || null,
+            stage: item.stage || '2A',
+            setupName: item.setupName || null,
+            catalyst: item.catalyst || null,
+            conviction: item.conviction != null ? Number(item.conviction) : (item.aiScore ?? item.score ?? null), 
+            thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
+          }));
+
+          setStocks(safeData);
+          setLastScanTime(data.lastScanTime);
+          setStatus('Live');
+        }
+      } catch (error) {
+        if (isMounted) setStatus('DB Offline');
+      }
+    };
+
+    fetchDatabaseSnapshot();
+    const interval = setInterval(fetchDatabaseSnapshot, 60000);
+
+    return () => { 
+      isMounted = false; 
+      clearInterval(interval); 
+    };
+  }, []);
 
   const handleSort = (key: keyof StockInPlay) => {
     let direction: SortDirection = 'desc'; 
@@ -103,9 +129,7 @@ export default function StocksInPlay() {
   };
 
   const filteredAndSortedStocks = useMemo(() => {
-    // STRICT FILTER ENFORCEMENT: Price > $1, Gain > 4%, Cap > $20M
     let filtered = stocks.filter(s => 
-      s.price >= 1.00 &&
       s.changePct >= 4.0 && 
       s.vol >= 500000 && 
       s.mktCap !== null && s.mktCap >= 20000000
@@ -180,7 +204,8 @@ export default function StocksInPlay() {
   };
 
   const getSessionTextColor = () => {
-    if (isLoading) return 'text-amber-500';
+    if (status.includes('Err') || status.includes('Offline')) return 'text-rose-500';
+    if (status.includes('Syncing')) return 'text-amber-500';
     if (session === 'Pre-Market') return 'text-amber-500';
     if (session === 'Open') return 'text-[#00e676]';
     if (session === 'Post-Market') return 'text-indigo-400';
@@ -204,12 +229,12 @@ export default function StocksInPlay() {
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
             <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>
-              {isLoading ? 'Syncing...' : session}
+              {status === 'Live' ? session : status}
             </span>
           </div>
-          {lastUpdated && !isLoading && (
+          {lastScanTime && (
              <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
-               Updated: {formatTime(lastUpdated)} EST
+               Updated: {formatTime(lastScanTime)} EST
              </span>
           )}
         </div>
@@ -318,7 +343,7 @@ export default function StocksInPlay() {
                 </tr>
               </thead>
               
-              {isLoading && stocks.length === 0 ? (
+              {status.includes('Syncing') && stocks.length === 0 ? (
                 <tbody>
                   <tr>
                     <td colSpan={13} className="py-12 text-center border-b border-white/5">

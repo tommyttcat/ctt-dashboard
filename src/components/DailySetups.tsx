@@ -26,33 +26,33 @@ interface SetupData {
 type SortDirection = 'asc' | 'desc';
 type ConvictionFilterType = 'All' | 'High' | 'Med' | 'Low';
 
-const formatTime = (timestamp: number | Date | null) => {
+const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
   const date = new Date(timestamp);
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
 };
 
-const formatNumber = (num: number | null | undefined) => {
-  if (num === null || num === undefined || num === 0 || isNaN(num)) return '—';
+const formatNumber = (num: number | null) => {
+  if (num === null || num === 0 || isNaN(num)) return '—';
   if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
   if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
   if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
   return num.toLocaleString();
 };
 
-const formatCurrency = (num: number | null | undefined) => {
-  if (num === null || num === undefined || num === 0 || isNaN(num)) return '—';
+const formatCurrency = (num: number | null) => {
+  if (num === null || num === 0 || isNaN(num)) return '—';
   if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
   if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
   return '$' + num.toLocaleString();
 };
 
-const formatStageText = (stage: string | undefined | null) => {
+const formatStageText = (stage: string | undefined) => {
   if (!stage || stage === '-' || stage === '—') return '—';
   return stage.replace(/Stage\s*/i, ''); 
 };
 
-const formatSetupName = (name: string | null | undefined) => {
+const formatSetupName = (name: string | null) => {
   if (!name || name === '-' || name === '—') return '—';
   if (name.includes('BB SQZ')) return 'BB SQZ';
   if (name === 'Blue Dot Rev') return 'BD Rev';
@@ -60,11 +60,11 @@ const formatSetupName = (name: string | null | undefined) => {
 };
 
 export default function DailySetups() {
-  // Sync the UI badge to the master context
-  const { session, lastUpdated } = useMarketData(); 
+  const { session } = useMarketData(); 
 
   const [setups, setSetups] = useState<SetupData[]>([]);
   const [status, setStatus] = useState<string>('Syncing DB...');
+  const [lastScanTime, setLastScanTime] = useState<number | null>(null);
   
   const [sortConfig, setSortConfig] = useState<{ key: keyof SetupData; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
@@ -83,35 +83,28 @@ export default function DailySetups() {
         
         if (isMounted && data.success) {
           const rawList = data.dailySetups || [];
-          
-          const safeData: SetupData[] = rawList.map((item: any): SetupData => {
-            let vwap = 'neutral';
-            if (item.vwapStatus === 'above' || item.vwapStatus === 'below') {
-              vwap = item.vwapStatus;
-            }
-
-            return {
-              ticker: item.ticker || '—',
-              name: item.name || '',
-              sector: item.sector && item.sector !== '—' ? item.sector : '—',
-              price: Number(item.price) || 0,
-              vwapStatus: vwap as 'above' | 'below' | 'neutral',
-              changePct: Number(item.change ?? item.changePct) || 0,
-              vol: Number(item.volume ?? item.vol) || 0,
-              dVol: Number(item.dVol) || (Number(item.price || 0) * Number((item.volume ?? item.vol) || 0)),
-              rvol: item.rvol || null,
-              float: item.float || null,
-              shortPct: item.shortPct || null,
-              mktCap: item.mktCap || null,
-              stage: item.stage || '2A',
-              setupName: item.setupName || null,
-              catalyst: item.catalyst || null,
-              conviction: item.conviction != null ? Number(item.conviction) : (item.aiScore ?? item.score ?? null), 
-              thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
-            };
-          });
+          const safeData = rawList.map((item: any) => ({
+            ticker: item.ticker || '—',
+            name: item.name || '',
+            sector: item.sector && item.sector !== '—' ? item.sector : '—',
+            price: Number(item.price) || 0,
+            vwapStatus: item.vwapStatus || 'neutral',
+            changePct: Number(item.change ?? item.changePct) || 0,
+            vol: Number(item.volume ?? item.vol) || 0,
+            dVol: Number(item.dVol) || (Number(item.price || 0) * Number((item.volume ?? item.vol) || 0)),
+            rvol: item.rvol || null,
+            float: item.float || null,
+            shortPct: item.shortPct || null,
+            mktCap: item.mktCap || null,
+            stage: item.stage || '2A',
+            setupName: item.setupName || null,
+            catalyst: item.catalyst || null,
+            conviction: item.conviction != null ? Number(item.conviction) : (item.aiScore ?? item.score ?? null), 
+            thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
+          }));
 
           setSetups(safeData);
+          setLastScanTime(data.lastScanTime);
           setStatus('Live');
         }
       } catch (error) {
@@ -135,7 +128,7 @@ export default function DailySetups() {
     setSortConfig({ key, direction });
   };
 
-  const filteredAndSortedSetups: SetupData[] = useMemo(() => {
+  const filteredAndSortedSetups = useMemo(() => {
     let filtered = setups.filter(s => 
       s.changePct >= 4.0 && 
       s.vol >= 500000 && 
@@ -172,8 +165,8 @@ export default function DailySetups() {
     if (!sortConfig) return filtered;
     
     return [...filtered].sort((a, b) => {
-      const aVal = a[sortConfig.key] as any;
-      const bVal = b[sortConfig.key] as any;
+      const aVal = a[sortConfig.key];
+      const bVal = b[sortConfig.key];
       if (aVal === null || aVal === undefined) return 1;
       if (bVal === null || bVal === undefined) return -1;
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -239,9 +232,9 @@ export default function DailySetups() {
               {status === 'Live' ? session : status}
             </span>
           </div>
-          {lastUpdated && status === 'Live' && (
+          {lastScanTime && (
              <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
-               Updated: {formatTime(lastUpdated)} EST
+               Updated: {formatTime(lastScanTime)} EST
              </span>
           )}
         </div>
