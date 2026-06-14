@@ -223,7 +223,7 @@ export default function DailySetups() {
   };
 
   return (
-    <div className="bg-[#101623] border border-white/5 rounded-2xl p-5 md:p-8 relative overflow-hidden shadow-xl w-full">
+    <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-hidden shadow-xl w-full">
       
       <div 
         onClick={() => setIsExpanded(!isExpanded)}
@@ -417,7 +417,7 @@ export default function DailySetups() {
                       </tr>
 
                       <tr className="bg-transparent border-t border-white/5">
-                        <td colSpan={11} className="pb-3.5 pt-2.5 px-4 pl-12">
+                        <td colSpan={11} className="pb-3.5 pt-2.5 pr-4 pl-[56px]">
                           <div className="flex items-start">
                             <div className="flex-1">
                               {row.thesis ? (

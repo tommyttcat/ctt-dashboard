@@ -342,12 +342,12 @@ export default function StocksInPlay() {
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] text-left" onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[34%] text-left pr-4" onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[36%] text-left pr-4" onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               
@@ -417,7 +417,7 @@ export default function StocksInPlay() {
                       </tr>
 
                       <tr className="bg-transparent border-t border-white/5">
-                        <td colSpan={11} className="pb-3.5 pt-2.5 px-4 pl-12">
+                        <td colSpan={11} className="pb-3.5 pt-2.5 pr-4 pl-[56px]">
                           <div className="flex items-start">
                             <div className="flex-1">
                               {row.thesis ? (
