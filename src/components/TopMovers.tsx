@@ -25,6 +25,8 @@ interface StockData {
 type TabType = 'Mega Caps' | 'Gainers' | 'Losers' | 'ETF Gainers' | 'ETF Losers';
 type SortDirection = 'asc' | 'desc';
 
+const MEGA_CAP_TICKERS = new Set(['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'BRK.B', 'AVGO', 'LLY', 'JPM', 'XOM', 'UNH', 'V', 'PG', 'MA', 'JNJ', 'HD', 'AMD', 'NFLX', 'COST']);
+
 const formatTime = (timestamp: number | Date | null) => {
   if (!timestamp) return '';
   const date = new Date(timestamp);
@@ -59,15 +61,10 @@ const formatSetupName = (name: string | null | undefined) => {
 };
 
 export default function TopMovers() {
-  // Pull session and master timestamp to sync the UI badge
-  const { session, lastUpdated } = useMarketData();
-  
-  const [topMoversData, setTopMoversData] = useState<Record<TabType, StockData[]>>({
-    'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': []
-  });
+  // Return to the central engine room context so SIPS, Daily, and TopMovers stream together
+  const { session, topMovers, lastUpdated, isLoading } = useMarketData();
   
   const [activeTab, setActiveTab] = useState<TabType>('Gainers');
-  const [status, setStatus] = useState<string>('Syncing DB...');
   const [sortConfig, setSortConfig] = useState<{ key: keyof StockData; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
@@ -76,64 +73,71 @@ export default function TopMovers() {
 
   useEffect(() => { setSortConfig(null); }, [activeTab]);
 
-  useEffect(() => {
-    let isMounted = true;
-    const fetchDatabaseSnapshot = async () => {
-      try {
-        const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
-        const data = await res.json();
-        
-        if (isMounted && data.success && data.topMovers) {
-          
-          const safeData: Record<TabType, StockData[]> = {
-            'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': []
-          };
-          
-          const categories: TabType[] = ['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'];
-          
-          categories.forEach(category => {
-            const rawList = data.topMovers[category] || [];
-            
-            safeData[category] = rawList.map((item: any): StockData => {
-              let vwap = 'neutral';
-              if (item.vwapStatus === 'above' || item.vwapStatus === 'below') {
-                vwap = item.vwapStatus;
-              }
-
-              return {
-                ticker: item.ticker || '—',
-                name: item.name || '',
-                sector: item.sector || '',
-                price: Number(item.price) || 0,
-                vwapStatus: vwap as 'above' | 'below' | 'neutral',
-                // VERCEL FIX: Explicit parens added around ALL ?? operators
-                changePct: Number((item.change ?? item.changePct) || 0), 
-                vol: Number((item.volume ?? item.vol) || 0),
-                dVol: Number(item.dVol) || (Number(item.price || 0) * Number((item.volume ?? item.vol) || 0)),
-                rvol: item.rvol || null,
-                mktCap: item.mktCap || null,
-                float: item.float || null,
-                shortPct: item.shortPct || null,
-                catalyst: item.catalyst || null,
-                catalystUrl: item.catalystUrl || null,
-                stage: item.stage || '—',
-                setupName: item.setupName || null,
-              };
-            });
-          });
-
-          setTopMoversData(safeData);
-          setStatus('Live');
-        }
-      } catch (error) {
-        if (isMounted) setStatus('DB Offline');
-      }
+  // Client-side mapping and classification of context streams
+  const processedData = useMemo(() => {
+    const safeData: Record<TabType, StockData[]> = {
+      'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': []
     };
 
-    fetchDatabaseSnapshot();
-    const interval = setInterval(fetchDatabaseSnapshot, 60000);
-    return () => { isMounted = false; clearInterval(interval); };
-  }, []);
+    if (!topMovers || !Array.isArray(topMovers)) return safeData;
+
+    topMovers.forEach((item: any) => {
+      let vwap = 'neutral';
+      if (item.vwapStatus === 'above' || item.vwapStatus === 'below') {
+        vwap = item.vwapStatus;
+      }
+
+      // Dynamic field fallbacks to ensure no tickers (like AXTX) get lost or drop out due to key mismatches
+      const price = Number(item.price ?? item.day?.c ?? 0);
+      const changePct = Number(item.changePct ?? item.todaysChangePerc ?? item.change ?? 0);
+      const vol = Number(item.vol ?? item.volume ?? item.day?.v ?? 0);
+
+      const formatted: StockData = {
+        ticker: item.ticker || '—',
+        name: item.name || '',
+        sector: item.sector || '',
+        price,
+        vwapStatus: vwap as 'above' | 'below' | 'neutral',
+        changePct,
+        vol,
+        dVol: Number(item.dVol) || (price * vol),
+        rvol: item.rvol ?? null,
+        mktCap: item.mktCap ?? item.marketCap ?? null,
+        float: item.float ?? null,
+        shortPct: item.shortPct ?? null,
+        catalyst: item.catalyst ?? null,
+        catalystUrl: item.catalystUrl ?? null,
+        stage: item.stage || '—',
+        setupName: item.setupName || null,
+      };
+
+      const isMega = MEGA_CAP_TICKERS.has(formatted.ticker);
+      const isEtf = 
+        (formatted.sector && formatted.sector.toUpperCase().includes('ETF')) || 
+        (formatted.name && formatted.name.toUpperCase().includes('ETF'));
+      const isPositive = formatted.changePct >= 0;
+
+      if (isMega) {
+        safeData['Mega Caps'].push(formatted);
+      } else if (isEtf) {
+        if (isPositive) safeData['ETF Gainers'].push(formatted);
+        else safeData['ETF Losers'].push(formatted);
+      } else {
+        if (isPositive) safeData['Gainers'].push(formatted);
+        else safeData['Losers'].push(formatted);
+      }
+    });
+
+    // Default Sorting: Pre-sort lists explicitly by absolute momentum before truncation
+    safeData['Mega Caps'].sort((a, b) => b.changePct - a.changePct);
+    safeData['Gainers'].sort((a, b) => b.changePct - a.changePct);
+    safeData['ETF Gainers'].sort((a, b) => b.changePct - a.changePct);
+    
+    safeData['Losers'].sort((a, b) => a.changePct - b.changePct); // Worst drop at the top
+    safeData['ETF Losers'].sort((a, b) => a.changePct - b.changePct);
+
+    return safeData;
+  }, [topMovers]);
 
   const handleSort = (key: keyof StockData) => {
     let direction: SortDirection = 'desc'; 
@@ -143,7 +147,7 @@ export default function TopMovers() {
   };
 
   const sortedStocks = useMemo(() => {
-    let currentList = topMoversData[activeTab] || [];
+    let currentList = processedData[activeTab] || [];
 
     if (marketCapFilter !== 'All') {
       currentList = currentList.filter(s => {
@@ -162,7 +166,6 @@ export default function TopMovers() {
 
     if (sortConfig) {
       sorted.sort((a, b) => {
-        // VERCEL FIX: Explicit any typing to silence linter strict mode
         const aVal = a[sortConfig.key] as any;
         const bVal = b[sortConfig.key] as any;
         if (aVal === null || aVal === undefined) return 1;
@@ -173,15 +176,14 @@ export default function TopMovers() {
       });
     }
 
-    // STRICT LIMIT: Exactly 10 rows maximum per tab
+    // STRICT CHOP: Ensures every single window shows exactly 10 elements max
     return sorted.slice(0, 10);
-  }, [topMoversData, activeTab, sortConfig, marketCapFilter]);
+  }, [processedData, activeTab, sortConfig, marketCapFilter]);
 
   const getSortIcon = (columnKey: keyof StockData) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
   
   const getSessionTextColor = () => {
-    if (status.includes('Err') || status.includes('Offline')) return 'text-rose-500';
-    if (status.includes('Syncing')) return 'text-amber-500';
+    if (isLoading) return 'text-amber-500';
     if (session === 'Pre-Market') return 'text-amber-500';
     if (session === 'Open') return 'text-[#00e676]';
     if (session === 'Post-Market') return 'text-indigo-400';
@@ -235,10 +237,10 @@ export default function TopMovers() {
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
             <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>
-              {status === 'Live' ? session : status}
+              {isLoading ? 'Syncing...' : session}
             </span>
           </div>
-          {lastUpdated && status === 'Live' && (
+          {lastUpdated && !isLoading && (
              <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
                Updated: {formatTime(lastUpdated)} EST
              </span>
@@ -250,7 +252,7 @@ export default function TopMovers() {
         <>
           <div className="flex flex-col gap-4 mb-6 relative z-10 pb-2">
             
-            {/* ROW 1: Main Tabs and VWAP Legend */}
+            {/* ROW 1: Tabs */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 w-full">
               <div className="flex gap-3 overflow-x-auto custom-scrollbar w-full md:w-auto" style={{ scrollbarWidth: 'none' }}>
                 {(['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'] as TabType[]).map((tab) => (
@@ -283,7 +285,7 @@ export default function TopMovers() {
               </div>
             </div>
 
-            {/* ROW 2: Market Cap Filter */}
+            {/* ROW 2: Market Cap Filters */}
             <div className="flex items-center w-full">
               <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1 overflow-x-auto custom-scrollbar w-full md:w-auto" onClick={(e) => e.stopPropagation()}>
                 {['All', 'Micro', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
@@ -328,11 +330,11 @@ export default function TopMovers() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                {status.includes('Syncing') && topMoversData[activeTab].length === 0 ? (
+                {isLoading && processedData[activeTab].length === 0 ? (
                   <tr>
                     <td colSpan={isEtfTab ? 10 : 13} className="py-12 text-center">
                       <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
-                      <span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span>
+                      <span className="text-xs text-slate-500 font-medium">Syncing Engine Room State...</span>
                     </td>
                   </tr>
                 ) : sortedStocks.length === 0 ? (

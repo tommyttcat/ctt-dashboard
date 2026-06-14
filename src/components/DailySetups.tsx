@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 
 interface SetupData {
@@ -60,11 +60,7 @@ const formatSetupName = (name: string | null | undefined) => {
 };
 
 export default function DailySetups() {
-  // Sync the UI badge to the master context
-  const { session, lastUpdated } = useMarketData(); 
-
-  const [setups, setSetups] = useState<SetupData[]>([]);
-  const [status, setStatus] = useState<string>('Syncing DB...');
+  const { session, topMovers, lastUpdated, isLoading } = useMarketData(); 
   
   const [sortConfig, setSortConfig] = useState<{ key: keyof SetupData; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
@@ -73,60 +69,46 @@ export default function DailySetups() {
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
   const [convictionFilter, setConvictionFilter] = useState<ConvictionFilterType>('All');
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const fetchDatabaseSnapshot = async () => {
-      try {
-        const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
-        const data = await res.json();
-        
-        if (isMounted && data.success) {
-          const rawList = data.dailySetups || [];
-          const safeData: SetupData[] = rawList.map((item: any): SetupData => {
-            let vwap = 'neutral';
-            if (item.vwapStatus === 'above' || item.vwapStatus === 'below') {
-              vwap = item.vwapStatus;
-            }
-
-            return {
-              ticker: item.ticker || '—',
-              name: item.name || '',
-              sector: item.sector && item.sector !== '—' ? item.sector : '—',
-              price: Number(item.price) || 0,
-              vwapStatus: vwap as 'above' | 'below' | 'neutral',
-              changePct: Number(item.change ?? item.changePct) || 0,
-              vol: Number(item.volume ?? item.vol) || 0,
-              // Explicit parens around the nullish coalescing operator to fix Vercel build error
-              dVol: Number(item.dVol) || (Number(item.price || 0) * Number((item.volume ?? item.vol) || 0)),
-              rvol: item.rvol || null,
-              float: item.float || null,
-              shortPct: item.shortPct || null,
-              mktCap: item.mktCap || null,
-              stage: item.stage || '2A',
-              setupName: item.setupName || null,
-              catalyst: item.catalyst || null,
-              conviction: item.conviction != null ? Number(item.conviction) : (item.aiScore ?? item.score ?? null), 
-              thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
-            };
-          });
-
-          setSetups(safeData);
-          setStatus('Live');
-        }
-      } catch (error) {
-        if (isMounted) setStatus('DB Offline');
+  const setups: SetupData[] = useMemo(() => {
+    if (!topMovers || !Array.isArray(topMovers)) return [];
+    
+    const mappedData = topMovers.map((item: any): SetupData => {
+      let vwap = 'neutral';
+      if (item.vwapStatus === 'above' || item.vwapStatus === 'below') {
+        vwap = item.vwapStatus;
       }
-    };
 
-    fetchDatabaseSnapshot();
-    const interval = setInterval(fetchDatabaseSnapshot, 60000);
+      // Dynamic field fallbacks to ensure no tickers drop out
+      const price = Number((item.price ?? item.day?.c) || 0);
+      const changePct = Number((item.changePct ?? item.todaysChangePerc ?? item.change) || 0);
+      const vol = Number((item.vol ?? item.volume ?? item.day?.v) || 0);
 
-    return () => { 
-      isMounted = false; 
-      clearInterval(interval); 
-    };
-  }, []);
+      return {
+        ticker: item.ticker || '—',
+        name: item.name || '',
+        sector: item.sector && item.sector !== '—' ? item.sector : '—',
+        price,
+        vwapStatus: vwap as 'above' | 'below' | 'neutral',
+        changePct,
+        vol,
+        dVol: Number(item.dVol) || (price * vol),
+        rvol: item.rvol ?? null,
+        float: item.float ?? null,
+        shortPct: item.shortPct ?? null,
+        mktCap: item.mktCap ?? item.marketCap ?? null,
+        stage: item.stage || '2A',
+        setupName: item.setupName || null,
+        catalyst: item.catalyst ?? null,
+        conviction: item.conviction != null ? Number(item.conviction) : ((item.aiScore ?? item.score) ?? null), 
+        thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
+      };
+    });
+
+    return mappedData
+      .filter(s => s.price >= 1.00 && s.changePct >= 4.0 && s.vol >= 500000 && s.mktCap !== null && s.mktCap >= 20000000)
+      .sort((a, b) => b.dVol - a.dVol)
+      .slice(0, 30);
+  }, [topMovers]);
 
   const handleSort = (key: keyof SetupData) => {
     let direction: SortDirection = 'desc'; 
@@ -136,11 +118,7 @@ export default function DailySetups() {
   };
 
   const filteredAndSortedSetups: SetupData[] = useMemo(() => {
-    let filtered = setups.filter(s => 
-      s.changePct >= 4.0 && 
-      s.vol >= 500000 && 
-      s.mktCap !== null && s.mktCap >= 20000000
-    );
+    let filtered = [...setups];
     
     if (showStage2AOnly) {
       filtered = filtered.filter(s => s.stage && s.stage.includes('2A'));
@@ -172,7 +150,6 @@ export default function DailySetups() {
     if (!sortConfig) return filtered;
     
     return [...filtered].sort((a, b) => {
-      // OVERRIDE: Silence TypeScript Union checks for sorting
       const aVal = a[sortConfig.key] as any;
       const bVal = b[sortConfig.key] as any;
       if (aVal === null || aVal === undefined) return 1;
@@ -216,6 +193,7 @@ export default function DailySetups() {
   };
 
   const getSessionTextColor = () => {
+    if (isLoading) return 'text-amber-500';
     if (session === 'Pre-Market') return 'text-amber-500';
     if (session === 'Open') return 'text-[#00e676]';
     if (session === 'Post-Market') return 'text-indigo-400';
@@ -238,11 +216,11 @@ export default function DailySetups() {
 
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${status === 'Live' ? getSessionTextColor() : 'text-slate-500'}`}>
-              {status === 'Live' ? session : status}
+            <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>
+              {isLoading ? 'Syncing...' : session}
             </span>
           </div>
-          {lastUpdated && status === 'Live' && (
+          {lastUpdated && !isLoading && (
              <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
                Updated: {formatTime(lastUpdated)} EST
              </span>
@@ -353,7 +331,7 @@ export default function DailySetups() {
                 </tr>
               </thead>
               
-              {status.includes('Syncing') && setups.length === 0 ? (
+              {isLoading && setups.length === 0 ? (
                 <tbody>
                   <tr>
                     <td colSpan={13} className="py-12 text-center border-b border-white/5">

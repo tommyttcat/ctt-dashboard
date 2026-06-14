@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 
 interface StockInPlay {
@@ -60,12 +60,8 @@ const formatSetupName = (name: string | null | undefined) => {
 };
 
 export default function StocksInPlay() {
-  // Pull session and master timestamp to sync the UI badge
-  const { session, lastUpdated } = useMarketData(); 
+  const { session, sipsUniverse, lastUpdated, isLoading } = useMarketData(); 
 
-  const [stocks, setStocks] = useState<StockInPlay[]>([]);
-  const [status, setStatus] = useState<string>('Syncing DB...');
-  
   const [sortConfig, setSortConfig] = useState<{ key: keyof StockInPlay; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   
@@ -73,62 +69,39 @@ export default function StocksInPlay() {
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
   const [convictionFilter, setConvictionFilter] = useState<ConvictionFilterType>('All');
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const fetchDatabaseSnapshot = async () => {
-      try {
-        const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
-        const data = await res.json();
-        
-        if (isMounted && data.success) {
-          // Gracefully fallback to either array name used by the backend
-          const rawList = data.stocksInPlay || data.sips || [];
-          
-          const safeData: StockInPlay[] = rawList.map((item: any): StockInPlay => {
-            let vwap = 'neutral';
-            if (item.vwapStatus === 'above' || item.vwapStatus === 'below') {
-              vwap = item.vwapStatus;
-            }
-
-            return {
-              ticker: item.ticker || '—',
-              name: item.name || '',
-              sector: item.sector && item.sector !== '—' ? item.sector : '—',
-              price: Number(item.price) || 0,
-              vwapStatus: vwap as 'above' | 'below' | 'neutral',
-              // VERCEL FIX: Explicit parens added around ALL ?? operators
-              changePct: Number((item.change ?? item.changePct) || 0),
-              vol: Number((item.volume ?? item.vol) || 0),
-              dVol: Number(item.dVol) || (Number(item.price || 0) * Number((item.volume ?? item.vol) || 0)),
-              rvol: item.rvol || null,
-              float: item.float || null,
-              shortPct: item.shortPct || null,
-              mktCap: item.mktCap || null,
-              stage: item.stage || '2A',
-              setupName: item.setupName || null,
-              catalyst: item.catalyst || null,
-              conviction: item.conviction != null ? Number(item.conviction) : ((item.aiScore ?? item.score) ?? null), 
-              thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
-            };
-          });
-
-          setStocks(safeData);
-          setStatus('Live');
-        }
-      } catch (error) {
-        if (isMounted) setStatus('DB Offline');
+  const stocks: StockInPlay[] = useMemo(() => {
+    if (!sipsUniverse || !Array.isArray(sipsUniverse)) return [];
+    
+    return sipsUniverse.map((item: any): StockInPlay => {
+      let vwap = 'neutral';
+      if (item.vwapStatus === 'above' || item.vwapStatus === 'below') {
+        vwap = item.vwapStatus;
       }
-    };
 
-    fetchDatabaseSnapshot();
-    const interval = setInterval(fetchDatabaseSnapshot, 60000);
+      const price = Number(item.price ?? item.day?.c ?? 0);
+      const vol = Number(item.vol ?? item.volume ?? item.day?.v ?? 0);
 
-    return () => { 
-      isMounted = false; 
-      clearInterval(interval); 
-    };
-  }, []);
+      return {
+        ticker: item.ticker || '—',
+        name: item.name || '',
+        sector: item.sector && item.sector !== '—' ? item.sector : '—',
+        price,
+        vwapStatus: vwap as 'above' | 'below' | 'neutral',
+        changePct: Number((item.changePct ?? item.todaysChangePerc ?? item.change) || 0),
+        vol,
+        dVol: Number(item.dVol) || (price * vol),
+        rvol: item.rvol ?? null,
+        float: item.float ?? null,
+        shortPct: item.shortPct ?? null,
+        mktCap: item.mktCap ?? item.marketCap ?? null,
+        stage: item.stage || '2A',
+        setupName: item.setupName || null,
+        catalyst: item.catalyst || null,
+        conviction: item.conviction != null ? Number(item.conviction) : ((item.aiScore ?? item.score) ?? null), 
+        thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
+      };
+    });
+  }, [sipsUniverse]);
 
   const handleSort = (key: keyof StockInPlay) => {
     let direction: SortDirection = 'desc'; 
@@ -139,6 +112,7 @@ export default function StocksInPlay() {
 
   const filteredAndSortedStocks: StockInPlay[] = useMemo(() => {
     let filtered = stocks.filter(s => 
+      s.price >= 1.00 &&
       s.changePct >= 4.0 && 
       s.vol >= 500000 && 
       s.mktCap !== null && s.mktCap >= 20000000
@@ -171,10 +145,11 @@ export default function StocksInPlay() {
       });
     }
 
-    if (!sortConfig) return filtered;
+    if (!sortConfig) {
+      return [...filtered].sort((a, b) => b.changePct - a.changePct);
+    }
     
     return [...filtered].sort((a, b) => {
-      // VERCEL FIX: Explicit any typing to silence linter strict mode
       const aVal = a[sortConfig.key] as any;
       const bVal = b[sortConfig.key] as any;
       if (aVal === null || aVal === undefined) return 1;
@@ -214,8 +189,7 @@ export default function StocksInPlay() {
   };
 
   const getSessionTextColor = () => {
-    if (status.includes('Err') || status.includes('Offline')) return 'text-rose-500';
-    if (status.includes('Syncing')) return 'text-amber-500';
+    if (isLoading) return 'text-amber-500';
     if (session === 'Pre-Market') return 'text-amber-500';
     if (session === 'Open') return 'text-[#00e676]';
     if (session === 'Post-Market') return 'text-indigo-400';
@@ -239,10 +213,10 @@ export default function StocksInPlay() {
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
             <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>
-              {status === 'Live' ? session : status}
+              {isLoading ? 'Syncing...' : session}
             </span>
           </div>
-          {lastUpdated && status === 'Live' && (
+          {lastUpdated && !isLoading && (
              <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
                Updated: {formatTime(lastUpdated)} EST
              </span>
@@ -353,7 +327,7 @@ export default function StocksInPlay() {
                 </tr>
               </thead>
               
-              {status.includes('Syncing') && stocks.length === 0 ? (
+              {isLoading && stocks.length === 0 ? (
                 <tbody>
                   <tr>
                     <td colSpan={13} className="py-12 text-center border-b border-white/5">
