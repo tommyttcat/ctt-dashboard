@@ -61,7 +61,6 @@ const formatSetupName = (name: string | null | undefined) => {
 };
 
 export default function TopMovers() {
-  // Sync the UI badge and data to the master context
   const { session, topMovers, lastUpdated, isLoading } = useMarketData();
   
   const [activeTab, setActiveTab] = useState<TabType>('Gainers');
@@ -73,7 +72,6 @@ export default function TopMovers() {
 
   useEffect(() => { setSortConfig(null); }, [activeTab]);
 
-  // Categorize the master context data into the correct UI tabs
   const topMoversData = useMemo(() => {
     const safeData: Record<TabType, StockData[]> = {
       'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': []
@@ -95,7 +93,6 @@ export default function TopMovers() {
         vwapStatus: vwap as 'above' | 'below' | 'neutral',
         changePct: Number((item.changePct ?? item.todaysChangePerc) || 0),
         vol: Number((item.vol ?? item.day?.v) || 0),
-        // VERCEL FIX: Explicit parens added around ALL ?? operators
         dVol: Number(item.dVol) || (Number(item.price || item.day?.c || 0) * Number((item.vol ?? item.day?.v) || 0)),
         rvol: item.rvol || null,
         mktCap: item.mktCap ?? item.marketCap ?? null,
@@ -108,7 +105,12 @@ export default function TopMovers() {
       };
 
       const isMega = MEGA_CAP_TICKERS.has(formatted.ticker);
-      const isEtf = formatted.sector?.includes('ETF');
+      
+      // BROADENED ETF CHECK: Catches case-insensitive sector AND name matches
+      const isEtf = 
+        (formatted.sector && formatted.sector.toUpperCase().includes('ETF')) || 
+        (formatted.name && formatted.name.toUpperCase().includes('ETF'));
+      
       const isPositive = formatted.changePct >= 0;
 
       if (isMega) safeData['Mega Caps'].push(formatted);
@@ -147,18 +149,30 @@ export default function TopMovers() {
       });
     }
 
-    if (!sortConfig) return currentList;
+    let sorted = [...currentList];
+
+    if (sortConfig) {
+      sorted.sort((a, b) => {
+        const aVal = a[sortConfig.key] as any;
+        const bVal = b[sortConfig.key] as any;
+        if (aVal === null || aVal === undefined) return 1;
+        if (bVal === null || bVal === undefined) return -1;
+        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+    } else {
+      // DEFAULT SORTING: Ensures the top 10 are actually the highest % movers
+      if (activeTab === 'Losers' || activeTab === 'ETF Losers') {
+        sorted.sort((a, b) => a.changePct - b.changePct); // Most negative at the top
+      } else {
+        sorted.sort((a, b) => b.changePct - a.changePct); // Most positive at the top
+      }
+    }
+
+    // STRICT CHOP: Exactly 10 items max per tab
+    return sorted.slice(0, 10);
     
-    return [...currentList].sort((a, b) => {
-      // VERCEL FIX: Explicit any typing to silence linter strict mode
-      const aVal = a[sortConfig.key] as any;
-      const bVal = b[sortConfig.key] as any;
-      if (aVal === null || aVal === undefined) return 1;
-      if (bVal === null || bVal === undefined) return -1;
-      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
-      return 0;
-    });
   }, [topMoversData, activeTab, sortConfig, marketCapFilter]);
 
   const getSortIcon = (columnKey: keyof StockData) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
