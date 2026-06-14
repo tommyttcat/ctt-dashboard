@@ -206,7 +206,7 @@ export default function TopMovers() {
   };
 
   return (
-    <div className="bg-[#101623] border border-white/5 rounded-2xl p-5 md:p-8 relative overflow-hidden shadow-xl w-full">
+    <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-hidden shadow-xl w-full">
       
       <div 
         onClick={() => setIsExpanded(!isExpanded)}
@@ -236,7 +236,6 @@ export default function TopMovers() {
       {isExpanded && (
         <>
           <div className="flex flex-col gap-4 mb-6 relative z-10 pb-2">
-            
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 w-full">
               <div className="flex gap-3 overflow-x-auto custom-scrollbar w-full md:w-auto" style={{ scrollbarWidth: 'none' }}>
                 {(['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'] as TabType[]).map((tab) => (
@@ -286,92 +285,78 @@ export default function TopMovers() {
                 ))}
               </div>
             </div>
-
           </div>
           
           <div className="overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[1200px] border-collapse">
+            <table className="w-full min-w-[1350px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 ${isEtfTab ? 'w-[14%]' : 'w-[10%]'}`} style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
-                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 ${isEtfTab ? 'w-[8%]' : 'w-[6%]'}`} style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 ${isEtfTab ? 'w-[8%]' : 'w-[6%]'}`} style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 ${isEtfTab ? 'w-[8%]' : 'w-[6%]'}`} style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 ${isEtfTab ? 'w-[8%]' : 'w-[6%]'}`} style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 ${isEtfTab ? 'w-[8%]' : 'w-[6%]'}`} style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 text-left pl-2 ${isEtfTab ? 'w-[16%]' : 'w-[12%]'}`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 text-left ${isEtfTab ? 'w-[8%]' : 'w-[6%]'}`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 text-left ${isEtfTab ? 'w-[8%]' : 'w-[6%]'}`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 text-left ${isEtfTab ? 'w-[8%]' : 'w-[6%]'}`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 text-left ${isEtfTab ? 'w-[8%]' : 'w-[6%]'}`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 text-left ${isEtfTab ? 'w-[8%]' : 'w-[6%]'}`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   {!isEtfTab && (
                     <>
-                      <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 w-[6%]" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                      <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 w-[6%]" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                      <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 w-[6%]" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                      <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 text-left w-[6%]" onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                      <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 text-left w-[6%]" onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                      <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 text-left w-[6%]" onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                     </>
                   )}
-                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 ${isEtfTab ? 'w-[10%]' : 'w-[8%]'}`} style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>{isEtfTab ? 'ETF' : 'SECTOR'}{getSortIcon('sector')}</th>
-                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 ${isEtfTab ? 'w-[16%]' : 'w-[16%]'}`} style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
-                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 ${isEtfTab ? 'w-[6%]' : 'w-[6%]'}`} style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 ${isEtfTab ? 'w-[14%]' : 'w-[12%]'}`} style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('setupName')}>STRATEGY{getSortIcon('setupName')}</th>
+                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 text-left ${isEtfTab ? 'w-[12%]' : 'w-[8%]'}`} onClick={() => handleSort('sector')}>{isEtfTab ? 'ETF' : 'SECTOR'}{getSortIcon('sector')}</th>
+                  <th className={`py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 text-left pr-8 ${isEtfTab ? 'w-[32%]' : 'w-[32%]'}`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {status.includes('Syncing') && topMoversData[activeTab].length === 0 ? (
                   <tr>
-                    <td colSpan={isEtfTab ? 10 : 13} className="py-12 text-center">
+                    <td colSpan={isEtfTab ? 8 : 11} className="py-12 text-center">
                       <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
                       <span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span>
                     </td>
                   </tr>
                 ) : sortedStocks.length === 0 ? (
                   <tr>
-                    <td colSpan={isEtfTab ? 10 : 13} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td>
+                    <td colSpan={isEtfTab ? 8 : 11} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td>
                   </tr>
                 ) : (
                   sortedStocks.map((row, i) => {
                     const isPositive = row.changePct >= 0;
                     return (
                       <tr key={i} className="hover:bg-white/[0.02] transition-colors group">
-                        <td className="py-3" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                        <td className="py-3 text-left pl-2">
                           <div className="relative inline-flex items-center group/ticker">
                             <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
                             <div className="absolute left-full ml-3 px-3 py-1.5 bg-[#1e293b] border border-white/10 text-slate-200 text-xs font-semibold tracking-wide rounded-md shadow-2xl opacity-0 invisible group-hover/ticker:opacity-100 group-hover/ticker:visible transition-all z-[60] whitespace-nowrap pointer-events-none">{row.name || row.ticker}</div>
                           </div>
                         </td>
-                        <td className="py-3 text-xs text-slate-300 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                        <td className="py-3 text-xs text-slate-300 font-medium whitespace-nowrap text-left">
                           <div className="flex items-center gap-1.5">
                             ${row.price.toFixed(2)}
                             {row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>)}
                           </div>
                         </td>
-                        <td className={`py-3 text-xs font-bold whitespace-nowrap ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
-                        <td className="py-3 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.vol)}</td>
-                        <td className="py-3 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatCurrency(row.dVol)}</td>
-                        <td className={`py-3 text-xs font-bold whitespace-nowrap ${getRvolColor(row.rvol)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
+                        <td className={`py-3 text-xs font-bold whitespace-nowrap text-left ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
+                        <td className="py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatNumber(row.vol)}</td>
+                        <td className="py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatCurrency(row.dVol)}</td>
+                        <td className={`py-3 text-xs font-bold whitespace-nowrap text-left ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
                         {!isEtfTab && (
                           <>
-                            <td className={`py-3 text-xs font-bold whitespace-nowrap ${getFloatColor(row.float)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.float)}</td>
-                            <td className={`py-3 text-xs font-bold whitespace-nowrap ${getShortColor(row.shortPct)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
-                            <td className="py-3 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.mktCap)}</td>
+                            <td className={`py-3 text-xs font-bold whitespace-nowrap text-left ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
+                            <td className={`py-3 text-xs font-bold whitespace-nowrap text-left ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
+                            <td className="py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatNumber(row.mktCap)}</td>
                           </>
                         )}
-                        <td className="py-3 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                        <td className="py-3 text-[10px] text-slate-400 font-medium whitespace-nowrap text-left">
                           <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.sector || '—'}</div>
                         </td>
-                        <td className="py-3 text-[11px] text-indigo-300/90 font-medium" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <div className="flex items-center gap-2 group/cat">
-                            {row.catalyst ? (
-                              row.catalystUrl ? (
-                                <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="truncate max-w-[140px] group-hover/cat:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>
-                              ) : (<span className="truncate max-w-[140px] group-hover/cat:text-slate-200 transition-colors">{row.catalyst}</span>)
-                            ) : (<span className="text-slate-600 font-medium">—</span>)}
-                          </div>
-                        </td>
-                        <td className="py-3 text-xs font-bold whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <span className={getStageColor(row.stage)}>{formatStageText(row.stage)}</span>
-                        </td>
-                        <td className="py-3 text-[11px] text-slate-200 font-semibold truncate max-w-[200px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <div className="flex items-center gap-1.5">
-                            {row.setupName === 'Blue Dot Rev' && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"></div>}
-                            <span>{formatSetupName(row.setupName)}</span>
-                          </div>
+                        <td className="py-3 text-[11px] text-indigo-300/90 font-medium text-left pr-8 whitespace-normal break-words">
+                          {row.catalyst ? (
+                            row.catalystUrl ? (
+                              <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="group-hover/cat:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>
+                            ) : (<span className="group-hover/cat:text-slate-200 transition-colors">{row.catalyst}</span>)
+                          ) : (<span className="text-slate-600 font-medium">—</span>)}
                         </td>
                       </tr>
                     );

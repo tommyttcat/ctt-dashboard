@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 
-interface StockInPlay {
+interface SetupData {
   ticker: string;
   name: string;
   sector: string;
@@ -59,14 +59,14 @@ const formatSetupName = (name: string | null) => {
   return name;
 };
 
-export default function StocksInPlay() {
+export default function DailySetups() {
   const { session } = useMarketData(); 
 
-  const [stocks, setStocks] = useState<StockInPlay[]>([]);
+  const [setups, setSetups] = useState<SetupData[]>([]);
   const [status, setStatus] = useState<string>('Syncing DB...');
   const [lastScanTime, setLastScanTime] = useState<number | null>(null);
   
-  const [sortConfig, setSortConfig] = useState<{ key: keyof StockInPlay; direction: SortDirection } | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: keyof SetupData; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   
   const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(false); 
@@ -82,7 +82,7 @@ export default function StocksInPlay() {
         const data = await res.json();
         
         if (isMounted && data.success) {
-          const rawList = data.stocksInPlay || [];
+          const rawList = data.dailySetups || [];
           const safeData = rawList.map((item: any) => {
             const rawCatalyst = item.catalyst || null;
             let finalThesis = item.thesis || item.aiThesis || item.analysis || item.reasoning || null;
@@ -113,8 +113,8 @@ export default function StocksInPlay() {
             };
           });
 
-          setStocks(safeData);
-          setLastScanTime(data.lastScanTime || Date.now()); 
+          setSetups(safeData);
+          setLastScanTime(data.lastScanTime || Date.now());
           setStatus('Live');
         }
       } catch (error) {
@@ -131,15 +131,15 @@ export default function StocksInPlay() {
     };
   }, []);
 
-  const handleSort = (key: keyof StockInPlay) => {
+  const handleSort = (key: keyof SetupData) => {
     let direction: SortDirection = 'desc'; 
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
     else if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') { setSortConfig(null); return; }
     setSortConfig({ key, direction });
   };
 
-  const filteredAndSortedStocks = useMemo(() => {
-    let filtered = stocks.filter(s => 
+  const filteredAndSortedSetups = useMemo(() => {
+    let filtered = setups.filter(s => 
       s.changePct >= 4.0 && 
       s.vol >= 500000 && 
       s.mktCap !== null && s.mktCap >= 20000000
@@ -183,9 +183,9 @@ export default function StocksInPlay() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [stocks, sortConfig, showStage2AOnly, marketCapFilter, convictionFilter]);
+  }, [setups, sortConfig, showStage2AOnly, marketCapFilter, convictionFilter]);
 
-  const getSortIcon = (columnKey: keyof StockInPlay) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
+  const getSortIcon = (columnKey: keyof SetupData) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
   const getStageColor = (stage: string | undefined) => {
     if (!stage || stage === '-') return 'text-slate-500';
     if (stage.includes('1')) return 'text-slate-400';
@@ -215,7 +215,7 @@ export default function StocksInPlay() {
 
   const getSessionTextColor = () => {
     if (status.includes('Err') || status.includes('Offline')) return 'text-rose-500';
-    if (status.includes('Syncing')) return 'text-amber-500'; 
+    if (status.includes('Syncing')) return 'text-amber-500';
     if (session === 'Pre-Market') return 'text-amber-500';
     if (session === 'Open') return 'text-[#00e676]';
     if (session === 'Post-Market') return 'text-indigo-400';
@@ -232,7 +232,7 @@ export default function StocksInPlay() {
         <div className="flex items-center gap-3">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
-            STOCKS IN PLAY
+            DAILY SETUPS
           </span>
         </div>
 
@@ -329,13 +329,13 @@ export default function StocksInPlay() {
           </div>
 
           <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[1350px] table-fixed border-collapse">
+            <table className="w-full min-w-[1200px] border-collapse layout-fixed">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] text-left pl-4" onClick={() => handleSort('ticker')}>
-                    <div className="flex items-center gap-3">
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] text-left pl-2" onClick={() => handleSort('ticker')}>
+                    <div className="flex items-center gap-1.5 sm:gap-2">
                       <span className="cursor-pointer hover:text-slate-300">TICKER{getSortIcon('ticker')}</span>
-                      <span className="cursor-pointer text-indigo-400/60 hover:text-indigo-400" onClick={(e) => { e.stopPropagation(); handleSort('conviction'); }}>CONFLUENCE{getSortIcon('conviction')}</span>
+                      <span className="cursor-pointer text-indigo-400/60 hover:text-indigo-400" onClick={(e) => { e.stopPropagation(); handleSort('conviction'); }}>CNF{getSortIcon('conviction')}</span>
                     </div>
                   </th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
@@ -347,11 +347,11 @@ export default function StocksInPlay() {
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] text-left" onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[34%] text-left pr-8" onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[34%] text-left pr-4" onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               
-              {status.includes('Syncing') && stocks.length === 0 ? (
+              {status.includes('Syncing') && setups.length === 0 ? (
                 <tbody>
                   <tr>
                     <td colSpan={11} className="py-12 text-center border-b border-white/5">
@@ -360,21 +360,21 @@ export default function StocksInPlay() {
                     </td>
                   </tr>
                 </tbody>
-              ) : filteredAndSortedStocks.length === 0 ? (
+              ) : filteredAndSortedSetups.length === 0 ? (
                 <tbody>
                   <tr>
                     <td colSpan={11} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">No active tracking items currently matching momentum criteria.</td>
                   </tr>
                 </tbody>
               ) : (
-                filteredAndSortedStocks.map((row, i) => {
+                filteredAndSortedSetups.map((row, i) => {
                   const isPositive = row.changePct >= 0;
                   
                   return (
                     <tbody key={i} className="group hover:bg-white/[0.02] transition-colors">
                       <tr className="bg-transparent">
-                        <td className="pt-3 pb-2 text-left pl-4">
-                          <div className="flex items-center gap-2">
+                        <td className="pt-3 pb-2 text-left pl-2">
+                          <div className="flex items-center gap-1.5 sm:gap-2">
                             <div className="relative inline-flex items-center group/ticker">
                               <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
                               <div className="absolute left-full ml-3 px-3 py-1.5 bg-[#1e293b] border border-white/10 text-slate-200 text-xs font-semibold tracking-wide rounded-md shadow-2xl opacity-0 invisible group-hover/ticker:opacity-100 group-hover/ticker:visible transition-all z-[60] whitespace-nowrap pointer-events-none">{row.name || row.ticker}</div>
@@ -411,15 +411,15 @@ export default function StocksInPlay() {
                         <td className="pt-3 pb-2 text-[10px] text-slate-400 font-medium whitespace-nowrap text-left">
                           <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.sector || '—'}</div>
                         </td>
-                        <td className="pt-3 pb-2 text-[11px] text-indigo-300/90 font-medium text-left pr-8 whitespace-normal break-words">
+                        <td className="pt-3 pb-2 text-[11px] text-indigo-300/90 font-medium text-left pr-4 whitespace-normal break-words">
                           {row.catalyst || '—'}
                         </td>
                       </tr>
 
                       <tr className="bg-transparent border-t border-white/5">
-                        <td colSpan={11} className="pb-3.5 pt-2.5 px-4">
+                        <td colSpan={11} className="pb-3.5 pt-2.5 px-4 pl-12">
                           <div className="flex items-start">
-                            <div className="flex-1 pl-[72px]">
+                            <div className="flex-1">
                               {row.thesis ? (
                                 <p className="text-[11px] text-slate-400 leading-relaxed pr-8 whitespace-normal">
                                   <span className="inline-flex items-baseline gap-1.5 mr-2">
@@ -440,7 +440,7 @@ export default function StocksInPlay() {
                                   {row.thesis}
                                 </p>
                               ) : (
-                                <p className="text-[11px] text-slate-500 italic leading-relaxed pr-8 whitespace-normal mt-0.5 pl-4">
+                                <p className="text-[11px] text-slate-500 italic leading-relaxed pr-8 whitespace-normal mt-0.5">
                                   Awaiting quantitative confluence analysis...
                                 </p>
                               )}
