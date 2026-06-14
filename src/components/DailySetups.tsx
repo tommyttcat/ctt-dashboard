@@ -329,7 +329,7 @@ export default function DailySetups() {
           </div>
 
           <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[1200px] table-fixed border-collapse">
+            <table className="w-full min-w-[1300px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] text-left pl-4" onClick={() => handleSort('ticker')}>
@@ -338,16 +338,16 @@ export default function DailySetups() {
                       <span className="cursor-pointer text-indigo-400/60 hover:text-indigo-400" onClick={(e) => { e.stopPropagation(); handleSort('conviction'); }}>CNF{getSortIcon('conviction')}</span>
                     </div>
                   </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] text-left pl-2" onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[26%] text-left pr-4" onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] text-left pl-2" onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[18%] text-left pr-4" onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               
