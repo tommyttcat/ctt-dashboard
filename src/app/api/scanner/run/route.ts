@@ -75,28 +75,6 @@ const getMarketStatus = () => {
   return 'Closed';
 };
 
-const getEffectiveTradingDate = () => {
-  const est = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const day = est.getDay();
-  const timeStr = est.getHours() + est.getMinutes() / 60;
-
-  if (day === 6) est.setDate(est.getDate() - 1); 
-  else if (day === 0) est.setDate(est.getDate() - 2); 
-  else if (day === 1 && timeStr < 4) est.setDate(est.getDate() - 3); 
-  else if (timeStr < 4) est.setDate(est.getDate() - 1); 
-
-  const y = est.getFullYear();
-  const m = String(est.getMonth() + 1).padStart(2, '0');
-  const d = String(est.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
-
-const getPreviousTradingDate = (currentEffective: string) => {
-  const d = new Date(currentEffective);
-  d.setDate(d.getDate() - 1);
-  return d.toISOString().split('T')[0];
-};
-
 const isSpamNews = (title: string) => {
   if (!title) return true;
   const lower = title.toLowerCase();
@@ -302,7 +280,8 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
   return { name: null, stage }; 
 };
 
-const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 10000) => {
+// Bumped standard fetch timeout to 15s to allow for bigger payloads
+const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -372,18 +351,34 @@ export async function GET(request: Request) {
     let processedSnapshot: any[] = [];
 
     if (isWeekendMode) {
-      const targetDate = getEffectiveTradingDate();
-      const prevDate = getPreviousTradingDate(targetDate);
+      // Dynamic Benchmark Resolver: Let SPY tell us exactly what dates Polygon has available.
+      const todayDate = new Date();
+      const lookbackDate = new Date();
+      lookbackDate.setDate(todayDate.getDate() - 10); 
+      const toStr = todayDate.toISOString().split('T')[0];
+      const fromStr = lookbackDate.toISOString().split('T')[0];
 
+      const spyRes = await fetchSafeJson(`https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day/${fromStr}/${toStr}?adjusted=true&apiKey=${polygonApiKey}`, { results: [] });
+      const spyBars = spyRes.results || [];
+      
+      if (spyBars.length < 2) {
+        return NextResponse.json({ error: `Could not resolve valid market dates from benchmark. SPY bars returned: ${spyBars.length}` }, { status: 500 });
+      }
+
+      // Extracts the absolute, factual dates of the last two trading sessions directly from the API.
+      const targetDate = new Date(spyBars[spyBars.length - 1].t).toISOString().split('T')[0];
+      const prevDate = new Date(spyBars[spyBars.length - 2].t).toISOString().split('T')[0];
+
+      // Passed a 20s timeout here to handle the massive bulk payload sizes.
       const [groupedRes, prevGroupedRes] = await Promise.all([
-        fetchSafeJson(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonApiKey}`, { results: [] }),
-        fetchSafeJson(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${prevDate}?adjusted=true&apiKey=${polygonApiKey}`, { results: [] })
+        fetchSafeJson(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonApiKey}`, { results: [] }, 20000),
+        fetchSafeJson(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${prevDate}?adjusted=true&apiKey=${polygonApiKey}`, { results: [] }, 20000)
       ]);
 
       const rawResults = groupedRes.results || [];
       const prevResults = prevGroupedRes.results || [];
 
-      if (rawResults.length === 0) return NextResponse.json({ error: `No historical data returned for ${targetDate}` }, { status: 500 });
+      if (rawResults.length === 0) return NextResponse.json({ error: `No historical data returned from Polygon for confirmed active date ${targetDate}` }, { status: 500 });
 
       const prevCloseMap = new Map();
       prevResults.forEach((t: any) => {
