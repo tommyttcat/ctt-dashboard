@@ -75,6 +75,28 @@ const getMarketStatus = () => {
   return 'Closed';
 };
 
+const getEffectiveTradingDate = () => {
+  const est = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const day = est.getDay();
+  const timeStr = est.getHours() + est.getMinutes() / 60;
+
+  if (day === 6) est.setDate(est.getDate() - 1); 
+  else if (day === 0) est.setDate(est.getDate() - 2); 
+  else if (day === 1 && timeStr < 4) est.setDate(est.getDate() - 3); 
+  else if (timeStr < 4) est.setDate(est.getDate() - 1); 
+
+  const y = est.getFullYear();
+  const m = String(est.getMonth() + 1).padStart(2, '0');
+  const d = String(est.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const getPreviousTradingDate = (currentEffective: string) => {
+  const d = new Date(currentEffective);
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().split('T')[0];
+};
+
 const isSpamNews = (title: string) => {
   if (!title) return true;
   const lower = title.toLowerCase();
@@ -280,8 +302,7 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
   return { name: null, stage }; 
 };
 
-// Bumped standard fetch timeout to 15s to allow for bigger payloads
-const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
+const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 20000) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -351,7 +372,6 @@ export async function GET(request: Request) {
     let processedSnapshot: any[] = [];
 
     if (isWeekendMode) {
-      // Dynamic Benchmark Resolver: Let SPY tell us exactly what dates Polygon has available.
       const todayDate = new Date();
       const lookbackDate = new Date();
       lookbackDate.setDate(todayDate.getDate() - 10); 
@@ -365,11 +385,9 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: `Could not resolve valid market dates from benchmark. SPY bars returned: ${spyBars.length}` }, { status: 500 });
       }
 
-      // Extracts the absolute, factual dates of the last two trading sessions directly from the API.
       const targetDate = new Date(spyBars[spyBars.length - 1].t).toISOString().split('T')[0];
       const prevDate = new Date(spyBars[spyBars.length - 2].t).toISOString().split('T')[0];
 
-      // Passed a 20s timeout here to handle the massive bulk payload sizes.
       const [groupedRes, prevGroupedRes] = await Promise.all([
         fetchSafeJson(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonApiKey}`, { results: [] }, 20000),
         fetchSafeJson(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${prevDate}?adjusted=true&apiKey=${polygonApiKey}`, { results: [] }, 20000)
@@ -601,6 +619,7 @@ export async function GET(request: Request) {
         const sipString = sipCandidates.map((t: any) => t.ticker).join(', ');
         const dailyString = dailyCandidates.map((t: any) => t.ticker).join(', ');
 
+        // FIX: The prompt now demands an actionable trade thesis rather than reiterating the structural pattern.
         const aiPrompt = `
           You are an elite quantitative technical analyst.
           
@@ -618,8 +637,9 @@ export async function GET(request: Request) {
              - PARTICIPATION: Are AvgVol > 2M and ATR > 1.0 driving range?
              - STRUCTURE: Is the MathPattern and Stage confluence clean on higher time frames?
           3. For the 'conviction' field, ASSIGN A NUMERICAL SCORE (integer 1-100) based on this framework.
-          4. For the 'catalyst' field, summarize the Headline into a strict 1-3 word punchy category (e.g., "FDA Approval", "Earnings Beat", "Guidance Cut", "Analyst Upgrade"). If no news or empty headline, strictly return "Technical Momentum".
-          5. For the 'watching' array, select 5 to 8 total symbols representing the highest confluence.
+          4. For the 'catalyst' field, summarize the Headline into a strict 1-3 word punchy category (e.g., "FDA Approval", "Earnings Beat"). If no news, strictly return "Technical Momentum".
+          5. For the 'thesis' field, DO NOT just repeat the strategy name. Write a strict 1-2 sentence ACTIONABLE trade plan. (e.g., "Watch for a volume break over $15.50 to confirm continuation, with invalidation below the 20 EMA.").
+          6. For the 'watching' array, select 5 to 8 total symbols representing the highest confluence.
           
           BRIEFING INSTRUCTIONS:
           Your 'briefing' string must be an in-depth synthesis highlighting:

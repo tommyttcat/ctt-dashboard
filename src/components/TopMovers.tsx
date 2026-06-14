@@ -115,7 +115,7 @@ export default function TopMovers() {
           });
 
           setTopMoversData(safeData);
-          setLastScanTime(data.lastScanTime);
+          setLastScanTime(data.lastScanTime || Date.now()); // FIX: Ensured fallback to un-break badge timestamp
           setStatus('Live');
         }
       } catch (error) {
@@ -167,6 +167,8 @@ export default function TopMovers() {
   const getSortIcon = (columnKey: keyof StockData) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
   
   const getSessionTextColor = () => {
+    if (status.includes('Err') || status.includes('Offline')) return 'text-rose-500';
+    if (status.includes('Syncing')) return 'text-amber-500'; // FIX: Unified styling across dashboard
     if (session === 'Pre-Market') return 'text-amber-500';
     if (session === 'Open') return 'text-[#00e676]';
     if (session === 'Post-Market') return 'text-indigo-400';
@@ -219,7 +221,7 @@ export default function TopMovers() {
 
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${status === 'Live' ? getSessionTextColor() : 'text-slate-500'}`}>
+            <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>
               {status === 'Live' ? session : status}
             </span>
           </div>
@@ -307,20 +309,19 @@ export default function TopMovers() {
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300" style={{ width: isEtfTab ? '10%' : '8%', textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>{isEtfTab ? 'ETF' : 'SECTOR'}{getSortIcon('sector')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300" style={{ width: isEtfTab ? '15%' : '12%', textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300" style={{ width: isEtfTab ? '8%' : '6%', textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300" style={{ width: isEtfTab ? '12%' : '14%', textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('setupName')}>STRATEGY{getSortIcon('setupName')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {status.includes('Syncing') && topMoversData[activeTab].length === 0 ? (
                   <tr>
-                    <td colSpan={isEtfTab ? 10 : 13} className="py-12 text-center">
+                    <td colSpan={isEtfTab ? 10 : 12} className="py-12 text-center">
                       <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
                       <span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span>
                     </td>
                   </tr>
                 ) : sortedStocks.length === 0 ? (
                   <tr>
-                    <td colSpan={isEtfTab ? 10 : 13} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td>
+                    <td colSpan={isEtfTab ? 10 : 12} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td>
                   </tr>
                 ) : (
                   sortedStocks.map((row, i) => {
@@ -364,12 +365,6 @@ export default function TopMovers() {
                         </td>
                         <td className="py-3 text-xs font-bold whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           <span className={getStageColor(row.stage)}>{formatStageText(row.stage)}</span>
-                        </td>
-                        <td className="py-3 text-[11px] text-slate-200 font-semibold truncate max-w-[200px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <div className="flex items-center gap-1.5">
-                            {row.setupName === 'Blue Dot Rev' && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"></div>}
-                            <span>{formatSetupName(row.setupName)}</span>
-                          </div>
                         </td>
                       </tr>
                     );
