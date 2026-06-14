@@ -64,14 +64,14 @@ const ETF_TARGET_MAP: Record<string, string> = {
 };
 
 const getMarketStatus = () => {
-  const now = new Date();
-  const hours = now.getUTCHours();
-  const minutes = now.getUTCMinutes();
+  const now = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
   const time = hours + (minutes / 60);
   
-  if (time >= 8 && time < 13.5) return 'Pre-Market';
-  if (time >= 13.5 && time < 20) return 'Open';
-  if (time >= 20 && time < 24) return 'Post-Market';
+  if (time >= 4 && time < 9.5) return 'Pre-Market';
+  if (time >= 9.5 && time < 16) return 'Open';
+  if (time >= 16 && time < 20) return 'Post-Market';
   return 'Closed';
 };
 
@@ -181,8 +181,8 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
     for(let i=offset; i<offset+20; i++) variance += Math.pow(bars[i].c - sma, 2);
     const stdDev = Math.sqrt(variance / 20);
 
-    const upperBB = sma + (2.5 * stdDev);
-    const lowerBB = sma - (2.5 * stdDev);
+    const upperBB = sma + (2.0 * stdDev);
+    const lowerBB = sma - (2.0 * stdDev);
 
     let sumTR = 0;
     for(let i=offset; i<offset+20; i++) {
@@ -296,7 +296,15 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 10000) => {
 
 export async function GET(request: Request) {
   try {
-    const CACHE_MINUTES = 5; 
+    const estNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const day = estNow.getDay();
+    const hour = estNow.getHours();
+    const min = estNow.getMinutes();
+    const timeStr = hour + min / 60;
+    
+    const isWeekendMode = (day === 6 || day === 0) || (day === 5 && timeStr >= 20) || (day === 1 && timeStr < 4);
+    const CACHE_MINUTES = isWeekendMode ? 4320 : 5; 
+    
     const lastScanTime = (await kv.get<number>('last_scan_time')) || 0;
     const now = Date.now();
     const currentMarketStatus = getMarketStatus();
@@ -649,7 +657,6 @@ export async function GET(request: Request) {
       if (confluenceDict[t.ticker]) {
         let tag = confluenceDict[t.ticker].catalyst;
         
-        // Append "(Delayed)" if the news was 1.5 to 4 days ago
         if (tag !== "Technical Momentum" && t._daysOld >= 1.5 && t._daysOld <= 4) {
            tag = `${tag} (Delayed)`; 
         } else if (tag === "Technical Momentum" || t._daysOld > 4) {

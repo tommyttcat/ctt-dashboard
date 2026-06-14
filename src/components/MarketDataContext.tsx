@@ -26,7 +26,6 @@ const MarketDataContext = createContext<MarketDataContextType>({
 export const useMarketData = () => useContext(MarketDataContext);
 
 // --- HELPER: CALCULATE MARKET SESSION ---
-// Strictly enforcing time-based status: Pre-Market, Open, Post-Market, Closed
 const getMarketSession = () => {
   const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
   const day = estDate.getDay();
@@ -49,10 +48,10 @@ const getEffectiveTradingDate = () => {
   const day = est.getDay();
   const time = est.getHours() + est.getMinutes() / 60;
 
-  if (day === 6) est.setDate(est.getDate() - 1); // Saturday snaps to Friday
-  else if (day === 0) est.setDate(est.getDate() - 2); // Sunday snaps to Friday
-  else if (day === 1 && time < 4) est.setDate(est.getDate() - 3); // Monday before 4am snaps to Friday
-  else if (time < 4) est.setDate(est.getDate() - 1); // Tue-Fri before 4am snaps to Yesterday
+  if (day === 6) est.setDate(est.getDate() - 1); 
+  else if (day === 0) est.setDate(est.getDate() - 2); 
+  else if (day === 1 && time < 4) est.setDate(est.getDate() - 3); 
+  else if (time < 4) est.setDate(est.getDate() - 1); 
 
   const y = est.getFullYear();
   const m = String(est.getMonth() + 1).padStart(2, '0');
@@ -79,7 +78,6 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
 
     const fetchMasterSnapshot = async () => {
       try {
-        // THE FIX: Fetch exclusively from the cached DB snapshot so we don't DDOS the Gemini API
         const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
         
         if (!res.ok) throw new Error(`API Status ${res.status}`);
@@ -88,7 +86,6 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
 
         if (isMounted && data.success) {
           
-          // 1. Flatten the Top Movers
           const combinedMovers: any[] = [];
           if (data.topMovers) {
             Object.values(data.topMovers).forEach((categoryArray: any) => {
@@ -103,7 +100,6 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
             if (t.ticker) uniqueMoversMap.set(t.ticker, t);
           });
 
-          // 2. Extract SIPS and Daily Setups (which contain the AI theses from the DB)
           const sipsArray = data.stocksInPlay || data.sips || [];
           const dailyArray = data.dailySetups || [];
           const combinedAI = [...sipsArray, ...dailyArray];
@@ -113,7 +109,6 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
             if (t.ticker) uniqueAIMap.set(t.ticker, t);
           });
 
-          // 3. Merge AI data onto the master list so no frontend component misses a thesis
           combinedAI.forEach(t => {
             if (t.ticker) {
               if (uniqueMoversMap.has(t.ticker)) {
@@ -149,9 +144,12 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
 
     let intervalId: NodeJS.Timeout;
     const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const isWeekend = estDate.getDay() === 0 || estDate.getDay() === 6;
+    const day = estDate.getDay();
+    const timeStr = estDate.getHours() + estDate.getMinutes() / 60;
+    
+    const isWeekendMode = (day === 6 || day === 0) || (day === 5 && timeStr >= 20) || (day === 1 && timeStr < 4);
 
-    if (!isWeekend) {
+    if (!isWeekendMode) {
        intervalId = setInterval(fetchMasterSnapshot, 60000);
     }
 

@@ -89,8 +89,8 @@ export default function DailySetups() {
             sector: item.sector && item.sector !== '—' ? item.sector : '—',
             price: Number(item.price) || 0,
             vwapStatus: item.vwapStatus || 'neutral',
-            changePct: Number(item.change ?? item.changePct) || 0,
-            vol: Number(item.volume ?? item.vol) || 0,
+            changePct: Number((item.change ?? item.changePct) || 0),
+            vol: Number((item.volume ?? item.vol) || 0),
             dVol: Number(item.dVol) || (Number(item.price || 0) * Number((item.volume ?? item.vol) || 0)),
             rvol: item.rvol || null,
             float: item.float || null,
@@ -99,7 +99,7 @@ export default function DailySetups() {
             stage: item.stage || '2A',
             setupName: item.setupName || null,
             catalyst: item.catalyst || null,
-            conviction: item.conviction != null ? Number(item.conviction) : (item.aiScore ?? item.score ?? null), 
+            conviction: item.conviction != null ? Number(item.conviction) : ((item.aiScore ?? item.score) ?? null), 
             thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
           }));
 
@@ -165,8 +165,8 @@ export default function DailySetups() {
     if (!sortConfig) return filtered;
     
     return [...filtered].sort((a, b) => {
-      const aVal = a[sortConfig.key];
-      const bVal = b[sortConfig.key];
+      const aVal = a[sortConfig.key] as any;
+      const bVal = b[sortConfig.key] as any;
       if (aVal === null || aVal === undefined) return 1;
       if (bVal === null || bVal === undefined) return -1;
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -378,11 +378,11 @@ export default function DailySetups() {
                                 row.conviction >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 shadow-[0_0_8px_rgba(251,191,36,0.1)]' : 
                                 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50'
                               }`}>
-                                {row.conviction}%
+                                CNF: {row.conviction}%
                               </span>
                             ) : (
                               <span className="inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border uppercase bg-white/[0.02] text-slate-600 border-white/5">
-                                --%
+                                CNF: --%
                               </span>
                             )}
                           </div>
