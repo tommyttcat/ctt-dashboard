@@ -65,10 +65,6 @@ const ETF_TARGET_MAP: Record<string, string> = {
 
 const getMarketStatus = () => {
   const now = new Date();
-  const day = now.getUTCDay();
-  
-  if (day === 0 || day === 6) return 'Closed';
-
   const hours = now.getUTCHours();
   const minutes = now.getUTCMinutes();
   const time = hours + (minutes / 60);
@@ -185,11 +181,8 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
     for(let i=offset; i<offset+20; i++) variance += Math.pow(bars[i].c - sma, 2);
     const stdDev = Math.sqrt(variance / 20);
 
-    const upperBB2_5 = sma + (2.5 * stdDev);
-    const lowerBB2_5 = sma - (2.5 * stdDev);
-    
-    const upperBB3_5 = sma + (3.5 * stdDev);
-    const lowerBB3_5 = sma - (3.5 * stdDev);
+    const upperBB = sma + (2.5 * stdDev);
+    const lowerBB = sma - (2.5 * stdDev);
 
     let sumTR = 0;
     for(let i=offset; i<offset+20; i++) {
@@ -203,7 +196,7 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
     const upperKC = sma + (1.5 * avgTR);
     const lowerKC = sma - (1.5 * avgTR);
 
-    return (upperBB2_5 < upperKC && lowerBB2_5 > lowerKC);
+    return (upperBB < upperKC && lowerBB > lowerKC);
   };
 
   const isSqueezingToday = checkSqueeze(0);
@@ -303,7 +296,7 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 10000) => {
 
 export async function GET(request: Request) {
   try {
-    const CACHE_MINUTES = 0; 
+    const CACHE_MINUTES = 5; 
     const lastScanTime = (await kv.get<number>('last_scan_time')) || 0;
     const now = Date.now();
     const currentMarketStatus = getMarketStatus();
@@ -348,19 +341,16 @@ export async function GET(request: Request) {
     if (rawSnapshot.length === 0) return NextResponse.json({ error: 'No snapshot data returned' }, { status: 500 });
 
     const processedSnapshot = rawSnapshot.map((t: any) => {
-      let livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || 0;
-      if (livePrice === 0) livePrice = t.prevDay?.c || 0;
-
+      const livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || 0;
       const prevClose = t.prevDay?.c || 0;
-      let vol = t.day?.v || t.min?.v || 0;
-      if (vol === 0) vol = t.prevDay?.v || 0;
+      const vol = t.day?.v || t.prevDay?.v || t.min?.v || 0;
+      const vwap = t.day?.vw || t.prevDay?.vw || livePrice;
 
-      let vwap = t.day?.vw || 0;
-      if (vwap === 0) vwap = t.prevDay?.vw || livePrice;
-
-      let liveChg = t.todaysChangePerc !== undefined ? t.todaysChangePerc : 0;
-      if (prevClose > 0 && livePrice > 0 && livePrice !== prevClose) {
-         liveChg = ((livePrice - prevClose) / prevClose) * 100;
+      let liveChg = 0;
+      if (t.todaysChangePerc !== undefined && t.todaysChangePerc !== null) {
+        liveChg = t.todaysChangePerc;
+      } else if (prevClose > 0 && livePrice > 0) {
+        liveChg = ((livePrice - prevClose) / prevClose) * 100;
       }
 
       t._livePrice = livePrice;
@@ -373,50 +363,27 @@ export async function GET(request: Request) {
 
     const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= MIN_PRICE && t._liveVol >= MIN_VOLUME);
 
-    const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const isWeekend = estDate.getDay() === 0 || estDate.getDay() === 6;
-
-    let dailyCandidates: any[] = [];
-    let sipCandidates: any[] = [];
-    let gainersRaw: any[] = [];
-    let losersRaw: any[] = [];
-    let etfGainersRaw: any[] = [];
-    let etfLosersRaw: any[] = [];
+    const dailyCandidates = [...viableSetups]
+      .filter((t: any) => t._liveChg >= MIN_CHANGE)
+      .sort((a: any, b: any) => (b._livePrice * b._liveVol) - (a._livePrice * a._liveVol))
+      .slice(0, 30);
+      
+    const sipCandidates = [...viableSetups]
+      .filter((t: any) => Math.abs(t._liveChg) >= MIN_CHANGE && t._livePrice >= t._liveVwap)
+      .sort((a: any, b: any) => b._liveVol - a._liveVol)
+      .slice(0, 40);
 
     const MEGA_CAP_TICKERS = new Set(['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'BRK.B', 'AVGO', 'LLY', 'JPM', 'XOM', 'UNH', 'V', 'PG', 'MA', 'JNJ', 'HD', 'AMD', 'NFLX', 'COST']);
     
-    const megaCapsRaw = processedSnapshot.filter((t: any) => MEGA_CAP_TICKERS.has(t.ticker)).sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 20);
+    const megaCapsRaw = processedSnapshot.filter((t: any) => MEGA_CAP_TICKERS.has(t.ticker)).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
     const knownEtfsRaw = viableSetups.filter((t: any) => ETF_TARGET_MAP[t.ticker]);
+    const etfGainersRaw = [...knownEtfsRaw].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
+    const etfLosersRaw = [...knownEtfsRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 20);
+    
     const regularStocksRaw = viableSetups.filter((t: any) => !ETF_TARGET_MAP[t.ticker] && !MEGA_CAP_TICKERS.has(t.ticker));
-
-    if (isWeekend) {
-        // WEEKEND OVERRIDE: Snapshot % is 0. Grab top dollar volume stocks and calculate true % during enrichment.
-        const topVolumeUniverse = [...regularStocksRaw].sort((a: any, b: any) => (b._livePrice * b._liveVol) - (a._livePrice * a._liveVol)).slice(0, 150);
-        
-        dailyCandidates = topVolumeUniverse.slice(0, 50);
-        sipCandidates = topVolumeUniverse.slice(0, 50);
-        gainersRaw = topVolumeUniverse.slice(0, 50);
-        losersRaw = topVolumeUniverse.slice(0, 50);
-        
-        etfGainersRaw = knownEtfsRaw.sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 20);
-        etfLosersRaw = knownEtfsRaw.sort((a: any, b: any) => b._liveVol - a._liveVol).slice(0, 20);
-    } else {
-        dailyCandidates = [...viableSetups]
-          .filter((t: any) => t._liveChg >= MIN_CHANGE)
-          .sort((a: any, b: any) => (b._livePrice * b._liveVol) - (a._livePrice * a._liveVol))
-          .slice(0, 30);
-          
-        sipCandidates = [...viableSetups]
-          .filter((t: any) => Math.abs(t._liveChg) >= MIN_CHANGE && t._livePrice >= t._liveVwap)
-          .sort((a: any, b: any) => b._liveVol - a._liveVol)
-          .slice(0, 40);
-          
-        gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= MIN_CHANGE).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 40);
-        losersRaw = [...regularStocksRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 40);
-        
-        etfGainersRaw = [...knownEtfsRaw].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
-        etfLosersRaw = [...knownEtfsRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 20);
-    }
+    
+    const gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= MIN_CHANGE).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 40);
+    const losersRaw = [...regularStocksRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 40);
 
     const todayDate = new Date();
     const lookbackDate = new Date();
@@ -431,7 +398,7 @@ export async function GET(request: Request) {
       const sym = t.ticker || t.single_ticker;
       const price = t._livePrice;
       const vol = t._liveVol;
-      let chgPct = t._liveChg;
+      const chgPct = t._liveChg;
       const vwap = t._liveVwap;
       const currentOpen = t.day?.o || t.prevDay?.o || price;
 
@@ -445,13 +412,6 @@ export async function GET(request: Request) {
       const marketCap = details?.results?.market_cap || 0;
       const rawBars = aggs.results || [];
       const dailyBars = rawBars.sort((a: any, b: any) => b.t - a.t); 
-
-      // MATHEMATICAL FIX: Force accurate percentage calculations on weekends bypassing Polygon snapshot
-      if (isWeekend && dailyBars.length >= 2) {
-          const latestClose = dailyBars[0].c;
-          const previousClose = dailyBars[1].c;
-          chgPct = ((latestClose - previousClose) / previousClose) * 100;
-      }
 
       let avgVol = 0;
       let atr = 0;
@@ -541,9 +501,9 @@ export async function GET(request: Request) {
         console.error(aiErrorMessage);
     } else {
       try {
-        const topGainersString = gainersRaw.slice(0, 10).map((t: any) => `${t.ticker}`).join(', ');
-        const topEtfsString = etfGainersRaw.slice(0, 10).map((t: any) => `${t.ticker}`).join(', ');
-        const megasString = megaCapsRaw.slice(0, 5).map((t: any) => `${t.ticker}`).join(', ');
+        const topGainersString = gainersRaw.slice(0, 10).map((t: any) => `${t.ticker} (+${t._liveChg.toFixed(2)}%)`).join(', ');
+        const topEtfsString = etfGainersRaw.slice(0, 10).map((t: any) => `${t.ticker} (+${t._liveChg.toFixed(2)}%)`).join(', ');
+        const megasString = megaCapsRaw.slice(0, 5).map((t: any) => `${t.ticker} (${t._liveChg > 0 ? '+' : ''}${t._liveChg.toFixed(2)}%)`).join(', ');
 
         const aiTargets = new Set([
             ...dailyCandidates, 
@@ -709,18 +669,16 @@ export async function GET(request: Request) {
       enrichedMap.set(t.ticker, t); 
     });
     
-    // Sort and filter the results using the new, accurate `changePct`
     const finalSip = sipCandidates
       .map((t: any) => enrichedMap.get(t.ticker))
       .filter((r: any) => 
          r !== undefined && 
          r.vol >= MIN_VOLUME && 
          r.mktCap >= MIN_MARKET_CAP &&
-         Math.abs(r.changePct) >= MIN_CHANGE &&
+         r.changePct >= MIN_CHANGE &&
          r.atr >= 1.0 && 
          r.avgVol >= MIN_AVG_VOL
       )
-      .sort((a: any, b: any) => b.vol - a.vol)
       .slice(0, 10);
 
     const finalDaily = dailyCandidates
@@ -731,15 +689,14 @@ export async function GET(request: Request) {
          r.mktCap >= MIN_MARKET_CAP &&
          r.changePct >= MIN_CHANGE
       )
-      .sort((a: any, b: any) => b.changePct - a.changePct)
       .slice(0, 10);
     
     const finalTopMovers = {
-      'Mega Caps': megaCapsRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).sort((a:any, b:any) => b.changePct - a.changePct).slice(0, 10),
-      'Gainers': gainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.vol >= MIN_VOLUME && r.mktCap >= MIN_MARKET_CAP && r.changePct >= MIN_CHANGE).sort((a:any, b:any) => b.changePct - a.changePct).slice(0, 10),
-      'Losers': losersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.mktCap >= MIN_MARKET_CAP && r.changePct <= -MIN_CHANGE).sort((a:any, b:any) => a.changePct - b.changePct).slice(0, 10),
-      'ETF Gainers': etfGainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.changePct > 0).sort((a:any, b:any) => b.changePct - a.changePct).slice(0, 10),
-      'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.changePct < 0).sort((a:any, b:any) => a.changePct - b.changePct).slice(0, 10)
+      'Mega Caps': megaCapsRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10),
+      'Gainers': gainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.vol >= MIN_VOLUME && r.mktCap >= MIN_MARKET_CAP).slice(0, 10),
+      'Losers': losersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.mktCap >= MIN_MARKET_CAP).slice(0, 10),
+      'ETF Gainers': etfGainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10),
+      'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10)
     };
 
     await kv.set('daily_setups', finalDaily);
