@@ -26,33 +26,33 @@ interface StockInPlay {
 type SortDirection = 'asc' | 'desc';
 type ConvictionFilterType = 'All' | 'High' | 'Med' | 'Low';
 
-const formatTime = (timestamp: number | Date) => {
+const formatTime = (timestamp: number | Date | null) => {
   if (!timestamp) return '';
   const date = new Date(timestamp);
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
 };
 
-const formatNumber = (num: number | null) => {
-  if (num === null || num === 0 || isNaN(num)) return '—';
+const formatNumber = (num: number | null | undefined) => {
+  if (num === null || num === undefined || num === 0 || isNaN(num)) return '—';
   if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
   if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
   if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
   return num.toLocaleString();
 };
 
-const formatCurrency = (num: number | null) => {
-  if (num === null || num === 0 || isNaN(num)) return '—';
+const formatCurrency = (num: number | null | undefined) => {
+  if (num === null || num === undefined || num === 0 || isNaN(num)) return '—';
   if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
   if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
   return '$' + num.toLocaleString();
 };
 
-const formatStageText = (stage: string | undefined) => {
+const formatStageText = (stage: string | undefined | null) => {
   if (!stage || stage === '-' || stage === '—') return '—';
   return stage.replace(/Stage\s*/i, ''); 
 };
 
-const formatSetupName = (name: string | null) => {
+const formatSetupName = (name: string | null | undefined) => {
   if (!name || name === '-' || name === '—') return '—';
   if (name.includes('BB SQZ')) return 'BB SQZ';
   if (name === 'Blue Dot Rev') return 'BD Rev';
@@ -60,11 +60,11 @@ const formatSetupName = (name: string | null) => {
 };
 
 export default function StocksInPlay() {
-  const { session } = useMarketData(); 
+  // Pull session and master timestamp to sync the UI badge
+  const { session, lastUpdated } = useMarketData(); 
 
   const [stocks, setStocks] = useState<StockInPlay[]>([]);
   const [status, setStatus] = useState<string>('Syncing DB...');
-  const [lastScanTime, setLastScanTime] = useState<number | null>(null);
   
   const [sortConfig, setSortConfig] = useState<{ key: keyof StockInPlay; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
@@ -82,29 +82,38 @@ export default function StocksInPlay() {
         const data = await res.json();
         
         if (isMounted && data.success) {
-          const rawList = data.stocksInPlay || [];
-          const safeData = rawList.map((item: any) => ({
-            ticker: item.ticker || '—',
-            name: item.name || '',
-            sector: item.sector && item.sector !== '—' ? item.sector : '—',
-            price: Number(item.price) || 0,
-            vwapStatus: item.vwapStatus || 'neutral',
-            changePct: Number(item.change ?? item.changePct) || 0,
-            vol: Number(item.volume ?? item.vol) || 0,
-            dVol: Number(item.dVol) || (Number(item.price || 0) * Number((item.volume ?? item.vol) || 0)),
-            rvol: item.rvol || null,
-            float: item.float || null,
-            shortPct: item.shortPct || null,
-            mktCap: item.mktCap || null,
-            stage: item.stage || '2A',
-            setupName: item.setupName || null,
-            catalyst: item.catalyst || null,
-            conviction: item.conviction != null ? Number(item.conviction) : (item.aiScore ?? item.score ?? null), 
-            thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
-          }));
+          // Gracefully fallback to either array name used by the backend
+          const rawList = data.stocksInPlay || data.sips || [];
+          
+          const safeData: StockInPlay[] = rawList.map((item: any): StockInPlay => {
+            let vwap = 'neutral';
+            if (item.vwapStatus === 'above' || item.vwapStatus === 'below') {
+              vwap = item.vwapStatus;
+            }
+
+            return {
+              ticker: item.ticker || '—',
+              name: item.name || '',
+              sector: item.sector && item.sector !== '—' ? item.sector : '—',
+              price: Number(item.price) || 0,
+              vwapStatus: vwap as 'above' | 'below' | 'neutral',
+              // VERCEL FIX: Explicit parens added around ALL ?? operators
+              changePct: Number((item.change ?? item.changePct) || 0),
+              vol: Number((item.volume ?? item.vol) || 0),
+              dVol: Number(item.dVol) || (Number(item.price || 0) * Number((item.volume ?? item.vol) || 0)),
+              rvol: item.rvol || null,
+              float: item.float || null,
+              shortPct: item.shortPct || null,
+              mktCap: item.mktCap || null,
+              stage: item.stage || '2A',
+              setupName: item.setupName || null,
+              catalyst: item.catalyst || null,
+              conviction: item.conviction != null ? Number(item.conviction) : ((item.aiScore ?? item.score) ?? null), 
+              thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
+            };
+          });
 
           setStocks(safeData);
-          setLastScanTime(data.lastScanTime);
           setStatus('Live');
         }
       } catch (error) {
@@ -128,7 +137,7 @@ export default function StocksInPlay() {
     setSortConfig({ key, direction });
   };
 
-  const filteredAndSortedStocks = useMemo(() => {
+  const filteredAndSortedStocks: StockInPlay[] = useMemo(() => {
     let filtered = stocks.filter(s => 
       s.changePct >= 4.0 && 
       s.vol >= 500000 && 
@@ -165,8 +174,9 @@ export default function StocksInPlay() {
     if (!sortConfig) return filtered;
     
     return [...filtered].sort((a, b) => {
-      const aVal = a[sortConfig.key];
-      const bVal = b[sortConfig.key];
+      // VERCEL FIX: Explicit any typing to silence linter strict mode
+      const aVal = a[sortConfig.key] as any;
+      const bVal = b[sortConfig.key] as any;
       if (aVal === null || aVal === undefined) return 1;
       if (bVal === null || bVal === undefined) return -1;
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -232,9 +242,9 @@ export default function StocksInPlay() {
               {status === 'Live' ? session : status}
             </span>
           </div>
-          {lastScanTime && (
+          {lastUpdated && status === 'Live' && (
              <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
-               Updated: {formatTime(lastScanTime)} EST
+               Updated: {formatTime(lastUpdated)} EST
              </span>
           )}
         </div>

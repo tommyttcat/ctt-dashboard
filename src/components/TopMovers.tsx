@@ -27,33 +27,33 @@ type SortDirection = 'asc' | 'desc';
 
 const MEGA_CAP_TICKERS = new Set(['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'BRK.B', 'AVGO', 'LLY', 'JPM', 'XOM', 'UNH', 'V', 'PG', 'MA', 'JNJ', 'HD', 'AMD', 'NFLX', 'COST']);
 
-const formatTime = (timestamp: number | Date) => {
+const formatTime = (timestamp: number | Date | null) => {
   if (!timestamp) return '';
   const date = new Date(timestamp);
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
 };
 
-const formatNumber = (num: number | null) => {
-  if (num === null || num === 0 || isNaN(num)) return '—';
+const formatNumber = (num: number | null | undefined) => {
+  if (num === null || num === undefined || num === 0 || isNaN(num)) return '—';
   if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
   if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
   if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
   return num.toLocaleString();
 };
 
-const formatCurrency = (num: number | null) => {
-  if (num === null || num === 0 || isNaN(num)) return '—';
+const formatCurrency = (num: number | null | undefined) => {
+  if (num === null || num === undefined || num === 0 || isNaN(num)) return '—';
   if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
   if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
   return '$' + num.toLocaleString();
 };
 
-const formatStageText = (stage: string | undefined) => {
+const formatStageText = (stage: string | undefined | null) => {
   if (!stage || stage === '-' || stage === '—') return '—';
   return stage.replace(/Stage\s*/i, ''); 
 };
 
-const formatSetupName = (name: string | null) => {
+const formatSetupName = (name: string | null | undefined) => {
   if (!name || name === '-' || name === '—') return '—';
   if (name.includes('BB SQZ')) return 'BB SQZ';
   if (name === 'Blue Dot Rev') return 'BD Rev';
@@ -61,7 +61,7 @@ const formatSetupName = (name: string | null) => {
 };
 
 export default function TopMovers() {
-  // THE FIX: Pull everything directly from the Context Provider
+  // Sync the UI badge and data to the master context
   const { session, topMovers, lastUpdated, isLoading } = useMarketData();
   
   const [activeTab, setActiveTab] = useState<TabType>('Gainers');
@@ -73,7 +73,7 @@ export default function TopMovers() {
 
   useEffect(() => { setSortConfig(null); }, [activeTab]);
 
-  // Categorize the master data into the correct tabs
+  // Categorize the master context data into the correct UI tabs
   const topMoversData = useMemo(() => {
     const safeData: Record<TabType, StockData[]> = {
       'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': []
@@ -82,15 +82,21 @@ export default function TopMovers() {
     if (!topMovers || topMovers.length === 0) return safeData;
 
     topMovers.forEach((item: any) => {
+      let vwap = 'neutral';
+      if (item.vwapStatus === 'above' || item.vwapStatus === 'below') {
+        vwap = item.vwapStatus;
+      }
+
       const formatted: StockData = {
         ticker: item.ticker || '—',
         name: item.name || '',
         sector: item.sector || '',
         price: Number(item.price || item.day?.c) || 0,
-        vwapStatus: item.vwapStatus || 'neutral',
-        changePct: Number(item.changePct ?? item.todaysChangePerc) || 0,
-        vol: Number(item.vol ?? item.day?.v) || 0,
-        dVol: Number(item.dVol) || (Number(item.price || item.day?.c || 0) * Number(item.vol ?? item.day?.v || 0)),
+        vwapStatus: vwap as 'above' | 'below' | 'neutral',
+        changePct: Number((item.changePct ?? item.todaysChangePerc) || 0),
+        vol: Number((item.vol ?? item.day?.v) || 0),
+        // VERCEL FIX: Explicit parens added around ALL ?? operators
+        dVol: Number(item.dVol) || (Number(item.price || item.day?.c || 0) * Number((item.vol ?? item.day?.v) || 0)),
         rvol: item.rvol || null,
         mktCap: item.mktCap ?? item.marketCap ?? null,
         float: item.float || null,
@@ -144,8 +150,9 @@ export default function TopMovers() {
     if (!sortConfig) return currentList;
     
     return [...currentList].sort((a, b) => {
-      const aVal = a[sortConfig.key];
-      const bVal = b[sortConfig.key];
+      // VERCEL FIX: Explicit any typing to silence linter strict mode
+      const aVal = a[sortConfig.key] as any;
+      const bVal = b[sortConfig.key] as any;
       if (aVal === null || aVal === undefined) return 1;
       if (bVal === null || bVal === undefined) return -1;
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
