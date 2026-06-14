@@ -87,10 +87,10 @@ export default function DailySetups() {
             const rawCatalyst = item.catalyst || null;
             let finalThesis = item.thesis || item.aiThesis || item.analysis || item.reasoning || null;
 
-            // Generate brief context-focused narrative directly from specific catalyst news reasons
+            // Generate a concise, news-driven narrative if fallback is required
             if (!finalThesis && rawCatalyst) {
               const cleanedCat = rawCatalyst.trim().replace(/\.$/, '');
-              finalThesis = `Catalyst shift via ${cleanedCat}. Order book reflects explicit institutional positioning and volume breakout alignment.`;
+              finalThesis = `Institutional buying triggered by ${cleanedCat.toLowerCase()}.`;
             }
 
             return {
@@ -347,8 +347,8 @@ export default function DailySetups() {
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[36%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[36%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left' }} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               
@@ -409,10 +409,10 @@ export default function DailySetups() {
                         <td className={`pt-3 pb-3 text-xs font-bold whitespace-nowrap ${getFloatColor(row.float)}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>{formatNumber(row.float)}</td>
                         <td className={`pt-3 pb-3 text-xs font-bold whitespace-nowrap ${getShortColor(row.shortPct)}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
                         <td className="pt-3 pb-3 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '12px' }}>{formatNumber(row.mktCap)}</td>
-                        <td className="pt-3 pb-3 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '12px' }}>
+                        <td className="pt-3 pb-3 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left' }}>
                           <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.sector || '—'}</div>
                         </td>
-                        <td className="pt-3 pb-3 text-[11px] text-indigo-300/90 font-medium whitespace-normal" style={{ textAlign: 'left', paddingLeft: '12px' }}>
+                        <td className="pt-3 pb-3 text-[11px] text-indigo-300/90 font-medium whitespace-normal" style={{ textAlign: 'left' }}>
                           {row.catalyst || '—'}
                         </td>
                       </tr>
