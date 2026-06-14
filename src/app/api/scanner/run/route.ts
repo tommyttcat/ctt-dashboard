@@ -75,22 +75,6 @@ const getMarketStatus = () => {
   return 'Closed';
 };
 
-const getEffectiveTradingDate = () => {
-  const est = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const day = est.getDay();
-  const timeStr = est.getHours() + est.getMinutes() / 60;
-
-  if (day === 6) est.setDate(est.getDate() - 1); 
-  else if (day === 0) est.setDate(est.getDate() - 2); 
-  else if (day === 1 && timeStr < 4) est.setDate(est.getDate() - 3); 
-  else if (timeStr < 4) est.setDate(est.getDate() - 1); 
-
-  const y = est.getFullYear();
-  const m = String(est.getMonth() + 1).padStart(2, '0');
-  const d = String(est.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
-
 const isSpamNews = (title: string) => {
   if (!title) return true;
   const lower = title.toLowerCase();
@@ -331,11 +315,14 @@ export async function GET(request: Request) {
       const cachedTopMovers = await kv.get<any>('top_movers');
       const cachedMacro = await kv.get<any>('macro_insights');
       
-      if (cachedDaily && cachedSip && cachedTopMovers) {
+      // FIX: The Cache Buster. If Vercel KV arrays are empty from a corrupted weekend scan, bypass cache.
+      const isCacheValid = cachedTopMovers && cachedTopMovers['Mega Caps'] && cachedTopMovers['Mega Caps'].length > 0;
+
+      if (cachedDaily && cachedSip && cachedTopMovers && isCacheValid) {
         return NextResponse.json({
           success: true,
           marketStatus: currentMarketStatus,
-          lastScanTime: lastScanTime, // FIX: Injected timestamp back into cache pull
+          lastScanTime: lastScanTime || Date.now(), 
           dailyCount: cachedDaily.length,
           sipCount: cachedSip.length,
           topMoversGenerated: true,
@@ -361,59 +348,35 @@ export async function GET(request: Request) {
     const MIN_CHANGE = 4.0;
     const MIN_PRICE = 1.00;
 
-    let processedSnapshot: any[] = [];
+    // FIX: Reverted to standard snapshot for simplicity, but intercepting the math to handle the weekend wipe.
+    const snapRes = await fetchSafeJson(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`, { tickers: [] });
+    const rawSnapshot = snapRes.tickers || [];
+    if (rawSnapshot.length === 0) return NextResponse.json({ error: 'No snapshot data returned' }, { status: 500 });
 
-    // FIX: Core routing divergence to handle the weekend data flush
-    if (isWeekendMode) {
-      const targetDate = getEffectiveTradingDate();
-      const groupedRes = await fetchSafeJson(`https://api.polygon.io/v2/aggs/grouped/locale/us/markets/stocks/${targetDate}?adjusted=true&apiKey=${polygonApiKey}`, { results: [] });
-      const rawResults = groupedRes.results || [];
+    const processedSnapshot = rawSnapshot.map((t: any) => {
+      // Pulling the true price (prevDay protects against weekend wipes)
+      const livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || 0;
+      const prevClose = t.prevDay?.c || 0;
+      
+      // If weekend, day.v is wiped. Fall back to prevDay.v to keep filters alive.
+      const vol = isWeekendMode ? (t.prevDay?.v || 0) : (t.day?.v || t.prevDay?.v || t.min?.v || 0);
+      const vwap = isWeekendMode ? (t.prevDay?.vw || livePrice) : (t.day?.vw || t.prevDay?.vw || livePrice);
 
-      if (rawResults.length === 0) return NextResponse.json({ error: `No historical data returned for ${targetDate}` }, { status: 500 });
+      let liveChg = 0;
+      if (!isWeekendMode && t.todaysChangePerc !== undefined && t.todaysChangePerc !== null && t.todaysChangePerc !== 0) {
+        liveChg = t.todaysChangePerc;
+      } else if (prevClose > 0 && livePrice > 0) {
+        // Essential calculation for weekends when todaysChangePerc zeroes out
+        liveChg = ((livePrice - prevClose) / prevClose) * 100;
+      }
 
-      processedSnapshot = rawResults.map((t: any) => {
-        const livePrice = t.c || 0;
-        const openPrice = t.o || livePrice;
-        const vol = t.v || 0;
-        const vwap = t.vw || livePrice;
-        // Grouped daily lacks previous close, so we utilize intraday gap % for the weekend placeholder
-        const liveChg = openPrice > 0 ? ((livePrice - openPrice) / openPrice) * 100 : 0;
+      t._livePrice = livePrice;
+      t._liveChg = Number.isNaN(liveChg) ? 0 : liveChg;
+      t._liveVol = vol;
+      t._liveVwap = vwap;
 
-        return {
-          ticker: t.T,
-          _livePrice: livePrice,
-          _liveChg: liveChg,
-          _liveVol: vol,
-          _liveVwap: vwap,
-          day: { o: t.o, c: t.c, h: t.h, l: t.l, v: t.v, vw: t.vw } 
-        };
-      });
-    } else {
-      const snapRes = await fetchSafeJson(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`, { tickers: [] });
-      const rawSnapshot = snapRes.tickers || [];
-      if (rawSnapshot.length === 0) return NextResponse.json({ error: 'No snapshot data returned' }, { status: 500 });
-
-      processedSnapshot = rawSnapshot.map((t: any) => {
-        const livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || 0;
-        const prevClose = t.prevDay?.c || 0;
-        const vol = t.day?.v || t.prevDay?.v || t.min?.v || 0;
-        const vwap = t.day?.vw || t.prevDay?.vw || livePrice;
-
-        let liveChg = 0;
-        if (t.todaysChangePerc !== undefined && t.todaysChangePerc !== null) {
-          liveChg = t.todaysChangePerc;
-        } else if (prevClose > 0 && livePrice > 0) {
-          liveChg = ((livePrice - prevClose) / prevClose) * 100;
-        }
-
-        t._livePrice = livePrice;
-        t._liveChg = Number.isNaN(liveChg) ? 0 : liveChg;
-        t._liveVol = vol;
-        t._liveVwap = vwap;
-
-        return t;
-      });
-    }
+      return t;
+    });
 
     const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= MIN_PRICE && t._liveVol >= MIN_VOLUME);
 
@@ -767,7 +730,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ 
       success: true, 
       marketStatus: getMarketStatus(),
-      lastScanTime: finalScanTime, // FIX: Exporting missing timestamp
+      lastScanTime: finalScanTime,
       dailyCount: finalDaily.length,
       sipCount: finalSip.length,
       topMoversGenerated: true,
