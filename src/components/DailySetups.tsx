@@ -329,25 +329,25 @@ export default function DailySetups() {
           </div>
 
           <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[1200px] border-collapse">
+            <table className="w-full min-w-[1200px] border-collapse layout-fixed">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] text-left pl-4">
                     <div className="flex items-center gap-3">
                       <span className="cursor-pointer hover:text-slate-300" onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</span>
                       <span className="cursor-pointer text-indigo-400/60 hover:text-indigo-400" onClick={() => handleSort('conviction')}>CONFLUENCE{getSortIcon('conviction')}</span>
                     </div>
                   </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left' }} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left' }} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left' }} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left' }} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left' }} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left' }} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left' }} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 pl-4" style={{ textAlign: 'left' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[24%] cursor-pointer hover:text-slate-300 text-right pr-6" onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] text-left pl-2" onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[24%] text-left pr-4" onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               
@@ -373,7 +373,7 @@ export default function DailySetups() {
                   return (
                     <tbody key={i} className="group hover:bg-white/[0.02] transition-colors">
                       <tr className="bg-transparent">
-                        <td className="pt-3 pb-2" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                        <td className="pt-3 pb-2 text-left pl-4">
                           <div className="flex items-center gap-2">
                             <div className="relative inline-flex items-center group/ticker">
                               <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
@@ -395,23 +395,23 @@ export default function DailySetups() {
                             )}
                           </div>
                         </td>
-                        <td className="pt-3 pb-2 text-xs text-slate-300 font-medium whitespace-nowrap" style={{ textAlign: 'left' }}>
+                        <td className="pt-3 pb-2 text-xs text-slate-300 font-medium whitespace-nowrap text-left">
                           <div className="flex items-center gap-1.5">
                             ${row.price.toFixed(2)}
                             {row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>)}
                           </div>
                         </td>
-                        <td className={`pt-3 pb-2 text-xs font-bold whitespace-nowrap ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`} style={{ textAlign: 'left' }}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
-                        <td className="pt-3 pb-2 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left' }}>{formatNumber(row.vol)}</td>
-                        <td className="pt-3 pb-2 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left' }}>{formatCurrency(row.dVol)}</td>
-                        <td className={`pt-3 pb-2 text-xs font-bold whitespace-nowrap ${getRvolColor(row.rvol)}`} style={{ textAlign: 'left' }}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
-                        <td className={`pt-3 pb-2 text-xs font-bold whitespace-nowrap ${getFloatColor(row.float)}`} style={{ textAlign: 'left' }}>{formatNumber(row.float)}</td>
-                        <td className={`pt-3 pb-2 text-xs font-bold whitespace-nowrap ${getShortColor(row.shortPct)}`} style={{ textAlign: 'left' }}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
-                        <td className="pt-3 pb-2 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left' }}>{formatNumber(row.mktCap)}</td>
-                        <td className="pt-3 pb-2 text-[10px] text-slate-400 font-medium whitespace-nowrap pl-4" style={{ textAlign: 'left' }}>
+                        <td className={`pt-3 pb-2 text-xs font-bold whitespace-nowrap text-left ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
+                        <td className="pt-3 pb-2 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatNumber(row.vol)}</td>
+                        <td className="pt-3 pb-2 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatCurrency(row.dVol)}</td>
+                        <td className={`pt-3 pb-2 text-xs font-bold whitespace-nowrap text-left ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
+                        <td className={`pt-3 pb-2 text-xs font-bold whitespace-nowrap text-left ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
+                        <td className={`pt-3 pb-2 text-xs font-bold whitespace-nowrap text-left ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
+                        <td className="pt-3 pb-2 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatNumber(row.mktCap)}</td>
+                        <td className="pt-3 pb-2 text-[10px] text-slate-400 font-medium whitespace-nowrap text-left pl-2">
                           <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.sector || '—'}</div>
                         </td>
-                        <td className="pt-3 pb-2 text-[11px] text-indigo-300/90 font-medium text-right pr-6 whitespace-normal" style={{ textAlign: 'right' }}>
+                        <td className="pt-3 pb-2 text-[11px] text-indigo-300/90 font-medium text-left pr-4 whitespace-normal break-words">
                           {row.catalyst || '—'}
                         </td>
                       </tr>
