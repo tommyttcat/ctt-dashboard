@@ -100,8 +100,8 @@ export default function TopMovers() {
               sector: item.sector || '',
               price: Number(item.price) || 0,
               vwapStatus: item.vwapStatus || 'neutral',
-              changePct: Number((item.change ?? item.changePct) || 0), 
-              vol: Number((item.volume ?? item.vol) || 0),
+              changePct: Number(item.change ?? item.changePct) || 0, 
+              vol: Number(item.volume ?? item.vol) || 0,
               dVol: Number(item.dVol) || (Number(item.price || 0) * Number((item.volume ?? item.vol) || 0)),
               rvol: item.rvol || null,
               mktCap: item.mktCap || null,
@@ -151,17 +151,17 @@ export default function TopMovers() {
       });
     }
 
-    if (!sortConfig) return currentList.slice(0, 10);
+    if (!sortConfig) return currentList;
     
     return [...currentList].sort((a, b) => {
-      const aVal = a[sortConfig.key] as any;
-      const bVal = b[sortConfig.key] as any;
+      const aVal = a[sortConfig.key];
+      const bVal = b[sortConfig.key];
       if (aVal === null || aVal === undefined) return 1;
       if (bVal === null || bVal === undefined) return -1;
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
-    }).slice(0, 10);
+    });
   }, [topMoversData, activeTab, sortConfig, marketCapFilter]);
 
   const getSortIcon = (columnKey: keyof StockData) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
@@ -237,6 +237,7 @@ export default function TopMovers() {
         <>
           <div className="flex flex-col gap-4 mb-6 relative z-10 pb-2">
             
+            {/* ROW 1: Main Tabs and VWAP Legend */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 w-full">
               <div className="flex gap-3 overflow-x-auto custom-scrollbar w-full md:w-auto" style={{ scrollbarWidth: 'none' }}>
                 {(['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'] as TabType[]).map((tab) => (
@@ -269,6 +270,7 @@ export default function TopMovers() {
               </div>
             </div>
 
+            {/* ROW 2: Market Cap Filter */}
             <div className="flex items-center w-full">
               <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1 overflow-x-auto custom-scrollbar w-full md:w-auto" onClick={(e) => e.stopPropagation()}>
                 {['All', 'Micro', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (

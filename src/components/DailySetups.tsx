@@ -89,8 +89,8 @@ export default function DailySetups() {
             sector: item.sector && item.sector !== '—' ? item.sector : '—',
             price: Number(item.price) || 0,
             vwapStatus: item.vwapStatus || 'neutral',
-            changePct: Number((item.change ?? item.changePct) || 0),
-            vol: Number((item.volume ?? item.vol) || 0),
+            changePct: Number(item.change ?? item.changePct) || 0,
+            vol: Number(item.volume ?? item.vol) || 0,
             dVol: Number(item.dVol) || (Number(item.price || 0) * Number((item.volume ?? item.vol) || 0)),
             rvol: item.rvol || null,
             float: item.float || null,
@@ -99,7 +99,7 @@ export default function DailySetups() {
             stage: item.stage || '2A',
             setupName: item.setupName || null,
             catalyst: item.catalyst || null,
-            conviction: item.conviction != null ? Number(item.conviction) : ((item.aiScore ?? item.score) ?? null), 
+            conviction: item.conviction != null ? Number(item.conviction) : (item.aiScore ?? item.score ?? null), 
             thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
           }));
 
@@ -165,8 +165,8 @@ export default function DailySetups() {
     if (!sortConfig) return filtered;
     
     return [...filtered].sort((a, b) => {
-      const aVal = a[sortConfig.key] as any;
-      const bVal = b[sortConfig.key] as any;
+      const aVal = a[sortConfig.key];
+      const bVal = b[sortConfig.key];
       if (aVal === null || aVal === undefined) return 1;
       if (bVal === null || bVal === undefined) return -1;
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
