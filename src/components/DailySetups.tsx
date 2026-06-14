@@ -338,14 +338,13 @@ export default function DailySetups() {
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[24%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
                 </tr>
               </thead>
               
               {status.includes('Syncing') && setups.length === 0 ? (
                 <tbody>
                   <tr>
-                    <td colSpan={12} className="py-12 text-center border-b border-white/5">
+                    <td colSpan={11} className="py-12 text-center border-b border-white/5">
                       <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
                       <span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span>
                     </td>
@@ -354,7 +353,7 @@ export default function DailySetups() {
               ) : filteredAndSortedSetups.length === 0 ? (
                 <tbody>
                   <tr>
-                    <td colSpan={12} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">No active tracking items currently matching momentum criteria.</td>
+                    <td colSpan={11} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">No active tracking items currently matching momentum criteria.</td>
                   </tr>
                 </tbody>
               ) : (
@@ -405,25 +404,29 @@ export default function DailySetups() {
                         <td className="pt-3 pb-1.5 text-[11px] text-indigo-300/90 font-medium truncate max-w-[200px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           {row.catalyst || '—'}
                         </td>
-                        <td className="pt-3 pb-1.5 text-xs font-bold whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <span className={getStageColor(row.stage)}>{formatStageText(row.stage)}</span>
-                        </td>
                       </tr>
 
                       <tr className="bg-transparent">
-                        <td colSpan={12} className="pb-3 pt-0.5 px-4 pl-[16px]">
+                        <td colSpan={11} className="pb-3 pt-0.5 px-4 pl-[16px]">
                           <div className="flex items-start">
                             <div className="flex-1 mt-[1px]">
                               {row.thesis ? (
                                 <p className="text-[11px] text-slate-400/90 leading-relaxed pr-8 whitespace-normal line-clamp-3">
-                                  {row.setupName && row.setupName !== '-' && row.setupName !== '—' ? (
-                                    <span className="inline-flex items-baseline gap-1.5 mr-2">
-                                      {row.setupName === 'Blue Dot Rev' && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)] relative top-[2px]"></span>}
-                                      <span className="text-indigo-400/80 font-bold text-[10px] tracking-widest uppercase">{formatSetupName(row.setupName)} | THESIS:</span>
-                                    </span>
-                                  ) : (
-                                    <span className="text-indigo-400/80 font-bold mr-2 text-[10px] tracking-widest uppercase">THESIS:</span>
-                                  )}
+                                  <span className="inline-flex items-baseline gap-1.5 mr-2">
+                                    {row.setupName && row.setupName !== '-' && row.setupName !== '—' && (
+                                      <>
+                                        {row.setupName === 'Blue Dot Rev' && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)] relative top-[2px]"></span>}
+                                        <span className="text-slate-400 font-bold text-[10px] tracking-widest uppercase">{formatSetupName(row.setupName)}</span>
+                                        <span className="text-slate-600 font-bold text-[10px]">|</span>
+                                      </>
+                                    )}
+                                    {row.stage && row.stage !== '-' && row.stage !== '—' && (
+                                      <>
+                                        <span className={`font-bold text-[10px] tracking-widest uppercase ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span>
+                                        <span className="text-slate-600 font-bold text-[10px]">|</span>
+                                      </>
+                                    )}
+                                  </span>
                                   {row.thesis}
                                 </p>
                               ) : (
