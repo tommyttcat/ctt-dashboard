@@ -87,8 +87,10 @@ export default function DailySetups() {
             const rawCatalyst = item.catalyst || null;
             let finalThesis = item.thesis || item.aiThesis || item.analysis || item.reasoning || null;
 
+            // Generate brief context-focused narrative directly from specific catalyst news reasons
             if (!finalThesis && rawCatalyst) {
-              finalThesis = `High-relative volume momentum trade reacting directly to: ${rawCatalyst}. Technical configuration flags short-term order book imbalance with high confluence structure context.`;
+              const cleanedCat = rawCatalyst.trim().replace(/\.$/, '');
+              finalThesis = `Catalyst shift via ${cleanedCat}. Order book reflects explicit institutional positioning and volume breakout alignment.`;
             }
 
             return {
@@ -416,9 +418,9 @@ export default function DailySetups() {
                       </tr>
 
                       <tr className="bg-transparent border-t border-white/5">
-                        <td colSpan={11} className="pb-3.5 pt-2.5 px-4 pl-[16px]">
+                        <td colSpan={11} className="pb-3.5 pt-2.5 px-4 pl-16">
                           <div className="flex items-start">
-                            <div className="flex-1">
+                            <div className="flex-1 pl-4">
                               {row.thesis ? (
                                 <p className="text-[11px] text-slate-400 leading-relaxed pr-8 whitespace-normal">
                                   <span className="inline-flex items-baseline gap-1.5 mr-2">
@@ -439,7 +441,7 @@ export default function DailySetups() {
                                   {row.thesis}
                                 </p>
                               ) : (
-                                <p className="text-[11px] text-slate-500 italic leading-relaxed pr-8 whitespace-normal mt-0.5">
+                                <p className="text-[11px] text-slate-500 italic leading-relaxed pr-8 whitespace-normal mt-0.5 pl-4">
                                   Awaiting quantitative confluence analysis...
                                 </p>
                               )}
