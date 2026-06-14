@@ -204,8 +204,6 @@ export default function StocksInPlay() {
   };
 
   const getSessionTextColor = () => {
-    if (status.includes('Err') || status.includes('Offline')) return 'text-rose-500';
-    if (status.includes('Syncing')) return 'text-amber-500';
     if (session === 'Pre-Market') return 'text-amber-500';
     if (session === 'Open') return 'text-[#00e676]';
     if (session === 'Post-Market') return 'text-indigo-400';
@@ -228,7 +226,7 @@ export default function StocksInPlay() {
 
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>
+            <span className={`text-[10px] font-bold tracking-widest uppercase ${status === 'Live' ? getSessionTextColor() : 'text-slate-500'}`}>
               {status === 'Live' ? session : status}
             </span>
           </div>
@@ -322,7 +320,7 @@ export default function StocksInPlay() {
             <table className="w-full min-w-[1200px] border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[14%]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[16%]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                     <div className="flex items-center gap-3">
                       <span className="cursor-pointer hover:text-slate-300" onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</span>
                       <span className="cursor-pointer text-indigo-400/60 hover:text-indigo-400" onClick={() => handleSort('conviction')}>CONFLUENCE{getSortIcon('conviction')}</span>
@@ -332,21 +330,20 @@ export default function StocksInPlay() {
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[14%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('setupName')}>STRATEGY{getSortIcon('setupName')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[20%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
                 </tr>
               </thead>
               
               {status.includes('Syncing') && stocks.length === 0 ? (
                 <tbody>
                   <tr>
-                    <td colSpan={13} className="py-12 text-center border-b border-white/5">
+                    <td colSpan={12} className="py-12 text-center border-b border-white/5">
                       <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
                       <span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span>
                     </td>
@@ -355,7 +352,7 @@ export default function StocksInPlay() {
               ) : filteredAndSortedStocks.length === 0 ? (
                 <tbody>
                   <tr>
-                    <td colSpan={13} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">No active tracking items currently matching momentum criteria.</td>
+                    <td colSpan={12} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">No active tracking items currently matching momentum criteria.</td>
                   </tr>
                 </tbody>
               ) : (
@@ -378,11 +375,11 @@ export default function StocksInPlay() {
                                 row.conviction >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 shadow-[0_0_8px_rgba(251,191,36,0.1)]' : 
                                 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50'
                               }`}>
-                                CNF: {row.conviction}%
+                                {row.conviction}%
                               </span>
                             ) : (
                               <span className="inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border uppercase bg-white/[0.02] text-slate-600 border-white/5">
-                                CNF: --%
+                                --%
                               </span>
                             )}
                           </div>
@@ -403,27 +400,23 @@ export default function StocksInPlay() {
                         <td className="pt-3 pb-1.5 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.sector || '—'}</div>
                         </td>
-                        <td className="pt-3 pb-1.5 text-[11px] text-indigo-300/90 font-medium truncate max-w-[140px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                        <td className="pt-3 pb-1.5 text-[11px] text-indigo-300/90 font-medium truncate max-w-[200px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           {row.catalyst || '—'}
                         </td>
                         <td className="pt-3 pb-1.5 text-xs font-bold whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           <span className={getStageColor(row.stage)}>{formatStageText(row.stage)}</span>
                         </td>
-                        <td className="pt-3 pb-1.5 text-[11px] text-slate-200 font-semibold truncate max-w-[200px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <div className="flex items-center gap-1.5">
-                            {row.setupName === 'Blue Dot Rev' && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"></div>}
-                            <span>{formatSetupName(row.setupName)}</span>
-                          </div>
-                        </td>
                       </tr>
 
                       <tr className="bg-transparent">
-                        <td colSpan={13} className="pb-3 pt-0.5 px-4 pl-[16px]">
+                        <td colSpan={12} className="pb-3 pt-0.5 px-4 pl-[16px]">
                           <div className="flex items-start">
                             <div className="flex-1 mt-[1px]">
                               {row.thesis ? (
                                 <p className="text-[11px] text-slate-400/90 leading-relaxed pr-8 whitespace-normal line-clamp-3">
-                                  <span className="text-indigo-400/80 font-bold mr-2 text-[10px] tracking-widest uppercase">THESIS:</span>
+                                  <span className="text-indigo-400/80 font-bold mr-2 text-[10px] tracking-widest uppercase">
+                                    {row.setupName && row.setupName !== '-' && row.setupName !== '—' ? `${formatSetupName(row.setupName)} | THESIS:` : 'THESIS:'}
+                                  </span>
                                   {row.thesis}
                                 </p>
                               ) : (

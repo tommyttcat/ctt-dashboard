@@ -33,8 +33,9 @@ const getMarketSession = (): MarketSession => {
   return 'Closed'; 
 };
 
+// Enforce EST timezone globally for the UI timestamp
 const formatTime = (date: Date) => {
-  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
 };
 
 // Formats JS Date to strict YYYY-MM-DD for FMP API
@@ -52,7 +53,7 @@ const formatEventDate = (dateStr: string) => {
     const safeStr = dateStr.replace(' ', 'T');
     const d = new Date(safeStr);
     const dayStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-    const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
     return `${dayStr} • ${timeStr}`;
   } catch (e) {
     return dateStr;
@@ -215,7 +216,11 @@ export default function EconomicCalendar() {
     return 'text-slate-400 bg-slate-500/10 border-slate-500/20';
   };
   
+  // Unified logic matching the rest of the dashboard
   const getSessionTextColor = () => {
+    if (status.includes('Err') || status.includes('Offline')) return 'text-rose-500';
+    if (status.includes('Scouting') || status.includes('Connecting')) return 'text-amber-500';
+    if (isHistorical) return 'text-amber-500/70';
     if (session === 'Pre-Market') return 'text-amber-500';
     if (session === 'Open') return 'text-[#00e676]';
     if (session === 'Post-Market') return 'text-indigo-400';
@@ -240,7 +245,7 @@ export default function EconomicCalendar() {
 
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${status === 'Live' ? (isHistorical ? 'text-amber-500/70' : getSessionTextColor()) : 'text-slate-500'}`}>
+            <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>
               {status === 'Live' ? (isHistorical ? `ARCHIVE: ${selectedDate}` : session) : status}
             </span>
           </div>
@@ -313,7 +318,6 @@ export default function EconomicCalendar() {
                   </tr>
                 ) : (
                   sortedEvents.map((row) => {
-                    // Create an accurate EST "Now" string for fading past events safely
                     const nowEst = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
                     const pad = (n: number) => String(n).padStart(2, '0');
                     const nowIsoStr = `${nowEst.getFullYear()}-${pad(nowEst.getMonth()+1)}-${pad(nowEst.getDate())} ${pad(nowEst.getHours())}:${pad(nowEst.getMinutes())}:${pad(nowEst.getSeconds())}`;
@@ -321,7 +325,6 @@ export default function EconomicCalendar() {
                     const isPast = row.rawDateString < nowIsoStr;
                     const isSelectedDay = row.rawDateString.startsWith(selectedDate);
 
-                    // Dynamic Styling Based on Day and Time (Aligned with Earnings)
                     const rowBgClass = isSelectedDay ? 'bg-cyan-500/[0.06]' : 'hover:bg-white/[0.02]';
                     const opacityClass = isPast && !isSelectedDay ? 'opacity-40' : 'opacity-100';
                     const dateTextColor = isSelectedDay ? 'text-cyan-400 font-bold' : 'text-slate-300 font-bold';

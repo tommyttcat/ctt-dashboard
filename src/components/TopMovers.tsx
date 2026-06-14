@@ -80,7 +80,7 @@ export default function TopMovers() {
     let isMounted = true;
     const fetchDatabaseSnapshot = async () => {
       try {
-        const res = await fetch('/api/scanner/latest');
+        const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
         const data = await res.json();
         
         if (isMounted && data.success && data.topMovers) {
@@ -167,8 +167,6 @@ export default function TopMovers() {
   const getSortIcon = (columnKey: keyof StockData) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
   
   const getSessionTextColor = () => {
-    if (status.includes('Err') || status.includes('Offline')) return 'text-rose-500';
-    if (status.includes('Syncing')) return 'text-amber-500';
     if (session === 'Pre-Market') return 'text-amber-500';
     if (session === 'Open') return 'text-[#00e676]';
     if (session === 'Post-Market') return 'text-indigo-400';
@@ -221,7 +219,7 @@ export default function TopMovers() {
 
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>
+            <span className={`text-[10px] font-bold tracking-widest uppercase ${status === 'Live' ? getSessionTextColor() : 'text-slate-500'}`}>
               {status === 'Live' ? session : status}
             </span>
           </div>
