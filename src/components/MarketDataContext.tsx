@@ -70,33 +70,26 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
         const currentSess = getMarketSession();
 
         const normalizedTickers = tickers.map((t: any) => {
-          // Safely ensure day object exists to prevent downstream crashes
           if (!t.day) t.day = { c: 0, v: 0, o: 0, h: 0, l: 0 };
 
-          // 1. WEEKEND FREEZE LOGIC
-          if (currentSess === 'Weekend' && (!t.day.v || t.day.v === 0)) {
-            t.day.c = t.prevDay?.c || t.day.c;
-            t.day.v = t.prevDay?.v || t.day.v;
-            if (!t.todaysChangePerc || t.todaysChangePerc === 0) {
-              t.todaysChangePerc = (t.prevDay && t.prevDay.o > 0) 
-                ? ((t.prevDay.c - t.prevDay.o) / t.prevDay.o) * 100 
-                : 0;
-            }
-          } 
-          // 2. LIVE MATH CORRECTION (Pre-Market, Open, Post-Market)
-          else {
-            // Favor the last precise trade if the daily candle hasn't fully populated yet
-            let livePrice = t.day?.c > 0 ? t.day.c : (t.lastTrade?.p || t.min?.c || t.prevDay?.c || 0);
-            let prevClose = t.prevDay?.c || 0;
-            
-            // Polygon frequently drops the percentage calculation early in the day. Force the exact math.
-            if (prevClose > 0 && livePrice > 0) {
-               t.todaysChangePerc = ((livePrice - prevClose) / prevClose) * 100;
-            }
-            
-            t.day.c = livePrice;
-            t.day.v = t.day?.v || t.min?.v || 0;
+          // =========================================================================
+          // LIVE MATH INJECTION (Matches the Backend exactly)
+          // Prioritize the actual last print over the frozen day bar
+          // =========================================================================
+          const livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || 0;
+          const prevClose = t.prevDay?.c || 0;
+          const vol = t.day?.v || t.prevDay?.v || t.min?.v || 0;
+
+          // Force precise percentage calculation
+          let liveChg = t.todaysChangePerc || 0;
+          if (prevClose > 0 && livePrice > 0) {
+             liveChg = ((livePrice - prevClose) / prevClose) * 100;
           }
+          
+          // Overwrite Polygon's frozen data with our true live data
+          t.day.c = livePrice;
+          t.todaysChangePerc = liveChg;
+          t.day.v = vol;
 
           return t;
         });
@@ -139,21 +132,15 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
     const filtered = rawSnapshot.filter((t: any) => {
       const price = t.day?.c || 0;
       const pct = t.todaysChangePerc || 0;
-      
-      // Look for market cap fields if the endpoint or backend provides them
       const mktCap = t.marketCap || t.market_cap || t.fm || 0;
       
-      // STRICT MOMENTUM CRITERIA
       const meetsPrice = price >= 1.00;
-      const meetsGain = pct >= 4.0; // Must be up at least 4%
-      
-      // Enforce the 20 Million Market Cap limit (If the API omits market cap entirely, let it pass so it doesn't blind the screener)
+      const meetsGain = pct >= 4.0; 
       const meetsCap = mktCap === 0 || mktCap >= 20000000; 
 
       return meetsPrice && meetsGain && meetsCap;
     });
 
-    // Sort strictly by the magnitude of the momentum gain, completely ignoring volume
     const sorted = filtered.sort((a: any, b: any) => {
       const pctA = Math.abs(a.todaysChangePerc || 0);
       const pctB = Math.abs(b.todaysChangePerc || 0);
