@@ -329,10 +329,10 @@ export default function StocksInPlay() {
           </div>
 
           <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[1250px] table-fixed border-collapse">
+            <table className="w-full min-w-[1100px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[11%] text-left pl-4" onClick={() => handleSort('ticker')}>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] text-left pl-4" onClick={() => handleSort('ticker')}>
                     <div className="flex items-center gap-1.5 sm:gap-2">
                       <span className="cursor-pointer hover:text-slate-300">TICKER{getSortIcon('ticker')}</span>
                       <span className="cursor-pointer text-indigo-400/60 hover:text-indigo-400" onClick={(e) => { e.stopPropagation(); handleSort('conviction'); }}>CNF{getSortIcon('conviction')}</span>
@@ -340,14 +340,14 @@ export default function StocksInPlay() {
                   </th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] text-left pl-2" onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[24%] text-left pr-4" onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] text-left" onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[30%] text-left pr-4" onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               
@@ -407,7 +407,7 @@ export default function StocksInPlay() {
                         <td className={`pt-3 pb-2 text-xs font-bold whitespace-nowrap text-left ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
                         <td className={`pt-3 pb-2 text-xs font-bold whitespace-nowrap text-left ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
                         <td className="pt-3 pb-2 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatNumber(row.mktCap)}</td>
-                        <td className="pt-3 pb-2 text-[10px] text-slate-400 font-medium whitespace-nowrap text-left pl-2">
+                        <td className="pt-3 pb-2 text-[10px] text-slate-400 font-medium whitespace-nowrap text-left">
                           <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.sector || '—'}</div>
                         </td>
                         <td className="pt-3 pb-2 text-[11px] text-indigo-300/90 font-medium text-left pr-4 whitespace-normal break-words">
@@ -416,7 +416,7 @@ export default function StocksInPlay() {
                       </tr>
 
                       <tr className="bg-transparent border-t border-white/5">
-                        <td colSpan={11} className="pb-3.5 pt-2.5 px-4 pl-[56px]">
+                        <td colSpan={11} className="pb-3.5 pt-2.5 pr-4 pl-[56px]">
                           <div className="flex items-start">
                             <div className="flex-1">
                               {row.thesis ? (
