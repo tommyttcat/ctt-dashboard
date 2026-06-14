@@ -91,12 +91,6 @@ const getEffectiveTradingDate = () => {
   return `${y}-${m}-${d}`;
 };
 
-const getPreviousTradingDate = (currentEffective: string) => {
-  const d = new Date(currentEffective);
-  d.setDate(d.getDate() - 1);
-  return d.toISOString().split('T')[0];
-};
-
 const isSpamNews = (title: string) => {
   if (!title) return true;
   const lower = title.toLowerCase();
@@ -327,15 +321,16 @@ export async function GET(request: Request) {
   const CACHE_MINUTES = isWeekendMode ? 4320 : 5; 
 
   try {
-    const lastScanTime = (await kv.get<number>('last_scan_time')) || 0;
+    // NUCLEAR CACHE BUSTER: Switched database keys to '_v2' to force a completely new AI thesis generation pass
+    const lastScanTime = (await kv.get<number>('last_scan_time_v2')) || 0;
     const now = Date.now();
     const currentMarketStatus = getMarketStatus();
     
     if (now - lastScanTime < CACHE_MINUTES * 60 * 1000) {
-      const cachedDaily = await kv.get<any[]>('daily_setups');
-      const cachedSip = await kv.get<any[]>('stocks_in_play');
-      const cachedTopMovers = await kv.get<any>('top_movers');
-      const cachedMacro = await kv.get<any>('macro_insights');
+      const cachedDaily = await kv.get<any[]>('daily_setups_v2');
+      const cachedSip = await kv.get<any[]>('stocks_in_play_v2');
+      const cachedTopMovers = await kv.get<any>('top_movers_v2');
+      const cachedMacro = await kv.get<any>('macro_insights_v2');
       
       const isCacheValid = cachedTopMovers && cachedTopMovers['Gainers'] && cachedTopMovers['Gainers'].length > 0;
 
@@ -619,7 +614,7 @@ export async function GET(request: Request) {
         const sipString = sipCandidates.map((t: any) => t.ticker).join(', ');
         const dailyString = dailyCandidates.map((t: any) => t.ticker).join(', ');
 
-        // FIX: The prompt now demands an actionable trade thesis rather than reiterating the structural pattern.
+        // STRICT NEW PROMPT: Banned from mentioning structure/indicators in the thesis. Only Catalysts/Levels.
         const aiPrompt = `
           You are an elite quantitative technical analyst.
           
@@ -638,7 +633,7 @@ export async function GET(request: Request) {
              - STRUCTURE: Is the MathPattern and Stage confluence clean on higher time frames?
           3. For the 'conviction' field, ASSIGN A NUMERICAL SCORE (integer 1-100) based on this framework.
           4. For the 'catalyst' field, summarize the Headline into a strict 1-3 word punchy category (e.g., "FDA Approval", "Earnings Beat"). If no news, strictly return "Technical Momentum".
-          5. For the 'thesis' field, DO NOT just repeat the strategy name. Write a strict 1-2 sentence ACTIONABLE trade plan. (e.g., "Watch for a volume break over $15.50 to confirm continuation, with invalidation below the 20 EMA.").
+          5. For the 'thesis' field, strictly write an ACTIONABLE, news-driven trade plan. DO NOT repeat the math pattern, indicator, or stage. Focus entirely on the reason (Catalyst) and tactical invalidation levels. Example: "Institutional buying triggered by FDA approval. Look for entry over $12.50 pre-market high, with an invalidation stop below $12.10 VWAP."
           6. For the 'watching' array, select 5 to 8 total symbols representing the highest confluence.
           
           BRIEFING INSTRUCTIONS:
@@ -716,7 +711,7 @@ export async function GET(request: Request) {
             try {
               const parsed = JSON.parse(text);
               if (parsed.macro) {
-                await kv.set('macro_insights', parsed.macro);
+                await kv.set('macro_insights_v2', parsed.macro);
               }
               if (parsed.tickers && Array.isArray(parsed.tickers)) {
                 parsed.tickers.forEach((t: any) => {
@@ -752,7 +747,7 @@ export async function GET(request: Request) {
         else if (t._rawHeadline && t._daysOld >= 1.5 && t._daysOld <= 4) t.catalyst = "Delayed Reaction";
         else t.catalyst = 'Technical Momentum';
         
-        t.thesis = aiErrorMessage ? aiErrorMessage : 'Awaiting quantitative confluence analysis...';
+        t.thesis = aiErrorMessage ? aiErrorMessage : null; // Set null to let UI handle the fallback cleanly
       }
       enrichedMap.set(t.ticker, t); 
     });
@@ -789,14 +784,14 @@ export async function GET(request: Request) {
 
     const finalScanTime = Date.now();
 
-    await kv.set('daily_setups', finalDaily);
-    await kv.set('stocks_in_play', finalSip);
-    await kv.set('top_movers', finalTopMovers);
-    await kv.set('last_scan_time', finalScanTime);
+    await kv.set('daily_setups_v2', finalDaily);
+    await kv.set('stocks_in_play_v2', finalSip);
+    await kv.set('top_movers_v2', finalTopMovers);
+    await kv.set('last_scan_time_v2', finalScanTime);
 
     let macroInsights = null;
     try {
-      macroInsights = await kv.get('macro_insights');
+      macroInsights = await kv.get('macro_insights_v2');
     } catch(e) {}
 
     return NextResponse.json({ 
