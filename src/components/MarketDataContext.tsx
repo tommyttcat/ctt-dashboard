@@ -97,15 +97,12 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
         const normalizedTickers = tickers.map((t: any) => {
           if (!t.day) t.day = { c: 0, v: 0, o: 0, h: 0, l: 0 };
 
-          // LIVE MATH INJECTION
           const livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || 0;
           const prevClose = t.prevDay?.c || 0;
           const vol = t.day?.v || t.prevDay?.v || t.min?.v || 0;
 
-          // Preserve Polygon's frozen percentage first
           let liveChg = t.todaysChangePerc !== undefined ? t.todaysChangePerc : 0;
           
-          // Only calculate manually if the prices are actively moving (prevents 0% weekend overwrite)
           if (prevClose > 0 && livePrice > 0 && livePrice !== prevClose) {
              liveChg = ((livePrice - prevClose) / prevClose) * 100;
           }
@@ -138,7 +135,6 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
 
     let intervalId: NodeJS.Timeout;
     
-    // Suspend API polling entirely if it's the weekend to save data limits and freeze the UI
     const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
     const isWeekend = estDate.getDay() === 0 || estDate.getDay() === 6;
 
@@ -156,19 +152,31 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
   const topMovers = useMemo(() => {
     if (!rawSnapshot || rawSnapshot.length === 0) return [];
 
+    const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const isWeekend = estDate.getDay() === 0 || estDate.getDay() === 6;
+
     const filtered = rawSnapshot.filter((t: any) => {
       const price = t.day?.c || 0;
       const pct = t.todaysChangePerc || 0;
       const mktCap = t.marketCap || t.market_cap || t.fm || 0;
+      const vol = t.day?.v || 0;
       
       const meetsPrice = price > 1.00;
-      const meetsGain = pct > 4.0; 
+      
+      // WEEKEND BYPASS: Polygon zeroes out the % on weekends. Use high volume to pass stocks instead.
+      const meetsGain = isWeekend ? (vol > 500000) : (pct > 4.0); 
       const meetsCap = mktCap > 20000000; 
 
       return meetsPrice && meetsGain && meetsCap;
     });
 
     const sorted = filtered.sort((a: any, b: any) => {
+      if (isWeekend) {
+         // Sort by volume on weekends to show true market movers
+         const volA = a.day?.v || 0;
+         const volB = b.day?.v || 0;
+         return volB - volA;
+      }
       const pctA = Math.abs(a.todaysChangePerc || 0);
       const pctB = Math.abs(b.todaysChangePerc || 0);
       return pctB - pctA; 
