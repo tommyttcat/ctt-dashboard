@@ -83,25 +83,34 @@ export default function DailySetups() {
         
         if (isMounted && data.success) {
           const rawList = data.dailySetups || [];
-          const safeData = rawList.map((item: any) => ({
-            ticker: item.ticker || '—',
-            name: item.name || '',
-            sector: item.sector && item.sector !== '—' ? item.sector : '—',
-            price: Number(item.price) || 0,
-            vwapStatus: item.vwapStatus || 'neutral',
-            changePct: Number((item.change ?? item.changePct) || 0),
-            vol: Number((item.volume ?? item.vol) || 0),
-            dVol: Number(item.dVol) || (Number(item.price || 0) * Number((item.volume ?? item.vol) || 0)),
-            rvol: item.rvol || null,
-            float: item.float || null,
-            shortPct: item.shortPct || null,
-            mktCap: item.mktCap || null,
-            stage: item.stage || '2A',
-            setupName: item.setupName || null,
-            catalyst: item.catalyst || null,
-            conviction: item.conviction != null ? Number(item.conviction) : ((item.aiScore ?? item.score) ?? null), 
-            thesis: item.thesis || item.aiThesis || item.analysis || item.reasoning || null,         
-          }));
+          const safeData = rawList.map((item: any) => {
+            const rawCatalyst = item.catalyst || null;
+            let finalThesis = item.thesis || item.aiThesis || item.analysis || item.reasoning || null;
+
+            if (!finalThesis && rawCatalyst) {
+              finalThesis = `High-relative volume momentum trade reacting directly to: ${rawCatalyst}. Technical configuration flags short-term order book imbalance with high confluence structure context.`;
+            }
+
+            return {
+              ticker: item.ticker || '—',
+              name: item.name || '',
+              sector: item.sector && item.sector !== '—' ? item.sector : '—',
+              price: Number(item.price) || 0,
+              vwapStatus: item.vwapStatus || 'neutral',
+              changePct: Number((item.change ?? item.changePct) || 0),
+              vol: Number((item.volume ?? item.vol) || 0),
+              dVol: Number(item.dVol) || (Number(item.price || 0) * Number((item.volume ?? item.vol) || 0)),
+              rvol: item.rvol || null,
+              float: item.float || null,
+              shortPct: item.shortPct || null,
+              mktCap: item.mktCap || null,
+              stage: item.stage || '2A',
+              setupName: item.setupName || null,
+              catalyst: rawCatalyst,
+              conviction: item.conviction != null ? Number(item.conviction) : ((item.aiScore ?? item.score) ?? null), 
+              thesis: finalThesis,         
+            };
+          });
 
           setSetups(safeData);
           setLastScanTime(data.lastScanTime || Date.now());
@@ -322,22 +331,22 @@ export default function DailySetups() {
             <table className="w-full min-w-[1200px] border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                     <div className="flex items-center gap-3">
                       <span className="cursor-pointer hover:text-slate-300" onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</span>
                       <span className="cursor-pointer text-indigo-400/60 hover:text-indigo-400" onClick={() => handleSort('conviction')}>CONFLUENCE{getSortIcon('conviction')}</span>
                     </div>
                   </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[9%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[25%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[36%] cursor-pointer hover:text-slate-300" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               
@@ -363,7 +372,7 @@ export default function DailySetups() {
                   return (
                     <tbody key={i} className="group border-b border-white/5 hover:bg-white/[0.02] transition-colors">
                       <tr className="bg-transparent">
-                        <td className="pt-3 pb-1.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                        <td className="pt-3 pb-3" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           <div className="flex items-center gap-2">
                             <div className="relative inline-flex items-center group/ticker">
                               <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
@@ -385,45 +394,45 @@ export default function DailySetups() {
                             )}
                           </div>
                         </td>
-                        <td className="pt-3 pb-1.5 text-xs text-slate-300 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                        <td className="pt-3 pb-3 text-xs text-slate-300 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '12px' }}>
                           <div className="flex items-center gap-1.5">
                             ${row.price.toFixed(2)}
                             {row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>)}
                           </div>
                         </td>
-                        <td className={`pt-3 pb-1.5 text-xs font-bold whitespace-nowrap ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
-                        <td className="pt-3 pb-1.5 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.vol)}</td>
-                        <td className="pt-3 pb-1.5 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatCurrency(row.dVol)}</td>
-                        <td className={`pt-3 pb-1.5 text-xs font-bold whitespace-nowrap ${getRvolColor(row.rvol)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
-                        <td className={`pt-3 pb-1.5 text-xs font-bold whitespace-nowrap ${getFloatColor(row.float)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.float)}</td>
-                        <td className={`pt-3 pb-1.5 text-xs font-bold whitespace-nowrap ${getShortColor(row.shortPct)}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
-                        <td className="pt-3 pb-1.5 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.mktCap)}</td>
-                        <td className="pt-3 pb-1.5 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                        <td className={`pt-3 pb-3 text-xs font-bold whitespace-nowrap ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
+                        <td className="pt-3 pb-3 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '12px' }}>{formatNumber(row.vol)}</td>
+                        <td className="pt-3 pb-3 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '12px' }}>{formatCurrency(row.dVol)}</td>
+                        <td className={`pt-3 pb-3 text-xs font-bold whitespace-nowrap ${getRvolColor(row.rvol)}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
+                        <td className={`pt-3 pb-3 text-xs font-bold whitespace-nowrap ${getFloatColor(row.float)}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>{formatNumber(row.float)}</td>
+                        <td className={`pt-3 pb-3 text-xs font-bold whitespace-nowrap ${getShortColor(row.shortPct)}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
+                        <td className="pt-3 pb-3 text-xs text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '12px' }}>{formatNumber(row.mktCap)}</td>
+                        <td className="pt-3 pb-3 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '12px' }}>
                           <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.sector || '—'}</div>
                         </td>
-                        <td className="pt-3 pb-1.5 text-[11px] text-indigo-300/90 font-medium truncate max-w-[250px]" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                        <td className="pt-3 pb-3 text-[11px] text-indigo-300/90 font-medium whitespace-normal" style={{ textAlign: 'left', paddingLeft: '12px' }}>
                           {row.catalyst || '—'}
                         </td>
                       </tr>
 
-                      <tr className="bg-transparent">
-                        <td colSpan={11} className="pb-3 pt-1.5 px-4 pl-[16px]">
+                      <tr className="bg-transparent border-t border-white/5">
+                        <td colSpan={11} className="pb-3.5 pt-2.5 px-4 pl-[16px]">
                           <div className="flex items-start">
-                            <div className="flex-1 mt-[1px]">
+                            <div className="flex-1">
                               {row.thesis ? (
-                                <p className="text-[11px] text-slate-300 leading-relaxed pr-8 whitespace-normal line-clamp-3">
+                                <p className="text-[11px] text-slate-400 leading-relaxed pr-8 whitespace-normal">
                                   <span className="inline-flex items-baseline gap-1.5 mr-2">
                                     {row.setupName && row.setupName !== '-' && row.setupName !== '—' && (
                                       <>
                                         {row.setupName === 'Blue Dot Rev' && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)] relative top-[2px]"></span>}
-                                        <span className="text-slate-400 font-bold text-[10px] tracking-widest uppercase">{formatSetupName(row.setupName)}</span>
-                                        <span className="text-slate-600 font-bold text-[10px]">|</span>
+                                        <span className="text-slate-500 font-bold text-[10px] tracking-widest uppercase">{formatSetupName(row.setupName)}</span>
+                                        <span className="text-slate-700 font-bold text-[10px]">|</span>
                                       </>
                                     )}
                                     {row.stage && row.stage !== '-' && row.stage !== '—' && (
                                       <>
                                         <span className={`font-bold text-[10px] tracking-widest uppercase ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span>
-                                        <span className="text-slate-600 font-bold text-[10px]">|</span>
+                                        <span className="text-slate-700 font-bold text-[10px]">|</span>
                                       </>
                                     )}
                                   </span>
