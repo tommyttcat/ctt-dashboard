@@ -60,7 +60,7 @@ const formatSetupName = (name: string | null | undefined) => {
 };
 
 export default function DailySetups() {
-  const { session, topMovers, lastUpdated, isLoading } = useMarketData(); 
+  const { session, sipsUniverse, lastUpdated, isLoading } = useMarketData(); 
   
   const [sortConfig, setSortConfig] = useState<{ key: keyof SetupData; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
@@ -70,9 +70,9 @@ export default function DailySetups() {
   const [convictionFilter, setConvictionFilter] = useState<ConvictionFilterType>('All');
 
   const setups: SetupData[] = useMemo(() => {
-    if (!topMovers || !Array.isArray(topMovers)) return [];
+    if (!sipsUniverse || !Array.isArray(sipsUniverse)) return [];
     
-    const mappedData = topMovers.map((item: any): SetupData => {
+    const mappedData = sipsUniverse.map((item: any): SetupData => {
       let vwap = 'neutral';
       if (item.vwapStatus === 'above' || item.vwapStatus === 'below') {
         vwap = item.vwapStatus;
@@ -80,7 +80,6 @@ export default function DailySetups() {
 
       // Dynamic field fallbacks to ensure no tickers drop out
       const price = Number((item.price ?? item.day?.c) || 0);
-      const changePct = Number((item.changePct ?? item.todaysChangePerc ?? item.change) || 0);
       const vol = Number((item.vol ?? item.volume ?? item.day?.v) || 0);
 
       return {
@@ -89,8 +88,9 @@ export default function DailySetups() {
         sector: item.sector && item.sector !== '—' ? item.sector : '—',
         price,
         vwapStatus: vwap as 'above' | 'below' | 'neutral',
-        changePct,
+        changePct: Number((item.changePct ?? item.todaysChangePerc ?? item.change) || 0),
         vol,
+        // VERCEL FIX: Explicit parens added
         dVol: Number(item.dVol) || (price * vol),
         rvol: item.rvol ?? null,
         float: item.float ?? null,
@@ -108,7 +108,7 @@ export default function DailySetups() {
       .filter(s => s.price >= 1.00 && s.changePct >= 4.0 && s.vol >= 500000 && s.mktCap !== null && s.mktCap >= 20000000)
       .sort((a, b) => b.dVol - a.dVol)
       .slice(0, 30);
-  }, [topMovers]);
+  }, [sipsUniverse]);
 
   const handleSort = (key: keyof SetupData) => {
     let direction: SortDirection = 'desc'; 
@@ -150,6 +150,7 @@ export default function DailySetups() {
     if (!sortConfig) return filtered;
     
     return [...filtered].sort((a, b) => {
+      // VERCEL FIX: Explicit any typing to silence linter
       const aVal = a[sortConfig.key] as any;
       const bVal = b[sortConfig.key] as any;
       if (aVal === null || aVal === undefined) return 1;

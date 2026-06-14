@@ -26,6 +26,7 @@ const MarketDataContext = createContext<MarketDataContextType>({
 export const useMarketData = () => useContext(MarketDataContext);
 
 // --- HELPER: CALCULATE MARKET SESSION ---
+// Strictly enforcing time-based status: Pre-Market, Open, Post-Market, Closed
 const getMarketSession = () => {
   const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
   const day = estDate.getDay();
@@ -78,15 +79,16 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
 
     const fetchMasterSnapshot = async () => {
       try {
-        // THE FIX: Fetch from our internal backend API, NOT Polygon directly
-        const res = await fetch('/api/scanner/run', { cache: 'no-store' });
+        // THE FIX: Fetch exclusively from the cached DB snapshot so we don't DDOS the Gemini API
+        const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
         
         if (!res.ok) throw new Error(`API Status ${res.status}`);
         
         const data = await res.json();
 
-        if (isMounted) {
-          // Flatten the categorized Top Movers from the API into a single array for the UI
+        if (isMounted && data.success) {
+          
+          // 1. Flatten the Top Movers
           const combinedMovers: any[] = [];
           if (data.topMovers) {
             Object.values(data.topMovers).forEach((categoryArray: any) => {
@@ -96,32 +98,41 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
             });
           }
 
-          // Deduplicate the combined list
-          const uniqueMap = new Map();
-          combinedMovers.forEach(t => uniqueMap.set(t.ticker, t));
-          
-          // Ensure backward compatibility with UI components expecting legacy Polygon naming
-          const flattenedUniqueMovers = Array.from(uniqueMap.values()).map((t: any) => ({
-             ...t,
-             day: { c: t.price, v: t.vol },
-             todaysChangePerc: t.changePct,
-             marketCap: t.mktCap
-          }));
+          const uniqueMoversMap = new Map();
+          combinedMovers.forEach(t => {
+            if (t.ticker) uniqueMoversMap.set(t.ticker, t);
+          });
 
-          const formattedSips = (data.sips || []).map((t: any) => ({
-             ...t,
-             day: { c: t.price, v: t.vol },
-             todaysChangePerc: t.changePct,
-             marketCap: t.mktCap
-          }));
+          // 2. Extract SIPS and Daily Setups (which contain the AI theses from the DB)
+          const sipsArray = data.stocksInPlay || data.sips || [];
+          const dailyArray = data.dailySetups || [];
+          const combinedAI = [...sipsArray, ...dailyArray];
 
-          setRawSnapshot(flattenedUniqueMovers);
-          setTopMovers(flattenedUniqueMovers);
-          setSipsUniverse(formattedSips);
+          const uniqueAIMap = new Map();
+          combinedAI.forEach(t => {
+            if (t.ticker) uniqueAIMap.set(t.ticker, t);
+          });
 
-          setSession(data.marketStatus || getMarketSession());
+          // 3. Merge AI data onto the master list so no frontend component misses a thesis
+          combinedAI.forEach(t => {
+            if (t.ticker) {
+              if (uniqueMoversMap.has(t.ticker)) {
+                uniqueMoversMap.set(t.ticker, { ...uniqueMoversMap.get(t.ticker), ...t });
+              } else {
+                uniqueMoversMap.set(t.ticker, t);
+              }
+            }
+          });
+
+          const masterList = Array.from(uniqueMoversMap.values());
+
+          setRawSnapshot(masterList);
+          setTopMovers(masterList);
+          setSipsUniverse(Array.from(uniqueAIMap.values()));
+
+          setSession(getMarketSession());
           setEffectiveDate(getEffectiveTradingDate());
-          setLastUpdated(new Date());
+          setLastUpdated(data.lastScanTime ? new Date(data.lastScanTime) : new Date());
           setIsLoading(false);
         }
       } catch (error) {

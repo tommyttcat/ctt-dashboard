@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 
 interface StockData {
@@ -61,7 +61,7 @@ const formatSetupName = (name: string | null | undefined) => {
 };
 
 export default function TopMovers() {
-  // Return to the central engine room context so SIPS, Daily, and TopMovers stream together
+  // Sync strictly to the master context
   const { session, topMovers, lastUpdated, isLoading } = useMarketData();
   
   const [activeTab, setActiveTab] = useState<TabType>('Gainers');
@@ -71,9 +71,6 @@ export default function TopMovers() {
 
   const isEtfTab = activeTab.includes('ETF');
 
-  useEffect(() => { setSortConfig(null); }, [activeTab]);
-
-  // Client-side mapping and classification of context streams
   const processedData = useMemo(() => {
     const safeData: Record<TabType, StockData[]> = {
       'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': []
@@ -87,7 +84,7 @@ export default function TopMovers() {
         vwap = item.vwapStatus;
       }
 
-      // Dynamic field fallbacks to ensure no tickers (like AXTX) get lost or drop out due to key mismatches
+      // Robust fallbacks
       const price = Number(item.price ?? item.day?.c ?? 0);
       const changePct = Number(item.changePct ?? item.todaysChangePerc ?? item.change ?? 0);
       const vol = Number(item.vol ?? item.volume ?? item.day?.v ?? 0);
@@ -128,12 +125,12 @@ export default function TopMovers() {
       }
     });
 
-    // Default Sorting: Pre-sort lists explicitly by absolute momentum before truncation
+    // Default pre-sort by highest momentum before truncating
     safeData['Mega Caps'].sort((a, b) => b.changePct - a.changePct);
     safeData['Gainers'].sort((a, b) => b.changePct - a.changePct);
     safeData['ETF Gainers'].sort((a, b) => b.changePct - a.changePct);
     
-    safeData['Losers'].sort((a, b) => a.changePct - b.changePct); // Worst drop at the top
+    safeData['Losers'].sort((a, b) => a.changePct - b.changePct);
     safeData['ETF Losers'].sort((a, b) => a.changePct - b.changePct);
 
     return safeData;
@@ -176,7 +173,7 @@ export default function TopMovers() {
       });
     }
 
-    // STRICT CHOP: Ensures every single window shows exactly 10 elements max
+    // Strictly chop to 10
     return sorted.slice(0, 10);
   }, [processedData, activeTab, sortConfig, marketCapFilter]);
 
@@ -252,7 +249,6 @@ export default function TopMovers() {
         <>
           <div className="flex flex-col gap-4 mb-6 relative z-10 pb-2">
             
-            {/* ROW 1: Tabs */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 w-full">
               <div className="flex gap-3 overflow-x-auto custom-scrollbar w-full md:w-auto" style={{ scrollbarWidth: 'none' }}>
                 {(['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'] as TabType[]).map((tab) => (
@@ -285,7 +281,6 @@ export default function TopMovers() {
               </div>
             </div>
 
-            {/* ROW 2: Market Cap Filters */}
             <div className="flex items-center w-full">
               <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1 overflow-x-auto custom-scrollbar w-full md:w-auto" onClick={(e) => e.stopPropagation()}>
                 {['All', 'Micro', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (

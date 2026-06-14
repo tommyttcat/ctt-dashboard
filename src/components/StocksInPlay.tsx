@@ -78,8 +78,9 @@ export default function StocksInPlay() {
         vwap = item.vwapStatus;
       }
 
-      const price = Number(item.price ?? item.day?.c ?? 0);
-      const vol = Number(item.vol ?? item.volume ?? item.day?.v ?? 0);
+      // Dynamic field fallbacks to ensure no tickers drop out
+      const price = Number((item.price ?? item.day?.c) || 0);
+      const vol = Number((item.vol ?? item.volume ?? item.day?.v) || 0);
 
       return {
         ticker: item.ticker || '—',
@@ -150,6 +151,7 @@ export default function StocksInPlay() {
     }
     
     return [...filtered].sort((a, b) => {
+      // OVERRIDE: Silence TypeScript Union checks for sorting
       const aVal = a[sortConfig.key] as any;
       const bVal = b[sortConfig.key] as any;
       if (aVal === null || aVal === undefined) return 1;
