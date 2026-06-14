@@ -91,6 +91,12 @@ const getEffectiveTradingDate = () => {
   return `${y}-${m}-${d}`;
 };
 
+const getPreviousTradingDate = (currentEffective: string) => {
+  const d = new Date(currentEffective);
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().split('T')[0];
+};
+
 const isSpamNews = (title: string) => {
   if (!title) return true;
   const lower = title.toLowerCase();
@@ -321,16 +327,16 @@ export async function GET(request: Request) {
   const CACHE_MINUTES = isWeekendMode ? 4320 : 5; 
 
   try {
-    // NUCLEAR CACHE BUSTER: Switched database keys to '_v2' to force a completely new AI thesis generation pass
-    const lastScanTime = (await kv.get<number>('last_scan_time_v2')) || 0;
+    // NUCLEAR CACHE BUSTER V3: Forces the engine to rerun the newly updated Gemini prompt
+    const lastScanTime = (await kv.get<number>('last_scan_time_v3')) || 0;
     const now = Date.now();
     const currentMarketStatus = getMarketStatus();
     
     if (now - lastScanTime < CACHE_MINUTES * 60 * 1000) {
-      const cachedDaily = await kv.get<any[]>('daily_setups_v2');
-      const cachedSip = await kv.get<any[]>('stocks_in_play_v2');
-      const cachedTopMovers = await kv.get<any>('top_movers_v2');
-      const cachedMacro = await kv.get<any>('macro_insights_v2');
+      const cachedDaily = await kv.get<any[]>('daily_setups_v3');
+      const cachedSip = await kv.get<any[]>('stocks_in_play_v3');
+      const cachedTopMovers = await kv.get<any>('top_movers_v3');
+      const cachedMacro = await kv.get<any>('macro_insights_v3');
       
       const isCacheValid = cachedTopMovers && cachedTopMovers['Gainers'] && cachedTopMovers['Gainers'].length > 0;
 
@@ -614,7 +620,6 @@ export async function GET(request: Request) {
         const sipString = sipCandidates.map((t: any) => t.ticker).join(', ');
         const dailyString = dailyCandidates.map((t: any) => t.ticker).join(', ');
 
-        // STRICT NEW PROMPT: Banned from mentioning structure/indicators in the thesis. Only Catalysts/Levels.
         const aiPrompt = `
           You are an elite quantitative technical analyst.
           
@@ -711,7 +716,7 @@ export async function GET(request: Request) {
             try {
               const parsed = JSON.parse(text);
               if (parsed.macro) {
-                await kv.set('macro_insights_v2', parsed.macro);
+                await kv.set('macro_insights_v3', parsed.macro);
               }
               if (parsed.tickers && Array.isArray(parsed.tickers)) {
                 parsed.tickers.forEach((t: any) => {
@@ -747,7 +752,7 @@ export async function GET(request: Request) {
         else if (t._rawHeadline && t._daysOld >= 1.5 && t._daysOld <= 4) t.catalyst = "Delayed Reaction";
         else t.catalyst = 'Technical Momentum';
         
-        t.thesis = aiErrorMessage ? aiErrorMessage : null; // Set null to let UI handle the fallback cleanly
+        t.thesis = aiErrorMessage ? aiErrorMessage : null;
       }
       enrichedMap.set(t.ticker, t); 
     });
@@ -784,14 +789,14 @@ export async function GET(request: Request) {
 
     const finalScanTime = Date.now();
 
-    await kv.set('daily_setups_v2', finalDaily);
-    await kv.set('stocks_in_play_v2', finalSip);
-    await kv.set('top_movers_v2', finalTopMovers);
-    await kv.set('last_scan_time_v2', finalScanTime);
+    await kv.set('daily_setups_v3', finalDaily);
+    await kv.set('stocks_in_play_v3', finalSip);
+    await kv.set('top_movers_v3', finalTopMovers);
+    await kv.set('last_scan_time_v3', finalScanTime);
 
     let macroInsights = null;
     try {
-      macroInsights = await kv.get('macro_insights_v2');
+      macroInsights = await kv.get('macro_insights_v3');
     } catch(e) {}
 
     return NextResponse.json({ 
