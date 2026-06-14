@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
 
 // --- INTERFACES ---
 interface MarketDataContextType {
@@ -8,7 +8,6 @@ interface MarketDataContextType {
   topMovers: any[];
   sipsUniverse: any[]; 
   session: string;
-  effectiveDate: string; 
   lastUpdated: Date | null;
   isLoading: boolean;
 }
@@ -18,7 +17,6 @@ const MarketDataContext = createContext<MarketDataContextType>({
   topMovers: [],
   sipsUniverse: [],
   session: 'Unknown',
-  effectiveDate: '',
   lastUpdated: null,
   isLoading: true,
 });
@@ -26,12 +24,11 @@ const MarketDataContext = createContext<MarketDataContextType>({
 export const useMarketData = () => useContext(MarketDataContext);
 
 // --- HELPER: CALCULATE MARKET SESSION ---
-// Strictly enforcing time-based status: Pre-Market, Open, Post-Market, Closed
 const getMarketSession = () => {
   const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
   const day = estDate.getDay();
   
-  if (day === 0 || day === 6) return 'Closed';
+  if (day === 0 || day === 6) return 'Weekend';
 
   const hour = estDate.getHours();
   const min = estDate.getMinutes();
@@ -43,103 +40,77 @@ const getMarketSession = () => {
   return 'Closed';
 };
 
-// --- HELPER: CALCULATE EFFECTIVE TRADING DATE ---
-const getEffectiveTradingDate = () => {
-  const est = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const day = est.getDay();
-  const time = est.getHours() + est.getMinutes() / 60;
-
-  if (day === 6) est.setDate(est.getDate() - 1); // Saturday snaps to Friday
-  else if (day === 0) est.setDate(est.getDate() - 2); // Sunday snaps to Friday
-  else if (day === 1 && time < 4) est.setDate(est.getDate() - 3); // Monday before 4am snaps to Friday
-  else if (time < 4) est.setDate(est.getDate() - 1); // Tue-Fri before 4am snaps to Yesterday
-
-  const y = est.getFullYear();
-  const m = String(est.getMonth() + 1).padStart(2, '0');
-  const d = String(est.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
-
 // --- THE PROVIDER COMPONENT ---
 export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
   const [rawSnapshot, setRawSnapshot] = useState<any[]>([]);
-  const [topMovers, setTopMovers] = useState<any[]>([]);
-  const [sipsUniverse, setSipsUniverse] = useState<any[]>([]);
   const [session, setSession] = useState<string>('Unknown');
-  const [effectiveDate, setEffectiveDate] = useState<string>(''); 
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || '';
 
   useEffect(() => {
     let isMounted = true;
 
-    if (isMounted) {
-       setEffectiveDate(getEffectiveTradingDate());
+    if (!polygonApiKey) {
+      if (isMounted) setIsLoading(false);
+      return;
     }
 
     const fetchMasterSnapshot = async () => {
       try {
-        // THE FIX: Fetch exclusively from the cached DB snapshot so we don't DDOS the Gemini API
-        const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
+        const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonApiKey}`;
+        const res = await fetch(url, { cache: 'no-store' }); 
         
-        if (!res.ok) throw new Error(`API Status ${res.status}`);
+        if (!res.ok) throw new Error(`Status ${res.status}`);
         
         const data = await res.json();
+        const tickers = data.tickers || [];
 
-        if (isMounted && data.success) {
-          
-          // 1. Flatten the Top Movers
-          const combinedMovers: any[] = [];
-          if (data.topMovers) {
-            Object.values(data.topMovers).forEach((categoryArray: any) => {
-              if (Array.isArray(categoryArray)) {
-                combinedMovers.push(...categoryArray);
-              }
-            });
+        const currentSess = getMarketSession();
+
+        const normalizedTickers = tickers.map((t: any) => {
+          // Safely ensure day object exists to prevent downstream crashes
+          if (!t.day) t.day = { c: 0, v: 0, o: 0, h: 0, l: 0 };
+
+          // 1. WEEKEND FREEZE LOGIC
+          if (currentSess === 'Weekend' && (!t.day.v || t.day.v === 0)) {
+            t.day.c = t.prevDay?.c || t.day.c;
+            t.day.v = t.prevDay?.v || t.day.v;
+            if (!t.todaysChangePerc || t.todaysChangePerc === 0) {
+              t.todaysChangePerc = (t.prevDay && t.prevDay.o > 0) 
+                ? ((t.prevDay.c - t.prevDay.o) / t.prevDay.o) * 100 
+                : 0;
+            }
+          } 
+          // 2. LIVE MATH CORRECTION (Pre-Market, Open, Post-Market)
+          else {
+            // Favor the last precise trade if the daily candle hasn't fully populated yet
+            let livePrice = t.day?.c > 0 ? t.day.c : (t.lastTrade?.p || t.min?.c || t.prevDay?.c || 0);
+            let prevClose = t.prevDay?.c || 0;
+            
+            // Polygon frequently drops the percentage calculation early in the day. Force the exact math.
+            if (prevClose > 0 && livePrice > 0) {
+               t.todaysChangePerc = ((livePrice - prevClose) / prevClose) * 100;
+            }
+            
+            t.day.c = livePrice;
+            t.day.v = t.day?.v || t.min?.v || 0;
           }
 
-          const uniqueMoversMap = new Map();
-          combinedMovers.forEach(t => {
-            if (t.ticker) uniqueMoversMap.set(t.ticker, t);
-          });
+          return t;
+        });
 
-          // 2. Extract SIPS and Daily Setups (which contain the AI theses from the DB)
-          const sipsArray = data.stocksInPlay || data.sips || [];
-          const dailyArray = data.dailySetups || [];
-          const combinedAI = [...sipsArray, ...dailyArray];
-
-          const uniqueAIMap = new Map();
-          combinedAI.forEach(t => {
-            if (t.ticker) uniqueAIMap.set(t.ticker, t);
-          });
-
-          // 3. Merge AI data onto the master list so no frontend component misses a thesis
-          combinedAI.forEach(t => {
-            if (t.ticker) {
-              if (uniqueMoversMap.has(t.ticker)) {
-                uniqueMoversMap.set(t.ticker, { ...uniqueMoversMap.get(t.ticker), ...t });
-              } else {
-                uniqueMoversMap.set(t.ticker, t);
-              }
-            }
-          });
-
-          const masterList = Array.from(uniqueMoversMap.values());
-
-          setRawSnapshot(masterList);
-          setTopMovers(masterList);
-          setSipsUniverse(Array.from(uniqueAIMap.values()));
-
-          setSession(getMarketSession());
-          setEffectiveDate(getEffectiveTradingDate());
-          setLastUpdated(data.lastScanTime ? new Date(data.lastScanTime) : new Date());
+        if (isMounted) {
+          setRawSnapshot(normalizedTickers);
+          setSession(currentSess);
+          setLastUpdated(new Date());
           setIsLoading(false);
         }
       } catch (error) {
         console.error("Market Engine Error:", error);
         if (isMounted) {
           setSession(getMarketSession());
-          setEffectiveDate(getEffectiveTradingDate());
           setIsLoading(false);
         }
       }
@@ -147,11 +118,11 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
 
     fetchMasterSnapshot();
 
+    const initialSession = getMarketSession();
     let intervalId: NodeJS.Timeout;
-    const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const isWeekend = estDate.getDay() === 0 || estDate.getDay() === 6;
-
-    if (!isWeekend) {
+    
+    // Suspend API polling entirely if it's the weekend to save data limits and freeze the UI
+    if (initialSession !== 'Weekend') {
        intervalId = setInterval(fetchMasterSnapshot, 60000);
     }
 
@@ -159,16 +130,46 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
       isMounted = false;
       if (intervalId) clearInterval(intervalId);
     };
-  }, []);
+  }, [polygonApiKey]);
+
+  // --- TOP MOVERS GENERATOR ---
+  const topMovers = useMemo(() => {
+    if (!rawSnapshot || rawSnapshot.length === 0) return [];
+
+    const filtered = rawSnapshot.filter((t: any) => {
+      const price = t.day?.c || 0;
+      const pct = t.todaysChangePerc || 0;
+      
+      // Look for market cap fields if the endpoint or backend provides them
+      const mktCap = t.marketCap || t.market_cap || t.fm || 0;
+      
+      // STRICT MOMENTUM CRITERIA
+      const meetsPrice = price >= 1.00;
+      const meetsGain = pct >= 4.0; // Must be up at least 4%
+      
+      // Enforce the 20 Million Market Cap limit (If the API omits market cap entirely, let it pass so it doesn't blind the screener)
+      const meetsCap = mktCap === 0 || mktCap >= 20000000; 
+
+      return meetsPrice && meetsGain && meetsCap;
+    });
+
+    // Sort strictly by the magnitude of the momentum gain, completely ignoring volume
+    const sorted = filtered.sort((a: any, b: any) => {
+      const pctA = Math.abs(a.todaysChangePerc || 0);
+      const pctB = Math.abs(b.todaysChangePerc || 0);
+      return pctB - pctA; 
+    });
+
+    return sorted.slice(0, 300);
+  }, [rawSnapshot, session]);
 
   return (
     <MarketDataContext.Provider 
       value={{ 
         rawSnapshot, 
         topMovers, 
-        sipsUniverse, 
+        sipsUniverse: topMovers, 
         session, 
-        effectiveDate,
         lastUpdated, 
         isLoading 
       }}
