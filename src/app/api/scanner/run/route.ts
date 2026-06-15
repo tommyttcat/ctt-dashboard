@@ -618,13 +618,34 @@ export async function GET(request: Request) {
     }
 
     const geminiKey = process.env.GEMINI_API_KEY;
-    
+
     let aiErrorMessage: string | null = null;
     let confluenceDict: any = {};
 
+    // --- AI COST CONTROL -------------------------------------------------------
+    // One Gemini call per scan was the whole expense: the scan runs every ~10
+    // minutes, but a stock's thesis / catalyst / conviction and the macro
+    // briefing don't meaningfully change that fast — only price & volume do.
+    // So we call Gemini at most once per AI_REFRESH_MIN and reuse the last good
+    // result (persisted in KV) on every scan in between. Price data still
+    // refreshes every scan from Polygon (cheap); only the AI text is throttled.
+    // Raise AI_REFRESH_MIN to spend less; lower it for fresher theses.
+    // Note: ?force=true refreshes DATA without calling Gemini. To force a fresh
+    // AI run on demand, use ?forceai=true.
+    const AI_REFRESH_MIN = 60;
+    const forceAi = searchParams.get('forceai') === 'true';
+    const lastAiRun = (await kv.get<number>('ai_last_run_v6')) || 0;
+    const aiCacheAgeMin = (Date.now() - lastAiRun) / 60000;
+    const cachedConfluence = (await kv.get<any>('ai_confluence_v6')) || {};
+    const shouldRunAi = forceAi || !lastAiRun || aiCacheAgeMin >= AI_REFRESH_MIN;
+
     if (!geminiKey) {
-        aiErrorMessage = "ERROR: Missing GEMINI_API_KEY in environment variables.";
-        console.error(aiErrorMessage);
+        console.error("AI skipped: missing GEMINI_API_KEY in environment variables.");
+        confluenceDict = cachedConfluence;
+    } else if (!shouldRunAi) {
+        // Cache still fresh — reuse the last analysis, no Gemini call this scan.
+        confluenceDict = cachedConfluence;
+        console.log(`AI cache fresh (${aiCacheAgeMin.toFixed(0)}m old, refresh @ ${AI_REFRESH_MIN}m) — skipping Gemini call.`);
     } else {
       try {
         const topGainersString = gainersRaw.slice(0, 10).map((t: any) => `${t.ticker} (+${t._liveChg.toFixed(2)}%)`).join(', ');
@@ -774,6 +795,21 @@ export async function GET(request: Request) {
         aiErrorMessage = `ERROR: AI Request Failed - ${e?.message || 'unknown'}`;
         console.error(aiErrorMessage);
       }
+
+      // If the Gemini call failed for ANY reason (429/quota, parse, timeout),
+      // fall back to the last good analysis from KV so the dashboard keeps its
+      // theses instead of going blank or showing the raw error. On success,
+      // persist the fresh analysis + timestamp so the next scans can reuse it.
+      if (aiErrorMessage) {
+        confluenceDict = cachedConfluence;
+      } else {
+        try {
+          await kv.set('ai_confluence_v6', confluenceDict);
+          await kv.set('ai_last_run_v6', Date.now());
+        } catch (persistErr) {
+          console.error('Failed to persist AI cache:', persistErr);
+        }
+      }
     }
 
     const enrichedMap = new Map();
@@ -795,7 +831,9 @@ export async function GET(request: Request) {
         else if (t._rawHeadline && t._daysOld >= 1.5 && t._daysOld <= 4) t.catalyst = "Delayed Reaction";
         else t.catalyst = 'Technical Momentum';
         
-        t.thesis = aiErrorMessage ? aiErrorMessage : null;
+        // Never surface raw AI errors (e.g. the 429 quota message) as a thesis.
+        // null lets the frontend show its clean fallback line instead.
+        t.thesis = null;
       }
       enrichedMap.set(t.ticker, t); 
     });

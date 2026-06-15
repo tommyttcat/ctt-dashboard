@@ -1,5 +1,3 @@
-
-
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 
@@ -119,15 +117,33 @@ export async function GET(request: Request) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: aiPrompt }] }],
-        generationConfig: { responseMimeType: "application/json", temperature: 0.15 }
+        generationConfig: {
+          responseMimeType: "application/json",
+          // Gemini 3.x defaults thinkingLevel to HIGH, which silently spends a
+          // large (billed) reasoning budget on every call. "low" is plenty for
+          // this short structured summary and is the biggest cost saver here.
+          thinkingConfig: { thinkingLevel: "low" },
+          // Small output; this is just a safety ceiling against truncation.
+          maxOutputTokens: 8192
+          // temperature intentionally removed — Google recommends NOT
+          // overriding it on Gemini 3.x models.
+        }
       })
     });
 
-    if (!aiRes.ok) throw new Error(`Gemini API Error: ${aiRes.statusText}`);
+    if (!aiRes.ok) throw new Error(`Gemini API Error: ${aiRes.status} ${aiRes.statusText}`);
     const aiData = await aiRes.json();
-    let generatedText = aiData.candidates[0].content.parts[0].text;
+
+    // Concatenate every text part. Thinking models can split output across
+    // multiple parts (and thought parts have no `.text`), so iterate rather
+    // than assuming parts[0] holds the answer.
+    const candidate = aiData?.candidates?.[0];
+    const generatedText = (candidate?.content?.parts || [])
+      .filter((p: any) => typeof p?.text === 'string')
+      .map((p: any) => p.text)
+      .join('');
+
     let generatedSummary;
-    
     try {
       const match = generatedText.match(/\{[\s\S]*\}/);
       generatedSummary = JSON.parse(match ? match[0] : generatedText);
@@ -170,7 +186,13 @@ export async function GET(request: Request) {
     }
 
     const isMarketActive = getIsMarketActive();
-    const cacheExpiration = isMarketActive ? 900 : 43200; 
+    // Cache the narrative so we don't re-call Gemini on every dashboard poll.
+    // During market hours we regenerate at most once per MARKET_CACHE_SEC; off
+    // hours it's effectively frozen for the rest of the day. Raise
+    // MARKET_CACHE_SEC to spend less (e.g. 3600 = once an hour).
+    const MARKET_CACHE_SEC = 1800;   // 30 min during market hours
+    const CLOSED_CACHE_SEC = 43200;  // 12 hours when closed
+    const cacheExpiration = isMarketActive ? MARKET_CACHE_SEC : CLOSED_CACHE_SEC;
 
     await kv.set(`market_narrative_${targetDate}`, generatedSummary, { ex: cacheExpiration });
 
