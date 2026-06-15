@@ -300,8 +300,8 @@ export default function DailySetups() {
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className={`${thBase} w-[9%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className={`${thBase} w-[24%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} w-[26%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               
@@ -339,7 +339,7 @@ export default function DailySetups() {
                           <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap text-left`}>
                             <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block max-w-full">{row.sector || '—'}</div>
                           </td>
-                          <td className={`${tdBase} text-[11px] text-left whitespace-normal break-words`}>
+                          <td className={`${tdBase} text-[10px] text-left whitespace-normal break-words`}>
                             {!isGenericCatalyst(row.catalyst) ? (
                               row.catalystUrl ? (
                                 <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium group-hover/cat:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>
