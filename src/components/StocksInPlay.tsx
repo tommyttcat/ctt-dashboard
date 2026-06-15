@@ -205,9 +205,9 @@ export default function StocksInPlay() {
   };
 
   // Shared header cell styling so every column shares the same padding + behavior.
-  const thBase = "px-4 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left cursor-pointer hover:text-slate-300 transition-colors";
+  const thBase = "px-3 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left cursor-pointer hover:text-slate-300 transition-colors";
   // Shared body cell padding (asymmetric vertical because a thesis sub-row follows).
-  const tdBase = "px-4 pt-3 pb-2";
+  const tdBase = "px-3 pt-3 pb-2";
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-hidden shadow-xl w-full">
@@ -267,7 +267,7 @@ export default function StocksInPlay() {
             <table className="w-full min-w-[1100px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className="px-4 py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[11%] text-left" onClick={() => handleSort('ticker')}>
+                  <th className="px-3 py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[11%] text-left" onClick={() => handleSort('ticker')}>
                     <div className="flex items-center gap-1.5 sm:gap-2">
                       <span className="cursor-pointer hover:text-slate-300">TICKER{getSortIcon('ticker')}</span>
                       <span className="cursor-pointer text-indigo-400/60 hover:text-indigo-400" onClick={(e) => { e.stopPropagation(); handleSort('conviction'); }}>CNF{getSortIcon('conviction')}</span>
@@ -323,7 +323,7 @@ export default function StocksInPlay() {
                           </td>
                         </tr>
                         <tr className="bg-transparent border-t border-white/5">
-                          <td colSpan={11} className="pb-3.5 pt-2.5 pr-4 pl-[60px]">
+                          <td colSpan={11} className="pb-3.5 pt-2.5 pr-3 pl-[56px]">
                             <div className="flex items-start">
                               <div className="flex-1">
                                 {row.thesis ? (
