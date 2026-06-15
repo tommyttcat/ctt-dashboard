@@ -75,26 +75,11 @@ const getMarketStatus = () => {
   return 'Closed';
 };
 
-const getEffectiveTradingDate = () => {
-  const est = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const day = est.getDay();
-  const timeStr = est.getHours() + est.getMinutes() / 60;
-
-  if (day === 6) est.setDate(est.getDate() - 1); 
-  else if (day === 0) est.setDate(est.getDate() - 2); 
-  else if (day === 1 && timeStr < 4) est.setDate(est.getDate() - 3); 
-  else if (timeStr < 4) est.setDate(est.getDate() - 1); 
-
-  const y = est.getFullYear();
-  const m = String(est.getMonth() + 1).padStart(2, '0');
-  const d = String(est.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
-
-const getPreviousTradingDate = (currentEffective: string) => {
-  const d = new Date(currentEffective);
-  d.setDate(d.getDate() - 1);
-  return d.toISOString().split('T')[0];
+const getUpdatePhase = (hour: number) => {
+  if (hour >= 4 && hour < 11) return 'Morning';
+  if (hour >= 11 && hour < 15) return 'Mid-Day';
+  if (hour >= 15 && hour < 20) return 'Closing';
+  return 'Offline';
 };
 
 const isSpamNews = (title: string) => {
@@ -203,8 +188,10 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
     for(let i=offset; i<offset+20; i++) variance += Math.pow(bars[i].c - sma, 2);
     const stdDev = Math.sqrt(variance / 20);
 
-    const upperBB = sma + (2.0 * stdDev);
-    const lowerBB = sma - (2.0 * stdDev);
+    const upperBB_25 = sma + (2.5 * stdDev);
+    const lowerBB_25 = sma - (2.5 * stdDev);
+    const upperBB_35 = sma + (3.5 * stdDev);
+    const lowerBB_35 = sma - (3.5 * stdDev);
 
     let sumTR = 0;
     for(let i=offset; i<offset+20; i++) {
@@ -218,7 +205,7 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
     const upperKC = sma + (1.5 * avgTR);
     const lowerKC = sma - (1.5 * avgTR);
 
-    return (upperBB < upperKC && lowerBB > lowerKC);
+    return (upperBB_25 < upperKC && lowerBB_25 > lowerKC) || (upperBB_35 < upperKC && lowerBB_35 > lowerKC);
   };
 
   const isSqueezingToday = checkSqueeze(0);
@@ -318,32 +305,28 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 20000) => {
 
 export async function GET(request: Request) {
   const estNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const day = estNow.getDay();
   const hour = estNow.getHours();
-  const min = estNow.getMinutes();
-  const timeStr = hour + min / 60;
   
-  const isWeekendMode = (day === 6 || day === 0) || (day === 5 && timeStr >= 20) || (day === 1 && timeStr < 4);
-  const CACHE_MINUTES = isWeekendMode ? 4320 : 5; 
-
+  const currentPhase = getUpdatePhase(hour);
+  const currentDate = estNow.toISOString().split('T')[0];
+  
   try {
-    // NUCLEAR CACHE BUSTER V3: Forces the engine to rerun the newly updated Gemini prompt
-    const lastScanTime = (await kv.get<number>('last_scan_time_v3')) || 0;
-    const now = Date.now();
-    const currentMarketStatus = getMarketStatus();
-    
-    if (now - lastScanTime < CACHE_MINUTES * 60 * 1000) {
-      const cachedDaily = await kv.get<any[]>('daily_setups_v3');
-      const cachedSip = await kv.get<any[]>('stocks_in_play_v3');
-      const cachedTopMovers = await kv.get<any>('top_movers_v3');
-      const cachedMacro = await kv.get<any>('macro_insights_v3');
+    const cachedPhase = await kv.get<string>('update_phase_v5');
+    const cachedDate = await kv.get<string>('update_date_v5');
+
+    if (cachedPhase === currentPhase && cachedDate === currentDate) {
+      const cachedDaily = await kv.get<any[]>('daily_setups_v5');
+      const cachedSip = await kv.get<any[]>('stocks_in_play_v5');
+      const cachedTopMovers = await kv.get<any>('top_movers_v5');
+      const cachedMacro = await kv.get<any>('macro_insights_v5');
+      const lastScanTime = await kv.get<number>('last_scan_time_v5');
       
       const isCacheValid = cachedTopMovers && cachedTopMovers['Gainers'] && cachedTopMovers['Gainers'].length > 0;
 
       if (cachedDaily && cachedSip && cachedTopMovers && isCacheValid) {
         return NextResponse.json({
           success: true,
-          marketStatus: currentMarketStatus,
+          marketStatus: getMarketStatus(),
           lastScanTime: lastScanTime || Date.now(), 
           dailyCount: cachedDaily.length,
           sipCount: cachedSip.length,
@@ -372,7 +355,7 @@ export async function GET(request: Request) {
 
     let processedSnapshot: any[] = [];
 
-    if (isWeekendMode) {
+    if (currentPhase === 'Offline') {
       const todayDate = new Date();
       const lookbackDate = new Date();
       lookbackDate.setDate(todayDate.getDate() - 10); 
@@ -498,6 +481,8 @@ export async function GET(request: Request) {
       ]);
 
       const marketCap = details?.results?.market_cap || 0;
+      if (marketCap > 0 && marketCap < MIN_MARKET_CAP) return null;
+
       const rawBars = aggs.results || [];
       const dailyBars = rawBars.sort((a: any, b: any) => b.t - a.t); 
 
@@ -602,7 +587,7 @@ export async function GET(request: Request) {
 
         const analysisPayload: any = {};
         enrichedList.forEach((t: any) => {
-            if ((aiTargets.has(t.ticker) || MEGA_CAP_TICKERS.has(t.ticker)) && t.vol >= MIN_VOLUME && t.mktCap >= MIN_MARKET_CAP) {
+            if ((aiTargets.has(t.ticker) || MEGA_CAP_TICKERS.has(t.ticker)) && t.vol >= MIN_VOLUME) {
                 const safeHeadline = (t._rawHeadline || '').replace(/[^a-zA-Z0-9\s.,!?'-]/g, '').trim();
                 analysisPayload[t.ticker] = {
                     Sector: t.sector || 'Unknown',
@@ -693,7 +678,7 @@ export async function GET(request: Request) {
           required: ["macro", "tickers"]
         };
 
-        const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`, {
+        const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -716,7 +701,7 @@ export async function GET(request: Request) {
             try {
               const parsed = JSON.parse(text);
               if (parsed.macro) {
-                await kv.set('macro_insights_v3', parsed.macro);
+                await kv.set('macro_insights_v5', parsed.macro);
               }
               if (parsed.tickers && Array.isArray(parsed.tickers)) {
                 parsed.tickers.forEach((t: any) => {
@@ -762,7 +747,6 @@ export async function GET(request: Request) {
       .filter((r: any) => 
          r !== undefined && 
          r.vol >= MIN_VOLUME && 
-         r.mktCap >= MIN_MARKET_CAP &&
          r.changePct >= MIN_CHANGE &&
          r.atr >= 1.0 && 
          r.avgVol >= MIN_AVG_VOL
@@ -774,29 +758,30 @@ export async function GET(request: Request) {
       .filter((r: any) => 
          r !== undefined && 
          r.vol >= MIN_VOLUME && 
-         r.mktCap >= MIN_MARKET_CAP &&
          r.changePct >= MIN_CHANGE
       )
       .slice(0, 10);
     
     const finalTopMovers = {
       'Mega Caps': megaCapsRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10),
-      'Gainers': gainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.vol >= MIN_VOLUME && r.mktCap >= MIN_MARKET_CAP).slice(0, 10),
-      'Losers': losersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.mktCap >= MIN_MARKET_CAP).slice(0, 10),
+      'Gainers': gainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.vol >= MIN_VOLUME).slice(0, 10),
+      'Losers': losersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10),
       'ETF Gainers': etfGainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10),
       'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10)
     };
 
     const finalScanTime = Date.now();
 
-    await kv.set('daily_setups_v3', finalDaily);
-    await kv.set('stocks_in_play_v3', finalSip);
-    await kv.set('top_movers_v3', finalTopMovers);
-    await kv.set('last_scan_time_v3', finalScanTime);
+    await kv.set('update_phase_v5', currentPhase);
+    await kv.set('update_date_v5', currentDate);
+    await kv.set('daily_setups_v5', finalDaily);
+    await kv.set('stocks_in_play_v5', finalSip);
+    await kv.set('top_movers_v5', finalTopMovers);
+    await kv.set('last_scan_time_v5', finalScanTime);
 
     let macroInsights = null;
     try {
-      macroInsights = await kv.get('macro_insights_v3');
+      macroInsights = await kv.get('macro_insights_v5');
     } catch(e) {}
 
     return NextResponse.json({ 
