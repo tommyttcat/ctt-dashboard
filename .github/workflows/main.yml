@@ -1,17 +1,6 @@
 name: Market Scanner Automator
-
 on:
-  schedule:
-    # 1. Runs every 10 minutes from 4:00 AM Eastern to 7:50 PM Eastern (Monday - Friday)
-    # Covers UTC hours 08:00 to 23:50
-    - cron: '*/10 8-23 * * 1-5'
-    
-    # 2. Runs every 10 minutes from 8:00 PM Eastern to 8:50 PM Eastern (Monday - Friday Eastern)
-    # Maps to Tuesday - Saturday 00:00 to 00:50 UTC due to the midnight crossover
-    - cron: '*/10 0 * * 2-6'
-    
   workflow_dispatch: # Allows manual executions via the "Run workflow" button
-
 jobs:
   run-scanner:
     runs-on: ubuntu-latest
