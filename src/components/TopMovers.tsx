@@ -84,8 +84,6 @@ export default function TopMovers() {
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
 
-  const isEtfTab = activeTab.includes('ETF');
-
   useEffect(() => { setSortConfig(null); }, [activeTab]);
 
   useEffect(() => {
@@ -279,39 +277,27 @@ export default function TopMovers() {
             <table className="w-full min-w-[1100px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} text-left ${isEtfTab ? 'w-[11%]' : 'w-[9%]'}`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
-                  <th className={`${thBase} text-right ${isEtfTab ? 'w-[11%]' : 'w-[8%]'}`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} text-right ${isEtfTab ? 'w-[10%]' : 'w-[8%]'}`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className={`${thBase} text-right ${isEtfTab ? 'w-[11%]' : 'w-[8%]'}`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} text-right ${isEtfTab ? 'w-[11%]' : 'w-[8%]'}`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`${thBase} text-right ${isEtfTab ? 'w-[9%]' : 'w-[8%]'}`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  {!isEtfTab ? (
-                    <>
-                      <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                      <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                      <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                      <th className={`${thBase} text-left w-[11%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                      <th className={`${thBase} text-left w-[16%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
-                    </>
-                  ) : (
-                    <>
-                      <th className={`${thBase} text-left w-[11%]`} onClick={() => handleSort('sector')}>UNDERLYING{getSortIcon('sector')}</th>
-                      <th className={`${thBase} text-left w-[13%]`}>EXPOSURE</th>
-                      <th className={`${thBase} text-left w-[13%]`} onClick={() => handleSort('catalyst')}>SETUP{getSortIcon('catalyst')}</th>
-                    </>
-                  )}
+                  <th className={`${thBase} text-left w-[9%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} text-left w-[11%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} text-left w-[16%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {status.includes('Syncing') && topMoversData[activeTab].length === 0 ? (
-                  <tr><td colSpan={isEtfTab ? 9 : 11} className="py-12 text-center"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
+                  <tr><td colSpan={11} className="py-12 text-center"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
                 ) : sortedStocks.length === 0 ? (
-                  <tr><td colSpan={isEtfTab ? 9 : 11} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td></tr>
+                  <tr><td colSpan={11} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td></tr>
                 ) : (
                   sortedStocks.map((row, i) => {
                     const isPositive = row.changePct >= 0;
-                    const [etfUnderlying, ...etfRest] = (row.sector || '').split(' - ');
-                    const etfExposure = etfRest.join(' - ');
                     return (
                       <tr key={i} className="hover:bg-white/[0.02] transition-colors group">
                         <td className="px-2 py-3 text-left">
@@ -327,41 +313,25 @@ export default function TopMovers() {
                         <td className="px-2 py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums">{formatNumber(row.vol)}</td>
                         <td className="px-2 py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums">{formatCurrency(row.dVol)}</td>
                         <td className={`px-2 py-3 text-xs font-bold whitespace-nowrap text-right tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
-                        {!isEtfTab ? (
-                          <>
-                            <td className={`px-2 py-3 text-xs font-bold whitespace-nowrap text-right tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
-                            <td className={`px-2 py-3 text-xs font-bold whitespace-nowrap text-right tabular-nums ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
-                            <td className="px-2 py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums">{formatNumber(row.mktCap)}</td>
-                            <td className="px-2 py-3 text-left">
-                              <span className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{row.sector || '—'}</span>
-                            </td>
-                            <td className="px-2 py-3 text-[10px] text-left whitespace-normal break-words">
-                              {!isGenericCatalyst(row.catalyst) ? (
-                                row.catalystUrl ? (
-                                  <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>
-                                ) : (
-                                  <span className="text-indigo-300/90 font-medium">{row.catalyst}</span>
-                                )
-                              ) : formatSetupName(row.setupName) ? (
-                                <span className="text-slate-400 font-medium whitespace-nowrap">{formatSetupName(row.setupName)}</span>
-                              ) : (
-                                <span className="text-slate-500 font-medium">Technical</span>
-                              )}
-                            </td>
-                          </>
-                        ) : (
-                          <>
-                            <td className="px-2 py-3 text-left"><span className="text-xs font-bold text-slate-100 whitespace-nowrap">{etfUnderlying || row.sector || '—'}</span></td>
-                            <td className="px-2 py-3 text-left"><span className="block truncate text-[10px] font-semibold tracking-wide text-slate-400">{etfExposure || '—'}</span></td>
-                            <td className="px-2 py-3 text-[10px] text-left whitespace-normal break-words">
-                              {formatSetupName(row.setupName) ? (
-                                <span className="text-slate-400 font-medium whitespace-nowrap">{formatSetupName(row.setupName)}</span>
-                              ) : (
-                                <span className="text-slate-500 font-medium">Technical</span>
-                              )}
-                            </td>
-                          </>
-                        )}
+                        <td className={`px-2 py-3 text-xs font-bold whitespace-nowrap text-right tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
+                        <td className={`px-2 py-3 text-xs font-bold whitespace-nowrap text-right tabular-nums ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
+                        <td className="px-2 py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums">{formatNumber(row.mktCap)}</td>
+                        <td className="px-2 py-3 text-left">
+                          <span className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{row.sector || '—'}</span>
+                        </td>
+                        <td className="px-2 py-3 text-[10px] text-left whitespace-normal break-words">
+                          {!isGenericCatalyst(row.catalyst) ? (
+                            row.catalystUrl ? (
+                              <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>
+                            ) : (
+                              <span className="text-indigo-300/90 font-medium">{row.catalyst}</span>
+                            )
+                          ) : formatSetupName(row.setupName) ? (
+                            <span className="text-slate-400 font-medium whitespace-nowrap">{formatSetupName(row.setupName)}</span>
+                          ) : (
+                            <span className="text-slate-500 font-medium">Technical</span>
+                          )}
+                        </td>
                       </tr>
                     );
                   })
