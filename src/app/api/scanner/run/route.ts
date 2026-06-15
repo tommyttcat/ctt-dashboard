@@ -697,7 +697,7 @@ export async function GET(request: Request) {
              - STRUCTURE: Is the MathPattern and Stage confluence clean on higher time frames?
           3. For the 'conviction' field, ASSIGN A NUMERICAL SCORE (integer 1-100) based on this framework.
           4. For the 'catalyst' field, summarize the Headline into a strict 1-3 word punchy category (e.g., "FDA Approval", "Earnings Beat"). If no news, strictly return "Technical Momentum".
-          5. For the 'thesis' field, strictly write an ACTIONABLE, news-driven trade plan. DO NOT repeat the math pattern, indicator, or stage. Focus entirely on the reason (Catalyst) and tactical invalidation levels. Example: "Institutional buying triggered by FDA approval. Look for entry over $12.50 pre-market high, with an invalidation stop below $12.10 VWAP."
+          5. For the 'thesis' field, explain in 1-2 plain sentences WHY the stock is moving — the catalyst, the driver, who is buying and why. CRITICAL: DO NOT include any specific price levels, entry points, price targets, or stop-loss figures. You do NOT have reliable support/resistance data, so any such numbers are fabricated, wrong, and misleading — omit them entirely. Also DO NOT repeat the math pattern, indicator, or stage. Example: "Renewed retail-trading optimism around the SpaceX IPO is pulling capital into brokerage names; the move is news-driven rather than purely technical."
           6. For the 'watching' array, select 5 to 8 total symbols representing the highest confluence.
           
           BRIEFING INSTRUCTIONS:
@@ -718,7 +718,7 @@ export async function GET(request: Request) {
               ]
             },
             "tickers": [
-              { "symbol": "XYZ", "catalyst": "Earnings Beat", "conviction": 85, "thesis": "Actionable trade plan..." }
+              { "symbol": "XYZ", "catalyst": "Earnings Beat", "conviction": 85, "thesis": "Plain-language reason the stock is moving — no price levels..." }
             ]
           }
 

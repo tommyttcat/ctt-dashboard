@@ -292,8 +292,8 @@ export default function TopMovers() {
                       <th className={`${thBase} w-[7%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                     </>
                   )}
-                  <th className={`${thBase} ${isEtfTab ? 'w-[16%]' : 'w-[7%]'}`} onClick={() => handleSort('sector')}>{isEtfTab ? 'ETF' : 'SECTOR'}{getSortIcon('sector')}</th>
-                  <th className={`${thBase} ${isEtfTab ? 'w-[40%]' : 'w-[28%]'}`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className={`${thBase} ${isEtfTab ? 'w-[18%]' : 'w-[11%]'}`} onClick={() => handleSort('sector')}>{isEtfTab ? 'ETF' : 'SECTOR'}{getSortIcon('sector')}</th>
+                  <th className={`${thBase} ${isEtfTab ? 'w-[38%]' : 'w-[24%]'}`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
