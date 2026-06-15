@@ -19,7 +19,7 @@ interface StockInPlay {
   stage: string;
   setupName: string | null;
   catalyst?: string | null;
-  catalystUrl?: string | null;
+  catalystUrl?: string | null; // RESTORED
   conviction?: number | null; 
   thesis?: string | null;     
 }
@@ -106,7 +106,7 @@ export default function StocksInPlay() {
               stage: item.stage || '2A',
               setupName: item.setupName || null,
               catalyst: rawCatalyst,
-              catalystUrl: item.catalystUrl || null,
+              catalystUrl: item.catalystUrl || null, // RESTORED
               conviction: item.conviction != null ? Number(item.conviction) : ((item.aiScore ?? item.score) ?? null), 
               thesis: finalThesis,         
             };
@@ -196,12 +196,11 @@ export default function StocksInPlay() {
     if (short >= 10) return 'text-emerald-400';
     return 'text-slate-300';
   };
+  const displaySession = ['Pre-Market', 'Open', 'Post-Market', 'Closed'].includes(session) ? session : 'Closed';
   const getSessionTextColor = () => {
-    if (status.includes('Err') || status.includes('Offline')) return 'text-rose-500';
-    if (status.includes('Syncing')) return 'text-amber-500'; 
-    if (session === 'Pre-Market') return 'text-amber-500';
-    if (session === 'Open') return 'text-[#00e676]';
-    if (session === 'Post-Market') return 'text-indigo-400';
+    if (displaySession === 'Pre-Market') return 'text-amber-500';
+    if (displaySession === 'Open') return 'text-[#00e676]';
+    if (displaySession === 'Post-Market') return 'text-indigo-400';
     return 'text-slate-500';
   };
 
@@ -216,7 +215,7 @@ export default function StocksInPlay() {
         </div>
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>{status === 'Live' ? session : status}</span>
+            <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>{displaySession}</span>
           </div>
           {lastScanTime && (<span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">Updated: {formatTime(lastScanTime)} EST</span>)}
         </div>
@@ -283,9 +282,7 @@ export default function StocksInPlay() {
               </thead>
               
               <tbody className="divide-y divide-white/5">
-                {status.includes('Syncing') && stocks.length === 0 ? (
-                  <tr><td colSpan={11} className="py-12 text-center"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
-                ) : filteredAndSortedStocks.length === 0 ? (
+                {stocks.length === 0 ? (
                   <tr><td colSpan={11} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td></tr>
                 ) : (
                   filteredAndSortedStocks.map((row, i) => {
