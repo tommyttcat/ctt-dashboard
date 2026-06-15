@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 
-// FORCE NEXT.JS TO NEVER CACHE THIS ROUTE
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 300; 
@@ -306,6 +305,10 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 20000) => {
 };
 
 export async function GET(request: Request) {
+  // Added URL parameter check to force cache bypass
+  const { searchParams } = new URL(request.url);
+  const forceRefresh = searchParams.get('force') === 'true';
+
   const estNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
   const hour = estNow.getHours();
   
@@ -313,43 +316,45 @@ export async function GET(request: Request) {
   const currentDate = estNow.toISOString().split('T')[0];
   const currentMarketStatus = getMarketStatus();
   
-  try {
-    const cachedPhase = await kv.get<string>('update_phase_v6');
-    const cachedDate = await kv.get<string>('update_date_v6');
+  if (!forceRefresh) {
+    try {
+      const cachedPhase = await kv.get<string>('update_phase_v6');
+      const cachedDate = await kv.get<string>('update_date_v6');
 
-    if (cachedPhase === currentPhase && cachedDate === currentDate) {
-      const cachedDaily = await kv.get<any[]>('daily_setups_v6');
-      const cachedSip = await kv.get<any[]>('stocks_in_play_v6');
-      const cachedTopMovers = await kv.get<any>('top_movers_v6');
-      const cachedMacro = await kv.get<any>('macro_insights_v6');
-      const lastScanTime = await kv.get<number>('last_scan_time_v6');
-      
-      const isCacheValid = cachedTopMovers && cachedTopMovers['Gainers'] && cachedTopMovers['Gainers'].length > 0;
+      if (cachedPhase === currentPhase && cachedDate === currentDate) {
+        const cachedDaily = await kv.get<any[]>('daily_setups_v6');
+        const cachedSip = await kv.get<any[]>('stocks_in_play_v6');
+        const cachedTopMovers = await kv.get<any>('top_movers_v6');
+        const cachedMacro = await kv.get<any>('macro_insights_v6');
+        const lastScanTime = await kv.get<number>('last_scan_time_v6');
+        
+        const isCacheValid = cachedTopMovers && cachedTopMovers['Gainers'] && cachedTopMovers['Gainers'].length > 0;
 
-      if (cachedDaily && cachedSip && cachedTopMovers && isCacheValid) {
-        return NextResponse.json({
-          success: true,
-          marketStatus: currentMarketStatus,
-          lastScanTime: lastScanTime || Date.now(), 
-          dailyCount: cachedDaily.length,
-          sipCount: cachedSip.length,
-          topMoversGenerated: true,
-          topMovers: cachedTopMovers,
-          macroInsights: cachedMacro,
-          sips: cachedSip,
-          dailySetups: cachedDaily,
-          fromCache: true
-        }, {
-          headers: {
-            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0',
-          }
-        });
+        if (cachedDaily && cachedSip && cachedTopMovers && isCacheValid) {
+          return NextResponse.json({
+            success: true,
+            marketStatus: currentMarketStatus,
+            lastScanTime: lastScanTime || Date.now(), 
+            dailyCount: cachedDaily.length,
+            sipCount: cachedSip.length,
+            topMoversGenerated: true,
+            topMovers: cachedTopMovers,
+            macroInsights: cachedMacro,
+            sips: cachedSip,
+            dailySetups: cachedDaily,
+            fromCache: true
+          }, {
+            headers: {
+              'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+              'Pragma': 'no-cache',
+              'Expires': '0',
+            }
+          });
+        }
       }
+    } catch (cacheErr) {
+      console.error("Cache read failed, proceeding with fresh scan.", cacheErr);
     }
-  } catch (cacheErr) {
-    console.error("Cache read failed, proceeding with fresh scan.", cacheErr);
   }
 
   const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
@@ -687,6 +692,7 @@ export async function GET(request: Request) {
           required: ["macro", "tickers"]
         };
 
+        // FIXED: Pointing API payload directly to the latest stable gemini-3.5-flash model
         const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -795,7 +801,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ 
       success: true, 
-      marketStatus: getMarketStatus(),
+      marketStatus: currentMarketStatus,
       lastScanTime: finalScanTime,
       dailyCount: finalDaily.length,
       sipCount: finalSip.length,
