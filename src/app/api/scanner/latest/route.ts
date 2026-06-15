@@ -15,6 +15,7 @@ export async function GET() {
       'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': []
     };
     const macroInsights = await kv.get('macro_insights_v6') || null;
+    const benchmark = await kv.get('benchmark_v6') || null;
     const lastScanTime = await kv.get('last_scan_time_v6') || Date.now();
 
     // FORCE BROWSER TO NEVER CACHE THIS RESPONSE
@@ -25,7 +26,8 @@ export async function GET() {
       stocksInPlay: stocksInPlay,   
       sips: stocksInPlay,           
       topMovers: topMovers,
-      macroInsights: macroInsights  
+      macroInsights: macroInsights,
+      benchmark: benchmark  
     }, {
       headers: {
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',

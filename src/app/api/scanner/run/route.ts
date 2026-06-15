@@ -311,48 +311,85 @@ export async function GET(request: Request) {
 
   const estNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
   const hour = estNow.getHours();
-  
+  const dayOfWeek = estNow.getDay(); // 0 = Sun ... 6 = Sat (Eastern wall-clock)
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
   const currentPhase = getUpdatePhase(hour);
   const currentDate = estNow.toISOString().split('T')[0];
   const currentMarketStatus = getMarketStatus();
-  
+
+  const noStoreHeaders = {
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0',
+  };
+
+  // --- WEEKEND GUARD ---------------------------------------------------------
+  // The cron already skips Sat/Sun daytime, but if this route is hit on a weekend
+  // (manual trigger or stray request), Massive/Polygon have cleared their live
+  // data — a scan would come back empty and CLOBBER Friday's stored snapshot.
+  // So on weekends we never scan: we just replay the last stored session so the
+  // dashboard keeps showing Friday's close. (force=true can still override this.)
+  if (isWeekend && !forceRefresh) {
+    const [wDaily, wSip, wTop, wMacro, wBench, wTime] = await Promise.all([
+      kv.get<any[]>('daily_setups_v6'),
+      kv.get<any[]>('stocks_in_play_v6'),
+      kv.get<any>('top_movers_v6'),
+      kv.get<any>('macro_insights_v6'),
+      kv.get<any>('benchmark_v6'),
+      kv.get<number>('last_scan_time_v6'),
+    ]);
+    return NextResponse.json({
+      success: true,
+      weekend: true,
+      note: 'Weekend — serving last stored session (Friday close); no scan run.',
+      marketStatus: 'Closed',
+      lastScanTime: wTime || Date.now(),
+      topMoversGenerated: true,
+      topMovers: wTop || { 'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': [] },
+      macroInsights: wMacro || null,
+      benchmark: wBench || null,
+      sips: wSip || [],
+      dailySetups: wDaily || [],
+      fromCache: true
+    }, { headers: noStoreHeaders });
+  }
+
+  // --- SHORT DEDUPE THROTTLE -------------------------------------------------
+  // The cron hits this endpoint every 10 minutes and we WANT each call to run a
+  // fresh scan — that's how movers, prices, and the QQQ benchmark stay current.
+  // We only short-circuit when a successful scan finished within the last 5
+  // minutes, which absorbs accidental double-triggers (e.g. a manual run landing
+  // on top of a cron tick) WITHOUT freezing data for hours like the old
+  // phase-based gate did.
   if (!forceRefresh) {
     try {
-      const cachedPhase = await kv.get<string>('update_phase_v6');
-      const cachedDate = await kv.get<string>('update_date_v6');
+      const lastScanTime = await kv.get<number>('last_scan_time_v6');
+      const cachedTopMovers = await kv.get<any>('top_movers_v6');
+      const isRecent = lastScanTime && (Date.now() - lastScanTime) < 5 * 60 * 1000;
+      const hasData = cachedTopMovers?.['Gainers']?.length > 0;
 
-      if (cachedPhase === currentPhase && cachedDate === currentDate) {
-        const cachedDaily = await kv.get<any[]>('daily_setups_v6');
-        const cachedSip = await kv.get<any[]>('stocks_in_play_v6');
-        const cachedTopMovers = await kv.get<any>('top_movers_v6');
-        const cachedMacro = await kv.get<any>('macro_insights_v6');
-        const cachedBenchmark = await kv.get<any>('benchmark_v6');
-        const lastScanTime = await kv.get<number>('last_scan_time_v6');
-        
-        const isCacheValid = cachedTopMovers && cachedTopMovers['Gainers'] && cachedTopMovers['Gainers'].length > 0;
-
-        if (cachedDaily && cachedSip && cachedTopMovers && isCacheValid) {
-          return NextResponse.json({
-            success: true,
-            marketStatus: currentMarketStatus,
-            lastScanTime: lastScanTime || Date.now(), 
-            dailyCount: cachedDaily.length,
-            sipCount: cachedSip.length,
-            topMoversGenerated: true,
-            topMovers: cachedTopMovers,
-            macroInsights: cachedMacro,
-            benchmark: cachedBenchmark,
-            sips: cachedSip,
-            dailySetups: cachedDaily,
-            fromCache: true
-          }, {
-            headers: {
-              'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-              'Pragma': 'no-cache',
-              'Expires': '0',
-            }
-          });
-        }
+      if (isRecent && hasData) {
+        const [cachedDaily, cachedSip, cachedMacro, cachedBenchmark] = await Promise.all([
+          kv.get<any[]>('daily_setups_v6'),
+          kv.get<any[]>('stocks_in_play_v6'),
+          kv.get<any>('macro_insights_v6'),
+          kv.get<any>('benchmark_v6'),
+        ]);
+        return NextResponse.json({
+          success: true,
+          marketStatus: currentMarketStatus,
+          lastScanTime: lastScanTime || Date.now(),
+          dailyCount: (cachedDaily || []).length,
+          sipCount: (cachedSip || []).length,
+          topMoversGenerated: true,
+          topMovers: cachedTopMovers,
+          macroInsights: cachedMacro,
+          benchmark: cachedBenchmark,
+          sips: cachedSip,
+          dailySetups: cachedDaily,
+          fromCache: true
+        }, { headers: noStoreHeaders });
       }
     } catch (cacheErr) {
       console.error("Cache read failed, proceeding with fresh scan.", cacheErr);
@@ -832,12 +869,28 @@ export async function GET(request: Request) {
 
     const finalScanTime = Date.now();
 
-    await kv.set('update_phase_v6', currentPhase);
-    await kv.set('update_date_v6', currentDate);
-    await kv.set('daily_setups_v6', finalDaily);
-    await kv.set('stocks_in_play_v6', finalSip);
-    await kv.set('top_movers_v6', finalTopMovers);
-    await kv.set('last_scan_time_v6', finalScanTime);
+    // Don't let a degenerate/empty scan wipe the last good snapshot. This guards
+    // Friday's data and survives transient provider hiccups: if a cycle comes
+    // back with no movers, we keep whatever was already in KV.
+    const hasRealData =
+      (finalTopMovers['Gainers']?.length > 0) ||
+      (finalTopMovers['Losers']?.length > 0) ||
+      (finalDaily.length > 0) ||
+      (finalSip.length > 0);
+
+    if (hasRealData) {
+      await kv.set('update_phase_v6', currentPhase);
+      await kv.set('update_date_v6', currentDate);
+      await kv.set('daily_setups_v6', finalDaily);
+      await kv.set('stocks_in_play_v6', finalSip);
+      await kv.set('top_movers_v6', finalTopMovers);
+      await kv.set('last_scan_time_v6', finalScanTime);
+    } else {
+      console.warn('Scan produced no movers; preserving previous KV snapshot.');
+    }
+
+    // Benchmark is independent of the movers list, so update it whenever we have
+    // a fresh value (self-guards on null).
     if (benchmark) await kv.set('benchmark_v6', benchmark);
 
     let macroInsights = null;
@@ -857,14 +910,9 @@ export async function GET(request: Request) {
       benchmark,
       sips: finalSip,            
       dailySetups: finalDaily,
+      dataPersisted: hasRealData,
       fromCache: false
-    }, {
-      headers: {
-        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0',
-      }
-    });
+    }, { headers: noStoreHeaders });
 
   } catch (error: any) {
     console.error("Scanner Error:", error);
