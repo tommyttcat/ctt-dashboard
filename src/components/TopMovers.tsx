@@ -211,7 +211,7 @@ export default function TopMovers() {
   const thBase = "px-2 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left cursor-pointer hover:text-slate-300 transition-colors";
 
   return (
-    <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-hidden shadow-xl w-full">
+    <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
       <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-6 border-b border-white/5 pb-4' : ''}`}>
         <div className="flex items-center gap-3">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
@@ -280,20 +280,20 @@ export default function TopMovers() {
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[9%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   {!isEtfTab && (
                     <>
-                      <th className={`${thBase} w-[7%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                      <th className={`${thBase} w-[7%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                      <th className={`${thBase} w-[7%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                      <th className={`${thBase} w-[8%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                      <th className={`${thBase} w-[8%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                      <th className={`${thBase} w-[8%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                     </>
                   )}
                   <th className={`${thBase} ${isEtfTab ? 'w-[18%]' : 'w-[11%]'}`} onClick={() => handleSort('sector')}>{isEtfTab ? 'ETF' : 'SECTOR'}{getSortIcon('sector')}</th>
-                  <th className={`${thBase} ${isEtfTab ? 'w-[38%]' : 'w-[24%]'}`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className={`${thBase} ${isEtfTab ? 'w-[33%]' : 'w-[16%]'}`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
