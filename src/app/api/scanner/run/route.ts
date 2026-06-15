@@ -326,6 +326,7 @@ export async function GET(request: Request) {
         const cachedSip = await kv.get<any[]>('stocks_in_play_v6');
         const cachedTopMovers = await kv.get<any>('top_movers_v6');
         const cachedMacro = await kv.get<any>('macro_insights_v6');
+        const cachedBenchmark = await kv.get<any>('benchmark_v6');
         const lastScanTime = await kv.get<number>('last_scan_time_v6');
         
         const isCacheValid = cachedTopMovers && cachedTopMovers['Gainers'] && cachedTopMovers['Gainers'].length > 0;
@@ -340,6 +341,7 @@ export async function GET(request: Request) {
             topMoversGenerated: true,
             topMovers: cachedTopMovers,
             macroInsights: cachedMacro,
+            benchmark: cachedBenchmark,
             sips: cachedSip,
             dailySetups: cachedDaily,
             fromCache: true
@@ -789,6 +791,45 @@ export async function GET(request: Request) {
       'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10)
     };
 
+    // QQQ benchmark: 10 / 21 / 50-day simple moving averages and whether the
+    // current price sits above (green) or below (red) each one.
+    let benchmark: any = null;
+    try {
+      const qqqTo = new Date().toISOString().split('T')[0];
+      const qqqFromDate = new Date();
+      qqqFromDate.setDate(qqqFromDate.getDate() - 120); // ~120 calendar days covers >50 trading days
+      const qqqFrom = qqqFromDate.toISOString().split('T')[0];
+
+      const qqqRes = await fetchSafeJson(
+        `https://api.polygon.io/v2/aggs/ticker/QQQ/range/1/day/${qqqFrom}/${qqqTo}?adjusted=true&sort=desc&limit=60&apiKey=${polygonApiKey}`,
+        { results: [] }
+      );
+      const qqqBars = (qqqRes.results || []).sort((a: any, b: any) => b.t - a.t); // newest first
+
+      if (qqqBars.length >= 50) {
+        const qqqPrice = qqqBars[0].c; // most recent close (live forming bar during market hours)
+        const sma = (n: number) => {
+          let sum = 0;
+          for (let i = 0; i < n; i++) sum += qqqBars[i].c;
+          return sum / n;
+        };
+        const sma10 = sma(10);
+        const sma21 = sma(21);
+        const sma50 = sma(50);
+        benchmark = {
+          symbol: 'QQQ',
+          price: parseFloat(qqqPrice.toFixed(2)),
+          mas: [
+            { label: '10', value: parseFloat(sma10.toFixed(2)), above: qqqPrice >= sma10 },
+            { label: '21', value: parseFloat(sma21.toFixed(2)), above: qqqPrice >= sma21 },
+            { label: '50', value: parseFloat(sma50.toFixed(2)), above: qqqPrice >= sma50 },
+          ]
+        };
+      }
+    } catch (e) {
+      benchmark = null;
+    }
+
     const finalScanTime = Date.now();
 
     await kv.set('update_phase_v6', currentPhase);
@@ -797,6 +838,7 @@ export async function GET(request: Request) {
     await kv.set('stocks_in_play_v6', finalSip);
     await kv.set('top_movers_v6', finalTopMovers);
     await kv.set('last_scan_time_v6', finalScanTime);
+    if (benchmark) await kv.set('benchmark_v6', benchmark);
 
     let macroInsights = null;
     try {
@@ -812,6 +854,7 @@ export async function GET(request: Request) {
       topMoversGenerated: true,
       topMovers: finalTopMovers,
       macroInsights,
+      benchmark,
       sips: finalSip,            
       dailySetups: finalDaily,
       fromCache: false

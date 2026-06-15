@@ -25,6 +25,18 @@ interface StockData {
 type TabType = 'Mega Caps' | 'Gainers' | 'Losers' | 'ETF Gainers' | 'ETF Losers';
 type SortDirection = 'asc' | 'desc';
 
+interface MovingAverage {
+  label: string;
+  value: number;
+  above: boolean;
+}
+
+interface Benchmark {
+  symbol: string;
+  price: number;
+  mas: MovingAverage[];
+}
+
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
   const date = new Date(timestamp);
@@ -56,6 +68,7 @@ export default function TopMovers() {
   const [activeTab, setActiveTab] = useState<TabType>('Gainers');
   const [status, setStatus] = useState<string>('Syncing DB...');
   const [lastScanTime, setLastScanTime] = useState<number | null>(null);
+  const [benchmark, setBenchmark] = useState<Benchmark | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: keyof StockData; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
@@ -102,6 +115,7 @@ export default function TopMovers() {
 
           setTopMoversData(safeData);
           setLastScanTime(data.lastScanTime || Date.now()); 
+          if (data.benchmark) setBenchmark(data.benchmark);
           setStatus('Live');
         }
       } catch (error) {
@@ -213,11 +227,29 @@ export default function TopMovers() {
                   </button>
                 ))}
               </div>
-              <div className="flex items-center gap-4 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0 w-full md:w-auto">
-                <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">VWAP</span>
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div><span className="text-[10px] font-medium text-slate-400">Above</span></div>
-                  <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div><span className="text-[10px] font-medium text-slate-400">Below</span></div>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto" onClick={(e) => e.stopPropagation()}>
+                {benchmark && (
+                  <div className="flex items-center gap-3 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+                    <span className="text-[9px] font-bold tracking-widest uppercase text-[#7c8bfa]">{benchmark.symbol}</span>
+                    <div className="flex items-center gap-2">
+                      {benchmark.mas.map((m, idx) => (
+                        <React.Fragment key={m.label}>
+                          {idx > 0 && <span className="text-[10px] text-slate-600">|</span>}
+                          <div className="flex items-center gap-1.5" title={`${benchmark.symbol} ${m.label}D SMA: $${m.value.toFixed(2)} — ${m.above ? 'above' : 'below'}`}>
+                            <span className="text-[10px] font-medium text-slate-400">{m.label}</span>
+                            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${m.above ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>
+                          </div>
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-center gap-4 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">VWAP</span>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div><span className="text-[10px] font-medium text-slate-400">Above</span></div>
+                    <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div><span className="text-[10px] font-medium text-slate-400">Below</span></div>
+                  </div>
                 </div>
               </div>
             </div>
