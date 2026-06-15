@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 
+// FORCE NEXT.JS TO NEVER CACHE THIS ROUTE
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 export const maxDuration = 300; 
 
 const SECTOR_MAP: Record<string, string> = {
@@ -309,24 +311,25 @@ export async function GET(request: Request) {
   
   const currentPhase = getUpdatePhase(hour);
   const currentDate = estNow.toISOString().split('T')[0];
+  const currentMarketStatus = getMarketStatus();
   
   try {
-    const cachedPhase = await kv.get<string>('update_phase_v5');
-    const cachedDate = await kv.get<string>('update_date_v5');
+    const cachedPhase = await kv.get<string>('update_phase_v6');
+    const cachedDate = await kv.get<string>('update_date_v6');
 
     if (cachedPhase === currentPhase && cachedDate === currentDate) {
-      const cachedDaily = await kv.get<any[]>('daily_setups_v5');
-      const cachedSip = await kv.get<any[]>('stocks_in_play_v5');
-      const cachedTopMovers = await kv.get<any>('top_movers_v5');
-      const cachedMacro = await kv.get<any>('macro_insights_v5');
-      const lastScanTime = await kv.get<number>('last_scan_time_v5');
+      const cachedDaily = await kv.get<any[]>('daily_setups_v6');
+      const cachedSip = await kv.get<any[]>('stocks_in_play_v6');
+      const cachedTopMovers = await kv.get<any>('top_movers_v6');
+      const cachedMacro = await kv.get<any>('macro_insights_v6');
+      const lastScanTime = await kv.get<number>('last_scan_time_v6');
       
       const isCacheValid = cachedTopMovers && cachedTopMovers['Gainers'] && cachedTopMovers['Gainers'].length > 0;
 
       if (cachedDaily && cachedSip && cachedTopMovers && isCacheValid) {
         return NextResponse.json({
           success: true,
-          marketStatus: getMarketStatus(),
+          marketStatus: currentMarketStatus,
           lastScanTime: lastScanTime || Date.now(), 
           dailyCount: cachedDaily.length,
           sipCount: cachedSip.length,
@@ -336,6 +339,12 @@ export async function GET(request: Request) {
           sips: cachedSip,
           dailySetups: cachedDaily,
           fromCache: true
+        }, {
+          headers: {
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+          }
         });
       }
     }
@@ -701,7 +710,7 @@ export async function GET(request: Request) {
             try {
               const parsed = JSON.parse(text);
               if (parsed.macro) {
-                await kv.set('macro_insights_v5', parsed.macro);
+                await kv.set('macro_insights_v6', parsed.macro);
               }
               if (parsed.tickers && Array.isArray(parsed.tickers)) {
                 parsed.tickers.forEach((t: any) => {
@@ -772,16 +781,16 @@ export async function GET(request: Request) {
 
     const finalScanTime = Date.now();
 
-    await kv.set('update_phase_v5', currentPhase);
-    await kv.set('update_date_v5', currentDate);
-    await kv.set('daily_setups_v5', finalDaily);
-    await kv.set('stocks_in_play_v5', finalSip);
-    await kv.set('top_movers_v5', finalTopMovers);
-    await kv.set('last_scan_time_v5', finalScanTime);
+    await kv.set('update_phase_v6', currentPhase);
+    await kv.set('update_date_v6', currentDate);
+    await kv.set('daily_setups_v6', finalDaily);
+    await kv.set('stocks_in_play_v6', finalSip);
+    await kv.set('top_movers_v6', finalTopMovers);
+    await kv.set('last_scan_time_v6', finalScanTime);
 
     let macroInsights = null;
     try {
-      macroInsights = await kv.get('macro_insights_v5');
+      macroInsights = await kv.get('macro_insights_v6');
     } catch(e) {}
 
     return NextResponse.json({ 
@@ -796,6 +805,12 @@ export async function GET(request: Request) {
       sips: finalSip,            
       dailySetups: finalDaily,
       fromCache: false
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      }
     });
 
   } catch (error: any) {
