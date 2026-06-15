@@ -19,6 +19,7 @@ interface SetupData {
   stage: string;
   setupName: string | null;
   catalyst?: string | null;
+  catalystUrl?: string | null;
   conviction?: number | null; 
   thesis?: string | null;     
 }
@@ -108,6 +109,7 @@ export default function DailySetups() {
               stage: item.stage || '2A',
               setupName: item.setupName || null,
               catalyst: rawCatalyst,
+              catalystUrl: item.catalystUrl || null,
               conviction: item.conviction != null ? Number(item.conviction) : ((item.aiScore ?? item.score) ?? null), 
               thesis: finalThesis,         
             };
@@ -342,116 +344,79 @@ export default function DailySetups() {
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[5%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] text-left" onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[30%] text-left pr-4" onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[6%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[7%] text-left cursor-pointer hover:text-slate-300" onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] text-left" onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[24%] text-left pr-4" onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               
-              {status.includes('Syncing') && setups.length === 0 ? (
-                <tbody>
-                  <tr>
-                    <td colSpan={11} className="py-12 text-center border-b border-white/5">
-                      <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
-                      <span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span>
-                    </td>
-                  </tr>
-                </tbody>
-              ) : filteredAndSortedSetups.length === 0 ? (
-                <tbody>
-                  <tr>
-                    <td colSpan={11} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">No active tracking items currently matching momentum criteria.</td>
-                  </tr>
-                </tbody>
-              ) : (
-                filteredAndSortedSetups.map((row, i) => {
-                  const isPositive = row.changePct >= 0;
-                  
-                  return (
-                    <tbody key={i} className="group hover:bg-white/[0.02] transition-colors">
-                      <tr className="bg-transparent">
-                        <td className="pt-3 pb-2 text-left pl-4">
-                          <div className="flex items-center gap-2">
-                            <div className="relative inline-flex items-center group/ticker">
-                              <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
-                              <div className="absolute left-full ml-3 px-3 py-1.5 bg-[#1e293b] border border-white/10 text-slate-200 text-xs font-semibold tracking-wide rounded-md shadow-2xl opacity-0 invisible group-hover/ticker:opacity-100 group-hover/ticker:visible transition-all z-[60] whitespace-nowrap pointer-events-none">{row.name || row.ticker}</div>
+              <tbody className="divide-y divide-white/5">
+                {status.includes('Syncing') && setups.length === 0 ? (
+                  <tr><td colSpan={11} className="py-12 text-center border-b border-white/5"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
+                ) : filteredAndSortedSetups.length === 0 ? (
+                  <tr><td colSpan={11} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">No active tracking items currently matching momentum criteria.</td></tr>
+                ) : (
+                  filteredAndSortedSetups.map((row, i) => {
+                    const isPositive = row.changePct >= 0;
+                    return (
+                      <React.Fragment key={i}>
+                        <tr className="hover:bg-white/[0.02] transition-colors group">
+                          <td className="pt-3 pb-2 text-left pl-4">
+                            <div className="flex items-center gap-2">
+                              <div className="relative inline-flex items-center group/ticker">
+                                <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
+                              </div>
+                              {row.conviction != null ? (
+                                <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${row.conviction >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_8px_rgba(52,211,153,0.1)]' : row.conviction >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 shadow-[0_0_8px_rgba(251,191,36,0.1)]' : 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50'}`}>{row.conviction}%</span>
+                              ) : (<span className="inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border bg-white/[0.02] text-slate-600 border-white/5">--%</span>)}
                             </div>
-                            
-                            {row.conviction != null ? (
-                              <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${
-                                row.conviction >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_8px_rgba(52,211,153,0.1)]' : 
-                                row.conviction >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 shadow-[0_0_8px_rgba(251,191,36,0.1)]' : 
-                                'bg-zinc-800/50 text-zinc-400 border-zinc-700/50'
-                              }`}>
-                                {row.conviction}%
-                              </span>
-                            ) : (
-                              <span className="inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border bg-white/[0.02] text-slate-600 border-white/5">
-                                --%
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="pt-3 pb-2 text-xs text-slate-300 font-medium whitespace-nowrap text-left">
-                          <div className="flex items-center gap-1.5">
-                            ${row.price.toFixed(2)}
-                            {row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>)}
-                          </div>
-                        </td>
-                        <td className={`pt-3 pb-2 text-xs font-bold whitespace-nowrap text-left ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
-                        <td className="pt-3 pb-2 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatNumber(row.vol)}</td>
-                        <td className="pt-3 pb-2 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatCurrency(row.dVol)}</td>
-                        <td className={`pt-3 pb-2 text-xs font-bold whitespace-nowrap text-left ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
-                        <td className={`pt-3 pb-2 text-xs font-bold whitespace-nowrap text-left ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
-                        <td className={`pt-3 pb-2 text-xs font-bold whitespace-nowrap text-left ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
-                        <td className="pt-3 pb-2 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatNumber(row.mktCap)}</td>
-                        <td className="pt-3 pb-2 text-[10px] text-slate-400 font-medium whitespace-nowrap text-left">
-                          <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.sector || '—'}</div>
-                        </td>
-                        <td className="pt-3 pb-2 text-[11px] text-indigo-300/90 font-medium text-left pr-4 whitespace-normal break-words">
-                          {row.catalyst || '—'}
-                        </td>
-                      </tr>
-
-                      <tr className="bg-transparent border-t border-white/5">
-                        <td colSpan={11} className="pb-3.5 pt-2.5 pr-4 pl-[56px]">
-                          <div className="flex items-start">
-                            <div className="flex-1">
-                              {row.thesis ? (
-                                <p className="text-[11px] text-slate-400 leading-relaxed pr-8 whitespace-normal">
-                                  <span className="inline-flex items-baseline gap-1.5 mr-2">
-                                    {row.setupName && row.setupName !== '-' && row.setupName !== '—' && (
-                                      <>
-                                        {row.setupName === 'Blue Dot Rev' && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)] relative top-[2px]"></span>}
-                                        <span className="text-slate-500 font-bold text-[10px] tracking-widest uppercase">{formatSetupName(row.setupName)}</span>
-                                        <span className="text-slate-700 font-bold text-[10px]">|</span>
-                                      </>
-                                    )}
-                                    {row.stage && row.stage !== '-' && row.stage !== '—' && (
-                                      <>
-                                        <span className={`font-bold text-[10px] tracking-widest uppercase ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span>
-                                        <span className="text-slate-700 font-bold text-[10px]">|</span>
-                                      </>
-                                    )}
-                                  </span>
-                                  {row.thesis}
-                                </p>
-                              ) : (
-                                <p className="text-[11px] text-slate-500 italic leading-relaxed pr-8 whitespace-normal mt-0.5">
-                                  Awaiting quantitative confluence analysis...
-                                </p>
-                              )}
+                          </td>
+                          <td className="pt-3 pb-2 text-xs text-slate-300 font-medium whitespace-nowrap text-left">
+                            <div className="flex items-center gap-1.5">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>)}</div>
+                          </td>
+                          <td className={`pt-3 pb-2 text-xs font-bold whitespace-nowrap text-left ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
+                          <td className="pt-3 pb-2 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatNumber(row.vol)}</td>
+                          <td className="pt-3 pb-2 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatCurrency(row.dVol)}</td>
+                          <td className={`pt-3 pb-2 text-xs font-bold whitespace-nowrap text-left ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
+                          <td className={`pt-3 pb-2 text-xs font-bold whitespace-nowrap text-left ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
+                          <td className={`pt-3 pb-2 text-xs font-bold whitespace-nowrap text-left ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
+                          <td className="pt-3 pb-2 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatNumber(row.mktCap)}</td>
+                          <td className="pt-3 pb-2 text-[10px] text-slate-400 font-medium whitespace-nowrap text-left">
+                            <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block">{row.sector || '—'}</div>
+                          </td>
+                          <td className="pt-3 pb-2 text-[11px] text-indigo-300/90 font-medium text-left pr-4 whitespace-normal break-words">
+                            {row.catalyst ? (row.catalystUrl ? (<a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="group-hover/cat:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>) : (<span className="group-hover/cat:text-slate-200 transition-colors">{row.catalyst}</span>)) : (<span className="text-slate-600 font-medium">—</span>)}
+                          </td>
+                        </tr>
+                        <tr className="bg-transparent border-t border-white/5">
+                          <td colSpan={11} className="pb-3.5 pt-2.5 pr-4 pl-[56px]">
+                            <div className="flex items-start">
+                              <div className="flex-1">
+                                {row.thesis ? (
+                                  <p className="text-[11px] text-slate-400 leading-relaxed pr-8 whitespace-normal">
+                                    <span className="inline-flex items-baseline gap-1.5 mr-2">
+                                      {row.setupName && row.setupName !== '-' && row.setupName !== '—' && (
+                                        <><span className="text-slate-500 font-bold text-[10px] tracking-widest uppercase">{formatSetupName(row.setupName)}</span><span className="text-slate-700 font-bold text-[10px]">|</span></>
+                                      )}
+                                      {row.stage && row.stage !== '-' && row.stage !== '—' && (
+                                        <><span className={`font-bold text-[10px] tracking-widest uppercase ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span><span className="text-slate-700 font-bold text-[10px]">|</span></>
+                                      )}
+                                    </span>
+                                    {row.thesis}
+                                  </p>
+                                ) : (<p className="text-[11px] text-slate-500 italic leading-relaxed pr-8 whitespace-normal mt-0.5">Awaiting quantitative confluence analysis...</p>)}
+                              </div>
                             </div>
-                          </div>
-                        </td>
-                      </tr>
-                    </tbody>
-                  );
-                })
-              )}
+                          </td>
+                        </tr>
+                      </React.Fragment>
+                    );
+                  })
+                )}
+              </tbody>
             </table>
           </div>
         </>
