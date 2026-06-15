@@ -197,7 +197,7 @@ export default function TopMovers() {
   };
 
   // Shared header cell styling so every column gets the same padding + behavior.
-  const thBase = "px-4 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left cursor-pointer hover:text-slate-300 transition-colors";
+  const thBase = "px-3 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left cursor-pointer hover:text-slate-300 transition-colors";
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-hidden shadow-xl w-full">
@@ -295,30 +295,30 @@ export default function TopMovers() {
                     const isPositive = row.changePct >= 0;
                     return (
                       <tr key={i} className="hover:bg-white/[0.02] transition-colors group">
-                        <td className="px-4 py-3 text-left">
+                        <td className="px-3 py-3 text-left">
                           <div className="relative inline-flex items-center group/ticker">
                             <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
                             <div className="absolute left-full ml-3 px-3 py-1.5 bg-[#1e293b] border border-white/10 text-slate-200 text-xs font-semibold tracking-wide rounded-md shadow-2xl opacity-0 invisible group-hover/ticker:opacity-100 group-hover/ticker:visible transition-all z-[60] whitespace-nowrap pointer-events-none">{row.name || row.ticker}</div>
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-xs text-slate-300 font-medium whitespace-nowrap text-left">
+                        <td className="px-3 py-3 text-xs text-slate-300 font-medium whitespace-nowrap text-left">
                           <div className="flex items-center gap-1.5">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>)}</div>
                         </td>
-                        <td className={`px-4 py-3 text-xs font-bold whitespace-nowrap text-left ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
-                        <td className="px-4 py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatNumber(row.vol)}</td>
-                        <td className="px-4 py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatCurrency(row.dVol)}</td>
-                        <td className={`px-4 py-3 text-xs font-bold whitespace-nowrap text-left ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
+                        <td className={`px-3 py-3 text-xs font-bold whitespace-nowrap text-left ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
+                        <td className="px-3 py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatNumber(row.vol)}</td>
+                        <td className="px-3 py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatCurrency(row.dVol)}</td>
+                        <td className={`px-3 py-3 text-xs font-bold whitespace-nowrap text-left ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
                         {!isEtfTab && (
                           <>
-                            <td className={`px-4 py-3 text-xs font-bold whitespace-nowrap text-left ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
-                            <td className={`px-4 py-3 text-xs font-bold whitespace-nowrap text-left ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
-                            <td className="px-4 py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatNumber(row.mktCap)}</td>
+                            <td className={`px-3 py-3 text-xs font-bold whitespace-nowrap text-left ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
+                            <td className={`px-3 py-3 text-xs font-bold whitespace-nowrap text-left ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
+                            <td className="px-3 py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-left">{formatNumber(row.mktCap)}</td>
                           </>
                         )}
-                        <td className="px-4 py-3 text-[10px] text-slate-400 font-medium whitespace-nowrap text-left">
+                        <td className="px-3 py-3 text-[10px] text-slate-400 font-medium whitespace-nowrap text-left">
                           <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block max-w-full">{row.sector || '—'}</div>
                         </td>
-                        <td className="px-4 py-3 text-[11px] text-indigo-300/90 font-medium text-left whitespace-normal break-words">
+                        <td className="px-3 py-3 text-[11px] text-indigo-300/90 font-medium text-left whitespace-normal break-words">
                           {row.catalyst ? (row.catalystUrl ? (<a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="group-hover/cat:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>) : (<span className="group-hover/cat:text-slate-200 transition-colors">{row.catalyst}</span>)) : (<span className="text-slate-600 font-medium">—</span>)}
                         </td>
                       </tr>
