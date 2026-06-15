@@ -58,6 +58,17 @@ const formatCurrency = (num: number | null) => {
   return '$' + num.toLocaleString();
 };
 
+const formatSetupName = (name: string | null) => {
+  if (!name || name === '-' || name === '—') return null;
+  if (name.includes('BB SQZ')) return 'BB SQZ';
+  if (name === 'Blue Dot Rev') return 'BD Rev';
+  return name;
+};
+
+// True only for the backend's generic no-news fallback labels.
+const isGenericCatalyst = (catalyst: string | null | undefined) =>
+  !catalyst || catalyst.toLowerCase().startsWith('technical momentum');
+
 export default function TopMovers() {
   const { session } = useMarketData();
   
@@ -268,21 +279,21 @@ export default function TopMovers() {
             <table className="w-full min-w-[1100px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} w-[10%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
-                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} w-[9%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   {!isEtfTab && (
                     <>
-                      <th className={`${thBase} w-[8%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                      <th className={`${thBase} w-[8%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                      <th className={`${thBase} w-[8%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                      <th className={`${thBase} w-[7%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                      <th className={`${thBase} w-[7%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                      <th className={`${thBase} w-[7%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                     </>
                   )}
-                  <th className={`${thBase} ${isEtfTab ? 'w-[16%]' : 'w-[10%]'}`} onClick={() => handleSort('sector')}>{isEtfTab ? 'ETF' : 'SECTOR'}{getSortIcon('sector')}</th>
-                  <th className={`${thBase} ${isEtfTab ? 'w-[34%]' : 'w-[16%]'}`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className={`${thBase} ${isEtfTab ? 'w-[16%]' : 'w-[9%]'}`} onClick={() => handleSort('sector')}>{isEtfTab ? 'ETF' : 'SECTOR'}{getSortIcon('sector')}</th>
+                  <th className={`${thBase} ${isEtfTab ? 'w-[40%]' : 'w-[26%]'}`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -318,8 +329,21 @@ export default function TopMovers() {
                         <td className="px-3 py-3 text-[10px] text-slate-400 font-medium whitespace-nowrap text-left">
                           <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block max-w-full">{row.sector || '—'}</div>
                         </td>
-                        <td className="px-3 py-3 text-[11px] text-indigo-300/90 font-medium text-left whitespace-normal break-words">
-                          {row.catalyst ? (row.catalystUrl ? (<a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="group-hover/cat:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>) : (<span className="group-hover/cat:text-slate-200 transition-colors">{row.catalyst}</span>)) : (<span className="text-slate-600 font-medium">—</span>)}
+                        <td className="px-3 py-3 text-[11px] text-left whitespace-normal break-words">
+                          {!isGenericCatalyst(row.catalyst) ? (
+                            row.catalystUrl ? (
+                              <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium group-hover/cat:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>
+                            ) : (
+                              <span className="text-indigo-300/90 font-medium group-hover/cat:text-slate-200 transition-colors">{row.catalyst}</span>
+                            )
+                          ) : formatSetupName(row.setupName) ? (
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className="px-1.5 py-[2px] rounded text-[9px] font-bold tracking-wider uppercase bg-[#161c2a] border border-white/5 text-slate-300 whitespace-nowrap">{formatSetupName(row.setupName)}</span>
+                              <span className="text-slate-500 text-[10px] font-medium">Technical</span>
+                            </span>
+                          ) : (
+                            <span className="text-slate-500 font-medium">Technical</span>
+                          )}
                         </td>
                       </tr>
                     );
