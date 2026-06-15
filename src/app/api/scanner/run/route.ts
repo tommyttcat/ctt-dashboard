@@ -671,22 +671,50 @@ export async function GET(request: Request) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts: [{ text: aiPrompt }] }],
-            generationConfig: { responseMimeType: "application/json", temperature: 0.15 }
+            generationConfig: {
+              responseMimeType: "application/json",
+              // Gemini 3.x defaults thinkingLevel to HIGH, which burns the output
+              // budget on reasoning before the JSON is written. "low" is plenty
+              // for structured extraction. (thinkingLevel and the legacy
+              // thinkingBudget cannot both be set, or the API returns a 400.)
+              thinkingConfig: { thinkingLevel: "low" },
+              // Without an explicit cap the large per-ticker JSON can be
+              // truncated (finishReason: MAX_TOKENS) -> JSON.parse fails.
+              maxOutputTokens: 32768
+              // NOTE: temperature/top_p/top_k intentionally omitted. Google
+              // explicitly recommends NOT overriding them for Gemini 3.x models.
+            }
           })
         });
 
         if (!aiRes.ok) {
           const errorText = await aiRes.text();
-          aiErrorMessage = `ERROR: Gemini API Rejected (${aiRes.status}) - ${errorText.substring(0, 40)}...`;
+          aiErrorMessage = `ERROR: Gemini API Rejected (${aiRes.status}) - ${errorText.substring(0, 200)}`;
+          console.error(aiErrorMessage);
         } else {
           const aiData = await aiRes.json();
-          if (aiData.candidates && aiData.candidates[0].content) {
-            const text = aiData.candidates[0].content.parts[0].text;
-            
+
+          const candidate = aiData?.candidates?.[0];
+          const finishReason = candidate?.finishReason;
+
+          // Concatenate every text part. Thinking models can split output across
+          // multiple parts, and thought parts have no `.text`, so iterate rather
+          // than assuming parts[0] holds the answer.
+          const text = (candidate?.content?.parts || [])
+            .filter((p: any) => typeof p?.text === 'string')
+            .map((p: any) => p.text)
+            .join('');
+
+          if (!text) {
+            // No usable text: surface the real reason instead of failing silently.
+            const blockReason = aiData?.promptFeedback?.blockReason;
+            aiErrorMessage = `ERROR: Empty AI response (finishReason: ${finishReason || 'unknown'}${blockReason ? `, blocked: ${blockReason}` : ''})`;
+            console.error(aiErrorMessage, JSON.stringify(aiData?.promptFeedback || {}));
+          } else {
             try {
               const match = text.match(/\{[\s\S]*\}/);
               const parsed = JSON.parse(match ? match[0] : text);
-              
+
               if (parsed.macro) {
                 await kv.set('macro_insights_v6', parsed.macro);
               }
@@ -696,12 +724,16 @@ export async function GET(request: Request) {
                 });
               }
             } catch (parseErr: any) {
-              aiErrorMessage = `ERROR: JSON Parsing Failed`;
+              // Truncated JSON is almost always a token-budget issue.
+              const hint = finishReason === 'MAX_TOKENS' ? ' (response hit MAX_TOKENS — raise maxOutputTokens)' : '';
+              aiErrorMessage = `ERROR: JSON Parsing Failed${hint}`;
+              console.error(aiErrorMessage, parseErr?.message);
             }
           }
         }
       } catch (e: any) {
-        aiErrorMessage = `ERROR: AI Request Failed`;
+        aiErrorMessage = `ERROR: AI Request Failed - ${e?.message || 'unknown'}`;
+        console.error(aiErrorMessage);
       }
     }
 
