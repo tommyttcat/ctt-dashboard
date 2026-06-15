@@ -305,7 +305,6 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 20000) => {
 };
 
 export async function GET(request: Request) {
-  // Added URL parameter check to force cache bypass
   const { searchParams } = new URL(request.url);
   const forceRefresh = searchParams.get('force') === 'true';
 
@@ -692,7 +691,7 @@ export async function GET(request: Request) {
           required: ["macro", "tickers"]
         };
 
-        // FIXED: Pointing API payload directly to the latest stable gemini-3.5-flash model
+        // EXPLICIT FIX: Calling gemini-3.5-flash as shown in the documentation
         const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -707,7 +706,8 @@ export async function GET(request: Request) {
         });
 
         if (!aiRes.ok) {
-          aiErrorMessage = `ERROR: Gemini API Rejected (${aiRes.status})`;
+          const errorText = await aiRes.text();
+          aiErrorMessage = `ERROR: Gemini API Rejected (${aiRes.status}) - ${errorText.substring(0, 40)}...`;
         } else {
           const aiData = await aiRes.json();
           if (aiData.candidates && aiData.candidates[0].content) {
