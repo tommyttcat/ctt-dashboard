@@ -271,8 +271,8 @@ export default function StocksInPlay() {
             <table className="w-full min-w-[1100px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} text-left w-[8%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
-                  <th className={`${thBase} text-left w-[6%]`} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
+                  <th className={`${thBase} text-left w-[7%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className="pl-1 pr-3.5 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left w-[6%] cursor-pointer hover:text-slate-300 transition-colors" onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
                   <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
@@ -283,7 +283,7 @@ export default function StocksInPlay() {
                   <th className={`${thBase} text-right w-[10%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thBase} text-left w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
                   <th className={`${thBase} text-left w-[8%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className={`${thBase} text-left w-[17%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className={`${thBase} text-left w-[18%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               
@@ -301,7 +301,7 @@ export default function StocksInPlay() {
                               <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
                             </div>
                           </td>
-                          <td className={`${tdBase} text-left`}>
+                          <td className="pl-1 pr-3.5 pt-3 pb-2 text-left">
                             {row.conviction != null ? (
                               <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${row.conviction >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : row.conviction >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50'}`}>{row.conviction}%</span>
                             ) : (<span className="inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border bg-white/[0.02] text-slate-600 border-white/5">--%</span>)}
