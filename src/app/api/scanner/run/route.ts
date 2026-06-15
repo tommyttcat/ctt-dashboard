@@ -291,11 +291,11 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
   return { name: null, stage }; 
 };
 
-const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 20000) => {
+const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 20000, headers?: Record<string, string>) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: controller.signal as any });
+    const res = await fetch(url, { signal: controller.signal as any, headers });
     clearTimeout(id);
     if (!res.ok) return fallback;
     return await res.json();
@@ -303,6 +303,94 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 20000) => {
     clearTimeout(id);
     return fallback;
   }
+};
+
+// ---------------------------------------------------------------------------
+// Benzinga "Why Is It Moving" (WIIM)
+// ---------------------------------------------------------------------------
+// A WIIM is a pre-written, one-sentence reason a stock is moving (earnings,
+// FDA, analyst action, M&A, etc). It's far richer than Polygon's thin
+// small-cap news, so we use it as the PRIMARY catalyst source and fall back
+// to Gemini / the technical setup only when no WIIM exists.
+//
+// IMPORTANT: Benzinga returns XML unless you send `Accept: application/json`.
+// Auth is the API key as a `token` query param. Ticker symbols come back under
+// `stocks[].name`, the sentence under `title`, the link under `url`, and the
+// timestamp under `created` (RFC-2822, which `new Date()` parses fine).
+const WIIM_MAX_AGE_DAYS = 4;   // ignore WIIMs older than this (stale catalyst)
+const WIIM_MAX_BREADTH = 12;   // skip WIIMs stamped on more than this many tickers (sector dumps, not per-stock catalysts)
+
+// Deterministic, free (no AI) short tag derived from the WIIM sentence.
+const classifyWiim = (title: string): string => {
+  const s = (title || '').toLowerCase();
+  if (/\b(earnings|eps|revenue|beat|miss|quarter|q[1-4]\b)/.test(s)) return 'Earnings';
+  if (/\b(fda|approval|phase\s*[123]|trial|clinical|topline|drug|therap)/.test(s)) return 'FDA / Data';
+  if (/\b(upgrade|downgrade|price target|initiat|analyst|rating|overweight|underweight|outperform|reiterat)/.test(s)) return 'Analyst';
+  if (/\b(merger|acquir|acquisition|buyout|takeover|to acquire|stake|going private)/.test(s)) return 'M&A';
+  if (/\b(offering|dilut|prices?\s|secondary|registered direct|atm |capital raise|warrant)/.test(s)) return 'Offering';
+  if (/\b(contract|partnership|collaborat|agreement|awarded|order|wins |selected)/.test(s)) return 'Contract';
+  if (/\b(guidance|raises|lowers|cuts |reaffirm|outlook|forecast)/.test(s)) return 'Guidance';
+  if (/\b(lawsuit|sec |investigat|probe|fraud|settle|recall|halt)/.test(s)) return 'Legal / Risk';
+  if (/\b(short|squeeze|volatil|spik|surg|plung|tumbl)/.test(s)) return 'Volatility';
+  if (/\b(sector|broader market|index|futures|rotat|peers)/.test(s)) return 'Sector Move';
+  return 'News';
+};
+
+// Batches all candidate tickers into as few Benzinga calls as possible and
+// returns, per ticker, the freshest + most stock-specific WIIM.
+const fetchBenzingaWiims = async (
+  tickers: string[],
+  apiKey: string
+): Promise<Map<string, { title: string; url: string | null; daysOld: number; score: number }>> => {
+  const out = new Map<string, { title: string; url: string | null; daysOld: number; score: number }>();
+  if (!apiKey || tickers.length === 0) return out;
+
+  const now = Date.now();
+  const BATCH = 50; // keep the URL length sane
+  for (let i = 0; i < tickers.length; i += BATCH) {
+    const batch = tickers.slice(i, i + BATCH);
+    const url =
+      `https://api.benzinga.com/api/v2/news?token=${apiKey}` +
+      `&tickers=${encodeURIComponent(batch.join(','))}` +
+      `&channels=WIIM&displayOutput=full&pageSize=100`;
+
+    const items = await fetchSafeJson(url, [], 15000, { accept: 'application/json' });
+    if (!Array.isArray(items)) continue;
+
+    for (const item of items) {
+      const isWiim =
+        Array.isArray(item?.channels) &&
+        item.channels.some((c: any) => (c?.name || '').toUpperCase() === 'WIIM');
+      if (!isWiim) continue;
+
+      const title = (item?.title || '').trim();
+      if (!title) continue;
+
+      const stocks = Array.isArray(item?.stocks) ? item.stocks : [];
+      // Skip empty and sector-wide dumps (e.g. one "tech sector down" note
+      // stamped on 30+ tickers) — they're not a per-stock catalyst.
+      if (stocks.length === 0 || stocks.length > WIIM_MAX_BREADTH) continue;
+
+      const created = item?.created ? new Date(item.created).getTime() : 0;
+      const daysOld = created > 0 ? (now - created) / (1000 * 60 * 60 * 24) : 999;
+      if (daysOld > WIIM_MAX_AGE_DAYS) continue;
+
+      const link = item?.url || null;
+      // Freshness dominates; a small breadth penalty breaks near-ties in favor
+      // of the more stock-specific WIIM.
+      const score = daysOld + stocks.length * 0.02;
+
+      for (const s of stocks) {
+        const sym = (s?.name || '').toUpperCase();
+        if (!sym) continue;
+        const prev = out.get(sym);
+        if (!prev || score < prev.score) {
+          out.set(sym, { title, url: link, daysOld, score });
+        }
+      }
+    }
+  }
+  return out;
 };
 
 export async function GET(request: Request) {
@@ -398,6 +486,10 @@ export async function GET(request: Request) {
 
   const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
   if (!polygonApiKey) return NextResponse.json({ error: 'Missing API Key' }, { status: 500 });
+
+  // Benzinga key powers WIIM catalysts. Optional: if unset, the scanner simply
+  // falls back to Gemini / technical setups exactly as before.
+  const benzingaApiKey = process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '';
 
   try {
     const MIN_VOLUME = 500000;
@@ -617,6 +709,12 @@ export async function GET(request: Request) {
       }
     }
 
+    // Pull Benzinga WIIM catalysts for every enriched ticker in a couple of
+    // batched calls. This is the real "why it's moving" and becomes the primary
+    // catalyst/thesis source below, reducing reliance on Gemini and Polygon news.
+    const wiimTickers = enrichedList.map((t: any) => t.ticker).filter(Boolean);
+    const wiimMap = await fetchBenzingaWiims(wiimTickers, benzingaApiKey);
+
     const geminiKey = process.env.GEMINI_API_KEY;
 
     let aiErrorMessage: string | null = null;
@@ -814,7 +912,20 @@ export async function GET(request: Request) {
 
     const enrichedMap = new Map();
     enrichedList.forEach((t: any) => { 
-      if (confluenceDict[t.ticker]) {
+      const wiim = wiimMap.get(t.ticker);
+
+      if (wiim) {
+        // BEST CASE: a fresh, stock-specific Benzinga WIIM. Use its sentence as
+        // the thesis verbatim (real, desk-written, no AI fabrication) and a
+        // short deterministic category as the catalyst tag. No Gemini needed.
+        let tag = classifyWiim(wiim.title);
+        if (wiim.daysOld >= 1.5) tag = `${tag} (Delayed)`;
+        t.catalyst = tag;
+        t.thesis = wiim.title;
+        if (wiim.url) t.catalystUrl = wiim.url;
+        // Keep Gemini's conviction score if we have one; it's still useful.
+        if (confluenceDict[t.ticker]?.conviction) t.conviction = confluenceDict[t.ticker].conviction;
+      } else if (confluenceDict[t.ticker]) {
         let tag = confluenceDict[t.ticker].catalyst;
         
         if (tag !== "Technical Momentum" && t._daysOld >= 1.5 && t._daysOld <= 4) {
