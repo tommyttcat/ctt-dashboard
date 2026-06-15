@@ -337,7 +337,7 @@ export default function TopMovers() {
                               <span className="text-indigo-300/90 font-medium group-hover/cat:text-slate-200 transition-colors">{row.catalyst}</span>
                             )
                           ) : formatSetupName(row.setupName) ? (
-                            <span className="px-1.5 py-[2px] rounded text-[9px] font-bold tracking-wider uppercase bg-[#161c2a] border border-white/5 text-slate-300 whitespace-nowrap">{formatSetupName(row.setupName)}</span>
+                            <span className="text-slate-400 font-medium whitespace-nowrap">{formatSetupName(row.setupName)}</span>
                           ) : (
                             <span className="text-slate-500 font-medium">Technical</span>
                           )}
