@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 
 export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
 export const revalidate = 0;
 export const maxDuration = 300; 
 
@@ -306,7 +307,7 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 20000) => {
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const forceRefresh = searchParams.get('force') === 'true';
+  const forceRefresh = searchParams.get('force') === 'true' || searchParams.get('refresh') === 'true';
 
   const estNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
   const hour = estNow.getHours();
@@ -577,7 +578,7 @@ export async function GET(request: Request) {
       }
     }
 
-    const geminiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+    const geminiKey = process.env.GEMINI_API_KEY;
     
     let aiErrorMessage: string | null = null;
     let confluenceDict: any = {};
@@ -647,61 +648,30 @@ export async function GET(request: Request) {
           
           Use the exact labels "SIPs Thesis:", "Daily Setups Thesis:", and "Sector Flow:" inside the briefing text.
 
+          RETURN EXACTLY THIS JSON STRUCTURE:
+          {
+            "macro": {
+              "theme": "Dominant Sector Active Today",
+              "briefing": "Complete historical summary tracking instructions...",
+              "watching": [
+                { "symbol": "XYZ", "score": 85, "reason": "Direct trigger setup context" }
+              ]
+            },
+            "tickers": [
+              { "symbol": "XYZ", "catalyst": "Earnings Beat", "conviction": 85, "thesis": "Actionable trade plan..." }
+            ]
+          }
+
           PAYLOAD TO ANALYZE:
           ${analysisMapString}
         `;
 
-        const responseSchema = {
-          type: "OBJECT",
-          properties: {
-            macro: {
-              type: "OBJECT",
-              properties: {
-                theme: { type: "STRING", description: "The dominant industry sector active today." },
-                briefing: { type: "STRING", description: "Comprehensive tracking summary text matching instructions." },
-                watching: { 
-                  type: "ARRAY", 
-                  items: { 
-                    type: "OBJECT",
-                    properties: {
-                      symbol: { type: "STRING" },
-                      score: { type: "INTEGER", description: "Confluence alignment score (pure integer from 1 to 100)." },
-                      reason: { type: "STRING", description: "Direct setup trigger context." }
-                    },
-                    required: ["symbol", "score", "reason"]
-                  } 
-                }
-              },
-              required: ["theme", "briefing", "watching"]
-            },
-            tickers: {
-              type: "ARRAY",
-              items: {
-                type: "OBJECT",
-                properties: {
-                  symbol: { type: "STRING" },
-                  catalyst: { type: "STRING", description: "Ultra-brief 1-3 word catalyst category. Default to 'Technical Momentum'." },
-                  conviction: { type: "INTEGER", description: "Confluence alignment score (pure integer from 1 to 100)." },
-                  thesis: { type: "STRING" }
-                },
-                required: ["symbol", "catalyst", "conviction", "thesis"]
-              }
-            }
-          },
-          required: ["macro", "tickers"]
-        };
-
-        // EXPLICIT FIX: Calling gemini-3.5-flash as shown in the documentation
         const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts: [{ text: aiPrompt }] }],
-            generationConfig: { 
-              responseMimeType: "application/json", 
-              responseSchema: responseSchema,
-              temperature: 0.1 
-            }
+            generationConfig: { responseMimeType: "application/json", temperature: 0.15 }
           })
         });
 
@@ -714,7 +684,9 @@ export async function GET(request: Request) {
             const text = aiData.candidates[0].content.parts[0].text;
             
             try {
-              const parsed = JSON.parse(text);
+              const match = text.match(/\{[\s\S]*\}/);
+              const parsed = JSON.parse(match ? match[0] : text);
+              
               if (parsed.macro) {
                 await kv.set('macro_insights_v6', parsed.macro);
               }
