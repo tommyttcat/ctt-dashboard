@@ -286,31 +286,27 @@ export default function DailySetups() {
             <table className="w-full min-w-[1100px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className="px-3.5 py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[13%] text-left" onClick={() => handleSort('ticker')}>
-                    <div className="flex items-center gap-1.5 sm:gap-2">
-                      <span className="cursor-pointer hover:text-slate-300">TICKER{getSortIcon('ticker')}</span>
-                      <span className="cursor-pointer text-indigo-400/60 hover:text-indigo-400" onClick={(e) => { e.stopPropagation(); handleSort('conviction'); }}>CNF{getSortIcon('conviction')}</span>
-                    </div>
-                  </th>
+                  <th className={`${thBase} text-left w-[8%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className={`${thBase} text-left w-[6%]`} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
                   <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className={`${thBase} text-left w-[6%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} text-left w-[9%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} text-right w-[10%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} text-left w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className={`${thBase} text-left w-[8%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                   <th className={`${thBase} text-left w-[17%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               
               <tbody className="divide-y divide-white/5">
                 {status.includes('Syncing') && setups.length === 0 ? (
-                  <tr><td colSpan={12} className="py-12 text-center border-b border-white/5"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
+                  <tr><td colSpan={13} className="py-12 text-center border-b border-white/5"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
                 ) : filteredAndSortedSetups.length === 0 ? (
-                  <tr><td colSpan={12} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">No active tracking items currently matching momentum criteria.</td></tr>
+                  <tr><td colSpan={13} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">No active tracking items currently matching momentum criteria.</td></tr>
                 ) : (
                   filteredAndSortedSetups.map((row, i) => {
                     const isPositive = row.changePct >= 0;
@@ -318,14 +314,14 @@ export default function DailySetups() {
                       <React.Fragment key={i}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
                           <td className={`${tdBase} text-left`}>
-                            <div className="flex items-center gap-2">
-                              <div className="relative inline-flex items-center group/ticker">
-                                <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
-                              </div>
-                              {row.conviction != null ? (
-                                <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${row.conviction >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : row.conviction >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50'}`}>{row.conviction}%</span>
-                              ) : (<span className="inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border bg-white/[0.02] text-slate-600 border-white/5">--%</span>)}
+                            <div className="relative inline-flex items-center group/ticker">
+                              <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
                             </div>
+                          </td>
+                          <td className={`${tdBase} text-left`}>
+                            {row.conviction != null ? (
+                              <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${row.conviction >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : row.conviction >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50'}`}>{row.conviction}%</span>
+                            ) : (<span className="inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border bg-white/[0.02] text-slate-600 border-white/5">--%</span>)}
                           </td>
                           <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap text-right tabular-nums`}>
                             <div className="flex items-center justify-end gap-1.5">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>)}</div>
@@ -358,17 +354,13 @@ export default function DailySetups() {
                           </td>
                         </tr>
                         <tr className="bg-transparent border-t border-white/5">
-                          <td colSpan={12} className="pb-3.5 pt-2.5 pr-2 pl-[56px]">
-                            <p className="text-[11px] leading-relaxed pr-8 whitespace-normal max-w-[840px]">
-                              {formatSetupName(row.setupName) !== '—' && (
-                                <span className="text-[#7c8bfa] font-bold text-[10px] tracking-[0.12em] uppercase mr-2.5">{formatSetupName(row.setupName)}</span>
-                              )}
-                              {row.thesis ? (
-                                <span className="text-slate-500">{row.thesis}</span>
-                              ) : (
-                                <span className="text-slate-600 italic">Awaiting quantitative confluence analysis…</span>
-                              )}
-                            </p>
+                          <td colSpan={13} className="pb-3.5 pt-2.5 pr-2 pl-[56px]">
+                            <div className="flex items-baseline gap-3">
+                              <span className="shrink-0 w-[88px] text-[#7c8bfa] font-bold text-[10px] tracking-[0.1em] uppercase">{formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : ''}</span>
+                              <p className="flex-1 text-[11px] leading-relaxed pr-8 whitespace-normal max-w-[780px]">
+                                {row.thesis ? (<span className="text-slate-500">{row.thesis}</span>) : (<span className="text-slate-600 italic">Awaiting quantitative confluence analysis…</span>)}
+                              </p>
+                            </div>
                           </td>
                         </tr>
                       </React.Fragment>
