@@ -224,9 +224,9 @@ export default function DailySetups() {
   };
 
   // Shared header cell styling so every column shares the same padding + behavior.
-  const thBase = "px-3 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left cursor-pointer hover:text-slate-300 transition-colors";
+  const thBase = "px-2 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left cursor-pointer hover:text-slate-300 transition-colors";
   // Shared body cell padding (asymmetric vertical because a thesis sub-row follows).
-  const tdBase = "px-3 pt-3 pb-2";
+  const tdBase = "px-2 pt-3 pb-2";
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-hidden shadow-xl w-full">
@@ -286,22 +286,22 @@ export default function DailySetups() {
             <table className="w-full min-w-[1100px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className="px-3 py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[11%] text-left" onClick={() => handleSort('ticker')}>
+                  <th className="px-2 py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[11%] text-left" onClick={() => handleSort('ticker')}>
                     <div className="flex items-center gap-1.5 sm:gap-2">
                       <span className="cursor-pointer hover:text-slate-300">TICKER{getSortIcon('ticker')}</span>
                       <span className="cursor-pointer text-indigo-400/60 hover:text-indigo-400" onClick={(e) => { e.stopPropagation(); handleSort('conviction'); }}>CNF{getSortIcon('conviction')}</span>
                     </div>
                   </th>
-                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thBase} w-[9%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className={`${thBase} w-[17%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className={`${thBase} w-[24%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               
@@ -347,21 +347,18 @@ export default function DailySetups() {
                                 <span className="text-indigo-300/90 font-medium group-hover/cat:text-slate-200 transition-colors">{row.catalyst}</span>
                               )
                             ) : formatSetupName(row.setupName) !== '—' ? (
-                              <span className="inline-flex items-center gap-1.5">
-                                <span className="px-1.5 py-[2px] rounded text-[9px] font-bold tracking-wider uppercase bg-[#161c2a] border border-white/5 text-slate-300 whitespace-nowrap">{formatSetupName(row.setupName)}</span>
-                                <span className="text-slate-500 text-[10px] font-medium">Technical</span>
-                              </span>
+                              <span className="px-1.5 py-[2px] rounded text-[9px] font-bold tracking-wider uppercase bg-[#161c2a] border border-white/5 text-slate-300 whitespace-nowrap">{formatSetupName(row.setupName)}</span>
                             ) : (
                               <span className="text-slate-500 font-medium">Technical</span>
                             )}
                           </td>
                         </tr>
                         <tr className="bg-transparent border-t border-white/5">
-                          <td colSpan={11} className="pb-3.5 pt-2.5 pr-3 pl-[56px]">
+                          <td colSpan={11} className="pb-3.5 pt-2.5 pr-2 pl-[52px]">
                             <div className="flex items-start">
                               <div className="flex-1">
                                 {row.thesis ? (
-                                  <p className="text-[11px] text-slate-400 leading-relaxed pr-8 whitespace-normal">
+                                  <p className="text-[11px] text-slate-500 leading-relaxed pr-8 whitespace-normal">
                                     <span className="inline-flex items-baseline gap-1.5 mr-2">
                                       {row.setupName && row.setupName !== '-' && row.setupName !== '—' && (
                                         <><span className="text-slate-500 font-bold text-[10px] tracking-widest uppercase">{formatSetupName(row.setupName)}</span><span className="text-slate-700 font-bold text-[10px]">|</span></>
