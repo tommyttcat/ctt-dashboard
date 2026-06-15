@@ -1,28 +1,38 @@
+// app/api/scanner/latest/route.ts
 import { NextResponse } from 'next/server';
-import { kv } from '@vercel/kv';
+import { db } from '@/lib/db'; // Your database client
 
+// FORCE NEXT.JS TO NEVER CACHE THIS ROUTE
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export async function GET() {
   try {
-    const dailySetups = await kv.get('daily_setups') || [];
-    const stocksInPlay = await kv.get('stocks_in_play') || [];
-    const topMovers = await kv.get('top_movers') || {
-      'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': []
-    };
-    const macroInsights = await kv.get('macro_insights') || null;
-
-    return NextResponse.json({ 
-      success: true,
-      dailySetups: dailySetups, 
-      stocksInPlay: stocksInPlay,   // Feeds your main table
-      sips: stocksInPlay,           // Feeds your side widget
-      topMovers: topMovers,
-      macroInsights: macroInsights  // Feeds the AI insights
+    // 1. Fetch data directly from the DB without any server-side memoization
+    const data = await db.marketData.findFirst({
+      orderBy: { lastScanTime: 'desc' }
     });
-    
-  } catch (error: any) {
-    console.error("CRITICAL_LATEST_ROUTE_ERROR:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+    if (!data) {
+      return NextResponse.json({ success: false, error: 'No data found' });
+    }
+
+    return NextResponse.json({
+      success: true,
+      session: data.session, // Pre-Market, Open, Post-Market, Closed
+      lastScanTime: data.lastScanTime,
+      topMovers: data.topMovers,
+      stocksInPlay: data.stocksInPlay,
+      dailySetups: data.dailySetups,
+    }, {
+      // Clear downstream/browser headers entirely
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      }
+    });
+  } catch (error) {
+    return NextResponse.json({ success: false, error: 'Internal Server Error' }, { status: 500 });
   }
 }
