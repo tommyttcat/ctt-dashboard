@@ -50,6 +50,62 @@ const formatTime = (date: Date) => {
   });
 };
 
+// Builds a short, data-driven market-tone read straight from the live quotes —
+// no AI call, so it costs nothing and updates every refresh with the numbers.
+const buildToneNarrative = (q: Record<string, TickData>): string => {
+  const pct = (id: string): number | null => (q[id] && q[id].synced ? q[id].pct : null);
+
+  const spy = pct('SPY');
+  const qqq = pct('QQQ');
+  if (spy === null || qqq === null) return '';
+
+  const names: Record<string, string> = { SPY: 'the S&P', QQQ: 'the Nasdaq', DIA: 'the Dow', IWM: 'small caps' };
+  const idx = (['SPY', 'QQQ', 'DIA', 'IWM'] as const)
+    .map((id) => ({ id, v: pct(id) }))
+    .filter((e): e is { id: string; v: number } => e.v !== null);
+
+  const up = idx.filter((e) => e.v > 0.05).length;
+  const down = idx.filter((e) => e.v < -0.05).length;
+
+  // Sentence 1 — leadership / breadth.
+  let s1 = '';
+  if (down === 0 && up >= 2) {
+    s1 = 'The major averages are broadly higher, with buyers in control across the board.';
+  } else if (up === 0 && down >= 2) {
+    s1 = 'The major averages are broadly lower, with sellers in control across the board.';
+  } else if (idx.length >= 2) {
+    const leader = idx.reduce((a, b) => (b.v > a.v ? b : a));
+    const laggard = idx.reduce((a, b) => (b.v < a.v ? b : a));
+    s1 = `Breadth is mixed — ${names[leader.id]} is leading while ${names[laggard.id]} lags, pointing to rotation rather than one clean direction.`;
+  }
+
+  // Sentence 2 — volatility, havens, risk appetite (keep the two strongest signals).
+  const vix = pct('VIX');
+  const tlt = pct('TLT');
+  const gld = pct('GLD');
+  const btc = pct('BTC');
+  const bits: string[] = [];
+  if (vix !== null) {
+    if (vix <= -2) bits.push('volatility is dropping sharply, a calming backdrop');
+    else if (vix < 0) bits.push('volatility is easing');
+    else if (vix >= 3) bits.push('volatility is spiking, flagging rising fear');
+    else if (vix > 0) bits.push('volatility is ticking higher');
+  }
+  if (tlt !== null && gld !== null && tlt > 0.1 && gld > 0.1) bits.push('bonds and gold are catching a defensive bid');
+  if (btc !== null) {
+    if (btc <= -2) bits.push('crypto is sliding, a sign risk appetite is pulling back');
+    else if (btc >= 2) bits.push('crypto strength signals healthy risk appetite');
+  }
+
+  let s2 = '';
+  if (bits.length) {
+    const joined = bits.slice(0, 2).join(', and ');
+    s2 = joined.charAt(0).toUpperCase() + joined.slice(1) + '.';
+  }
+
+  return [s1, s2].filter(Boolean).join(' ');
+};
+
 export default function MacroScorecard() {
   const [quotes, setQuotes] = useState<Record<string, TickData>>({});
   const [stockStatus, setStockStatus] = useState<'CONNECTING' | 'LIVE' | 'ERROR' | 'AUTH_ERROR'>('CONNECTING');
@@ -214,6 +270,8 @@ export default function MacroScorecard() {
     return 'text-slate-500';
   };
 
+  const narrative = buildToneNarrative(quotes);
+
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-xl">
       
@@ -281,6 +339,13 @@ export default function MacroScorecard() {
               TONE: {marketTone}
             </div>
           </div>
+
+          {narrative && (
+            <div className="flex items-start gap-3 mb-6 bg-[#161c2a]/40 border border-white/5 rounded-xl px-4 py-3 relative z-10">
+              <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mt-1 shrink-0">Tone</span>
+              <p className="text-[13px] leading-relaxed text-slate-300">{narrative}</p>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4 relative z-10">
             {MACRO_ASSETS.map((asset) => {
