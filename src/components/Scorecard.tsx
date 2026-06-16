@@ -60,7 +60,7 @@ const buildToneNarrative = (q: Record<string, TickData>): string => {
   if (spy === null || qqq === null) return '';
 
   const names: Record<string, string> = { SPY: 'the S&P', QQQ: 'the Nasdaq', DIA: 'the Dow', IWM: 'small caps' };
-  const idx = (['SPY', 'QQQ', 'DIA', 'IWM'] as const)
+  const idx = (['SPY', 'QQQ', 'DIA', 'IWM'])
     .map((id) => ({ id, v: pct(id) }))
     .filter((e): e is { id: string; v: number } => e.v !== null);
 
