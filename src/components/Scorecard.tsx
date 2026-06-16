@@ -86,117 +86,55 @@ export default function MacroScorecard() {
     }
   }, [quotes]);
 
-  // --- ENGINE 2: FMP 5-MIN HISTORICAL OVERRIDE ENGINE ---
+  // --- ENGINE 2: SERVER-CACHED MACRO QUOTES ---
+  // Reads /api/macro (KV-cached, ~1 FMP hit/min for ALL clients) instead of
+  // calling FMP directly from every browser tab. Polls once a minute.
   useEffect(() => {
     let isMounted = true;
-    const fmpApiKey = (process.env.NEXT_PUBLIC_FMP_API_KEY || '').trim();
 
-    if (!fmpApiKey) {
-      setStockStatus('AUTH_ERROR');
-      return;
-    }
-
-    const fetchEquities = async () => {
-      const stockAssets = MACRO_ASSETS.filter(a => a.type === 'stock');
-      const currentSession = getMarketSession();
-      
+    const fetchMacro = async () => {
       try {
-        // 1. Fetch the Standard Quote
-        const stdPromises = stockAssets.map(asset => 
-          fetch(`https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(asset.fmp)}&apikey=${fmpApiKey}`, { cache: 'no-store' })
-            .then(res => {
-              if (res.status === 401) throw new Error('401_UNAUTHORIZED');
-              return res.ok ? res.json() : [];
-            })
-            .catch((err) => {
-              if (err.message === '401_UNAUTHORIZED') throw err; 
-              return []; 
-            }) 
-        );
-        
-        const stdResults = await Promise.all(stdPromises);
-        const stdData = stdResults.flat();
+        const res = await fetch('/api/macro', { cache: 'no-store' });
+        if (!res.ok) {
+          if (isMounted) setStockStatus('ERROR');
+          return;
+        }
+        const data = await res.json();
+        if (!isMounted || !data || !data.quotes) return;
 
-        // 2. Fetch the 5-Minute Chart for After-Hours Data
-        let ahData: Record<string, number> = {};
-        const isExtendedHours = currentSession === 'Post-Market' || currentSession === 'Pre-Market' || currentSession === 'Closed';
+        setSession(getMarketSession());
+        setLastUpdated(new Date());
+        setStockStatus('LIVE');
 
-        if (isExtendedHours) {
-          const ahPromises = stockAssets.map(asset => 
-            fetch(`https://financialmodelingprep.com/stable/historical-chart/5min?symbol=${encodeURIComponent(asset.fmp)}&extended=true&apikey=${fmpApiKey}`, { cache: 'no-store' })
-              .then(res => res.ok ? res.json() : [])
-              .then(data => {
-                if (Array.isArray(data) && data.length > 0) {
-                  return { symbol: asset.fmp, price: data[0].close };
-                }
-                return null;
-              })
-              .catch(() => null)
-          );
-          
-          const ahResults = await Promise.all(ahPromises);
-          ahResults.forEach(r => {
-            if (r) ahData[r.symbol] = r.price;
+        setQuotes(prev => {
+          const next = { ...prev };
+          Object.entries<any>(data.quotes).forEach(([id, v]) => {
+            const prevQuote = prev[id];
+            let direction: 'up' | 'down' | 'flat' = prevQuote?.tickDirection || 'flat';
+            if (prevQuote && v.price > prevQuote.price) direction = 'up';
+            else if (prevQuote && v.price < prevQuote.price) direction = 'down';
+
+            next[id] = {
+              price: v.price,
+              baseline: v.baseline,
+              pct: v.pct,
+              tickDirection: direction,
+              synced: true,
+              isExtended: v.isExtended
+            };
           });
-        }
-        
-        // 3. Merge and Mount
-        if (stdData.length > 0 && isMounted) {
-          setSession(currentSession);
-          setLastUpdated(new Date());
-          setStockStatus('LIVE'); 
-
-          setQuotes(prev => {
-            const next = { ...prev };
-            
-            stdData.forEach(q => {
-              const asset = MACRO_ASSETS.find(a => a.fmp === q.symbol && a.type === 'stock');
-              if (asset) {
-                
-                const ahPrice = ahData[asset.fmp];
-                const useAh = isExtendedHours && ahPrice !== undefined && ahPrice > 0;
-                const currentPrice = useAh ? ahPrice : (q.price || 0);
-                
-                const prevQuote = prev[asset.id];
-                const baseline = q.previousClose || prevQuote?.baseline || q.open || currentPrice;
-                const pct = baseline > 0 ? ((currentPrice - baseline) / baseline) * 100 : 0;
-                
-                let direction: 'up' | 'down' | 'flat' = prevQuote?.tickDirection || 'flat';
-                if (prevQuote && currentPrice > prevQuote.price) direction = 'up';
-                else if (prevQuote && currentPrice < prevQuote.price) direction = 'down';
-
-                if (currentPrice > 0) {
-                  next[asset.id] = { 
-                    price: currentPrice, 
-                    baseline: baseline, 
-                    pct: pct, 
-                    tickDirection: direction, 
-                    synced: true,
-                    isExtended: useAh
-                  };
-                }
-              }
-            });
-            return next;
-          });
-        }
-      } catch (err: any) {
-        if (!isMounted) return;
-        if (err.message === '401_UNAUTHORIZED') {
-          setStockStatus('AUTH_ERROR');
-        } else {
-          setStockStatus('ERROR');
-        }
+          return next;
+        });
+      } catch (err) {
+        if (isMounted) setStockStatus('ERROR');
       }
     };
 
-    fetchEquities();
-    
+    fetchMacro();
+
     const pollingInterval = setInterval(() => {
-      if (isMounted && stockStatus !== 'AUTH_ERROR') {
-        fetchEquities();
-      }
-    }, 10000);
+      if (isMounted) fetchMacro();
+    }, 60000);
 
     return () => {
       isMounted = false;

@@ -173,7 +173,7 @@ export default function EconomicCalendar() {
     };
 
     fetchEconData();
-    const interval = setInterval(fetchEconData, 300000); // 5 minute refresh
+    const interval = setInterval(fetchEconData, 1800000); // 30 minute refresh
     return () => { isMounted = false; clearInterval(interval); };
   }, [fmpApiKey, selectedDate]);
 
