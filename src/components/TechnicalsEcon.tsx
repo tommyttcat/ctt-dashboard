@@ -93,11 +93,8 @@ export default function EconomicCalendar() {
   // --- COLLAPSE STATE ---
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
 
-  const fmpApiKey = process.env.NEXT_PUBLIC_FMP_API_KEY || '';
-
   useEffect(() => {
     let isMounted = true;
-    if (!fmpApiKey) { setStatus('Offline'); return; }
 
     const fetchEconData = async () => {
       try {
@@ -124,7 +121,7 @@ export default function EconomicCalendar() {
         toDate.setDate(fromDate.getDate() + 10); 
         const toStrCutoff = getIsoDateString(toDate);
 
-        const targetUrl = `https://financialmodelingprep.com/stable/economic-calendar?from=${fromStr}&to=${toStrCutoff}&apikey=${fmpApiKey}`;
+        const targetUrl = `/api/econ?from=${fromStr}&to=${toStrCutoff}`;
         const rawEvents = await fetchSafeJson(targetUrl, []);
 
         if (!Array.isArray(rawEvents)) {
@@ -175,7 +172,7 @@ export default function EconomicCalendar() {
     fetchEconData();
     const interval = setInterval(fetchEconData, 1800000); // 30 minute refresh
     return () => { isMounted = false; clearInterval(interval); };
-  }, [fmpApiKey, selectedDate]);
+  }, [selectedDate]);
 
   const handleSort = (key: keyof EconEvent) => {
     let direction: SortDirection = 'desc'; 

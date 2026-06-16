@@ -270,7 +270,14 @@ export default function MacroScorecard() {
     return 'text-slate-500';
   };
 
+  const getToneStyles = () => {
+    if (marketTone === 'BULLISH') return { border: 'border-emerald-500/20', bg: 'bg-emerald-500/[0.04]', label: 'text-emerald-400', dot: 'bg-emerald-400' };
+    if (marketTone === 'BEARISH') return { border: 'border-rose-500/20', bg: 'bg-rose-500/[0.04]', label: 'text-rose-400', dot: 'bg-rose-400' };
+    return { border: 'border-amber-500/20', bg: 'bg-amber-500/[0.04]', label: 'text-amber-400', dot: 'bg-amber-400' };
+  };
+
   const narrative = buildToneNarrative(quotes);
+  const toneStyles = getToneStyles();
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-xl">
@@ -341,9 +348,12 @@ export default function MacroScorecard() {
           </div>
 
           {narrative && (
-            <div className="flex items-start gap-3 mb-6 bg-[#161c2a]/40 border border-white/5 rounded-xl px-4 py-3 relative z-10">
-              <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mt-1 shrink-0">Tone</span>
-              <p className="text-[13px] leading-relaxed text-slate-300">{narrative}</p>
+            <div className={`flex items-start gap-3 mb-6 border rounded-xl px-4 py-3 relative z-10 ${toneStyles.bg} ${toneStyles.border}`}>
+              <span className={`flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase mt-1 shrink-0 ${toneStyles.label}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${toneStyles.dot}`}></span>
+                Tone
+              </span>
+              <p className="text-[13px] leading-relaxed text-slate-200">{narrative}</p>
             </div>
           )}
 
