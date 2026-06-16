@@ -12,6 +12,9 @@ interface EarningEvent {
   mktCap: number | null;
   epsEst: number | null;
   revEst: number | null;
+  epsActual: number | null;
+  epsSurprisePct: number | null;
+  result: 'BEAT' | 'MISS' | 'INLINE' | null;
   rawDateString: string; 
   isThematic?: boolean;
 }
@@ -89,6 +92,13 @@ const formatCurrency = (num: number | null) => {
   return '$' + num.toLocaleString();
 };
 
+const getResultBadge = (result: string | null) => {
+  if (result === 'BEAT') return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+  if (result === 'MISS') return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+  if (result === 'INLINE') return 'bg-slate-500/10 text-slate-300 border-white/10';
+  return '';
+};
+
 const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
@@ -103,52 +113,6 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
   }
 };
 
-const cleanSectorDescription = (sic: string | undefined, sector: string | undefined, industry: string | undefined) => {
-  const ind = (industry || '').toLowerCase();
-  if (ind.includes('nuclear')) return 'Nuclear';
-  if (ind.includes('solar')) return 'Solar';
-  if (ind.includes('electric vehicle') || ind.includes('auto manufacturer')) return 'EV';
-  if (ind.includes('biotechnology')) return 'Biotech';
-  if (ind.includes('semiconductor')) return "Semi's";
-  if (ind.includes('artificial intelligence') || ind.includes('ai ')) return 'AI';
-  if (ind.includes('cybersecurity') || ind.includes('security software')) return 'Cyber';
-  if (ind.includes('fintech') || ind.includes('financial technology')) return 'Fintech';
-  if (ind.includes('aerospace') || ind.includes('defense')) return 'Aerospace';
-
-  const sec = (sector || '').toLowerCase();
-  if (sec.includes('technology')) return 'IT';
-  if (sec.includes('healthcare') || sec.includes('health care')) return 'Healthcare';
-  if (sec.includes('financial')) return 'Financials';
-  if (sec.includes('consumer discretionary')) return 'Con Disc';
-  if (sec.includes('consumer staples')) return 'Con Staples';
-  if (sec.includes('energy')) return 'Energy';
-  if (sec.includes('materials')) return 'Materials';
-  if (sec.includes('industrials')) return 'Industrials';
-  if (sec.includes('real estate')) return 'Real Estate';
-  if (sec.includes('utilities')) return 'Utilities';
-  if (sec.includes('communication')) return 'Comm Serv';
-
-  const s = (sic || '').toLowerCase();
-  if (!s) return 'General'; 
-
-  if (s.includes('semiconductor')) return "Semi's";
-  if (s.includes('biological products') || s.includes('in vitro')) return 'Biotech';
-  if (s.includes('aircraft') || s.includes('defense')) return 'Aerospace';
-  if (s.includes('prepackaged software') || s.includes('computer programming') || s.includes('tech')) return 'IT';
-  if (s.includes('pharmaceutical') || s.includes('surgical') || s.includes('medical') || s.includes('health') || s.includes('drug') || s.includes('ophthalmic')) return 'Healthcare';
-  if (s.includes('bank') || s.includes('financial') || s.includes('trust') || s.includes('broker') || s.includes('investment') || s.includes('commodity') || s.includes('fund') || s.includes('blank check')) return 'Financials';
-  if (s.includes('real estate') || s.includes('reit')) return 'Real Estate';
-  if (s.includes('petroleum') || s.includes('drilling') || s.includes('oil') || s.includes('gas') || s.includes('energy')) return 'Energy';
-  if (s.includes('motor') || s.includes('retail') || s.includes('apparel') || s.includes('restaurant') || s.includes('eating') || s.includes('entertainment')) return 'Con Disc';
-  if (s.includes('soap') || s.includes('detergent') || s.includes('food') || s.includes('beverage') || s.includes('grocery') || s.includes('staple') || s.includes('tobacco')) return 'Con Staples';
-  if (s.includes('transport') || s.includes('freight') || s.includes('machinery') || s.includes('industrial') || s.includes('airline') || s.includes('air transportation')) return 'Industrials';
-  if (s.includes('telecommunication') || s.includes('telephone') || s.includes('radio') || s.includes('communication')) return 'Comm Serv';
-  if (s.includes('metal') || s.includes('mining') || s.includes('gold') || s.includes('chemical') || s.includes('wood') || s.includes('paper')) return 'Materials';
-  if (s.includes('electric services') || s.includes('utilities') || s.includes('water')) return 'Utilities';
-
-  return 'General';
-};
-
 export default function EarningsCalendar() {
   const [events, setEvents] = useState<EarningEvent[]>([]);
   const [status, setStatus] = useState<string>('Offline');
@@ -159,12 +123,12 @@ export default function EarningsCalendar() {
   
   const [tier, setTier] = useState<CapTier>('SMALL');
 
-  const fmpApiKey = process.env.NEXT_PUBLIC_FMP_API_KEY || '';
+  // Earnings calendar now comes from Benzinga via /api/earnings (server-cached).
+  // Market-cap enrichment still uses Massive (unlimited, not FMP), unchanged.
   const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || '';
 
   useEffect(() => {
     let isMounted = true;
-    if (!fmpApiKey) { setStatus('Offline'); return; }
 
     const fetchEarningsData = async () => {
       try {
@@ -188,7 +152,7 @@ export default function EarningsCalendar() {
         toDate.setDate(fromDate.getDate() + 14); 
         const toStrCutoff = getIsoDateString(toDate);
 
-        const calendarUrl = `https://financialmodelingprep.com/stable/earnings-calendar?from=${fromStr}&to=${toStrCutoff}&apikey=${fmpApiKey}`;
+        const calendarUrl = `/api/earnings?from=${fromStr}&to=${toStrCutoff}`;
         const rawEarnings = await fetchSafeJson(calendarUrl, []);
 
         if (!Array.isArray(rawEarnings) || rawEarnings.length === 0) {
@@ -241,10 +205,24 @@ export default function EarningsCalendar() {
             const massiveInfo = massiveDataMap.get(sym);
             
             const mktCap = massiveInfo?.market_cap || null;
-            const companyName = massiveInfo?.name || sym;
+            const companyName = massiveInfo?.name || e.name || sym;
             
             let mappedSector = SECTOR_MAP[sym] || massiveInfo?.sector || 'General';
             const isThematic = ['AI', 'Nuclear', 'Quantum', "Semi's", 'Cyber', 'Aerospace'].includes(mappedSector);
+
+            const epsEst = (e.epsEstimated !== null && e.epsEstimated !== undefined) ? e.epsEstimated : null;
+            const revEst = (e.revenueEstimated !== null && e.revenueEstimated !== undefined) ? e.revenueEstimated : null;
+            const epsActual = (e.epsActual !== null && e.epsActual !== undefined) ? e.epsActual : null;
+            const epsSurprisePct = (e.epsSurprisePct !== null && e.epsSurprisePct !== undefined) ? e.epsSurprisePct : null;
+
+            // Beat / miss only once an actual has been reported.
+            let result: 'BEAT' | 'MISS' | 'INLINE' | null = null;
+            if (epsActual !== null && epsEst !== null) {
+              const diff = epsActual - epsEst;
+              result = diff > 0 ? 'BEAT' : diff < 0 ? 'MISS' : 'INLINE';
+            } else if (epsActual !== null && epsSurprisePct !== null) {
+              result = epsSurprisePct > 0 ? 'BEAT' : epsSurprisePct < 0 ? 'MISS' : 'INLINE';
+            }
 
             acc.push({
                 id: `${sym}-${e.date}-${index}`,
@@ -254,8 +232,11 @@ export default function EarningsCalendar() {
                 name: companyName,
                 sector: mappedSector,
                 mktCap: mktCap,
-                epsEst: e.epsEstimated !== null ? e.epsEstimated : null,
-                revEst: e.revenueEstimated !== null ? e.revenueEstimated : null,
+                epsEst: epsEst,
+                revEst: revEst,
+                epsActual: epsActual,
+                epsSurprisePct: epsSurprisePct,
+                result: result,
                 isThematic: isThematic
             });
             
@@ -276,7 +257,7 @@ export default function EarningsCalendar() {
     fetchEarningsData();
     const interval = setInterval(fetchEarningsData, 43200000); 
     return () => { isMounted = false; clearInterval(interval); };
-  }, [fmpApiKey, polygonApiKey]);
+  }, [polygonApiKey]);
 
   const handleSort = (key: keyof EarningEvent) => {
     let direction: SortDirection = 'desc'; 
@@ -381,29 +362,31 @@ export default function EarningsCalendar() {
           </div>
 
           <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[900px] border-collapse">
+            <table className="w-full min-w-[980px] border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rawDateString')}>DATE{getSortIcon('rawDateString')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[32%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('name')}>COMPANY{getSortIcon('name')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[16%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('epsEst')}>EST EPS{getSortIcon('epsEst')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('revEst')}>EST REV{getSortIcon('revEst')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[9%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rawDateString')}>DATE{getSortIcon('rawDateString')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[20%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('name')}>COMPANY{getSortIcon('name')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[9%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[9%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('epsEst')}>EST EPS{getSortIcon('epsEst')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[9%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('epsActual')}>ACTUAL{getSortIcon('epsActual')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[13%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('result')}>RESULT{getSortIcon('result')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[11%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('revEst')}>EST REV{getSortIcon('revEst')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {isLoading && events.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center">
+                    <td colSpan={9} className="py-12 text-center">
                       <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
                       <span className="text-xs text-slate-500 font-medium">Scouting {tier} Market Caps...</span>
                     </td>
                   </tr>
                 ) : finalRenderedEvents.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center">
+                    <td colSpan={9} className="py-12 text-center">
                       <div className="text-slate-400 text-sm font-medium mb-2">
                         No matching earnings scheduled for the {tier} tier.
                       </div>
@@ -427,6 +410,7 @@ export default function EarningsCalendar() {
                     const dateTextColor = isToday ? 'text-cyan-400 font-bold' : 'text-slate-300 font-bold';
                     const tickerBgColor = isToday ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30 shadow-[0_0_8px_rgba(34,211,238,0.2)]' : 'bg-indigo-500/10 text-[#7c8bfa] border border-indigo-500/20';
                     const nameTextColor = isToday ? 'text-white font-bold' : 'text-slate-200 font-medium';
+                    const actualColor = row.result === 'BEAT' ? 'text-emerald-400' : row.result === 'MISS' ? 'text-rose-400' : (isToday ? 'text-slate-100' : 'text-slate-300');
 
                     return (
                       <tr key={row.id} className={`transition-colors group ${rowBgClass} ${opacityClass}`}>
@@ -439,7 +423,7 @@ export default function EarningsCalendar() {
                           <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded border ${tickerBgColor}`}>{row.ticker}</span>
                         </td>
 
-                        <td className={`py-3.5 text-xs whitespace-nowrap truncate max-w-[250px] ${nameTextColor}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.name}</td>
+                        <td className={`py-3.5 text-xs whitespace-nowrap truncate max-w-[220px] ${nameTextColor}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.name}</td>
 
                         <td className="py-3.5 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block" title={row.sector}>{row.sector}</div>
@@ -447,7 +431,19 @@ export default function EarningsCalendar() {
 
                         <td className={`py-3.5 text-xs font-bold whitespace-nowrap ${isToday ? 'text-slate-100' : 'text-slate-300'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.mktCap)}</td>
 
-                        <td className={`py-3.5 text-xs font-medium whitespace-nowrap ${isToday ? 'text-emerald-400' : 'text-emerald-400/90'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.epsEst !== null ? `$${row.epsEst.toFixed(2)}` : '-'}</td>
+                        <td className="py-3.5 text-xs font-medium whitespace-nowrap text-slate-400" style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.epsEst !== null ? `$${row.epsEst.toFixed(2)}` : '-'}</td>
+
+                        <td className={`py-3.5 text-xs font-bold whitespace-nowrap ${actualColor}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.epsActual !== null ? `$${row.epsActual.toFixed(2)}` : '—'}</td>
+
+                        <td className="py-3.5 whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                          {row.result ? (
+                            <span className={`inline-block text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${getResultBadge(row.result)}`}>
+                              {row.result}{row.epsSurprisePct !== null ? ` ${row.epsSurprisePct > 0 ? '+' : ''}${row.epsSurprisePct.toFixed(1)}%` : ''}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-600 font-medium tracking-wide">Upcoming</span>
+                          )}
+                        </td>
                         
                         <td className={`py-3.5 text-xs font-medium whitespace-nowrap ${isToday ? 'text-slate-300' : 'text-slate-400'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatCurrency(row.revEst)}</td>
                         
