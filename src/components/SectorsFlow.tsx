@@ -20,18 +20,6 @@ type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
 const ETF_TICKERS = ['SPY', 'QQQ', 'DIA', 'IWM'];
 
 // --- HELPERS ---
-const getFallbackDates = (): string[] => {
-  const dates = [];
-  const d = new Date();
-  for (let i = 0; i < 3; i++) {
-    if (d.getDay() === 0) d.setDate(d.getDate() - 2); 
-    if (d.getDay() === 6) d.setDate(d.getDate() - 1); 
-    dates.push(d.toISOString().split('T')[0]);
-    d.setDate(d.getDate() - 1);
-  }
-  return dates;
-};
-
 const getMarketSession = (): MarketSession => {
   const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
   const day = estDate.getDay();
@@ -57,7 +45,9 @@ export default function MarketFlow() {
   // States
   const [sectors, setSectors] = useState<PerformanceData[]>([]);
   const [industries, setIndustries] = useState<PerformanceData[]>([]);
-  const [etfWeights, setEtfWeights] = useState<SectorWeight[]>([]);
+  // All four ETFs are pre-fetched server-side and stored here; switching the
+  // ETF tab just reads from this map — no FMP call.
+  const [etfWeightsAll, setEtfWeightsAll] = useState<Record<string, SectorWeight[]>>({});
   
   // UI Controls
   const [activeEtf, setActiveEtf] = useState<string>('SPY');
@@ -71,64 +61,29 @@ export default function MarketFlow() {
   // --- COLLAPSE STATE ---
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
 
-  const fmpApiKey = process.env.NEXT_PUBLIC_FMP_API_KEY || '';
-
-  // 1. Fetch Market Snapshots (Sectors & Industries)
+  // --- ENGINE: SERVER-CACHED SECTOR FLOW ---
+  // Reads /api/sectors (KV-cached, ~6 FMP calls per 5 min for ALL clients)
+  // instead of calling FMP directly from every browser tab.
   useEffect(() => {
     let isMounted = true;
-    if (!fmpApiKey) {
-      setStatus('Offline');
-      return;
-    }
 
-    const fetchSnapshotData = async () => {
+    const fetchSectorData = async () => {
       try {
-        const currentSession = getMarketSession();
-        if (isMounted) setSession(currentSession);
+        if (isMounted) setSession(getMarketSession());
         setStatus('Scouting...');
 
-        const tryDates = getFallbackDates();
-        let finalSectorsData: any[] = [];
-        let finalIndustriesData: any[] = [];
-
-        for (const targetDate of tryDates) {
-          const [sectorsRes, indRes] = await Promise.all([
-            fetch(`https://financialmodelingprep.com/stable/sector-performance-snapshot?date=${targetDate}&apikey=${fmpApiKey}`),
-            fetch(`https://financialmodelingprep.com/stable/industry-performance-snapshot?date=${targetDate}&apikey=${fmpApiKey}`)
-          ]);
-
-          const sText = await sectorsRes.text();
-          const iText = await indRes.text();
-          let sData = [];
-          let iData = [];
-          try { sData = JSON.parse(sText); } catch(e) {}
-          try { iData = JSON.parse(iText); } catch(e) {}
-
-          const hasRealData = sData.some((s: any) => {
-            const pct = s.averageChange ?? s.changesPercentage ?? 0;
-            return parseFloat(pct) !== 0 && !isNaN(parseFloat(pct));
-          });
-
-          if (hasRealData) {
-            finalSectorsData = sData;
-            finalIndustriesData = iData;
-            break; 
-          }
+        const res = await fetch('/api/sectors', { cache: 'no-store' });
+        if (!res.ok) {
+          if (isMounted) setStatus('Offline');
+          return;
         }
+        const data = await res.json();
+        if (!isMounted || !data) return;
 
-        if (isMounted && finalSectorsData.length > 0) {
-          const mappedSectors = finalSectorsData.map((s: any) => ({
-            sector: s.sector,
-            changesPercentage: parseFloat(s.averageChange ?? s.changesPercentage ?? 0)
-          })).sort((a, b) => b.changesPercentage - a.changesPercentage);
-          setSectors(mappedSectors.slice(0, 11)); 
-          
-          const mappedInd = finalIndustriesData.map((i: any) => ({
-            industry: i.industry,
-            changesPercentage: parseFloat(i.averageChange ?? i.changesPercentage ?? 0)
-          })).sort((a, b) => b.changesPercentage - a.changesPercentage);
-          setIndustries(mappedInd.slice(0, 10)); // Top 10
-
+        if (Array.isArray(data.sectors) && data.sectors.length > 0) {
+          setSectors(data.sectors);
+          setIndustries(Array.isArray(data.industries) ? data.industries : []);
+          setEtfWeightsAll(data.etfWeights || {});
           setLastUpdated(new Date());
           setStatus('Live');
         } else if (isMounted) {
@@ -139,37 +94,15 @@ export default function MarketFlow() {
       }
     };
 
-    fetchSnapshotData();
-    const interval = setInterval(fetchSnapshotData, 300000); // 5 mins
+    fetchSectorData();
+    const interval = setInterval(fetchSectorData, 300000); // 5 mins
     return () => { isMounted = false; clearInterval(interval); };
-  }, [fmpApiKey]);
-
-  // 2. Fetch ETF Weightings (Runs when activeEtf changes)
-  useEffect(() => {
-    let isMounted = true;
-    if (!fmpApiKey) return;
-
-    const fetchWeightings = async () => {
-      try {
-        const res = await fetch(`https://financialmodelingprep.com/stable/etf/sector-weightings?symbol=${activeEtf}&apikey=${fmpApiKey}`);
-        const data = await res.json();
-
-        if (isMounted && Array.isArray(data)) {
-          const mappedWeights = data.map((item: any) => ({
-            sector: item.sector,
-            weightPercentage: parseFloat(String(item.weightPercentage).replace('%', '')) || 0
-          })).sort((a, b) => b.weightPercentage - a.weightPercentage);
-          
-          setEtfWeights(mappedWeights.slice(0, 8)); // Top 8 concentrations
-        }
-      } catch (error) {}
-    };
-
-    fetchWeightings();
-    return () => { isMounted = false; };
-  }, [activeEtf, fmpApiKey]);
+  }, []);
 
   // --- DERIVED MATH ---
+  // ETF weights for the active tab come straight from the pre-fetched map.
+  const etfWeights = etfWeightsAll[activeEtf] || [];
+
   const isLoaded = sectors.length > 0;
   const greenSectors = sectors.filter(s => s.changesPercentage >= 0).length;
   const redSectors = sectors.filter(s => s.changesPercentage < 0).length;
