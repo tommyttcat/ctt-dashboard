@@ -315,7 +315,7 @@ export default function DailySetups() {
                         <tr className="hover:bg-white/[0.02] transition-colors group">
                           <td className={`${tdBase} text-left`}>
                             <div className="relative inline-flex items-center group/ticker">
-                              <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
+                              <span title={row.name || row.ticker} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
                             </div>
                           </td>
                           <td className="pl-1 pr-3.5 pt-3 pb-2 text-left">

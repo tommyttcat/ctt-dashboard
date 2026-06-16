@@ -302,8 +302,7 @@ export default function TopMovers() {
                       <tr key={i} className="hover:bg-white/[0.02] transition-colors group">
                         <td className="px-3.5 py-3 text-left">
                           <div className="relative inline-flex items-center group/ticker">
-                            <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
-                            <div className="absolute left-full ml-3 px-3 py-1.5 bg-[#1e293b] border border-white/10 text-slate-200 text-xs font-semibold tracking-wide rounded-md shadow-2xl opacity-0 invisible group-hover/ticker:opacity-100 group-hover/ticker:visible transition-all z-[60] whitespace-nowrap pointer-events-none">{row.name || row.ticker}</div>
+                            <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help" title={row.name || row.ticker}>{row.ticker}</span>
                           </div>
                         </td>
                         <td className="px-3.5 py-3 text-xs text-slate-300 font-medium whitespace-nowrap text-right tabular-nums">
