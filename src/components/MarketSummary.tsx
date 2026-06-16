@@ -156,6 +156,13 @@ export default function MarketSummary() {
     }
   };
 
+  // Impact-based badge tint for actionable catalysts.
+  const getImpactBadge = (impact: string) => {
+    if (impact === 'High') return 'bg-rose-500/10 border-rose-500/20 text-rose-400';
+    if (impact === 'Medium') return 'bg-amber-500/10 border-amber-500/20 text-amber-400';
+    return 'bg-slate-500/10 border-white/10 text-slate-400';
+  };
+
   const getSessionTextColor = () => {
     if (session === 'Pre-Market') return 'text-amber-500';
     if (session === 'Open') return 'text-[#00e676]';
@@ -200,6 +207,12 @@ export default function MarketSummary() {
       </div>
     );
   };
+
+  // Only render catalysts that actually have text — this is what stops the
+  // blank placeholder rows even if the feed ever returns malformed entries.
+  const cleanEvents = (data?.actionableEvents || []).filter(
+    (e) => e && typeof e.event === 'string' && e.event.trim().length > 0
+  );
 
   return (
     <div className="bg-[#101623] border border-white/10 rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-2xl w-full">
@@ -298,19 +311,26 @@ export default function MarketSummary() {
           )}
 
           {/* 2. Hard Actionable Catalysts */}
-          {data?.actionableEvents && data.actionableEvents.length > 0 && (
+          {cleanEvents.length > 0 && (
             <div className="mb-8 bg-rose-500/5 border border-rose-500/20 rounded-xl p-4 animate-in fade-in">
               <div className="flex items-center gap-2 mb-3">
                 <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
                 <span className="text-[10px] font-bold text-rose-400 tracking-widest uppercase">Actionable Catalysts Today</span>
               </div>
               <div className="flex flex-col gap-2">
-                {data.actionableEvents.map((evt, idx) => (
-                  <div key={idx} className="flex justify-between items-center bg-[#161c2a] border border-white/5 px-4 py-2.5 rounded-lg">
+                {cleanEvents.map((evt, idx) => (
+                  <div key={idx} className="flex justify-between items-center gap-3 bg-[#161c2a] border border-white/5 px-4 py-2.5 rounded-lg">
                     <span className="text-sm font-bold text-slate-200">{evt.event}</span>
-                    <span className="text-[11px] font-medium text-rose-300 bg-rose-500/10 border border-rose-500/20 px-2 py-1 rounded">
-                      {evt.time} EST
-                    </span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded border ${getImpactBadge(evt.impact)}`}>
+                        {evt.impact}
+                      </span>
+                      {evt.time && (
+                        <span className="text-[11px] font-medium text-rose-300 bg-rose-500/10 border border-rose-500/20 px-2 py-1 rounded whitespace-nowrap">
+                          {evt.time} EST
+                        </span>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

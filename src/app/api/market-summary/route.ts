@@ -102,10 +102,24 @@ export async function GET(request: Request) {
       CRITICAL INSTRUCTIONS:
       - "paragraphs" must be an array of exactly 2 concise market observations.
       - "colorTheme" options: "cyan", "emerald", "indigo", "amber", "rose". Match the tone.
+      - "actionableEvents": From the MARKET NEWS HEADLINES above, extract the 3 to 6 MOST
+        market-moving, tradeable catalysts (most impactful first). Each MUST be a genuine
+        catalyst — earnings, guidance, FDA / clinical data, M&A, major analyst actions,
+        regulatory rulings, or a major macro print (CPI, Fed, jobs). DO NOT include vague
+        commentary, opinion columns, or generic "stocks rose/fell" headlines. For each event:
+          - "event": a punchy 6 to 12 word description that STARTS with the primary ticker
+            (or "MKT" for broad macro), e.g. "NVDA: Q3 earnings beat, raises full-year guidance".
+          - "time": the headline's time in "HH:MM AM" / "HH:MM PM" format. DO NOT append
+            "EST" — the interface adds it. Use the time shown in brackets before each headline.
+          - "impact": exactly one of "High", "Medium", or "Low".
+        If there are genuinely NO real catalysts in the news, return an empty array []. Never
+        fabricate events and never emit entries with empty fields.
       
       RETURN EXACTLY THIS JSON STRUCTURE:
       {
-        "actionableEvents": [],
+        "actionableEvents": [
+          { "time": "09:32 AM", "event": "NVDA: Q3 earnings beat, raises full-year guidance", "impact": "High" }
+        ],
         "morning": { "phase": "PRE-MARKET & MORNING TAPE", "timestamp": "08:30 AM EST", "paragraphs": ["..."], "takeaway": "...", "colorTheme": "cyan" },
         "midday": { "phase": "MIDDAY MIX & ROTATION", "timestamp": "12:30 PM EST", "paragraphs": ["..."], "takeaway": "...", "colorTheme": "indigo" },
         "closing": { "phase": "POWER HOUR & CLOSING PRINT", "timestamp": "04:15 PM EST", "paragraphs": ["..."], "takeaway": "...", "colorTheme": "emerald" }
@@ -183,6 +197,22 @@ export async function GET(request: Request) {
         takeaway: "Carry prevailing bias into next trading session.",
         colorTheme: "emerald"
       };
+    }
+
+    // Sanitize actionableEvents so the UI never renders a blank row, even if
+    // the model returns junk, wrong field names, or empty entries.
+    if (Array.isArray(generatedSummary.actionableEvents)) {
+      const validImpacts = ['High', 'Medium', 'Low'];
+      generatedSummary.actionableEvents = generatedSummary.actionableEvents
+        .filter((e: any) => e && typeof e.event === 'string' && e.event.trim().length > 0)
+        .map((e: any) => ({
+          time: (typeof e.time === 'string' ? e.time : '').replace(/\s*EST\s*$/i, '').trim(),
+          event: e.event.trim(),
+          impact: validImpacts.includes(e.impact) ? e.impact : 'Medium',
+        }))
+        .slice(0, 6);
+    } else {
+      generatedSummary.actionableEvents = [];
     }
 
     const isMarketActive = getIsMarketActive();
