@@ -119,7 +119,7 @@ export default function EarningsCalendar() {
   const [session, setSession] = useState<MarketSession>('Closed');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: keyof EarningEvent; direction: SortDirection } | null>(null);
-  const [isExpanded, setIsExpanded] = useState<boolean>(true);
+  const [isExpanded, setIsExpanded] = useState<boolean>(false);
   
   const [tier, setTier] = useState<CapTier>('SMALL');
 
@@ -149,7 +149,7 @@ export default function EarningsCalendar() {
         const fromStr = getIsoDateString(fromDate);
 
         const toDate = new Date(fromDate);
-        toDate.setDate(fromDate.getDate() + 14); 
+        toDate.setDate(fromDate.getDate() + 45); 
         const toStrCutoff = getIsoDateString(toDate);
 
         const calendarUrl = `/api/earnings?from=${fromStr}&to=${toStrCutoff}`;

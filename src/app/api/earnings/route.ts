@@ -43,7 +43,7 @@ export async function GET(request: Request) {
   const estNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
   const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const defFrom = new Date(estNow); defFrom.setDate(estNow.getDate() - 3);
-  const defTo = new Date(estNow); defTo.setDate(estNow.getDate() + 14);
+  const defTo = new Date(estNow); defTo.setDate(estNow.getDate() + 45);
   const from = searchParams.get('from') || iso(defFrom);
   const to = searchParams.get('to') || iso(defTo);
 

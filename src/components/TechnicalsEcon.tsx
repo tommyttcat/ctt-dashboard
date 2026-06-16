@@ -91,7 +91,7 @@ export default function EconomicCalendar() {
   const [sortConfig, setSortConfig] = useState<{ key: keyof EconEvent; direction: SortDirection } | null>(null);
 
   // --- COLLAPSE STATE ---
-  const [isExpanded, setIsExpanded] = useState<boolean>(true);
+  const [isExpanded, setIsExpanded] = useState<boolean>(false);
 
   useEffect(() => {
     let isMounted = true;
