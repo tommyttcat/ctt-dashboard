@@ -16,7 +16,7 @@ const SECTOR_MAP: Record<string, string> = {
   'COIN': 'Fintech', 'MSTR': 'Fintech', 'MARA': 'Fintech', 'RIOT': 'Fintech', 'CLSK': 'Fintech', 
   'IREN': 'Fintech', 'CIFR': 'Fintech', 'HUT': 'Fintech', 'HOOD': 'Fintech', 'SOFI': 'Fintech', 'UPST': 'Fintech',
   'TSLA': 'EV', 'NIO': 'EV', 'LI': 'EV', 'XPEV': 'EV',
-  'LUNR': 'Aerospace', 'ASTS': 'Aerospace', 'RKLB': 'Aerospace', 
+  'LUNR': 'Aerospace', 'ASTS': 'Aerospace', 'RKLB': 'Aerospace', 'SPCX': 'Aerospace', 
   'CEG': 'Nuclear', 'OKLO': 'Nuclear', 'CCJ': 'Nuclear', 'SMR': 'Nuclear', 'LEU': 'Nuclear',
   'FSLR': 'Solar', 'ENPH': 'Solar', 'RUN': 'Solar',
   'HIMS': 'Healthcare', 'NVO': 'Healthcare', 'LLY': 'Healthcare', 'COO': 'Healthcare',
@@ -53,6 +53,7 @@ const ETF_TARGET_MAP: Record<string, string> = {
   'RDTL': 'RDDT - Comm Serv', 'RCAX': 'RCAT - Aerospace', 'SOUX': 'SOUN - AI', 
   'RKLB': 'RKLB - Aerospace', 'RKLX': 'RKLB - Aerospace', 
   'ASTS': 'ASTS - Aerospace', 'ASTX': 'ASTS - Aerospace',
+  'SPCF': 'SPCX - Aerospace 2X', 'SSPC': 'SPCX - Aerospace -2X',
   'RGTX': 'RGT - IT', 'RGTU': 'RGT - IT', 'RGTZ': 'RGT - IT',
   'TQQQ': 'QQQ - Nasdaq 3X', 'SQQQ': 'QQQ - Nasdaq -3X', 'QID': 'QQQ - Nasdaq -2X', 'QLD': 'QQQ - Nasdaq 2X', 'SNDQ': 'QQQ - Nasdaq ETF',
   'SOXL': "SOXX - Semi's 3X", 'SOXS': "SOXX - Semi's -3X", 'TECL': 'XLK - Tech 3X', 'TECS': 'XLK - Tech -3X',
@@ -107,21 +108,46 @@ const resolveEtfSector = (sym: string, apiSector: string | undefined, apiName: s
   if (n.includes(' etf') || n.includes('proshares') || n.includes('direxion') || n.includes('defiance') || n.includes('fund') || n.includes('trust')) {
     return `${sym} - ETF`;
   }
-  return apiSector || 'Financials';
+  return apiSector || 'Other';
 };
 
 const cleanSectorDescription = (sic: string | undefined, sector: string | undefined, industry: string | undefined) => {
+  // Polygon/Massive ticker details populate `sic_description` (+ sic_code) but
+  // usually NOT GICS `sector`/`industry`. The old version only read
+  // sector/industry, so nearly everything fell through to the default — which
+  // is exactly why almost every row showed "Financials". We now read the SIC
+  // text, which is the field that's actually populated.
   const ind = (industry || '').toLowerCase();
-  if (ind.includes('nuclear')) return 'Nuclear';
-  if (ind.includes('solar')) return 'Solar';
-  if (ind.includes('electric vehicle') || ind.includes('auto manufacturer')) return 'EV';
-  if (ind.includes('biotechnology')) return 'Biotech';
-  if (ind.includes('semiconductor')) return "Semi's";
-  if (ind.includes('artificial intelligence') || ind.includes('ai ')) return 'AI';
-  if (ind.includes('cybersecurity') || ind.includes('security software')) return 'Cyber';
-  if (ind.includes('fintech') || ind.includes('financial technology')) return 'Fintech';
-  if (ind.includes('aerospace') || ind.includes('defense')) return 'Aerospace';
+  const sicTxt = (sic || '').toLowerCase();
+  const blob = `${ind} ${sicTxt}`;
 
+  // High-signal specific themes first (match against industry + SIC text).
+  if (/nuclear|uranium/.test(blob)) return 'Nuclear';
+  if (/solar|photovoltaic/.test(blob)) return 'Solar';
+  if (/electric vehicle|auto manufacturer|motor vehicle|passenger car/.test(blob)) return 'EV';
+  if (/biotechnolog|biological product|in vitro|medicinal chem/.test(blob)) return 'Biotech';
+  if (/semiconductor/.test(blob)) return "Semi's";
+  if (/artificial intelligence/.test(blob)) return 'AI';
+  if (/cybersecurity|security software/.test(blob)) return 'Cyber';
+  if (/fintech|financial technology/.test(blob)) return 'Fintech';
+  if (/aerospace|\bdefense\b|aircraft|guided missile|space vehicle/.test(blob)) return 'Aerospace';
+
+  // Broad SIC-description buckets (this text is what the API actually returns).
+  if (sicTxt) {
+    if (/software|prepackaged|computer program|data processing|information retrieval|computer integrated|computer communication|electronic computer|computer peripheral|computer storage|computer terminal|electronic component|printed circuit/.test(sicTxt)) return 'IT';
+    if (/pharmaceutical|drug|medicinal|surgical|\bmedical\b|\bhealth\b|dental|hospital|diagnostic|laborator/.test(sicTxt)) return 'Healthcare';
+    if (/crude petroleum|natural gas|petroleum|drilling|\boil\b|\bcoal\b|\benergy\b/.test(sicTxt)) return 'Energy';
+    if (/\bbank\b|savings instit|credit institution|insurance|investment office|securities broker|security broker|personal credit|holding compan|fire, marine/.test(sicTxt)) return 'Financials';
+    if (/real estate|land subdivid|operators of apartment|operators of nonresident/.test(sicTxt)) return 'Real Estate';
+    if (/electric services|gas & other|water supply|cogeneration|electric & other services/.test(sicTxt)) return 'Utilities';
+    if (/telephone|telecommunic|radio|television|broadcast|cable|motion picture|advertising|publishing|newspaper|periodical|entertainment/.test(sicTxt)) return 'Comm Serv';
+    if (/retail|catalog|mail-order|eating place|restaurant|apparel|footwear|hotel|department store|grocery|variety store|jewelry/.test(sicTxt)) return 'Con Disc';
+    if (/beverage|\bfood\b|tobacco|soap|cosmetic|household|dairy|bakery/.test(sicTxt)) return 'Con Staples';
+    if (/gold mining|metal mining|steel|aluminum|chemical|industrial inorganic|plastics material|paper mill|fertilizer|\bmining\b/.test(sicTxt)) return 'Materials';
+    if (/aircraft|machinery|industrial|construction|engineering|electrical industrial|transportation|railroad|trucking|air transport/.test(sicTxt)) return 'Industrials';
+  }
+
+  // Last, the GICS sector/industry fields IF the API ever provides them.
   const sec = (sector || '').toLowerCase();
   if (sec.includes('technology')) return 'IT';
   if (sec.includes('healthcare') || sec.includes('health care')) return 'Healthcare';
@@ -135,7 +161,8 @@ const cleanSectorDescription = (sic: string | undefined, sector: string | undefi
   if (sec.includes('utilities')) return 'Utilities';
   if (sec.includes('communication')) return 'Comm Serv';
 
-  return 'Financials';
+  // Unknown — do NOT masquerade as Financials.
+  return 'Other';
 };
 
 const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, vwap: number, rvol: number | null): { name: string | null, stage: string } => {
@@ -838,7 +865,7 @@ export async function GET(request: Request) {
               thinkingConfig: { thinkingLevel: "low" },
               // Without an explicit cap the large per-ticker JSON can be
               // truncated (finishReason: MAX_TOKENS) -> JSON.parse fails.
-              maxOutputTokens: 32768
+              maxOutputTokens: 12288
               // NOTE: temperature/top_p/top_k intentionally omitted. Google
               // explicitly recommends NOT overriding them for Gemini 3.x models.
             }
@@ -898,15 +925,20 @@ export async function GET(request: Request) {
       // fall back to the last good analysis from KV so the dashboard keeps its
       // theses instead of going blank or showing the raw error. On success,
       // persist the fresh analysis + timestamp so the next scans can reuse it.
+      // Stamp the throttle timestamp on BOTH success and failure. Previously a
+      // failed call (429/quota, truncated JSON, timeout) left the timestamp
+      // unset, so EVERY following scan retried Gemini — a runaway that billed on
+      // each failed attempt. Now a failure also counts toward AI_REFRESH_MIN, so
+      // we retry at most once per window instead of once per scan. The dashboard
+      // keeps showing the last good analysis from KV in the meantime.
       if (aiErrorMessage) {
         confluenceDict = cachedConfluence;
-      } else {
-        try {
-          await kv.set('ai_confluence_v6', confluenceDict);
-          await kv.set('ai_last_run_v6', Date.now());
-        } catch (persistErr) {
-          console.error('Failed to persist AI cache:', persistErr);
-        }
+      }
+      try {
+        if (!aiErrorMessage) await kv.set('ai_confluence_v6', confluenceDict);
+        await kv.set('ai_last_run_v6', Date.now());
+      } catch (persistErr) {
+        console.error('Failed to persist AI cache:', persistErr);
       }
     }
 
