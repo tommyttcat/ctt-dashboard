@@ -134,7 +134,7 @@ export async function GET(request: Request) {
     }
 
     const trashPublishers = ['the motley fool', 'zacks investment research', 'globe newswire', 'pr newswire', 'business wire'];
-    const premiumNews = data.results.filter((a: any) => !trashPublishers.includes((a.publisher?.name || '').toLowerCase())).slice(0, 20);
+    const premiumNews = data.results.filter((a: any) => !trashPublishers.includes((a.publisher?.name || '').toLowerCase())).slice(0, 30);
     const newsContext = premiumNews.map((n: any) => `- [${new Date(n.published_utc).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' })}] ${n.title}: ${n.description}`).join('\n');
 
     let conditionalInstructions = "";
@@ -164,7 +164,7 @@ export async function GET(request: Request) {
       CRITICAL INSTRUCTIONS:
       - "paragraphs" must be an array of exactly 2 concise market observations.
       - "colorTheme" options: "cyan", "emerald", "indigo", "amber", "rose". Match the tone.
-      - "actionableEvents": From the MARKET NEWS HEADLINES above, extract the 3 to 6 MOST
+      - "actionableEvents": From the MARKET NEWS HEADLINES above, extract up to 10 of the MOST
         market-moving, tradeable catalysts (most impactful first). Each MUST be a genuine
         catalyst — earnings, guidance, FDA / clinical data, M&A, major analyst actions,
         regulatory rulings, or a major macro print (CPI, Fed, jobs). DO NOT include vague
@@ -243,7 +243,7 @@ export async function GET(request: Request) {
           event: e.event.trim(),
           impact: validImpacts.includes(e.impact) ? e.impact : 'Medium',
         }))
-        .slice(0, 6);
+        .slice(0, 10);
     } else {
       generatedSummary.actionableEvents = [];
     }
