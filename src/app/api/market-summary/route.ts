@@ -16,6 +16,67 @@ const getIsMarketActive = () => {
   return false; 
 };
 
+// Provider-agnostic LLM call. Prefers Claude (separate quota, no hidden thinking
+// budget that can blow the token ceiling and truncate); falls back to the
+// hardened Gemini path when only GEMINI_API_KEY is set. Returns the raw text;
+// the caller extracts JSON from it.
+async function callLlm(prompt: string, maxTokens: number): Promise<string> {
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const geminiKey = process.env.GEMINI_API_KEY;
+
+  if (anthropicKey) {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5',
+        max_tokens: maxTokens,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Claude API Error: ${res.status} - ${errText.substring(0, 200)}`);
+    }
+    const data = await res.json();
+    return (data?.content || [])
+      .filter((b: any) => b?.type === 'text' && typeof b?.text === 'string')
+      .map((b: any) => b.text)
+      .join('');
+  }
+
+  if (geminiKey) {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          thinkingConfig: { thinkingLevel: 'low' },
+          maxOutputTokens: maxTokens,
+        },
+      }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Gemini API Error: ${res.status} - ${errText.substring(0, 200)}`);
+    }
+    const data = await res.json();
+    const candidate = data?.candidates?.[0];
+    return (candidate?.content?.parts || [])
+      .filter((p: any) => typeof p?.text === 'string')
+      .map((p: any) => p.text)
+      .join('');
+  }
+
+  throw new Error('No LLM API key configured (set ANTHROPIC_API_KEY or GEMINI_API_KEY)');
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const dateParam = searchParams.get('date');
@@ -85,8 +146,9 @@ export async function GET(request: Request) {
       conditionalInstructions = `Current Time Status: MORNING / PRE-MARKET. You MUST populate the "morning" block. Leave the "midday" and "closing" blocks strictly as null.`;
     }
 
-    const geminiKey = process.env.GEMINI_API_KEY;
-    if (!geminiKey) throw new Error('Missing Gemini API Key');
+    if (!process.env.ANTHROPIC_API_KEY && !process.env.GEMINI_API_KEY) {
+      throw new Error('Missing LLM API Key (set ANTHROPIC_API_KEY or GEMINI_API_KEY)');
+    }
 
     const aiPrompt = `
       You are an elite, institutional day/swing trader analyzer tracking market action for trading date ${targetDate}.
@@ -126,36 +188,7 @@ export async function GET(request: Request) {
       }
     `;
 
-    const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: aiPrompt }] }],
-        generationConfig: {
-          responseMimeType: "application/json",
-          // Gemini 3.x defaults thinkingLevel to HIGH, which silently spends a
-          // large (billed) reasoning budget on every call. "low" is plenty for
-          // this short structured summary and is the biggest cost saver here.
-          thinkingConfig: { thinkingLevel: "low" },
-          // Small output; this is just a safety ceiling against truncation.
-          maxOutputTokens: 8192
-          // temperature intentionally removed — Google recommends NOT
-          // overriding it on Gemini 3.x models.
-        }
-      })
-    });
-
-    if (!aiRes.ok) throw new Error(`Gemini API Error: ${aiRes.status} ${aiRes.statusText}`);
-    const aiData = await aiRes.json();
-
-    // Concatenate every text part. Thinking models can split output across
-    // multiple parts (and thought parts have no `.text`), so iterate rather
-    // than assuming parts[0] holds the answer.
-    const candidate = aiData?.candidates?.[0];
-    const generatedText = (candidate?.content?.parts || [])
-      .filter((p: any) => typeof p?.text === 'string')
-      .map((p: any) => p.text)
-      .join('');
+    const generatedText = await callLlm(aiPrompt, 8192);
 
     let generatedSummary;
     try {

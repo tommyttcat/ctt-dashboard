@@ -6,6 +6,68 @@ export const fetchCache = 'force-no-store';
 export const revalidate = 0;
 export const maxDuration = 300; 
 
+// Provider-agnostic LLM call. Prefers Claude (separate quota, no hidden thinking
+// budget that can blow the token ceiling and truncate); falls back to the
+// hardened Gemini path when only GEMINI_API_KEY is set. Returns the raw text;
+// the caller extracts JSON from it. Throws on a provider/HTTP error so the
+// caller's existing aiErrorMessage handling kicks in.
+async function callLlm(prompt: string, maxTokens: number): Promise<string> {
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const geminiKey = process.env.GEMINI_API_KEY;
+
+  if (anthropicKey) {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5',
+        max_tokens: maxTokens,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Claude API Rejected (${res.status}) - ${errText.substring(0, 200)}`);
+    }
+    const data = await res.json();
+    return (data?.content || [])
+      .filter((b: any) => b?.type === 'text' && typeof b?.text === 'string')
+      .map((b: any) => b.text)
+      .join('');
+  }
+
+  if (geminiKey) {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          thinkingConfig: { thinkingLevel: 'low' },
+          maxOutputTokens: maxTokens,
+        },
+      }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Gemini API Rejected (${res.status}) - ${errText.substring(0, 200)}`);
+    }
+    const data = await res.json();
+    const candidate = data?.candidates?.[0];
+    return (candidate?.content?.parts || [])
+      .filter((p: any) => typeof p?.text === 'string')
+      .map((p: any) => p.text)
+      .join('');
+  }
+
+  throw new Error('No LLM API key configured (set ANTHROPIC_API_KEY or GEMINI_API_KEY)');
+}
+
 const SECTOR_MAP: Record<string, string> = {
   'AAPL': 'IT', 'MSFT': 'IT', 'SMCI': 'IT',
   'NVDA': "Semi's", 'AMD': "Semi's", 'INTC': "Semi's", 
@@ -742,7 +804,7 @@ export async function GET(request: Request) {
     const wiimTickers = enrichedList.map((t: any) => t.ticker).filter(Boolean);
     const wiimMap = await fetchBenzingaWiims(wiimTickers, benzingaApiKey);
 
-    const geminiKey = process.env.GEMINI_API_KEY;
+    const hasLlmKey = !!(process.env.ANTHROPIC_API_KEY || process.env.GEMINI_API_KEY);
 
     let aiErrorMessage: string | null = null;
     let confluenceDict: any = {};
@@ -764,8 +826,8 @@ export async function GET(request: Request) {
     const cachedConfluence = (await kv.get<any>('ai_confluence_v6')) || {};
     const shouldRunAi = forceAi || !lastAiRun || aiCacheAgeMin >= AI_REFRESH_MIN;
 
-    if (!geminiKey) {
-        console.error("AI skipped: missing GEMINI_API_KEY in environment variables.");
+    if (!hasLlmKey) {
+        console.error("AI skipped: no LLM API key (set ANTHROPIC_API_KEY or GEMINI_API_KEY).");
         confluenceDict = cachedConfluence;
     } else if (!shouldRunAi) {
         // Cache still fresh — reuse the last analysis, no Gemini call this scan.
@@ -851,69 +913,28 @@ export async function GET(request: Request) {
           ${analysisMapString}
         `;
 
-        const aiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: aiPrompt }] }],
-            generationConfig: {
-              responseMimeType: "application/json",
-              // Gemini 3.x defaults thinkingLevel to HIGH, which burns the output
-              // budget on reasoning before the JSON is written. "low" is plenty
-              // for structured extraction. (thinkingLevel and the legacy
-              // thinkingBudget cannot both be set, or the API returns a 400.)
-              thinkingConfig: { thinkingLevel: "low" },
-              // Without an explicit cap the large per-ticker JSON can be
-              // truncated (finishReason: MAX_TOKENS) -> JSON.parse fails.
-              maxOutputTokens: 12288
-              // NOTE: temperature/top_p/top_k intentionally omitted. Google
-              // explicitly recommends NOT overriding them for Gemini 3.x models.
-            }
-          })
-        });
+        const text = await callLlm(aiPrompt, 12288);
 
-        if (!aiRes.ok) {
-          const errorText = await aiRes.text();
-          aiErrorMessage = `ERROR: Gemini API Rejected (${aiRes.status}) - ${errorText.substring(0, 200)}`;
+        if (!text) {
+          aiErrorMessage = `ERROR: Empty AI response`;
           console.error(aiErrorMessage);
         } else {
-          const aiData = await aiRes.json();
+          try {
+            const match = text.match(/\{[\s\S]*\}/);
+            const parsed = JSON.parse(match ? match[0] : text);
 
-          const candidate = aiData?.candidates?.[0];
-          const finishReason = candidate?.finishReason;
-
-          // Concatenate every text part. Thinking models can split output across
-          // multiple parts, and thought parts have no `.text`, so iterate rather
-          // than assuming parts[0] holds the answer.
-          const text = (candidate?.content?.parts || [])
-            .filter((p: any) => typeof p?.text === 'string')
-            .map((p: any) => p.text)
-            .join('');
-
-          if (!text) {
-            // No usable text: surface the real reason instead of failing silently.
-            const blockReason = aiData?.promptFeedback?.blockReason;
-            aiErrorMessage = `ERROR: Empty AI response (finishReason: ${finishReason || 'unknown'}${blockReason ? `, blocked: ${blockReason}` : ''})`;
-            console.error(aiErrorMessage, JSON.stringify(aiData?.promptFeedback || {}));
-          } else {
-            try {
-              const match = text.match(/\{[\s\S]*\}/);
-              const parsed = JSON.parse(match ? match[0] : text);
-
-              if (parsed.macro) {
-                await kv.set('macro_insights_v6', parsed.macro);
-              }
-              if (parsed.tickers && Array.isArray(parsed.tickers)) {
-                parsed.tickers.forEach((t: any) => {
-                   confluenceDict[t.symbol] = t;
-                });
-              }
-            } catch (parseErr: any) {
-              // Truncated JSON is almost always a token-budget issue.
-              const hint = finishReason === 'MAX_TOKENS' ? ' (response hit MAX_TOKENS — raise maxOutputTokens)' : '';
-              aiErrorMessage = `ERROR: JSON Parsing Failed${hint}`;
-              console.error(aiErrorMessage, parseErr?.message);
+            if (parsed.macro) {
+              await kv.set('macro_insights_v6', parsed.macro);
             }
+            if (parsed.tickers && Array.isArray(parsed.tickers)) {
+              parsed.tickers.forEach((t: any) => {
+                 confluenceDict[t.symbol] = t;
+              });
+            }
+          } catch (parseErr: any) {
+            // Truncated JSON is almost always a token-budget issue.
+            aiErrorMessage = `ERROR: JSON Parsing Failed`;
+            console.error(aiErrorMessage, parseErr?.message);
           }
         }
       } catch (e: any) {
