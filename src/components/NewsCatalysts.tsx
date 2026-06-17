@@ -173,11 +173,6 @@ export default function NewsFeed() {
                     <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded border ${getImpactBadge(item.impact)}`}>
                       {item.impact}
                     </span>
-                    {item.time && (
-                      <span className="text-[11px] font-medium text-rose-300 bg-rose-500/10 border border-rose-500/20 px-2 py-1 rounded whitespace-nowrap">
-                        {item.time} EST
-                      </span>
-                    )}
                   </div>
                 </div>
               ))}
