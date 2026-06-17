@@ -155,19 +155,20 @@ export default function NewsFeed() {
             <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-3 flex flex-col gap-2 animate-in fade-in">
               {news.map((item, i) => (
                 <div key={i} className="flex justify-between items-center gap-3 bg-[#161c2a] border border-white/5 px-4 py-2.5 rounded-lg hover:border-rose-500/20 transition-colors">
-                  <span className="text-sm text-slate-300 leading-snug">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
                     {(() => {
                       const { head, rest } = splitEvent(item.event);
-                      return head ? (
+                      const ticker = head.replace(/:$/, '');
+                      return ticker ? (
                         <>
-                          <span className="font-bold text-slate-100 mr-2">{head}</span>
-                          <span className="font-medium text-slate-400">{rest}</span>
+                          <span className="inline-block shrink-0 w-[72px] text-center truncate bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20" title={ticker}>{ticker}</span>
+                          <span className="font-medium text-slate-200 text-sm leading-snug min-w-0">{rest}</span>
                         </>
                       ) : (
-                        <span className="font-medium text-slate-300">{rest}</span>
+                        <span className="font-medium text-slate-200 text-sm leading-snug min-w-0">{rest}</span>
                       );
                     })()}
-                  </span>
+                  </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded border ${getImpactBadge(item.impact)}`}>
                       {item.impact}
