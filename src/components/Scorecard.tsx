@@ -124,16 +124,22 @@ export default function MacroScorecard() {
 
     const getPct = (id: string) => quotes[id]?.pct || 0;
 
-    const eqScore = (getPct('SPY') * 2.0) + (getPct('QQQ') * 2.0) + (getPct('IWM') * 1.0);
-    const volScore = (getPct('VIX') * -3.0); 
-    const cryptoScore = (getPct('BTC') * 0.5); 
+    // Equities are the PRIMARY tape signal. VIX only confirms/tempers — a normal
+    // uptick in VIX on a green day must NOT flip the read bearish, which the old
+    // -3.0 weight did (it could swamp SPY+QQQ entirely). So VIX is lightly
+    // weighted and ignored inside a small dead-band; only a genuine spike/crush
+    // moves tone. Crypto is a minor risk-appetite tell.
+    const eqScore = (getPct('SPY') * 3.0) + (getPct('QQQ') * 2.5) + (getPct('IWM') * 1.0);
+    const vixPct = getPct('VIX');
+    const volScore = Math.abs(vixPct) > 2 ? (vixPct * -0.6) : 0;
+    const cryptoScore = (getPct('BTC') * 0.25);
 
     const totalScore = eqScore + volScore + cryptoScore;
 
-    if (totalScore >= 1.2) {
+    if (totalScore >= 1.0) {
       setMarketTone('BULLISH');
       setRiskMode('ON');
-    } else if (totalScore <= -1.2) {
+    } else if (totalScore <= -1.0) {
       setMarketTone('BEARISH');
       setRiskMode('OFF');
     } else {

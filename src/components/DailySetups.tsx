@@ -22,6 +22,7 @@ interface SetupData {
   catalystUrl?: string | null; // RESTORED
   conviction?: number | null; 
   thesis?: string | null;     
+  tradeType?: string | null;  
 }
 
 type SortDirection = 'asc' | 'desc';
@@ -63,6 +64,15 @@ const formatSetupName = (name: string | null) => {
 // True only for the backend's generic no-news fallback labels.
 const isGenericCatalyst = (catalyst: string | null | undefined) =>
   !catalyst || catalyst.toLowerCase().startsWith('technical momentum');
+
+// Day Trade vs Swing pill. Day = amber (fast, intraday edge), Swing = cyan (multi-day structure).
+const tradeTypeBadge = (tradeType: string | null | undefined): { label: string; cls: string } | null => {
+  if (!tradeType) return null;
+  const t = tradeType.toLowerCase();
+  if (t.startsWith('day')) return { label: 'DAY', cls: 'bg-amber-500/10 text-amber-400 border-amber-500/20' };
+  if (t.startsWith('swing')) return { label: 'SWING', cls: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' };
+  return { label: tradeType.toUpperCase(), cls: 'bg-slate-500/10 text-slate-400 border-white/10' };
+};
 
 export default function DailySetups() {
   const { session } = useMarketData(); 
@@ -113,6 +123,7 @@ export default function DailySetups() {
               catalystUrl: item.catalystUrl || null, // RESTORED
               conviction: item.conviction != null ? Number(item.conviction) : ((item.aiScore ?? item.score) ?? null), 
               thesis: finalThesis,         
+              tradeType: item.tradeType || null,
             };
           });
 
@@ -310,6 +321,7 @@ export default function DailySetups() {
                 ) : (
                   filteredAndSortedSetups.map((row, i) => {
                     const isPositive = row.changePct >= 0;
+                    const tt = tradeTypeBadge(row.tradeType);
                     return (
                       <React.Fragment key={i}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -356,6 +368,7 @@ export default function DailySetups() {
                         <tr className="bg-transparent border-t border-white/5">
                           <td colSpan={13} className="pb-3.5 pt-2.5 pr-2 pl-[56px]">
                             <div className="flex items-baseline gap-3">
+                              {tt && (<span className={`shrink-0 px-1.5 py-[2px] rounded text-[9px] font-bold border tracking-wider ${tt.cls}`}>{tt.label}</span>)}
                               <span className="shrink-0 w-[88px] text-[#7c8bfa] font-bold text-[10px] tracking-[0.1em] uppercase">{formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : ''}</span>
                               <p className="flex-1 text-[11px] leading-relaxed pr-8 whitespace-normal max-w-[780px]">
                                 {row.thesis ? (<span className="text-slate-500">{row.thesis}</span>) : (<span className="text-slate-600 italic">Awaiting quantitative confluence analysis…</span>)}

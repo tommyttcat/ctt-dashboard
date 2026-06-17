@@ -882,10 +882,31 @@ export async function GET(request: Request) {
              - REASON: Does the Headline constitute a true catalyst?
              - PARTICIPATION: Are AvgVol > 2M and ATR > 1.0 driving range?
              - STRUCTURE: Is the MathPattern and Stage confluence clean on higher time frames?
-          3. For the 'conviction' field, ASSIGN A NUMERICAL SCORE (integer 1-100) based on this framework.
+          3. For the 'conviction' field, compute an integer 1-100 by SUMMING these four
+             components (build it from the parts — do NOT just pick a round number):
+             • Catalyst quality (0-35): a hard, dated catalyst (earnings, guidance, FDA/
+               clinical, M&A, major regulatory, analyst upgrade with target) = 28-35;
+               soft or secondary news = 14-27; no real news / pure technical = 0-13.
+             • Volume & participation (0-30): RVOL >= 3 = 24-30; 1.5-3 = 15-23;
+               1.0-1.5 = 6-14; < 1.0 = 0-5. Lean higher within a band for larger AvgVol/$Vol.
+             • Structure (0-25): a clean named setup on a constructive Stage (e.g. Stage 2A,
+               valid breakout) = 19-25; developing/early = 10-18; messy or extended = 0-9.
+             • Trend alignment (0-10): above VWAP and trending = 7-10; mixed = 3-6;
+               below VWAP / fading = 0-2.
+             Spread scores across the full range — most setups should land 40-80; reserve
+             85+ for genuine multi-factor confluence, not as a default.
           4. For the 'catalyst' field, summarize the Headline into a strict 1-3 word punchy category (e.g., "FDA Approval", "Earnings Beat"). If no news, strictly return "Technical Momentum".
           5. For the 'thesis' field, explain in 1-2 plain sentences WHY the stock is moving — the catalyst, the driver, who is buying and why. CRITICAL: DO NOT include any specific price levels, entry points, price targets, or stop-loss figures. You do NOT have reliable support/resistance data, so any such numbers are fabricated, wrong, and misleading — omit them entirely. Also DO NOT repeat the math pattern, indicator, or stage. Example: "Renewed retail-trading optimism around the SpaceX IPO is pulling capital into brokerage names; the move is news-driven rather than purely technical."
           6. For the 'watching' array, select 5 to 8 total symbols representing the highest confluence.
+          7. For the 'tradeType' field, classify the BEST way to trade THIS setup today,
+             returning EXACTLY "Day Trade" or "Swing":
+             • "Day Trade": momentum/news-driven intraday plays — high RVOL, gap-ups,
+               single-day catalysts, intraday patterns (Gap & Go, R2G, BB SQZ Fired),
+               elevated ATR. The edge is intraday and largely decays by the close.
+             • "Swing": higher-timeframe structure meant to be held days to weeks — base
+               breakouts (GLB), Stage 2A trend continuation, 20 EMA pullbacks, Trend Hold,
+               Inside Day breaks. Driven by structure more than a single intraday catalyst.
+             When a name fits both, pick the one the current setup/stage favors most.
           
           BRIEFING INSTRUCTIONS:
           Your 'briefing' string must be an in-depth synthesis highlighting:
@@ -905,7 +926,7 @@ export async function GET(request: Request) {
               ]
             },
             "tickers": [
-              { "symbol": "XYZ", "catalyst": "Earnings Beat", "conviction": 85, "thesis": "Plain-language reason the stock is moving — no price levels..." }
+              { "symbol": "XYZ", "catalyst": "Earnings Beat", "conviction": 85, "tradeType": "Swing", "thesis": "Plain-language reason the stock is moving — no price levels..." }
             ]
           }
 
@@ -978,6 +999,7 @@ export async function GET(request: Request) {
         if (wiim.url) t.catalystUrl = wiim.url;
         // Keep Gemini's conviction score if we have one; it's still useful.
         if (confluenceDict[t.ticker]?.conviction) t.conviction = confluenceDict[t.ticker].conviction;
+        if (confluenceDict[t.ticker]?.tradeType) t.tradeType = confluenceDict[t.ticker].tradeType;
       } else if (confluenceDict[t.ticker]) {
         let tag = confluenceDict[t.ticker].catalyst;
         
@@ -990,6 +1012,7 @@ export async function GET(request: Request) {
         t.catalyst = tag;
         t.conviction = confluenceDict[t.ticker].conviction;
         t.thesis = confluenceDict[t.ticker].thesis;
+        t.tradeType = confluenceDict[t.ticker].tradeType;
       } else {
         if (t._rawHeadline && t._daysOld < 1.5) t.catalyst = "Recent News";
         else if (t._rawHeadline && t._daysOld >= 1.5 && t._daysOld <= 4) t.catalyst = "Delayed Reaction";
