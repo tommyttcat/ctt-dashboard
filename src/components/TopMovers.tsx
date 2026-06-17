@@ -240,41 +240,6 @@ export default function TopMovers() {
                 ))}
               </div>
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto" onClick={(e) => e.stopPropagation()}>
-                {benchmark && (() => {
-                  const activeMas = maTimeframe === 'day'
-                    ? (benchmark.day || benchmark.mas || [])
-                    : (benchmark.week || []);
-                  const unit = maTimeframe === 'day' ? 'D' : 'W';
-                  return (
-                    <div className="flex items-center gap-3 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
-                      <span className="text-[9px] font-bold tracking-widest uppercase text-[#7c8bfa]">{benchmark.symbol}</span>
-
-                      <div className="flex items-center bg-[#0b101a] border border-white/5 rounded-md p-0.5">
-                        {(['day', 'week'] as const).map((tf) => (
-                          <button
-                            key={tf}
-                            onClick={(e) => { e.stopPropagation(); setMaTimeframe(tf); }}
-                            className={`px-2 py-0.5 rounded text-[9px] font-bold tracking-widest uppercase transition-colors ${maTimeframe === tf ? 'bg-indigo-500/20 text-indigo-300' : 'text-slate-500 hover:text-slate-300'}`}
-                          >
-                            {tf === 'day' ? 'Day' : 'Week'}
-                          </button>
-                        ))}
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {activeMas.map((m, idx) => (
-                          <React.Fragment key={m.label}>
-                            {idx > 0 && <span className="text-[10px] text-slate-600">|</span>}
-                            <div className="flex items-center gap-1.5" title={`${benchmark.symbol} ${m.label}${unit} SMA: $${m.value.toFixed(2)} — ${m.above ? 'above' : 'below'}`}>
-                              <span className="text-[10px] font-medium text-slate-400">{m.label}</span>
-                              <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${m.above ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>
-                            </div>
-                          </React.Fragment>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })()}
                 <div className="flex items-center gap-4 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
                   <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">VWAP</span>
                   <div className="flex items-center gap-3">
@@ -284,14 +249,50 @@ export default function TopMovers() {
                 </div>
               </div>
             </div>
-            <div className="flex items-center w-full">
-              <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1 overflow-x-auto custom-scrollbar w-full md:w-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1 overflow-x-auto custom-scrollbar w-full sm:w-auto">
                 {['All', 'Micro', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
                   <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${marketCapFilter === cap ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' : 'text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]'}`}>
                     {cap}
                   </button>
                 ))}
               </div>
+
+              {benchmark && (() => {
+                const activeMas = maTimeframe === 'day'
+                  ? (benchmark.day || benchmark.mas || [])
+                  : (benchmark.week || []);
+                const unit = maTimeframe === 'day' ? 'D' : 'W';
+                return (
+                  <div className="flex items-center gap-3 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+                    <span className="text-[9px] font-bold tracking-widest uppercase text-[#7c8bfa]">{benchmark.symbol}</span>
+
+                    <div className="flex items-center bg-[#0b101a] border border-white/5 rounded-md p-0.5">
+                      {(['day', 'week'] as const).map((tf) => (
+                        <button
+                          key={tf}
+                          onClick={(e) => { e.stopPropagation(); setMaTimeframe(tf); }}
+                          className={`px-2 py-0.5 rounded text-[9px] font-bold tracking-widest uppercase transition-colors ${maTimeframe === tf ? 'bg-indigo-500/20 text-indigo-300' : 'text-slate-500 hover:text-slate-300'}`}
+                        >
+                          {tf === 'day' ? 'Day' : 'Week'}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {activeMas.map((m, idx) => (
+                        <React.Fragment key={m.label}>
+                          {idx > 0 && <span className="text-[10px] text-slate-600">|</span>}
+                          <div className="flex items-center gap-1.5" title={`${benchmark.symbol} ${m.label}${unit} SMA: $${m.value.toFixed(2)} — ${m.above ? 'above' : 'below'}`}>
+                            <span className="text-[10px] font-medium text-slate-400">{m.label}</span>
+                            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${m.above ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>
+                          </div>
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
           
