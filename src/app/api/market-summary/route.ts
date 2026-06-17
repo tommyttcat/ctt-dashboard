@@ -125,7 +125,7 @@ export async function GET(request: Request) {
       console.error("Failed to fetch market tape snapshot:", e);
     }
 
-    const newsUrl = `https://api.polygon.io/v2/reference/news?published_utc.gte=${targetDate}T00:00:00Z&published_utc.lte=${targetDate}T23:59:59Z&limit=50&sort=published_utc&order=desc&apiKey=${polygonKey}`;
+    const newsUrl = `https://api.polygon.io/v2/reference/news?published_utc.gte=${targetDate}T00:00:00Z&published_utc.lte=${targetDate}T23:59:59Z&limit=100&sort=published_utc&order=desc&apiKey=${polygonKey}`;
     const response = await fetch(newsUrl, { cache: 'no-store' });
     const data = await response.json();
 
@@ -134,7 +134,7 @@ export async function GET(request: Request) {
     }
 
     const trashPublishers = ['the motley fool', 'zacks investment research', 'globe newswire', 'pr newswire', 'business wire'];
-    const premiumNews = data.results.filter((a: any) => !trashPublishers.includes((a.publisher?.name || '').toLowerCase())).slice(0, 30);
+    const premiumNews = data.results.filter((a: any) => !trashPublishers.includes((a.publisher?.name || '').toLowerCase())).slice(0, 40);
     const newsContext = premiumNews.map((n: any) => `- [${new Date(n.published_utc).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' })}] ${n.title}: ${n.description}`).join('\n');
 
     let conditionalInstructions = "";
@@ -164,11 +164,17 @@ export async function GET(request: Request) {
       CRITICAL INSTRUCTIONS:
       - "paragraphs" must be an array of exactly 2 concise market observations.
       - "colorTheme" options: "cyan", "emerald", "indigo", "amber", "rose". Match the tone.
-      - "actionableEvents": From the MARKET NEWS HEADLINES above, extract up to 10 of the MOST
-        market-moving, tradeable catalysts (most impactful first). Each MUST be a genuine
-        catalyst — earnings, guidance, FDA / clinical data, M&A, major analyst actions,
-        regulatory rulings, or a major macro print (CPI, Fed, jobs). DO NOT include vague
-        commentary, opinion columns, or generic "stocks rose/fell" headlines. For each event:
+      - "actionableEvents": From the MARKET NEWS HEADLINES above, return a list of 10 catalysts,
+        ordered most impactful first. The list MUST contain 10 entries — during market hours the
+        news almost always carries at least 10 distinct tradeable developments, so do the work to
+        find them. After the obvious top-tier headlines (earnings, guidance, FDA/clinical, M&A,
+        major macro prints), fill the rest with the next most relevant: analyst rating changes,
+        partnerships and contract wins, product or regulatory news, notable single-stock moves
+        with a clear driver, and sector-moving developments. Every entry must still be a real,
+        distinct, tradeable catalyst tied to a specific ticker (or "MKT" for broad macro) — do
+        NOT pad with vague commentary, opinion columns, duplicates of the same story, or generic
+        "stocks rose/fell" headlines. Only return fewer than 10 if the news genuinely does not
+        contain that many distinct catalysts. For each event:
           - "event": a punchy 6 to 12 word description that STARTS with the primary ticker
             (or "MKT" for broad macro), e.g. "NVDA: Q3 earnings beat, raises full-year guidance".
           - "time": the headline's time in "HH:MM AM" / "HH:MM PM" format. DO NOT append

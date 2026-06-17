@@ -17,6 +17,16 @@ const getImpactBadge = (impact: string) => {
   return 'bg-slate-500/10 border-white/10 text-slate-400';
 };
 
+// Split "SPCX: SpaceX ETF frenzy..." into a bold ticker head ("SPCX:") and the
+// rest of the summary, so only the ticker renders bold.
+const splitEvent = (event: string): { head: string; rest: string } => {
+  const idx = event.indexOf(':');
+  if (idx > 0 && idx <= 12) {
+    return { head: event.slice(0, idx + 1), rest: event.slice(idx + 1).trim() };
+  }
+  return { head: '', rest: event };
+};
+
 export default function NewsFeed() {
   const [news, setNews] = useState<CatalystItem[]>([]);
   const [status, setStatus] = useState<string>('Offline');
@@ -145,7 +155,19 @@ export default function NewsFeed() {
             <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-3 flex flex-col gap-2 animate-in fade-in">
               {news.map((item, i) => (
                 <div key={i} className="flex justify-between items-center gap-3 bg-[#161c2a] border border-white/5 px-4 py-2.5 rounded-lg hover:border-rose-500/20 transition-colors">
-                  <span className="text-sm font-bold text-slate-200">{item.event}</span>
+                  <span className="text-sm text-slate-300 leading-snug">
+                    {(() => {
+                      const { head, rest } = splitEvent(item.event);
+                      return head ? (
+                        <>
+                          <span className="font-bold text-slate-100 mr-2">{head}</span>
+                          <span className="font-medium text-slate-400">{rest}</span>
+                        </>
+                      ) : (
+                        <span className="font-medium text-slate-300">{rest}</span>
+                      );
+                    })()}
+                  </span>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded border ${getImpactBadge(item.impact)}`}>
                       {item.impact}
