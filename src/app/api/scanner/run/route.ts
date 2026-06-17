@@ -1148,28 +1148,35 @@ export async function GET(request: Request) {
 
     // QQQ benchmark moving averages for two timeframes. Green = current price above
     // the SMA, red = below. Day uses 10/21/30/50-day SMAs; Week uses 5/10/30/50-week
-    // SMAs. Price is the latest daily close, compared against each timeframe's SMAs.
+    // SMAs. We pull one long daily history and resample it into weekly closes here,
+    // which is more reliable than Polygon's weekly aggregates (those came back too
+    // short to compute the 30/50-week averages).
     let benchmark: any = null;
     try {
       const qqqTo = new Date().toISOString().split('T')[0];
 
-      // Daily bars: ~160 calendar days comfortably covers >50 trading days.
+      // ~420 calendar days (~290 trading days, ~58 weeks) covers the 50-day and
+      // 50-week SMAs with room to spare.
       const dFromDate = new Date();
-      dFromDate.setDate(dFromDate.getDate() - 160);
+      dFromDate.setDate(dFromDate.getDate() - 420);
       const dailyRes = await fetchSafeJson(
-        `https://api.polygon.io/v2/aggs/ticker/QQQ/range/1/day/${dFromDate.toISOString().split('T')[0]}/${qqqTo}?adjusted=true&sort=desc&limit=80&apiKey=${polygonApiKey}`,
+        `https://api.polygon.io/v2/aggs/ticker/QQQ/range/1/day/${dFromDate.toISOString().split('T')[0]}/${qqqTo}?adjusted=true&sort=desc&limit=400&apiKey=${polygonApiKey}`,
         { results: [] }
       );
       const dailyBars = (dailyRes.results || []).sort((a: any, b: any) => b.t - a.t); // newest first
 
-      // Weekly bars: ~420 calendar days covers >50 weeks for the 50-week SMA.
-      const wFromDate = new Date();
-      wFromDate.setDate(wFromDate.getDate() - 420);
-      const weeklyRes = await fetchSafeJson(
-        `https://api.polygon.io/v2/aggs/ticker/QQQ/range/1/week/${wFromDate.toISOString().split('T')[0]}/${qqqTo}?adjusted=true&sort=desc&limit=80&apiKey=${polygonApiKey}`,
-        { results: [] }
-      );
-      const weeklyBars = (weeklyRes.results || []).sort((a: any, b: any) => b.t - a.t); // newest first
+      // Resample daily -> weekly: Monday-aligned 7-day buckets. Bars are newest-first,
+      // so the first bar seen in a bucket is that week's most recent close.
+      const weekIndex = (ms: number) => Math.floor((Math.floor(ms / 86400000) + 3) / 7);
+      const seenWeeks = new Set<number>();
+      const weeklyBars: { c: number }[] = [];
+      for (const b of dailyBars) {
+        const wi = weekIndex(b.t);
+        if (!seenWeeks.has(wi)) {
+          seenWeeks.add(wi);
+          weeklyBars.push({ c: b.c });
+        }
+      }
 
       // Simple moving average of the most recent n closes (bars are newest-first).
       const smaOf = (bars: any[], n: number): number | null => {
