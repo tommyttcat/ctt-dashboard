@@ -220,15 +220,33 @@ export async function GET(request: Request) {
     // During market hours we regenerate at most once per MARKET_CACHE_SEC; off
     // hours it's effectively frozen for the rest of the day. Raise
     // MARKET_CACHE_SEC to spend less (e.g. 3600 = once an hour).
-    const MARKET_CACHE_SEC = 1800;   // 30 min during market hours
+    const MARKET_CACHE_SEC = 3600;   // 60 min during market hours
     const CLOSED_CACHE_SEC = 43200;  // 12 hours when closed
     const cacheExpiration = isMarketActive ? MARKET_CACHE_SEC : CLOSED_CACHE_SEC;
 
     await kv.set(`market_narrative_${targetDate}`, generatedSummary, { ex: cacheExpiration });
+    // Durable copy of the last good narrative, used to keep the panel populated
+    // if a later regeneration fails.
+    try { await kv.set(`market_narrative_lastgood_${targetDate}`, generatedSummary, { ex: 86400 }); } catch {}
 
     return NextResponse.json(generatedSummary);
 
   } catch (error: any) {
-     return NextResponse.json({ error: error.message }, { status: 500 });
+    // FAILURE THROTTLE (mirrors the scanner fix). This route previously wrote to
+    // cache only on success, so when Gemini failed (429 quota, bad key, timeout)
+    // the cache stayed empty and EVERY 60s poll / reload re-attempted the call —
+    // a retry runaway that billed on each failure and returned a 500. Now a
+    // failure caches a payload on the main key for a short cooldown, so polls are
+    // served from KV instead of re-hitting the model. We reuse the last good
+    // narrative when we have one; otherwise an empty payload the UI handles.
+    let payload: any = { actionableEvents: [], morning: null, midday: null, closing: null };
+    try {
+      const lastGood = await kv.get(`market_narrative_lastgood_${targetDate}`);
+      if (lastGood) payload = lastGood;
+    } catch {}
+    try {
+      await kv.set(`market_narrative_${targetDate}`, payload, { ex: 600 }); // 10-min cooldown
+    } catch {}
+    return NextResponse.json(payload);
   }
 }
