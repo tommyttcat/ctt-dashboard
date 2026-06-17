@@ -306,50 +306,79 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
       return { name: 'BB SQZ Fired', stage };
   }
 
-  const getRawK = (idx: number) => {
-    const slice = bars.slice(idx, idx + 14); 
-    const highPeriod = Math.max(...slice.map(b => b.h));
-    const lowPeriod = Math.min(...slice.map(b => b.l));
-    if (highPeriod === lowPeriod) return 50; 
-    return ((bars[idx].c - lowPeriod) / (highPeriod - lowPeriod)) * 100;
+  // --- Blue Dot Rev: Dr. Eric Wish's "dot" oversold-reversal signal ---------
+  // Wish's definition: the fast 10-period stochastic was <= 25 on any of the
+  // last 3 days, today closes above the prior close, and price is back above
+  // either its 30-day SMA or 21-day EMA — a bounce from oversold reclaiming trend.
+  const fastStochK = (idx: number) => {
+    const slice = bars.slice(idx, idx + 10);
+    const hi = Math.max(...slice.map(b => b.h));
+    const lo = Math.min(...slice.map(b => b.l));
+    if (hi === lo) return 50;
+    return ((bars[idx].c - lo) / (hi - lo)) * 100;
   };
+  const oversoldLast3 = fastStochK(0) <= 25 || fastStochK(1) <= 25 || fastStochK(2) <= 25;
 
-  const getSmoothedK = (idx: number) => {
-    let sum = 0;
-    for (let i = 0; i < 4; i++) sum += getRawK(idx + i);
-    return sum / 4;
-  };
+  let sma30 = 0;
+  for (let i = 0; i < 30; i++) sma30 += bars[i].c;
+  sma30 /= 30;
 
-  const smoothedKArray = [];
-  for (let i = 0; i < 11; i++) smoothedKArray.push(getSmoothedK(i));
+  let ema21 = bars[warmUpBars].c;
+  const k21 = 2 / (21 + 1);
+  for (let i = warmUpBars - 1; i >= 0; i--) {
+    ema21 = (bars[i].c * k21) + (ema21 * (1 - k21));
+  }
 
-  const currentK = smoothedKArray[0];
-  const prevK = smoothedKArray[1];
-
-  let sumStoch = 0;
-  for (let i = 0; i < 10; i++) sumStoch += smoothedKArray[i];
-  const stochSma = sumStoch / 10;
-  let stochVar = 0;
-  for (let i = 0; i < 10; i++) stochVar += Math.pow(smoothedKArray[i] - stochSma, 2);
-  const stochStdDev = Math.sqrt(stochVar / 10);
-  const currentLowerStochBB = stochSma - (1.0 * stochStdDev);
-
-  let prevSumStoch = 0;
-  for (let i = 1; i < 11; i++) prevSumStoch += smoothedKArray[i];
-  const prevStochSma = prevSumStoch / 10;
-  let prevStochVar = 0;
-  for (let i = 1; i < 11; i++) prevStochVar += Math.pow(smoothedKArray[i] - prevStochSma, 2);
-  const prevStochStdDev = Math.sqrt(prevStochVar / 10);
-  const prevLowerStochBB = prevStochSma - (1.0 * prevStochStdDev);
-
-  if (prevK <= prevLowerStochBB && currentK > currentLowerStochBB) {
+  if (oversoldLast3 && currentPrice > yest.c && (currentPrice > sma30 || currentPrice > ema21)) {
     return { name: 'Blue Dot Rev', stage };
   }
 
   const hasConvictionVol = rvol !== null && rvol >= 1.0;
-  const high3Months = Math.max(...bars.slice(1, 65).map(b => b.h));
 
-  if (hasConvictionVol && currentPrice > high3Months && yest.c <= high3Months && currentPrice >= Math.max(...bars.slice(1, 80).map(b => b.h))) {
+  // --- VCP (Minervini Volatility Contraction Pattern) -----------------------
+  // A base of progressively tighter pullbacks with volume drying up, inside an
+  // uptrend, breaking out. We approximate the contraction legs with three
+  // consecutive ~12-bar windows: each window's price range (and volume) should
+  // be tighter than the one before (supply drying up), the most recent leg
+  // should be tight, and today should clear the base high on real volume.
+  const windowRange = (start: number, len: number) => {
+    const slice = bars.slice(start, start + len);
+    const hi = Math.max(...slice.map(b => b.h));
+    const lo = Math.min(...slice.map(b => b.l));
+    return lo > 0 ? (hi - lo) / lo : 1;
+  };
+  const windowVol = (start: number, len: number) => {
+    const slice = bars.slice(start, start + len);
+    return slice.reduce((s, b) => s + (b.v || 0), 0) / Math.max(slice.length, 1);
+  };
+  if ((stage === 'Stage 2A' || stage === 'Stage 3A') && bars.length >= 50) {
+    const rNear = windowRange(1, 12), rMid = windowRange(13, 12), rFar = windowRange(25, 12);
+    const vNear = windowVol(1, 12), vMid = windowVol(13, 12), vFar = windowVol(25, 12);
+    const contracting = rNear < rMid && rMid < rFar;           // each pullback tighter than the last
+    const volDrying = (vNear > 0 && vMid > 0 && vFar > 0) ? (vNear < vMid && vMid < vFar) : true;
+    const tightFinalLeg = rNear < 0.15;                        // final contraction is coiled
+    const baseHigh = Math.max(...bars.slice(1, 37).map(b => b.h));
+    if (contracting && volDrying && tightFinalLeg && currentPrice > baseHigh && hasConvictionVol) {
+      return { name: 'VCP', stage };
+    }
+  }
+
+  // --- Episodic Pivot (Stockbee): a large catalyst gap on heavy volume -------
+  // A significant gap-up that holds, on a volume surge — the market is re-rating
+  // the stock. (Benzinga catalyst confirmation is layered on later in the merge.)
+  if (rvol !== null && rvol >= 2.0 && currentOpen >= yest.c * 1.04 && currentPrice >= currentOpen * 0.98) {
+    return { name: 'Episodic Pivot', stage };
+  }
+
+  // --- GLB (Dr. Wish Green Line Breakout) -----------------------------------
+  // A NEW all-time high (over available history) on above-average volume after
+  // a base of at least ~3 months. The prior high must be older than 3 months —
+  // i.e. the last ~63 sessions stayed below it (a true consolidation, not a
+  // stock already grinding to new highs).
+  const priorATH = Math.max(...bars.slice(1).map(b => b.h));
+  const recentBaseHigh = Math.max(...bars.slice(1, 64).map(b => b.h));
+  const baseOldEnough = recentBaseHigh < priorATH * 0.999;
+  if (hasConvictionVol && currentPrice > priorATH && yest.c <= priorATH && baseOldEnough) {
     return { name: 'GLB', stage };
   }
 
@@ -668,6 +697,38 @@ export async function GET(request: Request) {
 
     const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= MIN_PRICE && t._liveVol >= MIN_VOLUME);
 
+    // --- Market breadth / GMI-style regime -----------------------------------
+    // A breadth model in the spirit of Dr. Wish's GMI + Stockbee's "4% breadth",
+    // computed from the full liquid universe we already pulled: advancers vs
+    // decliners, plus the count of stocks making strong (>=4%) daily moves in
+    // each direction. Six conditions -> a 0-6 score (GREEN >=4, RED <=2). The
+    // counts of 100 / 50 are universe-size dependent and tunable.
+    let advancers = 0, decliners = 0, up4 = 0, down4 = 0;
+    for (const t of viableSetups) {
+      const chg = t._liveChg || 0;
+      if (chg > 0) advancers++; else if (chg < 0) decliners++;
+      if (chg >= 4) up4++; else if (chg <= -4) down4++;
+    }
+    const breadthTotal = advancers + decliners;
+    const pctAdv = breadthTotal > 0 ? advancers / breadthTotal : 0;
+    const ratio4 = (up4 + down4) > 0 ? up4 / (up4 + down4) : 0.5;
+    let breadthScore = 0;
+    if (advancers > decliners) breadthScore++;   // net advance/decline positive
+    if (pctAdv >= 0.55) breadthScore++;          // broad participation
+    if (up4 > down4) breadthScore++;             // 4% breadth positive
+    if (up4 >= 100) breadthScore++;              // genuine upside thrust
+    if (ratio4 >= 0.6) breadthScore++;           // strong-mover ratio bullish
+    if (down4 < 50) breadthScore++;              // no heavy downside washout
+    const breadthSignal = breadthScore >= 4 ? 'GREEN' : breadthScore <= 2 ? 'RED' : 'NEUTRAL';
+    try {
+      await kv.set('market_breadth_v6', {
+        score: breadthScore, signal: breadthSignal,
+        advancers, decliners, up4, down4,
+        pctAdv: Math.round(pctAdv * 1000) / 10,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (e) { console.error('breadth persist failed', e); }
+
     const dailyCandidates = [...viableSetups]
       .filter((t: any) => t._liveChg >= MIN_CHANGE)
       .sort((a: any, b: any) => (b._livePrice * b._liveVol) - (a._livePrice * a._liveVol))
@@ -857,7 +918,8 @@ export async function GET(request: Request) {
                     MathPattern: t.setupName || 'None',
                     Stage: t.stage,
                     ATR: t.atr,
-                    AvgVol: t.avgVol
+                    AvgVol: t.avgVol,
+                    RVOL: t.rvol
                 };
             }
         });
@@ -893,6 +955,14 @@ export async function GET(request: Request) {
                valid breakout) = 19-25; developing/early = 10-18; messy or extended = 0-9.
              • Trend alignment (0-10): above VWAP and trending = 7-10; mixed = 3-6;
                below VWAP / fading = 0-2.
+             VOLUME CONFIRMATION (Coulling / VPA): a breakout or strong up-move must be
+             "validated" by RVOL >= ~1.5. The same move on RVOL < 1 is an ANOMALY — price
+             rising without volume behind it — so treat it as a likely false breakout and
+             cap conviction in the bottom third regardless of the other components.
+             BREAKOUT QUALITY (Brooks): most range breakouts fail, so award the high
+             structure/trend points only to decisive breaks (clean setup + confirming
+             volume + constructive Stage); discount extended, late-stage, or low-volume
+             breaks where the move looks already exhausted.
              Spread scores across the full range — most setups should land 40-80; reserve
              85+ for genuine multi-factor confluence, not as a default.
           4. For the 'catalyst' field, summarize the Headline into a strict 1-3 word punchy category (e.g., "FDA Approval", "Earnings Beat"). If no news, strictly return "Technical Momentum".
@@ -904,8 +974,11 @@ export async function GET(request: Request) {
                single-day catalysts, intraday patterns (Gap & Go, R2G, BB SQZ Fired),
                elevated ATR. The edge is intraday and largely decays by the close.
              • "Swing": higher-timeframe structure meant to be held days to weeks — base
-               breakouts (GLB), Stage 2A trend continuation, 20 EMA pullbacks, Trend Hold,
-               Inside Day breaks. Driven by structure more than a single intraday catalyst.
+               breakouts (GLB, VCP), Stage 2A trend continuation, 20 EMA pullbacks, Trend
+               Hold, Inside Day breaks. Driven by structure more than a single intraday catalyst.
+             • An Episodic Pivot (a large catalyst gap) can be EITHER: a Day Trade if it's
+               pure intraday momentum, or a Swing if it gaps into a clean base/Stage 2A
+               structure worth holding. Decide from the stage and how it's basing.
              When a name fits both, pick the one the current setup/stage favors most.
           
           BRIEFING INSTRUCTIONS:

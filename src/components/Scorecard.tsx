@@ -114,6 +114,7 @@ export default function MacroScorecard() {
 
   const [riskMode, setRiskMode] = useState<'ON' | 'OFF'>('ON');
   const [marketTone, setMarketTone] = useState<'BULLISH' | 'NEUTRAL' | 'BEARISH'>('NEUTRAL');
+  const [breadth, setBreadth] = useState<{ score: number; signal: 'GREEN' | 'NEUTRAL' | 'RED'; advancers: number; decliners: number; up4: number; down4: number } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
 
   const cryptoWs = useRef<WebSocket | null>(null);
@@ -134,7 +135,12 @@ export default function MacroScorecard() {
     const volScore = Math.abs(vixPct) > 2 ? (vixPct * -0.6) : 0;
     const cryptoScore = (getPct('BTC') * 0.25);
 
-    const totalScore = eqScore + volScore + cryptoScore;
+    // GMI-style market-internals breadth (0-6) as a co-driver: a strong/weak
+    // tape under the surface should pull tone even when the index print is muted.
+    // Maps 6 -> +1.5, 3 -> 0, 0 -> -1.5.
+    const breadthAdj = breadth ? ((breadth.score - 3) / 3) * 1.5 : 0;
+
+    const totalScore = eqScore + volScore + cryptoScore + breadthAdj;
 
     if (totalScore >= 1.0) {
       setMarketTone('BULLISH');
@@ -146,7 +152,7 @@ export default function MacroScorecard() {
       setMarketTone('NEUTRAL');
       setRiskMode(totalScore >= 0 ? 'ON' : 'OFF');
     }
-  }, [quotes]);
+  }, [quotes, breadth]);
 
   // --- ENGINE 2: SERVER-CACHED MACRO QUOTES ---
   // Reads /api/macro (KV-cached, ~1 FMP hit/min for ALL clients) instead of
@@ -167,6 +173,8 @@ export default function MacroScorecard() {
         setSession(getMarketSession());
         setLastUpdated(new Date());
         setStockStatus('LIVE');
+
+        if (data.breadth && typeof data.breadth.score === 'number') setBreadth(data.breadth);
 
         setQuotes(prev => {
           const next = { ...prev };
@@ -317,6 +325,17 @@ export default function MacroScorecard() {
           >
             TONE: {marketTone}
           </div>
+          {breadth && (
+            <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${
+                breadth.signal === 'GREEN' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                breadth.signal === 'RED' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                'bg-amber-500/10 text-amber-400 border-amber-500/20'
+              }`}
+              title={`Advancers ${breadth.advancers} / Decliners ${breadth.decliners} · +4%: ${breadth.up4} / -4%: ${breadth.down4}`}
+            >
+              BREADTH {breadth.score}/6
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col items-center gap-1.5">

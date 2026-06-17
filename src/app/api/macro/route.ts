@@ -57,12 +57,17 @@ export async function GET() {
   const fmpApiKey = (process.env.FMP_API_KEY || process.env.NEXT_PUBLIC_FMP_API_KEY || '').trim();
   if (!fmpApiKey) return NextResponse.json({ error: 'Missing FMP key' }, { status: 500 });
 
+  // Market breadth / GMI-style regime is computed by the scanner and cached in
+  // its own KV key; read it fresh on every call (cheap) and attach it.
+  let breadth: any = null;
+  try { breadth = await kv.get('market_breadth_v6'); } catch { /* ignore */ }
+
   // THE THROTTLE: if the cached payload is still fresh, return it without
   // touching FMP at all. This is what collapses N clients into 1 FMP hit/min.
   try {
     const cached = await kv.get<any>(CACHE_KEY);
     if (cached && cached.updatedAt && Date.now() - cached.updatedAt < CACHE_TTL_MS) {
-      return NextResponse.json({ ...cached, cached: true });
+      return NextResponse.json({ ...cached, breadth, cached: true });
     }
   } catch (e) {
     // KV miss/error — fall through and fetch fresh.
@@ -123,5 +128,5 @@ export async function GET() {
     }
   }
 
-  return NextResponse.json(payload);
+  return NextResponse.json({ ...payload, breadth });
 }
