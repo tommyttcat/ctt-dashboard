@@ -162,10 +162,10 @@ export default function NewsFeed() {
                       return ticker ? (
                         <>
                           <span className="inline-block shrink-0 w-[72px] text-center truncate bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20" title={ticker}>{ticker}</span>
-                          <span className="font-medium text-slate-200 text-sm leading-snug min-w-0">{rest}</span>
+                          <span className="font-medium text-slate-200 text-xs leading-relaxed min-w-0">{rest}</span>
                         </>
                       ) : (
-                        <span className="font-medium text-slate-200 text-sm leading-snug min-w-0">{rest}</span>
+                        <span className="font-medium text-slate-200 text-xs leading-relaxed min-w-0">{rest}</span>
                       );
                     })()}
                   </div>
