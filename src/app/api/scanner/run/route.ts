@@ -1146,39 +1146,53 @@ export async function GET(request: Request) {
       'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10)
     };
 
-    // QQQ benchmark: 10 / 21 / 50-day simple moving averages and whether the
-    // current price sits above (green) or below (red) each one.
+    // QQQ benchmark moving averages for two timeframes. Green = current price above
+    // the SMA, red = below. Day uses 10/21/30/50-day SMAs; Week uses 5/10/30/50-week
+    // SMAs. Price is the latest daily close, compared against each timeframe's SMAs.
     let benchmark: any = null;
     try {
       const qqqTo = new Date().toISOString().split('T')[0];
-      const qqqFromDate = new Date();
-      qqqFromDate.setDate(qqqFromDate.getDate() - 120); // ~120 calendar days covers >50 trading days
-      const qqqFrom = qqqFromDate.toISOString().split('T')[0];
 
-      const qqqRes = await fetchSafeJson(
-        `https://api.polygon.io/v2/aggs/ticker/QQQ/range/1/day/${qqqFrom}/${qqqTo}?adjusted=true&sort=desc&limit=60&apiKey=${polygonApiKey}`,
+      // Daily bars: ~160 calendar days comfortably covers >50 trading days.
+      const dFromDate = new Date();
+      dFromDate.setDate(dFromDate.getDate() - 160);
+      const dailyRes = await fetchSafeJson(
+        `https://api.polygon.io/v2/aggs/ticker/QQQ/range/1/day/${dFromDate.toISOString().split('T')[0]}/${qqqTo}?adjusted=true&sort=desc&limit=80&apiKey=${polygonApiKey}`,
         { results: [] }
       );
-      const qqqBars = (qqqRes.results || []).sort((a: any, b: any) => b.t - a.t); // newest first
+      const dailyBars = (dailyRes.results || []).sort((a: any, b: any) => b.t - a.t); // newest first
 
-      if (qqqBars.length >= 50) {
-        const qqqPrice = qqqBars[0].c; // most recent close (live forming bar during market hours)
-        const sma = (n: number) => {
-          let sum = 0;
-          for (let i = 0; i < n; i++) sum += qqqBars[i].c;
-          return sum / n;
-        };
-        const sma10 = sma(10);
-        const sma21 = sma(21);
-        const sma50 = sma(50);
+      // Weekly bars: ~420 calendar days covers >50 weeks for the 50-week SMA.
+      const wFromDate = new Date();
+      wFromDate.setDate(wFromDate.getDate() - 420);
+      const weeklyRes = await fetchSafeJson(
+        `https://api.polygon.io/v2/aggs/ticker/QQQ/range/1/week/${wFromDate.toISOString().split('T')[0]}/${qqqTo}?adjusted=true&sort=desc&limit=80&apiKey=${polygonApiKey}`,
+        { results: [] }
+      );
+      const weeklyBars = (weeklyRes.results || []).sort((a: any, b: any) => b.t - a.t); // newest first
+
+      // Simple moving average of the most recent n closes (bars are newest-first).
+      const smaOf = (bars: any[], n: number): number | null => {
+        if (bars.length < n) return null;
+        let sum = 0;
+        for (let i = 0; i < n; i++) sum += bars[i].c;
+        return sum / n;
+      };
+      const buildSet = (bars: any[], price: number, periods: number[]) =>
+        periods
+          .map((p) => {
+            const v = smaOf(bars, p);
+            return v == null ? null : { label: String(p), value: parseFloat(v.toFixed(2)), above: price >= v };
+          })
+          .filter((m): m is { label: string; value: number; above: boolean } => m !== null);
+
+      if (dailyBars.length >= 10) {
+        const qqqPrice = parseFloat(dailyBars[0].c.toFixed(2));
         benchmark = {
           symbol: 'QQQ',
-          price: parseFloat(qqqPrice.toFixed(2)),
-          mas: [
-            { label: '10', value: parseFloat(sma10.toFixed(2)), above: qqqPrice >= sma10 },
-            { label: '21', value: parseFloat(sma21.toFixed(2)), above: qqqPrice >= sma21 },
-            { label: '50', value: parseFloat(sma50.toFixed(2)), above: qqqPrice >= sma50 },
-          ]
+          price: qqqPrice,
+          day: buildSet(dailyBars, qqqPrice, [10, 21, 30, 50]),
+          week: buildSet(weeklyBars, qqqPrice, [5, 10, 30, 50]),
         };
       }
     } catch (e) {
