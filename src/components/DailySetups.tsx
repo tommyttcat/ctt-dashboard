@@ -58,6 +58,7 @@ const formatSetupName = (name: string | null) => {
   if (!name || name === '-' || name === '—') return '—';
   if (name.includes('BB SQZ')) return 'BB SQZ';
   if (name === 'Blue Dot Rev') return 'BD Rev';
+  if (name === 'Episodic Pivot') return 'EP';
   return name;
 };
 
@@ -366,7 +367,7 @@ export default function DailySetups() {
                           </td>
                         </tr>
                         <tr className="bg-transparent border-t border-white/5">
-                          <td colSpan={13} className="pb-3.5 pt-2.5 pr-2 pl-[56px]">
+                          <td colSpan={13} className="pb-3.5 pt-2.5 pr-2 pl-3.5">
                             <div className="flex items-baseline gap-3">
                               {tt && (<span className={`shrink-0 px-1.5 py-[2px] rounded text-[9px] font-bold border tracking-wider ${tt.cls}`}>{tt.label}</span>)}
                               <span className="shrink-0 w-[88px] text-[#7c8bfa] font-bold text-[10px] tracking-[0.1em] uppercase">{formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : ''}</span>
