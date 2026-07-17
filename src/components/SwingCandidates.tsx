@@ -10,6 +10,9 @@ interface SwingCandidate {
   atrPct: number;
   pctOffHigh: number;
   distToEma21: number;
+  distToEma10?: number;
+  aboveEma10?: boolean;
+  aboveEma21?: boolean;
   stochK: number;
   rsVsSpy: number;
   avgDollarVolM: number;
@@ -19,6 +22,7 @@ interface SwingCandidate {
 
 type SortDirection = 'asc' | 'desc';
 type ScoreFilterType = 'All' | 'High' | 'Med' | 'Low';
+type EmaFilterType = 'All' | '>10' | '>21' | '>Both';
 
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
@@ -26,11 +30,8 @@ const formatTime = (timestamp: number | Date) => {
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
 };
 
-// A candidate is "ready" when the stochastic is deep and the pullback is tight —
-// i.e. the blue dot could fire on the next bar or two.
 const isReady = (c: SwingCandidate) => c.stochK <= 25 && Math.abs(c.distToEma21) <= 2.5;
 
-// Plain-English setup readout for the sub-row (mirrors the thesis line in StocksInPlay)
 const buildReadout = (c: SwingCandidate) => {
   const emaSide = c.distToEma21 >= 0 ? 'above' : 'below';
   const emaState = c.ema21Rising ? 'rising' : 'flat/declining';
@@ -38,6 +39,10 @@ const buildReadout = (c: SwingCandidate) => {
   const structure = c.goldenCross ? '50>200 intact' : '50<200 — weaker structure';
   return `${Math.abs(c.distToEma21).toFixed(1)}% ${emaSide} ${emaState} 21 EMA, stoch ${c.stochK.toFixed(0)} (${stochState}), ${c.pctOffHigh.toFixed(0)}% off highs with RS +${c.rsVsSpy.toFixed(0)} vs SPY, ${structure}. Watching for BD + MACD confirmation.`;
 };
+
+// Backward-compatible: derive above-21 from dist if the payload predates the boolean fields
+const above21 = (c: SwingCandidate) => c.aboveEma21 ?? c.distToEma21 >= 0;
+const above10 = (c: SwingCandidate) => c.aboveEma10 ?? (c.distToEma10 != null ? c.distToEma10 >= 0 : null);
 
 export default function SwingCandidates() {
   const { session } = useMarketData();
@@ -51,17 +56,20 @@ export default function SwingCandidates() {
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const [showReadyOnly, setShowReadyOnly] = useState<boolean>(false);
   const [scoreFilter, setScoreFilter] = useState<ScoreFilterType>('All');
+  const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
 
   const fetchCandidates = useCallback(async (forceRefresh: boolean = false) => {
     try {
-      if (forceRefresh) setIsRefreshing(true);
-      const url = forceRefresh ? `/api/swing-candidates?refresh=true` : `/api/swing-candidates?t=${Date.now()}`;
-      const res = await fetch(url, { cache: 'no-store' });
+      if (forceRefresh) {
+        setIsRefreshing(true);
+        await fetch(`/api/swing-candidates/run`, { cache: 'no-store' });
+      }
+      const res = await fetch(`/api/swing-candidates/latest?t=${Date.now()}`, { cache: 'no-store' });
       const data = await res.json();
 
-      if (data && Array.isArray(data.candidates)) {
+      if (data && data.success && Array.isArray(data.candidates)) {
         setCandidates(data.candidates);
-        setGeneratedAt(data.generatedAt ? new Date(data.generatedAt).getTime() : Date.now());
+        setGeneratedAt(data.lastScanTime ? Number(data.lastScanTime) : Date.now());
         setSpyReturn(data.spyReturn3M ?? null);
         setStatus('Live');
       } else if (data?.error) {
@@ -78,7 +86,7 @@ export default function SwingCandidates() {
     let isMounted = true;
     const run = async () => { if (isMounted) await fetchCandidates(false); };
     run();
-    const interval = setInterval(run, 300000); // 5 min — server cache is 30 min
+    const interval = setInterval(run, 300000);
     return () => { isMounted = false; clearInterval(interval); };
   }, [fetchCandidates]);
 
@@ -100,7 +108,17 @@ export default function SwingCandidates() {
         return true;
       });
     }
-    if (!sortConfig) return filtered; // default order = score desc from API
+    if (emaFilter !== 'All') {
+      filtered = filtered.filter(c => {
+        const a10 = above10(c);
+        const a21 = above21(c);
+        if (emaFilter === '>10') return a10 === true;
+        if (emaFilter === '>21') return a21 === true;
+        if (emaFilter === '>Both') return a10 === true && a21 === true;
+        return true;
+      });
+    }
+    if (!sortConfig) return filtered;
     return filtered.sort((a, b) => {
       const aVal = a[sortConfig.key] as any;
       const bVal = b[sortConfig.key] as any;
@@ -110,7 +128,7 @@ export default function SwingCandidates() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, showReadyOnly, scoreFilter]);
+  }, [candidates, sortConfig, showReadyOnly, scoreFilter, emaFilter]);
 
   const getSortIcon = (columnKey: keyof SwingCandidate) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
@@ -137,6 +155,11 @@ export default function SwingCandidates() {
   const getAtrColor = (a: number) => {
     if (a >= 2.5 && a <= 4) return 'text-emerald-400';
     return 'text-slate-400';
+  };
+
+  const emaDot = (state: boolean | null) => {
+    if (state === null) return 'bg-slate-600';
+    return state ? 'bg-emerald-400' : 'bg-rose-500';
   };
 
   const displaySession = ['Pre-Market', 'Open', 'Post-Market', 'Closed'].includes(session) ? session : 'Closed';
@@ -181,8 +204,21 @@ export default function SwingCandidates() {
                   <button key={level} onClick={() => setScoreFilter(level as ScoreFilterType)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${scoreFilter === level ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' : 'text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]'}`}>{level}</button>
                 ))}
               </div>
+              <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1" onClick={(e) => e.stopPropagation()}>
+                <div className="px-2 border-r border-white/10 mr-1"><span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">EMA</span></div>
+                {(['All', '>10', '>21', '>Both'] as EmaFilterType[]).map((level) => (
+                  <button key={level} onClick={() => setEmaFilter(level)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${emaFilter === level ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' : 'text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]'}`}>{level}</button>
+                ))}
+              </div>
             </div>
             <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+                <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">EMA 10/21</span>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div><span className="text-[10px] font-medium text-slate-400">Above</span></div>
+                  <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div><span className="text-[10px] font-medium text-slate-400">Below</span></div>
+                </div>
+              </div>
               <div className="flex items-center gap-4 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
                 <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">STOCH</span>
                 <div className="flex items-center gap-3">
@@ -201,28 +237,29 @@ export default function SwingCandidates() {
           </div>
 
           <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[1000px] table-fixed border-collapse">
+            <table className="w-full min-w-[1050px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} text-left w-[9%]`} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
-                  <th className="pl-1 pr-3.5 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left w-[7%] cursor-pointer hover:text-slate-300 transition-colors" onClick={() => handleSort('score')}>SCORE{getSortIcon('score')}</th>
-                  <th className={`${thBase} text-right w-[9%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} text-right w-[9%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
-                  <th className={`${thBase} text-right w-[10%]`} onClick={() => handleSort('distToEma21')}>21EMA Δ{getSortIcon('distToEma21')}</th>
-                  <th className={`${thBase} text-right w-[10%]`} onClick={() => handleSort('pctOffHigh')}>OFF HIGH{getSortIcon('pctOffHigh')}</th>
-                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('atrPct')}>ATR%{getSortIcon('atrPct')}</th>
-                  <th className={`${thBase} text-right w-[9%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
-                  <th className={`${thBase} text-right w-[9%]`} onClick={() => handleSort('avgDollarVolM')}>$VOL{getSortIcon('avgDollarVolM')}</th>
-                  <th className={`${thBase} text-left w-[10%] border-l border-white/5`}>STRUCT</th>
-                  <th className={`${thBase} text-left w-[10%]`}>STATUS</th>
+                  <th className={`${thBase} text-left w-[8%]`} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
+                  <th className="pl-1 pr-3.5 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left w-[6%] cursor-pointer hover:text-slate-300 transition-colors" onClick={() => handleSort('score')}>SCORE{getSortIcon('score')}</th>
+                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} text-left w-[7%]`}>EMA</th>
+                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
+                  <th className={`${thBase} text-right w-[9%]`} onClick={() => handleSort('distToEma21')}>21EMA Δ{getSortIcon('distToEma21')}</th>
+                  <th className={`${thBase} text-right w-[9%]`} onClick={() => handleSort('pctOffHigh')}>OFF HIGH{getSortIcon('pctOffHigh')}</th>
+                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('atrPct')}>ATR%{getSortIcon('atrPct')}</th>
+                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
+                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('avgDollarVolM')}>$VOL{getSortIcon('avgDollarVolM')}</th>
+                  <th className={`${thBase} text-left w-[9%] border-l border-white/5`}>STRUCT</th>
+                  <th className={`${thBase} text-left w-[9%]`}>STATUS</th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-white/5">
                 {candidates.length === 0 ? (
-                  <tr><td colSpan={11} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? 'No candidates match current filter criteria.' : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — try Rescan.'}</td></tr>
+                  <tr><td colSpan={12} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? 'No candidates match current filter criteria.' : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — try Rescan.'}</td></tr>
                 ) : (
-                  filteredAndSorted.map((row, i) => (
+                  filteredAndSorted.map((row) => (
                     <React.Fragment key={row.symbol}>
                       <tr className="hover:bg-white/[0.02] transition-colors group">
                         <td className={`${tdBase} text-left`}>
@@ -232,6 +269,18 @@ export default function SwingCandidates() {
                           <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.score)}`}>{row.score}</span>
                         </td>
                         <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap text-right tabular-nums`}>${row.price.toFixed(2)}</td>
+                        <td className={`${tdBase} text-left whitespace-nowrap`}>
+                          <div className="flex items-center gap-2.5">
+                            <div className="flex items-center gap-1" title={`10 EMA: ${above10(row) === null ? 'n/a' : above10(row) ? 'above' : 'below'}`}>
+                              <span className="text-[9px] font-bold text-slate-500">10</span>
+                              <div className={`w-1.5 h-1.5 rounded-full ${emaDot(above10(row))}`}></div>
+                            </div>
+                            <div className="flex items-center gap-1" title={`21 EMA: ${above21(row) ? 'above' : 'below'}`}>
+                              <span className="text-[9px] font-bold text-slate-500">21</span>
+                              <div className={`w-1.5 h-1.5 rounded-full ${emaDot(above21(row))}`}></div>
+                            </div>
+                          </div>
+                        </td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap text-right tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK.toFixed(1)}</td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap text-right tabular-nums ${getDistColor(row.distToEma21)}`}>{row.distToEma21 >= 0 ? '+' : ''}{row.distToEma21.toFixed(1)}%</td>
                         <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums`}>-{row.pctOffHigh.toFixed(1)}%</td>
@@ -253,7 +302,7 @@ export default function SwingCandidates() {
                         </td>
                       </tr>
                       <tr className="bg-transparent border-t border-white/5">
-                        <td colSpan={11} className="pb-3.5 pt-2.5 pr-2 pl-[56px]">
+                        <td colSpan={12} className="pb-3.5 pt-2.5 pr-2 pl-[56px]">
                           <div className="flex items-baseline gap-3">
                             <span className="shrink-0 w-[88px] text-[#7c8bfa] font-bold text-[10px] tracking-[0.1em] uppercase">EMA PB</span>
                             <p className="flex-1 text-[11px] leading-relaxed pr-8 whitespace-normal max-w-[780px]">

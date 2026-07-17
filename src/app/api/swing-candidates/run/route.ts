@@ -1,26 +1,23 @@
-// app/api/swing-candidates/route.ts
-// Swing Reversal Candidates feed for ctt-dashboard — Massive API version
-// Pipeline:
-//   Stage 1: Massive full-market snapshot (1 call) -> coarse liquid universe
-//   Stage 2: per-symbol daily aggregates -> trend / ATR% / pullback /
-//            stochastic / RS filters computed locally, scored, ranked
-// Cache: in-memory, bust with ?refresh=true (same pattern as /api/market-summary)
+import { NextResponse } from 'next/server';
+import { kv } from '@vercel/kv';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 export const maxDuration = 60;
 
-const MASSIVE_KEY = process.env.MASSIVE_API_KEY as string;
-const BASE = "https://api.massive.com";
+// Match the scanner's env-var chain exactly — same Polygon key, same fallbacks.
+const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
+const BENZINGA_KEY = process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '';
+const BASE = "https://api.polygon.io";
 
 // ---------------------------------------------------------------
 // CONFIG — tune all filter thresholds here
 // ---------------------------------------------------------------
 const CONFIG = {
-  // Stage 1: coarse snapshot filter
   minPrice: 12,
   maxPrice: 2000,
-  minPrevDayDollarVol: 25_000_000, // prev-day close * volume
+  minPrevDayDollarVol: 25_000_000,
 
-  // Stage 2: technical filters
   minAtrPct: 1.5,
   maxAtrPct: 6.0,
   maxPctOffHigh: 20,
@@ -29,12 +26,11 @@ const CONFIG = {
   maxStochK: 35,
   requireAbove50: true,
   requireAbove200: true,
-  rsLookback: 63,                  // ~3 months vs SPY
+  rsLookback: 63,
   earningsBlackoutDays: 7,
 
   maxSymbolsToAnalyze: 150,
   concurrency: 10,
-  cacheMinutes: 30,
 };
 
 // ---------------------------------------------------------------
@@ -49,6 +45,9 @@ interface Candidate {
   atrPct: number;
   pctOffHigh: number;
   distToEma21: number;
+  distToEma10: number;
+  aboveEma10: boolean;
+  aboveEma21: boolean;
   stochK: number;
   rsVsSpy: number;
   avgDollarVolM: number;
@@ -56,29 +55,13 @@ interface Candidate {
   ema21Rising: boolean;
 }
 
-interface Payload {
-  generatedAt: string;
-  spyReturn3M: number | null;
-  universeSize: number;
-  excludedForEarnings: number;
-  count: number;
-  candidates: Candidate[];
-  cached: boolean;
-}
-
 // ---------------------------------------------------------------
-// In-memory cache (per serverless instance)
+// Fetch helpers (Polygon: apiKey as query param, matching the scanner)
 // ---------------------------------------------------------------
-let cache: { data: Payload | null; ts: number } = { data: null, ts: 0 };
-
-// ---------------------------------------------------------------
-// Fetch helpers
-// ---------------------------------------------------------------
-async function massive<T = any>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { Authorization: `Bearer ${MASSIVE_KEY}` },
-  });
-  if (!res.ok) throw new Error(`Massive ${res.status}: ${path.split("?")[0]}`);
+async function polygon<T = any>(path: string): Promise<T> {
+  const sep = path.includes("?") ? "&" : "?";
+  const res = await fetch(`${BASE}${path}${sep}apiKey=${POLYGON_KEY}`);
+  if (!res.ok) throw new Error(`Polygon ${res.status}: ${path.split("?")[0]}`);
   return res.json() as Promise<T>;
 }
 
@@ -87,10 +70,9 @@ function dateStr(daysAgo: number): string {
 }
 
 async function getDailyBars(symbol: string): Promise<Bar[]> {
-  // ~450 calendar days back ≈ 300+ trading days (SMA200 + 52wk high + RS)
   const from = dateStr(450);
   const to = dateStr(0);
-  const data = await massive<{ results?: Bar[] }>(
+  const data = await polygon<{ results?: Bar[] }>(
     `/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=5000`
   );
   return data.results ?? [];
@@ -108,7 +90,7 @@ async function inBatches<T, R>(items: T[], size: number, fn: (item: T) => Promis
 }
 
 // ---------------------------------------------------------------
-// Indicator math (chronological daily bars)
+// Indicator math
 // ---------------------------------------------------------------
 function sma(values: number[], period: number): number | null {
   if (values.length < period) return null;
@@ -135,7 +117,6 @@ function atr(bars: Bar[], period = 14): number | null {
   return a;
 }
 
-// Smoothed %K matching the Dr. Wish dots (10, 4)
 function stochK(bars: Bar[], length = 10, smooth = 4): number | null {
   if (bars.length < length + smooth) return null;
   const rawKs: number[] = [];
@@ -159,7 +140,7 @@ function pctReturn(closes: number[], lookback: number): number | null {
 // Stage 1: coarse universe from the full-market snapshot (1 call)
 // ---------------------------------------------------------------
 async function getUniverse(): Promise<string[]> {
-  const data = await massive<{ tickers?: any[] }>(
+  const data = await polygon<{ tickers?: any[] }>(
     `/v2/snapshot/locale/us/markets/stocks/tickers`
   );
   const tickers = data.tickers ?? [];
@@ -167,7 +148,6 @@ async function getUniverse(): Promise<string[]> {
   return tickers
     .filter(t => {
       const sym: string = t.ticker ?? "";
-      // Plain common-stock symbols only: skip units, warrants, preferreds, ADR suffixes
       if (!/^[A-Z]{1,5}$/.test(sym)) return false;
       const prev = t.prevDay;
       if (!prev || !prev.c || !prev.v) return false;
@@ -181,18 +161,24 @@ async function getUniverse(): Promise<string[]> {
 }
 
 // ---------------------------------------------------------------
-// Earnings blackout (Massive's Benzinga-powered earnings endpoint)
+// Earnings blackout — Benzinga calendar directly (same key + JSON-accept
+// pattern as the scanner's WIIM fetch). Fails open.
 // ---------------------------------------------------------------
 async function getEarningsBlackout(): Promise<Set<string>> {
+  if (!BENZINGA_KEY) return new Set();
   try {
     const from = dateStr(0);
     const to = dateStr(-CONFIG.earningsBlackoutDays); // future date
-    const data = await massive<{ results?: any[] }>(
-      `/benzinga/v1/earnings?date.gte=${from}&date.lte=${to}&limit=1000`
-    );
-    return new Set((data.results ?? []).map(r => r.ticker as string));
+    const url =
+      `https://api.benzinga.com/api/v2.1/calendar/earnings?token=${BENZINGA_KEY}` +
+      `&parameters[date_from]=${from}&parameters[date_to]=${to}&pagesize=1000`;
+    const res = await fetch(url, { headers: { accept: 'application/json' } });
+    if (!res.ok) return new Set();
+    const data = await res.json();
+    const rows = Array.isArray(data?.earnings) ? data.earnings : [];
+    return new Set(rows.map((r: any) => (r?.ticker || '').toUpperCase()).filter(Boolean));
   } catch {
-    return new Set(); // fail open — a calendar hiccup shouldn't kill the scan
+    return new Set();
   }
 }
 
@@ -207,17 +193,19 @@ function analyze(symbol: string, bars: Bar[], spyReturn: number | null): Candida
 
   const sma50 = sma(closes, 50);
   const sma200 = sma(closes, 200);
+  const ema10 = ema(closes, 10);
   const ema21 = ema(closes, 21);
   const ema21Prev = ema(closes.slice(0, -3), 21);
   const atr14 = atr(bars, 14);
   const kVal = stochK(bars, 10, 4);
 
-  if (!sma50 || !sma200 || !ema21 || !atr14 || kVal == null) return null;
+  if (!sma50 || !sma200 || !ema10 || !ema21 || !atr14 || kVal == null) return null;
 
   const atrPct = (atr14 / price) * 100;
   const hi52 = Math.max(...bars.slice(-252).map(b => b.h));
   const pctOffHigh = ((hi52 - price) / hi52) * 100;
   const distToEma21 = ((price - ema21) / ema21) * 100;
+  const distToEma10 = ((price - ema10) / ema10) * 100;
   const ema21Rising = ema21Prev != null && ema21 > ema21Prev;
 
   const dollarVols = bars.slice(-20).map(b => b.c * b.v);
@@ -226,7 +214,6 @@ function analyze(symbol: string, bars: Bar[], spyReturn: number | null): Candida
   const ret = pctReturn(closes, CONFIG.rsLookback);
   const rsVsSpy = ret != null && spyReturn != null ? ret - spyReturn : null;
 
-  // ---- Hard filters ----
   if (avgDollarVol < CONFIG.minPrevDayDollarVol) return null;
   if (CONFIG.requireAbove50 && price < sma50) return null;
   if (CONFIG.requireAbove200 && price < sma200) return null;
@@ -236,7 +223,6 @@ function analyze(symbol: string, bars: Bar[], spyReturn: number | null): Candida
   if (kVal > CONFIG.maxStochK) return null;
   if (rsVsSpy == null || rsVsSpy <= 0) return null;
 
-  // ---- Score (0-100): RS 40%, pullback quality 30%, volatility fit 15%, trend structure 15%
   const rsScore = Math.min(rsVsSpy / 30, 1) * 40;
   const pullbackScore =
     (1 - Math.abs(distToEma21) / CONFIG.maxDistToEma21) * 15 +
@@ -252,6 +238,9 @@ function analyze(symbol: string, bars: Bar[], spyReturn: number | null): Candida
     atrPct: +atrPct.toFixed(2),
     pctOffHigh: +pctOffHigh.toFixed(1),
     distToEma21: +distToEma21.toFixed(2),
+    distToEma10: +distToEma10.toFixed(2),
+    aboveEma10: price >= ema10,
+    aboveEma21: price >= ema21,
     stochK: +kVal.toFixed(1),
     rsVsSpy: +rsVsSpy.toFixed(1),
     avgDollarVolM: Math.round(avgDollarVol / 1e6),
@@ -261,18 +250,14 @@ function analyze(symbol: string, bars: Bar[], spyReturn: number | null): Candida
 }
 
 // ---------------------------------------------------------------
-// Route handler
+// Run handler: execute scan, write results to KV
 // ---------------------------------------------------------------
-export async function GET(request: Request) {
+export async function GET() {
   try {
-    const { searchParams } = new URL(request.url);
-    const refresh = searchParams.get("refresh") === "true";
-
-    if (!refresh && cache.data && Date.now() - cache.ts < CONFIG.cacheMinutes * 60000) {
-      return Response.json({ ...cache.data, cached: true });
+    if (!POLYGON_KEY) {
+      return NextResponse.json({ success: false, error: 'Missing Polygon API Key' }, { status: 500 });
     }
 
-    // SPY benchmark for RS
     const spyBars = await getDailyBars("SPY");
     const spyReturn = pctReturn(spyBars.map(b => b.c), CONFIG.rsLookback);
 
@@ -286,20 +271,35 @@ export async function GET(request: Request) {
 
     candidates.sort((a, b) => b.score - a.score);
 
-    const payload: Payload = {
-      generatedAt: new Date().toISOString(),
-      spyReturn3M: spyReturn != null ? +spyReturn.toFixed(1) : null,
+    // Guard against degenerate scans (weekend-cleared snapshot, provider
+    // hiccup): preserve the previous KV data rather than clobbering it —
+    // same pattern as the scanner's hasRealData guard.
+    const scanTime = Date.now();
+    const hasRealData = universe.length > 0 && candidates.length > 0;
+
+    if (hasRealData) {
+      await kv.set('swing_candidates_v1', candidates);
+      await kv.set('swing_meta_v1', {
+        spyReturn3M: spyReturn != null ? +spyReturn.toFixed(1) : null,
+        universeSize: universe.length,
+        excludedForEarnings: universe.length - toScan.length,
+        count: candidates.length,
+      });
+      await kv.set('swing_last_scan_v1', scanTime);
+    } else {
+      console.warn('Swing scan produced no candidates; preserving previous KV snapshot.');
+    }
+
+    return NextResponse.json({
+      success: true,
+      lastScanTime: scanTime,
+      count: candidates.length,
       universeSize: universe.length,
       excludedForEarnings: universe.length - toScan.length,
-      count: candidates.length,
-      candidates,
-      cached: false,
-    };
-
-    cache = { data: payload, ts: Date.now() };
-    return Response.json(payload);
-  } catch (err: any) {
-    console.error("swing-candidates error:", err);
-    return Response.json({ error: err.message }, { status: 500 });
+      dataPersisted: hasRealData,
+    });
+  } catch (error: any) {
+    console.error("SWING_RUN_ERROR:", error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
