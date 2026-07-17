@@ -15,6 +15,7 @@ import TechnicalsEcon from '../components/TechnicalsEcon';
 import EarningsCalendar from '../components/EarningsCalendar';
 import MarketSummary from '../components/MarketSummary';
 import TopMovers from '../components/TopMovers';
+import SwingCandidates from '../components/SwingCandidates';
 
 export default function DailySetupsPage() {
   return (
@@ -41,9 +42,11 @@ export default function DailySetupsPage() {
               <TopMovers />
               <StocksInPlay />
               <DailySetupsComponent />
+              <SwingCandidates />
               <TechnicalsEcon />
               <EarningsCalendar />
               <MarketSummary />
+              
             </div>
 
             {/* Footer */}
