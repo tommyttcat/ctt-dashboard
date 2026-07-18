@@ -451,7 +451,7 @@ export default function StocksInPlay() {
                           </td>
                         </tr>
                         {/* Sub-row: spacer | name + thesis (SMB..MCAP) | STR/STAT
-                            (STAGE..CATALYST) — divider inherits the STAGE column line */}
+                            centered under STAGE..CATALYST with a short inset divider */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[6%]"></td>
                           <td colSpan={12} className="pb-3.5 pt-2.5 pr-4">
@@ -462,8 +462,8 @@ export default function StocksInPlay() {
                               </p>
                             </div>
                           </td>
-                          <td colSpan={3} className="pb-3.5 pt-2.5 pr-2 border-l border-white/5 align-middle">
-                            <div className="flex items-center gap-4 pl-4">
+                          <td colSpan={3} className="pb-3.5 pt-2.5 align-middle">
+                            <div className="flex items-center justify-center gap-4 border-l border-white/10 px-2 py-1">
                               <span className="flex items-center gap-1.5">
                                 <span className="text-[11px] text-slate-500">STR:</span>
                                 <span className={`text-[11px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
