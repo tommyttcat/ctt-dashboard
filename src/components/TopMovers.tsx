@@ -307,69 +307,66 @@ export default function TopMovers() {
       {isExpanded && (
         <>
           <div className="flex flex-col gap-4 mb-6 relative z-10 pb-2">
-            {/* Row 1: tabs → MKT CAP → SMB (A/B/C) left, 10/21 + VWAP right */}
-            <div className="flex flex-wrap justify-between items-center gap-3 w-full">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex gap-3 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
-                  {(['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'] as TabType[]).map((tab) => (
-                    <button key={tab} onClick={(e) => { e.stopPropagation(); setActiveTab(tab); }} className={`px-5 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all duration-300 ${activeTab === tab ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'}`}>
-                      {tab}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1" onClick={(e) => e.stopPropagation()}>
-                  {['All', 'Micro', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
-                    <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>
-                      {cap}
-                    </button>
-                  ))}
-                </div>
-                {/* SMB grade — clickable filter pill */}
-                <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0" onClick={(e) => e.stopPropagation()}>
-                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">SMB</span>
-                  <div className="flex items-center gap-1">
-                    {(['A', 'B', 'C'] as SmbFilterType[]).map((g) => (
-                      <button key={g} onClick={() => handleSmbFilter(g)} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${smbFilter === g ? filterBtnActive : filterBtnIdle}`}>
-                        {g}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+            {/* Row 1, centered: tabs → MKT CAP → SMB (A/B/C) */}
+            <div className="flex flex-wrap justify-center items-center gap-3 w-full">
+              <div className="flex gap-3 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
+                {(['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'] as TabType[]).map((tab) => (
+                  <button key={tab} onClick={(e) => { e.stopPropagation(); setActiveTab(tab); }} className={`px-5 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all duration-300 ${activeTab === tab ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'}`}>
+                    {tab}
+                  </button>
+                ))}
               </div>
-              <div className="flex flex-wrap items-center gap-3" onClick={(e) => e.stopPropagation()}>
-                {/* 10/21 — clickable filter pill */}
-                <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
-                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">10/21</span>
-                  <div className="flex items-center gap-1">
-                    {(['>10', '>21', 'Both'] as EmaFilterType[]).map((opt) => (
-                      <button key={opt} onClick={() => handleEmaFilter(opt)} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${emaFilter === opt ? filterBtnActive : filterBtnIdle}`}>
-                        {opt}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                {/* VWAP — clickable filter pill */}
-                <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
-                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">VWAP</span>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
+              <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1" onClick={(e) => e.stopPropagation()}>
+                {['All', 'Micro', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
+                  <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>
+                    {cap}
+                  </button>
+                ))}
+              </div>
+              {/* SMB grade — clickable filter pill */}
+              <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0" onClick={(e) => e.stopPropagation()}>
+                <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">SMB</span>
+                <div className="flex items-center gap-1">
+                  {(['A', 'B', 'C'] as SmbFilterType[]).map((g) => (
+                    <button key={g} onClick={() => handleSmbFilter(g)} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${smbFilter === g ? filterBtnActive : filterBtnIdle}`}>
+                      {g}
                     </button>
-                    <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
-                      <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Below
-                    </button>
-                  </div>
+                  ))}
                 </div>
               </div>
             </div>
-            {/* Row 2: QQQ benchmark, centered */}
-            {benchmark && (() => {
-              const activeMas = maTimeframe === 'day'
-                ? (benchmark.day || benchmark.mas || [])
-                : (benchmark.week || []);
-              const unit = maTimeframe === 'day' ? 'D' : 'W';
-              return (
-                <div className="flex justify-center w-full" onClick={(e) => e.stopPropagation()}>
+            {/* Row 2, centered: 10/21 → VWAP → QQQ benchmark */}
+            <div className="flex flex-wrap justify-center items-center gap-3 w-full" onClick={(e) => e.stopPropagation()}>
+              {/* 10/21 — clickable filter pill */}
+              <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+                <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">10/21</span>
+                <div className="flex items-center gap-1">
+                  {(['>10', '>21', 'Both'] as EmaFilterType[]).map((opt) => (
+                    <button key={opt} onClick={() => handleEmaFilter(opt)} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${emaFilter === opt ? filterBtnActive : filterBtnIdle}`}>
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* VWAP — clickable filter pill */}
+              <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+                <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">VWAP</span>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
+                  </button>
+                  <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
+                    <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Below
+                  </button>
+                </div>
+              </div>
+              {/* QQQ benchmark */}
+              {benchmark && (() => {
+                const activeMas = maTimeframe === 'day'
+                  ? (benchmark.day || benchmark.mas || [])
+                  : (benchmark.week || []);
+                const unit = maTimeframe === 'day' ? 'D' : 'W';
+                return (
                   <div className="flex items-center gap-3 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
                     <span className="text-[9px] font-bold tracking-widest uppercase text-[#7c8bfa]">{benchmark.symbol}</span>
 
@@ -397,9 +394,9 @@ export default function TopMovers() {
                       ))}
                     </div>
                   </div>
-                </div>
-              );
-            })()}
+                );
+              })()}
+            </div>
           </div>
           
           <div className="overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
