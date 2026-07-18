@@ -30,10 +30,17 @@ interface WatchItem {
   reason: string;
 }
 
+interface TopCatalyst {
+  ticker: string;
+  headline: string;
+  url: string | null;
+}
+
 interface MacroInsights {
   theme: string;
   briefing: string;
   watching: WatchItem[];
+  topCatalyst?: TopCatalyst | null;
 }
 
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
@@ -73,9 +80,26 @@ const formatTime = (date: Date) => {
 };
 
 /* ============================================================
-   Deterministic briefing engine — builds the "AI" market
-   briefing directly from the scanner KV payload. Zero AI cost.
+   Deterministic briefing engine — builds the market briefing
+   directly from the scanner KV payload. Zero AI cost.
    ============================================================ */
+
+// Acronyms/tickers that should stay uppercase inside Title Case themes
+const KEEP_UPPER = new Set(['ETF', 'ETFS', 'QQQ', 'SPY', 'IWM', 'DIA', 'IT', 'AI', 'EV', 'REIT', 'REITS', 'IPO', 'SPAC', 'US', 'USA']);
+
+const titleCase = (input: string): string => {
+  return input
+    .split(/(\s+|—|–|-|&|\/)/)
+    .map(part => {
+      const trimmed = part.trim();
+      if (!trimmed || /^(\s+|—|–|-|&|\/)$/.test(part)) return part;
+      const upper = trimmed.toUpperCase();
+      if (KEEP_UPPER.has(upper)) return upper;
+      // Preserve ticker-looking tokens (2-5 chars, already all caps in source, not a common word)
+      return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+    })
+    .join('');
+};
 
 const num = (v: any): number => {
   const n = Number(v);
@@ -165,6 +189,18 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
     reason: buildWatchReason(s),
   }));
 
+  /* ---- Top themed catalyst: highest-SMB name with a real headline ---- */
+  const withNews = pool
+    .filter(hasRealCatalyst)
+    .sort((a, b) => scoreOf(b) - scoreOf(a));
+  const topCatalyst: TopCatalyst | null = withNews.length
+    ? {
+        ticker: withNews[0].ticker,
+        headline: String(withNews[0].catalyst).replace(/\.$/, ''),
+        url: withNews[0].catalystUrl || null,
+      }
+    : null;
+
   /* ---- Theme: dominant sectors among ranked + A-grade count ---- */
   const sectorCounts: Record<string, number> = {};
   ranked.forEach(s => {
@@ -174,9 +210,10 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
   const topSectors = Object.entries(sectorCounts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 2)
-    .map(([sec]) => sec.charAt(0) + sec.slice(1).toLowerCase());
+    .map(([sec]) => sec);
   const aCount = ranked.filter(s => scoreOf(s) >= 70).length;
-  const theme = `${topSectors.length ? topSectors.join(' & ') : 'Broad Market'} In Focus — ${aCount > 0 ? `${aCount} A-Grade Setup${aCount > 1 ? 's' : ''}` : 'Momentum Watch'}`;
+  const rawTheme = `${topSectors.length ? topSectors.join(' & ') : 'Broad Market'} In Focus — ${aCount > 0 ? `${aCount} A-Grade Setup${aCount > 1 ? 's' : ''}` : 'Momentum Watch'}`;
+  const theme = titleCase(rawTheme);
 
   /* ---- Paragraph 1: SIPs Thesis ---- */
   const sipsSorted = sips.slice().sort((a, b) => (rvolOf(b) ?? 0) - (rvolOf(a) ?? 0));
@@ -235,6 +272,7 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
     theme,
     briefing: [sipsPara, dailyPara, flowPara].join('\n\n'),
     watching,
+    topCatalyst,
   };
 };
 
@@ -282,7 +320,7 @@ export default function MarketSummary() {
         console.error("Narrative Sync Error:", error);
       }
 
-      // 2. Build Macro Briefing deterministically from scanner data (no AI)
+      // 2. Build Market Briefing deterministically from scanner data (no AI)
       try {
         const scannerRes = await fetch('/api/scanner/latest', { cache: 'no-store' });
         if (!scannerRes.ok) throw new Error(`Scanner API returned status: ${scannerRes.status}`);
@@ -405,13 +443,28 @@ export default function MarketSummary() {
             <div className="mb-8 bg-[#161c2a]/60 border border-cyan-500/20 rounded-xl p-5 md:p-6 relative overflow-hidden shadow-[0_0_15px_rgba(34,211,238,0.03)]">
               <div className="absolute right-0 top-0 w-64 h-64 bg-cyan-500/10 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
 
-              <div className="flex items-center gap-3 mb-6 relative z-10">
+              <div className="flex items-center gap-3 mb-3 relative z-10 flex-wrap">
                 <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-3 py-1 rounded tracking-widest uppercase flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-                  AI MARKET BRIEFING
+                  MARKET BRIEFING
                 </span>
                 <span className="text-sm md:text-base font-black text-white tracking-wide">{macroInsights.theme}</span>
               </div>
+
+              {/* Top themed catalyst — highest-conviction name with real news */}
+              {macroInsights.topCatalyst && (
+                <div className="flex items-center gap-2.5 mb-6 relative z-10 flex-wrap">
+                  <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded shrink-0">TOP CATALYST</span>
+                  <span className="text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider shrink-0">{macroInsights.topCatalyst.ticker}</span>
+                  {macroInsights.topCatalyst.url ? (
+                    <a href={macroInsights.topCatalyst.url} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-300 font-medium hover:text-cyan-300 transition-colors hover:underline">
+                      {macroInsights.topCatalyst.headline}
+                    </a>
+                  ) : (
+                    <span className="text-xs text-slate-300 font-medium">{macroInsights.topCatalyst.headline}</span>
+                  )}
+                </div>
+              )}
 
               <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div>
