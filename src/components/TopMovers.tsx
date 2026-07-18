@@ -296,17 +296,6 @@ export default function TopMovers() {
                 ))}
               </div>
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto" onClick={(e) => e.stopPropagation()}>
-                {/* SMB grade — clickable filter pill */}
-                <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
-                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">SMB</span>
-                  <div className="flex items-center gap-1">
-                    {(['A', 'B', 'C'] as SmbFilterType[]).map((g) => (
-                      <button key={g} onClick={() => handleSmbFilter(g)} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${smbFilter === g ? filterBtnActive : filterBtnIdle}`}>
-                        {g}
-                      </button>
-                    ))}
-                  </div>
-                </div>
                 {/* EMA 10/21 — clickable filter pill */}
                 <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
                   <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">EMA 10/21</span>
@@ -376,6 +365,18 @@ export default function TopMovers() {
                   </div>
                 );
               })()}
+
+              {/* SMB grade — clickable filter pill (end of row 2) */}
+              <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+                <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">SMB</span>
+                <div className="flex items-center gap-1">
+                  {(['A', 'B', 'C'] as SmbFilterType[]).map((g) => (
+                    <button key={g} onClick={() => handleSmbFilter(g)} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${smbFilter === g ? filterBtnActive : filterBtnIdle}`}>
+                      {g}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
           
