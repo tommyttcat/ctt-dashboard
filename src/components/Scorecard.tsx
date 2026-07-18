@@ -27,6 +27,15 @@ interface TickData {
   isExtended?: boolean;
 }
 
+interface BreadthData {
+  score: number;
+  signal: 'GREEN' | 'NEUTRAL' | 'RED';
+  advancers: number;
+  decliners: number;
+  up4: number;
+  down4: number;
+}
+
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
 
 // --- HELPERS ---
@@ -50,10 +59,16 @@ const formatTime = (date: Date) => {
   });
 };
 
-// Builds a short, data-driven market-tone read straight from the live quotes —
-// no AI call, so it costs nothing and updates every refresh with the numbers.
-const buildToneNarrative = (q: Record<string, TickData>): string => {
+// Builds a data-driven market-tone read straight from the live quotes and
+// breadth internals — no AI call, so it costs nothing and updates every
+// refresh with the actual numbers.
+const buildToneNarrative = (
+  q: Record<string, TickData>,
+  breadth: BreadthData | null,
+  session: MarketSession
+): string => {
   const pct = (id: string): number | null => (q[id] && q[id].synced ? q[id].pct : null);
+  const fmt = (v: number): string => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
 
   const spy = pct('SPY');
   const qqq = pct('QQQ');
@@ -67,34 +82,43 @@ const buildToneNarrative = (q: Record<string, TickData>): string => {
   const up = idx.filter((e) => e.v > 0.05).length;
   const down = idx.filter((e) => e.v < -0.05).length;
 
-  // Sentence 1 — leadership / breadth.
+  // Session framing so a weekend/evening read is honest about what it describes.
+  const lead =
+    session === 'Closed' ? 'At the close, ' :
+    session === 'Pre-Market' ? 'In pre-market trade, ' :
+    session === 'Post-Market' ? 'In after-hours trade, ' : '';
+
+  // Sentence 1 — leadership / direction with the actual index prints.
   let s1 = '';
   if (down === 0 && up >= 2) {
-    s1 = 'The major averages are broadly higher, with buyers in control across the board.';
+    s1 = `${lead}the major averages are broadly higher — S&P ${fmt(spy)}, Nasdaq ${fmt(qqq)} — with buyers in control across the board.`;
   } else if (up === 0 && down >= 2) {
-    s1 = 'The major averages are broadly lower, with sellers in control across the board.';
+    s1 = `${lead}the major averages are broadly lower — S&P ${fmt(spy)}, Nasdaq ${fmt(qqq)} — with sellers in control across the board.`;
   } else if (idx.length >= 2) {
     const leader = idx.reduce((a, b) => (b.v > a.v ? b : a));
     const laggard = idx.reduce((a, b) => (b.v < a.v ? b : a));
-    s1 = `Breadth is mixed — ${names[leader.id]} is leading while ${names[laggard.id]} lags, pointing to rotation rather than one clean direction.`;
+    s1 = `${lead}breadth is mixed — ${names[leader.id]} leads at ${fmt(leader.v)} while ${names[laggard.id]} lags at ${fmt(laggard.v)}, pointing to rotation rather than one clean direction.`;
   }
+  if (s1) s1 = s1.charAt(0).toUpperCase() + s1.slice(1);
 
-  // Sentence 2 — volatility, havens, risk appetite (keep the two strongest signals).
+  // Sentence 2 — volatility, havens, risk appetite, with numbers attached.
   const vix = pct('VIX');
   const tlt = pct('TLT');
   const gld = pct('GLD');
   const btc = pct('BTC');
   const bits: string[] = [];
   if (vix !== null) {
-    if (vix <= -2) bits.push('volatility is dropping sharply, a calming backdrop');
-    else if (vix < 0) bits.push('volatility is easing');
-    else if (vix >= 3) bits.push('volatility is spiking, flagging rising fear');
-    else if (vix > 0) bits.push('volatility is ticking higher');
+    if (vix <= -2) bits.push(`the VIX is dropping sharply (${fmt(vix)}), a calming backdrop`);
+    else if (vix < 0) bits.push(`the VIX is easing (${fmt(vix)})`);
+    else if (vix >= 3) bits.push(`the VIX is spiking ${fmt(vix)}, flagging rising fear`);
+    else if (vix > 0) bits.push(`the VIX is ticking higher (${fmt(vix)})`);
   }
-  if (tlt !== null && gld !== null && tlt > 0.1 && gld > 0.1) bits.push('bonds and gold are catching a defensive bid');
+  if (tlt !== null && gld !== null && tlt > 0.1 && gld > 0.1) {
+    bits.push(`bonds (${fmt(tlt)}) and gold (${fmt(gld)}) are catching a defensive bid`);
+  }
   if (btc !== null) {
-    if (btc <= -2) bits.push('crypto is sliding, a sign risk appetite is pulling back');
-    else if (btc >= 2) bits.push('crypto strength signals healthy risk appetite');
+    if (btc <= -2) bits.push(`Bitcoin ${fmt(btc)} shows risk appetite pulling back`);
+    else if (btc >= 2) bits.push(`Bitcoin ${fmt(btc)} signals healthy risk appetite`);
   }
 
   let s2 = '';
@@ -103,7 +127,29 @@ const buildToneNarrative = (q: Record<string, TickData>): string => {
     s2 = joined.charAt(0).toUpperCase() + joined.slice(1) + '.';
   }
 
-  return [s1, s2].filter(Boolean).join(' ');
+  // Sentence 3 — market internals from the GMI-style breadth feed.
+  let s3 = '';
+  if (breadth) {
+    const ratio = breadth.decliners > 0 ? breadth.advancers / breadth.decliners : null;
+    if (breadth.score >= 5) {
+      s3 = `Under the surface the tape is strong: breadth ${breadth.score}/6 with ${breadth.advancers.toLocaleString()} advancers vs ${breadth.decliners.toLocaleString()} decliners — participation confirms the move.`;
+    } else if (breadth.score <= 1) {
+      s3 = `Under the surface the tape is weak: breadth ${breadth.score}/6 with ${breadth.decliners.toLocaleString()} decliners vs ${breadth.advancers.toLocaleString()} advancers — stay selective until internals repair.`;
+    } else if (ratio !== null && ratio >= 1.5) {
+      s3 = `Internals lean positive — ${breadth.advancers.toLocaleString()} advancers vs ${breadth.decliners.toLocaleString()} decliners (breadth ${breadth.score}/6).`;
+    } else if (ratio !== null && ratio > 0 && ratio <= 0.67) {
+      s3 = `Internals lean negative — ${breadth.decliners.toLocaleString()} decliners vs ${breadth.advancers.toLocaleString()} advancers (breadth ${breadth.score}/6).`;
+    } else {
+      s3 = `Internals are split — ${breadth.advancers.toLocaleString()} advancers vs ${breadth.decliners.toLocaleString()} decliners (breadth ${breadth.score}/6).`;
+    }
+    if (breadth.up4 >= 25) {
+      s3 += ` ${breadth.up4} names up 4%+ — momentum is broad, not just index-level.`;
+    } else if (breadth.down4 >= 25) {
+      s3 += ` ${breadth.down4} names down 4%+ — the selling runs deeper than the indexes show.`;
+    }
+  }
+
+  return [s1, s2, s3].filter(Boolean).join(' ');
 };
 
 export default function MacroScorecard() {
@@ -114,7 +160,7 @@ export default function MacroScorecard() {
 
   const [riskMode, setRiskMode] = useState<'ON' | 'OFF'>('ON');
   const [marketTone, setMarketTone] = useState<'BULLISH' | 'NEUTRAL' | 'BEARISH'>('NEUTRAL');
-  const [breadth, setBreadth] = useState<{ score: number; signal: 'GREEN' | 'NEUTRAL' | 'RED'; advancers: number; decliners: number; up4: number; down4: number } | null>(null);
+  const [breadth, setBreadth] = useState<BreadthData | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
 
   const cryptoWs = useRef<WebSocket | null>(null);
@@ -290,7 +336,7 @@ export default function MacroScorecard() {
     return { border: 'border-amber-500/20', bg: 'bg-amber-500/[0.04]', label: 'text-amber-400', dot: 'bg-amber-400' };
   };
 
-  const narrative = buildToneNarrative(quotes);
+  const narrative = buildToneNarrative(quotes, breadth, session);
   const toneStyles = getToneStyles();
 
   return (
