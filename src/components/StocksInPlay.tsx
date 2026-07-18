@@ -281,15 +281,15 @@ export default function StocksInPlay() {
     return 'text-slate-500';
   };
 
-  // Shared styles — all columns centered under their titles
-  const thBase = "px-3 py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 transition-colors text-center";
-  const tdBase = "px-3 pt-3 pb-2 text-center";
+  // Shared styles — all columns centered under their titles, tight spacing
+  const thBase = "px-2 py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 transition-colors text-center";
+  const tdBase = "px-2 pt-3 pb-2 text-center";
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
   const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
-  // Compact pill styles: tighter padding + smaller fonts for multi-option badges
-  const pillWrap = "flex items-center gap-1.5 px-2 py-0.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
-  const pillLabel = "text-[8px] font-bold tracking-widest uppercase text-slate-500";
-  const pillBtn = "px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase transition-all duration-300 whitespace-nowrap";
+  // Filter pill styles — sized to fill the header rows
+  const pillWrap = "flex items-center gap-2.5 px-3.5 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
+  const pillLabel = "text-[10px] font-bold tracking-widest uppercase text-slate-500";
+  const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-wider uppercase transition-all duration-300 whitespace-nowrap";
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
@@ -312,9 +312,9 @@ export default function StocksInPlay() {
         <>
           <div className="flex flex-col gap-3 mb-4 relative z-10">
             {/* Row 1, centered: 2A → MKT CAP → SMB (A/B/C) */}
-            <div className="flex flex-wrap justify-center items-center gap-3 w-full" onClick={(e) => e.stopPropagation()}>
-              <button onClick={() => setShowStage2AOnly(!showStage2AOnly)} className={`px-3 py-1 rounded-lg text-[9px] font-bold tracking-widest uppercase transition-all duration-300 ${showStage2AOnly ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(52,211,153,0.1)]' : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'}`}>Filter: 2A</button>
-              <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-0.5">
+            <div className="flex flex-wrap justify-center items-center gap-4 w-full" onClick={(e) => e.stopPropagation()}>
+              <button onClick={() => setShowStage2AOnly(!showStage2AOnly)} className={`px-4 py-2 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 ${showStage2AOnly ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(52,211,153,0.1)]' : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'}`}>Filter: 2A</button>
+              <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1">
                 {['All', 'Micro', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
                   <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>{cap}</button>
                 ))}
@@ -322,7 +322,7 @@ export default function StocksInPlay() {
               {/* SMB grade — clickable filter pill */}
               <div className={pillWrap}>
                 <span className={pillLabel}>SMB</span>
-                <div className="flex items-center gap-0.5">
+                <div className="flex items-center gap-1">
                   {(['A', 'B', 'C'] as SmbFilterType[]).map((g) => (
                     <button key={g} onClick={() => handleSmbFilter(g)} className={`${pillBtn} ${smbFilter === g ? filterBtnActive : filterBtnIdle}`}>
                       {g}
@@ -332,11 +332,11 @@ export default function StocksInPlay() {
               </div>
             </div>
             {/* Row 2, centered: 10/21 → VWAP → STAGE legend */}
-            <div className="flex flex-wrap justify-center items-center gap-3 w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="flex flex-wrap justify-center items-center gap-4 w-full" onClick={(e) => e.stopPropagation()}>
               {/* 10/21 — clickable filter pill */}
               <div className={pillWrap}>
                 <span className={pillLabel}>10/21</span>
-                <div className="flex items-center gap-0.5">
+                <div className="flex items-center gap-1">
                   {(['>10', '>21', 'Both'] as EmaFilterType[]).map((opt) => (
                     <button key={opt} onClick={() => handleEmaFilter(opt)} className={`${pillBtn} ${emaFilter === opt ? filterBtnActive : filterBtnIdle}`}>
                       {opt}
@@ -347,11 +347,11 @@ export default function StocksInPlay() {
               {/* VWAP — clickable filter pill */}
               <div className={pillWrap}>
                 <span className={pillLabel}>VWAP</span>
-                <div className="flex items-center gap-0.5">
-                  <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
                   </button>
-                  <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1 ${pillBtn} ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
+                  <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
                     <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Below
                   </button>
                 </div>
@@ -359,17 +359,17 @@ export default function StocksInPlay() {
               {/* STAGE legend */}
               <div className={pillWrap}>
                 <span className={pillLabel}>STAGE</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-bold text-slate-400">1</span>
-                  <span className="text-[9px] font-bold text-emerald-400">2</span>
-                  <span className="text-[9px] font-bold text-amber-400">3</span>
-                  <span className="text-[9px] font-bold text-rose-400">4</span>
+                <div className="flex items-center gap-2.5">
+                  <span className="text-[11px] font-bold text-slate-400">1</span>
+                  <span className="text-[11px] font-bold text-emerald-400">2</span>
+                  <span className="text-[11px] font-bold text-amber-400">3</span>
+                  <span className="text-[11px] font-bold text-rose-400">4</span>
                 </div>
               </div>
             </div>
           </div>
           <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[1250px] table-fixed border-collapse">
+            <table className="w-full min-w-[1150px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
@@ -452,21 +452,22 @@ export default function StocksInPlay() {
                           </td>
                         </tr>
                         <tr className="bg-transparent border-t border-white/5">
-                          <td colSpan={16} className="pb-3.5 pt-2.5 pr-2 pl-[56px]">
+                          <td colSpan={16} className="pb-3.5 pt-2.5 pr-4 pl-[56px]">
                             <div className="flex items-center gap-3 text-left">
                               <span className="shrink-0 w-[88px] text-[#7c8bfa] font-bold text-[10px] tracking-[0.1em] uppercase">{formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : ''}</span>
-                              {/* STRUCT — golden cross + rising 21 EMA */}
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <span className={`text-[10px] font-bold ${row.goldenCross ? 'text-emerald-400' : 'text-slate-600'}`} title="50 SMA > 200 SMA">GC</span>
-                                <span className={`text-[10px] font-bold ${row.ema21Rising ? 'text-emerald-400' : 'text-slate-600'}`} title="21 EMA rising">21↑</span>
-                              </div>
-                              {/* STATUS — pullback readiness */}
-                              {st && (
-                                <span className={`shrink-0 px-1.5 py-[2px] rounded text-[9px] font-bold tracking-wide uppercase border ${st === 'Ready' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/[0.02] text-slate-500 border-white/5'}`}>{st}</span>
-                              )}
-                              <p className="flex-1 text-[11px] leading-relaxed pr-8 whitespace-normal max-w-[780px]">
+                              <p className="flex-1 text-[11px] leading-relaxed whitespace-normal max-w-[780px]">
                                 {row.thesis ? (<span className="text-slate-500">{row.thesis}</span>) : (<span className="text-slate-600 italic">Awaiting quantitative confluence analysis…</span>)}
                               </p>
+                              {/* | STRUCT + STATUS at the end of the line */}
+                              <div className="flex items-center gap-2.5 shrink-0 pl-3 border-l border-white/10 ml-auto">
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`text-[10px] font-bold ${row.goldenCross ? 'text-emerald-400' : 'text-slate-600'}`} title="50 SMA > 200 SMA">GC</span>
+                                  <span className={`text-[10px] font-bold ${row.ema21Rising ? 'text-emerald-400' : 'text-slate-600'}`} title="21 EMA rising">21↑</span>
+                                </div>
+                                {st && (
+                                  <span className={`px-1.5 py-[2px] rounded text-[9px] font-bold tracking-wide uppercase border ${st === 'Ready' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/[0.02] text-slate-500 border-white/5'}`}>{st}</span>
+                                )}
+                              </div>
                             </div>
                           </td>
                         </tr>
