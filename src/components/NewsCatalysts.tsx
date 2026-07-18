@@ -114,45 +114,34 @@ const splitEvent = (event: string): { head: string; rest: string } => {
   return { head: '', rest: event };
 };
 
-// --- Small presentational helpers (keep the row JSX flat and error-proof) ---
+// --- Small presentational helpers (keep the row JSX flat) ---
 
-const TagBadge = ({ tag, url }: { tag: string | null; url: string | null }) => {
-  if (!tag) return null;
+function TagBadge(props: { tag: string | null; url: string | null }) {
+  if (!props.tag) return null;
   const base = "inline-block whitespace-nowrap truncate px-2 py-[2px] rounded text-[9px] font-bold border bg-zinc-800/50 text-slate-300 border-zinc-700/50";
-  if (url) {
+  if (props.url) {
     return (
-      
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        title="Open news story"
-        className={`${base} hover:text-rose-300 hover:border-rose-500/30 transition-colors`}
-      >
-        {tag}
+      <a href={props.url} target="_blank" rel="noopener noreferrer" title="Open news story" className={base + " hover:text-rose-300 hover:border-rose-500/30 transition-colors"}>
+        {props.tag}
       </a>
     );
   }
-  return <span className={base}>{tag}</span>;
-};
+  return <span className={base}>{props.tag}</span>;
+}
 
-const Headline = ({ headline, url }: { headline: string; url: string | null }) => {
+function Headline(props: { headline: string; url: string | null }) {
   const base = "block font-medium text-slate-200 text-xs leading-relaxed";
-  if (url) {
+  if (props.url) {
     return (
-      
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={`${base} hover:text-rose-300 transition-colors hover:underline`}
-      >
-        {headline}
+      <a href={props.url} target="_blank" rel="noopener noreferrer" className={base + " hover:text-rose-300 transition-colors hover:underline"}>
+        {props.headline}
       </a>
     );
   }
-  return <span className={base}>{headline}</span>;
-};
+  return <span className={base}>{props.headline}</span>;
+}
 
-export default function NewsFeed() {
+export default function NewsCatalysts() {
   const [news, setNews] = useState<CatalystItem[]>([]);
   const [status, setStatus] = useState<string>('Offline');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -197,11 +186,11 @@ export default function NewsFeed() {
           const processed: CatalystItem[] = events
             .filter((e: any) => e && typeof e.event === 'string' && e.event.trim().length > 0)
             .map((e: any) => {
-              const { head, rest } = splitEvent(e.event.trim());
+              const parts = splitEvent(e.event.trim());
               return {
-                ticker: head.replace(/:$/, ''),
+                ticker: parts.head.replace(/:$/, ''),
                 tag: null,
-                headline: rest,
+                headline: parts.rest,
                 url: null,
                 impact: (['High', 'Medium', 'Low'].includes(e.impact) ? e.impact : 'Medium') as 'High' | 'Medium' | 'Low',
               };
