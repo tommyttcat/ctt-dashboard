@@ -450,18 +450,18 @@ export default function StocksInPlay() {
                             )}
                           </td>
                         </tr>
-                        {/* Sub-row: empty spacer cell at TICKER width so the setup
-                            name starts exactly under the SMB column */}
+                        {/* Sub-row: spacer at TICKER width, then three sectioned
+                            columns — setup name | thesis | STR/STAT */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[6%]"></td>
                           <td colSpan={15} className="pb-3.5 pt-2.5 pr-2">
-                            <div className="flex items-center gap-3 text-left">
-                              <span className="shrink-0 text-[#7c8bfa] font-bold text-[11px] tracking-[0.1em] uppercase">{formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : ''}</span>
-                              <p className="flex-1 text-[11px] leading-relaxed whitespace-normal">
+                            <div className="flex items-center text-left">
+                              <span className="shrink-0 w-[92px] text-[#7c8bfa] font-bold text-[11px] tracking-[0.1em] uppercase">{formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—'}</span>
+                              <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-4 pr-4">
                                 {row.thesis ? (<span className="text-slate-500">{row.thesis}</span>) : (<span className="text-slate-600 italic">Awaiting quantitative confluence analysis…</span>)}
                               </p>
-                              {/* STR: / STAT: — same font as thesis text, colored data */}
-                              <div className="flex items-center gap-4 shrink-0">
+                              {/* STR: / STAT: — sectioned, same font as thesis */}
+                              <div className="flex items-center gap-4 shrink-0 border-l border-white/10 pl-4">
                                 <span className="flex items-center gap-1.5">
                                   <span className="text-[11px] text-slate-500">STR:</span>
                                   <span className={`text-[11px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
