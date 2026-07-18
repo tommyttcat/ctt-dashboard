@@ -457,21 +457,21 @@ export default function StocksInPlay() {
                               <p className="flex-1 text-[11px] leading-relaxed whitespace-normal">
                                 {row.thesis ? (<span className="text-slate-500">{row.thesis}</span>) : (<span className="text-slate-600 italic">Awaiting quantitative confluence analysis…</span>)}
                               </p>
-                              {/* STR: / STAT: — plain inline labels, colored data */}
+                              {/* STR: / STAT: — same size as the thesis text, colored data */}
                               <div className="flex items-center gap-4 shrink-0">
                                 <span className="flex items-center gap-1.5">
-                                  <span className="text-[10px] font-bold tracking-widest uppercase text-slate-500">STR:</span>
-                                  <span className={`text-[10px] font-bold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
-                                  <span className={`text-[10px] font-bold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
+                                  <span className="text-[11px] font-bold tracking-widest uppercase text-slate-500">STR:</span>
+                                  <span className={`text-[11px] font-bold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
+                                  <span className={`text-[11px] font-bold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
                                 </span>
                                 <span className="flex items-center gap-1.5">
-                                  <span className="text-[10px] font-bold tracking-widest uppercase text-slate-500">STAT:</span>
+                                  <span className="text-[11px] font-bold tracking-widest uppercase text-slate-500">STAT:</span>
                                   {st === 'Ready' ? (
-                                    <span className="text-[10px] font-bold tracking-wide uppercase text-emerald-400">Ready</span>
+                                    <span className="text-[11px] font-bold tracking-wide uppercase text-emerald-400">Ready</span>
                                   ) : st === 'Forming' ? (
-                                    <span className="text-[10px] font-bold tracking-wide uppercase text-amber-400">Forming</span>
+                                    <span className="text-[11px] font-bold tracking-wide uppercase text-amber-400">Forming</span>
                                   ) : (
-                                    <span className="text-[10px] font-bold text-slate-600">—</span>
+                                    <span className="text-[11px] font-bold text-slate-600">—</span>
                                   )}
                                 </span>
                               </div>
