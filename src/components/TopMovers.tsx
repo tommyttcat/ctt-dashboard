@@ -29,6 +29,7 @@ type TabType = 'Mega Caps' | 'Gainers' | 'Losers' | 'ETF Gainers' | 'ETF Losers'
 type SortDirection = 'asc' | 'desc';
 type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
+type SmbFilterType = 'All' | 'A' | 'B' | 'C';
 
 interface MovingAverage {
   label: string;
@@ -76,6 +77,14 @@ const formatSetupName = (name: string | null) => {
 const isGenericCatalyst = (catalyst: string | null | undefined) =>
   !catalyst || catalyst.toLowerCase().startsWith('technical momentum');
 
+// SMB grade from the unified score: A >= 70, B >= 50, C below.
+const smbGradeOf = (score: number | null): SmbFilterType | null => {
+  if (score == null) return null;
+  if (score >= 70) return 'A';
+  if (score >= 50) return 'B';
+  return 'C';
+};
+
 export default function TopMovers() {
   const { session } = useMarketData();
   
@@ -93,6 +102,7 @@ export default function TopMovers() {
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
+  const [smbFilter, setSmbFilter] = useState<SmbFilterType>('All');
 
   useEffect(() => { setSortConfig(null); }, [activeTab]);
 
@@ -160,6 +170,7 @@ export default function TopMovers() {
   // Clicking the active option clears back to All (toggle behavior)
   const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
+  const handleSmbFilter = (val: SmbFilterType) => setSmbFilter(prev => prev === val ? 'All' : val);
 
   const sortedStocks = useMemo(() => {
     let currentList = topMoversData[activeTab] || [];
@@ -190,6 +201,10 @@ export default function TopMovers() {
       currentList = currentList.filter(s => s.vwapStatus === vwapFilter);
     }
 
+    if (smbFilter !== 'All') {
+      currentList = currentList.filter(s => smbGradeOf(s.conviction) === smbFilter);
+    }
+
     if (!sortConfig) return currentList.slice(0, 10);
     
     return [...currentList].sort((a, b) => {
@@ -201,7 +216,7 @@ export default function TopMovers() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     }).slice(0, 10);
-  }, [topMoversData, activeTab, sortConfig, marketCapFilter, emaFilter, vwapFilter]);
+  }, [topMoversData, activeTab, sortConfig, marketCapFilter, emaFilter, vwapFilter, smbFilter]);
 
   const getSortIcon = (columnKey: keyof StockData) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
   
@@ -281,6 +296,17 @@ export default function TopMovers() {
                 ))}
               </div>
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto" onClick={(e) => e.stopPropagation()}>
+                {/* SMB grade — clickable filter pill */}
+                <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">SMB</span>
+                  <div className="flex items-center gap-1">
+                    {(['A', 'B', 'C'] as SmbFilterType[]).map((g) => (
+                      <button key={g} onClick={() => handleSmbFilter(g)} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${smbFilter === g ? filterBtnActive : filterBtnIdle}`}>
+                        {g}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 {/* EMA 10/21 — clickable filter pill */}
                 <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
                   <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">EMA 10/21</span>
@@ -358,24 +384,25 @@ export default function TopMovers() {
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} text-left w-[8%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
-                  <th className="pl-1 pr-3.5 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left w-[6%] cursor-pointer hover:text-slate-300 transition-colors" onClick={() => handleSort('conviction')}>SCORE{getSortIcon('conviction')}</th>
-                  <th className={`${thBase} text-right w-[9%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className="pl-0.5 pr-2 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left w-[5%] cursor-pointer hover:text-slate-300 transition-colors" onClick={() => handleSort('conviction')}>SCORE{getSortIcon('conviction')}</th>
+                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} text-left w-[7%]`}>10/21</th>
                   <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
                   <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className={`${thBase} text-left w-[11%] border-l border-white/5`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className={`${thBase} text-left w-[19%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className={`${thBase} text-left w-[10%] border-l border-white/5`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} text-left w-[16%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {status.includes('Syncing') && topMoversData[activeTab].length === 0 ? (
-                  <tr><td colSpan={12} className="py-12 text-center"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
+                  <tr><td colSpan={13} className="py-12 text-center"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
                 ) : sortedStocks.length === 0 ? (
-                  <tr><td colSpan={12} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td></tr>
+                  <tr><td colSpan={13} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td></tr>
                 ) : (
                   sortedStocks.map((row, i) => {
                     const isPositive = row.changePct >= 0;
@@ -386,17 +413,23 @@ export default function TopMovers() {
                             <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help" title={row.name || row.ticker}>{row.ticker}</span>
                           </div>
                         </td>
-                        <td className="pl-1 pr-3.5 py-3 text-left">
+                        <td className="pl-0.5 pr-2 py-3 text-left">
                           <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.conviction)}`}>{row.conviction != null ? row.conviction : '--'}</span>
                         </td>
                         <td className="px-3.5 py-3 text-xs text-slate-300 font-medium whitespace-nowrap text-right tabular-nums">
                           <div className="flex items-center justify-end gap-1.5">
                             ${row.price.toFixed(2)}
                             {row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}
-                            <div className="flex items-center gap-1 shrink-0 pl-1 border-l border-white/10">
-                              <span className="text-[8px] font-bold text-slate-600">10</span>
+                          </div>
+                        </td>
+                        <td className="px-3.5 py-3 text-left whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1">
+                              <span className="text-[9px] font-bold text-slate-500">10</span>
                               <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} title={`10 EMA: ${row.aboveEma10 === null ? 'n/a' : row.aboveEma10 ? 'above' : 'below'}`}></div>
-                              <span className="text-[8px] font-bold text-slate-600">21</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[9px] font-bold text-slate-500">21</span>
                               <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma21)}`} title={`21 EMA: ${row.aboveEma21 === null ? 'n/a' : row.aboveEma21 ? 'above' : 'below'}`}></div>
                             </div>
                           </div>
