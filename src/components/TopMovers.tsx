@@ -286,6 +286,10 @@ export default function TopMovers() {
   const tdBase = "px-3 py-3 text-center";
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
   const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
+  // Compact pill styles: tighter padding + smaller fonts for multi-option badges
+  const pillWrap = "flex items-center gap-1.5 px-2 py-0.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
+  const pillLabel = "text-[8px] font-bold tracking-widest uppercase text-slate-500";
+  const pillBtn = "px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase transition-all duration-300 whitespace-nowrap";
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
@@ -306,7 +310,7 @@ export default function TopMovers() {
 
       {isExpanded && (
         <>
-          <div className="flex flex-col gap-4 mb-6 relative z-10 pb-2">
+          <div className="flex flex-col gap-3 mb-6 relative z-10 pb-2">
             {/* Row 1, centered: tabs → MKT CAP → SMB (A/B/C) */}
             <div className="flex flex-wrap justify-center items-center gap-3 w-full">
               <div className="flex gap-3 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
@@ -316,19 +320,19 @@ export default function TopMovers() {
                   </button>
                 ))}
               </div>
-              <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-0.5" onClick={(e) => e.stopPropagation()}>
                 {['All', 'Micro', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
-                  <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>
+                  <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>
                     {cap}
                   </button>
                 ))}
               </div>
               {/* SMB grade — clickable filter pill */}
-              <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0" onClick={(e) => e.stopPropagation()}>
-                <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">SMB</span>
-                <div className="flex items-center gap-1">
+              <div className={pillWrap} onClick={(e) => e.stopPropagation()}>
+                <span className={pillLabel}>SMB</span>
+                <div className="flex items-center gap-0.5">
                   {(['A', 'B', 'C'] as SmbFilterType[]).map((g) => (
-                    <button key={g} onClick={() => handleSmbFilter(g)} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${smbFilter === g ? filterBtnActive : filterBtnIdle}`}>
+                    <button key={g} onClick={() => handleSmbFilter(g)} className={`${pillBtn} ${smbFilter === g ? filterBtnActive : filterBtnIdle}`}>
                       {g}
                     </button>
                   ))}
@@ -338,24 +342,24 @@ export default function TopMovers() {
             {/* Row 2, centered: 10/21 → VWAP → QQQ benchmark */}
             <div className="flex flex-wrap justify-center items-center gap-3 w-full" onClick={(e) => e.stopPropagation()}>
               {/* 10/21 — clickable filter pill */}
-              <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
-                <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">10/21</span>
-                <div className="flex items-center gap-1">
+              <div className={pillWrap}>
+                <span className={pillLabel}>10/21</span>
+                <div className="flex items-center gap-0.5">
                   {(['>10', '>21', 'Both'] as EmaFilterType[]).map((opt) => (
-                    <button key={opt} onClick={() => handleEmaFilter(opt)} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${emaFilter === opt ? filterBtnActive : filterBtnIdle}`}>
+                    <button key={opt} onClick={() => handleEmaFilter(opt)} className={`${pillBtn} ${emaFilter === opt ? filterBtnActive : filterBtnIdle}`}>
                       {opt}
                     </button>
                   ))}
                 </div>
               </div>
               {/* VWAP — clickable filter pill */}
-              <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
-                <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">VWAP</span>
-                <div className="flex items-center gap-1">
-                  <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
+              <div className={pillWrap}>
+                <span className={pillLabel}>VWAP</span>
+                <div className="flex items-center gap-0.5">
+                  <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
                   </button>
-                  <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
+                  <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1 ${pillBtn} ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
                     <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Below
                   </button>
                 </div>
@@ -367,27 +371,27 @@ export default function TopMovers() {
                   : (benchmark.week || []);
                 const unit = maTimeframe === 'day' ? 'D' : 'W';
                 return (
-                  <div className="flex items-center gap-3 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
-                    <span className="text-[9px] font-bold tracking-widest uppercase text-[#7c8bfa]">{benchmark.symbol}</span>
+                  <div className={pillWrap}>
+                    <span className="text-[8px] font-bold tracking-widest uppercase text-[#7c8bfa]">{benchmark.symbol}</span>
 
                     <div className="flex items-center bg-[#0b101a] border border-white/5 rounded-md p-0.5">
                       {(['day', 'week'] as const).map((tf) => (
                         <button
                           key={tf}
                           onClick={() => setMaTimeframe(tf)}
-                          className={`px-2 py-0.5 rounded text-[9px] font-bold tracking-widest uppercase transition-colors ${maTimeframe === tf ? 'bg-indigo-500/20 text-indigo-300' : 'text-slate-500 hover:text-slate-300'}`}
+                          className={`px-1.5 py-0.5 rounded text-[8px] font-bold tracking-widest uppercase transition-colors ${maTimeframe === tf ? 'bg-indigo-500/20 text-indigo-300' : 'text-slate-500 hover:text-slate-300'}`}
                         >
                           {tf === 'day' ? 'Day' : 'Week'}
                         </button>
                       ))}
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       {activeMas.map((m, idx) => (
                         <React.Fragment key={m.label}>
-                          {idx > 0 && <span className="text-[10px] text-slate-600">|</span>}
-                          <div className="flex items-center gap-1.5" title={`${benchmark.symbol} ${m.label}${unit} SMA: $${m.value.toFixed(2)} — ${m.above ? 'above' : 'below'}`}>
-                            <span className="text-[10px] font-medium text-slate-400">{m.label}</span>
+                          {idx > 0 && <span className="text-[9px] text-slate-600">|</span>}
+                          <div className="flex items-center gap-1" title={`${benchmark.symbol} ${m.label}${unit} SMA: $${m.value.toFixed(2)} — ${m.above ? 'above' : 'below'}`}>
+                            <span className="text-[9px] font-medium text-slate-400">{m.label}</span>
                             <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${m.above ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>
                           </div>
                         </React.Fragment>
