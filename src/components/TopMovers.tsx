@@ -307,15 +307,36 @@ export default function TopMovers() {
       {isExpanded && (
         <>
           <div className="flex flex-col gap-4 mb-6 relative z-10 pb-2">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 w-full">
-              <div className="flex gap-3 overflow-x-auto custom-scrollbar w-full md:w-auto" style={{ scrollbarWidth: 'none' }}>
-                {(['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'] as TabType[]).map((tab) => (
-                  <button key={tab} onClick={(e) => { e.stopPropagation(); setActiveTab(tab); }} className={`px-5 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all duration-300 ${activeTab === tab ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'}`}>
-                    {tab}
-                  </button>
-                ))}
+            {/* Row 1: tabs → MKT CAP → SMB (A/B/C) left, 10/21 + VWAP right */}
+            <div className="flex flex-wrap justify-between items-center gap-3 w-full">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex gap-3 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
+                  {(['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'] as TabType[]).map((tab) => (
+                    <button key={tab} onClick={(e) => { e.stopPropagation(); setActiveTab(tab); }} className={`px-5 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all duration-300 ${activeTab === tab ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'}`}>
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1" onClick={(e) => e.stopPropagation()}>
+                  {['All', 'Micro', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
+                    <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>
+                      {cap}
+                    </button>
+                  ))}
+                </div>
+                {/* SMB grade — clickable filter pill */}
+                <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">SMB</span>
+                  <div className="flex items-center gap-1">
+                    {(['A', 'B', 'C'] as SmbFilterType[]).map((g) => (
+                      <button key={g} onClick={() => handleSmbFilter(g)} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${smbFilter === g ? filterBtnActive : filterBtnIdle}`}>
+                        {g}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="flex flex-wrap items-center gap-3" onClick={(e) => e.stopPropagation()}>
                 {/* 10/21 — clickable filter pill */}
                 <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
                   <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">10/21</span>
@@ -341,21 +362,14 @@ export default function TopMovers() {
                 </div>
               </div>
             </div>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-center gap-3 w-full" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1 overflow-x-auto custom-scrollbar w-full sm:w-auto">
-                {['All', 'Micro', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
-                  <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>
-                    {cap}
-                  </button>
-                ))}
-              </div>
-
-              {benchmark && (() => {
-                const activeMas = maTimeframe === 'day'
-                  ? (benchmark.day || benchmark.mas || [])
-                  : (benchmark.week || []);
-                const unit = maTimeframe === 'day' ? 'D' : 'W';
-                return (
+            {/* Row 2: QQQ benchmark, centered */}
+            {benchmark && (() => {
+              const activeMas = maTimeframe === 'day'
+                ? (benchmark.day || benchmark.mas || [])
+                : (benchmark.week || []);
+              const unit = maTimeframe === 'day' ? 'D' : 'W';
+              return (
+                <div className="flex justify-center w-full" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center gap-3 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
                     <span className="text-[9px] font-bold tracking-widest uppercase text-[#7c8bfa]">{benchmark.symbol}</span>
 
@@ -363,7 +377,7 @@ export default function TopMovers() {
                       {(['day', 'week'] as const).map((tf) => (
                         <button
                           key={tf}
-                          onClick={(e) => { e.stopPropagation(); setMaTimeframe(tf); }}
+                          onClick={() => setMaTimeframe(tf)}
                           className={`px-2 py-0.5 rounded text-[9px] font-bold tracking-widest uppercase transition-colors ${maTimeframe === tf ? 'bg-indigo-500/20 text-indigo-300' : 'text-slate-500 hover:text-slate-300'}`}
                         >
                           {tf === 'day' ? 'Day' : 'Week'}
@@ -383,21 +397,9 @@ export default function TopMovers() {
                       ))}
                     </div>
                   </div>
-                );
-              })()}
-
-              {/* SMB grade — clickable filter pill (end of row 2) */}
-              <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
-                <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">SMB</span>
-                <div className="flex items-center gap-1">
-                  {(['A', 'B', 'C'] as SmbFilterType[]).map((g) => (
-                    <button key={g} onClick={() => handleSmbFilter(g)} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${smbFilter === g ? filterBtnActive : filterBtnIdle}`}>
-                      {g}
-                    </button>
-                  ))}
                 </div>
-              </div>
-            </div>
+              );
+            })()}
           </div>
           
           <div className="overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
