@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 
 interface SwingCandidate {
@@ -85,7 +85,6 @@ export default function SwingCandidates() {
   const [status, setStatus] = useState<string>('Syncing...');
   const [generatedAt, setGeneratedAt] = useState<number | null>(null);
   const [spyReturn, setSpyReturn] = useState<number | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [sortConfig, setSortConfig] = useState<{ key: keyof SwingCandidate; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const [showReadyOnly, setShowReadyOnly] = useState<boolean>(false);
@@ -95,37 +94,29 @@ export default function SwingCandidates() {
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
 
-  const fetchCandidates = useCallback(async (forceRefresh: boolean = false) => {
-    try {
-      if (forceRefresh) {
-        setIsRefreshing(true);
-        await fetch(`/api/swing-candidates/run`, { cache: 'no-store' });
-      }
-      const res = await fetch(`/api/swing-candidates/latest?t=${Date.now()}`, { cache: 'no-store' });
-      const data = await res.json();
-
-      if (data && data.success && Array.isArray(data.candidates)) {
-        setCandidates(data.candidates);
-        setGeneratedAt(data.lastScanTime ? Number(data.lastScanTime) : Date.now());
-        setSpyReturn(data.spyReturn3M ?? null);
-        setStatus('Live');
-      } else if (data?.error) {
-        setStatus('Feed Error');
-      }
-    } catch {
-      setStatus('Feed Offline');
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, []);
-
   useEffect(() => {
     let isMounted = true;
-    const run = async () => { if (isMounted) await fetchCandidates(false); };
-    run();
-    const interval = setInterval(run, 300000);
+    const fetchCandidates = async () => {
+      try {
+        const res = await fetch(`/api/swing-candidates/latest?t=${Date.now()}`, { cache: 'no-store' });
+        const data = await res.json();
+
+        if (isMounted && data && data.success && Array.isArray(data.candidates)) {
+          setCandidates(data.candidates);
+          setGeneratedAt(data.lastScanTime ? Number(data.lastScanTime) : Date.now());
+          setSpyReturn(data.spyReturn3M ?? null);
+          setStatus('Live');
+        } else if (isMounted && data?.error) {
+          setStatus('Feed Error');
+        }
+      } catch {
+        if (isMounted) setStatus('Feed Offline');
+      }
+    };
+    fetchCandidates();
+    const interval = setInterval(fetchCandidates, 60000);
     return () => { isMounted = false; clearInterval(interval); };
-  }, [fetchCandidates]);
+  }, []);
 
   const handleSort = (key: keyof SwingCandidate) => {
     let direction: SortDirection = 'desc';
@@ -286,9 +277,8 @@ export default function SwingCandidates() {
       {isExpanded && (
         <>
           <div className="flex flex-col gap-3 mb-4 relative z-10">
-            {/* Row 1, centered: Ready → 2A → MKT CAP → SCORE */}
+            {/* Row 1, centered: 2A → MKT CAP → SCORE */}
             <div className="flex flex-wrap justify-center items-center gap-4 w-full" onClick={(e) => e.stopPropagation()}>
-              <button onClick={() => setShowReadyOnly(!showReadyOnly)} className={toggleBtn(showReadyOnly)}>Filter: Ready</button>
               <button onClick={() => setShowStage2AOnly(!showStage2AOnly)} className={toggleBtn(showStage2AOnly)}>Filter: 2A</button>
               <div className={pillWrap}>
                 <span className={pillLabel}>MKT CAP</span>
@@ -298,7 +288,7 @@ export default function SwingCandidates() {
                   ))}
                 </div>
               </div>
-              {/* SCORE — clickable filter pill */}
+              {/* SCORE — clickable filter pill (same style as SMB A/B/C) */}
               <div className={pillWrap}>
                 <span className={pillLabel}>SCORE</span>
                 <div className="flex items-center gap-1">
@@ -310,7 +300,7 @@ export default function SwingCandidates() {
                 </div>
               </div>
             </div>
-            {/* Row 2, centered: 10/21 → VWAP → Rescan */}
+            {/* Row 2, centered: 10/21 → VWAP → Filter: Ready */}
             <div className="flex flex-wrap justify-center items-center gap-4 w-full" onClick={(e) => e.stopPropagation()}>
               {/* 10/21 — clickable filter pill */}
               <div className={pillWrap}>
@@ -335,13 +325,7 @@ export default function SwingCandidates() {
                   </button>
                 </div>
               </div>
-              <button
-                onClick={() => fetchCandidates(true)}
-                disabled={isRefreshing}
-                className={`px-4 py-2 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 border shrink-0 ${isRefreshing ? 'bg-[#161c2a] text-slate-600 border-white/5 cursor-wait' : 'bg-[#161c2a] text-slate-400 border-white/5 hover:bg-white/[0.04] hover:text-slate-300'}`}
-              >
-                {isRefreshing ? 'Scanning…' : 'Rescan'}
-              </button>
+              <button onClick={() => setShowReadyOnly(!showReadyOnly)} className={toggleBtn(showReadyOnly)}>Filter: Ready</button>
             </div>
           </div>
 
@@ -369,7 +353,7 @@ export default function SwingCandidates() {
 
               <tbody className="divide-y divide-white/5">
                 {candidates.length === 0 ? (
-                  <tr><td colSpan={15} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? 'No candidates match current filter criteria.' : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — try Rescan.'}</td></tr>
+                  <tr><td colSpan={15} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? 'No candidates match current filter criteria.' : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
                 ) : (
                   filteredAndSorted.map((row) => {
                     const isPositive = (row.changePct ?? 0) >= 0;
@@ -413,32 +397,33 @@ export default function SwingCandidates() {
                             <span className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{row.sector || '—'}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: spacer at TICKER width, then three sectioned
-                            columns — setup name | readout | STR/STAT */}
+                        {/* Sub-row: spacer | EMA PB + readout (SCORE..MCAP) |
+                            STR/STAT centered under STAGE+SECTOR */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%]"></td>
-                          <td colSpan={14} className="pb-3.5 pt-2.5 pr-2">
+                          <td colSpan={12} className="pb-3.5 pt-2.5 pr-4">
                             <div className="flex items-center text-left">
                               <span className="shrink-0 w-[92px] text-[#7c8bfa] font-bold text-[11px] tracking-[0.1em] uppercase">EMA PB</span>
-                              <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-4 pr-4">
+                              <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-4">
                                 <span className="text-slate-500">{buildReadout(row)}</span>
                               </p>
-                              {/* STR: / STAT: — sectioned, same font as readout */}
-                              <div className="flex items-center gap-4 shrink-0 border-l border-white/10 pl-4">
-                                <span className="flex items-center gap-1.5">
-                                  <span className="text-[11px] text-slate-500">STR:</span>
-                                  <span className={`text-[11px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
-                                  <span className={`text-[11px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
-                                </span>
-                                <span className="flex items-center gap-1.5">
-                                  <span className="text-[11px] text-slate-500">STAT:</span>
-                                  {isReady(row) ? (
-                                    <span className="text-[11px] font-semibold text-emerald-400">Ready</span>
-                                  ) : (
-                                    <span className="text-[11px] font-semibold text-amber-400">Forming</span>
-                                  )}
-                                </span>
-                              </div>
+                            </div>
+                          </td>
+                          <td colSpan={2} className="pb-3.5 pt-2.5 align-middle">
+                            <div className="flex items-center justify-center gap-4 border-l border-white/10 px-2 py-1">
+                              <span className="flex items-center gap-1.5">
+                                <span className="text-[11px] text-slate-500">STR:</span>
+                                <span className={`text-[11px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
+                                <span className={`text-[11px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
+                              </span>
+                              <span className="flex items-center gap-1.5">
+                                <span className="text-[11px] text-slate-500">STAT:</span>
+                                {isReady(row) ? (
+                                  <span className="text-[11px] font-semibold text-emerald-400">Ready</span>
+                                ) : (
+                                  <span className="text-[11px] font-semibold text-amber-400">Forming</span>
+                                )}
+                              </span>
                             </div>
                           </td>
                         </tr>
