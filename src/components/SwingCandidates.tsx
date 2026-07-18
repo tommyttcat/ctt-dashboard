@@ -413,26 +413,29 @@ export default function SwingCandidates() {
                             <span className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{row.sector || '—'}</span>
                           </td>
                         </tr>
+                        {/* Sub-row: spacer at TICKER width, then three sectioned
+                            columns — setup name | readout | STR/STAT */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td colSpan={15} className="pb-3.5 pt-2.5 pr-2 pl-[48px]">
-                            <div className="flex items-center gap-3 text-left">
-                              <span className="shrink-0 w-[88px] text-[#7c8bfa] font-bold text-[10px] tracking-[0.1em] uppercase">EMA PB</span>
-                              <p className="flex-1 text-[11px] leading-relaxed whitespace-normal">
+                          <td className="w-[7%]"></td>
+                          <td colSpan={14} className="pb-3.5 pt-2.5 pr-2">
+                            <div className="flex items-center text-left">
+                              <span className="shrink-0 w-[92px] text-[#7c8bfa] font-bold text-[11px] tracking-[0.1em] uppercase">EMA PB</span>
+                              <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-4 pr-4">
                                 <span className="text-slate-500">{buildReadout(row)}</span>
                               </p>
-                              {/* STR: / STAT: — plain inline labels, colored data */}
-                              <div className="flex items-center gap-4 shrink-0">
+                              {/* STR: / STAT: — sectioned, same font as readout */}
+                              <div className="flex items-center gap-4 shrink-0 border-l border-white/10 pl-4">
                                 <span className="flex items-center gap-1.5">
-                                  <span className="text-[10px] font-bold tracking-widest uppercase text-slate-500">STR:</span>
-                                  <span className={`text-[10px] font-bold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
-                                  <span className={`text-[10px] font-bold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
+                                  <span className="text-[11px] text-slate-500">STR:</span>
+                                  <span className={`text-[11px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
+                                  <span className={`text-[11px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
                                 </span>
                                 <span className="flex items-center gap-1.5">
-                                  <span className="text-[10px] font-bold tracking-widest uppercase text-slate-500">STAT:</span>
+                                  <span className="text-[11px] text-slate-500">STAT:</span>
                                   {isReady(row) ? (
-                                    <span className="text-[10px] font-bold tracking-wide uppercase text-emerald-400">Ready</span>
+                                    <span className="text-[11px] font-semibold text-emerald-400">Ready</span>
                                   ) : (
-                                    <span className="text-[10px] font-bold tracking-wide uppercase text-amber-400">Forming</span>
+                                    <span className="text-[11px] font-semibold text-amber-400">Forming</span>
                                   )}
                                 </span>
                               </div>
