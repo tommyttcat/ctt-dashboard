@@ -8,9 +8,7 @@ export const maxDuration = 300;
 
 // Provider-agnostic LLM call. Prefers Claude (separate quota, no hidden thinking
 // budget that can blow the token ceiling and truncate); falls back to the
-// hardened Gemini path when only GEMINI_API_KEY is set. Returns the raw text;
-// the caller extracts JSON from it. Throws on a provider/HTTP error so the
-// caller's existing aiErrorMessage handling kicks in.
+// hardened Gemini path when only GEMINI_API_KEY is set.
 async function callLlm(prompt: string, maxTokens: number): Promise<string> {
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const geminiKey = process.env.GEMINI_API_KEY;
@@ -280,11 +278,7 @@ const deriveTradeType = (setupName: string | null | undefined): string => {
 };
 
 // --- SMB "Stock In Play" grade ----------------------------------------------
-// THE unified score for the dashboard (written into `conviction` so every card
-// displays it). Deterministic, recomputed every scan, never missing:
-// RVOL (0-30) + Gap% (0-20) + ATR expansion (0-20) + RS vs market (0-10)
-// + Catalyst quality (0-15) + Earnings proximity (0-5).
-// A >= 70: genuine Stock In Play. B >= 50: on the radar. C: ordinary tape.
+// THE unified score for the dashboard (written into `conviction`).
 const computeSmbScore = (
   rvol: number | null,
   gapPct: number | null,
@@ -329,6 +323,29 @@ const computeSmbScore = (
 
   const grade = score >= 70 ? 'A' : score >= 50 ? 'B' : 'C';
   return { score, grade };
+};
+
+// --- Deterministic setup readout ---------------------------------------------
+// Same style as the swing card's sub-row line: the row's own numbers restated
+// as a sentence. Used as the thesis FALLBACK when there's no WIIM and no AI
+// thesis — zero cost, recomputed every scan, never a fabricated price level.
+const buildReadout = (t: any): string | null => {
+  const parts: string[] = [];
+  if (t.distToEma21 != null) {
+    const dir = t.distToEma21 >= 0 ? 'above' : 'below';
+    const slope = t.ema21Rising === true ? 'rising ' : t.ema21Rising === false ? 'flat/declining ' : '';
+    parts.push(`${Math.abs(t.distToEma21).toFixed(1)}% ${dir} ${slope}21 EMA`);
+  }
+  if (t.stochK != null) {
+    const zone = t.stochK <= 20 ? ' (deeply oversold)' : t.stochK <= 30 ? ' (oversold)' : t.stochK <= 35 ? ' (approaching oversold)' : t.stochK >= 80 ? ' (overbought)' : '';
+    parts.push(`stoch ${t.stochK.toFixed(0)}${zone}`);
+  }
+  if (t.pctOffHigh != null) parts.push(`${Math.abs(t.pctOffHigh).toFixed(0)}% off highs`);
+  if (t.rsVsSpy != null) parts.push(`RS ${t.rsVsSpy >= 0 ? '+' : ''}${t.rsVsSpy.toFixed(0)} vs SPY`);
+  if (t.atrPct != null) parts.push(`ATR ${t.atrPct.toFixed(1)}%`);
+  if (t.goldenCross != null) parts.push(t.goldenCross ? '50>200 intact' : '50<200');
+  if (parts.length === 0) return null;
+  return parts.join(', ') + '.';
 };
 
 const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, vwap: number, rvol: number | null): { name: string | null, stage: string } => {
@@ -578,8 +595,7 @@ const fetchBenzingaWiims = async (
   return out;
 };
 
-// Earnings within the next ~2 days (SMB flags proximity to a report as a
-// catalyst driver). Fails open so a calendar hiccup never blocks the scan.
+// Earnings within the next ~2 days. Fails open.
 const fetchEarningsProximity = async (apiKey: string): Promise<Set<string>> => {
   if (!apiKey) return new Set();
   try {
@@ -769,7 +785,6 @@ export async function GET(request: Request) {
 
     const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= MIN_PRICE && t._liveVol >= MIN_VOLUME);
 
-    // SPY's change today — the market baseline for the SMB RS-vs-market grade.
     const spyChgToday = processedSnapshot.find((t: any) => t.ticker === 'SPY')?._liveChg ?? 0;
 
     // --- Market breadth / GMI-style regime -----------------------------------
@@ -827,8 +842,7 @@ export async function GET(request: Request) {
     const toStr = todayDate.toISOString().split('T')[0];
     const fromStr = lookbackDate.toISOString().split('T')[0];
 
-    // SPY 63-day (~3 month) return — the benchmark for the swing-style RS/SPY
-    // metric shown on every card. One extra call per scan.
+    // SPY 63-day (~3 month) return — benchmark for the RS/SPY column.
     const spyHistRes = await fetchSafeJson(
       `https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=desc&limit=350&apiKey=${polygonApiKey}`,
       { results: [] }
@@ -885,27 +899,51 @@ export async function GET(request: Request) {
         atr = trCount > 0 ? sumTR / trCount : 0;
       }
       
-      // 10 & 21 EMA off daily closes (bars are newest-first, so warm up from
-      // the oldest bar and iterate toward index 0 — same style as detectPattern)
+      // 10 & 21 EMA + trend-structure fields (STRUCT column + readout).
+      // Bars are newest-first: warm up from the oldest bar toward index 0,
+      // capturing the 21 EMA value 5 bars ago for the rising check.
       let aboveEma10: boolean | null = null;
       let aboveEma21: boolean | null = null;
+      let distToEma21: number | null = null;
+      let ema21Rising: boolean | null = null;
       if (dailyBars.length >= 30) {
         const emaWarm = Math.min(100, dailyBars.length - 1);
         let e10 = dailyBars[emaWarm].c;
         let e21 = dailyBars[emaWarm].c;
+        let e21FiveAgo: number | null = null;
         const k10 = 2 / (10 + 1);
         const k21e = 2 / (21 + 1);
         for (let i = emaWarm - 1; i >= 0; i--) {
           e10 = (dailyBars[i].c * k10) + (e10 * (1 - k10));
           e21 = (dailyBars[i].c * k21e) + (e21 * (1 - k21e));
+          if (i === 5) e21FiveAgo = e21;
         }
         aboveEma10 = price >= e10;
         aboveEma21 = price >= e21;
+        if (e21 > 0) distToEma21 = ((price - e21) / e21) * 100;
+        if (e21FiveAgo != null) ema21Rising = e21 > e21FiveAgo;
       }
 
-      // Smoothed stochastic %K (10, 4) — same math as the Dr. Wish dots and the
-      // swing feed, adapted for newest-first bars: average the raw %K of the
-      // 4 most recent sessions.
+      // Golden cross: 50 SMA above 200 SMA
+      let goldenCross: boolean | null = null;
+      if (dailyBars.length >= 200) {
+        let s50 = 0, s200 = 0;
+        for (let i = 0; i < 200; i++) {
+          s200 += dailyBars[i].c;
+          if (i < 50) s50 += dailyBars[i].c;
+        }
+        goldenCross = (s50 / 50) > (s200 / 200);
+      }
+
+      // % off recent high (~6 months of bars) and ATR% of price
+      let pctOffHigh: number | null = null;
+      if (dailyBars.length >= 20 && price > 0) {
+        const hi = Math.max(...dailyBars.slice(0, Math.min(126, dailyBars.length)).map((b: any) => b.h));
+        if (hi > 0) pctOffHigh = ((price - hi) / hi) * 100;
+      }
+      const atrPct = (atr > 0 && price > 0) ? (atr / price) * 100 : null;
+
+      // Smoothed stochastic %K (10, 4) — matches the Dr. Wish dots.
       let stochK: number | null = null;
       if (dailyBars.length >= 14) {
         const rawK = (idx: number) => {
@@ -917,8 +955,7 @@ export async function GET(request: Request) {
         stochK = (rawK(0) + rawK(1) + rawK(2) + rawK(3)) / 4;
       }
 
-      // 3-month RS vs SPY (63 trading days) — matches the swing feed's rsVsSpy.
-      // Distinct from rsVsMkt below, which is TODAY's move vs SPY (SMB input).
+      // 3-month RS vs SPY (63 trading days).
       let rsVsSpy: number | null = null;
       if (spyReturn3M != null && dailyBars.length >= 64 && dailyBars[63].c > 0) {
         const ret3M = ((dailyBars[0].c - dailyBars[63].c) / dailyBars[63].c) * 100;
@@ -982,6 +1019,11 @@ export async function GET(request: Request) {
         ticker: sym, name: companyName, sector: deepSector, price, vwapStatus, changePct: chgPct, vol, avgVol, atr, dVol: vol * vwap, rvol: rvol ? parseFloat(rvol.toFixed(2)) : null,
         float, shortPct, mktCap: marketCap, stage: setupMatched.stage, setupName: setupMatched.name, catalystUrl: finalCatalystUrl,
         aboveEma10, aboveEma21,
+        distToEma21: distToEma21 != null ? parseFloat(distToEma21.toFixed(2)) : null,
+        ema21Rising,
+        goldenCross,
+        pctOffHigh: pctOffHigh != null ? parseFloat(pctOffHigh.toFixed(1)) : null,
+        atrPct: atrPct != null ? parseFloat(atrPct.toFixed(2)) : null,
         stochK: stochK != null ? parseFloat(stochK.toFixed(1)) : null,
         rsVsSpy: rsVsSpy != null ? parseFloat(rsVsSpy.toFixed(1)) : null,
         gapPct: gapPct != null ? parseFloat(gapPct.toFixed(2)) : null,
@@ -1181,10 +1223,18 @@ export async function GET(request: Request) {
         else if (t._rawHeadline && t._daysOld >= 1.5 && t._daysOld <= 4) t.catalyst = "Delayed Reaction";
         else t.catalyst = 'Technical Momentum';
         
-        t.thesis = null;
+        // No WIIM and no AI thesis: deterministic setup readout from the row's
+        // own numbers (same style as the swing card's sub-row line).
+        t.thesis = buildReadout(t);
       }
 
       if (!t.tradeType) t.tradeType = deriveTradeType(t.setupName);
+
+      // --- STATUS: pullback readiness (same rule as the swing card) -----------
+      // Ready = stoch <= 25 AND within 2.5% of the 21 EMA. On momentum cards
+      // most rows will be Forming — that's correct, not a bug.
+      t.status = (t.stochK != null && t.stochK <= 25 && t.distToEma21 != null && Math.abs(t.distToEma21) <= 2.5)
+        ? 'Ready' : 'Forming';
 
       // --- Unified score: SMB IS the conviction number ------------------------
       const hasEarnings = earningsSoonSet.has(t.ticker);

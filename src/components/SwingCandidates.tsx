@@ -32,7 +32,9 @@ interface SwingCandidate {
 }
 
 type SortDirection = 'asc' | 'desc';
-type EmaFilterType = 'All' | '>10' | '>21' | '>Both';
+type ScoreFilterType = 'All' | 'High' | 'Med' | 'Low';
+type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
+type VwapFilterType = 'All' | 'above' | 'below';
 
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
@@ -60,8 +62,10 @@ const formatStageText = (stage: string | undefined) => {
   return stage.replace(/Stage\s*/i, '');
 };
 
+// Ready = stoch deep and pullback tight — the blue dot could fire imminently.
 const isReady = (c: SwingCandidate) => c.stochK <= 25 && Math.abs(c.distToEma21) <= 2.5;
 
+// Plain-English setup readout for the sub-row, built from the row's own numbers.
 const buildReadout = (c: SwingCandidate) => {
   const emaSide = c.distToEma21 >= 0 ? 'above' : 'below';
   const emaState = c.ema21Rising ? 'rising' : 'flat/declining';
@@ -71,6 +75,7 @@ const buildReadout = (c: SwingCandidate) => {
   return `${Math.abs(c.distToEma21).toFixed(1)}% ${emaSide} ${emaState} 21 EMA, stoch ${c.stochK.toFixed(0)} (${stochState}), ATR ${c.atrPct.toFixed(1)}%, ${c.pctOffHigh.toFixed(0)}% off highs with RS +${c.rsVsSpy.toFixed(0)} vs SPY, ${structure}. Watching for BD + MACD confirmation.${readyTag}`;
 };
 
+// Backward-compatible: derive above-EMA from dist if the payload predates the booleans
 const above21 = (c: SwingCandidate) => c.aboveEma21 ?? c.distToEma21 >= 0;
 const above10 = (c: SwingCandidate) => c.aboveEma10 ?? (c.distToEma10 != null ? c.distToEma10 >= 0 : null);
 
@@ -84,9 +89,12 @@ export default function SwingCandidates() {
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [sortConfig, setSortConfig] = useState<{ key: keyof SwingCandidate; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
+  const [showReadyOnly, setShowReadyOnly] = useState<boolean>(false);
   const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(false);
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
+  const [scoreFilter, setScoreFilter] = useState<ScoreFilterType>('All');
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
+  const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
 
   const fetchCandidates = useCallback(async (forceRefresh: boolean = false) => {
     try {
@@ -127,8 +135,13 @@ export default function SwingCandidates() {
     setSortConfig({ key, direction });
   };
 
+  // Clicking the active option clears back to All (toggle behavior)
+  const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
+  const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
+
   const filteredAndSorted = useMemo(() => {
     let filtered = [...candidates];
+    if (showReadyOnly) filtered = filtered.filter(isReady);
     if (showStage2AOnly) filtered = filtered.filter(c => c.stage && c.stage.includes('2A'));
     if (marketCapFilter !== 'All') {
       filtered = filtered.filter(c => {
@@ -141,15 +154,26 @@ export default function SwingCandidates() {
         return true;
       });
     }
+    if (scoreFilter !== 'All') {
+      filtered = filtered.filter(c => {
+        if (scoreFilter === 'High') return c.score >= 70;
+        if (scoreFilter === 'Med') return c.score >= 55 && c.score < 70;
+        if (scoreFilter === 'Low') return c.score < 55;
+        return true;
+      });
+    }
     if (emaFilter !== 'All') {
       filtered = filtered.filter(c => {
         const a10 = above10(c);
         const a21 = above21(c);
         if (emaFilter === '>10') return a10 === true;
         if (emaFilter === '>21') return a21 === true;
-        if (emaFilter === '>Both') return a10 === true && a21 === true;
+        if (emaFilter === 'Both') return a10 === true && a21 === true;
         return true;
       });
+    }
+    if (vwapFilter !== 'All') {
+      filtered = filtered.filter(c => c.vwapStatus === vwapFilter);
     }
     if (!sortConfig) return filtered;
     return filtered.sort((a, b) => {
@@ -161,7 +185,7 @@ export default function SwingCandidates() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, showStage2AOnly, marketCapFilter, emaFilter]);
+  }, [candidates, sortConfig, showReadyOnly, showStage2AOnly, marketCapFilter, scoreFilter, emaFilter, vwapFilter]);
 
   const getSortIcon = (columnKey: keyof SwingCandidate) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
@@ -196,9 +220,20 @@ export default function SwingCandidates() {
     if (short >= 10) return 'text-emerald-400';
     return 'text-slate-300';
   };
+  const getStochColor = (k: number) => {
+    if (k <= 20) return 'text-purple-400';
+    if (k <= 30) return 'text-emerald-400';
+    return 'text-slate-400';
+  };
+  const getRsColor = (rs: number) => {
+    if (rs >= 20) return 'text-purple-400';
+    if (rs >= 10) return 'text-emerald-400';
+    if (rs >= 0) return 'text-slate-300';
+    return 'text-rose-400';
+  };
 
-  const emaDot = (state: boolean | null) => {
-    if (state === null) return 'bg-slate-600';
+  const emaDot = (state: boolean | null | undefined) => {
+    if (state === null || state === undefined) return 'bg-slate-600';
     return state ? 'bg-emerald-400' : 'bg-rose-500';
   };
 
@@ -210,8 +245,11 @@ export default function SwingCandidates() {
     return 'text-slate-500';
   };
 
-  const thBase = "px-3.5 py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 transition-colors";
-  const tdBase = "px-3.5 pt-3 pb-2";
+  // Shared styles — all columns centered under their titles
+  const thBase = "px-3 py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 transition-colors text-center";
+  const tdBase = "px-3 pt-3 pb-2 text-center";
+  const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
+  const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
@@ -235,108 +273,157 @@ export default function SwingCandidates() {
 
       {isExpanded && (
         <>
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 relative z-10">
-            <div className="flex flex-wrap items-center gap-4">
-              <button onClick={(e) => { e.stopPropagation(); setShowStage2AOnly(!showStage2AOnly); }} className={`px-4 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${showStage2AOnly ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(52,211,153,0.1)]' : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'}`}>Filter: 2A</button>
-              <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1" onClick={(e) => e.stopPropagation()}>
-                {['All', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
-                  <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${marketCapFilter === cap ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' : 'text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]'}`}>{cap}</button>
-                ))}
+          <div className="flex flex-col gap-4 mb-4 relative z-10">
+            {/* Row 1: Ready + 2A filters left, 10/21 + VWAP pills + Rescan right (mirrors other cards) */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 w-full">
+              <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
+                <button onClick={() => setShowReadyOnly(!showReadyOnly)} className={`px-4 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${showReadyOnly ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(52,211,153,0.1)]' : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'}`}>Filter: Ready</button>
+                <button onClick={() => setShowStage2AOnly(!showStage2AOnly)} className={`px-4 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${showStage2AOnly ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(52,211,153,0.1)]' : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'}`}>Filter: 2A</button>
               </div>
-              <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1" onClick={(e) => e.stopPropagation()}>
-                <div className="px-2 border-r border-white/10 mr-1"><span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">EMA</span></div>
-                {(['All', '>10', '>21', '>Both'] as EmaFilterType[]).map((level) => (
-                  <button key={level} onClick={() => setEmaFilter(level)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${emaFilter === level ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' : 'text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]'}`}>{level}</button>
-                ))}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto" onClick={(e) => e.stopPropagation()}>
+                {/* 10/21 — clickable filter pill */}
+                <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">10/21</span>
+                  <div className="flex items-center gap-1">
+                    {(['>10', '>21', 'Both'] as EmaFilterType[]).map((opt) => (
+                      <button key={opt} onClick={() => handleEmaFilter(opt)} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${emaFilter === opt ? filterBtnActive : filterBtnIdle}`}>
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* VWAP — clickable filter pill */}
+                <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">VWAP</span>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
+                    </button>
+                    <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
+                      <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Below
+                    </button>
+                  </div>
+                </div>
+                <button
+                  onClick={() => fetchCandidates(true)}
+                  disabled={isRefreshing}
+                  className={`px-4 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 border shrink-0 ${isRefreshing ? 'bg-[#161c2a] text-slate-600 border-white/5 cursor-wait' : 'bg-[#161c2a] text-slate-400 border-white/5 hover:bg-white/[0.04] hover:text-slate-300'}`}
+                >
+                  {isRefreshing ? 'Scanning…' : 'Rescan'}
+                </button>
               </div>
             </div>
-            <div className="flex items-center gap-4">
+            {/* Row 2: centered — market cap, SCORE, STAGE legend (mirrors other cards) */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-center gap-3 w-full" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1 overflow-x-auto custom-scrollbar w-full sm:w-auto">
+                {['All', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
+                  <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>{cap}</button>
+                ))}
+              </div>
+              <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1 shrink-0">
+                <div className="px-2 border-r border-white/10 mr-1"><span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">SCORE</span></div>
+                {['All', 'High', 'Med', 'Low'].map((level) => (
+                  <button key={level} onClick={() => setScoreFilter(level as ScoreFilterType)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${scoreFilter === level ? filterBtnActive : filterBtnIdle}`}>{level}</button>
+                ))}
+              </div>
               <div className="flex items-center gap-4 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
                 <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">STAGE</span>
                 <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5"><span className="text-[10px] font-bold text-slate-400">1</span></div>
-                  <div className="flex items-center gap-1.5"><span className="text-[10px] font-bold text-emerald-400">2</span></div>
-                  <div className="flex items-center gap-1.5"><span className="text-[10px] font-bold text-amber-400">3</span></div>
-                  <div className="flex items-center gap-1.5"><span className="text-[10px] font-bold text-rose-400">4</span></div>
+                  <span className="text-[10px] font-bold text-slate-400">1</span>
+                  <span className="text-[10px] font-bold text-emerald-400">2</span>
+                  <span className="text-[10px] font-bold text-amber-400">3</span>
+                  <span className="text-[10px] font-bold text-rose-400">4</span>
                 </div>
               </div>
-              <div className="flex items-center gap-4 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
-                <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">10/21 EMA</span>
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div><span className="text-[10px] font-medium text-slate-400">Above</span></div>
-                  <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div><span className="text-[10px] font-medium text-slate-400">Below</span></div>
-                </div>
-              </div>
-              <button
-                onClick={(e) => { e.stopPropagation(); fetchCandidates(true); }}
-                disabled={isRefreshing}
-                className={`px-4 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 border ${isRefreshing ? 'bg-[#161c2a] text-slate-600 border-white/5 cursor-wait' : 'bg-[#161c2a] text-slate-400 border-white/5 hover:bg-white/[0.04] hover:text-slate-300'}`}
-              >
-                {isRefreshing ? 'Scanning…' : 'Rescan'}
-              </button>
             </div>
           </div>
 
           <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[1100px] table-fixed border-collapse">
+            <table className="w-full min-w-[1350px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} text-left w-[7%]`} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
-                  <th className="pl-1 pr-3.5 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left w-[6%] cursor-pointer hover:text-slate-300 transition-colors" onClick={() => handleSort('score')}>SCORE{getSortIcon('score')}</th>
-                  <th className={`${thBase} text-right w-[9%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                  <th className={`${thBase} text-right w-[9%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className={`${thBase} text-left w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} text-left w-[8%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('score')}>SCORE{getSortIcon('score')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} w-[6%]`}>10/21</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[4%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
+                  <th className={`${thBase} w-[4%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} w-[4%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} w-[5%] border-l border-white/5`}>STRUCT</th>
+                  <th className={`${thBase} w-[6%]`}>STATUS</th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-white/5">
                 {candidates.length === 0 ? (
-                  <tr><td colSpan={12} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? 'No candidates match current filter criteria.' : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — try Rescan.'}</td></tr>
+                  <tr><td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? 'No candidates match current filter criteria.' : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — try Rescan.'}</td></tr>
                 ) : (
                   filteredAndSorted.map((row) => {
                     const isPositive = (row.changePct ?? 0) >= 0;
                     return (
                       <React.Fragment key={row.symbol}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
-                          <td className={`${tdBase} text-left`}>
+                          <td className={tdBase}>
                             <span title={row.name || row.symbol} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.symbol}</span>
                           </td>
-                          <td className="pl-1 pr-3.5 pt-3 pb-2 text-left">
+                          <td className={tdBase}>
                             <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.score)}`}>{row.score}</span>
                           </td>
-                          <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap text-right tabular-nums`}>
-                            <div className="flex items-center justify-end gap-1.5">
-                              ${row.price.toFixed(2)}
-                              <div className="flex items-center gap-1 shrink-0">
-                                <div className={`w-1.5 h-1.5 rounded-full ${emaDot(above10(row))}`} title={`10 EMA: ${above10(row) === null ? 'n/a' : above10(row) ? 'above' : 'below'}`}></div>
+                          <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
+                            <div className="flex items-center justify-center gap-1.5">${row.price.toFixed(2)}{row.vwapStatus && row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div>
+                          </td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{row.changePct != null ? `${isPositive ? '+' : ''}${row.changePct.toFixed(2)}%` : '—'}</td>
+                          <td className={`${tdBase} whitespace-nowrap`}>
+                            <div className="flex items-center justify-center gap-2">
+                              <div className="flex items-center gap-1">
+                                <span className="text-[9px] font-bold text-slate-500">10</span>
+                                <div className={`w-1.5 h-1.5 rounded-full ${emaDot(above10(row))}`} title={`10 EMA: ${above10(row) == null ? 'n/a' : above10(row) ? 'above' : 'below'}`}></div>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="text-[9px] font-bold text-slate-500">21</span>
                                 <div className={`w-1.5 h-1.5 rounded-full ${emaDot(above21(row))}`} title={`21 EMA: ${above21(row) ? 'above' : 'below'}`}></div>
                               </div>
                             </div>
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap text-right tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{row.changePct != null ? `${isPositive ? '+' : ''}${row.changePct.toFixed(2)}%` : '—'}</td>
-                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums`}>{formatNumber(row.vol)}</td>
-                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums`}>{formatCurrency(row.dVol)}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap text-right tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap text-right tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap text-right tabular-nums ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
-                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums`}>{formatNumber(row.mktCap)}</td>
-                          <td className={`${tdBase} text-left whitespace-nowrap border-l border-white/5`}>
+                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
+                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{row.dVol ? formatCurrency(row.dVol) : (row.avgDollarVolM ? `$${row.avgDollarVolM}M` : '—')}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy >= 0 ? '+' : ''}{row.rsVsSpy.toFixed(1)}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK.toFixed(1)}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
+                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
+                          <td className={`${tdBase} whitespace-nowrap border-l border-white/5`}>
                             <span className={`text-[11px] font-bold tracking-wide ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span>
                           </td>
-                          <td className={`${tdBase} text-left`}>
+                          <td className={tdBase}>
                             <span className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{row.sector || '—'}</span>
+                          </td>
+                          <td className={`${tdBase} whitespace-nowrap border-l border-white/5`}>
+                            <div className="flex items-center justify-center gap-1.5">
+                              <span className={`text-[10px] font-bold ${row.goldenCross ? 'text-emerald-400' : 'text-slate-600'}`} title="50 SMA > 200 SMA">GC</span>
+                              <span className={`text-[10px] font-bold ${row.ema21Rising ? 'text-emerald-400' : 'text-slate-600'}`} title="21 EMA rising">21↑</span>
+                            </div>
+                          </td>
+                          <td className={`${tdBase} whitespace-nowrap`}>
+                            {isReady(row) ? (
+                              <span className="inline-block px-2 py-[2px] rounded text-[9px] font-bold tracking-wide uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Ready</span>
+                            ) : (
+                              <span className="inline-block px-2 py-[2px] rounded text-[9px] font-bold tracking-wide uppercase bg-white/[0.02] text-slate-500 border border-white/5">Forming</span>
+                            )}
                           </td>
                         </tr>
                         <tr className="bg-transparent border-t border-white/5">
-                          <td colSpan={12} className="pb-3.5 pt-2.5 pr-2 pl-[56px]">
-                            <div className="flex items-baseline gap-3">
+                          <td colSpan={17} className="pb-3.5 pt-2.5 pr-2 pl-[56px]">
+                            <div className="flex items-baseline gap-3 text-left">
                               <span className="shrink-0 w-[88px] text-[#7c8bfa] font-bold text-[10px] tracking-[0.1em] uppercase">EMA PB</span>
                               <p className="flex-1 text-[11px] leading-relaxed pr-8 whitespace-normal max-w-[780px]">
                                 <span className="text-slate-500">{buildReadout(row)}</span>
