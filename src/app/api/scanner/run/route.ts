@@ -827,6 +827,18 @@ export async function GET(request: Request) {
     const toStr = todayDate.toISOString().split('T')[0];
     const fromStr = lookbackDate.toISOString().split('T')[0];
 
+    // SPY 63-day (~3 month) return — the benchmark for the swing-style RS/SPY
+    // metric shown on every card. One extra call per scan.
+    const spyHistRes = await fetchSafeJson(
+      `https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=desc&limit=350&apiKey=${polygonApiKey}`,
+      { results: [] }
+    );
+    const spyHistBars = (spyHistRes.results || []).sort((a: any, b: any) => b.t - a.t);
+    let spyReturn3M: number | null = null;
+    if (spyHistBars.length >= 64 && spyHistBars[63].c > 0) {
+      spyReturn3M = ((spyHistBars[0].c - spyHistBars[63].c) / spyHistBars[63].c) * 100;
+    }
+
     const allCandidates = [...dailyCandidates, ...sipCandidates, ...megaCapsRaw, ...gainersRaw, ...losersRaw, ...etfGainersRaw, ...etfLosersRaw];
     const uniqueCandidates = Array.from(new Map(allCandidates.map(item => [item.ticker, item])).values());
     
@@ -891,6 +903,28 @@ export async function GET(request: Request) {
         aboveEma21 = price >= e21;
       }
 
+      // Smoothed stochastic %K (10, 4) — same math as the Dr. Wish dots and the
+      // swing feed, adapted for newest-first bars: average the raw %K of the
+      // 4 most recent sessions.
+      let stochK: number | null = null;
+      if (dailyBars.length >= 14) {
+        const rawK = (idx: number) => {
+          const win = dailyBars.slice(idx, idx + 10);
+          const hi = Math.max(...win.map((b: any) => b.h));
+          const lo = Math.min(...win.map((b: any) => b.l));
+          return hi === lo ? 50 : ((dailyBars[idx].c - lo) / (hi - lo)) * 100;
+        };
+        stochK = (rawK(0) + rawK(1) + rawK(2) + rawK(3)) / 4;
+      }
+
+      // 3-month RS vs SPY (63 trading days) — matches the swing feed's rsVsSpy.
+      // Distinct from rsVsMkt below, which is TODAY's move vs SPY (SMB input).
+      let rsVsSpy: number | null = null;
+      if (spyReturn3M != null && dailyBars.length >= 64 && dailyBars[63].c > 0) {
+        const ret3M = ((dailyBars[0].c - dailyBars[63].c) / dailyBars[63].c) * 100;
+        rsVsSpy = ret3M - spyReturn3M;
+      }
+
       // --- SMB raw components -------------------------------------------------
       let gapPct: number | null = null;
       let atrExpansion: number | null = null;
@@ -948,6 +982,8 @@ export async function GET(request: Request) {
         ticker: sym, name: companyName, sector: deepSector, price, vwapStatus, changePct: chgPct, vol, avgVol, atr, dVol: vol * vwap, rvol: rvol ? parseFloat(rvol.toFixed(2)) : null,
         float, shortPct, mktCap: marketCap, stage: setupMatched.stage, setupName: setupMatched.name, catalystUrl: finalCatalystUrl,
         aboveEma10, aboveEma21,
+        stochK: stochK != null ? parseFloat(stochK.toFixed(1)) : null,
+        rsVsSpy: rsVsSpy != null ? parseFloat(rsVsSpy.toFixed(1)) : null,
         gapPct: gapPct != null ? parseFloat(gapPct.toFixed(2)) : null,
         atrExpansion: atrExpansion != null ? parseFloat(atrExpansion.toFixed(2)) : null,
         rsVsMkt: parseFloat(rsVsMkt.toFixed(2)),
@@ -969,7 +1005,6 @@ export async function GET(request: Request) {
     const wiimTickers = enrichedList.map((t: any) => t.ticker).filter(Boolean);
     const wiimMap = await fetchBenzingaWiims(wiimTickers, benzingaApiKey);
 
-    // Earnings proximity set for the SMB grade (reporting today / next 2 days).
     const earningsSoonSet = await fetchEarningsProximity(benzingaApiKey);
 
     const hasLlmKey = !!(process.env.ANTHROPIC_API_KEY || process.env.GEMINI_API_KEY);
@@ -978,8 +1013,6 @@ export async function GET(request: Request) {
     let confluenceDict: any = {};
 
     // --- AI COST CONTROL -------------------------------------------------------
-    // AI still supplies catalyst / thesis / tradeType and the macro briefing.
-    // Conviction scoring is now handled entirely by the deterministic SMB score.
     const AI_REFRESH_MIN = 60;
     const forceAi = searchParams.get('forceai') === 'true';
     const lastAiRun = (await kv.get<number>('ai_last_run_v6')) || 0;
@@ -1154,8 +1187,6 @@ export async function GET(request: Request) {
       if (!t.tradeType) t.tradeType = deriveTradeType(t.setupName);
 
       // --- Unified score: SMB IS the conviction number ------------------------
-      // Deterministic, fresh every scan, never missing. The AI's conviction is
-      // intentionally ignored; the AI contributes catalyst / thesis / tradeType.
       const hasEarnings = earningsSoonSet.has(t.ticker);
       const smb = computeSmbScore(
         t.rvol,

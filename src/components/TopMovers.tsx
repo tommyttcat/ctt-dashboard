@@ -23,6 +23,8 @@ interface StockData {
   conviction: number | null;
   aboveEma10: boolean | null;
   aboveEma21: boolean | null;
+  stochK: number | null;
+  rsVsSpy: number | null;
 }
 
 type TabType = 'Mega Caps' | 'Gainers' | 'Losers' | 'ETF Gainers' | 'ETF Losers';
@@ -142,6 +144,8 @@ export default function TopMovers() {
               conviction: item.conviction != null ? Number(item.conviction) : (item.smbScore ?? null),
               aboveEma10: item.aboveEma10 ?? null,
               aboveEma21: item.aboveEma21 ?? null,
+              stochK: item.stochK ?? null,
+              rsVsSpy: item.rsVsSpy ?? null,
             }));
           });
 
@@ -257,13 +261,28 @@ export default function TopMovers() {
     return 'text-slate-300';
   };
 
+  const getStochColor = (k: number | null) => {
+    if (k == null) return 'text-slate-500';
+    if (k <= 20) return 'text-purple-400';
+    if (k <= 30) return 'text-emerald-400';
+    return 'text-slate-400';
+  };
+
+  const getRsColor = (rs: number | null) => {
+    if (rs == null) return 'text-slate-500';
+    if (rs >= 20) return 'text-purple-400';
+    if (rs >= 10) return 'text-emerald-400';
+    if (rs >= 0) return 'text-slate-300';
+    return 'text-rose-400';
+  };
+
   const emaDot = (state: boolean | null) => {
     if (state === null) return 'bg-slate-600';
     return state ? 'bg-emerald-400' : 'bg-rose-500';
   };
 
   // Shared styles
-  const thBase = "px-3.5 py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 transition-colors";
+  const thBase = "px-3 py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 transition-colors";
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
   const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
 
@@ -321,7 +340,7 @@ export default function TopMovers() {
                 </div>
               </div>
             </div>
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-center gap-3 w-full" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1 overflow-x-auto custom-scrollbar w-full sm:w-auto">
                 {['All', 'Micro', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
                   <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>
@@ -381,35 +400,37 @@ export default function TopMovers() {
           </div>
           
           <div className="overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[1150px] table-fixed border-collapse">
+            <table className="w-full min-w-[1250px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} text-left w-[8%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className={`${thBase} text-left w-[7%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
                   <th className="pl-0.5 pr-2 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left w-[5%] cursor-pointer hover:text-slate-300 transition-colors" onClick={() => handleSort('conviction')}>SCORE{getSortIcon('conviction')}</th>
-                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} text-left w-[7%]`}>10/21</th>
-                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} text-left w-[6%]`}>10/21</th>
+                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
+                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
+                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
                   <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className={`${thBase} text-left w-[10%] border-l border-white/5`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className={`${thBase} text-left w-[16%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className={`${thBase} text-right w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className={`${thBase} text-right w-[5%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} text-left w-[9%] border-l border-white/5`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} text-left w-[14%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {status.includes('Syncing') && topMoversData[activeTab].length === 0 ? (
-                  <tr><td colSpan={13} className="py-12 text-center"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
+                  <tr><td colSpan={15} className="py-12 text-center"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
                 ) : sortedStocks.length === 0 ? (
-                  <tr><td colSpan={13} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td></tr>
+                  <tr><td colSpan={15} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td></tr>
                 ) : (
                   sortedStocks.map((row, i) => {
                     const isPositive = row.changePct >= 0;
                     return (
                       <tr key={i} className="hover:bg-white/[0.02] transition-colors group">
-                        <td className="px-3.5 py-3 text-left">
+                        <td className="px-3 py-3 text-left">
                           <div className="relative inline-flex items-center group/ticker">
                             <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help" title={row.name || row.ticker}>{row.ticker}</span>
                           </div>
@@ -417,13 +438,13 @@ export default function TopMovers() {
                         <td className="pl-0.5 pr-2 py-3 text-left">
                           <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.conviction)}`}>{row.conviction != null ? row.conviction : '--'}</span>
                         </td>
-                        <td className="px-3.5 py-3 text-xs text-slate-300 font-medium whitespace-nowrap text-right tabular-nums">
+                        <td className="px-3 py-3 text-xs text-slate-300 font-medium whitespace-nowrap text-right tabular-nums">
                           <div className="flex items-center justify-end gap-1.5">
                             ${row.price.toFixed(2)}
                             {row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}
                           </div>
                         </td>
-                        <td className="px-3.5 py-3 text-left whitespace-nowrap">
+                        <td className="px-3 py-3 text-left whitespace-nowrap">
                           <div className="flex items-center gap-2">
                             <div className="flex items-center gap-1">
                               <span className="text-[9px] font-bold text-slate-500">10</span>
@@ -435,17 +456,19 @@ export default function TopMovers() {
                             </div>
                           </div>
                         </td>
-                        <td className={`px-3.5 py-3 text-xs font-bold whitespace-nowrap text-right tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
-                        <td className="px-3.5 py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums">{formatNumber(row.vol)}</td>
-                        <td className="px-3.5 py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums">{formatCurrency(row.dVol)}</td>
-                        <td className={`px-3.5 py-3 text-xs font-bold whitespace-nowrap text-right tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
-                        <td className={`px-3.5 py-3 text-xs font-bold whitespace-nowrap text-right tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
-                        <td className={`px-3.5 py-3 text-xs font-bold whitespace-nowrap text-right tabular-nums ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
-                        <td className="px-3.5 py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums">{formatNumber(row.mktCap)}</td>
-                        <td className="px-3.5 py-3 text-left border-l border-white/5">
+                        <td className={`px-3 py-3 text-xs font-bold whitespace-nowrap text-right tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
+                        <td className={`px-3 py-3 text-xs font-bold whitespace-nowrap text-right tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)}` : '—'}</td>
+                        <td className={`px-3 py-3 text-xs font-bold whitespace-nowrap text-right tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
+                        <td className="px-3 py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums">{formatNumber(row.vol)}</td>
+                        <td className="px-3 py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums">{formatCurrency(row.dVol)}</td>
+                        <td className={`px-3 py-3 text-xs font-bold whitespace-nowrap text-right tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
+                        <td className={`px-3 py-3 text-xs font-bold whitespace-nowrap text-right tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
+                        <td className={`px-3 py-3 text-xs font-bold whitespace-nowrap text-right tabular-nums ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
+                        <td className="px-3 py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums">{formatNumber(row.mktCap)}</td>
+                        <td className="px-3 py-3 text-left border-l border-white/5">
                           <span className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{row.sector || '—'}</span>
                         </td>
-                        <td className="px-3.5 py-3 text-[10px] text-left whitespace-normal break-words">
+                        <td className="px-3 py-3 text-[10px] text-left whitespace-normal break-words">
                           {!isGenericCatalyst(row.catalyst) ? (
                             row.catalystUrl ? (
                               <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>

@@ -22,10 +22,16 @@ interface StockInPlay {
   catalystUrl?: string | null; // RESTORED
   conviction?: number | null; 
   thesis?: string | null;     
+  aboveEma10?: boolean | null;
+  aboveEma21?: boolean | null;
+  stochK?: number | null;
+  rsVsSpy?: number | null;
 }
 
 type SortDirection = 'asc' | 'desc';
 type ConvictionFilterType = 'All' | 'High' | 'Med' | 'Low';
+type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
+type VwapFilterType = 'All' | 'above' | 'below';
 
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
@@ -66,7 +72,6 @@ const isGenericCatalyst = (catalyst: string | null | undefined) =>
 
 export default function StocksInPlay() {
   const { session } = useMarketData(); 
-
   const [stocks, setStocks] = useState<StockInPlay[]>([]);
   const [status, setStatus] = useState<string>('Syncing DB...');
   const [lastScanTime, setLastScanTime] = useState<number | null>(null);
@@ -75,6 +80,8 @@ export default function StocksInPlay() {
   const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(false); 
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
   const [convictionFilter, setConvictionFilter] = useState<ConvictionFilterType>('All');
+  const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
+  const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
 
   useEffect(() => {
     let isMounted = true;
@@ -88,12 +95,10 @@ export default function StocksInPlay() {
           const safeData = rawList.map((item: any) => {
             const rawCatalyst = item.catalyst || null;
             let finalThesis = item.thesis || item.aiThesis || item.analysis || item.reasoning || null;
-
             if (!finalThesis && rawCatalyst) {
               const cleanedCat = rawCatalyst.trim().replace(/\.$/, '');
               finalThesis = `Institutional buying triggered by ${cleanedCat.toLowerCase()}.`;
             }
-
             return {
               ticker: item.ticker || '—',
               name: item.name || '',
@@ -111,11 +116,14 @@ export default function StocksInPlay() {
               setupName: item.setupName || null,
               catalyst: rawCatalyst,
               catalystUrl: item.catalystUrl || null, // RESTORED
-              conviction: item.conviction != null ? Number(item.conviction) : ((item.aiScore ?? item.score) ?? null), 
+              conviction: item.conviction != null ? Number(item.conviction) : ((item.smbScore ?? item.aiScore ?? item.score) ?? null), 
               thesis: finalThesis,         
+              aboveEma10: item.aboveEma10 ?? null,
+              aboveEma21: item.aboveEma21 ?? null,
+              stochK: item.stochK ?? null,
+              rsVsSpy: item.rsVsSpy ?? null,
             };
           });
-
           setStocks(safeData);
           setLastScanTime(data.lastScanTime || Date.now()); 
           setStatus('Live');
@@ -124,7 +132,6 @@ export default function StocksInPlay() {
         if (isMounted) setStatus('DB Offline');
       }
     };
-
     fetchDatabaseSnapshot();
     const interval = setInterval(fetchDatabaseSnapshot, 60000);
     return () => { isMounted = false; clearInterval(interval); };
@@ -136,6 +143,10 @@ export default function StocksInPlay() {
     else if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') { setSortConfig(null); return; }
     setSortConfig({ key, direction });
   };
+
+  // Clicking the active option clears back to All (toggle behavior)
+  const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
+  const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
 
   const filteredAndSortedStocks = useMemo(() => {
     let filtered = stocks.filter(s => s.changePct >= 4.0 && s.vol >= 500000 && s.mktCap !== null && s.mktCap >= 20000000);
@@ -152,14 +163,26 @@ export default function StocksInPlay() {
         return true;
       });
     }
+    // Buckets aligned to the SMB grade lines: High = A (>=70), Med = B (50-69), Low = C (<50)
     if (convictionFilter !== 'All') {
       filtered = filtered.filter(s => {
         if (s.conviction == null) return false;
-        if (convictionFilter === 'High') return s.conviction >= 85;
-        if (convictionFilter === 'Med') return s.conviction >= 70 && s.conviction < 85;
-        if (convictionFilter === 'Low') return s.conviction < 70;
+        if (convictionFilter === 'High') return s.conviction >= 70;
+        if (convictionFilter === 'Med') return s.conviction >= 50 && s.conviction < 70;
+        if (convictionFilter === 'Low') return s.conviction < 50;
         return true;
       });
+    }
+    if (emaFilter !== 'All') {
+      filtered = filtered.filter(s => {
+        if (emaFilter === '>10') return s.aboveEma10 === true;
+        if (emaFilter === '>21') return s.aboveEma21 === true;
+        if (emaFilter === 'Both') return s.aboveEma10 === true && s.aboveEma21 === true;
+        return true;
+      });
+    }
+    if (vwapFilter !== 'All') {
+      filtered = filtered.filter(s => s.vwapStatus === vwapFilter);
     }
     if (!sortConfig) return filtered;
     return [...filtered].sort((a, b) => {
@@ -171,9 +194,10 @@ export default function StocksInPlay() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [stocks, sortConfig, showStage2AOnly, marketCapFilter, convictionFilter]);
+  }, [stocks, sortConfig, showStage2AOnly, marketCapFilter, convictionFilter, emaFilter, vwapFilter]);
 
   const getSortIcon = (columnKey: keyof StockInPlay) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
+
   const getStageColor = (stage: string | undefined) => {
     if (!stage || stage === '-') return 'text-slate-500';
     if (stage.includes('1')) return 'text-slate-400';
@@ -200,6 +224,35 @@ export default function StocksInPlay() {
     if (short >= 10) return 'text-emerald-400';
     return 'text-slate-300';
   };
+
+  const getStochColor = (k: number | null | undefined) => {
+    if (k == null) return 'text-slate-500';
+    if (k <= 20) return 'text-purple-400';
+    if (k <= 30) return 'text-emerald-400';
+    return 'text-slate-400';
+  };
+
+  const getRsColor = (rs: number | null | undefined) => {
+    if (rs == null) return 'text-slate-500';
+    if (rs >= 20) return 'text-purple-400';
+    if (rs >= 10) return 'text-emerald-400';
+    if (rs >= 0) return 'text-slate-300';
+    return 'text-rose-400';
+  };
+
+  // SMB-graded score badge: green = A (>=70), amber = B (>=50), gray = C
+  const getScoreBadge = (score: number | null | undefined) => {
+    if (score == null) return 'bg-white/[0.02] text-slate-600 border-white/5';
+    if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+    if (score >= 50) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+    return 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50';
+  };
+
+  const emaDot = (state: boolean | null | undefined) => {
+    if (state === null || state === undefined) return 'bg-slate-600';
+    return state ? 'bg-emerald-400' : 'bg-rose-500';
+  };
+
   const displaySession = ['Pre-Market', 'Open', 'Post-Market', 'Closed'].includes(session) ? session : 'Closed';
   const getSessionTextColor = () => {
     if (displaySession === 'Pre-Market') return 'text-amber-500';
@@ -209,9 +262,11 @@ export default function StocksInPlay() {
   };
 
   // Shared header cell styling so every column shares the same padding + behavior.
-  const thBase = "px-3.5 py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 transition-colors";
+  const thBase = "px-3 py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 transition-colors";
   // Shared body cell padding (asymmetric vertical because a thesis sub-row follows).
-  const tdBase = "px-3.5 pt-3 pb-2";
+  const tdBase = "px-3 pt-3 pb-2";
+  const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
+  const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
@@ -237,17 +292,17 @@ export default function StocksInPlay() {
               <button onClick={(e) => { e.stopPropagation(); setShowStage2AOnly(!showStage2AOnly); }} className={`px-4 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${showStage2AOnly ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(52,211,153,0.1)]' : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'}`}>Filter: 2A</button>
               <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1" onClick={(e) => e.stopPropagation()}>
                 {['All', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
-                  <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${marketCapFilter === cap ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' : 'text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]'}`}>{cap}</button>
+                  <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>{cap}</button>
                 ))}
               </div>
               <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1" onClick={(e) => e.stopPropagation()}>
-                <div className="px-2 border-r border-white/10 mr-1"><span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">CONF</span></div>
+                <div className="px-2 border-r border-white/10 mr-1"><span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">SMB</span></div>
                 {['All', 'High', 'Med', 'Low'].map((level) => (
-                  <button key={level} onClick={() => setConvictionFilter(level as ConvictionFilterType)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${convictionFilter === level ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' : 'text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]'}`}>{level}</button>
+                  <button key={level} onClick={() => setConvictionFilter(level as ConvictionFilterType)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${convictionFilter === level ? filterBtnActive : filterBtnIdle}`}>{level}</button>
                 ))}
               </div>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center gap-4 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
                 <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">STAGE</span>
                 <div className="flex items-center gap-3">
@@ -257,39 +312,57 @@ export default function StocksInPlay() {
                   <div className="flex items-center gap-1.5"><span className="text-[10px] font-bold text-rose-400">4</span></div>
                 </div>
               </div>
-              <div className="flex items-center gap-4 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+              {/* EMA 10/21 — clickable filter pill */}
+              <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+                <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">EMA 10/21</span>
+                <div className="flex items-center gap-1">
+                  {(['>10', '>21', 'Both'] as EmaFilterType[]).map((opt) => (
+                    <button key={opt} onClick={() => handleEmaFilter(opt)} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${emaFilter === opt ? filterBtnActive : filterBtnIdle}`}>
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* VWAP — clickable filter pill */}
+              <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
                 <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">VWAP</span>
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div><span className="text-[10px] font-medium text-slate-400">Above</span></div>
-                  <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div><span className="text-[10px] font-medium text-slate-400">Below</span></div>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
+                  </button>
+                  <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
+                    <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Below
+                  </button>
                 </div>
               </div>
             </div>
           </div>
-
           <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[1100px] table-fixed border-collapse">
+            <table className="w-full min-w-[1250px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} text-left w-[7%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
-                  <th className="pl-1 pr-3.5 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left w-[6%] cursor-pointer hover:text-slate-300 transition-colors" onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
+                  <th className="pl-1 pr-2 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left w-[5%] cursor-pointer hover:text-slate-300 transition-colors" onClick={() => handleSort('conviction')}>SMB{getSortIcon('conviction')}</th>
                   <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                  <th className={`${thBase} text-right w-[10%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} text-left w-[6%]`}>10/21</th>
+                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
+                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
+                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} text-right w-[5%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} text-right w-[5%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} text-right w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className={`${thBase} text-right w-[5%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thBase} text-left w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} text-left w-[8%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className={`${thBase} text-left w-[18%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className={`${thBase} text-left w-[7%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} text-left w-[12%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               
               <tbody className="divide-y divide-white/5">
                 {stocks.length === 0 ? (
-                  <tr><td colSpan={13} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td></tr>
+                  <tr><td colSpan={16} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td></tr>
                 ) : (
                   filteredAndSortedStocks.map((row, i) => {
                     const isPositive = row.changePct >= 0;
@@ -301,14 +374,26 @@ export default function StocksInPlay() {
                               <span title={row.name || row.ticker} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
                             </div>
                           </td>
-                          <td className="pl-1 pr-3.5 pt-3 pb-2 text-left">
-                            {row.conviction != null ? (
-                              <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${row.conviction >= 85 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : row.conviction >= 70 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50'}`}>{row.conviction}%</span>
-                            ) : (<span className="inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border bg-white/[0.02] text-slate-600 border-white/5">--%</span>)}
+                          <td className="pl-1 pr-2 pt-3 pb-2 text-left">
+                            <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.conviction)}`}>{row.conviction != null ? row.conviction : '--'}</span>
                           </td>
                           <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap text-right tabular-nums`}>
-                            <div className="flex items-center justify-end gap-1.5">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>)}</div>
+                            <div className="flex items-center justify-end gap-1.5">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div>
                           </td>
+                          <td className={`${tdBase} text-left whitespace-nowrap`}>
+                            <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1">
+                                <span className="text-[9px] font-bold text-slate-500">10</span>
+                                <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} title={`10 EMA: ${row.aboveEma10 == null ? 'n/a' : row.aboveEma10 ? 'above' : 'below'}`}></div>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="text-[9px] font-bold text-slate-500">21</span>
+                                <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma21)}`} title={`21 EMA: ${row.aboveEma21 == null ? 'n/a' : row.aboveEma21 ? 'above' : 'below'}`}></div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap text-right tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap text-right tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)}` : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap text-right tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums`}>{formatNumber(row.vol)}</td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums`}>{formatCurrency(row.dVol)}</td>
@@ -337,7 +422,7 @@ export default function StocksInPlay() {
                           </td>
                         </tr>
                         <tr className="bg-transparent border-t border-white/5">
-                          <td colSpan={13} className="pb-3.5 pt-2.5 pr-2 pl-[56px]">
+                          <td colSpan={16} className="pb-3.5 pt-2.5 pr-2 pl-[56px]">
                             <div className="flex items-baseline gap-3">
                               <span className="shrink-0 w-[88px] text-[#7c8bfa] font-bold text-[10px] tracking-[0.1em] uppercase">{formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : ''}</span>
                               <p className="flex-1 text-[11px] leading-relaxed pr-8 whitespace-normal max-w-[780px]">
