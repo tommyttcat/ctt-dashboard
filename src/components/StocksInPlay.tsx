@@ -273,7 +273,7 @@ export default function StocksInPlay() {
     return state ? 'bg-emerald-400' : 'bg-rose-500';
   };
 
-  // STR badge data color: emerald = true, rose = false, dim gray = unknown
+  // STR data color: emerald = true, rose = false, dim gray = unknown
   const structColor = (state: boolean | null | undefined) => {
     if (state === null || state === undefined) return 'text-slate-600';
     return state ? 'text-emerald-400' : 'text-rose-400';
@@ -467,15 +467,15 @@ export default function StocksInPlay() {
                               <p className="flex-1 text-[11px] leading-relaxed whitespace-normal">
                                 {row.thesis ? (<span className="text-slate-500">{row.thesis}</span>) : (<span className="text-slate-600 italic">Awaiting quantitative confluence analysis…</span>)}
                               </p>
-                              {/* STR + STAT badges — gray label, colored data */}
-                              <div className="flex items-center gap-2 shrink-0">
-                                <span className="flex items-center gap-1.5 px-2 py-[3px] rounded-md bg-[#161c2a] border border-white/10">
-                                  <span className="text-[8px] font-bold tracking-widest uppercase text-slate-500">STR</span>
+                              {/* STR: / STAT: — plain inline labels, colored data */}
+                              <div className="flex items-center gap-4 shrink-0">
+                                <span className="flex items-center gap-1.5">
+                                  <span className="text-[10px] font-bold tracking-widest uppercase text-slate-500">STR:</span>
                                   <span className={`text-[10px] font-bold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
                                   <span className={`text-[10px] font-bold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
                                 </span>
-                                <span className={`flex items-center gap-1.5 px-2 py-[3px] rounded-md border ${st === 'Ready' ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-[#161c2a] border-white/10'}`}>
-                                  <span className="text-[8px] font-bold tracking-widest uppercase text-slate-500">STAT</span>
+                                <span className="flex items-center gap-1.5">
+                                  <span className="text-[10px] font-bold tracking-widest uppercase text-slate-500">STAT:</span>
                                   {st === 'Ready' ? (
                                     <span className="text-[10px] font-bold tracking-wide uppercase text-emerald-400">Ready</span>
                                   ) : st === 'Forming' ? (
