@@ -5,7 +5,8 @@ import React, { useState, useEffect } from 'react';
 // --- INTERFACES ---
 interface CatalystItem {
   ticker: string;
-  headline: string;
+  tag: string | null;      // short category ("Earnings", "FDA / Data", ...)
+  headline: string;        // full WIIM article sentence (or summary text)
   url: string | null;
   impact: 'High' | 'Medium' | 'Low';
 }
@@ -22,6 +23,11 @@ const getImpactBadge = (impact: string) => {
    Deterministic catalyst engine — pulls real WIIM headlines the
    scanner already captured and classifies impact from the data.
    Zero AI cost.
+
+   Data shape per ticker (from the scanner):
+   - catalyst    = short category tag ("Earnings", "M&A", ...)
+   - thesis      = the verbatim Benzinga WIIM sentence (article headline)
+   - catalystUrl = link to the source article
    ============================================================ */
 
 const num = (v: any): number => {
@@ -32,7 +38,7 @@ const num = (v: any): number => {
 const chgOf = (s: any): number => num(s?.change ?? s?.changePct);
 const rvolOf = (s: any): number => num(s?.rvol);
 
-// A "real" catalyst is a WIIM headline, not the technical-momentum fallback.
+// A "real" catalyst is a WIIM/news tag, not the technical-momentum fallback.
 const hasRealCatalyst = (s: any): boolean =>
   !!s?.catalyst && !String(s.catalyst).toLowerCase().startsWith('technical momentum');
 
@@ -54,6 +60,15 @@ const impactRank = (s: any): number => {
   const imp = classifyImpact(s);
   const base = imp === 'High' ? 2000 : imp === 'Medium' ? 1000 : 0;
   return base + rvolOf(s) * 50 + Math.abs(chgOf(s));
+};
+
+// Headline priority: the WIIM sentence stored in `thesis` when a source URL
+// exists (guarantees it's the real article text, not an AI paraphrase),
+// otherwise any thesis text, otherwise the tag itself.
+const headlineOf = (s: any): string => {
+  const thesis = s?.thesis ? String(s.thesis).trim() : '';
+  if (thesis) return thesis.replace(/\.$/, '');
+  return String(s.catalyst).replace(/\.$/, '');
 };
 
 const buildCatalystFeed = (scan: any): CatalystItem[] => {
@@ -79,12 +94,19 @@ const buildCatalystFeed = (scan: any): CatalystItem[] => {
   return items
     .sort((a, b) => b.rank - a.rank)
     .slice(0, 20)
-    .map(({ s }) => ({
-      ticker: s.ticker,
-      headline: String(s.catalyst).replace(/\.$/, ''),
-      url: s.catalystUrl || null,
-      impact: classifyImpact(s),
-    }));
+    .map(({ s }) => {
+      const headline = headlineOf(s);
+      const tag = String(s.catalyst).replace(/\.$/, '');
+      return {
+        ticker: s.ticker,
+        // Only show the tag chip when the headline is a distinct article
+        // sentence — no point showing "Earnings" twice.
+        tag: headline.toLowerCase() !== tag.toLowerCase() ? tag : null,
+        headline,
+        url: s.catalystUrl || null,
+        impact: classifyImpact(s),
+      };
+    });
 };
 
 // Fallback parser for the legacy AI actionableEvents shape.
@@ -133,7 +155,7 @@ export default function NewsFeed() {
           }
         }
 
-        // Fallback: legacy AI actionableEvents if the scan carried no news
+        // Fallback: legacy actionableEvents if the scan carried no news
         const legacyRes = await fetch(`/api/market-summary?t=${Date.now()}`, { cache: 'no-store' });
         if (legacyRes.ok) {
           const data = await legacyRes.json();
@@ -144,6 +166,7 @@ export default function NewsFeed() {
               const { head, rest } = splitEvent(e.event.trim());
               return {
                 ticker: head.replace(/:$/, ''),
+                tag: null,
                 headline: rest,
                 url: null,
                 impact: (['High', 'Medium', 'Low'].includes(e.impact) ? e.impact : 'Medium') as 'High' | 'Medium' | 'Low',
@@ -152,7 +175,7 @@ export default function NewsFeed() {
           if (isMounted) {
             setNews(processed);
             setLastUpdated(new Date());
-            setStatus(processed.length > 0 ? 'Live' : 'Live');
+            setStatus('Live');
           }
         } else if (isMounted && news.length === 0) {
           setStatus('Offline');
@@ -245,6 +268,9 @@ export default function NewsFeed() {
                     {item.ticker ? (
                       <span className="inline-block shrink-0 w-[72px] text-center truncate bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20" title={item.ticker}>{item.ticker}</span>
                     ) : null}
+                    {item.tag && (
+                      <span className="inline-block shrink-0 whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border bg-zinc-800/50 text-slate-300 border-zinc-700/50">{item.tag}</span>
+                    )}
                     {item.url ? (
                       <a href={item.url} target="_blank" rel="noopener noreferrer" className="font-medium text-slate-200 text-xs leading-relaxed min-w-0 hover:text-rose-300 transition-colors hover:underline">
                         {item.headline}
