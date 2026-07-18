@@ -4,9 +4,10 @@ import React, { useState, useEffect } from 'react';
 
 // --- INTERFACES ---
 interface CatalystItem {
-  event: string;   // full catalyst text, e.g. "NVDA: Q3 earnings beat, raises guidance"
-  time: string;    // "HH:MM AM" (EST appended in render)
-  impact: string;  // "High" | "Medium" | "Low"
+  ticker: string;
+  headline: string;
+  url: string | null;
+  impact: 'High' | 'Medium' | 'Low';
 }
 
 // Impact-based badge tint (mirrors the original Actionable Catalysts panel).
@@ -17,8 +18,76 @@ const getImpactBadge = (impact: string) => {
   return 'bg-slate-500/10 border-white/10 text-slate-400';
 };
 
-// Split "SPCX: SpaceX ETF frenzy..." into a bold ticker head ("SPCX:") and the
-// rest of the summary, so only the ticker renders bold.
+/* ============================================================
+   Deterministic catalyst engine — pulls real WIIM headlines the
+   scanner already captured and classifies impact from the data.
+   Zero AI cost.
+   ============================================================ */
+
+const num = (v: any): number => {
+  const n = Number(v);
+  return isNaN(n) ? 0 : n;
+};
+
+const chgOf = (s: any): number => num(s?.change ?? s?.changePct);
+const rvolOf = (s: any): number => num(s?.rvol);
+
+// A "real" catalyst is a WIIM headline, not the technical-momentum fallback.
+const hasRealCatalyst = (s: any): boolean =>
+  !!s?.catalyst && !String(s.catalyst).toLowerCase().startsWith('technical momentum');
+
+// Impact from the tape: how hard the stock is reacting and how big it is.
+// High  = explosive participation or double-digit move (or a large cap moving hard)
+// Medium = confirmed volume/move but not extreme
+// Low   = news present, muted reaction
+const classifyImpact = (s: any): 'High' | 'Medium' | 'Low' => {
+  const rv = rvolOf(s);
+  const chg = Math.abs(chgOf(s));
+  const mc = num(s?.mktCap);
+  if (rv >= 2 || chg >= 10 || (mc >= 10e9 && chg >= 4)) return 'High';
+  if (rv >= 1.2 || chg >= 5) return 'Medium';
+  return 'Low';
+};
+
+// Numeric rank for sorting the feed: impact first, then reaction size.
+const impactRank = (s: any): number => {
+  const imp = classifyImpact(s);
+  const base = imp === 'High' ? 2000 : imp === 'Medium' ? 1000 : 0;
+  return base + rvolOf(s) * 50 + Math.abs(chgOf(s));
+};
+
+const buildCatalystFeed = (scan: any): CatalystItem[] => {
+  const lists: any[][] = [
+    Array.isArray(scan?.stocksInPlay) ? scan.stocksInPlay : [],
+    Array.isArray(scan?.dailySetups) ? scan.dailySetups : [],
+  ];
+  const movers = scan?.topMovers || {};
+  ['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'].forEach(cat => {
+    if (Array.isArray(movers[cat])) lists.push(movers[cat]);
+  });
+
+  const seen = new Set<string>();
+  const items: { s: any; rank: number }[] = [];
+
+  lists.flat().forEach(s => {
+    if (!s?.ticker || !hasRealCatalyst(s)) return;
+    if (seen.has(s.ticker)) return;
+    seen.add(s.ticker);
+    items.push({ s, rank: impactRank(s) });
+  });
+
+  return items
+    .sort((a, b) => b.rank - a.rank)
+    .slice(0, 20)
+    .map(({ s }) => ({
+      ticker: s.ticker,
+      headline: String(s.catalyst).replace(/\.$/, ''),
+      url: s.catalystUrl || null,
+      impact: classifyImpact(s),
+    }));
+};
+
+// Fallback parser for the legacy AI actionableEvents shape.
 const splitEvent = (event: string): { head: string; rest: string } => {
   const idx = event.indexOf(':');
   if (idx > 0 && idx <= 12) {
@@ -47,29 +116,46 @@ export default function NewsFeed() {
 
     const fetchCatalysts = async () => {
       try {
-        if (isMounted && news.length === 0) setStatus('Loading Catalysts...');
+        if (isMounted) setStatus(prev => (prev === 'Live' ? prev : 'Loading Catalysts...'));
 
-        const res = await fetch(`/api/market-summary?t=${Date.now()}`, { cache: 'no-store' });
-        if (!res.ok) {
-          if (isMounted && news.length === 0) setStatus('Offline');
-          return;
+        // Primary: build the feed from scanner data (real WIIM headlines, no AI)
+        const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
+        if (res.ok) {
+          const scan = await res.json();
+          const feed = buildCatalystFeed(scan);
+          if (feed.length > 0) {
+            if (isMounted) {
+              setNews(feed);
+              setLastUpdated(new Date());
+              setStatus('Live');
+            }
+            return;
+          }
         }
 
-        const data = await res.json();
-        const events = Array.isArray(data.actionableEvents) ? data.actionableEvents : [];
-
-        const processed: CatalystItem[] = events
-          .filter((e: any) => e && typeof e.event === 'string' && e.event.trim().length > 0)
-          .map((e: any) => ({
-            event: e.event.trim(),
-            time: typeof e.time === 'string' ? e.time : '',
-            impact: ['High', 'Medium', 'Low'].includes(e.impact) ? e.impact : 'Medium'
-          }));
-
-        if (isMounted) {
-          setNews(processed);
-          setLastUpdated(new Date());
-          setStatus('Live');
+        // Fallback: legacy AI actionableEvents if the scan carried no news
+        const legacyRes = await fetch(`/api/market-summary?t=${Date.now()}`, { cache: 'no-store' });
+        if (legacyRes.ok) {
+          const data = await legacyRes.json();
+          const events = Array.isArray(data.actionableEvents) ? data.actionableEvents : [];
+          const processed: CatalystItem[] = events
+            .filter((e: any) => e && typeof e.event === 'string' && e.event.trim().length > 0)
+            .map((e: any) => {
+              const { head, rest } = splitEvent(e.event.trim());
+              return {
+                ticker: head.replace(/:$/, ''),
+                headline: rest,
+                url: null,
+                impact: (['High', 'Medium', 'Low'].includes(e.impact) ? e.impact : 'Medium') as 'High' | 'Medium' | 'Low',
+              };
+            });
+          if (isMounted) {
+            setNews(processed);
+            setLastUpdated(new Date());
+            setStatus(processed.length > 0 ? 'Live' : 'Live');
+          }
+        } else if (isMounted && news.length === 0) {
+          setStatus('Offline');
         }
       } catch {
         if (isMounted && news.length === 0) setStatus('Offline');
@@ -145,7 +231,7 @@ export default function NewsFeed() {
           {isLoading && news.length === 0 ? (
             <div className="py-12 text-center">
               <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
-              <span className="text-xs text-slate-500 font-medium">Synthesizing market-moving catalysts...</span>
+              <span className="text-xs text-slate-500 font-medium">Scanning for market-moving catalysts...</span>
             </div>
           ) : news.length === 0 ? (
             <div className="py-12 text-center text-slate-500 text-sm font-medium">
@@ -156,18 +242,16 @@ export default function NewsFeed() {
               {news.map((item, i) => (
                 <div key={i} className="flex justify-between items-center gap-3 bg-[#161c2a] border border-white/5 px-4 py-2.5 rounded-lg hover:border-rose-500/20 transition-colors">
                   <div className="flex items-center gap-3 min-w-0 flex-1">
-                    {(() => {
-                      const { head, rest } = splitEvent(item.event);
-                      const ticker = head.replace(/:$/, '');
-                      return ticker ? (
-                        <>
-                          <span className="inline-block shrink-0 w-[72px] text-center truncate bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20" title={ticker}>{ticker}</span>
-                          <span className="font-medium text-slate-200 text-xs leading-relaxed min-w-0">{rest}</span>
-                        </>
-                      ) : (
-                        <span className="font-medium text-slate-200 text-xs leading-relaxed min-w-0">{rest}</span>
-                      );
-                    })()}
+                    {item.ticker ? (
+                      <span className="inline-block shrink-0 w-[72px] text-center truncate bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20" title={item.ticker}>{item.ticker}</span>
+                    ) : null}
+                    {item.url ? (
+                      <a href={item.url} target="_blank" rel="noopener noreferrer" className="font-medium text-slate-200 text-xs leading-relaxed min-w-0 hover:text-rose-300 transition-colors hover:underline">
+                        {item.headline}
+                      </a>
+                    ) : (
+                      <span className="font-medium text-slate-200 text-xs leading-relaxed min-w-0">{item.headline}</span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded border ${getImpactBadge(item.impact)}`}>
