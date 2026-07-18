@@ -450,28 +450,31 @@ export default function StocksInPlay() {
                             )}
                           </td>
                         </tr>
+                        {/* Sub-row: empty spacer cell at TICKER width so the setup
+                            name starts exactly under the SMB column */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td colSpan={16} className="pb-3.5 pt-2.5 pr-2 pl-[48px]">
+                          <td className="w-[6%]"></td>
+                          <td colSpan={15} className="pb-3.5 pt-2.5 pr-2">
                             <div className="flex items-center gap-3 text-left">
-                              <span className="shrink-0 w-[88px] text-[#7c8bfa] font-bold text-[10px] tracking-[0.1em] uppercase">{formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : ''}</span>
+                              <span className="shrink-0 text-[#7c8bfa] font-bold text-[11px] tracking-[0.1em] uppercase">{formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : ''}</span>
                               <p className="flex-1 text-[11px] leading-relaxed whitespace-normal">
                                 {row.thesis ? (<span className="text-slate-500">{row.thesis}</span>) : (<span className="text-slate-600 italic">Awaiting quantitative confluence analysis…</span>)}
                               </p>
-                              {/* STR: / STAT: — same size as the thesis text, colored data */}
+                              {/* STR: / STAT: — same font as thesis text, colored data */}
                               <div className="flex items-center gap-4 shrink-0">
                                 <span className="flex items-center gap-1.5">
-                                  <span className="text-[11px] font-bold tracking-widest uppercase text-slate-500">STR:</span>
-                                  <span className={`text-[11px] font-bold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
-                                  <span className={`text-[11px] font-bold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
+                                  <span className="text-[11px] text-slate-500">STR:</span>
+                                  <span className={`text-[11px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
+                                  <span className={`text-[11px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
                                 </span>
                                 <span className="flex items-center gap-1.5">
-                                  <span className="text-[11px] font-bold tracking-widest uppercase text-slate-500">STAT:</span>
+                                  <span className="text-[11px] text-slate-500">STAT:</span>
                                   {st === 'Ready' ? (
-                                    <span className="text-[11px] font-bold tracking-wide uppercase text-emerald-400">Ready</span>
+                                    <span className="text-[11px] font-semibold text-emerald-400">Ready</span>
                                   ) : st === 'Forming' ? (
-                                    <span className="text-[11px] font-bold tracking-wide uppercase text-amber-400">Forming</span>
+                                    <span className="text-[11px] font-semibold text-amber-400">Forming</span>
                                   ) : (
-                                    <span className="text-[11px] font-bold text-slate-600">—</span>
+                                    <span className="text-[11px] font-semibold text-slate-600">—</span>
                                   )}
                                 </span>
                               </div>
