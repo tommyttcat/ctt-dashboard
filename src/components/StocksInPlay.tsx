@@ -340,7 +340,7 @@ export default function StocksInPlay() {
                 </div>
               </div>
             </div>
-            {/* Row 2, centered: 10/21 → VWAP → STAGE legend */}
+            {/* Row 2, centered: 10/21 → VWAP */}
             <div className="flex flex-wrap justify-center items-center gap-4 w-full" onClick={(e) => e.stopPropagation()}>
               {/* 10/21 — clickable filter pill */}
               <div className={pillWrap}>
@@ -363,16 +363,6 @@ export default function StocksInPlay() {
                   <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
                     <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Below
                   </button>
-                </div>
-              </div>
-              {/* STAGE legend */}
-              <div className={pillWrap}>
-                <span className={pillLabel}>STAGE</span>
-                <div className="flex items-center gap-2.5 py-1">
-                  <span className="text-[11px] font-bold text-slate-400">1</span>
-                  <span className="text-[11px] font-bold text-emerald-400">2</span>
-                  <span className="text-[11px] font-bold text-amber-400">3</span>
-                  <span className="text-[11px] font-bold text-rose-400">4</span>
                 </div>
               </div>
             </div>
