@@ -76,13 +76,13 @@ const formatSetupName = (name: string | null) => {
 const isGenericCatalyst = (catalyst: string | null | undefined) =>
   !catalyst || catalyst.toLowerCase().startsWith('technical momentum');
 
-// Day Trade vs Swing pill — dark fill with rounded border, colored text.
-const tradeTypeBadge = (tradeType: string | null | undefined): { label: string; cls: string } | null => {
+// Day Trade vs Swing label — rendered as a chip identical to the SMB score chip.
+const tradeTypeLabel = (tradeType: string | null | undefined): string | null => {
   if (!tradeType) return null;
   const t = tradeType.toLowerCase();
-  if (t.startsWith('day')) return { label: 'DAY', cls: 'text-amber-400' };
-  if (t.startsWith('swing')) return { label: 'SWING', cls: 'text-cyan-400' };
-  return { label: tradeType.toUpperCase(), cls: 'text-slate-400' };
+  if (t.startsWith('day')) return 'DAY';
+  if (t.startsWith('swing')) return 'SWING';
+  return tradeType.toUpperCase();
 };
 
 // SMB grade from the unified score: A >= 70, B >= 50, C below.
@@ -329,8 +329,8 @@ export default function DailySetups() {
   const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
   const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
   const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
-  // DAY/SWING badge — dark fill, visible rounded border (matches SMB score chip look)
-  const typeBadgeBase = "inline-flex items-center justify-center px-2 py-[3px] rounded-md bg-[#1a2130] border border-white/15 text-[10px] font-bold tracking-wider";
+  // DAY/SWING chip — identical to the SMB score chip, off-white text
+  const typeChip = "inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border bg-zinc-800/50 text-slate-300 border-zinc-700/50";
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
@@ -434,7 +434,7 @@ export default function DailySetups() {
                 ) : (
                   filteredAndSortedSetups.map((row, i) => {
                     const isPositive = row.changePct >= 0;
-                    const tt = tradeTypeBadge(row.tradeType);
+                    const tt = tradeTypeLabel(row.tradeType);
                     const st = rowStatus(row);
                     return (
                       <React.Fragment key={i}>
@@ -489,37 +489,37 @@ export default function DailySetups() {
                             )}
                           </td>
                         </tr>
-                        {/* Sub-row: spacer at TICKER width, then three sectioned
-                            columns — badge + setup name | thesis | STR/STAT */}
+                        {/* Sub-row: DAY/SWING chip under TICKER | name + thesis
+                            (SMB..MCAP) | STR/STAT centered under STAGE..CATALYST */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td className="w-[6%]"></td>
-                          <td colSpan={15} className="pb-3.5 pt-2.5 pr-2">
+                          <td className="w-[6%] text-center align-middle">
+                            {tt && (<span className={typeChip}>{tt}</span>)}
+                          </td>
+                          <td colSpan={12} className="pb-3.5 pt-2.5 pr-4">
                             <div className="flex items-center text-left">
-                              <span className="shrink-0 w-[148px] flex items-center gap-2">
-                                {tt && (<span className={`${typeBadgeBase} ${tt.cls}`}>{tt.label}</span>)}
-                                <span className="text-[#7c8bfa] font-bold text-[11px] tracking-[0.1em] uppercase">{formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—'}</span>
-                              </span>
-                              <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-4 pr-4">
+                              <span className="shrink-0 w-[92px] text-[#7c8bfa] font-bold text-[11px] tracking-[0.1em] uppercase">{formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—'}</span>
+                              <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-4">
                                 {row.thesis ? (<span className="text-slate-500">{row.thesis}</span>) : (<span className="text-slate-600 italic">Awaiting quantitative confluence analysis…</span>)}
                               </p>
-                              {/* STR: / STAT: — sectioned, same font as thesis */}
-                              <div className="flex items-center gap-4 shrink-0 border-l border-white/10 pl-4">
-                                <span className="flex items-center gap-1.5">
-                                  <span className="text-[11px] text-slate-500">STR:</span>
-                                  <span className={`text-[11px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
-                                  <span className={`text-[11px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
-                                </span>
-                                <span className="flex items-center gap-1.5">
-                                  <span className="text-[11px] text-slate-500">STAT:</span>
-                                  {st === 'Ready' ? (
-                                    <span className="text-[11px] font-semibold text-emerald-400">Ready</span>
-                                  ) : st === 'Forming' ? (
-                                    <span className="text-[11px] font-semibold text-amber-400">Forming</span>
-                                  ) : (
-                                    <span className="text-[11px] font-semibold text-slate-600">—</span>
-                                  )}
-                                </span>
-                              </div>
+                            </div>
+                          </td>
+                          <td colSpan={3} className="pb-3.5 pt-2.5 align-middle">
+                            <div className="flex items-center justify-center gap-4 border-l border-white/10 px-2 py-1">
+                              <span className="flex items-center gap-1.5">
+                                <span className="text-[11px] text-slate-500">STR:</span>
+                                <span className={`text-[11px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
+                                <span className={`text-[11px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
+                              </span>
+                              <span className="flex items-center gap-1.5">
+                                <span className="text-[11px] text-slate-500">STAT:</span>
+                                {st === 'Ready' ? (
+                                  <span className="text-[11px] font-semibold text-emerald-400">Ready</span>
+                                ) : st === 'Forming' ? (
+                                  <span className="text-[11px] font-semibold text-amber-400">Forming</span>
+                                ) : (
+                                  <span className="text-[11px] font-semibold text-slate-600">—</span>
+                                )}
+                              </span>
                             </div>
                           </td>
                         </tr>
