@@ -72,6 +72,172 @@ const formatTime = (date: Date) => {
   });
 };
 
+/* ============================================================
+   Deterministic briefing engine — builds the "AI" market
+   briefing directly from the scanner KV payload. Zero AI cost.
+   ============================================================ */
+
+const num = (v: any): number => {
+  const n = Number(v);
+  return isNaN(n) ? 0 : n;
+};
+
+const scoreOf = (s: any): number => num(s?.conviction ?? s?.smbScore ?? s?.score);
+const chgOf = (s: any): number => num(s?.change ?? s?.changePct);
+const rvolOf = (s: any): number | null => (s?.rvol != null && !isNaN(Number(s.rvol)) ? Number(s.rvol) : null);
+const stageOf = (s: any): string => (s?.stage ? String(s.stage).replace(/Stage\s*/i, '') : '');
+const setupOf = (s: any): string | null => {
+  const n = s?.setupName;
+  if (!n || n === '-' || n === '—') return null;
+  if (String(n).includes('BB SQZ')) return 'BB SQZ';
+  if (n === 'Blue Dot Rev') return 'BD Rev';
+  if (n === 'Episodic Pivot') return 'EP';
+  return String(n);
+};
+const hasRealCatalyst = (s: any): boolean =>
+  !!s?.catalyst && !String(s.catalyst).toLowerCase().startsWith('technical momentum');
+
+const fmtLeader = (s: any): string => {
+  const bits = [`${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`];
+  const rv = rvolOf(s);
+  if (rv != null && rv > 0) bits.push(`RVOL ${rv.toFixed(2)}`);
+  const su = setupOf(s);
+  if (su) bits.push(su);
+  return `${s.ticker} (${bits.join(', ')})`;
+};
+
+const buildWatchReason = (s: any): string => {
+  const parts: string[] = [];
+  const su = setupOf(s);
+  const st = stageOf(s);
+  const rv = rvolOf(s);
+
+  let lead = su || 'Momentum move';
+  if (st) lead += ` in Stage ${st}`;
+  if (rv != null && rv > 0) lead += ` with RVOL ${rv.toFixed(2)}`;
+  parts.push(lead);
+
+  if (rv != null) {
+    if (rv >= 2) parts.push('heavy participation confirms the move');
+    else if (rv >= 1.5) parts.push('solid volume backing');
+    else if (rv > 0 && rv < 1) parts.push('price without volume — fade risk');
+  }
+
+  if (s?.stochK != null && !isNaN(Number(s.stochK))) {
+    const k = Number(s.stochK);
+    if (k <= 25) parts.push(`stoch ${k.toFixed(0)} (oversold reset)`);
+  }
+  if (s?.rsVsSpy != null && !isNaN(Number(s.rsVsSpy)) && Number(s.rsVsSpy) >= 10) {
+    parts.push(`RS +${Number(s.rsVsSpy).toFixed(0)} vs SPY`);
+  }
+
+  const tt = s?.tradeType ? String(s.tradeType).toLowerCase() : null;
+  if (tt?.startsWith('day')) parts.push('classified DAY — intraday only');
+  else if (tt?.startsWith('swing')) parts.push('classified SWING — multi-day hold viable');
+
+  if (hasRealCatalyst(s)) parts.push(`catalyst: ${String(s.catalyst).replace(/\.$/, '')}`);
+
+  return parts.join('; ') + '.';
+};
+
+const buildLocalInsights = (scan: any): MacroInsights | null => {
+  const sips: any[] = Array.isArray(scan?.stocksInPlay) ? scan.stocksInPlay : [];
+  const daily: any[] = Array.isArray(scan?.dailySetups) ? scan.dailySetups : [];
+  const movers = scan?.topMovers || {};
+  if (sips.length === 0 && daily.length === 0) return null;
+
+  /* ---- Watchlist: top 6 by SMB across SIPs + Daily, deduped ---- */
+  const pool = [...sips, ...daily].filter(s => s?.ticker);
+  const seen = new Set<string>();
+  const ranked = pool
+    .slice()
+    .sort((a, b) => scoreOf(b) - scoreOf(a))
+    .filter(s => {
+      if (seen.has(s.ticker)) return false;
+      seen.add(s.ticker);
+      return true;
+    })
+    .slice(0, 6);
+
+  const watching: WatchItem[] = ranked.map(s => ({
+    symbol: s.ticker,
+    score: scoreOf(s) || undefined,
+    reason: buildWatchReason(s),
+  }));
+
+  /* ---- Theme: dominant sectors among ranked + A-grade count ---- */
+  const sectorCounts: Record<string, number> = {};
+  ranked.forEach(s => {
+    const sec = s?.sector && s.sector !== '—' ? String(s.sector) : null;
+    if (sec) sectorCounts[sec] = (sectorCounts[sec] || 0) + 1;
+  });
+  const topSectors = Object.entries(sectorCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([sec]) => sec.charAt(0) + sec.slice(1).toLowerCase());
+  const aCount = ranked.filter(s => scoreOf(s) >= 70).length;
+  const theme = `${topSectors.length ? topSectors.join(' & ') : 'Broad Market'} In Focus — ${aCount > 0 ? `${aCount} A-Grade Setup${aCount > 1 ? 's' : ''}` : 'Momentum Watch'}`;
+
+  /* ---- Paragraph 1: SIPs Thesis ---- */
+  const sipsSorted = sips.slice().sort((a, b) => (rvolOf(b) ?? 0) - (rvolOf(a) ?? 0));
+  const leaders = sipsSorted.filter(s => (rvolOf(s) ?? 0) >= 1.5).slice(0, 3);
+  const grinders = sips.filter(s => rvolOf(s) != null && (rvolOf(s) as number) < 1).map(s => s.ticker).slice(0, 7);
+  const newsNames = sips.filter(hasRealCatalyst).map(s => s.ticker).slice(0, 4);
+
+  let sipsPara = `SIPs Thesis: ${sips.length} name${sips.length !== 1 ? 's' : ''} in play.`;
+  if (leaders.length) {
+    sipsPara += ` Volume-confirmed leadership from ${leaders.map(fmtLeader).join(', ')} — RVOL above 1.5 signals real participation behind the move.`;
+  }
+  if (newsNames.length) {
+    sipsPara += ` News-driven: ${newsNames.join(', ')}.`;
+  }
+  if (grinders.length) {
+    sipsPara += ` ${grinders.join(', ')} ${grinders.length > 1 ? 'are' : 'is'} moving on sub-1.0 RVOL — price without volume, prone to fading by close.`;
+  }
+
+  /* ---- Paragraph 2: Daily Setups Thesis ---- */
+  const dayCt = daily.filter(s => String(s?.tradeType || '').toLowerCase().startsWith('day')).length;
+  const swingCt = daily.filter(s => String(s?.tradeType || '').toLowerCase().startsWith('swing')).length;
+  const dailyTop = daily.slice().sort((a, b) => scoreOf(b) - scoreOf(a)).slice(0, 3);
+  const stage2Ct = daily.filter(s => String(s?.stage || '').includes('2')).length;
+
+  let dailyPara = `Daily Setups Thesis: ${daily.length} qualified setup${daily.length !== 1 ? 's' : ''}`;
+  if (dayCt || swingCt) {
+    dailyPara += ` — ${swingCt} classified SWING (structure supports a multi-day hold), ${dayCt} DAY (intraday momentum only)`;
+  }
+  dailyPara += '.';
+  if (stage2Ct > 0) {
+    dailyPara += ` ${stage2Ct} of ${daily.length} sit in constructive Stage 2 bases.`;
+  }
+  if (dailyTop.length) {
+    dailyPara += ` Highest conviction by SMB score: ${dailyTop.map(s => `${s.ticker} (${scoreOf(s)})`).join(', ')}.`;
+  }
+
+  /* ---- Paragraph 3: Sector Flow (from ETF movers) ---- */
+  const etfG = (movers['ETF Gainers'] || []).slice(0, 3);
+  const etfL = (movers['ETF Losers'] || []).slice(0, 3);
+  const fmtEtf = (e: any) => `${e.ticker} ${chgOf(e) >= 0 ? '+' : ''}${chgOf(e).toFixed(2)}%`;
+
+  let flowPara = 'Sector Flow: ';
+  if (etfG.length && etfL.length) {
+    flowPara += `Leadership via ${etfG.map(fmtEtf).join(', ')}; downside pressure in ${etfL.map(fmtEtf).join(', ')}.`;
+  } else if (etfG.length) {
+    flowPara += `Leadership via ${etfG.map(fmtEtf).join(', ')}.`;
+  } else {
+    flowPara += 'ETF flow data unavailable this scan.';
+  }
+  const bigGainers = (movers['Gainers'] || []).filter((g: any) => chgOf(g) >= 10).length;
+  if (bigGainers > 0) {
+    flowPara += ` ${bigGainers} name${bigGainers > 1 ? 's' : ''} up 10%+ on the gainers scan — elevated speculative appetite.`;
+  }
+
+  return {
+    theme,
+    briefing: [sipsPara, dailyPara, flowPara].join('\n\n'),
+    watching,
+  };
+};
+
 export default function MarketSummary() {
   const [data, setData] = useState<SummaryData | null>(null);
   const [macroInsights, setMacroInsights] = useState<MacroInsights | null>(null);
@@ -116,7 +282,7 @@ export default function MarketSummary() {
         console.error("Narrative Sync Error:", error);
       }
 
-      // 2. Fetch AI Macro Insights & Watchlist
+      // 2. Build Macro Briefing deterministically from scanner data (no AI)
       try {
         const scannerRes = await fetch('/api/scanner/latest', { cache: 'no-store' });
         if (!scannerRes.ok) throw new Error(`Scanner API returned status: ${scannerRes.status}`);
@@ -124,10 +290,12 @@ export default function MarketSummary() {
         const scannerData = await scannerRes.json();
         
         if (isMounted) {
-          if (scannerData.macroInsights) {
+          const local = buildLocalInsights(scannerData);
+          if (local) {
+            setMacroInsights(local);
+          } else if (scannerData.macroInsights) {
+            // Fallback to stored payload if scan data is empty
             setMacroInsights(scannerData.macroInsights);
-          } else if (scannerData.watching || scannerData.theme) {
-            setMacroInsights(scannerData); // Fallback if data is flat
           }
         }
       } catch (error) {
@@ -232,7 +400,7 @@ export default function MarketSummary() {
 
       {isExpanded && (
         <>
-          {/* 1. Live AI Macro Briefing */}
+          {/* 1. Market Briefing — deterministic, built from scanner data */}
           {macroInsights && (
             <div className="mb-8 bg-[#161c2a]/60 border border-cyan-500/20 rounded-xl p-5 md:p-6 relative overflow-hidden shadow-[0_0_15px_rgba(34,211,238,0.03)]">
               <div className="absolute right-0 top-0 w-64 h-64 bg-cyan-500/10 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
@@ -269,13 +437,12 @@ export default function MarketSummary() {
                       return (
                         <li key={idx} className="flex flex-col gap-2 bg-[#161c2a]/60 p-3.5 rounded-xl border border-white/5 hover:border-cyan-500/20 transition-colors">
                           <div className="flex items-center justify-between">
-                            {/* STRIPPED font-mono HERE */}
                             <span className="text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider">
                               {symbol}
                             </span>
                             {parsedScore !== undefined && (
                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded border tracking-wide ${
-                                parsedScore >= 80 
+                                parsedScore >= 70 
                                   ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
                                   : parsedScore >= 50 
                                     ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400' 
