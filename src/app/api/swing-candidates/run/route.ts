@@ -29,7 +29,7 @@ const CONFIG = {
   rsLookback: 63,
   earningsBlackoutDays: 7,
 
-  maxSymbolsToAnalyze: 150,
+  maxSymbolsToAnalyze: 120, // trimmed slightly: 3 API calls per symbol now
   concurrency: 10,
 };
 
@@ -38,10 +38,28 @@ const CONFIG = {
 // ---------------------------------------------------------------
 interface Bar { t: number; o: number; h: number; l: number; c: number; v: number; }
 
+interface SnapInfo {
+  vwap: number | null;
+  livePrice: number | null;
+  changePct: number;
+  vol: number;
+}
+
 interface Candidate {
   symbol: string;
+  name: string;
+  sector: string;
   price: number;
   score: number;
+  changePct: number;
+  vol: number;
+  dVol: number;
+  rvol: number | null;
+  float: number | null;
+  shortPct: number | null;
+  mktCap: number | null;
+  stage: string;
+  vwapStatus: 'above' | 'below' | 'neutral';
   atrPct: number;
   pctOffHigh: number;
   distToEma21: number;
@@ -63,6 +81,10 @@ async function polygon<T = any>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}${sep}apiKey=${POLYGON_KEY}`);
   if (!res.ok) throw new Error(`Polygon ${res.status}: ${path.split("?")[0]}`);
   return res.json() as Promise<T>;
+}
+
+async function polygonSafe<T = any>(path: string, fallback: T): Promise<T> {
+  try { return await polygon<T>(path); } catch { return fallback; }
 }
 
 function dateStr(daysAgo: number): string {
@@ -87,6 +109,55 @@ async function inBatches<T, R>(items: T[], size: number, fn: (item: T) => Promis
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------
+// Sector classification — ported from the scanner's cleanSectorDescription
+// (reads SIC description, which is the field Polygon actually populates)
+// ---------------------------------------------------------------
+function cleanSectorDescription(sic: string | undefined, sector: string | undefined, industry: string | undefined): string {
+  const ind = (industry || '').toLowerCase();
+  const sicTxt = (sic || '').toLowerCase();
+  const blob = `${ind} ${sicTxt}`;
+
+  if (/nuclear|uranium/.test(blob)) return 'Nuclear';
+  if (/solar|photovoltaic/.test(blob)) return 'Solar';
+  if (/electric vehicle|auto manufacturer|motor vehicle|passenger car/.test(blob)) return 'EV';
+  if (/biotechnolog|biological product|in vitro|medicinal chem/.test(blob)) return 'Biotech';
+  if (/semiconductor/.test(blob)) return "Semi's";
+  if (/artificial intelligence/.test(blob)) return 'AI';
+  if (/cybersecurity|security software/.test(blob)) return 'Cyber';
+  if (/fintech|financial technology/.test(blob)) return 'Fintech';
+  if (/aerospace|\bdefense\b|aircraft|guided missile|space vehicle/.test(blob)) return 'Aerospace';
+
+  if (sicTxt) {
+    if (/software|prepackaged|computer program|data processing|information retrieval|computer integrated|computer communication|electronic computer|computer peripheral|computer storage|computer terminal|electronic component|printed circuit/.test(sicTxt)) return 'IT';
+    if (/pharmaceutical|drug|medicinal|surgical|\bmedical\b|\bhealth\b|dental|hospital|diagnostic|laborator/.test(sicTxt)) return 'Healthcare';
+    if (/crude petroleum|natural gas|petroleum|drilling|\boil\b|\bcoal\b|\benergy\b/.test(sicTxt)) return 'Energy';
+    if (/\bbank\b|savings instit|credit institution|insurance|investment office|securities broker|security broker|personal credit|holding compan|fire, marine/.test(sicTxt)) return 'Financials';
+    if (/real estate|land subdivid|operators of apartment|operators of nonresident/.test(sicTxt)) return 'Real Estate';
+    if (/electric services|gas & other|water supply|cogeneration|electric & other services/.test(sicTxt)) return 'Utilities';
+    if (/telephone|telecommunic|radio|television|broadcast|cable|motion picture|advertising|publishing|newspaper|periodical|entertainment/.test(sicTxt)) return 'Comm Serv';
+    if (/retail|catalog|mail-order|eating place|restaurant|apparel|footwear|hotel|department store|grocery|variety store|jewelry/.test(sicTxt)) return 'Con Disc';
+    if (/beverage|\bfood\b|tobacco|soap|cosmetic|household|dairy|bakery/.test(sicTxt)) return 'Con Staples';
+    if (/gold mining|metal mining|steel|aluminum|chemical|industrial inorganic|plastics material|paper mill|fertilizer|\bmining\b/.test(sicTxt)) return 'Materials';
+    if (/aircraft|machinery|industrial|construction|engineering|electrical industrial|transportation|railroad|trucking|air transport/.test(sicTxt)) return 'Industrials';
+  }
+
+  const sec = (sector || '').toLowerCase();
+  if (sec.includes('technology')) return 'IT';
+  if (sec.includes('healthcare') || sec.includes('health care')) return 'Healthcare';
+  if (sec.includes('financial')) return 'Financials';
+  if (sec.includes('consumer discretionary')) return 'Con Disc';
+  if (sec.includes('consumer staples')) return 'Con Staples';
+  if (sec.includes('energy')) return 'Energy';
+  if (sec.includes('materials')) return 'Materials';
+  if (sec.includes('industrials')) return 'Industrials';
+  if (sec.includes('real estate')) return 'Real Estate';
+  if (sec.includes('utilities')) return 'Utilities';
+  if (sec.includes('communication')) return 'Comm Serv';
+
+  return 'Other';
 }
 
 // ---------------------------------------------------------------
@@ -136,16 +207,36 @@ function pctReturn(closes: number[], lookback: number): number | null {
   return ((closes[closes.length - 1] - then) / then) * 100;
 }
 
+// Weinstein Stage from the 150-SMA slope — same logic as the scanner
+function computeStage(closes: number[], price: number): string {
+  if (closes.length < 210) return '-';
+  const smaAt = (endOffset: number): number | null => {
+    const end = closes.length - endOffset;
+    if (end < 150) return null;
+    let sum = 0;
+    for (let i = end - 150; i < end; i++) sum += closes[i];
+    return sum / 150;
+  };
+  const now = smaAt(0);
+  const d20 = smaAt(20);
+  const d60 = smaAt(60);
+  if (!now || !d20 || !d60) return '-';
+  const slope = (now - d20) / d20;
+  if (slope > 0.015 && price > now) return 'Stage 2A';
+  if (slope < -0.015 && price < now) return 'Stage 4A';
+  return d20 > d60 ? 'Stage 3A' : 'Stage 1A';
+}
+
 // ---------------------------------------------------------------
 // Stage 1: coarse universe from the full-market snapshot (1 call)
 // ---------------------------------------------------------------
-async function getUniverse(): Promise<string[]> {
+async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, SnapInfo> }> {
   const data = await polygon<{ tickers?: any[] }>(
     `/v2/snapshot/locale/us/markets/stocks/tickers`
   );
   const tickers = data.tickers ?? [];
 
-  return tickers
+  const filtered = tickers
     .filter(t => {
       const sym: string = t.ticker ?? "";
       if (!/^[A-Z]{1,5}$/.test(sym)) return false;
@@ -156,19 +247,34 @@ async function getUniverse(): Promise<string[]> {
       return true;
     })
     .sort((a, b) => (b.prevDay.c * b.prevDay.v) - (a.prevDay.c * a.prevDay.v))
-    .slice(0, CONFIG.maxSymbolsToAnalyze)
-    .map(t => t.ticker as string);
+    .slice(0, CONFIG.maxSymbolsToAnalyze);
+
+  const snapMap = new Map<string, SnapInfo>();
+  for (const t of filtered) {
+    const livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || null;
+    const prevClose = t.prevDay?.c || 0;
+    const vwap = t.day?.vw || null;
+    const vol = t.day?.v || t.prevDay?.v || 0;
+    let changePct = 0;
+    if (t.todaysChangePerc !== undefined && t.todaysChangePerc !== null && t.todaysChangePerc !== 0) {
+      changePct = t.todaysChangePerc;
+    } else if (prevClose > 0 && livePrice) {
+      changePct = ((livePrice - prevClose) / prevClose) * 100;
+    }
+    snapMap.set(t.ticker, { vwap, livePrice, changePct: Number.isNaN(changePct) ? 0 : changePct, vol });
+  }
+
+  return { symbols: filtered.map(t => t.ticker as string), snapMap };
 }
 
 // ---------------------------------------------------------------
-// Earnings blackout — Benzinga calendar directly (same key + JSON-accept
-// pattern as the scanner's WIIM fetch). Fails open.
+// Earnings blackout — Benzinga calendar directly. Fails open.
 // ---------------------------------------------------------------
 async function getEarningsBlackout(): Promise<Set<string>> {
   if (!BENZINGA_KEY) return new Set();
   try {
     const from = dateStr(0);
-    const to = dateStr(-CONFIG.earningsBlackoutDays); // future date
+    const to = dateStr(-CONFIG.earningsBlackoutDays);
     const url =
       `https://api.benzinga.com/api/v2.1/calendar/earnings?token=${BENZINGA_KEY}` +
       `&parameters[date_from]=${from}&parameters[date_to]=${to}&pagesize=1000`;
@@ -185,7 +291,14 @@ async function getEarningsBlackout(): Promise<Set<string>> {
 // ---------------------------------------------------------------
 // Stage 2: analyze one symbol
 // ---------------------------------------------------------------
-function analyze(symbol: string, bars: Bar[], spyReturn: number | null): Candidate | null {
+function analyze(
+  symbol: string,
+  bars: Bar[],
+  spyReturn: number | null,
+  details: any,
+  shortData: any,
+  snap: SnapInfo | undefined
+): Candidate | null {
   if (bars.length < 210) return null;
 
   const closes = bars.map(b => b.c);
@@ -211,6 +324,10 @@ function analyze(symbol: string, bars: Bar[], spyReturn: number | null): Candida
   const dollarVols = bars.slice(-20).map(b => b.c * b.v);
   const avgDollarVol = dollarVols.reduce((a, b) => a + b, 0) / dollarVols.length;
 
+  // 20-day average share volume for RVOL
+  const vols = bars.slice(-20).map(b => b.v).filter(v => v > 0);
+  const avgVol = vols.length > 0 ? vols.reduce((a, b) => a + b, 0) / vols.length : 0;
+
   const ret = pctReturn(closes, CONFIG.rsLookback);
   const rsVsSpy = ret != null && spyReturn != null ? ret - spyReturn : null;
 
@@ -231,10 +348,44 @@ function analyze(symbol: string, bars: Bar[], spyReturn: number | null): Candida
   const trendScore = (sma50 > sma200 ? 10 : 0) + (ema21Rising ? 5 : 0);
   const score = Math.round(Math.max(0, rsScore + pullbackScore + volScore + trendScore));
 
+  const stage = computeStage(closes, price);
+
+  // Snapshot-derived live fields (fall back to daily-bar data off-hours)
+  const changePct = snap?.changePct ?? 0;
+  const vol = snap?.vol || bars[bars.length - 1].v || 0;
+  const rvol = avgVol > 0 && vol > 0 ? +(vol / avgVol).toFixed(2) : null;
+
+  let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
+  if (snap?.vwap && snap?.livePrice) {
+    vwapStatus = snap.livePrice >= snap.vwap ? 'above' : 'below';
+  }
+
+  // Details-derived fields (same sources as the scanner)
+  const name = details?.results?.name || symbol;
+  const mktCap = details?.results?.market_cap || null;
+  const float = details?.results?.share_class_shares_outstanding || (mktCap && price ? mktCap / price : null);
+  const sector = cleanSectorDescription(details?.results?.sic_description, details?.results?.sector, details?.results?.industry);
+
+  let shortPct: number | null = null;
+  if (shortData?.results && shortData.results.length > 0 && float) {
+    shortPct = +((shortData.results[0].short_interest / float) * 100).toFixed(1);
+  }
+
   return {
     symbol,
+    name,
+    sector,
     price: +price.toFixed(2),
     score,
+    changePct: +changePct.toFixed(2),
+    vol,
+    dVol: Math.round(price * vol),
+    rvol,
+    float,
+    shortPct,
+    mktCap,
+    stage,
+    vwapStatus,
     atrPct: +atrPct.toFixed(2),
     pctOffHigh: +pctOffHigh.toFixed(1),
     distToEma21: +distToEma21.toFixed(2),
@@ -261,19 +412,21 @@ export async function GET() {
     const spyBars = await getDailyBars("SPY");
     const spyReturn = pctReturn(spyBars.map(b => b.c), CONFIG.rsLookback);
 
-    const [universe, earningsBlackout] = await Promise.all([getUniverse(), getEarningsBlackout()]);
+    const [{ symbols: universe, snapMap }, earningsBlackout] = await Promise.all([getUniverse(), getEarningsBlackout()]);
     const toScan = universe.filter(sym => !earningsBlackout.has(sym));
 
     const candidates = await inBatches(toScan, CONFIG.concurrency, async (sym) => {
-      const bars = await getDailyBars(sym);
-      return analyze(sym, bars, spyReturn);
+      // Bars + details (mktCap/float/sector) + short interest, in parallel per symbol
+      const [bars, details, shortData] = await Promise.all([
+        getDailyBars(sym),
+        polygonSafe<any>(`/v3/reference/tickers/${sym}`, {}),
+        polygonSafe<any>(`/stocks/v1/short-interest?ticker=${sym}`, { results: [] }),
+      ]);
+      return analyze(sym, bars, spyReturn, details, shortData, snapMap.get(sym));
     });
 
     candidates.sort((a, b) => b.score - a.score);
 
-    // Guard against degenerate scans (weekend-cleared snapshot, provider
-    // hiccup): preserve the previous KV data rather than clobbering it —
-    // same pattern as the scanner's hasRealData guard.
     const scanTime = Date.now();
     const hasRealData = universe.length > 0 && candidates.length > 0;
 

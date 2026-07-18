@@ -91,7 +91,7 @@ const SECTOR_MAP: Record<string, string> = {
 
 const ETF_TARGET_MAP: Record<string, string> = {
   'MSTX': 'MSTR - Fintech', 'MSTU': 'MSTR - Fintech', 'MSTZ': 'MSTR - Fintech', 'MSTD': 'MSTR - Fintech',
-  'CONL': 'COIN - Fintech', 'CONZ': 'COIN - Fintech', 'COND': 'COIN - Fintech',
+  'CONL': 'COIN - Fintech', 'CONZ': 'COIN - Fintech', 'COND': 'COIN - Fintech', 'CONX': 'COIN - Fintech',
   'MRAL': 'MARA - Fintech', 'RIOX': 'RIOT - Fintech',
   'BITX': 'BTC - Bitcoin', 'BITZ': 'BTC - Bitcoin', 'BTCZ': 'BTC - Bitcoin', 'IBIT': 'BTC - Bitcoin', 'BITO': 'BTC - Bitcoin', 
   'ETHU': 'ETH - Ethereum', 'ETHZ': 'ETH - Ethereum', 'ETU': 'ETH - Ethereum', 'SOLT': 'SOL - Solana', 'XRPT': 'XRP - Crypto',
@@ -108,15 +108,15 @@ const ETF_TARGET_MAP: Record<string, string> = {
   'SMU': 'SMCI - IT', 'SMCX': 'SMCI - IT', 'SMCZ': 'SMCI - IT',
   'DLLL': 'DELL - IT', 'LUNL': 'LUNR - Aerospace', 'OKLL': 'OKLO - Nuclear', 'PLTU': 'PLTR - AI', 
   'METU': 'META - Comm Serv', 'TEMT': 'META - Comm Serv', 'SOFX': 'SOFI - Fintech', 'ROBN': 'HOOD - Fintech', 
-  'RVNL': 'RIVN - EV', 'LCDL': 'LCID - EV', 'CRWV': 'CRWD - Cyber', 'CRDU': 'CRWD - Cyber', 'INTW': "INTC - Semi's", 
-  'GMEU': 'GME - Con Disc', 'APPX': 'APP - IT', 'SNXX': 'SNOW - IT', 'AXTX': 'AXON - Industrials', 
+  'RVNL': 'RIVN - EV', 'LCDL': 'LCID - EV', 'INTW': "INTC - Semi's", 
+  'GMEU': 'GME - Con Disc', 'APPX': 'APP - IT', 
   'IONX': 'IONQ - IT', 'IONZ': 'IONQ - IT', 'QPUX': 'IONQ - IT', 'CEGX': 'CEG - Nuclear', 
-  'ASMG': "ASML - Semi's", 'UUUG': 'U - IT', 'AAOX': 'AI - AI', 'FBL': 'META - Comm Serv', 'HIMZ': 'HIMS - Healthcare', 
+  'ASMG': "ASML - Semi's", 'UUUG': 'U - IT', 'FBL': 'META - Comm Serv', 'HIMZ': 'HIMS - Healthcare', 
   'RDTL': 'RDDT - Comm Serv', 'RCAX': 'RCAT - Aerospace', 'SOUX': 'SOUN - AI', 
   'RKLB': 'RKLB - Aerospace', 'RKLX': 'RKLB - Aerospace', 
-  'ASTS': 'ASTS - Aerospace', 'ASTX': 'ASTS - Aerospace',
+  'ASTS': 'ASTS - Aerospace', 'ASTX': "AXTI - Semi's",
   'SPCF': 'SPCX - Aerospace 2X', 'SSPC': 'SPCX - Aerospace -2X', 'SPCH': 'SPCX - Aerospace 2X',
-  'RGTX': 'RGT - IT', 'RGTU': 'RGT - IT', 'RGTZ': 'RGT - IT',
+  'RGTX': 'RGTI - IT', 'RGTU': 'RGTI - IT', 'RGTZ': 'RGTI - IT',
   'TQQQ': 'QQQ - Nasdaq 3X', 'SQQQ': 'QQQ - Nasdaq -3X', 'QID': 'QQQ - Nasdaq -2X', 'QLD': 'QQQ - Nasdaq 2X', 'SNDQ': 'QQQ - Nasdaq ETF',
   'SOXL': "SOXX - Semi's 3X", 'SOXS': "SOXX - Semi's -3X", 'TECL': 'XLK - Tech 3X', 'TECS': 'XLK - Tech -3X',
   'FNGU': 'FNGU - Big Tech 3X', 'FNGD': 'FNGD - Big Tech -3X', 
@@ -125,7 +125,58 @@ const ETF_TARGET_MAP: Record<string, string> = {
   'UVXY': 'VIX - Volatility 1.5X', 'UVIX': 'VIX - Volatility 2X', 'SVIX': 'VIX - Volatility -1X', 'VIXY': 'VIX - Volatility',
   'MSOX': 'MSOS - Cannabis 2X', 'NAIL': 'XHB - Homebuilders 3X', 'LABX': 'XBI - Biotech 2X', 'KORU': 'EWY - South Korea 3X', 
   'ZSL': 'SLV - Silver -2X', 'URAA': 'URA - Uranium 2X', 'GDXD': 'GDX - Gold Miners -3X', 
-  'QQQ': 'QQQ - Nasdaq', 'IWM': 'IWM - Small Cap', 'DIA': 'DIA - Dow Jones', 'VOO': 'VOO - S&P 500', 'VTI': 'VTI - Total Market'
+  'QQQ': 'QQQ - Nasdaq', 'IWM': 'IWM - Small Cap', 'DIA': 'DIA - Dow Jones', 'VOO': 'VOO - S&P 500', 'VTI': 'VTI - Total Market',
+
+  // --- CORRECTIONS (previously mismapped) ---
+  'SNXX': "SNDK - Semi's",
+  'AXTX': "AXTI - Semi's",
+  'CRDU': "CRDO - Semi's",
+  'AAOX': "AAOI - Semi's",
+  // NOTE: 'CRWV' removed — CoreWeave is common stock, not an ETF
+
+  // --- ASTS leveraged family ---
+  'ASTY': 'ASTS - Aerospace', 'ASUP': 'ASTS - Aerospace', 'ASTG': 'ASTS - Aerospace',
+  // --- SK Hynix leveraged family ---
+  'HYNX': "SKHY - Semi's", 'SKUU': "SKHY - Semi's", 'SKHL': "SKHY - Semi's",
+  'SK': "SKHY - Semi's", 'SKHU': "SKHY - Semi's", 'SKHX': "SKHY - Semi's",
+  // --- SanDisk (SNDK) ---
+  'SNDU': "SNDK - Semi's", 'SNDG': "SNDK - Semi's", 'SNDC': "SNDK - Semi's",
+  // --- Seagate (STX) ---
+  'STXL': "STX - Semi's", 'STXX': "STX - Semi's", 'STXU': "STX - Semi's",
+  // --- AXT Inc (AXTI) ---
+  'AXTU': "AXTI - Semi's", 'AXTL': "AXTI - Semi's",
+  // --- Memory / DRAM theme ---
+  'DRAM': 'DRAM - Memory ETF', 'RAM': 'DRAM - Memory 2X', 'DRAL': 'DRAM - Memory 2X', 'KMEM': 'KMEM - Memory ETF',
+  // --- Micron (MU) ---
+  'MUU': "MU - Semi's", 'MULL': "MU - Semi's", 'MIC': "MU - Semi's",
+  // --- WDC / LITE / SMTC / COHR / AMAT / MRVL / ARM / FN / CLS / AAOI ---
+  'WDCX': "WDC - Semi's", 'LITU': "LITE - Semi's", 'LITX': "LITE - Semi's",
+  'SMTG': "SMTC - Semi's", 'COHX': "COHR - Semi's", 'COHH': "COHR - Semi's",
+  'AMA': "AMAT - Semi's", 'MVLL': "MRVL - Semi's", 'MRVU': "MRVL - Semi's",
+  'ARMG': "ARM - Semi's", 'ARMW': "ARM - Semi's", 'FNG': "FN - Semi's",
+  'CSEX': 'CLS - IT', 'AAOG': "AAOI - Semi's",
+  // --- Nebius (NBIS) / CoreWeave (CRWV) leveraged ---
+  'NEBX': 'NBIS - AI', 'NBIG': 'NBIS - AI', 'NBIL': 'NBIS - AI',
+  'CWVX': 'CRWV - AI', 'CRWX': 'CRWV - AI',
+  // --- Energy / power / nuclear ---
+  'BEX': 'BE - Energy', 'BEG': 'BE - Energy', 'EOSU': 'EOSE - Energy',
+  'PLUL': 'PLUG - Energy', 'GEVG': 'GEV - Energy', 'GEVX': 'GEV - Energy',
+  'LEUX': 'LEU - Nuclear', 'LACG': 'LAC - Lithium',
+  'UCO': 'USO - Crude Oil 2X', 'UGA': 'UGA - Gasoline', 'WTIU': 'WTIU - Energy 3X',
+  // --- Aerospace / space / drones ---
+  'PLU': 'PL - Aerospace', 'UMAL': 'UMAC - Aerospace', 'RDWU': 'RDW - Aerospace',
+  // --- Big-name single-stock leveraged ---
+  'NFLW': 'NFLX - Comm Serv', 'CSCL': 'CSCO - IT', 'ORCX': 'ORCL - IT', 'ORCU': 'ORCL - IT',
+  'PALU': 'PANW - Cyber', 'PANG': 'PANW - Cyber', 'NETG': 'NET - IT',
+  'UNHG': 'UNH - Healthcare', 'CATG': 'CAT - Industrials', 'DUOG': 'DUOL - IT',
+  'FIGG': 'FIG - IT', 'LMNX': 'LMND - Fintech', 'HUTG': 'HUT - Fintech',
+  'BMNG': 'BMNR - Fintech', 'LNOK': 'NOK - IT', 'QUBX': 'QUBT - IT',
+  'ECHX': 'ECHO - IT', 'INFH': 'INFQ - IT', 'WYFL': 'WYFI - IT',
+  'KEEX': 'KEEL - Industrials', 'VELL': 'VELO - Industrials',
+  // --- Sector / index / country ---
+  'LABU': 'XBI - Biotech 3X', 'PILL': 'PILL - Pharma 2X',
+  'EZJ': 'EWJ - Japan 2X', 'EWY': 'EWY - South Korea', 'FLKR': 'FLKR - South Korea',
+  'FOTO': 'FOTO - Photonics ETF'
 };
 
 const getMarketStatus = () => {
@@ -174,16 +225,10 @@ const resolveEtfSector = (sym: string, apiSector: string | undefined, apiName: s
 };
 
 const cleanSectorDescription = (sic: string | undefined, sector: string | undefined, industry: string | undefined) => {
-  // Polygon/Massive ticker details populate `sic_description` (+ sic_code) but
-  // usually NOT GICS `sector`/`industry`. The old version only read
-  // sector/industry, so nearly everything fell through to the default — which
-  // is exactly why almost every row showed "Financials". We now read the SIC
-  // text, which is the field that's actually populated.
   const ind = (industry || '').toLowerCase();
   const sicTxt = (sic || '').toLowerCase();
   const blob = `${ind} ${sicTxt}`;
 
-  // High-signal specific themes first (match against industry + SIC text).
   if (/nuclear|uranium/.test(blob)) return 'Nuclear';
   if (/solar|photovoltaic/.test(blob)) return 'Solar';
   if (/electric vehicle|auto manufacturer|motor vehicle|passenger car/.test(blob)) return 'EV';
@@ -194,7 +239,6 @@ const cleanSectorDescription = (sic: string | undefined, sector: string | undefi
   if (/fintech|financial technology/.test(blob)) return 'Fintech';
   if (/aerospace|\bdefense\b|aircraft|guided missile|space vehicle/.test(blob)) return 'Aerospace';
 
-  // Broad SIC-description buckets (this text is what the API actually returns).
   if (sicTxt) {
     if (/software|prepackaged|computer program|data processing|information retrieval|computer integrated|computer communication|electronic computer|computer peripheral|computer storage|computer terminal|electronic component|printed circuit/.test(sicTxt)) return 'IT';
     if (/pharmaceutical|drug|medicinal|surgical|\bmedical\b|\bhealth\b|dental|hospital|diagnostic|laborator/.test(sicTxt)) return 'Healthcare';
@@ -209,7 +253,6 @@ const cleanSectorDescription = (sic: string | undefined, sector: string | undefi
     if (/aircraft|machinery|industrial|construction|engineering|electrical industrial|transportation|railroad|trucking|air transport/.test(sicTxt)) return 'Industrials';
   }
 
-  // Last, the GICS sector/industry fields IF the API ever provides them.
   const sec = (sector || '').toLowerCase();
   if (sec.includes('technology')) return 'IT';
   if (sec.includes('healthcare') || sec.includes('health care')) return 'Healthcare';
@@ -223,14 +266,9 @@ const cleanSectorDescription = (sic: string | undefined, sector: string | undefi
   if (sec.includes('utilities')) return 'Utilities';
   if (sec.includes('communication')) return 'Comm Serv';
 
-  // Unknown — do NOT masquerade as Financials.
   return 'Other';
 };
 
-// Deterministic Day Trade vs Swing from the detected setup. Used as a fallback
-// when the AI omits tradeType (it sometimes does), guaranteeing every setup row
-// carries a tag. Intraday momentum/ignition patterns => Day; higher-timeframe
-// base/trend structure => Swing.
 const deriveTradeType = (setupName: string | null | undefined): string => {
   if (!setupName) return '';
   const s = setupName.toLowerCase();
@@ -238,8 +276,59 @@ const deriveTradeType = (setupName: string | null | undefined): string => {
   if (s.includes('gap & go') || s.includes('r2g') || s.includes('sqz fired') || s.includes('episodic')) return 'Day Trade';
   if (s.includes('glb') || s.includes('vcp') || s.includes('ema pb') || s.includes('trend hold') ||
       s.includes('inside day') || s.includes('blue dot') || s.includes('sqz building')) return 'Swing';
-  // Recognized as a setup but not explicitly mapped — default to the more common case.
   return 'Swing';
+};
+
+// --- SMB "Stock In Play" grade ----------------------------------------------
+// THE unified score for the dashboard (written into `conviction` so every card
+// displays it). Deterministic, recomputed every scan, never missing:
+// RVOL (0-30) + Gap% (0-20) + ATR expansion (0-20) + RS vs market (0-10)
+// + Catalyst quality (0-15) + Earnings proximity (0-5).
+// A >= 70: genuine Stock In Play. B >= 50: on the radar. C: ordinary tape.
+const computeSmbScore = (
+  rvol: number | null,
+  gapPct: number | null,
+  atrExpansion: number | null,
+  rsVsMkt: number | null,
+  hasWiim: boolean,
+  hasHeadline: boolean,
+  hasEarnings: boolean
+): { score: number; grade: string } => {
+  let score = 0;
+
+  if (rvol != null) {
+    if (rvol >= 3) score += 30;
+    else if (rvol >= 2) score += 24;
+    else if (rvol >= 1.5) score += 18;
+    else if (rvol >= 1) score += 10;
+  }
+
+  if (gapPct != null) {
+    const g = Math.abs(gapPct);
+    if (g >= 5) score += 20;
+    else if (g >= 3) score += 15;
+    else if (g >= 1.5) score += 8;
+  }
+
+  if (atrExpansion != null) {
+    if (atrExpansion >= 2) score += 20;
+    else if (atrExpansion >= 1.5) score += 15;
+    else if (atrExpansion >= 1) score += 8;
+  }
+
+  if (rsVsMkt != null) {
+    const d = Math.abs(rsVsMkt);
+    if (d >= 3) score += 10;
+    else if (d >= 1.5) score += 6;
+  }
+
+  if (hasWiim) score += 15;
+  else if (hasHeadline) score += 8;
+
+  if (hasEarnings) score += 5;
+
+  const grade = score >= 70 ? 'A' : score >= 50 ? 'B' : 'C';
+  return { score, grade };
 };
 
 const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, vwap: number, rvol: number | null): { name: string | null, stage: string } => {
@@ -321,10 +410,6 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
       return { name: 'BB SQZ Fired', stage };
   }
 
-  // --- Blue Dot Rev: Dr. Eric Wish's "dot" oversold-reversal signal ---------
-  // Wish's definition: the fast 10-period stochastic was <= 25 on any of the
-  // last 3 days, today closes above the prior close, and price is back above
-  // either its 30-day SMA or 21-day EMA — a bounce from oversold reclaiming trend.
   const fastStochK = (idx: number) => {
     const slice = bars.slice(idx, idx + 10);
     const hi = Math.max(...slice.map(b => b.h));
@@ -350,12 +435,6 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
 
   const hasConvictionVol = rvol !== null && rvol >= 1.0;
 
-  // --- VCP (Minervini Volatility Contraction Pattern) -----------------------
-  // A base of progressively tighter pullbacks with volume drying up, inside an
-  // uptrend, breaking out. We approximate the contraction legs with three
-  // consecutive ~12-bar windows: each window's price range (and volume) should
-  // be tighter than the one before (supply drying up), the most recent leg
-  // should be tight, and today should clear the base high on real volume.
   const windowRange = (start: number, len: number) => {
     const slice = bars.slice(start, start + len);
     const hi = Math.max(...slice.map(b => b.h));
@@ -369,27 +448,19 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
   if ((stage === 'Stage 2A' || stage === 'Stage 3A') && bars.length >= 50) {
     const rNear = windowRange(1, 12), rMid = windowRange(13, 12), rFar = windowRange(25, 12);
     const vNear = windowVol(1, 12), vMid = windowVol(13, 12), vFar = windowVol(25, 12);
-    const contracting = rNear < rMid && rMid < rFar;           // each pullback tighter than the last
+    const contracting = rNear < rMid && rMid < rFar;
     const volDrying = (vNear > 0 && vMid > 0 && vFar > 0) ? (vNear < vMid && vMid < vFar) : true;
-    const tightFinalLeg = rNear < 0.15;                        // final contraction is coiled
+    const tightFinalLeg = rNear < 0.15;
     const baseHigh = Math.max(...bars.slice(1, 37).map(b => b.h));
     if (contracting && volDrying && tightFinalLeg && currentPrice > baseHigh && hasConvictionVol) {
       return { name: 'VCP', stage };
     }
   }
 
-  // --- Episodic Pivot (Stockbee): a large catalyst gap on heavy volume -------
-  // A significant gap-up that holds, on a volume surge — the market is re-rating
-  // the stock. (Benzinga catalyst confirmation is layered on later in the merge.)
   if (rvol !== null && rvol >= 2.0 && currentOpen >= yest.c * 1.04 && currentPrice >= currentOpen * 0.98) {
     return { name: 'Episodic Pivot', stage };
   }
 
-  // --- GLB (Dr. Wish Green Line Breakout) -----------------------------------
-  // A NEW all-time high (over available history) on above-average volume after
-  // a base of at least ~3 months. The prior high must be older than 3 months —
-  // i.e. the last ~63 sessions stayed below it (a true consolidation, not a
-  // stock already grinding to new highs).
   const priorATH = Math.max(...bars.slice(1).map(b => b.h));
   const recentBaseHigh = Math.max(...bars.slice(1, 64).map(b => b.h));
   const baseOldEnough = recentBaseHigh < priorATH * 0.999;
@@ -438,22 +509,9 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 20000, head
   }
 };
 
-// ---------------------------------------------------------------------------
-// Benzinga "Why Is It Moving" (WIIM)
-// ---------------------------------------------------------------------------
-// A WIIM is a pre-written, one-sentence reason a stock is moving (earnings,
-// FDA, analyst action, M&A, etc). It's far richer than Polygon's thin
-// small-cap news, so we use it as the PRIMARY catalyst source and fall back
-// to Gemini / the technical setup only when no WIIM exists.
-//
-// IMPORTANT: Benzinga returns XML unless you send `Accept: application/json`.
-// Auth is the API key as a `token` query param. Ticker symbols come back under
-// `stocks[].name`, the sentence under `title`, the link under `url`, and the
-// timestamp under `created` (RFC-2822, which `new Date()` parses fine).
-const WIIM_MAX_AGE_DAYS = 4;   // ignore WIIMs older than this (stale catalyst)
-const WIIM_MAX_BREADTH = 12;   // skip WIIMs stamped on more than this many tickers (sector dumps, not per-stock catalysts)
+const WIIM_MAX_AGE_DAYS = 4;
+const WIIM_MAX_BREADTH = 12;
 
-// Deterministic, free (no AI) short tag derived from the WIIM sentence.
 const classifyWiim = (title: string): string => {
   const s = (title || '').toLowerCase();
   if (/\b(earnings|eps|revenue|beat|miss|quarter|q[1-4]\b)/.test(s)) return 'Earnings';
@@ -469,8 +527,6 @@ const classifyWiim = (title: string): string => {
   return 'News';
 };
 
-// Batches all candidate tickers into as few Benzinga calls as possible and
-// returns, per ticker, the freshest + most stock-specific WIIM.
 const fetchBenzingaWiims = async (
   tickers: string[],
   apiKey: string
@@ -479,7 +535,7 @@ const fetchBenzingaWiims = async (
   if (!apiKey || tickers.length === 0) return out;
 
   const now = Date.now();
-  const BATCH = 50; // keep the URL length sane
+  const BATCH = 50;
   for (let i = 0; i < tickers.length; i += BATCH) {
     const batch = tickers.slice(i, i + BATCH);
     const url =
@@ -500,8 +556,6 @@ const fetchBenzingaWiims = async (
       if (!title) continue;
 
       const stocks = Array.isArray(item?.stocks) ? item.stocks : [];
-      // Skip empty and sector-wide dumps (e.g. one "tech sector down" note
-      // stamped on 30+ tickers) — they're not a per-stock catalyst.
       if (stocks.length === 0 || stocks.length > WIIM_MAX_BREADTH) continue;
 
       const created = item?.created ? new Date(item.created).getTime() : 0;
@@ -509,8 +563,6 @@ const fetchBenzingaWiims = async (
       if (daysOld > WIIM_MAX_AGE_DAYS) continue;
 
       const link = item?.url || null;
-      // Freshness dominates; a small breadth penalty breaks near-ties in favor
-      // of the more stock-specific WIIM.
       const score = daysOld + stocks.length * 0.02;
 
       for (const s of stocks) {
@@ -526,13 +578,31 @@ const fetchBenzingaWiims = async (
   return out;
 };
 
+// Earnings within the next ~2 days (SMB flags proximity to a report as a
+// catalyst driver). Fails open so a calendar hiccup never blocks the scan.
+const fetchEarningsProximity = async (apiKey: string): Promise<Set<string>> => {
+  if (!apiKey) return new Set();
+  try {
+    const from = new Date().toISOString().split('T')[0];
+    const to = new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0];
+    const url =
+      `https://api.benzinga.com/api/v2.1/calendar/earnings?token=${apiKey}` +
+      `&parameters[date_from]=${from}&parameters[date_to]=${to}&pagesize=1000`;
+    const data = await fetchSafeJson(url, {}, 15000, { accept: 'application/json' });
+    const rows = Array.isArray(data?.earnings) ? data.earnings : [];
+    return new Set(rows.map((r: any) => (r?.ticker || '').toUpperCase()).filter(Boolean));
+  } catch {
+    return new Set();
+  }
+};
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const forceRefresh = searchParams.get('force') === 'true' || searchParams.get('refresh') === 'true';
 
   const estNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
   const hour = estNow.getHours();
-  const dayOfWeek = estNow.getDay(); // 0 = Sun ... 6 = Sat (Eastern wall-clock)
+  const dayOfWeek = estNow.getDay();
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
   const currentPhase = getUpdatePhase(hour);
@@ -546,11 +616,6 @@ export async function GET(request: Request) {
   };
 
   // --- WEEKEND GUARD ---------------------------------------------------------
-  // The cron already skips Sat/Sun daytime, but if this route is hit on a weekend
-  // (manual trigger or stray request), Massive/Polygon have cleared their live
-  // data — a scan would come back empty and CLOBBER Friday's stored snapshot.
-  // So on weekends we never scan: we just replay the last stored session so the
-  // dashboard keeps showing Friday's close. (force=true can still override this.)
   if (isWeekend && !forceRefresh) {
     const [wDaily, wSip, wTop, wMacro, wBench, wTime] = await Promise.all([
       kv.get<any[]>('daily_setups_v6'),
@@ -577,12 +642,6 @@ export async function GET(request: Request) {
   }
 
   // --- SHORT DEDUPE THROTTLE -------------------------------------------------
-  // The cron hits this endpoint every 10 minutes and we WANT each call to run a
-  // fresh scan — that's how movers, prices, and the QQQ benchmark stay current.
-  // We only short-circuit when a successful scan finished within the last 5
-  // minutes, which absorbs accidental double-triggers (e.g. a manual run landing
-  // on top of a cron tick) WITHOUT freezing data for hours like the old
-  // phase-based gate did.
   if (!forceRefresh) {
     try {
       const lastScanTime = await kv.get<number>('last_scan_time_v6');
@@ -620,8 +679,6 @@ export async function GET(request: Request) {
   const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
   if (!polygonApiKey) return NextResponse.json({ error: 'Missing API Key' }, { status: 500 });
 
-  // Benzinga key powers WIIM catalysts. Optional: if unset, the scanner simply
-  // falls back to Gemini / technical setups exactly as before.
   const benzingaApiKey = process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '';
 
   try {
@@ -712,12 +769,10 @@ export async function GET(request: Request) {
 
     const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= MIN_PRICE && t._liveVol >= MIN_VOLUME);
 
+    // SPY's change today — the market baseline for the SMB RS-vs-market grade.
+    const spyChgToday = processedSnapshot.find((t: any) => t.ticker === 'SPY')?._liveChg ?? 0;
+
     // --- Market breadth / GMI-style regime -----------------------------------
-    // A breadth model in the spirit of Dr. Wish's GMI + Stockbee's "4% breadth",
-    // computed from the full liquid universe we already pulled: advancers vs
-    // decliners, plus the count of stocks making strong (>=4%) daily moves in
-    // each direction. Six conditions -> a 0-6 score (GREEN >=4, RED <=2). The
-    // counts of 100 / 50 are universe-size dependent and tunable.
     let advancers = 0, decliners = 0, up4 = 0, down4 = 0;
     for (const t of viableSetups) {
       const chg = t._liveChg || 0;
@@ -728,12 +783,12 @@ export async function GET(request: Request) {
     const pctAdv = breadthTotal > 0 ? advancers / breadthTotal : 0;
     const ratio4 = (up4 + down4) > 0 ? up4 / (up4 + down4) : 0.5;
     let breadthScore = 0;
-    if (advancers > decliners) breadthScore++;   // net advance/decline positive
-    if (pctAdv >= 0.55) breadthScore++;          // broad participation
-    if (up4 > down4) breadthScore++;             // 4% breadth positive
-    if (up4 >= 100) breadthScore++;              // genuine upside thrust
-    if (ratio4 >= 0.6) breadthScore++;           // strong-mover ratio bullish
-    if (down4 < 50) breadthScore++;              // no heavy downside washout
+    if (advancers > decliners) breadthScore++;
+    if (pctAdv >= 0.55) breadthScore++;
+    if (up4 > down4) breadthScore++;
+    if (up4 >= 100) breadthScore++;
+    if (ratio4 >= 0.6) breadthScore++;
+    if (down4 < 50) breadthScore++;
     const breadthSignal = breadthScore >= 4 ? 'GREEN' : breadthScore <= 2 ? 'RED' : 'NEUTRAL';
     try {
       await kv.set('market_breadth_v6', {
@@ -818,6 +873,39 @@ export async function GET(request: Request) {
         atr = trCount > 0 ? sumTR / trCount : 0;
       }
       
+      // 10 & 21 EMA off daily closes (bars are newest-first, so warm up from
+      // the oldest bar and iterate toward index 0 — same style as detectPattern)
+      let aboveEma10: boolean | null = null;
+      let aboveEma21: boolean | null = null;
+      if (dailyBars.length >= 30) {
+        const emaWarm = Math.min(100, dailyBars.length - 1);
+        let e10 = dailyBars[emaWarm].c;
+        let e21 = dailyBars[emaWarm].c;
+        const k10 = 2 / (10 + 1);
+        const k21e = 2 / (21 + 1);
+        for (let i = emaWarm - 1; i >= 0; i--) {
+          e10 = (dailyBars[i].c * k10) + (e10 * (1 - k10));
+          e21 = (dailyBars[i].c * k21e) + (e21 * (1 - k21e));
+        }
+        aboveEma10 = price >= e10;
+        aboveEma21 = price >= e21;
+      }
+
+      // --- SMB raw components -------------------------------------------------
+      let gapPct: number | null = null;
+      let atrExpansion: number | null = null;
+      if (dailyBars.length >= 2) {
+        const prevDailyClose = dailyBars[1]?.c;
+        if (prevDailyClose > 0 && currentOpen > 0) {
+          gapPct = ((currentOpen - prevDailyClose) / prevDailyClose) * 100;
+        }
+        const todayBar = dailyBars[0];
+        if (atr > 0 && todayBar?.h != null && todayBar?.l != null) {
+          atrExpansion = (todayBar.h - todayBar.l) / atr;
+        }
+      }
+      const rsVsMkt = chgPct - spyChgToday;
+      
       const rvol = (avgVol > 0 && vol > 0) ? (vol / avgVol) : null;
       const setupMatched = detectPattern(dailyBars, price, currentOpen, vwap, rvol);
       const companyName = details?.results?.name || sym;
@@ -859,6 +947,10 @@ export async function GET(request: Request) {
       return {
         ticker: sym, name: companyName, sector: deepSector, price, vwapStatus, changePct: chgPct, vol, avgVol, atr, dVol: vol * vwap, rvol: rvol ? parseFloat(rvol.toFixed(2)) : null,
         float, shortPct, mktCap: marketCap, stage: setupMatched.stage, setupName: setupMatched.name, catalystUrl: finalCatalystUrl,
+        aboveEma10, aboveEma21,
+        gapPct: gapPct != null ? parseFloat(gapPct.toFixed(2)) : null,
+        atrExpansion: atrExpansion != null ? parseFloat(atrExpansion.toFixed(2)) : null,
+        rsVsMkt: parseFloat(rsVsMkt.toFixed(2)),
         _rawHeadline: rawHeadline, _daysOld: daysOld
       };
     };
@@ -874,11 +966,11 @@ export async function GET(request: Request) {
       }
     }
 
-    // Pull Benzinga WIIM catalysts for every enriched ticker in a couple of
-    // batched calls. This is the real "why it's moving" and becomes the primary
-    // catalyst/thesis source below, reducing reliance on Gemini and Polygon news.
     const wiimTickers = enrichedList.map((t: any) => t.ticker).filter(Boolean);
     const wiimMap = await fetchBenzingaWiims(wiimTickers, benzingaApiKey);
+
+    // Earnings proximity set for the SMB grade (reporting today / next 2 days).
+    const earningsSoonSet = await fetchEarningsProximity(benzingaApiKey);
 
     const hasLlmKey = !!(process.env.ANTHROPIC_API_KEY || process.env.GEMINI_API_KEY);
 
@@ -886,15 +978,8 @@ export async function GET(request: Request) {
     let confluenceDict: any = {};
 
     // --- AI COST CONTROL -------------------------------------------------------
-    // One Gemini call per scan was the whole expense: the scan runs every ~10
-    // minutes, but a stock's thesis / catalyst / conviction and the macro
-    // briefing don't meaningfully change that fast — only price & volume do.
-    // So we call Gemini at most once per AI_REFRESH_MIN and reuse the last good
-    // result (persisted in KV) on every scan in between. Price data still
-    // refreshes every scan from Polygon (cheap); only the AI text is throttled.
-    // Raise AI_REFRESH_MIN to spend less; lower it for fresher theses.
-    // Note: ?force=true refreshes DATA without calling Gemini. To force a fresh
-    // AI run on demand, use ?forceai=true.
+    // AI still supplies catalyst / thesis / tradeType and the macro briefing.
+    // Conviction scoring is now handled entirely by the deterministic SMB score.
     const AI_REFRESH_MIN = 60;
     const forceAi = searchParams.get('forceai') === 'true';
     const lastAiRun = (await kv.get<number>('ai_last_run_v6')) || 0;
@@ -906,7 +991,6 @@ export async function GET(request: Request) {
         console.error("AI skipped: no LLM API key (set ANTHROPIC_API_KEY or GEMINI_API_KEY).");
         confluenceDict = cachedConfluence;
     } else if (!shouldRunAi) {
-        // Cache still fresh — reuse the last analysis, no Gemini call this scan.
         confluenceDict = cachedConfluence;
         console.log(`AI cache fresh (${aiCacheAgeMin.toFixed(0)}m old, refresh @ ${AI_REFRESH_MIN}m) — skipping Gemini call.`);
     } else {
@@ -955,35 +1039,10 @@ export async function GET(request: Request) {
 
           CRITICAL MANDATES:
           1. Evaluate and return structural objects for EVERY single ticker present in the payload. Do not skip any.
-          2. Score each setup utilizing the "Stocks In Play" framework:
-             - REASON: Does the Headline constitute a true catalyst?
-             - PARTICIPATION: Are AvgVol > 2M and ATR > 1.0 driving range?
-             - STRUCTURE: Is the MathPattern and Stage confluence clean on higher time frames?
-          3. For the 'conviction' field, compute an integer 1-100 by SUMMING these four
-             components (build it from the parts — do NOT just pick a round number):
-             • Catalyst quality (0-35): a hard, dated catalyst (earnings, guidance, FDA/
-               clinical, M&A, major regulatory, analyst upgrade with target) = 28-35;
-               soft or secondary news = 14-27; no real news / pure technical = 0-13.
-             • Volume & participation (0-30): RVOL >= 3 = 24-30; 1.5-3 = 15-23;
-               1.0-1.5 = 6-14; < 1.0 = 0-5. Lean higher within a band for larger AvgVol/$Vol.
-             • Structure (0-25): a clean named setup on a constructive Stage (e.g. Stage 2A,
-               valid breakout) = 19-25; developing/early = 10-18; messy or extended = 0-9.
-             • Trend alignment (0-10): above VWAP and trending = 7-10; mixed = 3-6;
-               below VWAP / fading = 0-2.
-             VOLUME CONFIRMATION (Coulling / VPA): a breakout or strong up-move must be
-             "validated" by RVOL >= ~1.5. The same move on RVOL < 1 is an ANOMALY — price
-             rising without volume behind it — so treat it as a likely false breakout and
-             cap conviction in the bottom third regardless of the other components.
-             BREAKOUT QUALITY (Brooks): most range breakouts fail, so award the high
-             structure/trend points only to decisive breaks (clean setup + confirming
-             volume + constructive Stage); discount extended, late-stage, or low-volume
-             breaks where the move looks already exhausted.
-             Spread scores across the full range — most setups should land 40-80; reserve
-             85+ for genuine multi-factor confluence, not as a default.
-          4. For the 'catalyst' field, summarize the Headline into a strict 1-3 word punchy category (e.g., "FDA Approval", "Earnings Beat"). If no news, strictly return "Technical Momentum".
-          5. For the 'thesis' field, explain in 1-2 plain sentences WHY the stock is moving — the catalyst, the driver, who is buying and why. CRITICAL: DO NOT include any specific price levels, entry points, price targets, or stop-loss figures. You do NOT have reliable support/resistance data, so any such numbers are fabricated, wrong, and misleading — omit them entirely. Also DO NOT repeat the math pattern, indicator, or stage. Example: "Renewed retail-trading optimism around the SpaceX IPO is pulling capital into brokerage names; the move is news-driven rather than purely technical."
-          6. For the 'watching' array, select 5 to 8 total symbols representing the highest confluence.
-          7. For the 'tradeType' field, classify the BEST way to trade THIS setup today,
+          2. For the 'catalyst' field, summarize the Headline into a strict 1-3 word punchy category (e.g., "FDA Approval", "Earnings Beat"). If no news, strictly return "Technical Momentum".
+          3. For the 'thesis' field, explain in 1-2 plain sentences WHY the stock is moving — the catalyst, the driver, who is buying and why. CRITICAL: DO NOT include any specific price levels, entry points, price targets, or stop-loss figures. You do NOT have reliable support/resistance data, so any such numbers are fabricated, wrong, and misleading — omit them entirely. Also DO NOT repeat the math pattern, indicator, or stage. Example: "Renewed retail-trading optimism around the SpaceX IPO is pulling capital into brokerage names; the move is news-driven rather than purely technical."
+          4. For the 'watching' array, select 5 to 8 total symbols representing the highest confluence.
+          5. For the 'tradeType' field, classify the BEST way to trade THIS setup today,
              returning EXACTLY "Day Trade" or "Swing":
              • "Day Trade": momentum/news-driven intraday plays — high RVOL, gap-ups,
                single-day catalysts, intraday patterns (Gap & Go, R2G, BB SQZ Fired),
@@ -1014,7 +1073,7 @@ export async function GET(request: Request) {
               ]
             },
             "tickers": [
-              { "symbol": "XYZ", "catalyst": "Earnings Beat", "conviction": 85, "tradeType": "Swing", "thesis": "Plain-language reason the stock is moving — no price levels..." }
+              { "symbol": "XYZ", "catalyst": "Earnings Beat", "tradeType": "Swing", "thesis": "Plain-language reason the stock is moving — no price levels..." }
             ]
           }
 
@@ -1041,7 +1100,6 @@ export async function GET(request: Request) {
               });
             }
           } catch (parseErr: any) {
-            // Truncated JSON is almost always a token-budget issue.
             aiErrorMessage = `ERROR: JSON Parsing Failed`;
             console.error(aiErrorMessage, parseErr?.message);
           }
@@ -1051,16 +1109,6 @@ export async function GET(request: Request) {
         console.error(aiErrorMessage);
       }
 
-      // If the Gemini call failed for ANY reason (429/quota, parse, timeout),
-      // fall back to the last good analysis from KV so the dashboard keeps its
-      // theses instead of going blank or showing the raw error. On success,
-      // persist the fresh analysis + timestamp so the next scans can reuse it.
-      // Stamp the throttle timestamp on BOTH success and failure. Previously a
-      // failed call (429/quota, truncated JSON, timeout) left the timestamp
-      // unset, so EVERY following scan retried Gemini — a runaway that billed on
-      // each failed attempt. Now a failure also counts toward AI_REFRESH_MIN, so
-      // we retry at most once per window instead of once per scan. The dashboard
-      // keeps showing the last good analysis from KV in the meantime.
       if (aiErrorMessage) {
         confluenceDict = cachedConfluence;
       }
@@ -1077,16 +1125,11 @@ export async function GET(request: Request) {
       const wiim = wiimMap.get(t.ticker);
 
       if (wiim) {
-        // BEST CASE: a fresh, stock-specific Benzinga WIIM. Use its sentence as
-        // the thesis verbatim (real, desk-written, no AI fabrication) and a
-        // short deterministic category as the catalyst tag. No Gemini needed.
         let tag = classifyWiim(wiim.title);
         if (wiim.daysOld >= 1.5) tag = `${tag} (Delayed)`;
         t.catalyst = tag;
         t.thesis = wiim.title;
         if (wiim.url) t.catalystUrl = wiim.url;
-        // Keep Gemini's conviction score if we have one; it's still useful.
-        if (confluenceDict[t.ticker]?.conviction) t.conviction = confluenceDict[t.ticker].conviction;
         if (confluenceDict[t.ticker]?.tradeType) t.tradeType = confluenceDict[t.ticker].tradeType;
       } else if (confluenceDict[t.ticker]) {
         let tag = confluenceDict[t.ticker].catalyst;
@@ -1098,7 +1141,6 @@ export async function GET(request: Request) {
         }
         
         t.catalyst = tag;
-        t.conviction = confluenceDict[t.ticker].conviction;
         t.thesis = confluenceDict[t.ticker].thesis;
         t.tradeType = confluenceDict[t.ticker].tradeType;
       } else {
@@ -1106,14 +1148,28 @@ export async function GET(request: Request) {
         else if (t._rawHeadline && t._daysOld >= 1.5 && t._daysOld <= 4) t.catalyst = "Delayed Reaction";
         else t.catalyst = 'Technical Momentum';
         
-        // Never surface raw AI errors (e.g. the 429 quota message) as a thesis.
-        // null lets the frontend show its clean fallback line instead.
         t.thesis = null;
       }
 
-      // Guarantee a Day/Swing tag on every row. Use the AI's tradeType when it
-      // provided one; otherwise derive it deterministically from the setup name.
       if (!t.tradeType) t.tradeType = deriveTradeType(t.setupName);
+
+      // --- Unified score: SMB IS the conviction number ------------------------
+      // Deterministic, fresh every scan, never missing. The AI's conviction is
+      // intentionally ignored; the AI contributes catalyst / thesis / tradeType.
+      const hasEarnings = earningsSoonSet.has(t.ticker);
+      const smb = computeSmbScore(
+        t.rvol,
+        t.gapPct,
+        t.atrExpansion,
+        t.rsVsMkt,
+        !!wiim,
+        !!t._rawHeadline,
+        hasEarnings
+      );
+      t.smbScore = smb.score;
+      t.smbGrade = smb.grade;
+      t.hasEarnings = hasEarnings;
+      t.conviction = smb.score;
 
       enrichedMap.set(t.ticker, t); 
     });
@@ -1146,27 +1202,19 @@ export async function GET(request: Request) {
       'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10)
     };
 
-    // QQQ benchmark moving averages for two timeframes. Green = current price above
-    // the SMA, red = below. Day uses 10/21/30/50-day SMAs; Week uses 5/10/30/50-week
-    // SMAs. We pull one long daily history and resample it into weekly closes here,
-    // which is more reliable than Polygon's weekly aggregates (those came back too
-    // short to compute the 30/50-week averages).
+    // QQQ benchmark moving averages (unchanged)
     let benchmark: any = null;
     try {
       const qqqTo = new Date().toISOString().split('T')[0];
 
-      // ~420 calendar days (~290 trading days, ~58 weeks) covers the 50-day and
-      // 50-week SMAs with room to spare.
       const dFromDate = new Date();
       dFromDate.setDate(dFromDate.getDate() - 420);
       const dailyRes = await fetchSafeJson(
         `https://api.polygon.io/v2/aggs/ticker/QQQ/range/1/day/${dFromDate.toISOString().split('T')[0]}/${qqqTo}?adjusted=true&sort=desc&limit=400&apiKey=${polygonApiKey}`,
         { results: [] }
       );
-      const dailyBars = (dailyRes.results || []).sort((a: any, b: any) => b.t - a.t); // newest first
+      const dailyBars = (dailyRes.results || []).sort((a: any, b: any) => b.t - a.t);
 
-      // Resample daily -> weekly: Monday-aligned 7-day buckets. Bars are newest-first,
-      // so the first bar seen in a bucket is that week's most recent close.
       const weekIndex = (ms: number) => Math.floor((Math.floor(ms / 86400000) + 3) / 7);
       const seenWeeks = new Set<number>();
       const weeklyBars: { c: number }[] = [];
@@ -1178,7 +1226,6 @@ export async function GET(request: Request) {
         }
       }
 
-      // Simple moving average of the most recent n closes (bars are newest-first).
       const smaOf = (bars: any[], n: number): number | null => {
         if (bars.length < n) return null;
         let sum = 0;
@@ -1208,9 +1255,6 @@ export async function GET(request: Request) {
 
     const finalScanTime = Date.now();
 
-    // Don't let a degenerate/empty scan wipe the last good snapshot. This guards
-    // Friday's data and survives transient provider hiccups: if a cycle comes
-    // back with no movers, we keep whatever was already in KV.
     const hasRealData =
       (finalTopMovers['Gainers']?.length > 0) ||
       (finalTopMovers['Losers']?.length > 0) ||
@@ -1228,8 +1272,6 @@ export async function GET(request: Request) {
       console.warn('Scan produced no movers; preserving previous KV snapshot.');
     }
 
-    // Benchmark is independent of the movers list, so update it whenever we have
-    // a fresh value (self-guards on null).
     if (benchmark) await kv.set('benchmark_v6', benchmark);
 
     let macroInsights = null;

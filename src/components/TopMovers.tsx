@@ -20,10 +20,15 @@ interface StockData {
   catalystUrl: string | null;
   stage: string;
   setupName: string | null;
+  conviction: number | null;
+  aboveEma10: boolean | null;
+  aboveEma21: boolean | null;
 }
 
 type TabType = 'Mega Caps' | 'Gainers' | 'Losers' | 'ETF Gainers' | 'ETF Losers';
 type SortDirection = 'asc' | 'desc';
+type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
+type VwapFilterType = 'All' | 'above' | 'below';
 
 interface MovingAverage {
   label: string;
@@ -86,6 +91,8 @@ export default function TopMovers() {
   const [sortConfig, setSortConfig] = useState<{ key: keyof StockData; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
+  const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
+  const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
 
   useEffect(() => { setSortConfig(null); }, [activeTab]);
 
@@ -122,6 +129,9 @@ export default function TopMovers() {
               catalystUrl: item.catalystUrl || null,
               stage: item.stage || '—',
               setupName: item.setupName || null,
+              conviction: item.conviction != null ? Number(item.conviction) : (item.smbScore ?? null),
+              aboveEma10: item.aboveEma10 ?? null,
+              aboveEma21: item.aboveEma21 ?? null,
             }));
           });
 
@@ -147,6 +157,10 @@ export default function TopMovers() {
     setSortConfig({ key, direction });
   };
 
+  // Clicking the active option clears back to All (toggle behavior)
+  const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
+  const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
+
   const sortedStocks = useMemo(() => {
     let currentList = topMoversData[activeTab] || [];
 
@@ -163,6 +177,19 @@ export default function TopMovers() {
       });
     }
 
+    if (emaFilter !== 'All') {
+      currentList = currentList.filter(s => {
+        if (emaFilter === '>10') return s.aboveEma10 === true;
+        if (emaFilter === '>21') return s.aboveEma21 === true;
+        if (emaFilter === 'Both') return s.aboveEma10 === true && s.aboveEma21 === true;
+        return true;
+      });
+    }
+
+    if (vwapFilter !== 'All') {
+      currentList = currentList.filter(s => s.vwapStatus === vwapFilter);
+    }
+
     if (!sortConfig) return currentList.slice(0, 10);
     
     return [...currentList].sort((a, b) => {
@@ -174,7 +201,7 @@ export default function TopMovers() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     }).slice(0, 10);
-  }, [topMoversData, activeTab, sortConfig, marketCapFilter]);
+  }, [topMoversData, activeTab, sortConfig, marketCapFilter, emaFilter, vwapFilter]);
 
   const getSortIcon = (columnKey: keyof StockData) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
   
@@ -185,6 +212,13 @@ export default function TopMovers() {
     if (session === 'Open') return 'text-[#00e676]';
     if (session === 'Post-Market') return 'text-indigo-400';
     return 'text-slate-500';
+  };
+
+  const getScoreBadge = (score: number | null) => {
+    if (score == null) return 'bg-white/[0.02] text-slate-600 border-white/5';
+    if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+    if (score >= 50) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+    return 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50';
   };
 
   const getRvolColor = (rvol: number | null) => {
@@ -208,8 +242,15 @@ export default function TopMovers() {
     return 'text-slate-300';
   };
 
-  // Shared header cell styling so every column gets the same padding + behavior.
+  const emaDot = (state: boolean | null) => {
+    if (state === null) return 'bg-slate-600';
+    return state ? 'bg-emerald-400' : 'bg-rose-500';
+  };
+
+  // Shared styles
   const thBase = "px-3.5 py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 transition-colors";
+  const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
+  const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
@@ -240,11 +281,27 @@ export default function TopMovers() {
                 ))}
               </div>
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center gap-4 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+                {/* EMA 10/21 — clickable filter pill */}
+                <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">EMA 10/21</span>
+                  <div className="flex items-center gap-1">
+                    {(['>10', '>21', 'Both'] as EmaFilterType[]).map((opt) => (
+                      <button key={opt} onClick={() => handleEmaFilter(opt)} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${emaFilter === opt ? filterBtnActive : filterBtnIdle}`}>
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* VWAP — clickable filter pill */}
+                <div className="flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
                   <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">VWAP</span>
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div><span className="text-[10px] font-medium text-slate-400">Above</span></div>
-                    <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div><span className="text-[10px] font-medium text-slate-400">Below</span></div>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
+                    </button>
+                    <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
+                      <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Below
+                    </button>
                   </div>
                 </div>
               </div>
@@ -252,7 +309,7 @@ export default function TopMovers() {
             <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1 overflow-x-auto custom-scrollbar w-full sm:w-auto">
                 {['All', 'Micro', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
-                  <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${marketCapFilter === cap ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' : 'text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]'}`}>
+                  <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>
                     {cap}
                   </button>
                 ))}
@@ -297,27 +354,28 @@ export default function TopMovers() {
           </div>
           
           <div className="overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[1100px] table-fixed border-collapse">
+            <table className="w-full min-w-[1150px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} text-left w-[9%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
-                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} text-left w-[8%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className="pl-1 pr-3.5 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left w-[6%] cursor-pointer hover:text-slate-300 transition-colors" onClick={() => handleSort('conviction')}>SCORE{getSortIcon('conviction')}</th>
+                  <th className={`${thBase} text-right w-[9%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
                   <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
                   <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className={`${thBase} text-left w-[13%] border-l border-white/5`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className={`${thBase} text-left w-[22%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className={`${thBase} text-left w-[11%] border-l border-white/5`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} text-left w-[19%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {status.includes('Syncing') && topMoversData[activeTab].length === 0 ? (
-                  <tr><td colSpan={11} className="py-12 text-center"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
+                  <tr><td colSpan={12} className="py-12 text-center"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
                 ) : sortedStocks.length === 0 ? (
-                  <tr><td colSpan={11} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td></tr>
+                  <tr><td colSpan={12} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td></tr>
                 ) : (
                   sortedStocks.map((row, i) => {
                     const isPositive = row.changePct >= 0;
@@ -328,8 +386,20 @@ export default function TopMovers() {
                             <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help" title={row.name || row.ticker}>{row.ticker}</span>
                           </div>
                         </td>
+                        <td className="pl-1 pr-3.5 py-3 text-left">
+                          <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.conviction)}`}>{row.conviction != null ? row.conviction : '--'}</span>
+                        </td>
                         <td className="px-3.5 py-3 text-xs text-slate-300 font-medium whitespace-nowrap text-right tabular-nums">
-                          <div className="flex items-center justify-end gap-1.5">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>)}</div>
+                          <div className="flex items-center justify-end gap-1.5">
+                            ${row.price.toFixed(2)}
+                            {row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}
+                            <div className="flex items-center gap-1 shrink-0 pl-1 border-l border-white/10">
+                              <span className="text-[8px] font-bold text-slate-600">10</span>
+                              <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} title={`10 EMA: ${row.aboveEma10 === null ? 'n/a' : row.aboveEma10 ? 'above' : 'below'}`}></div>
+                              <span className="text-[8px] font-bold text-slate-600">21</span>
+                              <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma21)}`} title={`21 EMA: ${row.aboveEma21 === null ? 'n/a' : row.aboveEma21 ? 'above' : 'below'}`}></div>
+                            </div>
+                          </div>
                         </td>
                         <td className={`px-3.5 py-3 text-xs font-bold whitespace-nowrap text-right tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
                         <td className="px-3.5 py-3 text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums">{formatNumber(row.vol)}</td>

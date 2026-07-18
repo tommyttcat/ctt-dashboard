@@ -5,8 +5,19 @@ import { useMarketData } from './MarketDataContext';
 
 interface SwingCandidate {
   symbol: string;
+  name?: string;
+  sector?: string;
   price: number;
   score: number;
+  changePct?: number;
+  vol?: number;
+  dVol?: number;
+  rvol?: number | null;
+  float?: number | null;
+  shortPct?: number | null;
+  mktCap?: number | null;
+  stage?: string;
+  vwapStatus?: 'above' | 'below' | 'neutral';
   atrPct: number;
   pctOffHigh: number;
   distToEma21: number;
@@ -21,13 +32,32 @@ interface SwingCandidate {
 }
 
 type SortDirection = 'asc' | 'desc';
-type ScoreFilterType = 'All' | 'High' | 'Med' | 'Low';
 type EmaFilterType = 'All' | '>10' | '>21' | '>Both';
 
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
   const date = new Date(timestamp);
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
+};
+
+const formatNumber = (num: number | null | undefined) => {
+  if (num === null || num === undefined || num === 0 || isNaN(num)) return '—';
+  if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
+  if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
+  if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
+  return num.toLocaleString();
+};
+
+const formatCurrency = (num: number | null | undefined) => {
+  if (num === null || num === undefined || num === 0 || isNaN(num)) return '—';
+  if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
+  if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
+  return '$' + num.toLocaleString();
+};
+
+const formatStageText = (stage: string | undefined) => {
+  if (!stage || stage === '-' || stage === '—') return '—';
+  return stage.replace(/Stage\s*/i, '');
 };
 
 const isReady = (c: SwingCandidate) => c.stochK <= 25 && Math.abs(c.distToEma21) <= 2.5;
@@ -37,10 +67,10 @@ const buildReadout = (c: SwingCandidate) => {
   const emaState = c.ema21Rising ? 'rising' : 'flat/declining';
   const stochState = c.stochK <= 20 ? 'deeply oversold' : c.stochK <= 30 ? 'oversold' : 'approaching oversold';
   const structure = c.goldenCross ? '50>200 intact' : '50<200 — weaker structure';
-  return `${Math.abs(c.distToEma21).toFixed(1)}% ${emaSide} ${emaState} 21 EMA, stoch ${c.stochK.toFixed(0)} (${stochState}), ${c.pctOffHigh.toFixed(0)}% off highs with RS +${c.rsVsSpy.toFixed(0)} vs SPY, ${structure}. Watching for BD + MACD confirmation.`;
+  const readyTag = isReady(c) ? ' READY: BD could fire imminently.' : '';
+  return `${Math.abs(c.distToEma21).toFixed(1)}% ${emaSide} ${emaState} 21 EMA, stoch ${c.stochK.toFixed(0)} (${stochState}), ATR ${c.atrPct.toFixed(1)}%, ${c.pctOffHigh.toFixed(0)}% off highs with RS +${c.rsVsSpy.toFixed(0)} vs SPY, ${structure}. Watching for BD + MACD confirmation.${readyTag}`;
 };
 
-// Backward-compatible: derive above-21 from dist if the payload predates the boolean fields
 const above21 = (c: SwingCandidate) => c.aboveEma21 ?? c.distToEma21 >= 0;
 const above10 = (c: SwingCandidate) => c.aboveEma10 ?? (c.distToEma10 != null ? c.distToEma10 >= 0 : null);
 
@@ -54,8 +84,8 @@ export default function SwingCandidates() {
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [sortConfig, setSortConfig] = useState<{ key: keyof SwingCandidate; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
-  const [showReadyOnly, setShowReadyOnly] = useState<boolean>(false);
-  const [scoreFilter, setScoreFilter] = useState<ScoreFilterType>('All');
+  const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(false);
+  const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
 
   const fetchCandidates = useCallback(async (forceRefresh: boolean = false) => {
@@ -99,12 +129,15 @@ export default function SwingCandidates() {
 
   const filteredAndSorted = useMemo(() => {
     let filtered = [...candidates];
-    if (showReadyOnly) filtered = filtered.filter(isReady);
-    if (scoreFilter !== 'All') {
+    if (showStage2AOnly) filtered = filtered.filter(c => c.stage && c.stage.includes('2A'));
+    if (marketCapFilter !== 'All') {
       filtered = filtered.filter(c => {
-        if (scoreFilter === 'High') return c.score >= 70;
-        if (scoreFilter === 'Med') return c.score >= 55 && c.score < 70;
-        if (scoreFilter === 'Low') return c.score < 55;
+        const mc = c.mktCap;
+        if (!mc) return true;
+        if (marketCapFilter === 'Mega') return mc >= 200e9;
+        if (marketCapFilter === 'Large') return mc >= 10e9 && mc < 200e9;
+        if (marketCapFilter === 'Mid') return mc >= 2e9 && mc < 10e9;
+        if (marketCapFilter === 'Small') return mc >= 300e6 && mc < 2e9;
         return true;
       });
     }
@@ -128,7 +161,7 @@ export default function SwingCandidates() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, showReadyOnly, scoreFilter, emaFilter]);
+  }, [candidates, sortConfig, showStage2AOnly, marketCapFilter, emaFilter]);
 
   const getSortIcon = (columnKey: keyof SwingCandidate) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
@@ -137,24 +170,31 @@ export default function SwingCandidates() {
     if (score >= 55) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
     return 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50';
   };
-  const getStochColor = (k: number) => {
-    if (k <= 20) return 'text-purple-400';
-    if (k <= 30) return 'text-emerald-400';
-    return 'text-slate-400';
-  };
-  const getDistColor = (d: number) => {
-    if (Math.abs(d) <= 1.5) return 'text-emerald-400';
-    if (Math.abs(d) <= 3) return 'text-slate-300';
+  const getStageColor = (stage: string | undefined) => {
+    if (!stage || stage === '-') return 'text-slate-500';
+    if (stage.includes('1')) return 'text-slate-400';
+    if (stage.includes('2')) return 'text-emerald-400';
+    if (stage.includes('3')) return 'text-amber-400';
+    if (stage.includes('4')) return 'text-rose-400';
     return 'text-slate-500';
   };
-  const getRsColor = (rs: number) => {
-    if (rs >= 20) return 'text-purple-400';
-    if (rs >= 10) return 'text-emerald-400';
+  const getRvolColor = (rvol: number | null | undefined) => {
+    if (!rvol) return 'text-slate-500';
+    if (rvol >= 2) return 'text-amber-400';
+    if (rvol >= 1.5) return 'text-emerald-400';
+    return 'text-slate-500';
+  };
+  const getFloatColor = (float: number | null | undefined) => {
+    if (!float) return 'text-slate-500';
+    if (float <= 20000000) return 'text-purple-400';
+    if (float <= 50000000) return 'text-emerald-400';
     return 'text-slate-300';
   };
-  const getAtrColor = (a: number) => {
-    if (a >= 2.5 && a <= 4) return 'text-emerald-400';
-    return 'text-slate-400';
+  const getShortColor = (short: number | null | undefined) => {
+    if (!short) return 'text-slate-500';
+    if (short >= 20) return 'text-purple-400';
+    if (short >= 10) return 'text-emerald-400';
+    return 'text-slate-300';
   };
 
   const emaDot = (state: boolean | null) => {
@@ -197,11 +237,10 @@ export default function SwingCandidates() {
         <>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 relative z-10">
             <div className="flex flex-wrap items-center gap-4">
-              <button onClick={(e) => { e.stopPropagation(); setShowReadyOnly(!showReadyOnly); }} className={`px-4 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${showReadyOnly ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(52,211,153,0.1)]' : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'}`}>Filter: Ready</button>
+              <button onClick={(e) => { e.stopPropagation(); setShowStage2AOnly(!showStage2AOnly); }} className={`px-4 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${showStage2AOnly ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(52,211,153,0.1)]' : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'}`}>Filter: 2A</button>
               <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1" onClick={(e) => e.stopPropagation()}>
-                <div className="px-2 border-r border-white/10 mr-1"><span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">SCORE</span></div>
-                {['All', 'High', 'Med', 'Low'].map((level) => (
-                  <button key={level} onClick={() => setScoreFilter(level as ScoreFilterType)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 ${scoreFilter === level ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' : 'text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]'}`}>{level}</button>
+                {['All', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
+                  <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap ${marketCapFilter === cap ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' : 'text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]'}`}>{cap}</button>
                 ))}
               </div>
               <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-1" onClick={(e) => e.stopPropagation()}>
@@ -213,17 +252,19 @@ export default function SwingCandidates() {
             </div>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-4 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
-                <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">EMA 10/21</span>
+                <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">STAGE</span>
                 <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div><span className="text-[10px] font-medium text-slate-400">Above</span></div>
-                  <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div><span className="text-[10px] font-medium text-slate-400">Below</span></div>
+                  <div className="flex items-center gap-1.5"><span className="text-[10px] font-bold text-slate-400">1</span></div>
+                  <div className="flex items-center gap-1.5"><span className="text-[10px] font-bold text-emerald-400">2</span></div>
+                  <div className="flex items-center gap-1.5"><span className="text-[10px] font-bold text-amber-400">3</span></div>
+                  <div className="flex items-center gap-1.5"><span className="text-[10px] font-bold text-rose-400">4</span></div>
                 </div>
               </div>
               <div className="flex items-center gap-4 px-3 py-1.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
-                <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">STOCH</span>
+                <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">10/21 EMA</span>
                 <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-purple-400"></div><span className="text-[10px] font-medium text-slate-400">&le;20</span></div>
-                  <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div><span className="text-[10px] font-medium text-slate-400">&le;30</span></div>
+                  <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div><span className="text-[10px] font-medium text-slate-400">Above</span></div>
+                  <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div><span className="text-[10px] font-medium text-slate-400">Below</span></div>
                 </div>
               </div>
               <button
@@ -237,21 +278,21 @@ export default function SwingCandidates() {
           </div>
 
           <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[1050px] table-fixed border-collapse">
+            <table className="w-full min-w-[1100px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} text-left w-[8%]`} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
+                  <th className={`${thBase} text-left w-[7%]`} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
                   <th className="pl-1 pr-3.5 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-left w-[6%] cursor-pointer hover:text-slate-300 transition-colors" onClick={() => handleSort('score')}>SCORE{getSortIcon('score')}</th>
-                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} text-left w-[7%]`}>EMA</th>
-                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
-                  <th className={`${thBase} text-right w-[9%]`} onClick={() => handleSort('distToEma21')}>21EMA Δ{getSortIcon('distToEma21')}</th>
-                  <th className={`${thBase} text-right w-[9%]`} onClick={() => handleSort('pctOffHigh')}>OFF HIGH{getSortIcon('pctOffHigh')}</th>
-                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('atrPct')}>ATR%{getSortIcon('atrPct')}</th>
-                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
-                  <th className={`${thBase} text-right w-[8%]`} onClick={() => handleSort('avgDollarVolM')}>$VOL{getSortIcon('avgDollarVolM')}</th>
-                  <th className={`${thBase} text-left w-[9%] border-l border-white/5`}>STRUCT</th>
-                  <th className={`${thBase} text-left w-[9%]`}>STATUS</th>
+                  <th className={`${thBase} text-right w-[9%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} text-right w-[7%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className={`${thBase} text-right w-[6%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className={`${thBase} text-right w-[9%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} text-left w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className={`${thBase} text-left w-[8%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
 
@@ -259,60 +300,53 @@ export default function SwingCandidates() {
                 {candidates.length === 0 ? (
                   <tr><td colSpan={12} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? 'No candidates match current filter criteria.' : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — try Rescan.'}</td></tr>
                 ) : (
-                  filteredAndSorted.map((row) => (
-                    <React.Fragment key={row.symbol}>
-                      <tr className="hover:bg-white/[0.02] transition-colors group">
-                        <td className={`${tdBase} text-left`}>
-                          <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20">{row.symbol}</span>
-                        </td>
-                        <td className="pl-1 pr-3.5 pt-3 pb-2 text-left">
-                          <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.score)}`}>{row.score}</span>
-                        </td>
-                        <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap text-right tabular-nums`}>${row.price.toFixed(2)}</td>
-                        <td className={`${tdBase} text-left whitespace-nowrap`}>
-                          <div className="flex items-center gap-2.5">
-                            <div className="flex items-center gap-1" title={`10 EMA: ${above10(row) === null ? 'n/a' : above10(row) ? 'above' : 'below'}`}>
-                              <span className="text-[9px] font-bold text-slate-500">10</span>
-                              <div className={`w-1.5 h-1.5 rounded-full ${emaDot(above10(row))}`}></div>
+                  filteredAndSorted.map((row) => {
+                    const isPositive = (row.changePct ?? 0) >= 0;
+                    return (
+                      <React.Fragment key={row.symbol}>
+                        <tr className="hover:bg-white/[0.02] transition-colors group">
+                          <td className={`${tdBase} text-left`}>
+                            <span title={row.name || row.symbol} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.symbol}</span>
+                          </td>
+                          <td className="pl-1 pr-3.5 pt-3 pb-2 text-left">
+                            <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.score)}`}>{row.score}</span>
+                          </td>
+                          <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap text-right tabular-nums`}>
+                            <div className="flex items-center justify-end gap-1.5">
+                              ${row.price.toFixed(2)}
+                              <div className="flex items-center gap-1 shrink-0">
+                                <div className={`w-1.5 h-1.5 rounded-full ${emaDot(above10(row))}`} title={`10 EMA: ${above10(row) === null ? 'n/a' : above10(row) ? 'above' : 'below'}`}></div>
+                                <div className={`w-1.5 h-1.5 rounded-full ${emaDot(above21(row))}`} title={`21 EMA: ${above21(row) ? 'above' : 'below'}`}></div>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-1" title={`21 EMA: ${above21(row) ? 'above' : 'below'}`}>
-                              <span className="text-[9px] font-bold text-slate-500">21</span>
-                              <div className={`w-1.5 h-1.5 rounded-full ${emaDot(above21(row))}`}></div>
+                          </td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap text-right tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{row.changePct != null ? `${isPositive ? '+' : ''}${row.changePct.toFixed(2)}%` : '—'}</td>
+                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums`}>{formatNumber(row.vol)}</td>
+                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums`}>{formatCurrency(row.dVol)}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap text-right tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap text-right tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap text-right tabular-nums ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
+                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums`}>{formatNumber(row.mktCap)}</td>
+                          <td className={`${tdBase} text-left whitespace-nowrap border-l border-white/5`}>
+                            <span className={`text-[11px] font-bold tracking-wide ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span>
+                          </td>
+                          <td className={`${tdBase} text-left`}>
+                            <span className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{row.sector || '—'}</span>
+                          </td>
+                        </tr>
+                        <tr className="bg-transparent border-t border-white/5">
+                          <td colSpan={12} className="pb-3.5 pt-2.5 pr-2 pl-[56px]">
+                            <div className="flex items-baseline gap-3">
+                              <span className="shrink-0 w-[88px] text-[#7c8bfa] font-bold text-[10px] tracking-[0.1em] uppercase">EMA PB</span>
+                              <p className="flex-1 text-[11px] leading-relaxed pr-8 whitespace-normal max-w-[780px]">
+                                <span className="text-slate-500">{buildReadout(row)}</span>
+                              </p>
                             </div>
-                          </div>
-                        </td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap text-right tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK.toFixed(1)}</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap text-right tabular-nums ${getDistColor(row.distToEma21)}`}>{row.distToEma21 >= 0 ? '+' : ''}{row.distToEma21.toFixed(1)}%</td>
-                        <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums`}>-{row.pctOffHigh.toFixed(1)}%</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap text-right tabular-nums ${getAtrColor(row.atrPct)}`}>{row.atrPct.toFixed(1)}%</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap text-right tabular-nums ${getRsColor(row.rsVsSpy)}`}>+{row.rsVsSpy.toFixed(1)}</td>
-                        <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap text-right tabular-nums`}>${row.avgDollarVolM}M</td>
-                        <td className={`${tdBase} text-left whitespace-nowrap border-l border-white/5`}>
-                          <div className="flex items-center gap-1.5">
-                            <span className={`text-[10px] font-bold ${row.goldenCross ? 'text-emerald-400' : 'text-slate-600'}`} title="50 SMA > 200 SMA">GC</span>
-                            <span className={`text-[10px] font-bold ${row.ema21Rising ? 'text-emerald-400' : 'text-slate-600'}`} title="21 EMA rising">21↑</span>
-                          </div>
-                        </td>
-                        <td className={`${tdBase} text-left whitespace-nowrap`}>
-                          {isReady(row) ? (
-                            <span className="inline-block px-2 py-[2px] rounded text-[9px] font-bold tracking-wide uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Ready</span>
-                          ) : (
-                            <span className="inline-block px-2 py-[2px] rounded text-[9px] font-bold tracking-wide uppercase bg-white/[0.02] text-slate-500 border border-white/5">Forming</span>
-                          )}
-                        </td>
-                      </tr>
-                      <tr className="bg-transparent border-t border-white/5">
-                        <td colSpan={12} className="pb-3.5 pt-2.5 pr-2 pl-[56px]">
-                          <div className="flex items-baseline gap-3">
-                            <span className="shrink-0 w-[88px] text-[#7c8bfa] font-bold text-[10px] tracking-[0.1em] uppercase">EMA PB</span>
-                            <p className="flex-1 text-[11px] leading-relaxed pr-8 whitespace-normal max-w-[780px]">
-                              <span className="text-slate-500">{buildReadout(row)}</span>
-                            </p>
-                          </div>
-                        </td>
-                      </tr>
-                    </React.Fragment>
-                  ))
+                          </td>
+                        </tr>
+                      </React.Fragment>
+                    );
+                  })
                 )}
               </tbody>
             </table>
