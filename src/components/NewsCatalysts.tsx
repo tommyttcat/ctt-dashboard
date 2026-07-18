@@ -43,9 +43,6 @@ const hasRealCatalyst = (s: any): boolean =>
   !!s?.catalyst && !String(s.catalyst).toLowerCase().startsWith('technical momentum');
 
 // Impact from the tape: how hard the stock is reacting and how big it is.
-// High  = explosive participation or double-digit move (or a large cap moving hard)
-// Medium = confirmed volume/move but not extreme
-// Low   = news present, muted reaction
 const classifyImpact = (s: any): 'High' | 'Medium' | 'Low' => {
   const rv = rvolOf(s);
   const chg = Math.abs(chgOf(s));
@@ -62,14 +59,15 @@ const impactRank = (s: any): number => {
   return base + rvolOf(s) * 50 + Math.abs(chgOf(s));
 };
 
-// Headline priority: the WIIM sentence stored in `thesis` when a source URL
-// exists (guarantees it's the real article text, not an AI paraphrase),
-// otherwise any thesis text, otherwise the tag itself.
+// Headline priority: the WIIM sentence stored in `thesis`, else the tag.
 const headlineOf = (s: any): string => {
   const thesis = s?.thesis ? String(s.thesis).trim() : '';
   if (thesis) return thesis.replace(/\.$/, '');
   return String(s.catalyst).replace(/\.$/, '');
 };
+
+// Normalize "(Delayed)" suffixes off the tag so chips stay short.
+const cleanTag = (tag: string): string => tag.replace(/\s*\(delayed\)\s*/i, '').trim();
 
 const buildCatalystFeed = (scan: any): CatalystItem[] => {
   const lists: any[][] = [
@@ -96,11 +94,9 @@ const buildCatalystFeed = (scan: any): CatalystItem[] => {
     .slice(0, 20)
     .map(({ s }) => {
       const headline = headlineOf(s);
-      const tag = String(s.catalyst).replace(/\.$/, '');
+      const tag = cleanTag(String(s.catalyst));
       return {
         ticker: s.ticker,
-        // Only show the tag chip when the headline is a distinct article
-        // sentence — no point showing "Earnings" twice.
         tag: headline.toLowerCase() !== tag.toLowerCase() ? tag : null,
         headline,
         url: s.catalystUrl || null,
@@ -116,6 +112,44 @@ const splitEvent = (event: string): { head: string; rest: string } => {
     return { head: event.slice(0, idx + 1), rest: event.slice(idx + 1).trim() };
   }
   return { head: '', rest: event };
+};
+
+// --- Small presentational helpers (keep the row JSX flat and error-proof) ---
+
+const TagBadge = ({ tag, url }: { tag: string | null; url: string | null }) => {
+  if (!tag) return null;
+  const base = "inline-block whitespace-nowrap truncate px-2 py-[2px] rounded text-[9px] font-bold border bg-zinc-800/50 text-slate-300 border-zinc-700/50";
+  if (url) {
+    return (
+      
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Open news story"
+        className={`${base} hover:text-rose-300 hover:border-rose-500/30 transition-colors`}
+      >
+        {tag}
+      </a>
+    );
+  }
+  return <span className={base}>{tag}</span>;
+};
+
+const Headline = ({ headline, url }: { headline: string; url: string | null }) => {
+  const base = "block font-medium text-slate-200 text-xs leading-relaxed";
+  if (url) {
+    return (
+      
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`${base} hover:text-rose-300 transition-colors hover:underline`}
+      >
+        {headline}
+      </a>
+    );
+  }
+  return <span className={base}>{headline}</span>;
 };
 
 export default function NewsFeed() {
@@ -263,23 +297,20 @@ export default function NewsFeed() {
           ) : (
             <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-3 flex flex-col gap-2 animate-in fade-in">
               {news.map((item, i) => (
-                <div key={i} className="flex justify-between items-center gap-3 bg-[#161c2a] border border-white/5 px-4 py-2.5 rounded-lg hover:border-rose-500/20 transition-colors">
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    {item.ticker ? (
-                      <span className="inline-block shrink-0 w-[72px] text-center truncate bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20" title={item.ticker}>{item.ticker}</span>
-                    ) : null}
-                    {item.tag && (
-                      <span className="inline-block shrink-0 whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border bg-zinc-800/50 text-slate-300 border-zinc-700/50">{item.tag}</span>
-                    )}
-                    {item.url ? (
-                      <a href={item.url} target="_blank" rel="noopener noreferrer" className="font-medium text-slate-200 text-xs leading-relaxed min-w-0 hover:text-rose-300 transition-colors hover:underline">
-                        {item.headline}
-                      </a>
-                    ) : (
-                      <span className="font-medium text-slate-200 text-xs leading-relaxed min-w-0">{item.headline}</span>
-                    )}
+                <div key={i} className="flex justify-between items-center gap-4 bg-[#161c2a] border border-white/5 px-4 py-3 rounded-lg hover:border-rose-500/20 transition-colors">
+                  {/* Left: ticker + category badge, fixed width so headlines align */}
+                  <div className="flex items-center gap-2 shrink-0 w-[170px]">
+                    <span className="inline-block shrink-0 w-[64px] text-center truncate bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20" title={item.ticker}>{item.ticker || '—'}</span>
+                    <TagBadge tag={item.tag} url={item.url} />
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+
+                  {/* Middle: headline, links to the story */}
+                  <div className="min-w-0 flex-1">
+                    <Headline headline={item.headline} url={item.url} />
+                  </div>
+
+                  {/* Right: impact */}
+                  <div className="flex items-center shrink-0">
                     <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded border ${getImpactBadge(item.impact)}`}>
                       {item.impact}
                     </span>
