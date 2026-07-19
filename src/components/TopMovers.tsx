@@ -31,7 +31,7 @@ type TabType = 'Mega Caps' | 'Gainers' | 'Losers' | 'ETF Gainers' | 'ETF Losers'
 type SortDirection = 'asc' | 'desc';
 type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
-type SmbFilterType = 'All' | 'A' | 'B' | 'C';
+type CnfFilterType = 'All' | 'A' | 'B' | 'C';
 
 interface MovingAverage {
   label: string;
@@ -79,8 +79,8 @@ const formatSetupName = (name: string | null) => {
 const isGenericCatalyst = (catalyst: string | null | undefined) =>
   !catalyst || catalyst.toLowerCase().startsWith('technical momentum');
 
-// SMB grade from the unified score: A >= 70, B >= 50, C below.
-const smbGradeOf = (score: number | null): SmbFilterType | null => {
+// CNF grade from the unified score: A >= 70, B >= 50, C below.
+const cnfGradeOf = (score: number | null): CnfFilterType | null => {
   if (score == null) return null;
   if (score >= 70) return 'A';
   if (score >= 50) return 'B';
@@ -104,7 +104,7 @@ export default function TopMovers() {
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
-  const [smbFilter, setSmbFilter] = useState<SmbFilterType>('All');
+  const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
 
   useEffect(() => { setSortConfig(null); }, [activeTab]);
 
@@ -141,7 +141,7 @@ export default function TopMovers() {
               catalystUrl: item.catalystUrl || null,
               stage: item.stage || '—',
               setupName: item.setupName || null,
-              conviction: item.conviction != null ? Number(item.conviction) : (item.smbScore ?? null),
+              conviction: item.conviction != null ? Number(item.conviction) : ((item.cnfScore ?? item.smbScore) ?? null),
               aboveEma10: item.aboveEma10 ?? null,
               aboveEma21: item.aboveEma21 ?? null,
               stochK: item.stochK ?? null,
@@ -174,7 +174,7 @@ export default function TopMovers() {
   // Clicking the active option clears back to All (toggle behavior)
   const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
-  const handleSmbFilter = (val: SmbFilterType) => setSmbFilter(prev => prev === val ? 'All' : val);
+  const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
 
   const sortedStocks = useMemo(() => {
     let currentList = topMoversData[activeTab] || [];
@@ -205,8 +205,8 @@ export default function TopMovers() {
       currentList = currentList.filter(s => s.vwapStatus === vwapFilter);
     }
 
-    if (smbFilter !== 'All') {
-      currentList = currentList.filter(s => smbGradeOf(s.conviction) === smbFilter);
+    if (cnfFilter !== 'All') {
+      currentList = currentList.filter(s => cnfGradeOf(s.conviction) === cnfFilter);
     }
 
     if (!sortConfig) return currentList.slice(0, 10);
@@ -220,7 +220,7 @@ export default function TopMovers() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     }).slice(0, 10);
-  }, [topMoversData, activeTab, sortConfig, marketCapFilter, emaFilter, vwapFilter, smbFilter]);
+  }, [topMoversData, activeTab, sortConfig, marketCapFilter, emaFilter, vwapFilter, cnfFilter]);
 
   const getSortIcon = (columnKey: keyof StockData) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
   
@@ -311,7 +311,7 @@ export default function TopMovers() {
       {isExpanded && (
         <>
           <div className="flex flex-col gap-3 mb-6 relative z-10 pb-2">
-            {/* Row 1, centered: tabs → MKT CAP → SMB (A/B/C) */}
+            {/* Row 1, centered: tabs → MKT CAP → CNF (A/B/C) */}
             <div className="flex flex-wrap justify-center items-center gap-3 w-full">
               <div className="flex gap-3 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
                 {(['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'] as TabType[]).map((tab) => (
@@ -327,12 +327,12 @@ export default function TopMovers() {
                   </button>
                 ))}
               </div>
-              {/* SMB grade — clickable filter pill */}
+              {/* CNF grade — clickable filter pill */}
               <div className={pillWrap} onClick={(e) => e.stopPropagation()}>
-                <span className={pillLabel}>SMB</span>
+                <span className={pillLabel}>CNF</span>
                 <div className="flex items-center gap-0.5">
-                  {(['A', 'B', 'C'] as SmbFilterType[]).map((g) => (
-                    <button key={g} onClick={() => handleSmbFilter(g)} className={`${pillBtn} ${smbFilter === g ? filterBtnActive : filterBtnIdle}`}>
+                  {(['A', 'B', 'C'] as CnfFilterType[]).map((g) => (
+                    <button key={g} onClick={() => handleCnfFilter(g)} className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}>
                       {g}
                     </button>
                   ))}
@@ -408,7 +408,7 @@ export default function TopMovers() {
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('conviction')}>SCORE{getSortIcon('conviction')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[6%]`}>10/21</th>
