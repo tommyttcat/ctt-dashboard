@@ -278,7 +278,8 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
 
 /* ============================================================
    Briefing/session text renderer — badges tickers + index names,
-   colors percents and metrics (regular weight, color only).
+   colors percents and metrics. Values render regular weight and
+   one size smaller than the body text.
    ============================================================ */
 
 // Label/acronym tokens that must NOT be badged as tickers
@@ -293,6 +294,8 @@ const TICKER_STOPWORDS = new Set([
 
 // Inline chip — compact gray, matching the CNF badge look
 const tickerChipCls = "inline-block align-baseline text-[10px] font-bold text-slate-300 bg-slate-500/10 px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5";
+// Colored numeric values — slightly smaller than the 13px body
+const valNum = "text-[12px] tabular-nums";
 
 const rvolColor = (v: number) => (v >= 2 ? 'text-amber-400' : v >= 1.5 ? 'text-emerald-400' : 'text-slate-400');
 const stageColor = (st: string) => {
@@ -318,27 +321,27 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
     let m = part.match(/^RVOL (\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
-      return <span key={i}>RVOL <span className={`tabular-nums ${rvolColor(v)}`}>{m[1]}</span></span>;
+      return <span key={i}>RVOL <span className={`${valNum} ${rvolColor(v)}`}>{m[1]}</span></span>;
     }
 
     // Stage 2A etc — table stage colors
     m = part.match(/^Stage (\d[AB]?)$/);
     if (m) {
-      return <span key={i}>Stage <span className={stageColor(m[1])}>{m[1]}</span></span>;
+      return <span key={i}>Stage <span className={`${valNum} ${stageColor(m[1])}`}>{m[1]}</span></span>;
     }
 
     // stoch nn — purple deep oversold, emerald oversold
     m = part.match(/^stoch (\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
-      return <span key={i}>stoch <span className={`tabular-nums ${stochColor(v)}`}>{m[1]}</span></span>;
+      return <span key={i}>stoch <span className={`${valNum} ${stochColor(v)}`}>{m[1]}</span></span>;
     }
 
     // RS +nn — purple elite, emerald strong
     m = part.match(/^RS (\+?\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
-      return <span key={i}>RS <span className={`tabular-nums ${rsColor(v)}`}>{m[1]}</span></span>;
+      return <span key={i}>RS <span className={`${valNum} ${rsColor(v)}`}>{m[1]}</span></span>;
     }
 
     // Index/asset names — gray badge
@@ -346,12 +349,12 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
       return <span key={i} className={tickerChipCls}>{part}</span>;
     }
 
-    // Signed percent — green/red, regular weight
+    // Signed percent — green/red
     if (/^[+]\d+(?:\.\d+)?%$/.test(part)) {
-      return <span key={i} className="text-emerald-400 tabular-nums">{part}</span>;
+      return <span key={i} className={`${valNum} text-emerald-400`}>{part}</span>;
     }
     if (/^-\d+(?:\.\d+)?%$/.test(part)) {
-      return <span key={i} className="text-rose-400 tabular-nums">{part}</span>;
+      return <span key={i} className={`${valNum} text-rose-400`}>{part}</span>;
     }
 
     // Trade-type classifications — match the DailySetups pill colors
@@ -483,14 +486,14 @@ export default function MarketSummary() {
           </span>
         </div>
 
-        <div className="space-y-3 text-[14px] text-slate-300 leading-relaxed mb-5">
+        <div className="space-y-3 text-[13px] text-slate-300 leading-relaxed mb-5">
           {block.paragraphs.map((p, idx) => (
             <p key={idx}>{renderBriefingText(p)}</p>
           ))}
         </div>
 
         <div className={`border-l-[4px] p-4 rounded-r-xl transition-colors duration-300 ${styles.boxBg} ${styles.boxBorder}`}>
-          <p className={`text-[14px] leading-relaxed ${styles.boxText}`}>
+          <p className={`text-[13px] leading-relaxed ${styles.boxText}`}>
             {block.takeaway}
           </p>
         </div>
@@ -562,7 +565,7 @@ export default function MarketSummary() {
                   <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-3">Narrative Breakdown</h3>
                   <div className="space-y-4">
                     {formatBriefing(macroInsights.briefing).split('\n\n').filter(Boolean).map((para, idx) => (
-                      <p key={idx} className="text-[14px] text-slate-300 leading-relaxed font-medium">
+                      <p key={idx} className="text-[13px] text-slate-300 leading-relaxed font-medium">
                         {renderBriefingText(para)}
                       </p>
                     ))}
@@ -596,7 +599,7 @@ export default function MarketSummary() {
                                     ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400' 
                                     : 'bg-slate-500/10 border-white/10 text-slate-400'
                               }`}>
-                                CNF: {parsedScore}%
+                                {parsedScore}
                               </span>
                             )}
                           </div>
