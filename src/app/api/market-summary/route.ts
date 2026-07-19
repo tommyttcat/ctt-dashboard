@@ -3,80 +3,259 @@ import { kv } from '@vercel/kv';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
-export const revalidate = 0; 
-export const maxDuration = 300; 
+export const revalidate = 0;
+export const maxDuration = 60;
 
 const getIsMarketActive = () => {
   const est = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
   const day = est.getDay();
   const timeStr = est.getHours() + est.getMinutes() / 60;
-  
-  if (day === 0 || day === 6) return false; 
-  if (timeStr >= 4 && timeStr < 20) return true; 
-  return false; 
+
+  if (day === 0 || day === 6) return false;
+  if (timeStr >= 4 && timeStr < 20) return true;
+  return false;
 };
 
-// Provider-agnostic LLM call. Prefers Claude (separate quota, no hidden thinking
-// budget that can blow the token ceiling and truncate); falls back to the
-// hardened Gemini path when only GEMINI_API_KEY is set. Returns the raw text;
-// the caller extracts JSON from it.
-async function callLlm(prompt: string, maxTokens: number): Promise<string> {
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  const geminiKey = process.env.GEMINI_API_KEY;
+// ---------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------
+interface TapeQuote { ticker: string; pct: number; price: number | null; }
 
-  if (anthropicKey) {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5',
-        max_tokens: maxTokens,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Claude API Error: ${res.status} - ${errText.substring(0, 200)}`);
-    }
-    const data = await res.json();
-    return (data?.content || [])
-      .filter((b: any) => b?.type === 'text' && typeof b?.text === 'string')
-      .map((b: any) => b.text)
-      .join('');
-  }
-
-  if (geminiKey) {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          thinkingConfig: { thinkingLevel: 'low' },
-          maxOutputTokens: maxTokens,
-        },
-      }),
-    });
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Gemini API Error: ${res.status} - ${errText.substring(0, 200)}`);
-    }
-    const data = await res.json();
-    const candidate = data?.candidates?.[0];
-    return (candidate?.content?.parts || [])
-      .filter((p: any) => typeof p?.text === 'string')
-      .map((p: any) => p.text)
-      .join('');
-  }
-
-  throw new Error('No LLM API key configured (set ANTHROPIC_API_KEY or GEMINI_API_KEY)');
+interface Breadth {
+  advancers: number;
+  decliners: number;
+  up4: number;
+  down4: number;
 }
 
+interface ActionableEvent { time: string; event: string; impact: 'High' | 'Medium' | 'Low'; }
+
+interface SessionBlock {
+  phase: string;
+  timestamp: string;
+  paragraphs: string[];
+  takeaway: string;
+  colorTheme: string;
+}
+
+// ---------------------------------------------------------------
+// Formatting helpers
+// ---------------------------------------------------------------
+const fmt = (v: number): string => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+
+const INDEX_NAMES: Record<string, string> = {
+  SPY: 'the S&P', QQQ: 'the Nasdaq', DIA: 'the Dow', IWM: 'small caps',
+};
+
+// ---------------------------------------------------------------
+// Deterministic catalyst classification (no AI) — keyword-tiered,
+// same philosophy as the scanner's WIIM tagging.
+// ---------------------------------------------------------------
+const HIGH_RX = /earnings|beats|misses|guidance|raises (full|fy|outlook)|cuts (full|fy|outlook)|fda|phase (1|2|3|i|ii|iii)\b|approval|clearance|acquisition|acquires|merger|buyout|takeover|to buy\b|cpi|ppi|inflation data|fomc|fed (cuts|hikes|holds|decision)|rate (cut|hike|decision)|jobs report|nonfarm|payrolls|gdp\b|bankruptcy|chapter 11|trading halt|delisting|restatement/i;
+
+const MED_RX = /upgrade|downgrade|initiates coverage|initiated|price target|overweight|underweight|contract|awarded|partnership|collaboration|launches|launch of|unveils|patent|buyback|repurchase|dividend|stock split|offering|secondary|ipo\b|sec (probe|investigation|charges)|doj\b|lawsuit|settlement|recall|short (report|seller)|13f|stake|insider (buy|sell)|guidance update|preliminary results/i;
+
+const LOW_RX = /surges|soars|plunges|jumps|slides|rallies|spikes|tumbles|sinks|climbs|extends (gains|losses)|hits (record|52-week|all-time)/i;
+
+const MACRO_RX = /\b(fed|fomc|cpi|ppi|inflation|treasury yields?|jobs report|nonfarm|payrolls|gdp|tariff|opec|crude oil|oil prices|dollar|geopolit|white house|congress|shutdown|stimulus)\b/i;
+
+const JUNK_RX = /stocks to (buy|watch|sell)|\bwhy you\b|is it a buy|should you buy|prediction|price prediction|\btop \d+\b|\bbest \d+\b|here's what|what to know|things to know|how to invest|vs\.? which|motley|history says|could make you|millionaire|reasons to/i;
+
+function classifyEvent(article: any): ActionableEvent | null {
+  const title: string = article?.title || '';
+  const desc: string = article?.description || '';
+  const blob = `${title} ${desc}`;
+  if (!title || JUNK_RX.test(title)) return null;
+
+  let impact: 'High' | 'Medium' | 'Low' | null = null;
+  if (HIGH_RX.test(blob)) impact = 'High';
+  else if (MED_RX.test(blob)) impact = 'Medium';
+  else if (LOW_RX.test(title)) impact = 'Low';
+  if (!impact) return null;
+
+  // Primary ticker: Polygon attaches them; MKT for broad macro stories.
+  let ticker: string | null = Array.isArray(article?.tickers) && article.tickers.length > 0
+    ? String(article.tickers[0]).toUpperCase()
+    : null;
+  if (!ticker || !/^[A-Z]{1,5}$/.test(ticker)) {
+    if (MACRO_RX.test(blob)) ticker = 'MKT';
+    else return null;
+  }
+
+  // Punchy event text: ticker prefix + trimmed headline (ticker stripped if it leads).
+  let headline = title
+    .replace(new RegExp(`^\\(?${ticker}\\)?[:\\-\\s]+`, 'i'), '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (headline.length > 90) headline = headline.slice(0, 87).replace(/\s+\S*$/, '') + '…';
+
+  const time = new Date(article.published_utc).toLocaleTimeString('en-US', {
+    hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York',
+  });
+
+  return { time, event: `${ticker}: ${headline}`, impact };
+}
+
+function buildActionableEvents(articles: any[]): ActionableEvent[] {
+  const rank = { High: 0, Medium: 1, Low: 2 } as const;
+  const seen = new Set<string>();
+  const events: ActionableEvent[] = [];
+
+  const classified = articles
+    .map(a => ({ a, ev: classifyEvent(a) }))
+    .filter((x): x is { a: any; ev: ActionableEvent } => x.ev !== null)
+    .sort((x, y) => rank[x.ev.impact] - rank[y.ev.impact] ||
+      new Date(y.a.published_utc).getTime() - new Date(x.a.published_utc).getTime());
+
+  for (const { ev } of classified) {
+    const key = ev.event.split(':')[0]; // one entry per ticker keeps the list diverse
+    if (seen.has(key) && key !== 'MKT') continue;
+    seen.add(key);
+    events.push(ev);
+    if (events.length >= 10) break;
+  }
+  return events;
+}
+
+// ---------------------------------------------------------------
+// Session narrative blocks (no AI) — written from live tape + breadth.
+// ---------------------------------------------------------------
+function toneTheme(spy: number | null, fallback: string): string {
+  if (spy == null) return fallback;
+  if (spy >= 0.3) return 'emerald';
+  if (spy <= -0.3) return 'rose';
+  return fallback;
+}
+
+function breadthSentence(b: Breadth | null): string {
+  if (!b || (b.advancers === 0 && b.decliners === 0)) return '';
+  const ratio = b.decliners > 0 ? b.advancers / b.decliners : null;
+  let s: string;
+  if (ratio !== null && ratio >= 1.5) {
+    s = `Internals confirm: ${b.advancers.toLocaleString()} advancers vs ${b.decliners.toLocaleString()} decliners — participation is broad.`;
+  } else if (ratio !== null && ratio <= 0.67) {
+    s = `Internals are weak: ${b.decliners.toLocaleString()} decliners vs ${b.advancers.toLocaleString()} advancers — selling runs wider than the indexes show.`;
+  } else {
+    s = `Internals are split at ${b.advancers.toLocaleString()} advancers vs ${b.decliners.toLocaleString()} decliners — a rotational tape.`;
+  }
+  if (b.up4 >= 25) s += ` ${b.up4} names up 4%+ signal real momentum under the surface.`;
+  else if (b.down4 >= 25) s += ` ${b.down4} names down 4%+ flag distribution pressure.`;
+  return s;
+}
+
+function leadersLine(quotes: Record<string, TapeQuote>): { leader: string; laggard: string; text: string } | null {
+  const idx = ['SPY', 'QQQ', 'DIA', 'IWM']
+    .map(id => quotes[id])
+    .filter((q): q is TapeQuote => !!q);
+  if (idx.length < 2) return null;
+  const leader = idx.reduce((a, b) => (b.pct > a.pct ? b : a));
+  const laggard = idx.reduce((a, b) => (b.pct < a.pct ? b : a));
+  return {
+    leader: leader.ticker,
+    laggard: laggard.ticker,
+    text: `${INDEX_NAMES[leader.ticker]} leads at ${fmt(leader.pct)} while ${INDEX_NAMES[laggard.ticker]} lags at ${fmt(laggard.pct)}`,
+  };
+}
+
+function megaLine(quotes: Record<string, TapeQuote>): string {
+  const megas = ['NVDA', 'AAPL', 'MSFT', 'AMZN', 'TSLA']
+    .map(id => quotes[id])
+    .filter((q): q is TapeQuote => !!q);
+  if (megas.length === 0) return '';
+  const biggest = megas.reduce((a, b) => (Math.abs(b.pct) > Math.abs(a.pct) ? b : a));
+  if (Math.abs(biggest.pct) < 0.75) return '';
+  return `${biggest.ticker} (${fmt(biggest.pct)}) is the standout among the mega caps.`;
+}
+
+function buildBlocks(
+  quotes: Record<string, TapeQuote>,
+  breadth: Breadth | null,
+  events: ActionableEvent[],
+  hour: number,
+  isWeekend: boolean
+): { morning: SessionBlock; midday: SessionBlock | null; closing: SessionBlock | null } {
+  const spy = quotes['SPY']?.pct ?? null;
+  const qqq = quotes['QQQ']?.pct ?? null;
+  const highCount = events.filter(e => e.impact === 'High').length;
+  const lead = leadersLine(quotes);
+  const bSent = breadthSentence(breadth);
+  const mSent = megaLine(quotes);
+
+  const dir = spy == null ? 'flat' : spy >= 0.3 ? 'higher' : spy <= -0.3 ? 'lower' : 'flat';
+  const printLine = spy != null && qqq != null ? `S&P ${fmt(spy)}, Nasdaq ${fmt(qqq)}` : 'index prints pending';
+
+  // ---- MORNING ----
+  const morningP1 =
+    dir === 'flat'
+      ? `Early tape is undecided — ${printLine} — with neither side pressing yet. ${mSent}`.trim()
+      : `Early tape is ${dir} — ${printLine} — setting the opening bias. ${mSent}`.trim();
+  const morningP2 = [
+    highCount > 0
+      ? `${highCount} high-impact catalyst${highCount > 1 ? 's' : ''} in the pre-market news flow — check the Actionable Catalysts list for tickers in play.`
+      : `News flow is light on top-tier catalysts so far — expect the tape to trade technically off the open.`,
+    bSent,
+  ].filter(Boolean).join(' ');
+  const morning: SessionBlock = {
+    phase: 'PRE-MARKET & MORNING TAPE',
+    timestamp: '08:30 AM EST',
+    paragraphs: [morningP1, morningP2],
+    takeaway:
+      dir === 'higher' ? 'Bias long above the opening range; let leaders confirm before pressing.' :
+      dir === 'lower' ? 'Defense first — wait for the opening range to resolve before committing size.' :
+      'No edge at the open — let the opening range define direction.',
+    colorTheme: toneTheme(spy, 'cyan'),
+  };
+
+  // ---- MIDDAY ----
+  let midday: SessionBlock | null = null;
+  if (isWeekend || hour >= 11.5) {
+    const midP1 = lead
+      ? `Midday rotation check: ${lead.text} — ${lead.leader === 'IWM' ? 'risk appetite is broadening beyond the mega caps' : lead.leader === 'QQQ' ? 'growth is doing the heavy lifting' : 'the move is concentrated in the large-cap complex'}.`
+      : `Midday tape holds ${dir} — ${printLine}.`;
+    const midP2 = [bSent || `Index prints stand at ${printLine} through the lunch session.`, mSent].filter(Boolean).join(' ');
+    midday = {
+      phase: 'MIDDAY MIX & ROTATION',
+      timestamp: '12:30 PM EST',
+      paragraphs: [midP1, midP2],
+      takeaway:
+        dir === 'higher' ? 'Trend intact — pullbacks to intraday support remain buyable.' :
+        dir === 'lower' ? 'Rallies are for selling until internals repair.' :
+        'Chop regime — trade smaller and demand A-grade setups only.',
+      colorTheme: toneTheme(spy, 'indigo'),
+    };
+  }
+
+  // ---- CLOSING ----
+  let closing: SessionBlock | null = null;
+  if (isWeekend || hour >= 15.5) {
+    const closeP1 =
+      dir === 'flat'
+        ? `At the close the averages finished little changed — ${printLine} — a digestion day rather than a directional one.`
+        : `At the close the averages finished ${dir} — ${printLine} — ${dir === 'higher' ? 'with buyers holding control into the bell' : 'with sellers pressing into the bell'}.`;
+    const adRatio = breadth && breadth.decliners > 0 ? (breadth.advancers / breadth.decliners).toFixed(2) : null;
+    const closeP2 = [
+      bSent,
+      adRatio ? `Final A/D ratio ${adRatio}.` : '',
+      highCount > 0 ? `${highCount} high-impact catalysts drove the session's single-stock action.` : '',
+    ].filter(Boolean).join(' ') || `Session closed at ${printLine}.`;
+    closing = {
+      phase: 'POWER HOUR & CLOSING PRINT',
+      timestamp: '04:15 PM EST',
+      paragraphs: [closeP1, closeP2],
+      takeaway:
+        dir === 'higher' ? 'Carry constructive bias into the next session; watch for follow-through on volume.' :
+        dir === 'lower' ? 'Carry defensive bias forward — let the next open prove repair before re-engaging.' :
+        'Neutral into the next session — fresh catalysts will set the tone.',
+      colorTheme: toneTheme(spy, 'emerald'),
+    };
+  }
+
+  return { morning, midday, closing };
+}
+
+// ---------------------------------------------------------------
+// Route handler
+// ---------------------------------------------------------------
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const dateParam = searchParams.get('date');
@@ -88,16 +267,15 @@ export async function GET(request: Request) {
   const isWeekend = est.getDay() === 0 || est.getDay() === 6;
 
   let effectiveDate = new Date(est);
-  if (est.getDay() === 6) effectiveDate.setDate(est.getDate() - 1); 
-  if (est.getDay() === 0) effectiveDate.setDate(est.getDate() - 2); 
-  
+  if (est.getDay() === 6) effectiveDate.setDate(est.getDate() - 1);
+  if (est.getDay() === 0) effectiveDate.setDate(est.getDate() - 2);
+
   let targetDate = dateParam;
   if (!targetDate) {
     targetDate = `${effectiveDate.getFullYear()}-${String(effectiveDate.getMonth() + 1).padStart(2, '0')}-${String(effectiveDate.getDate()).padStart(2, '0')}`;
   }
 
   try {
-    // 1. Bypass Cache if Force Refresh
     if (forceRefresh) {
       await kv.del(`market_narrative_${targetDate}`);
     } else {
@@ -108,183 +286,93 @@ export async function GET(request: Request) {
     const polygonKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY;
     if (!polygonKey) throw new Error('Missing Polygon API Key');
 
-    let tapeContext = "No intraday price data available yet (Pre-market).";
+    // 1. Targeted tape snapshot — indices + mega caps
+    const quotes: Record<string, TapeQuote> = {};
     try {
-      const snapshotUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=SPY,NVDA,AAPL,AMZN&apiKey=${polygonKey}`;
+      const tapeTickers = 'SPY,QQQ,DIA,IWM,NVDA,AAPL,MSFT,AMZN,TSLA';
+      const snapshotUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tapeTickers}&apiKey=${polygonKey}`;
       const snapRes = await fetch(snapshotUrl, { cache: 'no-store' });
       const snapData = await snapRes.json();
-      
-      if (snapData.tickers && snapData.tickers.length > 0) {
-        tapeContext = snapData.tickers.map((t: any) => {
-          const today = t.day || {};
-          const currentChange = t.todaysChangePerc ? Number(t.todaysChangePerc).toFixed(2) : '0.00';
-          return `- ${t.ticker}: Open: ${today.o || 'N/A'}, High: ${today.h || 'N/A'}, Low: ${today.l || 'N/A'}, Last: ${today.c || t.lastTrade?.p || 'N/A'}, Daily Change: ${currentChange}%`;
-        }).join('\n');
+      for (const t of snapData?.tickers || []) {
+        const price = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || null;
+        let pct = typeof t.todaysChangePerc === 'number' ? t.todaysChangePerc : 0;
+        if ((!pct || pct === 0) && price && t.prevDay?.c) {
+          pct = ((price - t.prevDay.c) / t.prevDay.c) * 100;
+        }
+        quotes[t.ticker] = { ticker: t.ticker, pct: Number.isFinite(pct) ? pct : 0, price };
       }
     } catch (e) {
-      console.error("Failed to fetch market tape snapshot:", e);
+      console.error('Tape snapshot failed:', e);
     }
 
+    // 2. Full-market snapshot for real breadth (one call, computed locally)
+    let breadth: Breadth | null = null;
+    try {
+      const fullUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonKey}`;
+      const fullRes = await fetch(fullUrl, { cache: 'no-store' });
+      const fullData = await fullRes.json();
+      const tickers = fullData?.tickers || [];
+      if (tickers.length > 0) {
+        let advancers = 0, decliners = 0, up4 = 0, down4 = 0;
+        for (const t of tickers) {
+          const sym: string = t.ticker ?? '';
+          if (!/^[A-Z]{1,5}$/.test(sym)) continue;
+          const prev = t.prevDay;
+          if (!prev || !prev.c || !prev.v) continue;
+          if (prev.c < 5 || prev.c * prev.v < 5_000_000) continue; // ignore illiquid noise
+          const chg = typeof t.todaysChangePerc === 'number' ? t.todaysChangePerc : 0;
+          if (chg > 0) advancers++;
+          else if (chg < 0) decliners++;
+          if (chg >= 4) up4++;
+          else if (chg <= -4) down4++;
+        }
+        if (advancers + decliners > 100) breadth = { advancers, decliners, up4, down4 };
+      }
+    } catch (e) {
+      console.error('Breadth snapshot failed:', e);
+    }
+
+    // 3. News for actionable catalysts
     const newsUrl = `https://api.polygon.io/v2/reference/news?published_utc.gte=${targetDate}T00:00:00Z&published_utc.lte=${targetDate}T23:59:59Z&limit=100&sort=published_utc&order=desc&apiKey=${polygonKey}`;
     const response = await fetch(newsUrl, { cache: 'no-store' });
     const data = await response.json();
 
     if (!data.results || data.results.length === 0) {
-       return NextResponse.json({ status: 404, message: "No market data recorded yet." }, { status: 404 });
+      return NextResponse.json({ status: 404, message: "No market data recorded yet." }, { status: 404 });
     }
 
     const trashPublishers = ['the motley fool', 'zacks investment research', 'globe newswire', 'pr newswire', 'business wire'];
-    const premiumNews = data.results.filter((a: any) => !trashPublishers.includes((a.publisher?.name || '').toLowerCase())).slice(0, 40);
-    const newsContext = premiumNews.map((n: any) => `- [${new Date(n.published_utc).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' })}] ${n.title}: ${n.description}`).join('\n');
+    const premiumNews = data.results.filter((a: any) => !trashPublishers.includes((a.publisher?.name || '').toLowerCase()));
 
-    let conditionalInstructions = "";
-    if (isWeekend || currentHourDecimal >= 15.5) {
-      conditionalInstructions = `Current Time Status: AFTERNOON / POWER HOUR / WEEKEND. You MUST populate ALL THREE blocks: "morning", "midday", and "closing". If news is sparse for the afternoon, base the afternoon blocks on index price movement and momentum carryover. DO NOT RETURN NULL.`;
-    } else if (currentHourDecimal >= 11.5) {
-      conditionalInstructions = `Current Time Status: MIDDAY LUNCH SESSION. You MUST populate the "morning" and "midday" blocks. Leave the "closing" block as null.`;
-    } else {
-      conditionalInstructions = `Current Time Status: MORNING / PRE-MARKET. You MUST populate the "morning" block. Leave the "midday" and "closing" blocks strictly as null.`;
-    }
+    const actionableEvents = buildActionableEvents(premiumNews);
 
-    if (!process.env.ANTHROPIC_API_KEY && !process.env.GEMINI_API_KEY) {
-      throw new Error('Missing LLM API Key (set ANTHROPIC_API_KEY or GEMINI_API_KEY)');
-    }
+    // 4. Deterministic session blocks from live data
+    const { morning, midday, closing } = buildBlocks(quotes, breadth, actionableEvents, currentHourDecimal, isWeekend);
 
-    const aiPrompt = `
-      You are an elite, institutional day/swing trader analyzer tracking market action for trading date ${targetDate}.
-      
-      INTRADAY PRICE TAPE:
-      ${tapeContext}
-      
-      MARKET NEWS HEADLINES:
-      ${newsContext}
-      
-      ${conditionalInstructions}
-      
-      CRITICAL INSTRUCTIONS:
-      - "paragraphs" must be an array of exactly 2 concise market observations.
-      - "colorTheme" options: "cyan", "emerald", "indigo", "amber", "rose". Match the tone.
-      - "actionableEvents": From the MARKET NEWS HEADLINES above, return a list of 10 catalysts,
-        ordered most impactful first. The list MUST contain 10 entries — during market hours the
-        news almost always carries at least 10 distinct tradeable developments, so do the work to
-        find them. After the obvious top-tier headlines (earnings, guidance, FDA/clinical, M&A,
-        major macro prints), fill the rest with the next most relevant: analyst rating changes,
-        partnerships and contract wins, product or regulatory news, notable single-stock moves
-        with a clear driver, and sector-moving developments. Every entry must still be a real,
-        distinct, tradeable catalyst tied to a specific ticker (or "MKT" for broad macro) — do
-        NOT pad with vague commentary, opinion columns, duplicates of the same story, or generic
-        "stocks rose/fell" headlines. Only return fewer than 10 if the news genuinely does not
-        contain that many distinct catalysts. For each event:
-          - "event": a punchy 6 to 12 word description that STARTS with the primary ticker
-            (or "MKT" for broad macro), e.g. "NVDA: Q3 earnings beat, raises full-year guidance".
-          - "time": the headline's time in "HH:MM AM" / "HH:MM PM" format. DO NOT append
-            "EST" — the interface adds it. Use the time shown in brackets before each headline.
-          - "impact": exactly one of "High", "Medium", or "Low".
-        If there are genuinely NO real catalysts in the news, return an empty array []. Never
-        fabricate events and never emit entries with empty fields.
-      
-      RETURN EXACTLY THIS JSON STRUCTURE:
-      {
-        "actionableEvents": [
-          { "time": "09:32 AM", "event": "NVDA: Q3 earnings beat, raises full-year guidance", "impact": "High" }
-        ],
-        "morning": { "phase": "PRE-MARKET & MORNING TAPE", "timestamp": "08:30 AM EST", "paragraphs": ["..."], "takeaway": "...", "colorTheme": "cyan" },
-        "midday": { "phase": "MIDDAY MIX & ROTATION", "timestamp": "12:30 PM EST", "paragraphs": ["..."], "takeaway": "...", "colorTheme": "indigo" },
-        "closing": { "phase": "POWER HOUR & CLOSING PRINT", "timestamp": "04:15 PM EST", "paragraphs": ["..."], "takeaway": "...", "colorTheme": "emerald" }
-      }
-    `;
-
-    const generatedText = await callLlm(aiPrompt, 8192);
-
-    let generatedSummary;
-    try {
-      const match = generatedText.match(/\{[\s\S]*\}/);
-      generatedSummary = JSON.parse(match ? match[0] : generatedText);
-    } catch (parseError) {
-      generatedSummary = { actionableEvents: [], morning: null, midday: null, closing: null };
-    }
-
-    // ====================================================================
-    // THE INTERCEPTOR: FORCIBLY INJECT BLOCKS IF GEMINI FAILED TO BUILD THEM
-    // ====================================================================
-    
-    if (!generatedSummary.morning) {
-      generatedSummary.morning = {
-        phase: "PRE-MARKET & MORNING TAPE",
-        timestamp: "08:30 AM EST",
-        paragraphs: ["Morning session data initialized.", "System processing initial institutional flows and breakout setups."],
-        takeaway: "Monitor opening range for directional bias.",
-        colorTheme: "cyan"
-      };
-    }
-
-    if (!generatedSummary.midday && (isWeekend || currentHourDecimal >= 11.5)) {
-      generatedSummary.midday = {
-        phase: "MIDDAY MIX & ROTATION",
-        timestamp: "12:30 PM EST",
-        paragraphs: ["Midday market rotation observed via price tape.", "AI synthesis did not detect heavily localized midday catalysts, suggesting pure structural drift."],
-        takeaway: "Maintain current posture into the afternoon.",
-        colorTheme: "indigo"
-      };
-    }
-
-    if (!generatedSummary.closing && (isWeekend || currentHourDecimal >= 15.5)) {
-      generatedSummary.closing = {
-        phase: "POWER HOUR & CLOSING PRINT",
-        timestamp: "04:15 PM EST",
-        paragraphs: ["Closing session data captured and locked.", "Market absorbing final institutional rebalancing ahead of the weekend gap."],
-        takeaway: "Carry prevailing bias into next trading session.",
-        colorTheme: "emerald"
-      };
-    }
-
-    // Sanitize actionableEvents so the UI never renders a blank row, even if
-    // the model returns junk, wrong field names, or empty entries.
-    if (Array.isArray(generatedSummary.actionableEvents)) {
-      const validImpacts = ['High', 'Medium', 'Low'];
-      generatedSummary.actionableEvents = generatedSummary.actionableEvents
-        .filter((e: any) => e && typeof e.event === 'string' && e.event.trim().length > 0)
-        .map((e: any) => ({
-          time: (typeof e.time === 'string' ? e.time : '').replace(/\s*EST\s*$/i, '').trim(),
-          event: e.event.trim(),
-          impact: validImpacts.includes(e.impact) ? e.impact : 'Medium',
-        }))
-        .slice(0, 10);
-    } else {
-      generatedSummary.actionableEvents = [];
-    }
+    const generatedSummary = { actionableEvents, morning, midday, closing };
 
     const isMarketActive = getIsMarketActive();
-    // Cache the narrative so we don't re-call Gemini on every dashboard poll.
-    // During market hours we regenerate at most once per MARKET_CACHE_SEC; off
-    // hours it's effectively frozen for the rest of the day. Raise
-    // MARKET_CACHE_SEC to spend less (e.g. 3600 = once an hour).
-    const MARKET_CACHE_SEC = 3600;   // 60 min during market hours
+    // No AI cost anymore — regeneration is cheap, so the cache is mostly about
+    // Polygon call volume. 15 min live keeps the blocks fresh through the day.
+    const MARKET_CACHE_SEC = 900;    // 15 min during market hours
     const CLOSED_CACHE_SEC = 43200;  // 12 hours when closed
     const cacheExpiration = isMarketActive ? MARKET_CACHE_SEC : CLOSED_CACHE_SEC;
 
     await kv.set(`market_narrative_${targetDate}`, generatedSummary, { ex: cacheExpiration });
-    // Durable copy of the last good narrative, used to keep the panel populated
-    // if a later regeneration fails.
     try { await kv.set(`market_narrative_lastgood_${targetDate}`, generatedSummary, { ex: 86400 }); } catch {}
 
     return NextResponse.json(generatedSummary);
 
   } catch (error: any) {
-    // FAILURE THROTTLE (mirrors the scanner fix). This route previously wrote to
-    // cache only on success, so when Gemini failed (429 quota, bad key, timeout)
-    // the cache stayed empty and EVERY 60s poll / reload re-attempted the call —
-    // a retry runaway that billed on each failure and returned a 500. Now a
-    // failure caches a payload on the main key for a short cooldown, so polls are
-    // served from KV instead of re-hitting the model. We reuse the last good
-    // narrative when we have one; otherwise an empty payload the UI handles.
+    // FAILURE THROTTLE — unchanged pattern: serve last good, cool down 10 min.
+    console.error('MARKET_SUMMARY_ERROR:', error);
     let payload: any = { actionableEvents: [], morning: null, midday: null, closing: null };
     try {
       const lastGood = await kv.get(`market_narrative_lastgood_${targetDate}`);
       if (lastGood) payload = lastGood;
     } catch {}
     try {
-      await kv.set(`market_narrative_${targetDate}`, payload, { ex: 600 }); // 10-min cooldown
+      await kv.set(`market_narrative_${targetDate}`, payload, { ex: 600 });
     } catch {}
     return NextResponse.json(payload);
   }
