@@ -339,6 +339,10 @@ export default function MacroScorecard() {
   const narrative = buildToneNarrative(quotes, breadth, session);
   const toneStyles = getToneStyles();
 
+  // Advance/decline share for the internals bar (0-100)
+  const adTotal = breadth ? breadth.advancers + breadth.decliners : 0;
+  const advPct = breadth && adTotal > 0 ? (breadth.advancers / adTotal) * 100 : 50;
+
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-xl">
       
@@ -419,12 +423,54 @@ export default function MacroScorecard() {
           </div>
 
           {narrative && (
-            <div className={`flex items-start gap-3 mb-6 border rounded-xl px-4 py-3 relative z-10 ${toneStyles.bg} ${toneStyles.border}`}>
+            <div className={`flex items-start gap-3 mb-4 border rounded-xl px-4 py-3 relative z-10 ${toneStyles.bg} ${toneStyles.border}`}>
               <span className={`flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase mt-1 shrink-0 ${toneStyles.label}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${toneStyles.dot}`}></span>
                 Tone
               </span>
               <p className="text-[13px] leading-relaxed text-slate-200">{narrative}</p>
+            </div>
+          )}
+
+          {/* INTERNALS — advance/decline strip from the breadth feed */}
+          {breadth && (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border border-white/5 bg-[#161c2a]/40 rounded-xl px-4 py-3 relative z-10">
+              <span className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
+                Internals
+              </span>
+
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <span className="text-[11px] font-bold text-emerald-400 tabular-nums whitespace-nowrap">
+                  ADV {breadth.advancers.toLocaleString()}
+                </span>
+                <div className="flex-1 h-1.5 rounded-full overflow-hidden bg-rose-500/30 min-w-[60px]" title={`${advPct.toFixed(0)}% of movers advancing`}>
+                  <div
+                    className="h-full bg-emerald-400/80 rounded-full transition-all duration-500"
+                    style={{ width: `${advPct}%` }}
+                  ></div>
+                </div>
+                <span className="text-[11px] font-bold text-rose-400 tabular-nums whitespace-nowrap">
+                  DEC {breadth.decliners.toLocaleString()}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-4 shrink-0">
+                <span className="flex items-center gap-1.5 whitespace-nowrap" title="Names up 4%+ today">
+                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">+4%:</span>
+                  <span className="text-[11px] font-bold text-emerald-400 tabular-nums">{breadth.up4}</span>
+                </span>
+                <span className="flex items-center gap-1.5 whitespace-nowrap" title="Names down 4%+ today">
+                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">-4%:</span>
+                  <span className="text-[11px] font-bold text-rose-400 tabular-nums">{breadth.down4}</span>
+                </span>
+                <span className="flex items-center gap-1.5 whitespace-nowrap" title="A/D ratio">
+                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">A/D:</span>
+                  <span className={`text-[11px] font-bold tabular-nums ${breadth.decliners > 0 && breadth.advancers / breadth.decliners >= 1 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {breadth.decliners > 0 ? (breadth.advancers / breadth.decliners).toFixed(2) : '—'}
+                  </span>
+                </span>
+              </div>
             </div>
           )}
 
