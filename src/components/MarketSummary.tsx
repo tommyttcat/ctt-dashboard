@@ -563,6 +563,14 @@ export default function MarketSummary() {
                         title = 'Sector Flow';
                         content = para.replace(/^Sector Flow:/i, '').trim();
                         blockStyle = 'border-indigo-500/40 bg-indigo-500/5 text-indigo-400';
+                      } else if (/^Industries Heat \/ ETF Exposure(?: Thesis)?:/i.test(para)) {
+                        title = 'Industries Heat / ETF Exposure Thesis';
+                        content = para.replace(/^Industries Heat \/ ETF Exposure(?: Thesis)?:/i, '').trim();
+                        blockStyle = 'border-amber-500/40 bg-amber-500/5 text-amber-400';
+                      } else if (/^Money Flow(?: Thesis)?:/i.test(para)) {
+                        title = 'Money Flow Thesis';
+                        content = para.replace(/^Money Flow(?: Thesis)?:/i, '').trim();
+                        blockStyle = 'border-rose-500/40 bg-rose-500/5 text-rose-400';
                       }
 
                       return (
