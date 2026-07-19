@@ -546,27 +546,23 @@ export default function MarketSummary() {
                     {macroInsights.briefing.split('\n\n').filter(Boolean).map((para, idx) => {
                       let title = '';
                       let content = para;
-                      let badgeStyle = 'text-slate-400 bg-slate-500/10 border-white/10';
 
                       if (/^SIPs Thesis:/i.test(para)) {
                         title = 'SIPs Thesis';
                         content = para.replace(/^SIPs Thesis:/i, '').trim();
-                        badgeStyle = 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20';
                       } else if (/^Daily Setups Thesis:/i.test(para)) {
                         title = 'Daily Setups Thesis';
                         content = para.replace(/^Daily Setups Thesis:/i, '').trim();
-                        badgeStyle = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
                       } else if (/^Sector Flow:/i.test(para)) {
                         title = 'Sector Flow';
                         content = para.replace(/^Sector Flow:/i, '').trim();
-                        badgeStyle = 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20';
                       }
 
                       return (
                         <div key={idx} className="flex flex-col gap-2 bg-[#161c2a]/60 p-3.5 rounded-xl border border-white/5 hover:border-cyan-500/20 transition-colors">
                           {title && (
                             <div className="flex items-center">
-                              <span className={`text-[10px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border ${badgeStyle}`}>
+                              <span className="text-[11px] font-bold tracking-widest uppercase px-3 py-1 rounded-md border text-cyan-400 bg-transparent border-cyan-700/80">
                                 {title}
                               </span>
                             </div>
