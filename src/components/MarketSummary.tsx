@@ -276,6 +276,44 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
   };
 };
 
+/* ============================================================
+   Briefing/session text renderer — badges tickers, colors percents.
+   ============================================================ */
+
+// Label/acronym tokens that must NOT be badged as tickers
+const TICKER_STOPWORDS = new Set([
+  'RVOL', 'CNF', 'SMB', 'DAY', 'SWING', 'BD', 'REV', 'EP', 'BB', 'SQZ',
+  'GLB', 'VCP', 'PB', 'GO', 'GC', 'EMA', 'SMA', 'MACD', 'ATR', 'RS',
+  'ETF', 'ETFS', 'SPY', 'STAGE', 'A', 'I', 'AND', 'THE', 'IS', 'ARE',
+  'IN', 'OF', 'BY', 'VS', 'ON', 'TO', 'UP', 'AT', 'OR', 'IT', 'AI',
+  'US', 'USA', 'FDA', 'SEC', 'IPO', 'CEO', 'EPS', 'FY', 'Q',
+  'VIX', 'EST', 'PM', 'AM',
+]);
+
+const tickerChipCls = "inline-block align-baseline text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded border border-cyan-500/20 tracking-wider mx-0.5";
+
+const renderBriefingText = (text: string): React.ReactNode[] => {
+  // Capture signed percents and uppercase ticker-like tokens in one pass
+  const rx = /([+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
+  const parts = text.split(rx);
+
+  return parts.map((part, i) => {
+    if (!part) return null;
+    // Signed percent — green/red
+    if (/^[+]\d+(?:\.\d+)?%$/.test(part)) {
+      return <span key={i} className="text-emerald-400 font-bold tabular-nums">{part}</span>;
+    }
+    if (/^-\d+(?:\.\d+)?%$/.test(part)) {
+      return <span key={i} className="text-rose-400 font-bold tabular-nums">{part}</span>;
+    }
+    // Ticker — cyan chip, unless it's a known label/acronym
+    if (/^[A-Z]{2,5}$/.test(part) && !TICKER_STOPWORDS.has(part)) {
+      return <span key={i} className={tickerChipCls}>{part}</span>;
+    }
+    return <React.Fragment key={i}>{part}</React.Fragment>;
+  });
+};
+
 export default function MarketSummary() {
   const [data, setData] = useState<SummaryData | null>(null);
   const [macroInsights, setMacroInsights] = useState<MacroInsights | null>(null);
@@ -392,14 +430,14 @@ export default function MarketSummary() {
           </span>
         </div>
 
-        <div className="space-y-3 text-[13px] text-slate-300 leading-relaxed mb-5">
+        <div className="space-y-3 text-[15px] text-slate-300 leading-relaxed mb-5">
           {block.paragraphs.map((p, idx) => (
-            <p key={idx}>{p}</p>
+            <p key={idx}>{renderBriefingText(p)}</p>
           ))}
         </div>
 
         <div className={`border-l-[4px] p-4 rounded-r-xl transition-colors duration-300 ${styles.boxBg} ${styles.boxBorder}`}>
-          <p className={`text-sm leading-relaxed ${styles.boxText}`}>
+          <p className={`text-[15px] leading-relaxed ${styles.boxText}`}>
             {block.takeaway}
           </p>
         </div>
@@ -469,9 +507,13 @@ export default function MarketSummary() {
               <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div>
                   <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-3">Narrative Breakdown</h3>
-                  <p className="text-xs text-slate-300 leading-relaxed font-medium whitespace-pre-line">
-                    {formatBriefing(macroInsights.briefing)}
-                  </p>
+                  <div className="space-y-4">
+                    {formatBriefing(macroInsights.briefing).split('\n\n').filter(Boolean).map((para, idx) => (
+                      <p key={idx} className="text-[15px] text-slate-300 leading-relaxed font-medium">
+                        {renderBriefingText(para)}
+                      </p>
+                    ))}
+                  </div>
                 </div>
 
                 <div>
@@ -519,7 +561,10 @@ export default function MarketSummary() {
 
           {/* 2. Session Narrative Feed (Render sequentially) */}
           <div className="border-t border-white/5 pt-6 mt-4">
-            <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-2 px-2">LIVE SESSION UPDATES</h3>
+            <span className="inline-flex text-xs md:text-sm font-bold border px-4 py-1.5 rounded-lg tracking-widest uppercase items-center gap-2 text-[#7c8bfa] bg-[#161c2a]/40 border-white/5">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
+              LIVE SESSION UPDATES
+            </span>
             {status === 'Loading' && !data ? (
               <div className="animate-pulse bg-[#161c2a]/40 border border-white/5 rounded-xl p-5 md:p-6 mt-3">
                 <div className="h-3 bg-white/5 rounded w-1/4 mb-4"></div>
