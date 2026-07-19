@@ -36,11 +36,25 @@ interface TopCatalyst {
   url: string | null;
 }
 
+interface IndustryHeat {
+  sector: string;
+  avgChg: number;
+  count: number;
+}
+
+interface EtfFlow {
+  ticker: string;
+  dVol: number;
+  chg: number;
+}
+
 interface MacroInsights {
   theme: string;
   briefing: string;
   watching: WatchItem[];
   topCatalyst?: TopCatalyst | null;
+  industryHeat?: IndustryHeat[];
+  etfFlow?: EtfFlow[];
 }
 
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
@@ -120,6 +134,21 @@ const setupOf = (s: any): string | null => {
 };
 const hasRealCatalyst = (s: any): boolean =>
   !!s?.catalyst && !String(s.catalyst).toLowerCase().startsWith('technical momentum');
+
+// Dollar volume — prefer the stored dVol, fall back to price * volume.
+const dVolOf = (s: any): number => {
+  const d = Number(s?.dVol);
+  if (!isNaN(d) && d > 0) return d;
+  const p = Number(s?.price) || 0;
+  const v = Number(s?.volume ?? s?.vol) || 0;
+  return p * v;
+};
+
+const fmtDollar = (v: number): string => {
+  if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
+  if (v >= 1e6) return `$${(v / 1e6).toFixed(0)}M`;
+  return `$${Math.round(v / 1e3)}K`;
+};
 
 const fmtLeader = (s: any): string => {
   const bits = [`${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`];
@@ -201,6 +230,46 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
       }
     : null;
 
+  /* ---- Flow universe: all scanned stocks, deduped by ticker ---- */
+  const stockLists = [
+    ...sips, ...daily,
+    ...(movers['Gainers'] || []), ...(movers['Losers'] || []), ...(movers['Mega Caps'] || []),
+  ];
+  const flowSeen = new Set<string>();
+  const flowNames = stockLists.filter(s => {
+    if (!s?.ticker || flowSeen.has(s.ticker)) return false;
+    flowSeen.add(s.ticker);
+    return true;
+  });
+
+  /* ---- Industry heat: sector tags ranked by avg % move ---- */
+  const heatAgg: Record<string, { sum: number; count: number }> = {};
+  flowNames.forEach(s => {
+    const sec = s?.sector && s.sector !== '—' && s.sector !== 'Other' ? String(s.sector) : null;
+    if (!sec) return;
+    if (!heatAgg[sec]) heatAgg[sec] = { sum: 0, count: 0 };
+    heatAgg[sec].sum += chgOf(s);
+    heatAgg[sec].count += 1;
+  });
+  const industryHeat: IndustryHeat[] = Object.entries(heatAgg)
+    .map(([sector, v]) => ({ sector, avgChg: v.sum / v.count, count: v.count }))
+    .sort((a, b) => b.avgChg - a.avgChg)
+    .slice(0, 8);
+
+  /* ---- ETF flow: ETFs ranked by dollar volume, with direction ---- */
+  const etfAll = [...(movers['ETF Gainers'] || []), ...(movers['ETF Losers'] || [])];
+  const etfSeen = new Set<string>();
+  const etfFlow: EtfFlow[] = etfAll
+    .filter(e => {
+      if (!e?.ticker || etfSeen.has(e.ticker)) return false;
+      etfSeen.add(e.ticker);
+      return true;
+    })
+    .map(e => ({ ticker: e.ticker, dVol: dVolOf(e), chg: chgOf(e) }))
+    .filter(e => e.dVol > 0)
+    .sort((a, b) => b.dVol - a.dVol)
+    .slice(0, 6);
+
   /* ---- Theme: dominant sectors among ranked + A-grade count ---- */
   const sectorCounts: Record<string, number> = {};
   ranked.forEach(s => {
@@ -268,18 +337,48 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
     flowPara += ` ${bigGainers} name${bigGainers > 1 ? 's' : ''} up 10%+ on the gainers scan — elevated speculative appetite.`;
   }
 
+  /* ---- Paragraph 4: Money Flow (dollar volume across the universe) ---- */
+  let moneyPara = '';
+  const totalD = flowNames.reduce((a, s) => a + dVolOf(s), 0);
+  if (totalD > 0) {
+    const advD = flowNames.filter(s => chgOf(s) > 0).reduce((a, s) => a + dVolOf(s), 0);
+    const advShare = Math.round((advD / totalD) * 100);
+    const magnets = flowNames
+      .slice()
+      .sort((a, b) => dVolOf(b) - dVolOf(a))
+      .slice(0, 3)
+      .map(s => `${s.ticker} ${fmtDollar(dVolOf(s))} (${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%)`);
+
+    const inflowAgg: Record<string, number> = {};
+    flowNames.filter(s => chgOf(s) > 0).forEach(s => {
+      const sec = s?.sector && s.sector !== '—' && s.sector !== 'Other' ? String(s.sector) : null;
+      if (sec) inflowAgg[sec] = (inflowAgg[sec] || 0) + dVolOf(s);
+    });
+    const topInflows = Object.entries(inflowAgg).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([sec]) => sec);
+
+    moneyPara = `Money Flow: ${fmtDollar(totalD)} in tracked dollar volume — ${advShare}% riding the advancing side.`;
+    if (magnets.length) moneyPara += ` Dollar magnets: ${magnets.join(', ')}.`;
+    if (topInflows.length) moneyPara += ` Inflows concentrate in ${topInflows.join(' & ')}.`;
+    if (etfFlow.length) {
+      const e = etfFlow[0];
+      moneyPara += ` ETF dollars heaviest in ${e.ticker} at ${fmtDollar(e.dVol)} (${e.chg >= 0 ? '+' : ''}${e.chg.toFixed(2)}%).`;
+    }
+  }
+
   return {
     theme,
-    briefing: [sipsPara, dailyPara, flowPara].join('\n\n'),
+    briefing: [sipsPara, dailyPara, flowPara, moneyPara].filter(Boolean).join('\n\n'),
     watching,
     topCatalyst,
+    industryHeat,
+    etfFlow,
   };
 };
 
 /* ============================================================
    Briefing/session text renderer — badges tickers + index names,
-   colors percents and metrics. Values render regular weight and
-   one size smaller than the body text.
+   colors percents, metrics, and dollar values. Values render
+   regular weight and one size smaller than the body text.
    ============================================================ */
 
 // Label/acronym tokens that must NOT be badged as tickers
@@ -292,9 +391,8 @@ const TICKER_STOPWORDS = new Set([
   'EST', 'PM', 'AM',
 ]);
 
-// Inline chip — Reverted to original compact gray chip
+// Inline chip — compact gray, matching the CNF badge look
 const tickerChipCls = "inline-block align-baseline text-[10px] font-bold text-slate-300 bg-slate-500/10 px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5";
-
 // Colored numeric values — slightly smaller than the 13px body
 const valNum = "text-[12px] tabular-nums";
 
@@ -310,39 +408,52 @@ const stochColor = (k: number) => (k <= 20 ? 'text-purple-400' : k <= 30 ? 'text
 const rsColor = (rs: number) => (rs >= 20 ? 'text-purple-400' : rs >= 10 ? 'text-emerald-400' : rs >= 0 ? 'text-slate-300' : 'text-rose-400');
 
 const renderBriefingText = (text: string): React.ReactNode[] => {
-  const rx = /(RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|S&P|Nasdaq|Dow|Bitcoin|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
+  // Capture metric phrases first (longest match), then index/asset names,
+  // then dollar values, signed percents, and uppercase ticker-like tokens.
+  const rx = /(RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
   const parts = text.split(rx);
 
   return parts.map((part, i) => {
     if (!part) return null;
 
+    // RVOL n.nn — table thresholds: amber >=2, emerald >=1.5
     let m = part.match(/^RVOL (\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
       return <span key={i}>RVOL <span className={`${valNum} ${rvolColor(v)}`}>{m[1]}</span></span>;
     }
 
+    // Stage 2A etc — table stage colors
     m = part.match(/^Stage (\d[AB]?)$/);
     if (m) {
       return <span key={i}>Stage <span className={`${valNum} ${stageColor(m[1])}`}>{m[1]}</span></span>;
     }
 
+    // stoch nn — purple deep oversold, emerald oversold
     m = part.match(/^stoch (\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
       return <span key={i}>stoch <span className={`${valNum} ${stochColor(v)}`}>{m[1]}</span></span>;
     }
 
+    // RS +nn — purple elite, emerald strong
     m = part.match(/^RS (\+?\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
       return <span key={i}>RS <span className={`${valNum} ${rsColor(v)}`}>{m[1]}</span></span>;
     }
 
+    // Index/asset names — gray badge
     if (part === 'S&P' || part === 'Nasdaq' || part === 'Dow' || part === 'Bitcoin') {
       return <span key={i} className={tickerChipCls}>{part}</span>;
     }
 
+    // Dollar values ($4.2B / $850M) — neutral, slightly brighter
+    if (/^\$\d+(?:\.\d+)?[BMK]$/.test(part)) {
+      return <span key={i} className={`${valNum} text-slate-200`}>{part}</span>;
+    }
+
+    // Signed percent — green/red
     if (/^[+]\d+(?:\.\d+)?%$/.test(part)) {
       return <span key={i} className={`${valNum} text-emerald-400`}>{part}</span>;
     }
@@ -350,9 +461,11 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
       return <span key={i} className={`${valNum} text-rose-400`}>{part}</span>;
     }
 
+    // Trade-type classifications — match the DailySetups pill colors
     if (part === 'DAY') return <span key={i} className="text-amber-400">DAY</span>;
     if (part === 'SWING') return <span key={i} className="text-cyan-400">SWING</span>;
 
+    // Ticker — compact gray chip, unless it's a known label/acronym
     if (/^[A-Z]{2,5}$/.test(part) && !TICKER_STOPWORDS.has(part)) {
       return <span key={i} className={tickerChipCls}>{part}</span>;
     }
@@ -379,6 +492,7 @@ export default function MarketSummary() {
       if (isMounted) setSession(getMarketSession());
 
       try {
+        // 1. Fetch Narrative Data (Session Updates)
         const narrativeRes = await fetch('/api/market-summary', { cache: 'no-store' });
 
         if (!narrativeRes.ok) {
@@ -404,6 +518,7 @@ export default function MarketSummary() {
         console.error("Narrative Sync Error:", error);
       }
 
+      // 2. Build Market Briefing deterministically from scanner data (no AI)
       try {
         const scannerRes = await fetch('/api/scanner/latest', { cache: 'no-store' });
         if (!scannerRes.ok) throw new Error(`Scanner API returned status: ${scannerRes.status}`);
@@ -415,6 +530,7 @@ export default function MarketSummary() {
           if (local) {
             setMacroInsights(local);
           } else if (scannerData.macroInsights) {
+            // Fallback to stored payload if scan data is empty
             setMacroInsights(scannerData.macroInsights);
           }
         }
@@ -422,6 +538,7 @@ export default function MarketSummary() {
         console.error("Scanner Macro Sync Error:", error);
       }
 
+      // Finish Sync
       if (isMounted) {
         setStatus('Synced');
         setLastUpdated(new Date());
@@ -450,6 +567,14 @@ export default function MarketSummary() {
     return 'text-slate-500';
   };
 
+  const formatBriefing = (text: string) => {
+    if (!text) return "";
+    return text
+      .replace(/(Daily Setups Thesis:)/gi, '\n\n$1')
+      .replace(/(Sector Flow:)/gi, '\n\n$1')
+      .replace(/(Money Flow:)/gi, '\n\n$1');
+  };
+
   const renderSingleUpdateBlock = (block: UpdateBlock | null) => {
     if (!block) return null;
     const styles = getThemeStyles(block.colorTheme);
@@ -466,11 +591,9 @@ export default function MarketSummary() {
           </span>
         </div>
 
-        <div className="space-y-4 text-[13px] text-slate-300 leading-relaxed mb-5">
+        <div className="space-y-3 text-[13px] text-slate-300 leading-relaxed mb-5">
           {block.paragraphs.map((p, idx) => (
-            <p key={idx} className="border-l-[2px] border-slate-500/30 pl-3.5 py-0.5">
-              {renderBriefingText(p)}
-            </p>
+            <p key={idx}>{renderBriefingText(p)}</p>
           ))}
         </div>
 
@@ -529,7 +652,7 @@ export default function MarketSummary() {
 
               {/* Top themed catalyst — highest-conviction name with real news */}
               {macroInsights.topCatalyst && (
-                <div className="flex items-center gap-2.5 mb-6 relative z-10 flex-wrap">
+                <div className="flex items-center gap-2.5 mb-4 relative z-10 flex-wrap">
                   <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded shrink-0">TOP CATALYST</span>
                   <span className="text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider shrink-0">{macroInsights.topCatalyst.ticker}</span>
                   {macroInsights.topCatalyst.url ? (
@@ -542,50 +665,56 @@ export default function MarketSummary() {
                 </div>
               )}
 
+              {/* INDUSTRY HEAT — sector tags ranked by avg % move */}
+              {macroInsights.industryHeat && macroInsights.industryHeat.length > 0 && (
+                <div className="flex items-center gap-2.5 mb-3 relative z-10 flex-wrap">
+                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500 shrink-0">INDUSTRY HEAT</span>
+                  {macroInsights.industryHeat.map((h) => (
+                    <span
+                      key={h.sector}
+                      title={`${h.count} name${h.count !== 1 ? 's' : ''} scanned`}
+                      className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded border tracking-wide ${
+                        h.avgChg >= 0
+                          ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+                          : 'text-rose-400 bg-rose-500/10 border-rose-500/20'
+                      }`}
+                    >
+                      {h.sector}
+                      <span className="tabular-nums font-medium">{h.avgChg >= 0 ? '+' : ''}{h.avgChg.toFixed(1)}%</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* ETF FLOW — ETFs ranked by dollar volume with direction */}
+              {macroInsights.etfFlow && macroInsights.etfFlow.length > 0 && (
+                <div className="flex items-center gap-2.5 mb-6 relative z-10 flex-wrap">
+                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500 shrink-0">ETF FLOW</span>
+                  {macroInsights.etfFlow.map((e) => (
+                    <span
+                      key={e.ticker}
+                      title={`Dollar volume ${fmtDollar(e.dVol)}`}
+                      className="inline-flex items-center gap-1.5 text-[10px] font-bold text-slate-300 bg-slate-500/10 px-2 py-0.5 rounded border border-white/10 tracking-wide"
+                    >
+                      {e.ticker}
+                      <span className="tabular-nums font-medium text-slate-400">{fmtDollar(e.dVol)}</span>
+                      <span className={`tabular-nums font-medium ${e.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {e.chg >= 0 ? '+' : ''}{e.chg.toFixed(1)}%
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              )}
+
               <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div>
                   <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-3">Narrative Breakdown</h3>
-                  <div className="space-y-3">
-                    {macroInsights.briefing.split('\n\n').filter(Boolean).map((para, idx) => {
-                      let title = '';
-                      let content = para;
-                      let blockStyle = 'border-slate-500/30 bg-slate-500/5 text-slate-400';
-
-                      if (/^SIPs Thesis:/i.test(para)) {
-                        title = 'SIPs Thesis';
-                        content = para.replace(/^SIPs Thesis:/i, '').trim();
-                        blockStyle = 'border-cyan-500/40 bg-cyan-500/5 text-cyan-400';
-                      } else if (/^Daily Setups Thesis:/i.test(para)) {
-                        title = 'Daily Setups Thesis';
-                        content = para.replace(/^Daily Setups Thesis:/i, '').trim();
-                        blockStyle = 'border-emerald-500/40 bg-emerald-500/5 text-emerald-400';
-                      } else if (/^Sector Flow:/i.test(para)) {
-                        title = 'Sector Flow';
-                        content = para.replace(/^Sector Flow:/i, '').trim();
-                        blockStyle = 'border-indigo-500/40 bg-indigo-500/5 text-indigo-400';
-                      } else if (/^Industries Heat \/ ETF Exposure(?: Thesis)?:/i.test(para)) {
-                        title = 'Industries Heat / ETF Exposure Thesis';
-                        content = para.replace(/^Industries Heat \/ ETF Exposure(?: Thesis)?:/i, '').trim();
-                        blockStyle = 'border-amber-500/40 bg-amber-500/5 text-amber-400';
-                      } else if (/^Money Flow(?: Thesis)?:/i.test(para)) {
-                        title = 'Money Flow Thesis';
-                        content = para.replace(/^Money Flow(?: Thesis)?:/i, '').trim();
-                        blockStyle = 'border-rose-500/40 bg-rose-500/5 text-rose-400';
-                      }
-
-                      return (
-                        <div key={idx} className={`border-l-[3px] p-3.5 rounded-r-xl ${blockStyle}`}>
-                          {title && (
-                            <h4 className="text-[11px] font-bold tracking-widest uppercase mb-1.5">
-                              {title}
-                            </h4>
-                          )}
-                          <p className="text-[13px] text-slate-300 leading-relaxed font-medium">
-                            {renderBriefingText(content)}
-                          </p>
-                        </div>
-                      );
-                    })}
+                  <div className="space-y-4">
+                    {formatBriefing(macroInsights.briefing).split('\n\n').filter(Boolean).map((para, idx) => (
+                      <p key={idx} className="text-[13px] text-slate-300 leading-relaxed font-medium">
+                        {renderBriefingText(para)}
+                      </p>
+                    ))}
                   </div>
                 </div>
 
