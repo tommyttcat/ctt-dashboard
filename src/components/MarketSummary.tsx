@@ -309,47 +309,39 @@ const stochColor = (k: number) => (k <= 20 ? 'text-purple-400' : k <= 30 ? 'text
 const rsColor = (rs: number) => (rs >= 20 ? 'text-purple-400' : rs >= 10 ? 'text-emerald-400' : rs >= 0 ? 'text-slate-300' : 'text-rose-400');
 
 const renderBriefingText = (text: string): React.ReactNode[] => {
-  // Capture metric phrases first (longest match), then index/asset names,
-  // then signed percents, then uppercase ticker-like tokens.
   const rx = /(RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|S&P|Nasdaq|Dow|Bitcoin|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
   const parts = text.split(rx);
 
   return parts.map((part, i) => {
     if (!part) return null;
 
-    // RVOL n.nn — table thresholds: amber >=2, emerald >=1.5
     let m = part.match(/^RVOL (\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
       return <span key={i}>RVOL <span className={`${valNum} ${rvolColor(v)}`}>{m[1]}</span></span>;
     }
 
-    // Stage 2A etc — table stage colors
     m = part.match(/^Stage (\d[AB]?)$/);
     if (m) {
       return <span key={i}>Stage <span className={`${valNum} ${stageColor(m[1])}`}>{m[1]}</span></span>;
     }
 
-    // stoch nn — purple deep oversold, emerald oversold
     m = part.match(/^stoch (\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
       return <span key={i}>stoch <span className={`${valNum} ${stochColor(v)}`}>{m[1]}</span></span>;
     }
 
-    // RS +nn — purple elite, emerald strong
     m = part.match(/^RS (\+?\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
       return <span key={i}>RS <span className={`${valNum} ${rsColor(v)}`}>{m[1]}</span></span>;
     }
 
-    // Index/asset names — gray badge
     if (part === 'S&P' || part === 'Nasdaq' || part === 'Dow' || part === 'Bitcoin') {
       return <span key={i} className={tickerChipCls}>{part}</span>;
     }
 
-    // Signed percent — green/red
     if (/^[+]\d+(?:\.\d+)?%$/.test(part)) {
       return <span key={i} className={`${valNum} text-emerald-400`}>{part}</span>;
     }
@@ -357,11 +349,9 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
       return <span key={i} className={`${valNum} text-rose-400`}>{part}</span>;
     }
 
-    // Trade-type classifications — match the DailySetups pill colors
     if (part === 'DAY') return <span key={i} className="text-amber-400">DAY</span>;
     if (part === 'SWING') return <span key={i} className="text-cyan-400">SWING</span>;
 
-    // Ticker — compact gray chip, unless it's a known label/acronym
     if (/^[A-Z]{2,5}$/.test(part) && !TICKER_STOPWORDS.has(part)) {
       return <span key={i} className={tickerChipCls}>{part}</span>;
     }
@@ -388,7 +378,6 @@ export default function MarketSummary() {
       if (isMounted) setSession(getMarketSession());
 
       try {
-        // 1. Fetch Narrative Data (Session Updates)
         const narrativeRes = await fetch('/api/market-summary', { cache: 'no-store' });
 
         if (!narrativeRes.ok) {
@@ -414,7 +403,6 @@ export default function MarketSummary() {
         console.error("Narrative Sync Error:", error);
       }
 
-      // 2. Build Market Briefing deterministically from scanner data (no AI)
       try {
         const scannerRes = await fetch('/api/scanner/latest', { cache: 'no-store' });
         if (!scannerRes.ok) throw new Error(`Scanner API returned status: ${scannerRes.status}`);
@@ -426,7 +414,6 @@ export default function MarketSummary() {
           if (local) {
             setMacroInsights(local);
           } else if (scannerData.macroInsights) {
-            // Fallback to stored payload if scan data is empty
             setMacroInsights(scannerData.macroInsights);
           }
         }
@@ -434,7 +421,6 @@ export default function MarketSummary() {
         console.error("Scanner Macro Sync Error:", error);
       }
 
-      // Finish Sync
       if (isMounted) {
         setStatus('Synced');
         setLastUpdated(new Date());
@@ -461,13 +447,6 @@ export default function MarketSummary() {
     if (session === 'Open') return 'text-[#00e676]';
     if (session === 'Post-Market') return 'text-indigo-400';
     return 'text-slate-500';
-  };
-
-  const formatBriefing = (text: string) => {
-    if (!text) return "";
-    return text
-      .replace(/(Daily Setups Thesis:)/gi, '\n\n$1')
-      .replace(/(Sector Flow:)/gi, '\n\n$1');
   };
 
   const renderSingleUpdateBlock = (block: UpdateBlock | null) => {
@@ -563,12 +542,41 @@ export default function MarketSummary() {
               <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div>
                   <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-3">Narrative Breakdown</h3>
-                  <div className="space-y-4">
-                    {formatBriefing(macroInsights.briefing).split('\n\n').filter(Boolean).map((para, idx) => (
-                      <p key={idx} className="text-[13px] text-slate-300 leading-relaxed font-medium">
-                        {renderBriefingText(para)}
-                      </p>
-                    ))}
+                  <div className="space-y-3">
+                    {macroInsights.briefing.split('\n\n').filter(Boolean).map((para, idx) => {
+                      let title = '';
+                      let content = para;
+                      let badgeStyle = 'text-slate-400 bg-slate-500/10 border-white/10';
+
+                      if (/^SIPs Thesis:/i.test(para)) {
+                        title = 'SIPs Thesis';
+                        content = para.replace(/^SIPs Thesis:/i, '').trim();
+                        badgeStyle = 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20';
+                      } else if (/^Daily Setups Thesis:/i.test(para)) {
+                        title = 'Daily Setups Thesis';
+                        content = para.replace(/^Daily Setups Thesis:/i, '').trim();
+                        badgeStyle = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+                      } else if (/^Sector Flow:/i.test(para)) {
+                        title = 'Sector Flow';
+                        content = para.replace(/^Sector Flow:/i, '').trim();
+                        badgeStyle = 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20';
+                      }
+
+                      return (
+                        <div key={idx} className="flex flex-col gap-2 bg-[#161c2a]/60 p-3.5 rounded-xl border border-white/5 hover:border-cyan-500/20 transition-colors">
+                          {title && (
+                            <div className="flex items-center">
+                              <span className={`text-[10px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border ${badgeStyle}`}>
+                                {title}
+                              </span>
+                            </div>
+                          )}
+                          <p className="text-[13px] text-slate-300 leading-relaxed font-medium">
+                            {renderBriefingText(content)}
+                          </p>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
