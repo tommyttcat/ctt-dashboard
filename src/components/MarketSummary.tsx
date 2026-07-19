@@ -292,8 +292,9 @@ const TICKER_STOPWORDS = new Set([
   'EST', 'PM', 'AM',
 ]);
 
-// Inline chip — Subtle bubbled style for indices/tickers embedded in text
-const tickerChipCls = "inline-block align-text-bottom text-[11px] font-bold text-white bg-[#1e293b] px-2 py-[2px] rounded-[6px] border border-slate-500/40 shadow-[0_2px_4px_rgba(0,0,0,0.25)] tracking-widest mx-[3px]";
+// Inline chip — Reverted to original compact gray chip
+const tickerChipCls = "inline-block align-baseline text-[10px] font-bold text-slate-300 bg-slate-500/10 px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5";
+
 // Colored numeric values — slightly smaller than the 13px body
 const valNum = "text-[12px] tabular-nums";
 
@@ -546,26 +547,28 @@ export default function MarketSummary() {
                     {macroInsights.briefing.split('\n\n').filter(Boolean).map((para, idx) => {
                       let title = '';
                       let content = para;
+                      let blockStyle = 'border-slate-500/30 bg-slate-500/5 text-slate-400';
 
                       if (/^SIPs Thesis:/i.test(para)) {
                         title = 'SIPs Thesis';
                         content = para.replace(/^SIPs Thesis:/i, '').trim();
+                        blockStyle = 'border-cyan-500/40 bg-cyan-500/5 text-cyan-400';
                       } else if (/^Daily Setups Thesis:/i.test(para)) {
                         title = 'Daily Setups Thesis';
                         content = para.replace(/^Daily Setups Thesis:/i, '').trim();
+                        blockStyle = 'border-emerald-500/40 bg-emerald-500/5 text-emerald-400';
                       } else if (/^Sector Flow:/i.test(para)) {
                         title = 'Sector Flow';
                         content = para.replace(/^Sector Flow:/i, '').trim();
+                        blockStyle = 'border-indigo-500/40 bg-indigo-500/5 text-indigo-400';
                       }
 
                       return (
-                        <div key={idx} className="flex flex-col gap-2 bg-[#161c2a]/60 p-3.5 rounded-xl border border-white/5 hover:border-cyan-500/20 transition-colors">
+                        <div key={idx} className={`border-l-[3px] p-3.5 rounded-r-xl ${blockStyle}`}>
                           {title && (
-                            <div className="flex items-center">
-                              <span className="text-[11px] font-bold tracking-widest uppercase px-3 py-1 rounded-md border text-cyan-400 bg-transparent border-cyan-700/80">
-                                {title}
-                              </span>
-                            </div>
+                            <h4 className="text-[11px] font-bold tracking-widest uppercase mb-1.5">
+                              {title}
+                            </h4>
                           )}
                           <p className="text-[13px] text-slate-300 leading-relaxed font-medium">
                             {renderBriefingText(content)}
