@@ -277,22 +277,21 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
 };
 
 /* ============================================================
-   Briefing/session text renderer — badges tickers, colors
-   percents and metrics (RVOL / Stage / stoch / RS / DAY / SWING)
-   using the same thresholds as the scanner tables.
+   Briefing/session text renderer — badges tickers + index names,
+   colors percents and metrics (regular weight, color only).
    ============================================================ */
 
 // Label/acronym tokens that must NOT be badged as tickers
 const TICKER_STOPWORDS = new Set([
   'RVOL', 'CNF', 'SMB', 'DAY', 'SWING', 'BD', 'REV', 'EP', 'BB', 'SQZ',
   'GLB', 'VCP', 'PB', 'GO', 'GC', 'EMA', 'SMA', 'MACD', 'ATR', 'RS', 'R2G',
-  'ETF', 'ETFS', 'SPY', 'STAGE', 'A', 'I', 'AND', 'THE', 'IS', 'ARE',
+  'ETF', 'ETFS', 'STAGE', 'A', 'I', 'AND', 'THE', 'IS', 'ARE',
   'IN', 'OF', 'BY', 'VS', 'ON', 'TO', 'UP', 'AT', 'OR', 'IT', 'AI',
   'US', 'USA', 'FDA', 'SEC', 'IPO', 'CEO', 'EPS', 'FY', 'Q',
-  'VIX', 'EST', 'PM', 'AM',
+  'EST', 'PM', 'AM',
 ]);
 
-// Inline ticker chip — compact gray, matching the CNF badge look
+// Inline chip — compact gray, matching the CNF badge look
 const tickerChipCls = "inline-block align-baseline text-[10px] font-bold text-slate-300 bg-slate-500/10 px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5";
 
 const rvolColor = (v: number) => (v >= 2 ? 'text-amber-400' : v >= 1.5 ? 'text-emerald-400' : 'text-slate-400');
@@ -307,9 +306,9 @@ const stochColor = (k: number) => (k <= 20 ? 'text-purple-400' : k <= 30 ? 'text
 const rsColor = (rs: number) => (rs >= 20 ? 'text-purple-400' : rs >= 10 ? 'text-emerald-400' : rs >= 0 ? 'text-slate-300' : 'text-rose-400');
 
 const renderBriefingText = (text: string): React.ReactNode[] => {
-  // Capture metric phrases first (longest match), then signed percents,
-  // then uppercase ticker-like tokens.
-  const rx = /(RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
+  // Capture metric phrases first (longest match), then index/asset names,
+  // then signed percents, then uppercase ticker-like tokens.
+  const rx = /(RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|S&P|Nasdaq|Dow|Bitcoin|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
   const parts = text.split(rx);
 
   return parts.map((part, i) => {
@@ -319,40 +318,45 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
     let m = part.match(/^RVOL (\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
-      return <span key={i}>RVOL <span className={`font-bold tabular-nums ${rvolColor(v)}`}>{m[1]}</span></span>;
+      return <span key={i}>RVOL <span className={`tabular-nums ${rvolColor(v)}`}>{m[1]}</span></span>;
     }
 
     // Stage 2A etc — table stage colors
     m = part.match(/^Stage (\d[AB]?)$/);
     if (m) {
-      return <span key={i}>Stage <span className={`font-bold ${stageColor(m[1])}`}>{m[1]}</span></span>;
+      return <span key={i}>Stage <span className={stageColor(m[1])}>{m[1]}</span></span>;
     }
 
     // stoch nn — purple deep oversold, emerald oversold
     m = part.match(/^stoch (\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
-      return <span key={i}>stoch <span className={`font-bold tabular-nums ${stochColor(v)}`}>{m[1]}</span></span>;
+      return <span key={i}>stoch <span className={`tabular-nums ${stochColor(v)}`}>{m[1]}</span></span>;
     }
 
     // RS +nn — purple elite, emerald strong
     m = part.match(/^RS (\+?\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
-      return <span key={i}>RS <span className={`font-bold tabular-nums ${rsColor(v)}`}>{m[1]}</span></span>;
+      return <span key={i}>RS <span className={`tabular-nums ${rsColor(v)}`}>{m[1]}</span></span>;
     }
 
-    // Signed percent — green/red
+    // Index/asset names — gray badge
+    if (part === 'S&P' || part === 'Nasdaq' || part === 'Dow' || part === 'Bitcoin') {
+      return <span key={i} className={tickerChipCls}>{part}</span>;
+    }
+
+    // Signed percent — green/red, regular weight
     if (/^[+]\d+(?:\.\d+)?%$/.test(part)) {
-      return <span key={i} className="text-emerald-400 font-bold tabular-nums">{part}</span>;
+      return <span key={i} className="text-emerald-400 tabular-nums">{part}</span>;
     }
     if (/^-\d+(?:\.\d+)?%$/.test(part)) {
-      return <span key={i} className="text-rose-400 font-bold tabular-nums">{part}</span>;
+      return <span key={i} className="text-rose-400 tabular-nums">{part}</span>;
     }
 
     // Trade-type classifications — match the DailySetups pill colors
-    if (part === 'DAY') return <span key={i} className="font-bold text-amber-400">DAY</span>;
-    if (part === 'SWING') return <span key={i} className="font-bold text-cyan-400">SWING</span>;
+    if (part === 'DAY') return <span key={i} className="text-amber-400">DAY</span>;
+    if (part === 'SWING') return <span key={i} className="text-cyan-400">SWING</span>;
 
     // Ticker — compact gray chip, unless it's a known label/acronym
     if (/^[A-Z]{2,5}$/.test(part) && !TICKER_STOPWORDS.has(part)) {
