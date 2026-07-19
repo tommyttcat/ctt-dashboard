@@ -340,11 +340,13 @@ function analyze(
   if (kVal > CONFIG.maxStochK) return null;
   if (rsVsSpy == null || rsVsSpy <= 0) return null;
 
-  const rsScore = Math.min(rsVsSpy / 30, 1) * 40;
+  // Score (0-100), rescaled to the CNF grade lines (A>=70, B>=50):
+  // RS 35 (saturates at +20 vs SPY), pullback 30, volatility fit 20, trend 15.
+  const rsScore = Math.min(rsVsSpy / 20, 1) * 35;
   const pullbackScore =
     (1 - Math.abs(distToEma21) / CONFIG.maxDistToEma21) * 15 +
     (1 - kVal / CONFIG.maxStochK) * 15;
-  const volScore = Math.max(0, (1 - Math.abs(atrPct - 3.0) / 3.0) * 15);
+  const volScore = Math.max(0, (1 - Math.abs(atrPct - 3.0) / 3.0) * 20);
   const trendScore = (sma50 > sma200 ? 10 : 0) + (ema21Rising ? 5 : 0);
   const score = Math.round(Math.max(0, rsScore + pullbackScore + volScore + trendScore));
 

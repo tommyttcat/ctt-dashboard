@@ -32,7 +32,7 @@ interface SwingCandidate {
 }
 
 type SortDirection = 'asc' | 'desc';
-type ScoreFilterType = 'All' | 'High' | 'Med' | 'Low';
+type CnfFilterType = 'All' | 'A' | 'B' | 'C';
 type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
 
@@ -65,6 +65,14 @@ const formatStageText = (stage: string | undefined) => {
 // Ready = stoch deep and pullback tight — the blue dot could fire imminently.
 const isReady = (c: SwingCandidate) => c.stochK <= 25 && Math.abs(c.distToEma21) <= 2.5;
 
+// CNF grade from the score: A >= 70, B >= 50, C below (same lines as all cards).
+const cnfGradeOf = (score: number | null | undefined): CnfFilterType | null => {
+  if (score == null) return null;
+  if (score >= 70) return 'A';
+  if (score >= 50) return 'B';
+  return 'C';
+};
+
 // Plain-English setup readout for the sub-row, built from the row's own numbers.
 const buildReadout = (c: SwingCandidate) => {
   const emaSide = c.distToEma21 >= 0 ? 'above' : 'below';
@@ -90,7 +98,7 @@ export default function SwingCandidates() {
   const [showReadyOnly, setShowReadyOnly] = useState<boolean>(false);
   const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(false);
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
-  const [scoreFilter, setScoreFilter] = useState<ScoreFilterType>('All');
+  const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
 
@@ -128,7 +136,7 @@ export default function SwingCandidates() {
   // Clicking the active option clears back to All (toggle behavior)
   const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
-  const handleScoreFilter = (val: ScoreFilterType) => setScoreFilter(prev => prev === val ? 'All' : val);
+  const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
 
   const filteredAndSorted = useMemo(() => {
     let filtered = [...candidates];
@@ -146,13 +154,8 @@ export default function SwingCandidates() {
         return true;
       });
     }
-    if (scoreFilter !== 'All') {
-      filtered = filtered.filter(c => {
-        if (scoreFilter === 'High') return c.score >= 70;
-        if (scoreFilter === 'Med') return c.score >= 55 && c.score < 70;
-        if (scoreFilter === 'Low') return c.score < 55;
-        return true;
-      });
+    if (cnfFilter !== 'All') {
+      filtered = filtered.filter(c => cnfGradeOf(c.score) === cnfFilter);
     }
     if (emaFilter !== 'All') {
       filtered = filtered.filter(c => {
@@ -177,13 +180,14 @@ export default function SwingCandidates() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, showReadyOnly, showStage2AOnly, marketCapFilter, scoreFilter, emaFilter, vwapFilter]);
+  }, [candidates, sortConfig, showReadyOnly, showStage2AOnly, marketCapFilter, cnfFilter, emaFilter, vwapFilter]);
 
   const getSortIcon = (columnKey: keyof SwingCandidate) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
+  // CNF-graded score badge: green = A (>=70), amber = B (>=50), gray = C
   const getScoreBadge = (score: number) => {
     if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-    if (score >= 55) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+    if (score >= 50) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
     return 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50';
   };
   const getStageColor = (stage: string | undefined) => {
@@ -277,7 +281,7 @@ export default function SwingCandidates() {
       {isExpanded && (
         <>
           <div className="flex flex-col gap-3 mb-4 relative z-10">
-            {/* Row 1, centered: 2A → MKT CAP → SCORE */}
+            {/* Row 1, centered: 2A → MKT CAP → CNF (A/B/C) */}
             <div className="flex flex-wrap justify-center items-center gap-4 w-full" onClick={(e) => e.stopPropagation()}>
               <button onClick={() => setShowStage2AOnly(!showStage2AOnly)} className={toggleBtn(showStage2AOnly)}>Filter: 2A</button>
               <div className={pillWrap}>
@@ -288,13 +292,13 @@ export default function SwingCandidates() {
                   ))}
                 </div>
               </div>
-              {/* SCORE — clickable filter pill */}
+              {/* CNF grade — clickable filter pill */}
               <div className={pillWrap}>
-                <span className={pillLabel}>SCORE</span>
+                <span className={pillLabel}>CNF</span>
                 <div className="flex items-center gap-1">
-                  {(['High', 'Med', 'Low'] as ScoreFilterType[]).map((level) => (
-                    <button key={level} onClick={() => handleScoreFilter(level)} className={`${pillBtn} ${scoreFilter === level ? filterBtnActive : filterBtnIdle}`}>
-                      {level}
+                  {(['A', 'B', 'C'] as CnfFilterType[]).map((g) => (
+                    <button key={g} onClick={() => handleCnfFilter(g)} className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}>
+                      {g}
                     </button>
                   ))}
                 </div>
@@ -334,7 +338,7 @@ export default function SwingCandidates() {
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('score')}>SCORE{getSortIcon('score')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('score')}>CNF{getSortIcon('score')}</th>
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[7%]`}>10/21</th>
