@@ -47,6 +47,8 @@ const INDEX_NAMES: Record<string, string> = {
   SPY: 'the S&P', QQQ: 'the Nasdaq', DIA: 'the Dow', IWM: 'small caps',
 };
 
+const TAPE_TICKERS = ['SPY', 'QQQ', 'DIA', 'IWM', 'NVDA', 'AAPL', 'MSFT', 'AMZN', 'TSLA'];
+
 // ---------------------------------------------------------------
 // Deterministic catalyst classification (no AI) — keyword-tiered,
 // same philosophy as the scanner's WIIM tagging.
@@ -73,7 +75,6 @@ function classifyEvent(article: any): ActionableEvent | null {
   else if (LOW_RX.test(title)) impact = 'Low';
   if (!impact) return null;
 
-  // Primary ticker: Polygon attaches them; MKT for broad macro stories.
   let ticker: string | null = Array.isArray(article?.tickers) && article.tickers.length > 0
     ? String(article.tickers[0]).toUpperCase()
     : null;
@@ -82,7 +83,6 @@ function classifyEvent(article: any): ActionableEvent | null {
     else return null;
   }
 
-  // Punchy event text: ticker prefix + trimmed headline (ticker stripped if it leads).
   let headline = title
     .replace(new RegExp(`^\\(?${ticker}\\)?[:\\-\\s]+`, 'i'), '')
     .replace(/\s+/g, ' ')
@@ -108,7 +108,7 @@ function buildActionableEvents(articles: any[]): ActionableEvent[] {
       new Date(y.a.published_utc).getTime() - new Date(x.a.published_utc).getTime());
 
   for (const { ev } of classified) {
-    const key = ev.event.split(':')[0]; // one entry per ticker keeps the list diverse
+    const key = ev.event.split(':')[0];
     if (seen.has(key) && key !== 'MKT') continue;
     seen.add(key);
     events.push(ev);
@@ -118,7 +118,7 @@ function buildActionableEvents(articles: any[]): ActionableEvent[] {
 }
 
 // ---------------------------------------------------------------
-// Session narrative blocks (no AI) — written from live tape + breadth.
+// Session narrative blocks (no AI) — written from tape + breadth.
 // ---------------------------------------------------------------
 function toneTheme(spy: number | null, fallback: string): string {
   if (spy == null) return fallback;
@@ -286,74 +286,142 @@ export async function GET(request: Request) {
     const polygonKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY;
     if (!polygonKey) throw new Error('Missing Polygon API Key');
 
-    // 1. Targeted tape snapshot — indices + mega caps
+    const dateOffset = (base: string, days: number): string => {
+      const d = new Date(`${base}T12:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + days);
+      return d.toISOString().slice(0, 10);
+    };
+
+    // Grouped daily bars for a date: every ticker's close in one call.
+    const getGroupedCloses = async (date: string): Promise<Map<string, { c: number; v: number }> | null> => {
+      try {
+        const url = `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${date}?adjusted=true&apiKey=${polygonKey}`;
+        const res = await fetch(url, { cache: 'no-store' });
+        const data = await res.json();
+        if (!data?.results || data.results.length === 0) return null;
+        const map = new Map<string, { c: number; v: number }>();
+        for (const r of data.results) {
+          if (r?.T && r?.c) map.set(r.T, { c: r.c, v: r.v || 0 });
+        }
+        return map;
+      } catch {
+        return null;
+      }
+    };
+
+    // 1. Tape quotes — live snapshot on weekdays; frozen data detection
     const quotes: Record<string, TapeQuote> = {};
-    try {
-      const tapeTickers = 'SPY,QQQ,DIA,IWM,NVDA,AAPL,MSFT,AMZN,TSLA';
-      const snapshotUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tapeTickers}&apiKey=${polygonKey}`;
-      const snapRes = await fetch(snapshotUrl, { cache: 'no-store' });
-      const snapData = await snapRes.json();
-      for (const t of snapData?.tickers || []) {
-        const price = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || null;
-        let pct = typeof t.todaysChangePerc === 'number' ? t.todaysChangePerc : 0;
-        if ((!pct || pct === 0) && price && t.prevDay?.c) {
-          pct = ((price - t.prevDay.c) / t.prevDay.c) * 100;
+    let snapshotUsable = false;
+    if (!isWeekend) {
+      try {
+        const snapshotUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${TAPE_TICKERS.join(',')}&apiKey=${polygonKey}`;
+        const snapRes = await fetch(snapshotUrl, { cache: 'no-store' });
+        const snapData = await snapRes.json();
+        for (const t of snapData?.tickers || []) {
+          const price = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || null;
+          let pct = typeof t.todaysChangePerc === 'number' ? t.todaysChangePerc : 0;
+          if ((!pct || pct === 0) && price && t.prevDay?.c) {
+            pct = ((price - t.prevDay.c) / t.prevDay.c) * 100;
+          }
+          quotes[t.ticker] = { ticker: t.ticker, pct: Number.isFinite(pct) ? pct : 0, price };
         }
-        quotes[t.ticker] = { ticker: t.ticker, pct: Number.isFinite(pct) ? pct : 0, price };
+        // Snapshot counts as usable only if at least one print is nonzero —
+        // a fully-zeroed snapshot means Polygon has reset it (holiday, outage).
+        snapshotUsable = Object.values(quotes).some(q => q.pct !== 0);
+      } catch (e) {
+        console.error('Tape snapshot failed:', e);
       }
-    } catch (e) {
-      console.error('Tape snapshot failed:', e);
     }
 
-    // 2. Full-market snapshot for real breadth (one call, computed locally)
+    // 2. Breadth — live full snapshot on weekdays
     let breadth: Breadth | null = null;
-    try {
-      const fullUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonKey}`;
-      const fullRes = await fetch(fullUrl, { cache: 'no-store' });
-      const fullData = await fullRes.json();
-      const tickers = fullData?.tickers || [];
-      if (tickers.length > 0) {
-        let advancers = 0, decliners = 0, up4 = 0, down4 = 0;
-        for (const t of tickers) {
-          const sym: string = t.ticker ?? '';
-          if (!/^[A-Z]{1,5}$/.test(sym)) continue;
-          const prev = t.prevDay;
-          if (!prev || !prev.c || !prev.v) continue;
-          if (prev.c < 5 || prev.c * prev.v < 5_000_000) continue; // ignore illiquid noise
-          const chg = typeof t.todaysChangePerc === 'number' ? t.todaysChangePerc : 0;
-          if (chg > 0) advancers++;
-          else if (chg < 0) decliners++;
-          if (chg >= 4) up4++;
-          else if (chg <= -4) down4++;
+    if (!isWeekend && snapshotUsable) {
+      try {
+        const fullUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonKey}`;
+        const fullRes = await fetch(fullUrl, { cache: 'no-store' });
+        const fullData = await fullRes.json();
+        const tickers = fullData?.tickers || [];
+        if (tickers.length > 0) {
+          let advancers = 0, decliners = 0, up4 = 0, down4 = 0;
+          for (const t of tickers) {
+            const sym: string = t.ticker ?? '';
+            if (!/^[A-Z]{1,5}$/.test(sym)) continue;
+            const prev = t.prevDay;
+            if (!prev || !prev.c || !prev.v) continue;
+            if (prev.c < 5 || prev.c * prev.v < 5_000_000) continue;
+            const chg = typeof t.todaysChangePerc === 'number' ? t.todaysChangePerc : 0;
+            if (chg > 0) advancers++;
+            else if (chg < 0) decliners++;
+            if (chg >= 4) up4++;
+            else if (chg <= -4) down4++;
+          }
+          if (advancers + decliners > 100) breadth = { advancers, decliners, up4, down4 };
         }
-        if (advancers + decliners > 100) breadth = { advancers, decliners, up4, down4 };
+      } catch (e) {
+        console.error('Breadth snapshot failed:', e);
       }
-    } catch (e) {
-      console.error('Breadth snapshot failed:', e);
     }
 
-    // 3. News for actionable catalysts
+    // 3. WEEKEND / DEAD-SNAPSHOT FALLBACK — rebuild tape + breadth from the
+    // grouped daily bars of targetDate vs the prior trading day (2 calls).
+    // This is how the weekend view shows Friday's real closing numbers instead
+    // of the zeroed snapshot.
+    if (isWeekend || !snapshotUsable || !breadth) {
+      const dayBars = await getGroupedCloses(targetDate);
+      if (dayBars) {
+        // Walk back to the previous trading day with data (skips holidays).
+        let prevBars: Map<string, { c: number; v: number }> | null = null;
+        for (let back = 1; back <= 5 && !prevBars; back++) {
+          prevBars = await getGroupedCloses(dateOffset(targetDate, -back));
+        }
+        if (prevBars) {
+          // Tape tickers from real closes
+          for (const sym of TAPE_TICKERS) {
+            const now = dayBars.get(sym);
+            const prev = prevBars.get(sym);
+            if (now && prev && prev.c > 0) {
+              quotes[sym] = { ticker: sym, pct: ((now.c - prev.c) / prev.c) * 100, price: now.c };
+            }
+          }
+          // Breadth from real closes
+          let advancers = 0, decliners = 0, up4 = 0, down4 = 0;
+          for (const [sym, now] of Array.from(dayBars.entries())) {
+            if (!/^[A-Z]{1,5}$/.test(sym)) continue;
+            const prev = prevBars.get(sym);
+            if (!prev || prev.c <= 0) continue;
+            if (prev.c < 5 || prev.c * prev.v < 5_000_000) continue;
+            const chg = ((now.c - prev.c) / prev.c) * 100;
+            if (chg > 0) advancers++;
+            else if (chg < 0) decliners++;
+            if (chg >= 4) up4++;
+            else if (chg <= -4) down4++;
+          }
+          if (advancers + decliners > 100) breadth = { advancers, decliners, up4, down4 };
+        }
+      }
+    }
+
+    // 4. News for actionable catalysts
     const newsUrl = `https://api.polygon.io/v2/reference/news?published_utc.gte=${targetDate}T00:00:00Z&published_utc.lte=${targetDate}T23:59:59Z&limit=100&sort=published_utc&order=desc&apiKey=${polygonKey}`;
     const response = await fetch(newsUrl, { cache: 'no-store' });
     const data = await response.json();
 
-    if (!data.results || data.results.length === 0) {
-      return NextResponse.json({ status: 404, message: "No market data recorded yet." }, { status: 404 });
-    }
-
     const trashPublishers = ['the motley fool', 'zacks investment research', 'globe newswire', 'pr newswire', 'business wire'];
-    const premiumNews = data.results.filter((a: any) => !trashPublishers.includes((a.publisher?.name || '').toLowerCase()));
+    const premiumNews = (data?.results || []).filter((a: any) => !trashPublishers.includes((a.publisher?.name || '').toLowerCase()));
 
     const actionableEvents = buildActionableEvents(premiumNews);
 
-    // 4. Deterministic session blocks from live data
+    // If we have neither tape nor news, there's genuinely nothing to report.
+    if (Object.keys(quotes).length === 0 && actionableEvents.length === 0) {
+      return NextResponse.json({ status: 404, message: "No market data recorded yet." }, { status: 404 });
+    }
+
+    // 5. Deterministic session blocks from the assembled data
     const { morning, midday, closing } = buildBlocks(quotes, breadth, actionableEvents, currentHourDecimal, isWeekend);
 
     const generatedSummary = { actionableEvents, morning, midday, closing };
 
     const isMarketActive = getIsMarketActive();
-    // No AI cost anymore — regeneration is cheap, so the cache is mostly about
-    // Polygon call volume. 15 min live keeps the blocks fresh through the day.
     const MARKET_CACHE_SEC = 900;    // 15 min during market hours
     const CLOSED_CACHE_SEC = 43200;  // 12 hours when closed
     const cacheExpiration = isMarketActive ? MARKET_CACHE_SEC : CLOSED_CACHE_SEC;
