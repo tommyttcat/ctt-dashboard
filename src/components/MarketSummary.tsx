@@ -466,9 +466,11 @@ export default function MarketSummary() {
           </span>
         </div>
 
-        <div className="space-y-3 text-[13px] text-slate-300 leading-relaxed mb-5">
+        <div className="space-y-4 text-[13px] text-slate-300 leading-relaxed mb-5">
           {block.paragraphs.map((p, idx) => (
-            <p key={idx}>{renderBriefingText(p)}</p>
+            <p key={idx} className="border-l-[2px] border-slate-500/30 pl-3.5 py-0.5">
+              {renderBriefingText(p)}
+            </p>
           ))}
         </div>
 
