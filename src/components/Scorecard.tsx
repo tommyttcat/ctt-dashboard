@@ -154,12 +154,14 @@ const buildToneNarrative = (
 
 /* ============================================================
    Tone narrative renderer — badges asset names, colors percents
-   (VIX-aware), breadth scores, and A/D counts. Values stay
-   regular weight; only color differentiates them.
+   (VIX-aware), breadth scores, and A/D counts. Values render
+   regular weight and one size smaller than the body text.
    ============================================================ */
 
 // Compact gray badge for asset/index names
 const nameChipCls = "inline-block align-baseline text-[10px] font-bold text-slate-300 bg-slate-500/10 px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5";
+// Colored numeric values — slightly smaller than the 13px body
+const valNum = "text-[12px] tabular-nums";
 
 const renderToneText = (text: string): React.ReactNode[] => {
   // Capture: VIX phrases w/ percent, asset names, signed percents,
@@ -177,7 +179,7 @@ const renderToneText = (text: string): React.ReactNode[] => {
       const cls = v > 0 ? 'text-rose-400' : 'text-emerald-400';
       return (
         <span key={i}>
-          {vixMatch[1] || ''}<span className={nameChipCls}>VIX</span>{vixMatch[2]}<span className={`tabular-nums ${cls}`}>{vixMatch[3]}</span>{vixMatch[4]}
+          {vixMatch[1] || ''}<span className={nameChipCls}>VIX</span>{vixMatch[2]}<span className={`${valNum} ${cls}`}>{vixMatch[3]}</span>{vixMatch[4]}
         </span>
       );
     }
@@ -187,12 +189,12 @@ const renderToneText = (text: string): React.ReactNode[] => {
       return <span key={i} className={nameChipCls}>{part}</span>;
     }
 
-    // Signed percent — green/red, regular weight
+    // Signed percent — green/red
     if (/^[+]\d+(?:\.\d+)?%$/.test(part)) {
-      return <span key={i} className="text-emerald-400 tabular-nums">{part}</span>;
+      return <span key={i} className={`${valNum} text-emerald-400`}>{part}</span>;
     }
     if (/^-\d+(?:\.\d+)?%$/.test(part)) {
-      return <span key={i} className="text-rose-400 tabular-nums">{part}</span>;
+      return <span key={i} className={`${valNum} text-rose-400`}>{part}</span>;
     }
 
     // breadth n/6 — green >=5, red <=1, amber between
@@ -200,24 +202,24 @@ const renderToneText = (text: string): React.ReactNode[] => {
     if (bm) {
       const s = parseInt(bm[1], 10);
       const cls = s >= 5 ? 'text-emerald-400' : s <= 1 ? 'text-rose-400' : 'text-amber-400';
-      return <span key={i}>breadth <span className={`tabular-nums ${cls}`}>{bm[1]}/6</span></span>;
+      return <span key={i}>breadth <span className={`${valNum} ${cls}`}>{bm[1]}/6</span></span>;
     }
 
     // advancer/decliner counts
     const am = part.match(/^([\d,]+) advancers$/);
     if (am) {
-      return <span key={i}><span className="text-emerald-400 tabular-nums">{am[1]}</span> advancers</span>;
+      return <span key={i}><span className={`${valNum} text-emerald-400`}>{am[1]}</span> advancers</span>;
     }
     const dm = part.match(/^([\d,]+) decliners$/);
     if (dm) {
-      return <span key={i}><span className="text-rose-400 tabular-nums">{dm[1]}</span> decliners</span>;
+      return <span key={i}><span className={`${valNum} text-rose-400`}>{dm[1]}</span> decliners</span>;
     }
 
     // "N names up/down 4%+"
     const nm = part.match(/^(\d+) names (up|down) 4%\+$/);
     if (nm) {
       const cls = nm[2] === 'up' ? 'text-emerald-400' : 'text-rose-400';
-      return <span key={i}><span className={`tabular-nums ${cls}`}>{nm[1]}</span> names {nm[2]} <span className={cls}>4%+</span></span>;
+      return <span key={i}><span className={`${valNum} ${cls}`}>{nm[1]}</span> names {nm[2]} <span className={`${valNum} ${cls}`}>4%+</span></span>;
     }
 
     return <React.Fragment key={i}>{part}</React.Fragment>;
@@ -500,7 +502,7 @@ export default function MacroScorecard() {
                 <span className={`w-1.5 h-1.5 rounded-full ${toneStyles.dot}`}></span>
                 Tone
               </span>
-              <p className="text-[14px] leading-relaxed text-slate-200">{renderToneText(narrative)}</p>
+              <p className="text-[13px] leading-relaxed text-slate-200">{renderToneText(narrative)}</p>
             </div>
           )}
 
