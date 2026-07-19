@@ -36,25 +36,11 @@ interface TopCatalyst {
   url: string | null;
 }
 
-interface IndustryHeat {
-  sector: string;
-  avgChg: number;
-  count: number;
-}
-
-interface EtfFlow {
-  ticker: string;
-  dVol: number;
-  chg: number;
-}
-
 interface MacroInsights {
   theme: string;
   briefing: string;
   watching: WatchItem[];
   topCatalyst?: TopCatalyst | null;
-  industryHeat?: IndustryHeat[];
-  etfFlow?: EtfFlow[];
 }
 
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
@@ -242,34 +228,6 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
     return true;
   });
 
-  /* ---- Industry heat: sector tags ranked by avg % move ---- */
-  const heatAgg: Record<string, { sum: number; count: number }> = {};
-  flowNames.forEach(s => {
-    const sec = s?.sector && s.sector !== '—' && s.sector !== 'Other' ? String(s.sector) : null;
-    if (!sec) return;
-    if (!heatAgg[sec]) heatAgg[sec] = { sum: 0, count: 0 };
-    heatAgg[sec].sum += chgOf(s);
-    heatAgg[sec].count += 1;
-  });
-  const industryHeat: IndustryHeat[] = Object.entries(heatAgg)
-    .map(([sector, v]) => ({ sector, avgChg: v.sum / v.count, count: v.count }))
-    .sort((a, b) => b.avgChg - a.avgChg)
-    .slice(0, 8);
-
-  /* ---- ETF flow: ETFs ranked by dollar volume, with direction ---- */
-  const etfAll = [...(movers['ETF Gainers'] || []), ...(movers['ETF Losers'] || [])];
-  const etfSeen = new Set<string>();
-  const etfFlow: EtfFlow[] = etfAll
-    .filter(e => {
-      if (!e?.ticker || etfSeen.has(e.ticker)) return false;
-      etfSeen.add(e.ticker);
-      return true;
-    })
-    .map(e => ({ ticker: e.ticker, dVol: dVolOf(e), chg: chgOf(e) }))
-    .filter(e => e.dVol > 0)
-    .sort((a, b) => b.dVol - a.dVol)
-    .slice(0, 6);
-
   /* ---- Theme: dominant sectors among ranked + A-grade count ---- */
   const sectorCounts: Record<string, number> = {};
   ranked.forEach(s => {
@@ -319,25 +277,69 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
     dailyPara += ` Highest conviction by CNF score: ${dailyTop.map(s => `${s.ticker} (${scoreOf(s)})`).join(', ')}.`;
   }
 
-  /* ---- Paragraph 3: Sector Flow (from ETF movers) ---- */
-  const etfG = (movers['ETF Gainers'] || []).slice(0, 3);
-  const etfL = (movers['ETF Losers'] || []).slice(0, 3);
-  const fmtEtf = (e: any) => `${e.ticker} ${chgOf(e) >= 0 ? '+' : ''}${chgOf(e).toFixed(2)}%`;
+  /* ---- Paragraph 3: Industry Heat (avg % move by sector tag) ---- */
+  const heatAgg: Record<string, { sum: number; count: number }> = {};
+  flowNames.forEach(s => {
+    const sec = s?.sector && s.sector !== '—' && s.sector !== 'Other' ? String(s.sector) : null;
+    if (!sec) return;
+    if (!heatAgg[sec]) heatAgg[sec] = { sum: 0, count: 0 };
+    heatAgg[sec].sum += chgOf(s);
+    heatAgg[sec].count += 1;
+  });
+  const heat = Object.entries(heatAgg)
+    .map(([sector, v]) => ({ sector, avgChg: v.sum / v.count, count: v.count }))
+    .sort((a, b) => b.avgChg - a.avgChg);
 
-  let flowPara = 'Sector Flow: ';
-  if (etfG.length && etfL.length) {
-    flowPara += `Leadership via ${etfG.map(fmtEtf).join(', ')}; downside pressure in ${etfL.map(fmtEtf).join(', ')}.`;
-  } else if (etfG.length) {
-    flowPara += `Leadership via ${etfG.map(fmtEtf).join(', ')}.`;
-  } else {
-    flowPara += 'ETF flow data unavailable this scan.';
-  }
-  const bigGainers = (movers['Gainers'] || []).filter((g: any) => chgOf(g) >= 10).length;
-  if (bigGainers > 0) {
-    flowPara += ` ${bigGainers} name${bigGainers > 1 ? 's' : ''} up 10%+ on the gainers scan — elevated speculative appetite.`;
+  let heatPara = '';
+  if (heat.length >= 2) {
+    const fmtHeat = (h: { sector: string; avgChg: number; count: number }) =>
+      `${h.sector} (${h.avgChg >= 0 ? '+' : ''}${h.avgChg.toFixed(1)}% avg, ${h.count} name${h.count !== 1 ? 's' : ''})`;
+    const hot = heat.filter(h => h.avgChg > 0).slice(0, 3);
+    const cold = heat.filter(h => h.avgChg < 0).slice(-3).reverse();
+    heatPara = 'Industry Heat: ';
+    if (hot.length && cold.length) {
+      heatPara += `Strongest groups are ${hot.map(fmtHeat).join(', ')}; weakest are ${cold.map(fmtHeat).join(', ')}.`;
+      const spread = hot[0].avgChg - cold[0].avgChg;
+      heatPara += spread >= 8
+        ? ' Wide dispersion between groups — a stock-picker\'s tape, stay in the leaders.'
+        : ' Group dispersion is narrow — moves are market-driven more than industry-driven.';
+    } else if (hot.length) {
+      heatPara += `All tracked groups lean green, led by ${hot.map(fmtHeat).join(', ')} — broad industry participation.`;
+    } else if (cold.length) {
+      heatPara += `All tracked groups lean red, heaviest in ${cold.map(fmtHeat).join(', ')} — no industry shelter today.`;
+    }
   }
 
-  /* ---- Paragraph 4: Money Flow (dollar volume across the universe) ---- */
+  /* ---- Paragraph 4: ETF Flow (dollar volume ranked, both directions) ---- */
+  const etfAll = [...(movers['ETF Gainers'] || []), ...(movers['ETF Losers'] || [])];
+  const etfSeen = new Set<string>();
+  const etfs = etfAll
+    .filter(e => {
+      if (!e?.ticker || etfSeen.has(e.ticker)) return false;
+      etfSeen.add(e.ticker);
+      return true;
+    })
+    .map(e => ({ ticker: e.ticker, dVol: dVolOf(e), chg: chgOf(e) }))
+    .filter(e => e.dVol > 0)
+    .sort((a, b) => b.dVol - a.dVol);
+
+  let etfPara = '';
+  if (etfs.length) {
+    const fmtE = (e: { ticker: string; dVol: number; chg: number }) =>
+      `${e.ticker} ${fmtDollar(e.dVol)} (${e.chg >= 0 ? '+' : ''}${e.chg.toFixed(2)}%)`;
+    const top = etfs.slice(0, 4);
+    const upD = etfs.filter(e => e.chg > 0).reduce((a, e) => a + e.dVol, 0);
+    const totD = etfs.reduce((a, e) => a + e.dVol, 0);
+    const upShare = totD > 0 ? Math.round((upD / totD) * 100) : 0;
+    etfPara = `ETF Flow: Heaviest dollar volume in ${top.map(fmtE).join(', ')}.`;
+    etfPara += upShare >= 60
+      ? ` ${upShare}% of ETF dollars are on the advancing side — money is chasing strength.`
+      : upShare <= 40
+        ? ` Only ${upShare}% of ETF dollars are on the advancing side — flows favor the short/defensive vehicles.`
+        : ` ETF dollars are split ${upShare}/${100 - upShare} between advancing and declining vehicles — no clean directional bet.`;
+  }
+
+  /* ---- Paragraph 5: Money Flow (single-stock dollar volume) ---- */
   let moneyPara = '';
   const totalD = flowNames.reduce((a, s) => a + dVolOf(s), 0);
   if (totalD > 0) {
@@ -356,22 +358,17 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
     });
     const topInflows = Object.entries(inflowAgg).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([sec]) => sec);
 
-    moneyPara = `Money Flow: ${fmtDollar(totalD)} in tracked dollar volume — ${advShare}% riding the advancing side.`;
+    moneyPara = `Money Flow: ${fmtDollar(totalD)} in tracked dollar volume, ${advShare}% riding the advancing side`;
+    moneyPara += advShare >= 60 ? ' — buyers are paying up.' : advShare <= 40 ? ' — sellers control the tape\'s dollars.' : ' — a two-sided fight.';
     if (magnets.length) moneyPara += ` Dollar magnets: ${magnets.join(', ')}.`;
     if (topInflows.length) moneyPara += ` Inflows concentrate in ${topInflows.join(' & ')}.`;
-    if (etfFlow.length) {
-      const e = etfFlow[0];
-      moneyPara += ` ETF dollars heaviest in ${e.ticker} at ${fmtDollar(e.dVol)} (${e.chg >= 0 ? '+' : ''}${e.chg.toFixed(2)}%).`;
-    }
   }
 
   return {
     theme,
-    briefing: [sipsPara, dailyPara, flowPara, moneyPara].filter(Boolean).join('\n\n'),
+    briefing: [sipsPara, dailyPara, heatPara, etfPara, moneyPara].filter(Boolean).join('\n\n'),
     watching,
     topCatalyst,
-    industryHeat,
-    etfFlow,
   };
 };
 
@@ -474,6 +471,39 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
   });
 };
 
+/* ============================================================
+   Briefing paragraph blocks — label lifted into a colored badge,
+   body in a bubble with a colored left rule.
+   ============================================================ */
+
+const BRIEFING_SECTIONS: { label: string; color: string }[] = [
+  { label: 'SIPs Thesis', color: 'cyan' },
+  { label: 'Daily Setups Thesis', color: 'emerald' },
+  { label: 'Industry Heat', color: 'amber' },
+  { label: 'ETF Flow', color: 'indigo' },
+  { label: 'Money Flow', color: 'rose' },
+  { label: 'Sector Flow', color: 'indigo' },
+];
+
+const sectionStyles = (color: string) => {
+  switch (color) {
+    case 'cyan': return { border: 'border-cyan-500', badge: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20', bg: 'bg-cyan-500/[0.04]' };
+    case 'emerald': return { border: 'border-emerald-500', badge: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20', bg: 'bg-emerald-500/[0.04]' };
+    case 'amber': return { border: 'border-amber-500', badge: 'text-amber-400 bg-amber-500/10 border-amber-500/20', bg: 'bg-amber-500/[0.04]' };
+    case 'rose': return { border: 'border-rose-500', badge: 'text-rose-400 bg-rose-500/10 border-rose-500/20', bg: 'bg-rose-500/[0.04]' };
+    case 'indigo': default: return { border: 'border-indigo-500', badge: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20', bg: 'bg-indigo-500/[0.04]' };
+  }
+};
+
+const splitBriefingSection = (para: string): { label: string | null; color: string; body: string } => {
+  for (const sec of BRIEFING_SECTIONS) {
+    if (para.startsWith(`${sec.label}:`)) {
+      return { label: sec.label, color: sec.color, body: para.slice(sec.label.length + 1).trim() };
+    }
+  }
+  return { label: null, color: 'indigo', body: para };
+};
+
 export default function MarketSummary() {
   const [data, setData] = useState<SummaryData | null>(null);
   const [macroInsights, setMacroInsights] = useState<MacroInsights | null>(null);
@@ -571,8 +601,10 @@ export default function MarketSummary() {
     if (!text) return "";
     return text
       .replace(/(Daily Setups Thesis:)/gi, '\n\n$1')
-      .replace(/(Sector Flow:)/gi, '\n\n$1')
-      .replace(/(Money Flow:)/gi, '\n\n$1');
+      .replace(/(Industry Heat:)/gi, '\n\n$1')
+      .replace(/(ETF Flow:)/gi, '\n\n$1')
+      .replace(/(Money Flow:)/gi, '\n\n$1')
+      .replace(/(Sector Flow:)/gi, '\n\n$1');
   };
 
   const renderSingleUpdateBlock = (block: UpdateBlock | null) => {
@@ -591,9 +623,11 @@ export default function MarketSummary() {
           </span>
         </div>
 
-        <div className="space-y-3 text-[13px] text-slate-300 leading-relaxed mb-5">
+        <div className="space-y-3 mb-5">
           {block.paragraphs.map((p, idx) => (
-            <p key={idx}>{renderBriefingText(p)}</p>
+            <p key={idx} className="text-[13px] text-slate-400 leading-relaxed border-l-[2px] border-slate-500/30 pl-3.5">
+              {renderBriefingText(p)}
+            </p>
           ))}
         </div>
 
@@ -652,7 +686,7 @@ export default function MarketSummary() {
 
               {/* Top themed catalyst — highest-conviction name with real news */}
               {macroInsights.topCatalyst && (
-                <div className="flex items-center gap-2.5 mb-4 relative z-10 flex-wrap">
+                <div className="flex items-center gap-2.5 mb-6 relative z-10 flex-wrap">
                   <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded shrink-0">TOP CATALYST</span>
                   <span className="text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider shrink-0">{macroInsights.topCatalyst.ticker}</span>
                   {macroInsights.topCatalyst.url ? (
@@ -665,56 +699,26 @@ export default function MarketSummary() {
                 </div>
               )}
 
-              {/* INDUSTRY HEAT — sector tags ranked by avg % move */}
-              {macroInsights.industryHeat && macroInsights.industryHeat.length > 0 && (
-                <div className="flex items-center gap-2.5 mb-3 relative z-10 flex-wrap">
-                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500 shrink-0">INDUSTRY HEAT</span>
-                  {macroInsights.industryHeat.map((h) => (
-                    <span
-                      key={h.sector}
-                      title={`${h.count} name${h.count !== 1 ? 's' : ''} scanned`}
-                      className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded border tracking-wide ${
-                        h.avgChg >= 0
-                          ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
-                          : 'text-rose-400 bg-rose-500/10 border-rose-500/20'
-                      }`}
-                    >
-                      {h.sector}
-                      <span className="tabular-nums font-medium">{h.avgChg >= 0 ? '+' : ''}{h.avgChg.toFixed(1)}%</span>
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              {/* ETF FLOW — ETFs ranked by dollar volume with direction */}
-              {macroInsights.etfFlow && macroInsights.etfFlow.length > 0 && (
-                <div className="flex items-center gap-2.5 mb-6 relative z-10 flex-wrap">
-                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500 shrink-0">ETF FLOW</span>
-                  {macroInsights.etfFlow.map((e) => (
-                    <span
-                      key={e.ticker}
-                      title={`Dollar volume ${fmtDollar(e.dVol)}`}
-                      className="inline-flex items-center gap-1.5 text-[10px] font-bold text-slate-300 bg-slate-500/10 px-2 py-0.5 rounded border border-white/10 tracking-wide"
-                    >
-                      {e.ticker}
-                      <span className="tabular-nums font-medium text-slate-400">{fmtDollar(e.dVol)}</span>
-                      <span className={`tabular-nums font-medium ${e.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        {e.chg >= 0 ? '+' : ''}{e.chg.toFixed(1)}%
-                      </span>
-                    </span>
-                  ))}
-                </div>
-              )}
-
               <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div>
                   <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-3">Narrative Breakdown</h3>
-                  <div className="space-y-4">
-                    {formatBriefing(macroInsights.briefing).split('\n\n').filter(Boolean).map((para, idx) => (
-                      <p key={idx} className="text-[13px] text-slate-300 leading-relaxed font-medium">
-                        {renderBriefingText(para)}
-                      </p>
-                    ))}
+                  <div className="space-y-3">
+                    {formatBriefing(macroInsights.briefing).split('\n\n').filter(Boolean).map((para, idx) => {
+                      const { label, color, body } = splitBriefingSection(para.trim());
+                      const st = sectionStyles(color);
+                      return (
+                        <div key={idx} className={`border-l-[3px] rounded-r-xl px-4 py-3 ${st.border} ${st.bg}`}>
+                          {label && (
+                            <span className={`inline-block text-[9px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border mb-2 ${st.badge}`}>
+                              {label}
+                            </span>
+                          )}
+                          <p className="text-[13px] text-slate-300 leading-relaxed font-medium">
+                            {renderBriefingText(body)}
+                          </p>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
