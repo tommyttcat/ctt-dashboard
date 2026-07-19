@@ -152,6 +152,69 @@ const buildToneNarrative = (
   return [s1, s2, s3].filter(Boolean).join(' ');
 };
 
+/* ============================================================
+   Tone narrative renderer — colors percents (VIX-aware),
+   breadth scores, and advancer/decliner counts inline.
+   ============================================================ */
+
+const renderToneText = (text: string): React.ReactNode[] => {
+  // Capture: VIX phrases w/ percent, signed percents, breadth n/6,
+  // "N advancers/decliners", and "N names up/down 4%+"
+  const rx = /((?:the )?VIX is [a-z ]+?\(?[+-]\d+(?:\.\d+)?%\)?|[+-]\d+(?:\.\d+)?%|breadth \d\/6|[\d,]+ advancers|[\d,]+ decliners|\d+ names (?:up|down) 4%\+)/g;
+  const parts = text.split(rx);
+
+  return parts.map((part, i) => {
+    if (!part) return null;
+
+    // VIX phrase — invert coloring: VIX up = red, VIX down = green
+    const vixMatch = part.match(/^((?:the )?VIX is [a-z ]+?\(?)([+-]\d+(?:\.\d+)?%)(\)?)$/);
+    if (vixMatch) {
+      const v = parseFloat(vixMatch[2]);
+      const cls = v > 0 ? 'text-rose-400' : 'text-emerald-400';
+      return (
+        <span key={i}>
+          {vixMatch[1]}<span className={`font-bold tabular-nums ${cls}`}>{vixMatch[2]}</span>{vixMatch[3]}
+        </span>
+      );
+    }
+
+    // Signed percent — green/red
+    if (/^[+]\d+(?:\.\d+)?%$/.test(part)) {
+      return <span key={i} className="text-emerald-400 font-bold tabular-nums">{part}</span>;
+    }
+    if (/^-\d+(?:\.\d+)?%$/.test(part)) {
+      return <span key={i} className="text-rose-400 font-bold tabular-nums">{part}</span>;
+    }
+
+    // breadth n/6 — green >=5, red <=1, amber between
+    const bm = part.match(/^breadth (\d)\/6$/);
+    if (bm) {
+      const s = parseInt(bm[1], 10);
+      const cls = s >= 5 ? 'text-emerald-400' : s <= 1 ? 'text-rose-400' : 'text-amber-400';
+      return <span key={i}>breadth <span className={`font-bold tabular-nums ${cls}`}>{bm[1]}/6</span></span>;
+    }
+
+    // advancer/decliner counts
+    const am = part.match(/^([\d,]+) advancers$/);
+    if (am) {
+      return <span key={i}><span className="text-emerald-400 font-bold tabular-nums">{am[1]}</span> advancers</span>;
+    }
+    const dm = part.match(/^([\d,]+) decliners$/);
+    if (dm) {
+      return <span key={i}><span className="text-rose-400 font-bold tabular-nums">{dm[1]}</span> decliners</span>;
+    }
+
+    // "N names up/down 4%+"
+    const nm = part.match(/^(\d+) names (up|down) 4%\+$/);
+    if (nm) {
+      const cls = nm[2] === 'up' ? 'text-emerald-400' : 'text-rose-400';
+      return <span key={i}><span className={`font-bold tabular-nums ${cls}`}>{nm[1]}</span> names {nm[2]} <span className={`font-bold ${cls}`}>4%+</span></span>;
+    }
+
+    return <React.Fragment key={i}>{part}</React.Fragment>;
+  });
+};
+
 export default function MacroScorecard() {
   const [quotes, setQuotes] = useState<Record<string, TickData>>({});
   const [stockStatus, setStockStatus] = useState<'CONNECTING' | 'LIVE' | 'ERROR' | 'AUTH_ERROR'>('CONNECTING');
@@ -428,7 +491,7 @@ export default function MacroScorecard() {
                 <span className={`w-1.5 h-1.5 rounded-full ${toneStyles.dot}`}></span>
                 Tone
               </span>
-              <p className="text-[13px] leading-relaxed text-slate-200">{narrative}</p>
+              <p className="text-[14px] leading-relaxed text-slate-200">{renderToneText(narrative)}</p>
             </div>
           )}
 

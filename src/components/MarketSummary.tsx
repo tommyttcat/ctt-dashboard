@@ -277,28 +277,71 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
 };
 
 /* ============================================================
-   Briefing/session text renderer — badges tickers, colors percents.
+   Briefing/session text renderer — badges tickers, colors
+   percents and metrics (RVOL / Stage / stoch / RS / DAY / SWING)
+   using the same thresholds as the scanner tables.
    ============================================================ */
 
 // Label/acronym tokens that must NOT be badged as tickers
 const TICKER_STOPWORDS = new Set([
   'RVOL', 'CNF', 'SMB', 'DAY', 'SWING', 'BD', 'REV', 'EP', 'BB', 'SQZ',
-  'GLB', 'VCP', 'PB', 'GO', 'GC', 'EMA', 'SMA', 'MACD', 'ATR', 'RS',
+  'GLB', 'VCP', 'PB', 'GO', 'GC', 'EMA', 'SMA', 'MACD', 'ATR', 'RS', 'R2G',
   'ETF', 'ETFS', 'SPY', 'STAGE', 'A', 'I', 'AND', 'THE', 'IS', 'ARE',
   'IN', 'OF', 'BY', 'VS', 'ON', 'TO', 'UP', 'AT', 'OR', 'IT', 'AI',
   'US', 'USA', 'FDA', 'SEC', 'IPO', 'CEO', 'EPS', 'FY', 'Q',
   'VIX', 'EST', 'PM', 'AM',
 ]);
 
-const tickerChipCls = "inline-block align-baseline text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded border border-cyan-500/20 tracking-wider mx-0.5";
+// Inline ticker chip — compact gray, matching the CNF badge look
+const tickerChipCls = "inline-block align-baseline text-[10px] font-bold text-slate-300 bg-slate-500/10 px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5";
+
+const rvolColor = (v: number) => (v >= 2 ? 'text-amber-400' : v >= 1.5 ? 'text-emerald-400' : 'text-slate-400');
+const stageColor = (st: string) => {
+  if (st.includes('1')) return 'text-slate-400';
+  if (st.includes('2')) return 'text-emerald-400';
+  if (st.includes('3')) return 'text-amber-400';
+  if (st.includes('4')) return 'text-rose-400';
+  return 'text-slate-400';
+};
+const stochColor = (k: number) => (k <= 20 ? 'text-purple-400' : k <= 30 ? 'text-emerald-400' : 'text-slate-400');
+const rsColor = (rs: number) => (rs >= 20 ? 'text-purple-400' : rs >= 10 ? 'text-emerald-400' : rs >= 0 ? 'text-slate-300' : 'text-rose-400');
 
 const renderBriefingText = (text: string): React.ReactNode[] => {
-  // Capture signed percents and uppercase ticker-like tokens in one pass
-  const rx = /([+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
+  // Capture metric phrases first (longest match), then signed percents,
+  // then uppercase ticker-like tokens.
+  const rx = /(RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
   const parts = text.split(rx);
 
   return parts.map((part, i) => {
     if (!part) return null;
+
+    // RVOL n.nn — table thresholds: amber >=2, emerald >=1.5
+    let m = part.match(/^RVOL (\d+(?:\.\d+)?)$/);
+    if (m) {
+      const v = parseFloat(m[1]);
+      return <span key={i}>RVOL <span className={`font-bold tabular-nums ${rvolColor(v)}`}>{m[1]}</span></span>;
+    }
+
+    // Stage 2A etc — table stage colors
+    m = part.match(/^Stage (\d[AB]?)$/);
+    if (m) {
+      return <span key={i}>Stage <span className={`font-bold ${stageColor(m[1])}`}>{m[1]}</span></span>;
+    }
+
+    // stoch nn — purple deep oversold, emerald oversold
+    m = part.match(/^stoch (\d+(?:\.\d+)?)$/);
+    if (m) {
+      const v = parseFloat(m[1]);
+      return <span key={i}>stoch <span className={`font-bold tabular-nums ${stochColor(v)}`}>{m[1]}</span></span>;
+    }
+
+    // RS +nn — purple elite, emerald strong
+    m = part.match(/^RS (\+?\d+(?:\.\d+)?)$/);
+    if (m) {
+      const v = parseFloat(m[1]);
+      return <span key={i}>RS <span className={`font-bold tabular-nums ${rsColor(v)}`}>{m[1]}</span></span>;
+    }
+
     // Signed percent — green/red
     if (/^[+]\d+(?:\.\d+)?%$/.test(part)) {
       return <span key={i} className="text-emerald-400 font-bold tabular-nums">{part}</span>;
@@ -306,10 +349,16 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
     if (/^-\d+(?:\.\d+)?%$/.test(part)) {
       return <span key={i} className="text-rose-400 font-bold tabular-nums">{part}</span>;
     }
-    // Ticker — cyan chip, unless it's a known label/acronym
+
+    // Trade-type classifications — match the DailySetups pill colors
+    if (part === 'DAY') return <span key={i} className="font-bold text-amber-400">DAY</span>;
+    if (part === 'SWING') return <span key={i} className="font-bold text-cyan-400">SWING</span>;
+
+    // Ticker — compact gray chip, unless it's a known label/acronym
     if (/^[A-Z]{2,5}$/.test(part) && !TICKER_STOPWORDS.has(part)) {
       return <span key={i} className={tickerChipCls}>{part}</span>;
     }
+
     return <React.Fragment key={i}>{part}</React.Fragment>;
   });
 };
@@ -430,14 +479,14 @@ export default function MarketSummary() {
           </span>
         </div>
 
-        <div className="space-y-3 text-[15px] text-slate-300 leading-relaxed mb-5">
+        <div className="space-y-3 text-[14px] text-slate-300 leading-relaxed mb-5">
           {block.paragraphs.map((p, idx) => (
             <p key={idx}>{renderBriefingText(p)}</p>
           ))}
         </div>
 
         <div className={`border-l-[4px] p-4 rounded-r-xl transition-colors duration-300 ${styles.boxBg} ${styles.boxBorder}`}>
-          <p className={`text-[15px] leading-relaxed ${styles.boxText}`}>
+          <p className={`text-[14px] leading-relaxed ${styles.boxText}`}>
             {block.takeaway}
           </p>
         </div>
@@ -509,7 +558,7 @@ export default function MarketSummary() {
                   <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-3">Narrative Breakdown</h3>
                   <div className="space-y-4">
                     {formatBriefing(macroInsights.briefing).split('\n\n').filter(Boolean).map((para, idx) => (
-                      <p key={idx} className="text-[15px] text-slate-300 leading-relaxed font-medium">
+                      <p key={idx} className="text-[14px] text-slate-300 leading-relaxed font-medium">
                         {renderBriefingText(para)}
                       </p>
                     ))}
@@ -548,7 +597,7 @@ export default function MarketSummary() {
                             )}
                           </div>
                           <p className="text-[13px] text-slate-300 font-medium leading-relaxed">
-                            {reason}
+                            {renderBriefingText(reason)}
                           </p>
                         </li>
                       );
