@@ -19,7 +19,7 @@ interface StockInPlay {
   stage: string;
   setupName: string | null;
   catalyst?: string | null;
-  catalystUrl?: string | null; // RESTORED
+  catalystUrl?: string | null;
   conviction?: number | null; 
   thesis?: string | null;     
   aboveEma10?: boolean | null;
@@ -33,7 +33,7 @@ interface StockInPlay {
 }
 
 type SortDirection = 'asc' | 'desc';
-type SmbFilterType = 'All' | 'A' | 'B' | 'C';
+type CnfFilterType = 'All' | 'A' | 'B' | 'C';
 type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
 
@@ -74,8 +74,8 @@ const formatSetupName = (name: string | null) => {
 const isGenericCatalyst = (catalyst: string | null | undefined) =>
   !catalyst || catalyst.toLowerCase().startsWith('technical momentum');
 
-// SMB grade from the unified score: A >= 70, B >= 50, C below.
-const smbGradeOf = (score: number | null | undefined): SmbFilterType | null => {
+// CNF grade from the unified score: A >= 70, B >= 50, C below.
+const cnfGradeOf = (score: number | null | undefined): CnfFilterType | null => {
   if (score == null) return null;
   if (score >= 70) return 'A';
   if (score >= 50) return 'B';
@@ -101,7 +101,7 @@ export default function StocksInPlay() {
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(false); 
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
-  const [smbFilter, setSmbFilter] = useState<SmbFilterType>('All');
+  const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
 
@@ -137,8 +137,8 @@ export default function StocksInPlay() {
               stage: item.stage || '2A',
               setupName: item.setupName || null,
               catalyst: rawCatalyst,
-              catalystUrl: item.catalystUrl || null, // RESTORED
-              conviction: item.conviction != null ? Number(item.conviction) : ((item.smbScore ?? item.aiScore ?? item.score) ?? null), 
+              catalystUrl: item.catalystUrl || null,
+              conviction: item.conviction != null ? Number(item.conviction) : ((item.cnfScore ?? item.smbScore ?? item.aiScore ?? item.score) ?? null), 
               thesis: finalThesis,         
               aboveEma10: item.aboveEma10 ?? null,
               aboveEma21: item.aboveEma21 ?? null,
@@ -171,7 +171,7 @@ export default function StocksInPlay() {
   };
 
   // Clicking the active option clears back to All (toggle behavior)
-  const handleSmbFilter = (val: SmbFilterType) => setSmbFilter(prev => prev === val ? 'All' : val);
+  const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
   const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
 
@@ -190,8 +190,8 @@ export default function StocksInPlay() {
         return true;
       });
     }
-    if (smbFilter !== 'All') {
-      filtered = filtered.filter(s => smbGradeOf(s.conviction) === smbFilter);
+    if (cnfFilter !== 'All') {
+      filtered = filtered.filter(s => cnfGradeOf(s.conviction) === cnfFilter);
     }
     if (emaFilter !== 'All') {
       filtered = filtered.filter(s => {
@@ -214,7 +214,7 @@ export default function StocksInPlay() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [stocks, sortConfig, showStage2AOnly, marketCapFilter, smbFilter, emaFilter, vwapFilter]);
+  }, [stocks, sortConfig, showStage2AOnly, marketCapFilter, cnfFilter, emaFilter, vwapFilter]);
 
   const getSortIcon = (columnKey: keyof StockInPlay) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
@@ -260,7 +260,7 @@ export default function StocksInPlay() {
     return 'text-rose-400';
   };
 
-  // SMB-graded score badge: green = A (>=70), amber = B (>=50), gray = C
+  // CNF-graded score badge: green = A (>=70), amber = B (>=50), gray = C
   const getScoreBadge = (score: number | null | undefined) => {
     if (score == null) return 'bg-white/[0.02] text-slate-600 border-white/5';
     if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
@@ -317,7 +317,7 @@ export default function StocksInPlay() {
       {isExpanded && (
         <>
           <div className="flex flex-col gap-3 mb-4 relative z-10">
-            {/* Row 1, centered: 2A → MKT CAP → SMB (A/B/C) */}
+            {/* Row 1, centered: 2A → MKT CAP → CNF (A/B/C) */}
             <div className="flex flex-wrap justify-center items-center gap-4 w-full" onClick={(e) => e.stopPropagation()}>
               <button onClick={() => setShowStage2AOnly(!showStage2AOnly)} className={`px-4 py-2 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 ${showStage2AOnly ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(52,211,153,0.1)]' : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'}`}>Filter: 2A</button>
               <div className={pillWrap}>
@@ -328,12 +328,12 @@ export default function StocksInPlay() {
                   ))}
                 </div>
               </div>
-              {/* SMB grade — clickable filter pill */}
+              {/* CNF grade — clickable filter pill */}
               <div className={pillWrap}>
-                <span className={pillLabel}>SMB</span>
+                <span className={pillLabel}>CNF</span>
                 <div className="flex items-center gap-1">
-                  {(['A', 'B', 'C'] as SmbFilterType[]).map((g) => (
-                    <button key={g} onClick={() => handleSmbFilter(g)} className={`${pillBtn} ${smbFilter === g ? filterBtnActive : filterBtnIdle}`}>
+                  {(['A', 'B', 'C'] as CnfFilterType[]).map((g) => (
+                    <button key={g} onClick={() => handleCnfFilter(g)} className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}>
                       {g}
                     </button>
                   ))}
@@ -372,7 +372,7 @@ export default function StocksInPlay() {
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
-                  <th className={`${thBase} w-[4%]`} onClick={() => handleSort('conviction')}>SMB{getSortIcon('conviction')}</th>
+                  <th className={`${thBase} w-[4%]`} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[7%]`}>10/21</th>
@@ -450,8 +450,7 @@ export default function StocksInPlay() {
                             )}
                           </td>
                         </tr>
-                        {/* Sub-row: spacer | name + thesis (SMB..MCAP) | STR/STAT
-                            centered under STAGE..CATALYST with a short inset divider */}
+                        {/* Sub-row: spacer | name + thesis | STR/STAT centered */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[6%]"></td>
                           <td colSpan={12} className="pb-3.5 pt-2.5 pr-4">

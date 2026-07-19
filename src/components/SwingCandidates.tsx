@@ -260,7 +260,7 @@ export default function SwingCandidates() {
         <div className="flex items-center gap-3">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
-            SWING CANDIDATES
+            REVERSAL / SWING
           </span>
           {spyReturn !== null && (
             <span className="hidden md:inline text-[10px] text-slate-500 font-medium tracking-wide">SPY 3M: {spyReturn >= 0 ? '+' : ''}{spyReturn.toFixed(1)}%</span>
@@ -288,7 +288,7 @@ export default function SwingCandidates() {
                   ))}
                 </div>
               </div>
-              {/* SCORE — clickable filter pill (same style as SMB A/B/C) */}
+              {/* SCORE — clickable filter pill */}
               <div className={pillWrap}>
                 <span className={pillLabel}>SCORE</span>
                 <div className="flex items-center gap-1">
@@ -397,8 +397,7 @@ export default function SwingCandidates() {
                             <span className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{row.sector || '—'}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: spacer | EMA PB + readout (SCORE..MCAP) |
-                            STR/STAT centered under STAGE+SECTOR */}
+                        {/* Sub-row: spacer | EMA PB + readout | STR/STAT centered */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%]"></td>
                           <td colSpan={12} className="pb-3.5 pt-2.5 pr-4">

@@ -95,7 +95,6 @@ const titleCase = (input: string): string => {
       if (!trimmed || /^(\s+|—|–|-|&|\/)$/.test(part)) return part;
       const upper = trimmed.toUpperCase();
       if (KEEP_UPPER.has(upper)) return upper;
-      // Preserve ticker-looking tokens (2-5 chars, already all caps in source, not a common word)
       return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
     })
     .join('');
@@ -106,7 +105,8 @@ const num = (v: any): number => {
   return isNaN(n) ? 0 : n;
 };
 
-const scoreOf = (s: any): number => num(s?.conviction ?? s?.smbScore ?? s?.score);
+// CNF score reader — prefers conviction, then cnfScore, then legacy fields.
+const scoreOf = (s: any): number => num(s?.conviction ?? s?.cnfScore ?? s?.smbScore ?? s?.score);
 const chgOf = (s: any): number => num(s?.change ?? s?.changePct);
 const rvolOf = (s: any): number | null => (s?.rvol != null && !isNaN(Number(s.rvol)) ? Number(s.rvol) : null);
 const stageOf = (s: any): string => (s?.stage ? String(s.stage).replace(/Stage\s*/i, '') : '');
@@ -170,7 +170,7 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
   const movers = scan?.topMovers || {};
   if (sips.length === 0 && daily.length === 0) return null;
 
-  /* ---- Watchlist: top 6 by SMB across SIPs + Daily, deduped ---- */
+  /* ---- Watchlist: top 6 by CNF across SIPs + Daily, deduped ---- */
   const pool = [...sips, ...daily].filter(s => s?.ticker);
   const seen = new Set<string>();
   const ranked = pool
@@ -189,14 +189,14 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
     reason: buildWatchReason(s),
   }));
 
-  /* ---- Top themed catalyst: highest-SMB name with a real headline ---- */
+  /* ---- Top themed catalyst: highest-CNF name with a real headline ---- */
   const withNews = pool
     .filter(hasRealCatalyst)
     .sort((a, b) => scoreOf(b) - scoreOf(a));
   const topCatalyst: TopCatalyst | null = withNews.length
     ? {
         ticker: withNews[0].ticker,
-        headline: String(withNews[0].catalyst).replace(/\.$/, ''),
+        headline: String(withNews[0].thesis || withNews[0].catalyst).replace(/\.$/, ''),
         url: withNews[0].catalystUrl || null,
       }
     : null;
@@ -247,7 +247,7 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
     dailyPara += ` ${stage2Ct} of ${daily.length} sit in constructive Stage 2 bases.`;
   }
   if (dailyTop.length) {
-    dailyPara += ` Highest conviction by SMB score: ${dailyTop.map(s => `${s.ticker} (${scoreOf(s)})`).join(', ')}.`;
+    dailyPara += ` Highest conviction by CNF score: ${dailyTop.map(s => `${s.ticker} (${scoreOf(s)})`).join(', ')}.`;
   }
 
   /* ---- Paragraph 3: Sector Flow (from ETF movers) ---- */
@@ -294,7 +294,7 @@ export default function MarketSummary() {
       if (isMounted) setSession(getMarketSession());
 
       try {
-        // 1. Fetch Narrative Data (Actionable Events & Session Updates)
+        // 1. Fetch Narrative Data (Session Updates)
         const narrativeRes = await fetch('/api/market-summary', { cache: 'no-store' });
 
         if (!narrativeRes.ok) {

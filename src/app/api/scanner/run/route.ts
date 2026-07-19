@@ -6,66 +6,6 @@ export const fetchCache = 'force-no-store';
 export const revalidate = 0;
 export const maxDuration = 300; 
 
-// Provider-agnostic LLM call. Prefers Claude (separate quota, no hidden thinking
-// budget that can blow the token ceiling and truncate); falls back to the
-// hardened Gemini path when only GEMINI_API_KEY is set.
-async function callLlm(prompt: string, maxTokens: number): Promise<string> {
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  const geminiKey = process.env.GEMINI_API_KEY;
-
-  if (anthropicKey) {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5',
-        max_tokens: maxTokens,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Claude API Rejected (${res.status}) - ${errText.substring(0, 200)}`);
-    }
-    const data = await res.json();
-    return (data?.content || [])
-      .filter((b: any) => b?.type === 'text' && typeof b?.text === 'string')
-      .map((b: any) => b.text)
-      .join('');
-  }
-
-  if (geminiKey) {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          thinkingConfig: { thinkingLevel: 'low' },
-          maxOutputTokens: maxTokens,
-        },
-      }),
-    });
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Gemini API Rejected (${res.status}) - ${errText.substring(0, 200)}`);
-    }
-    const data = await res.json();
-    const candidate = data?.candidates?.[0];
-    return (candidate?.content?.parts || [])
-      .filter((p: any) => typeof p?.text === 'string')
-      .map((p: any) => p.text)
-      .join('');
-  }
-
-  throw new Error('No LLM API key configured (set ANTHROPIC_API_KEY or GEMINI_API_KEY)');
-}
-
 const SECTOR_MAP: Record<string, string> = {
   'AAPL': 'IT', 'MSFT': 'IT', 'SMCI': 'IT',
   'NVDA': "Semi's", 'AMD': "Semi's", 'INTC': "Semi's", 
@@ -277,9 +217,11 @@ const deriveTradeType = (setupName: string | null | undefined): string => {
   return 'Swing';
 };
 
-// --- SMB "Stock In Play" grade ----------------------------------------------
+// --- CNF "Confluence" score ---------------------------------------------------
 // THE unified score for the dashboard (written into `conviction`).
-const computeSmbScore = (
+// Fully deterministic — built from RVOL, gap, range expansion, relative
+// strength, and catalyst presence. No AI involved.
+const computeCnfScore = (
   rvol: number | null,
   gapPct: number | null,
   atrExpansion: number | null,
@@ -326,9 +268,9 @@ const computeSmbScore = (
 };
 
 // --- Deterministic setup readout ---------------------------------------------
-// Same style as the swing card's sub-row line: the row's own numbers restated
-// as a sentence. Used as the thesis FALLBACK when there's no WIIM and no AI
-// thesis — zero cost, recomputed every scan, never a fabricated price level.
+// The row's own numbers restated as a sentence. Used as the thesis whenever
+// there's no WIIM headline — zero cost, recomputed every scan, never a
+// fabricated price level.
 const buildReadout = (t: any): string | null => {
   const parts: string[] = [];
   if (t.distToEma21 != null) {
@@ -899,9 +841,7 @@ export async function GET(request: Request) {
         atr = trCount > 0 ? sumTR / trCount : 0;
       }
       
-      // 10 & 21 EMA + trend-structure fields (STRUCT column + readout).
-      // Bars are newest-first: warm up from the oldest bar toward index 0,
-      // capturing the 21 EMA value 5 bars ago for the rising check.
+      // 10 & 21 EMA + trend-structure fields (STR data + readout).
       let aboveEma10: boolean | null = null;
       let aboveEma21: boolean | null = null;
       let distToEma21: number | null = null;
@@ -962,7 +902,7 @@ export async function GET(request: Request) {
         rsVsSpy = ret3M - spyReturn3M;
       }
 
-      // --- SMB raw components -------------------------------------------------
+      // --- CNF raw components -------------------------------------------------
       let gapPct: number | null = null;
       let atrExpansion: number | null = null;
       if (dailyBars.length >= 2) {
@@ -1049,152 +989,8 @@ export async function GET(request: Request) {
 
     const earningsSoonSet = await fetchEarningsProximity(benzingaApiKey);
 
-    const hasLlmKey = !!(process.env.ANTHROPIC_API_KEY || process.env.GEMINI_API_KEY);
-
-    let aiErrorMessage: string | null = null;
-    let confluenceDict: any = {};
-
-    // --- AI COST CONTROL -------------------------------------------------------
-    const AI_REFRESH_MIN = 60;
-    const forceAi = searchParams.get('forceai') === 'true';
-    const lastAiRun = (await kv.get<number>('ai_last_run_v6')) || 0;
-    const aiCacheAgeMin = (Date.now() - lastAiRun) / 60000;
-    const cachedConfluence = (await kv.get<any>('ai_confluence_v6')) || {};
-    const shouldRunAi = forceAi || !lastAiRun || aiCacheAgeMin >= AI_REFRESH_MIN;
-
-    if (!hasLlmKey) {
-        console.error("AI skipped: no LLM API key (set ANTHROPIC_API_KEY or GEMINI_API_KEY).");
-        confluenceDict = cachedConfluence;
-    } else if (!shouldRunAi) {
-        confluenceDict = cachedConfluence;
-        console.log(`AI cache fresh (${aiCacheAgeMin.toFixed(0)}m old, refresh @ ${AI_REFRESH_MIN}m) — skipping Gemini call.`);
-    } else {
-      try {
-        const topGainersString = gainersRaw.slice(0, 10).map((t: any) => `${t.ticker} (+${t._liveChg.toFixed(2)}%)`).join(', ');
-        const topEtfsString = etfGainersRaw.slice(0, 10).map((t: any) => `${t.ticker} (+${t._liveChg.toFixed(2)}%)`).join(', ');
-        const megasString = megaCapsRaw.slice(0, 5).map((t: any) => `${t.ticker} (${t._liveChg > 0 ? '+' : ''}${t._liveChg.toFixed(2)}%)`).join(', ');
-
-        const aiTargets = new Set([
-            ...dailyCandidates, 
-            ...sipCandidates, 
-            ...gainersRaw.slice(0, 15), 
-            ...losersRaw.slice(0, 15)
-        ].map(t => t.ticker));
-
-        const analysisPayload: any = {};
-        enrichedList.forEach((t: any) => {
-            if ((aiTargets.has(t.ticker) || MEGA_CAP_TICKERS.has(t.ticker)) && t.vol >= MIN_VOLUME) {
-                const safeHeadline = (t._rawHeadline || '').replace(/[^a-zA-Z0-9\s.,!?'-]/g, '').trim();
-                analysisPayload[t.ticker] = {
-                    Sector: t.sector || 'Unknown',
-                    Today_Change: `${t.changePct > 0 ? '+' : ''}${t.changePct.toFixed(2)}%`,
-                    Headline: safeHeadline,
-                    MathPattern: t.setupName || 'None',
-                    Stage: t.stage,
-                    ATR: t.atr,
-                    AvgVol: t.avgVol,
-                    RVOL: t.rvol
-                };
-            }
-        });
-        const analysisMapString = JSON.stringify(analysisPayload, null, 2);
-          
-        const sipString = sipCandidates.map((t: any) => t.ticker).join(', ');
-        const dailyString = dailyCandidates.map((t: any) => t.ticker).join(', ');
-
-        const aiPrompt = `
-          You are an elite quantitative technical analyst.
-          
-          MARKET CONTEXT:
-          Mega Caps: ${megasString}
-          Stocks In Play (SIPs): ${sipString}
-          Daily Setups: ${dailyString}
-          Top Gainers (Raw): ${topGainersString}
-          Top ETFs/Thematics: ${topEtfsString}
-
-          CRITICAL MANDATES:
-          1. Evaluate and return structural objects for EVERY single ticker present in the payload. Do not skip any.
-          2. For the 'catalyst' field, summarize the Headline into a strict 1-3 word punchy category (e.g., "FDA Approval", "Earnings Beat"). If no news, strictly return "Technical Momentum".
-          3. For the 'thesis' field, explain in 1-2 plain sentences WHY the stock is moving — the catalyst, the driver, who is buying and why. CRITICAL: DO NOT include any specific price levels, entry points, price targets, or stop-loss figures. You do NOT have reliable support/resistance data, so any such numbers are fabricated, wrong, and misleading — omit them entirely. Also DO NOT repeat the math pattern, indicator, or stage. Example: "Renewed retail-trading optimism around the SpaceX IPO is pulling capital into brokerage names; the move is news-driven rather than purely technical."
-          4. For the 'watching' array, select 5 to 8 total symbols representing the highest confluence.
-          5. For the 'tradeType' field, classify the BEST way to trade THIS setup today,
-             returning EXACTLY "Day Trade" or "Swing":
-             • "Day Trade": momentum/news-driven intraday plays — high RVOL, gap-ups,
-               single-day catalysts, intraday patterns (Gap & Go, R2G, BB SQZ Fired),
-               elevated ATR. The edge is intraday and largely decays by the close.
-             • "Swing": higher-timeframe structure meant to be held days to weeks — base
-               breakouts (GLB, VCP), Stage 2A trend continuation, 20 EMA pullbacks, Trend
-               Hold, Inside Day breaks. Driven by structure more than a single intraday catalyst.
-             • An Episodic Pivot (a large catalyst gap) can be EITHER: a Day Trade if it's
-               pure intraday momentum, or a Swing if it gaps into a clean base/Stage 2A
-               structure worth holding. Decide from the stage and how it's basing.
-             When a name fits both, pick the one the current setup/stage favors most.
-          
-          BRIEFING INSTRUCTIONS:
-          Your 'briefing' string must be an in-depth synthesis highlighting:
-          - SIPs Thesis: Core drivers behind the high-relative-volume stocks.
-          - Daily Setups Thesis: Structural context behind setups or breakouts.
-          - Sector Flow: Capital allocation trends seen across categories.
-          
-          Use the exact labels "SIPs Thesis:", "Daily Setups Thesis:", and "Sector Flow:" inside the briefing text.
-
-          RETURN EXACTLY THIS JSON STRUCTURE:
-          {
-            "macro": {
-              "theme": "Dominant Sector Active Today",
-              "briefing": "Complete historical summary tracking instructions...",
-              "watching": [
-                { "symbol": "XYZ", "score": 85, "reason": "Direct trigger setup context" }
-              ]
-            },
-            "tickers": [
-              { "symbol": "XYZ", "catalyst": "Earnings Beat", "tradeType": "Swing", "thesis": "Plain-language reason the stock is moving — no price levels..." }
-            ]
-          }
-
-          PAYLOAD TO ANALYZE:
-          ${analysisMapString}
-        `;
-
-        const text = await callLlm(aiPrompt, 12288);
-
-        if (!text) {
-          aiErrorMessage = `ERROR: Empty AI response`;
-          console.error(aiErrorMessage);
-        } else {
-          try {
-            const match = text.match(/\{[\s\S]*\}/);
-            const parsed = JSON.parse(match ? match[0] : text);
-
-            if (parsed.macro) {
-              await kv.set('macro_insights_v6', parsed.macro);
-            }
-            if (parsed.tickers && Array.isArray(parsed.tickers)) {
-              parsed.tickers.forEach((t: any) => {
-                 confluenceDict[t.symbol] = t;
-              });
-            }
-          } catch (parseErr: any) {
-            aiErrorMessage = `ERROR: JSON Parsing Failed`;
-            console.error(aiErrorMessage, parseErr?.message);
-          }
-        }
-      } catch (e: any) {
-        aiErrorMessage = `ERROR: AI Request Failed - ${e?.message || 'unknown'}`;
-        console.error(aiErrorMessage);
-      }
-
-      if (aiErrorMessage) {
-        confluenceDict = cachedConfluence;
-      }
-      try {
-        if (!aiErrorMessage) await kv.set('ai_confluence_v6', confluenceDict);
-        await kv.set('ai_last_run_v6', Date.now());
-      } catch (persistErr) {
-        console.error('Failed to persist AI cache:', persistErr);
-      }
-    }
-
+    // --- NO AI: catalysts from WIIM, theses from WIIM or the deterministic
+    // readout, tradeType from the setup classifier. Zero LLM calls, zero cost.
     const enrichedMap = new Map();
     enrichedList.forEach((t: any) => { 
       const wiim = wiimMap.get(t.ticker);
@@ -1205,40 +1001,24 @@ export async function GET(request: Request) {
         t.catalyst = tag;
         t.thesis = wiim.title;
         if (wiim.url) t.catalystUrl = wiim.url;
-        if (confluenceDict[t.ticker]?.tradeType) t.tradeType = confluenceDict[t.ticker].tradeType;
-      } else if (confluenceDict[t.ticker]) {
-        let tag = confluenceDict[t.ticker].catalyst;
-        
-        if (tag !== "Technical Momentum" && t._daysOld >= 1.5 && t._daysOld <= 4) {
-           tag = `${tag} (Delayed)`; 
-        } else if (tag === "Technical Momentum" || t._daysOld > 4) {
-           tag = "Technical Momentum";
-        }
-        
-        t.catalyst = tag;
-        t.thesis = confluenceDict[t.ticker].thesis;
-        t.tradeType = confluenceDict[t.ticker].tradeType;
       } else {
         if (t._rawHeadline && t._daysOld < 1.5) t.catalyst = "Recent News";
         else if (t._rawHeadline && t._daysOld >= 1.5 && t._daysOld <= 4) t.catalyst = "Delayed Reaction";
         else t.catalyst = 'Technical Momentum';
         
-        // No WIIM and no AI thesis: deterministic setup readout from the row's
-        // own numbers (same style as the swing card's sub-row line).
+        // No WIIM: deterministic setup readout from the row's own numbers.
         t.thesis = buildReadout(t);
       }
 
-      if (!t.tradeType) t.tradeType = deriveTradeType(t.setupName);
+      t.tradeType = deriveTradeType(t.setupName);
 
       // --- STATUS: pullback readiness (same rule as the swing card) -----------
-      // Ready = stoch <= 25 AND within 2.5% of the 21 EMA. On momentum cards
-      // most rows will be Forming — that's correct, not a bug.
       t.status = (t.stochK != null && t.stochK <= 25 && t.distToEma21 != null && Math.abs(t.distToEma21) <= 2.5)
         ? 'Ready' : 'Forming';
 
-      // --- Unified score: SMB IS the conviction number ------------------------
+      // --- Unified score: CNF IS the conviction number ------------------------
       const hasEarnings = earningsSoonSet.has(t.ticker);
-      const smb = computeSmbScore(
+      const cnf = computeCnfScore(
         t.rvol,
         t.gapPct,
         t.atrExpansion,
@@ -1247,10 +1027,10 @@ export async function GET(request: Request) {
         !!t._rawHeadline,
         hasEarnings
       );
-      t.smbScore = smb.score;
-      t.smbGrade = smb.grade;
+      t.cnfScore = cnf.score;
+      t.cnfGrade = cnf.grade;
       t.hasEarnings = hasEarnings;
-      t.conviction = smb.score;
+      t.conviction = cnf.score;
 
       enrichedMap.set(t.ticker, t); 
     });
@@ -1355,6 +1135,8 @@ export async function GET(request: Request) {
 
     if (benchmark) await kv.set('benchmark_v6', benchmark);
 
+    // macroInsights: no longer generated (the Market Briefing card builds its
+    // own deterministically). Serve whatever is stored for legacy fallback.
     let macroInsights = null;
     try {
       macroInsights = await kv.get('macro_insights_v6');
