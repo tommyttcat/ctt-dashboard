@@ -292,8 +292,8 @@ const TICKER_STOPWORDS = new Set([
   'EST', 'PM', 'AM',
 ]);
 
-// Inline chip — separated slate bubble styling matching the screenshots
-const tickerChipCls = "inline-block align-baseline text-[11px] font-bold text-slate-200 bg-[#1e293b] px-2 py-0.5 rounded-md border border-slate-600/60 tracking-wider mx-0.5 shadow-sm";
+// Inline chip — Subtle bubbled style for indices/tickers embedded in text
+const tickerChipCls = "inline-block align-text-bottom text-[11px] font-bold text-white bg-[#1e293b] px-2 py-[2px] rounded-[6px] border border-slate-500/40 shadow-[0_2px_4px_rgba(0,0,0,0.25)] tracking-widest mx-[3px]";
 // Colored numeric values — slightly smaller than the 13px body
 const valNum = "text-[12px] tabular-nums";
 
