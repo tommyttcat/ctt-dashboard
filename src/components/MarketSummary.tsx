@@ -292,8 +292,8 @@ const TICKER_STOPWORDS = new Set([
   'EST', 'PM', 'AM',
 ]);
 
-// Inline chip — compact gray, matching the CNF badge look
-const tickerChipCls = "inline-block align-baseline text-[10px] font-bold text-slate-300 bg-slate-500/10 px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5";
+// Inline chip — separated slate bubble styling matching the screenshots
+const tickerChipCls = "inline-block align-baseline text-[11px] font-bold text-slate-200 bg-[#1e293b] px-2 py-0.5 rounded-md border border-slate-600/60 tracking-wider mx-0.5 shadow-sm";
 // Colored numeric values — slightly smaller than the 13px body
 const valNum = "text-[12px] tabular-nums";
 
