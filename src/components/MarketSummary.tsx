@@ -242,40 +242,47 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
   const rawTheme = `${topSectors.length ? topSectors.join(' & ') : 'Broad Market'} In Focus — ${aCount > 0 ? `${aCount} A-Grade Setup${aCount > 1 ? 's' : ''}` : 'Momentum Watch'}`;
   const theme = titleCase(rawTheme);
 
-  /* ---- Paragraph 1: SIPs Thesis ---- */
+  /* ---- Paragraph 1: SIPs Thesis — one sentence per line, no count ---- */
   const sipsSorted = sips.slice().sort((a, b) => (rvolOf(b) ?? 0) - (rvolOf(a) ?? 0));
   const leaders = sipsSorted.filter(s => (rvolOf(s) ?? 0) >= 1.5).slice(0, 3);
   const grinders = sips.filter(s => rvolOf(s) != null && (rvolOf(s) as number) < 1).map(s => s.ticker).slice(0, 7);
   const newsNames = sips.filter(hasRealCatalyst).map(s => s.ticker).slice(0, 4);
 
-  let sipsPara = `SIPs Thesis: ${sips.length} name${sips.length !== 1 ? 's' : ''} in play.`;
+  const sipsLines: string[] = [];
   if (leaders.length) {
-    sipsPara += ` Volume-confirmed leadership from ${leaders.map(fmtLeader).join(', ')} — RVOL above 1.5 signals real participation behind the move.`;
+    sipsLines.push(`Volume-confirmed leadership from ${leaders.map(fmtLeader).join(', ')} — RVOL above 1.5 signals real participation behind the move.`);
   }
   if (newsNames.length) {
-    sipsPara += ` News-driven: ${newsNames.join(', ')}.`;
+    sipsLines.push(`News-driven: ${newsNames.join(', ')}.`);
   }
   if (grinders.length) {
-    sipsPara += ` ${grinders.join(', ')} ${grinders.length > 1 ? 'are' : 'is'} moving on sub-1.0 RVOL — price without volume, prone to fading by close.`;
+    sipsLines.push(`${grinders.join(', ')} ${grinders.length > 1 ? 'are' : 'is'} moving on sub-1.0 RVOL — price without volume, prone to fading by close.`);
   }
+  const sipsPara = sipsLines.length
+    ? `SIPs Thesis: ${sipsLines.join('\n')}`
+    : (sips.length ? `SIPs Thesis: ${sips.length} name${sips.length !== 1 ? 's' : ''} in play — no volume-confirmed leaders yet.` : '');
 
-  /* ---- Paragraph 2: Daily Setups Thesis ---- */
+  /* ---- Paragraph 2: Daily Setups Thesis — one sentence per line ---- */
   const dayCt = daily.filter(s => String(s?.tradeType || '').toLowerCase().startsWith('day')).length;
   const swingCt = daily.filter(s => String(s?.tradeType || '').toLowerCase().startsWith('swing')).length;
   const dailyTop = daily.slice().sort((a, b) => scoreOf(b) - scoreOf(a)).slice(0, 3);
   const stage2Ct = daily.filter(s => String(s?.stage || '').includes('2')).length;
 
-  let dailyPara = `Daily Setups Thesis: ${daily.length} qualified setup${daily.length !== 1 ? 's' : ''}`;
-  if (dayCt || swingCt) {
-    dailyPara += ` — ${swingCt} classified SWING (structure supports a multi-day hold), ${dayCt} DAY (intraday momentum only)`;
+  const dailyLines: string[] = [];
+  if (daily.length) {
+    let first = `${daily.length} qualified setup${daily.length !== 1 ? 's' : ''}`;
+    if (dayCt || swingCt) {
+      first += ` — ${swingCt} classified SWING (structure supports a multi-day hold), ${dayCt} DAY (intraday momentum only)`;
+    }
+    dailyLines.push(first + '.');
   }
-  dailyPara += '.';
   if (stage2Ct > 0) {
-    dailyPara += ` ${stage2Ct} of ${daily.length} sit in constructive Stage 2 bases.`;
+    dailyLines.push(`${stage2Ct} of ${daily.length} sit in constructive Stage 2 bases.`);
   }
   if (dailyTop.length) {
-    dailyPara += ` Highest conviction by CNF score: ${dailyTop.map(s => `${s.ticker} (${scoreOf(s)})`).join(', ')}.`;
+    dailyLines.push(`Highest conviction by CNF score: ${dailyTop.map(s => `${s.ticker} (${scoreOf(s)})`).join(', ')}.`);
   }
+  const dailyPara = dailyLines.length ? `Daily Setups Thesis: ${dailyLines.join('\n')}` : '';
 
   /* ---- Paragraph 3: Industry Heat (avg % move by sector tag) ---- */
   const heatAgg: Record<string, { sum: number; count: number }> = {};
@@ -473,7 +480,8 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
 
 /* ============================================================
    Briefing paragraph blocks — label lifted into a colored badge,
-   body in a bubble with a colored left rule.
+   body in a bubble with a colored left rule. Multi-line bodies
+   (\n-separated sentences) render one sentence per line.
    ============================================================ */
 
 const BRIEFING_SECTIONS: { label: string; color: string }[] = [
@@ -713,9 +721,13 @@ export default function MarketSummary() {
                               {label}
                             </span>
                           )}
-                          <p className="text-[13px] text-slate-300 leading-relaxed font-medium">
-                            {renderBriefingText(body)}
-                          </p>
+                          <div className="space-y-2">
+                            {body.split('\n').filter(Boolean).map((line, li) => (
+                              <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
+                                {renderBriefingText(line)}
+                              </p>
+                            ))}
+                          </div>
                         </div>
                       );
                     })}
