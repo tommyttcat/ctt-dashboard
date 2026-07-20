@@ -260,7 +260,7 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
   }
   const sipsPara = sipsLines.length
     ? `SIPs Thesis: ${sipsLines.join('\n')}`
-    : (sips.length ? `SIPs Thesis: ${sips.length} name${sips.length !== 1 ? 's' : ''} in play — no volume-confirmed leaders yet.` : '');
+    : (sips.length ? `SIPs Thesis: No volume-confirmed leaders yet.` : '');
 
   /* ---- Paragraph 2: Daily Setups Thesis — one sentence per line ---- */
   const dayCt = daily.filter(s => String(s?.tradeType || '').toLowerCase().startsWith('day')).length;
@@ -269,12 +269,8 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
   const stage2Ct = daily.filter(s => String(s?.stage || '').includes('2')).length;
 
   const dailyLines: string[] = [];
-  if (daily.length) {
-    let first = `${daily.length} qualified setup${daily.length !== 1 ? 's' : ''}`;
-    if (dayCt || swingCt) {
-      first += ` — ${swingCt} classified SWING (structure supports a multi-day hold), ${dayCt} DAY (intraday momentum only)`;
-    }
-    dailyLines.push(first + '.');
+  if (dayCt || swingCt) {
+    dailyLines.push(`${swingCt} classified SWING (structure supports a multi-day hold), ${dayCt} DAY (intraday momentum only).`);
   }
   if (stage2Ct > 0) {
     dailyLines.push(`${stage2Ct} of ${daily.length} sit in constructive Stage 2 bases.`);
@@ -284,7 +280,7 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
   }
   const dailyPara = dailyLines.length ? `Daily Setups Thesis: ${dailyLines.join('\n')}` : '';
 
-  /* ---- Paragraph 3: Industry Heat (avg % move by sector tag) ---- */
+  /* ---- Paragraph 3: Industry Heat — one sentence per line ---- */
   const heatAgg: Record<string, { sum: number; count: number }> = {};
   flowNames.forEach(s => {
     const sec = s?.sector && s.sector !== '—' && s.sector !== 'Other' ? String(s.sector) : null;
@@ -303,21 +299,23 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
       `${h.sector} (${h.avgChg >= 0 ? '+' : ''}${h.avgChg.toFixed(1)}% avg, ${h.count} name${h.count !== 1 ? 's' : ''})`;
     const hot = heat.filter(h => h.avgChg > 0).slice(0, 3);
     const cold = heat.filter(h => h.avgChg < 0).slice(-3).reverse();
-    heatPara = 'Industry Heat: ';
+    const heatLines: string[] = [];
     if (hot.length && cold.length) {
-      heatPara += `Strongest groups are ${hot.map(fmtHeat).join(', ')}; weakest are ${cold.map(fmtHeat).join(', ')}.`;
+      heatLines.push(`Strongest groups are ${hot.map(fmtHeat).join(', ')}.`);
+      heatLines.push(`Weakest are ${cold.map(fmtHeat).join(', ')}.`);
       const spread = hot[0].avgChg - cold[0].avgChg;
-      heatPara += spread >= 8
-        ? ' Wide dispersion between groups — a stock-picker\'s tape, stay in the leaders.'
-        : ' Group dispersion is narrow — moves are market-driven more than industry-driven.';
+      heatLines.push(spread >= 8
+        ? 'Wide dispersion between groups — a stock-picker\'s tape, stay in the leaders.'
+        : 'Group dispersion is narrow — moves are market-driven more than industry-driven.');
     } else if (hot.length) {
-      heatPara += `All tracked groups lean green, led by ${hot.map(fmtHeat).join(', ')} — broad industry participation.`;
+      heatLines.push(`All tracked groups lean green, led by ${hot.map(fmtHeat).join(', ')} — broad industry participation.`);
     } else if (cold.length) {
-      heatPara += `All tracked groups lean red, heaviest in ${cold.map(fmtHeat).join(', ')} — no industry shelter today.`;
+      heatLines.push(`All tracked groups lean red, heaviest in ${cold.map(fmtHeat).join(', ')} — no industry shelter today.`);
     }
+    if (heatLines.length) heatPara = `Industry Heat: ${heatLines.join('\n')}`;
   }
 
-  /* ---- Paragraph 4: ETF Flow (dollar volume ranked, both directions) ---- */
+  /* ---- Paragraph 4: ETF Flow — one sentence per line ---- */
   const etfAll = [...(movers['ETF Gainers'] || []), ...(movers['ETF Losers'] || [])];
   const etfSeen = new Set<string>();
   const etfs = etfAll
@@ -338,15 +336,17 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
     const upD = etfs.filter(e => e.chg > 0).reduce((a, e) => a + e.dVol, 0);
     const totD = etfs.reduce((a, e) => a + e.dVol, 0);
     const upShare = totD > 0 ? Math.round((upD / totD) * 100) : 0;
-    etfPara = `ETF Flow: Heaviest dollar volume in ${top.map(fmtE).join(', ')}.`;
-    etfPara += upShare >= 60
-      ? ` ${upShare}% of ETF dollars are on the advancing side — money is chasing strength.`
+    const etfLines: string[] = [];
+    etfLines.push(`Heaviest dollar volume in ${top.map(fmtE).join(', ')}.`);
+    etfLines.push(upShare >= 60
+      ? `${upShare}% of ETF dollars are on the advancing side — money is chasing strength.`
       : upShare <= 40
-        ? ` Only ${upShare}% of ETF dollars are on the advancing side — flows favor the short/defensive vehicles.`
-        : ` ETF dollars are split ${upShare}/${100 - upShare} between advancing and declining vehicles — no clean directional bet.`;
+        ? `Only ${upShare}% of ETF dollars are on the advancing side — flows favor the short/defensive vehicles.`
+        : `ETF dollars are split ${upShare}/${100 - upShare} between advancing and declining vehicles — no clean directional bet.`);
+    etfPara = `ETF Flow: ${etfLines.join('\n')}`;
   }
 
-  /* ---- Paragraph 5: Money Flow (single-stock dollar volume) ---- */
+  /* ---- Paragraph 5: Money Flow — one sentence per line ---- */
   let moneyPara = '';
   const totalD = flowNames.reduce((a, s) => a + dVolOf(s), 0);
   if (totalD > 0) {
@@ -365,10 +365,13 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
     });
     const topInflows = Object.entries(inflowAgg).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([sec]) => sec);
 
-    moneyPara = `Money Flow: ${fmtDollar(totalD)} in tracked dollar volume, ${advShare}% riding the advancing side`;
-    moneyPara += advShare >= 60 ? ' — buyers are paying up.' : advShare <= 40 ? ' — sellers control the tape\'s dollars.' : ' — a two-sided fight.';
-    if (magnets.length) moneyPara += ` Dollar magnets: ${magnets.join(', ')}.`;
-    if (topInflows.length) moneyPara += ` Inflows concentrate in ${topInflows.join(' & ')}.`;
+    const moneyLines: string[] = [];
+    let firstLine = `${fmtDollar(totalD)} in tracked dollar volume, ${advShare}% riding the advancing side`;
+    firstLine += advShare >= 60 ? ' — buyers are paying up.' : advShare <= 40 ? ' — sellers control the tape\'s dollars.' : ' — a two-sided fight.';
+    moneyLines.push(firstLine);
+    if (magnets.length) moneyLines.push(`Dollar magnets: ${magnets.join(', ')}.`);
+    if (topInflows.length) moneyLines.push(`Inflows concentrate in ${topInflows.join(' & ')}.`);
+    moneyPara = `Money Flow: ${moneyLines.join('\n')}`;
   }
 
   return {
