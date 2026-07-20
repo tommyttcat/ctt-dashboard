@@ -38,14 +38,15 @@ export default function DailySetupsPage() {
             <div className="px-4 md:px-10 py-6 space-y-6">
               <Scorecard />
               <SectorsFlow />
-              <NewsCatalysts />
+              <MarketSummary />
               <TopMovers />
               <StocksInPlay />
               <DailySetupsComponent />
               <SwingCandidates />
+              <NewsCatalysts />
               <TechnicalsEcon />
               <EarningsCalendar />
-              <MarketSummary />
+              
               
             </div>
 
