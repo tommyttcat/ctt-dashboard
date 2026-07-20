@@ -287,7 +287,7 @@ export default function StocksInPlay() {
     return 'text-slate-500';
   };
 
-  // Shared styles — every column centered, uniform tight padding, no h-scroll
+  // Shared styles — every column centered, uniform tight padding
   const thBase = "px-1 py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 transition-colors text-center";
   const tdBase = "px-1 pt-3 pb-2 text-center";
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
@@ -367,8 +367,8 @@ export default function StocksInPlay() {
               </div>
             </div>
           </div>
-          <div className="relative z-10">
-            <table className="w-full table-fixed border-collapse">
+          <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
+            <table className="w-full min-w-[1100px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
