@@ -148,6 +148,13 @@ const isSpamNews = (title: string) => {
   return spamTriggers.some(w => lower.includes(w));
 };
 
+// Dilution / distress headlines — these gaps are traps, not catalysts.
+const isNegativeHeadline = (title: string | null | undefined): boolean => {
+  if (!title) return false;
+  const s = title.toLowerCase();
+  return /offering|dilut|reverse split|reverse stock split|going concern|delist|bankrupt|chapter 11|at-the-market|atm program|warrant exercise|registered direct|shelf registration/.test(s);
+};
+
 const resolveEtfSector = (sym: string, apiSector: string | undefined, apiName: string | undefined): string => {
   if (ETF_TARGET_MAP[sym]) return ETF_TARGET_MAP[sym];
   if (SECTOR_MAP[sym]) return SECTOR_MAP[sym]; 
@@ -226,12 +233,22 @@ const computeCnfScore = (
   gapPct: number | null,
   atrExpansion: number | null,
   rsVsMkt: number | null,
-  hasWiim: boolean,
-  hasHeadline: boolean,
-  hasEarnings: boolean
+  q: {
+    catalystTier: 'strong' | 'neutral' | 'headline' | 'negative' | 'none';
+    hasEarnings: boolean;
+    scanStreak: number;
+    extended: boolean;
+    vwapStatus: string;
+    tradeType: string;
+    setupName: string | null;
+    breadthSignal: string;
+    spyAbove21: boolean | null;
+    inHotSector: boolean;
+  }
 ): { score: number; grade: string } => {
   let score = 0;
 
+  // --- Core tape components ---
   if (rvol != null) {
     if (rvol >= 3) score += 30;
     else if (rvol >= 2) score += 24;
@@ -258,11 +275,40 @@ const computeCnfScore = (
     else if (d >= 1.5) score += 6;
   }
 
-  if (hasWiim) score += 15;
-  else if (hasHeadline) score += 8;
+  // --- Catalyst quality tier: earnings/FDA/M&A > vague PR; dilution is a trap ---
+  if (q.catalystTier === 'strong') score += 18;
+  else if (q.catalystTier === 'neutral') score += 10;
+  else if (q.catalystTier === 'headline') score += 8;
+  else if (q.catalystTier === 'negative') score -= 15;
 
-  if (hasEarnings) score += 5;
+  if (q.hasEarnings) score += 5;
 
+  // --- Scan persistence: held its move across multiple 15-min scans = real ---
+  if (q.scanStreak >= 4) score += 10;
+  else if (q.scanStreak >= 3) score += 8;
+  else if (q.scanStreak === 2) score += 4;
+
+  // --- Extension: already ran 3.5x ATR or stretched 3x ATR% off the 21 EMA ---
+  if (q.extended) score -= 10;
+
+  // --- VWAP: longs below VWAP fight the tape; near-disqualifying for DAY ---
+  if (q.vwapStatus === 'below') score -= (q.tradeType === 'Day Trade' ? 12 : 4);
+
+  // --- Market regime gate: breakouts fail in weak breadth, reversals thrive ---
+  const s = (q.setupName || '').toLowerCase();
+  const isBreakoutSetup = /gap & go|r2g|sqz fired|episodic|glb/.test(s);
+  const isReversalSetup = /blue dot|ema pb|sqz building|inside day/.test(s);
+  if (q.breadthSignal === 'RED') {
+    if (isBreakoutSetup) score -= 8;
+    if (isReversalSetup) score += 4;
+  } else if (q.breadthSignal === 'GREEN' && q.spyAbove21 !== false) {
+    if (isBreakoutSetup) score += 4;
+  }
+
+  // --- Sector confirmation: leader inside a hot group, not a lone wolf ---
+  if (q.inHotSector) score += 5;
+
+  score = Math.max(0, Math.min(100, Math.round(score)));
   const grade = score >= 70 ? 'A' : score >= 50 ? 'B' : 'C';
   return { score, grade };
 };
@@ -645,6 +691,7 @@ export async function GET(request: Request) {
     const MIN_MARKET_CAP = 20000000; 
     const MIN_CHANGE = 4.0;
     const MIN_PRICE = 1.00;
+    const MIN_DOLLAR_VOL = 5000000; // $5M traded — kills untradeable low-priced spikes
 
     let processedSnapshot: any[] = [];
 
@@ -795,6 +842,16 @@ export async function GET(request: Request) {
       spyReturn3M = ((spyHistBars[0].c - spyHistBars[63].c) / spyHistBars[63].c) * 100;
     }
 
+    // SPY vs its own 21 EMA — trend confirmation for the regime gate.
+    let spyAbove21: boolean | null = null;
+    if (spyHistBars.length >= 30) {
+      const spyWarm = Math.min(100, spyHistBars.length - 1);
+      let spyE21 = spyHistBars[spyWarm].c;
+      const kSpy = 2 / 22;
+      for (let i = spyWarm - 1; i >= 0; i--) spyE21 = (spyHistBars[i].c * kSpy) + (spyE21 * (1 - kSpy));
+      spyAbove21 = spyHistBars[0].c >= spyE21;
+    }
+
     const allCandidates = [...dailyCandidates, ...sipCandidates, ...megaCapsRaw, ...gainersRaw, ...losersRaw, ...etfGainersRaw, ...etfLosersRaw];
     const uniqueCandidates = Array.from(new Map(allCandidates.map(item => [item.ticker, item])).values());
     
@@ -905,6 +962,7 @@ export async function GET(request: Request) {
       // --- CNF raw components -------------------------------------------------
       let gapPct: number | null = null;
       let atrExpansion: number | null = null;
+      let moveVsAtr: number | null = null;
       if (dailyBars.length >= 2) {
         const prevDailyClose = dailyBars[1]?.c;
         if (prevDailyClose > 0 && currentOpen > 0) {
@@ -913,6 +971,9 @@ export async function GET(request: Request) {
         const todayBar = dailyBars[0];
         if (atr > 0 && todayBar?.h != null && todayBar?.l != null) {
           atrExpansion = (todayBar.h - todayBar.l) / atr;
+        }
+        if (atr > 0 && prevDailyClose > 0) {
+          moveVsAtr = (price - prevDailyClose) / atr;
         }
       }
       const rsVsMkt = chgPct - spyChgToday;
@@ -968,6 +1029,7 @@ export async function GET(request: Request) {
         rsVsSpy: rsVsSpy != null ? parseFloat(rsVsSpy.toFixed(1)) : null,
         gapPct: gapPct != null ? parseFloat(gapPct.toFixed(2)) : null,
         atrExpansion: atrExpansion != null ? parseFloat(atrExpansion.toFixed(2)) : null,
+        moveVsAtr: moveVsAtr != null ? parseFloat(moveVsAtr.toFixed(2)) : null,
         rsVsMkt: parseFloat(rsVsMkt.toFixed(2)),
         _rawHeadline: rawHeadline, _daysOld: daysOld
       };
@@ -989,14 +1051,33 @@ export async function GET(request: Request) {
 
     const earningsSoonSet = await fetchEarningsProximity(benzingaApiKey);
 
+    // --- Scan persistence: how many consecutive scans has each name held? ---
+    // A one-scan wonder is noise; a name that survives 3+ scans with its move
+    // intact is real accumulation. Resets daily and whenever a name drops out.
+    let prevStreaks: Record<string, number> = {};
+    try {
+      const storedStreaks = await kv.get<any>('scan_streaks_v6');
+      if (storedStreaks && storedStreaks.date === currentDate && storedStreaks.counts) {
+        prevStreaks = storedStreaks.counts;
+      }
+    } catch (e) { console.error('streak read failed', e); }
+    const newStreaks: Record<string, number> = {};
+
     // --- NO AI: catalysts from WIIM, theses from WIIM or the deterministic
     // readout, tradeType from the setup classifier. Zero LLM calls, zero cost.
     const enrichedMap = new Map();
+
+    // --- PASS 1: catalyst tier, tradeType, streaks, extension, status --------
+    const NEGATIVE_TAGS = new Set(['Offering', 'Legal / Risk']);
+    const STRONG_TAGS = new Set(['Earnings', 'FDA / Data', 'M&A', 'Guidance', 'Contract']);
+
     enrichedList.forEach((t: any) => { 
       const wiim = wiimMap.get(t.ticker);
+      let catalystTag: string | null = null;
 
       if (wiim) {
-        let tag = classifyWiim(wiim.title);
+        catalystTag = classifyWiim(wiim.title);
+        let tag = catalystTag;
         if (wiim.daysOld >= 1.5) tag = `${tag} (Delayed)`;
         t.catalyst = tag;
         t.thesis = wiim.title;
@@ -1010,36 +1091,103 @@ export async function GET(request: Request) {
         t.thesis = buildReadout(t);
       }
 
+      // Catalyst quality tier — dilution/legal headlines are negative even
+      // when the stock is gapping up on them (pump-then-offering trap).
+      if ((catalystTag && NEGATIVE_TAGS.has(catalystTag)) ||
+          isNegativeHeadline(t._rawHeadline) ||
+          (wiim && isNegativeHeadline(wiim.title))) {
+        t._catalystTier = 'negative';
+      } else if (catalystTag && STRONG_TAGS.has(catalystTag)) {
+        t._catalystTier = 'strong';
+      } else if (wiim) {
+        t._catalystTier = 'neutral';
+      } else if (t._rawHeadline) {
+        t._catalystTier = 'headline';
+      } else {
+        t._catalystTier = 'none';
+      }
+
       t.tradeType = deriveTradeType(t.setupName);
 
-      // --- STATUS: pullback readiness (same rule as the swing card) -----------
+      // Scan persistence streak (only builds during live sessions).
+      t.scanStreak = currentPhase !== 'Offline'
+        ? (prevStreaks[t.ticker] || 0) + 1
+        : (prevStreaks[t.ticker] || 1);
+      newStreaks[t.ticker] = t.scanStreak;
+
+      // Extension flag: already moved 3.5x+ ATR off yesterday's close, or
+      // stretched more than 3x its own daily ATR% above the 21 EMA.
+      t.extended = (t.moveVsAtr != null && t.moveVsAtr >= 3.5) ||
+        (t.distToEma21 != null && t.atrPct != null && t.atrPct > 0 && t.distToEma21 > 3 * t.atrPct);
+
+      // --- STATUS: pullback readiness (same rule as the swing card); ---------
+      // DAY-classified names below VWAP never rate Ready.
       t.status = (t.stochK != null && t.stochK <= 25 && t.distToEma21 != null && Math.abs(t.distToEma21) <= 2.5)
         ? 'Ready' : 'Forming';
+      if (t.tradeType === 'Day Trade' && t.vwapStatus === 'below') t.status = 'Forming';
+    });
 
-      // --- Unified score: CNF IS the conviction number ------------------------
+    // --- Sector heat: avg % move per sector across the full scanned universe --
+    const sectorHeatAgg: Record<string, { sum: number; count: number }> = {};
+    enrichedList.forEach((t: any) => {
+      const sec = t.sector && t.sector !== '—' && t.sector !== 'Other' ? String(t.sector) : null;
+      if (!sec) return;
+      if (!sectorHeatAgg[sec]) sectorHeatAgg[sec] = { sum: 0, count: 0 };
+      sectorHeatAgg[sec].sum += (t.changePct || 0);
+      sectorHeatAgg[sec].count += 1;
+    });
+    const hotSectors = new Set(
+      Object.entries(sectorHeatAgg)
+        .map(([sec, v]) => ({ sec, avg: v.sum / v.count, count: v.count }))
+        .filter(h => h.count >= 2 && h.avg > 0)
+        .sort((a, b) => b.avg - a.avg)
+        .slice(0, 2)
+        .map(h => h.sec)
+    );
+
+    // --- PASS 2: CNF scoring with full market context -------------------------
+    enrichedList.forEach((t: any) => {
       const hasEarnings = earningsSoonSet.has(t.ticker);
       const cnf = computeCnfScore(
         t.rvol,
         t.gapPct,
         t.atrExpansion,
         t.rsVsMkt,
-        !!wiim,
-        !!t._rawHeadline,
-        hasEarnings
+        {
+          catalystTier: t._catalystTier,
+          hasEarnings,
+          scanStreak: t.scanStreak || 1,
+          extended: !!t.extended,
+          vwapStatus: t.vwapStatus || 'neutral',
+          tradeType: t.tradeType || '',
+          setupName: t.setupName || null,
+          breadthSignal,
+          spyAbove21,
+          inHotSector: t.sector ? hotSectors.has(t.sector) : false,
+        }
       );
       t.cnfScore = cnf.score;
       t.cnfGrade = cnf.grade;
       t.hasEarnings = hasEarnings;
       t.conviction = cnf.score;
+      delete t._catalystTier;
 
       enrichedMap.set(t.ticker, t); 
     });
+
+    // Persist streaks so the next scan (15 min out) can build on them.
+    if (currentPhase !== 'Offline') {
+      try {
+        await kv.set('scan_streaks_v6', { date: currentDate, counts: newStreaks });
+      } catch (e) { console.error('streak persist failed', e); }
+    }
     
     const finalSip = sipCandidates
       .map((t: any) => enrichedMap.get(t.ticker))
       .filter((r: any) => 
          r !== undefined && 
          r.vol >= MIN_VOLUME && 
+         r.dVol >= MIN_DOLLAR_VOL &&
          r.changePct >= MIN_CHANGE &&
          r.atr >= 1.0 && 
          r.avgVol >= MIN_AVG_VOL
@@ -1051,6 +1199,7 @@ export async function GET(request: Request) {
       .filter((r: any) => 
          r !== undefined && 
          r.vol >= MIN_VOLUME && 
+         r.dVol >= MIN_DOLLAR_VOL &&
          r.changePct >= MIN_CHANGE
       )
       .slice(0, 10);
