@@ -101,6 +101,7 @@ export default function SwingCandidates() {
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
+  const [showFilters, setShowFilters] = useState<boolean>(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -146,11 +147,8 @@ export default function SwingCandidates() {
       filtered = filtered.filter(c => {
         const mc = c.mktCap;
         if (!mc) return true;
-        if (marketCapFilter === 'Mega') return mc >= 200e9;
-        if (marketCapFilter === 'Large') return mc >= 10e9 && mc < 200e9;
-        if (marketCapFilter === 'Mid') return mc >= 2e9 && mc < 10e9;
-        if (marketCapFilter === 'Small') return mc >= 300e6 && mc < 2e9;
-        if (marketCapFilter === 'Micro') return mc < 300e6;
+        if (marketCapFilter === 'Large') return mc >= 2e9;
+        if (marketCapFilter === 'Small') return mc < 2e9;
         return true;
       });
     }
@@ -256,7 +254,13 @@ export default function SwingCandidates() {
   const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
   const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
   const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
-  const toggleBtn = (active: boolean) => `px-4 py-2 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 ${active ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(52,211,153,0.1)]' : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'}`;
+  const activeFilterCount =
+    (showStage2AOnly ? 1 : 0) +
+    (showReadyOnly ? 1 : 0) +
+    (marketCapFilter !== 'All' ? 1 : 0) +
+    (cnfFilter !== 'All' ? 1 : 0) +
+    (emaFilter !== 'All' ? 1 : 0) +
+    (vwapFilter !== 'All' ? 1 : 0);
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
@@ -280,57 +284,77 @@ export default function SwingCandidates() {
 
       {isExpanded && (
         <>
-          <div className="flex flex-col gap-3 mb-4 relative z-10">
-            {/* Row 1, centered: 2A → MKT CAP → CNF (A/B/C) */}
-            <div className="flex flex-wrap justify-center items-center gap-4 w-full" onClick={(e) => e.stopPropagation()}>
-              <button onClick={() => setShowStage2AOnly(!showStage2AOnly)} className={toggleBtn(showStage2AOnly)}>Filter: 2A</button>
-              <div className={pillWrap}>
-                <span className={pillLabel}>MKT CAP</span>
-                <div className="flex items-center gap-1">
-                  {['All', 'Micro', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
-                    <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>{cap}</button>
-                  ))}
-                </div>
-              </div>
-              {/* CNF grade — clickable filter pill */}
-              <div className={pillWrap}>
-                <span className={pillLabel}>CNF</span>
-                <div className="flex items-center gap-1">
-                  {(['A', 'B', 'C'] as CnfFilterType[]).map((g) => (
-                    <button key={g} onClick={() => handleCnfFilter(g)} className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}>
-                      {g}
-                    </button>
-                  ))}
-                </div>
-              </div>
+          <div className="flex flex-col gap-3 mb-4 relative z-10" onClick={(e) => e.stopPropagation()}>
+            {/* Collapsed disclosure — one button, shows active filter count */}
+            <div className="flex justify-center">
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className={`px-4 py-1.5 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 flex items-center gap-2 ${
+                  activeFilterCount > 0
+                    ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]'
+                    : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'
+                }`}
+              >
+                <span className={`inline-block transition-transform duration-200 ${showFilters ? 'rotate-90' : ''}`}>▸</span>
+                Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+              </button>
             </div>
-            {/* Row 2, centered: 10/21 → VWAP → Filter: Ready */}
-            <div className="flex flex-wrap justify-center items-center gap-4 w-full" onClick={(e) => e.stopPropagation()}>
-              {/* 10/21 — clickable filter pill */}
-              <div className={pillWrap}>
-                <span className={pillLabel}>10/21</span>
-                <div className="flex items-center gap-1">
-                  {(['>10', '>21', 'Both'] as EmaFilterType[]).map((opt) => (
-                    <button key={opt} onClick={() => handleEmaFilter(opt)} className={`${pillBtn} ${emaFilter === opt ? filterBtnActive : filterBtnIdle}`}>
-                      {opt}
+            {/* Expanded: one uniform pill strip */}
+            {showFilters && (
+              <div className="flex flex-wrap justify-center items-center gap-3 w-full">
+                <div className={pillWrap}>
+                  <span className={pillLabel}>STAGE</span>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => setShowStage2AOnly(!showStage2AOnly)} className={`${pillBtn} ${showStage2AOnly ? filterBtnActive : filterBtnIdle}`}>2A</button>
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>STAT</span>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => setShowReadyOnly(!showReadyOnly)} className={`${pillBtn} ${showReadyOnly ? filterBtnActive : filterBtnIdle}`}>Ready</button>
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>MKT CAP</span>
+                  <div className="flex items-center gap-1">
+                    {['All', 'Small', 'Large'].map((cap) => (
+                      <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>{cap}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>CNF</span>
+                  <div className="flex items-center gap-1">
+                    {(['A', 'B', 'C'] as CnfFilterType[]).map((g) => (
+                      <button key={g} onClick={() => handleCnfFilter(g)} className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}>
+                        {g}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>10/21</span>
+                  <div className="flex items-center gap-1">
+                    {(['>10', '>21', 'Both'] as EmaFilterType[]).map((opt) => (
+                      <button key={opt} onClick={() => handleEmaFilter(opt)} className={`${pillBtn} ${emaFilter === opt ? filterBtnActive : filterBtnIdle}`}>
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>VWAP</span>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
                     </button>
-                  ))}
+                    <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
+                      <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Below
+                    </button>
+                  </div>
                 </div>
               </div>
-              {/* VWAP — clickable filter pill */}
-              <div className={pillWrap}>
-                <span className={pillLabel}>VWAP</span>
-                <div className="flex items-center gap-1">
-                  <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
-                  </button>
-                  <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
-                    <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Below
-                  </button>
-                </div>
-              </div>
-              <button onClick={() => setShowReadyOnly(!showReadyOnly)} className={toggleBtn(showReadyOnly)}>Filter: Ready</button>
-            </div>
+            )}
           </div>
 
           <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
