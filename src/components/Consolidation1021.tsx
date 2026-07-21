@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 
 interface ConsolCandidate {
@@ -32,6 +32,9 @@ interface ConsolCandidate {
   range10Pct?: number;
 }
 
+type CnfFilterType = 'All' | 'A' | 'B' | 'C';
+type VwapFilterType = 'All' | 'above' | 'below';
+
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
   const date = new Date(timestamp);
@@ -61,6 +64,14 @@ const formatStageText = (stage: string | undefined) => {
 // Tight coil (<=6% ten-day range) = primed; looser = still setting up.
 const isCoiled = (c: ConsolCandidate) => c.range10Pct != null && c.range10Pct <= 6;
 
+// CNF grade from the score: A >= 70, B >= 50, C below (same lines as all cards).
+const cnfGradeOf = (score: number | null | undefined): CnfFilterType | null => {
+  if (score == null) return null;
+  if (score >= 70) return 'A';
+  if (score >= 50) return 'B';
+  return 'C';
+};
+
 // Plain-English readout for the sub-row, built from the row's own numbers.
 const buildReadout = (c: ConsolCandidate) => {
   const range = c.range10Pct != null ? `${c.range10Pct.toFixed(1)}% ten-day range` : 'tight range';
@@ -80,6 +91,12 @@ export default function Consolidation1021() {
   const [status, setStatus] = useState<string>('Syncing...');
   const [generatedAt, setGeneratedAt] = useState<number | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
+  const [showCoiledOnly, setShowCoiledOnly] = useState<boolean>(false);
+  const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(false);
+  const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
+  const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
+  const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
+  const [showFilters, setShowFilters] = useState<boolean>(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -103,6 +120,32 @@ export default function Consolidation1021() {
     const interval = setInterval(fetchCandidates, 60000);
     return () => { isMounted = false; clearInterval(interval); };
   }, []);
+
+  // Clicking the active option clears back to All (toggle behavior)
+  const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
+  const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
+
+  const filtered = useMemo(() => {
+    let list = [...candidates];
+    if (showCoiledOnly) list = list.filter(isCoiled);
+    if (showStage2AOnly) list = list.filter(c => c.stage && c.stage.includes('2A'));
+    if (marketCapFilter !== 'All') {
+      list = list.filter(c => {
+        const mc = c.mktCap;
+        if (!mc) return true;
+        if (marketCapFilter === 'Large') return mc >= 2e9;
+        if (marketCapFilter === 'Small') return mc < 2e9;
+        return true;
+      });
+    }
+    if (cnfFilter !== 'All') {
+      list = list.filter(c => cnfGradeOf(c.score) === cnfFilter);
+    }
+    if (vwapFilter !== 'All') {
+      list = list.filter(c => c.vwapStatus === vwapFilter);
+    }
+    return list;
+  }, [candidates, showCoiledOnly, showStage2AOnly, marketCapFilter, cnfFilter, vwapFilter]);
 
   const getScoreBadge = (score: number) => {
     if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
@@ -160,6 +203,18 @@ export default function Consolidation1021() {
 
   const thBase = "px-1 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-center";
   const tdBase = "px-1 pt-3 pb-2 text-center";
+  const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
+  const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
+  const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
+  const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
+  const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
+
+  const activeFilterCount =
+    (showStage2AOnly ? 1 : 0) +
+    (showCoiledOnly ? 1 : 0) +
+    (marketCapFilter !== 'All' ? 1 : 0) +
+    (cnfFilter !== 'All' ? 1 : 0) +
+    (vwapFilter !== 'All' ? 1 : 0);
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
@@ -180,108 +235,173 @@ export default function Consolidation1021() {
       </div>
 
       {isExpanded && (
-        <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
-          <table className="w-full min-w-[1100px] table-fixed border-collapse">
-            <thead>
-              <tr className="border-b border-white/5 select-none">
-                <th className={`${thBase} w-[7%]`}>TICKER</th>
-                <th className={`${thBase} w-[5%]`}>CNF</th>
-                <th className={`${thBase} w-[7%]`}>PRICE</th>
-                <th className={`${thBase} w-[6%]`}>CHG%</th>
-                <th className={`${thBase} w-[7%]`}>10/21</th>
-                <th className={`${thBase} w-[6%]`}>VOL</th>
-                <th className={`${thBase} w-[6%]`}>$VOL</th>
-                <th className={`${thBase} w-[5%]`}>RVOL</th>
-                <th className={`${thBase} w-[6%]`}>COIL</th>
-                <th className={`${thBase} w-[6%]`}>RS/SPY</th>
-                <th className={`${thBase} w-[6%]`}>%OFF HI</th>
-                <th className={`${thBase} w-[7%]`}>MCAP</th>
-                <th className={`${thBase} w-[6%] border-l border-white/5`}>STAGE</th>
-                <th className={`${thBase} w-[15%]`}>SECTOR</th>
-              </tr>
-            </thead>
+        <>
+          <div className="flex flex-col gap-3 mb-4 relative z-10" onClick={(e) => e.stopPropagation()}>
+            {/* Collapsed disclosure — one button, shows active filter count */}
+            <div className="flex justify-center">
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className={`px-4 py-1.5 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 flex items-center gap-2 ${
+                  activeFilterCount > 0
+                    ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]'
+                    : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'
+                }`}
+              >
+                <span className={`inline-block transition-transform duration-200 ${showFilters ? 'rotate-90' : ''}`}>▸</span>
+                Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+              </button>
+            </div>
+            {/* Expanded: one uniform pill strip */}
+            {showFilters && (
+              <div className="flex flex-wrap justify-center items-center gap-3 w-full">
+                <div className={pillWrap}>
+                  <span className={pillLabel}>STAGE</span>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => setShowStage2AOnly(!showStage2AOnly)} className={`${pillBtn} ${showStage2AOnly ? filterBtnActive : filterBtnIdle}`}>2A</button>
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>STAT</span>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => setShowCoiledOnly(!showCoiledOnly)} className={`${pillBtn} ${showCoiledOnly ? filterBtnActive : filterBtnIdle}`}>Coiled</button>
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>MKT CAP</span>
+                  <div className="flex items-center gap-1">
+                    {['All', 'Small', 'Large'].map((cap) => (
+                      <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>{cap}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>CNF</span>
+                  <div className="flex items-center gap-1">
+                    {(['A', 'B', 'C'] as CnfFilterType[]).map((g) => (
+                      <button key={g} onClick={() => handleCnfFilter(g)} className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}>
+                        {g}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>VWAP</span>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
+                    </button>
+                    <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
+                      <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Below
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
 
-            <tbody className="divide-y divide-white/5">
-              {candidates.length === 0 ? (
-                <tr><td colSpan={14} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? 'No names coiling on the 10/21 right now — loose tape.' : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
-              ) : (
-                candidates.map((row) => {
-                  const isPositive = (row.changePct ?? 0) >= 0;
-                  return (
-                    <React.Fragment key={row.symbol}>
-                      <tr className="hover:bg-white/[0.02] transition-colors group">
-                        <td className={tdBase}>
-                          <span title={row.name || row.symbol} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.symbol}</span>
-                        </td>
-                        <td className={tdBase}>
-                          <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.score)}`}>{row.score}</span>
-                        </td>
-                        <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
-                          <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus && row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div>
-                        </td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{row.changePct != null ? `${isPositive ? '+' : ''}${row.changePct.toFixed(2)}%` : '—'}</td>
-                        <td className={`${tdBase} whitespace-nowrap`}>
-                          <div className="flex items-center justify-center gap-1.5">
-                            <div className="flex items-center gap-0.5">
-                              <span className="text-[9px] font-bold text-slate-500">10</span>
-                              <div className={`w-1.5 h-1.5 rounded-full ${emaDot(above10(row))}`} title={`10 EMA: ${above10(row) == null ? 'n/a' : above10(row) ? 'above' : 'below'}`}></div>
+          <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
+            <table className="w-full min-w-[1100px] table-fixed border-collapse">
+              <thead>
+                <tr className="border-b border-white/5 select-none">
+                  <th className={`${thBase} w-[7%]`}>TICKER</th>
+                  <th className={`${thBase} w-[5%]`}>CNF</th>
+                  <th className={`${thBase} w-[7%]`}>PRICE</th>
+                  <th className={`${thBase} w-[6%]`}>CHG%</th>
+                  <th className={`${thBase} w-[7%]`}>10/21</th>
+                  <th className={`${thBase} w-[6%]`}>VOL</th>
+                  <th className={`${thBase} w-[6%]`}>$VOL</th>
+                  <th className={`${thBase} w-[5%]`}>RVOL</th>
+                  <th className={`${thBase} w-[6%]`}>COIL</th>
+                  <th className={`${thBase} w-[6%]`}>RS/SPY</th>
+                  <th className={`${thBase} w-[6%]`}>%OFF HI</th>
+                  <th className={`${thBase} w-[7%]`}>MCAP</th>
+                  <th className={`${thBase} w-[6%] border-l border-white/5`}>STAGE</th>
+                  <th className={`${thBase} w-[15%]`}>SECTOR</th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-white/5">
+                {filtered.length === 0 ? (
+                  <tr><td colSpan={14} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No names match the current filters.' : 'No names coiling on the 10/21 right now — loose tape.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
+                ) : (
+                  filtered.map((row) => {
+                    const isPositive = (row.changePct ?? 0) >= 0;
+                    return (
+                      <React.Fragment key={row.symbol}>
+                        <tr className="hover:bg-white/[0.02] transition-colors group">
+                          <td className={tdBase}>
+                            <span title={row.name || row.symbol} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.symbol}</span>
+                          </td>
+                          <td className={tdBase}>
+                            <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.score)}`}>{row.score}</span>
+                          </td>
+                          <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
+                            <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus && row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div>
+                          </td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{row.changePct != null ? `${isPositive ? '+' : ''}${row.changePct.toFixed(2)}%` : '—'}</td>
+                          <td className={`${tdBase} whitespace-nowrap`}>
+                            <div className="flex items-center justify-center gap-1.5">
+                              <div className="flex items-center gap-0.5">
+                                <span className="text-[9px] font-bold text-slate-500">10</span>
+                                <div className={`w-1.5 h-1.5 rounded-full ${emaDot(above10(row))}`} title={`10 EMA: ${above10(row) == null ? 'n/a' : above10(row) ? 'above' : 'below'}`}></div>
+                              </div>
+                              <div className="flex items-center gap-0.5">
+                                <span className="text-[9px] font-bold text-slate-500">21</span>
+                                <div className={`w-1.5 h-1.5 rounded-full ${emaDot(above21(row))}`} title={`21 EMA: ${above21(row) ? 'above' : 'below'}`}></div>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-0.5">
-                              <span className="text-[9px] font-bold text-slate-500">21</span>
-                              <div className={`w-1.5 h-1.5 rounded-full ${emaDot(above21(row))}`} title={`21 EMA: ${above21(row) ? 'above' : 'below'}`}></div>
+                          </td>
+                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
+                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{row.dVol ? formatCurrency(row.dVol) : (row.avgDollarVolM ? `$${row.avgDollarVolM}M` : '—')}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRangeColor(row.range10Pct)}`} title="10-day high-low range">{row.range10Pct != null ? `${row.range10Pct.toFixed(1)}%` : '—'}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy >= 0 ? '+' : ''}{row.rsVsSpy.toFixed(1)}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getOffHighColor(row.pctOffHigh)}`}>{row.pctOffHigh.toFixed(1)}%</td>
+                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
+                          <td className={`${tdBase} whitespace-nowrap border-l border-white/5`}>
+                            <span className={`text-[11px] font-bold tracking-wide ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span>
+                          </td>
+                          <td className={tdBase}>
+                            <span className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{row.sector || '—'}</span>
+                          </td>
+                        </tr>
+                        {/* Sub-row: spacer | 10/21 HOLD + readout | STR/STAT centered */}
+                        <tr className="bg-transparent border-t border-white/5">
+                          <td className="w-[7%]"></td>
+                          <td colSpan={11} className="pb-3.5 pt-2.5 pr-4">
+                            <div className="flex items-center text-left">
+                              <span className="shrink-0 w-[92px] text-[#7c8bfa] font-bold text-[11px] tracking-[0.1em] uppercase">10/21 HOLD</span>
+                              <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-4">
+                                <span className="text-slate-500">{buildReadout(row)}</span>
+                              </p>
                             </div>
-                          </div>
-                        </td>
-                        <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
-                        <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{row.dVol ? formatCurrency(row.dVol) : (row.avgDollarVolM ? `$${row.avgDollarVolM}M` : '—')}</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRangeColor(row.range10Pct)}`} title="10-day high-low range">{row.range10Pct != null ? `${row.range10Pct.toFixed(1)}%` : '—'}</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy >= 0 ? '+' : ''}{row.rsVsSpy.toFixed(1)}</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getOffHighColor(row.pctOffHigh)}`}>{row.pctOffHigh.toFixed(1)}%</td>
-                        <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
-                        <td className={`${tdBase} whitespace-nowrap border-l border-white/5`}>
-                          <span className={`text-[11px] font-bold tracking-wide ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span>
-                        </td>
-                        <td className={tdBase}>
-                          <span className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{row.sector || '—'}</span>
-                        </td>
-                      </tr>
-                      {/* Sub-row: spacer | 10/21 HOLD + readout | STR/STAT centered */}
-                      <tr className="bg-transparent border-t border-white/5">
-                        <td className="w-[7%]"></td>
-                        <td colSpan={11} className="pb-3.5 pt-2.5 pr-4">
-                          <div className="flex items-center text-left">
-                            <span className="shrink-0 w-[92px] text-[#7c8bfa] font-bold text-[11px] tracking-[0.1em] uppercase">10/21 HOLD</span>
-                            <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-4">
-                              <span className="text-slate-500">{buildReadout(row)}</span>
-                            </p>
-                          </div>
-                        </td>
-                        <td colSpan={2} className="pb-3.5 pt-2.5 align-middle">
-                          <div className="flex items-center justify-center gap-4 border-l border-white/10 px-2 py-1">
-                            <span className="flex items-center gap-1.5">
-                              <span className="text-[11px] text-slate-500">STR:</span>
-                              <span className={`text-[11px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
-                              <span className={`text-[11px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
-                            </span>
-                            <span className="flex items-center gap-1.5">
-                              <span className="text-[11px] text-slate-500">STAT:</span>
-                              {isCoiled(row) ? (
-                                <span className="text-[11px] font-semibold text-emerald-400">Coiled</span>
-                              ) : (
-                                <span className="text-[11px] font-semibold text-amber-400">Setting Up</span>
-                              )}
-                            </span>
-                          </div>
-                        </td>
-                      </tr>
-                    </React.Fragment>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                          </td>
+                          <td colSpan={2} className="pb-3.5 pt-2.5 align-middle">
+                            <div className="flex items-center justify-center gap-4 border-l border-white/10 px-2 py-1">
+                              <span className="flex items-center gap-1.5">
+                                <span className="text-[11px] text-slate-500">STR:</span>
+                                <span className={`text-[11px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
+                                <span className={`text-[11px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
+                              </span>
+                              <span className="flex items-center gap-1.5">
+                                <span className="text-[11px] text-slate-500">STAT:</span>
+                                {isCoiled(row) ? (
+                                  <span className="text-[11px] font-semibold text-emerald-400">Coiled</span>
+                                ) : (
+                                  <span className="text-[11px] font-semibold text-amber-400">Setting Up</span>
+                                )}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      </React.Fragment>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );
