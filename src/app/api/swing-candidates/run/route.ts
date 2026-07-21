@@ -14,9 +14,9 @@ const BASE = "https://api.polygon.io";
 // CONFIG — tune all filter thresholds here
 // ---------------------------------------------------------------
 const CONFIG = {
-  minPrice: 12,
+  minPrice: 1,
   maxPrice: 2000,
-  minPrevDayDollarVol: 25_000_000,
+  minPrevDayDollarVol: 20_000_000,
 
   minAtrPct: 1.5,
   maxAtrPct: 6.0,
@@ -29,7 +29,7 @@ const CONFIG = {
   rsLookback: 63,
   earningsBlackoutDays: 7,
 
-  maxSymbolsToAnalyze: 200, // trimmed slightly: 3 API calls per symbol now
+  maxSymbolsToAnalyze: 120, // trimmed slightly: 3 API calls per symbol now
   concurrency: 10,
 };
 
@@ -231,7 +231,7 @@ function computeStage(closes: number[], price: number): string {
 // ---------------------------------------------------------------
 // Stage 1: coarse universe from the full-market snapshot (1 call)
 // ---------------------------------------------------------------
-async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, SnapInfo> }> {
+async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, SnapInfo>; snapMapAll: Map<string, SnapInfo> }> {
   const data = await polygon<{ tickers?: any[] }>(
     `/v2/snapshot/locale/us/markets/stocks/tickers`
   );
@@ -250,8 +250,7 @@ async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, 
     .sort((a, b) => (b.prevDay.c * b.prevDay.v) - (a.prevDay.c * a.prevDay.v))
     .slice(0, CONFIG.maxSymbolsToAnalyze);
 
-  const snapMap = new Map<string, SnapInfo>();
-  for (const t of filtered) {
+  const buildSnap = (t: any): SnapInfo => {
     const livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || null;
     const prevClose = t.prevDay?.c || 0;
     const vwap = t.day?.vw || null;
@@ -262,10 +261,132 @@ async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, 
     } else if (prevClose > 0 && livePrice) {
       changePct = ((livePrice - prevClose) / prevClose) * 100;
     }
-    snapMap.set(t.ticker, { vwap, livePrice, changePct: Number.isNaN(changePct) ? 0 : changePct, vol });
+    return { vwap, livePrice, changePct: Number.isNaN(changePct) ? 0 : changePct, vol };
+  };
+
+  const snapMap = new Map<string, SnapInfo>();
+  for (const t of filtered) snapMap.set(t.ticker, buildSnap(t));
+
+  // Full-market snap map for the consolidation shortlist — every clean symbol
+  // in the tradeable price band, NOT just the top names by dollar volume.
+  const snapMapAll = new Map<string, SnapInfo>();
+  for (const t of tickers) {
+    const sym: string = t.ticker ?? "";
+    if (!/^[A-Z]{1,5}$/.test(sym)) continue;
+    const prev = t.prevDay;
+    if (!prev || !prev.c) continue;
+    if (prev.c < CONFIG.minPrice || prev.c > CONFIG.maxPrice) continue;
+    snapMapAll.set(sym, buildSnap(t));
   }
 
-  return { symbols: filtered.map(t => t.ticker as string), snapMap };
+  return { symbols: filtered.map(t => t.ticker as string), snapMap, snapMapAll };
+}
+
+// ---------------------------------------------------------------
+// Market-wide grouped history: ~35 daily bars for EVERY US stock in
+// ~35 API calls total. This is what lets the 10/21 scan see the whole
+// market instead of only the loudest names by dollar volume.
+// ---------------------------------------------------------------
+interface LiteBar { c: number; h: number; l: number; v: number; }
+
+async function getGroupedSeries(validSymbols: Set<string>): Promise<Map<string, LiteBar[]>> {
+  // Candidate weekdays, oldest -> newest
+  const dates: string[] = [];
+  for (let d = CONSOL_SHORTLIST.maxCalendarDays; d >= 1; d--) {
+    const dt = new Date(Date.now() - d * 86400000);
+    const day = dt.getUTCDay();
+    if (day === 0 || day === 6) continue;
+    dates.push(dt.toISOString().slice(0, 10));
+  }
+
+  const series = new Map<string, LiteBar[]>();
+  const dayResults: { date: string; results: any[] }[] = [];
+
+  // Fetch grouped days in small parallel batches
+  const BATCH = 7;
+  for (let i = 0; i < dates.length; i += BATCH) {
+    const chunk = dates.slice(i, i + BATCH);
+    const settled = await Promise.allSettled(chunk.map(async (date) => {
+      const data = await polygonSafe<{ results?: any[] }>(
+        `/v2/aggs/grouped/locale/us/market/stocks/${date}?adjusted=true`,
+        { results: [] }
+      );
+      return { date, results: data.results ?? [] };
+    }));
+    for (const r of settled) {
+      if (r.status === 'fulfilled' && r.value.results.length > 0) dayResults.push(r.value);
+    }
+  }
+
+  // Keep the most recent N trading days, in ascending order
+  dayResults.sort((a, b) => a.date.localeCompare(b.date));
+  const kept = dayResults.slice(-CONSOL_SHORTLIST.groupedDays);
+
+  for (const day of kept) {
+    for (const t of day.results) {
+      const sym = t.T;
+      if (!validSymbols.has(sym)) continue;
+      let arr = series.get(sym);
+      if (!arr) { arr = []; series.set(sym, arr); }
+      arr.push({ c: t.c, h: t.h, l: t.l, v: t.v });
+    }
+  }
+  return series;
+}
+
+// ---------------------------------------------------------------
+// First-pass shortlist: cheap 10/21 math on the grouped series.
+// Returns the tightest coils market-wide for the full deep analysis.
+// ---------------------------------------------------------------
+function shortlistConsolidation(series: Map<string, LiteBar[]>): string[] {
+  const emaLite = (closes: number[], period: number): number | null => {
+    if (closes.length < period) return null;
+    const k = 2 / (period + 1);
+    let e = closes.slice(0, period).reduce((a, b) => a + b, 0) / period;
+    for (let i = period; i < closes.length; i++) e = closes[i] * k + e * (1 - k);
+    return e;
+  };
+
+  const picks: { sym: string; range10: number }[] = [];
+
+  series.forEach((bars, sym) => {
+    if (bars.length < 28) return;
+    const closes = bars.map(b => b.c);
+    const price = closes[closes.length - 1];
+    if (price < CONFIG.minPrice || price > CONFIG.maxPrice) return;
+
+    // Liquidity: 20-day average dollar volume
+    const dv = bars.slice(-20).map(b => b.c * b.v);
+    const avgDollarVol = dv.reduce((a, b) => a + b, 0) / dv.length;
+    if (avgDollarVol < CONFIG.minPrevDayDollarVol) return;
+
+    const e10 = emaLite(closes, 10);
+    const e21 = emaLite(closes, 21);
+    const e21Prev = emaLite(closes.slice(0, -3), 21);
+    if (!e10 || !e21) return;
+
+    const dist10 = ((price - e10) / e10) * 100;
+    const dist21 = ((price - e21) / e21) * 100;
+    if (Math.abs(dist10) > CONSOL_CONFIG.maxDistToEma10) return;
+    if (dist21 > CONSOL_CONFIG.maxAboveEma21 || dist21 < -CONSOL_CONFIG.maxBelowEma21) return;
+    if (e21Prev != null && e21 <= e21Prev) return; // 21 EMA must be rising
+
+    const win10 = bars.slice(-10);
+    const hi10 = Math.max(...win10.map(b => b.h));
+    const lo10 = Math.min(...win10.map(b => b.l));
+    const range10 = lo10 > 0 ? ((hi10 - lo10) / lo10) * 100 : 999;
+    if (range10 > CONSOL_CONFIG.maxRange10) return;
+
+    const prevClose = closes[closes.length - 2];
+    const dayChg = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
+    if (Math.abs(dayChg) > CONSOL_CONFIG.maxDayChange) return;
+
+    picks.push({ sym, range10 });
+  });
+
+  // Tightest coils first
+  picks.sort((a, b) => a.range10 - b.range10);
+  return picks.slice(0, CONSOL_SHORTLIST.shortlistSize).map(p => p.sym);
 }
 
 // ---------------------------------------------------------------
@@ -409,12 +530,19 @@ function analyze(
 // the Minervini/Wish trend-hold entry BEFORE the breakout, not after it.
 // ---------------------------------------------------------------
 const CONSOL_CONFIG = {
-  maxDistToEma10: 5,      // permissive outer bound — card filters tighter
-  maxAboveEma21: 8,       // permissive outer bound — card filters tighter
+  maxDistToEma10: 5,      // permissive outer bound — the card's steppers filter tighter
+  maxAboveEma21: 8,       // permissive outer bound — the card's steppers filter tighter
   maxBelowEma21: 3,       // small undercuts tolerated, no breakdowns
-  maxRange10: 14,         // permissive outer bound — card filters tighter
+  maxRange10: 14,         // permissive outer bound — the card's steppers filter tighter
   maxDayChange: 5,        // quiet-ish tape today, no event bars
-  maxPctOffHigh: 25,      // permissive outer bound — card filters tighter
+  maxPctOffHigh: 25,      // permissive outer bound — the card's steppers filter tighter
+};
+
+// Market-wide consolidation shortlist settings
+const CONSOL_SHORTLIST = {
+  groupedDays: 35,        // trading days of grouped history for the first pass
+  maxCalendarDays: 55,    // calendar window to find those trading days in
+  shortlistSize: 50,      // finalists that get the full 450-day treatment
 };
 
 function analyzeConsolidation(
@@ -547,8 +675,16 @@ export async function GET() {
     const spyBars = await getDailyBars("SPY");
     const spyReturn = pctReturn(spyBars.map(b => b.c), CONFIG.rsLookback);
 
-    const [{ symbols: universe, snapMap }, earningsBlackout] = await Promise.all([getUniverse(), getEarningsBlackout()]);
+    const [{ symbols: universe, snapMap, snapMapAll }, earningsBlackout] = await Promise.all([getUniverse(), getEarningsBlackout()]);
     const toScan = universe.filter(sym => !earningsBlackout.has(sym));
+
+    // Market-wide 10/21 shortlist: grouped history for every symbol in the
+    // tradeable band, cheap EMA/coil math, keep the tightest names.
+    const groupedSeries = await getGroupedSeries(new Set(snapMapAll.keys()));
+    const consolShortlist = shortlistConsolidation(groupedSeries)
+      .filter(sym => !earningsBlackout.has(sym));
+    const swingSet = new Set(toScan);
+    const consolExtra = consolShortlist.filter(sym => !swingSet.has(sym));
 
     const results = await inBatches(toScan, CONFIG.concurrency, async (sym) => {
       // Bars + details (mktCap/float/sector) + short interest, in parallel per symbol.
@@ -564,8 +700,21 @@ export async function GET() {
       return { swing, consol };
     });
 
+    // Deep-analyze the shortlisted consolidation names not already covered above
+    const extraConsols = await inBatches(consolExtra, CONFIG.concurrency, async (sym) => {
+      const [bars, details, shortData] = await Promise.all([
+        getDailyBars(sym),
+        polygonSafe<any>(`/v3/reference/tickers/${sym}`, {}),
+        polygonSafe<any>(`/stocks/v1/short-interest?ticker=${sym}`, { results: [] }),
+      ]);
+      return analyzeConsolidation(sym, bars, spyReturn, details, shortData, snapMapAll.get(sym));
+    });
+
     const candidates = results.map(r => r.swing).filter((c): c is Candidate => !!c);
-    const consols = results.map(r => r.consol).filter((c): c is Candidate => !!c);
+    const consols = [
+      ...results.map(r => r.consol).filter((c): c is Candidate => !!c),
+      ...extraConsols,
+    ];
 
     candidates.sort((a, b) => b.score - a.score);
     consols.sort((a, b) => b.score - a.score);
@@ -599,6 +748,7 @@ export async function GET() {
       lastScanTime: scanTime,
       count: candidates.length,
       consolCount: consols.length,
+      consolShortlisted: consolShortlist.length,
       universeSize: universe.length,
       excludedForEarnings: universe.length - toScan.length,
       dataPersisted: hasRealData,
