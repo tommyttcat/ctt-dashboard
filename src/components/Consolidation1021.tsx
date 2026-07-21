@@ -35,6 +35,14 @@ interface ConsolCandidate {
 type CnfFilterType = 'All' | 'A' | 'B' | 'C';
 type VwapFilterType = 'All' | 'above' | 'below';
 
+// Scan-tuning defaults — match the original strict CONSOL_CONFIG values.
+const TUNE_DEFAULTS = {
+  coilMax: 9,       // 10-day high-low range %
+  dist10Max: 3.5,   // max |distance| to the 10 EMA %
+  above21Max: 5,    // max extension above the 21 EMA %
+  offHighMax: 15,   // max % off 52-week high
+};
+
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
   const date = new Date(timestamp);
@@ -98,6 +106,12 @@ export default function Consolidation1021() {
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
 
+  // Scan-tuning thresholds (the CONSOL_CONFIG knobs, applied live client-side)
+  const [coilMax, setCoilMax] = useState<number>(TUNE_DEFAULTS.coilMax);
+  const [dist10Max, setDist10Max] = useState<number>(TUNE_DEFAULTS.dist10Max);
+  const [above21Max, setAbove21Max] = useState<number>(TUNE_DEFAULTS.above21Max);
+  const [offHighMax, setOffHighMax] = useState<number>(TUNE_DEFAULTS.offHighMax);
+
   useEffect(() => {
     let isMounted = true;
     const fetchCandidates = async () => {
@@ -125,8 +139,32 @@ export default function Consolidation1021() {
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
 
+  const tuningChanged =
+    coilMax !== TUNE_DEFAULTS.coilMax ||
+    dist10Max !== TUNE_DEFAULTS.dist10Max ||
+    above21Max !== TUNE_DEFAULTS.above21Max ||
+    offHighMax !== TUNE_DEFAULTS.offHighMax;
+
+  const resetTuning = () => {
+    setCoilMax(TUNE_DEFAULTS.coilMax);
+    setDist10Max(TUNE_DEFAULTS.dist10Max);
+    setAbove21Max(TUNE_DEFAULTS.above21Max);
+    setOffHighMax(TUNE_DEFAULTS.offHighMax);
+  };
+
   const filtered = useMemo(() => {
     let list = [...candidates];
+
+    // --- Scan-tuning thresholds (the 10/21 settings) ---
+    list = list.filter(c => {
+      if (c.range10Pct != null && c.range10Pct > coilMax) return false;
+      if (c.distToEma10 != null && Math.abs(c.distToEma10) > dist10Max) return false;
+      if (c.distToEma21 > above21Max) return false;
+      if (c.pctOffHigh > offHighMax) return false;
+      return true;
+    });
+
+    // --- Category filters ---
     if (showCoiledOnly) list = list.filter(isCoiled);
     if (showStage2AOnly) list = list.filter(c => c.stage && c.stage.includes('2A'));
     if (marketCapFilter !== 'All') {
@@ -145,7 +183,7 @@ export default function Consolidation1021() {
       list = list.filter(c => c.vwapStatus === vwapFilter);
     }
     return list;
-  }, [candidates, showCoiledOnly, showStage2AOnly, marketCapFilter, cnfFilter, vwapFilter]);
+  }, [candidates, coilMax, dist10Max, above21Max, offHighMax, showCoiledOnly, showStage2AOnly, marketCapFilter, cnfFilter, vwapFilter]);
 
   const getScoreBadge = (score: number) => {
     if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
@@ -208,13 +246,36 @@ export default function Consolidation1021() {
   const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
   const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
   const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
+  const stepBtn = "w-6 h-6 flex items-center justify-center rounded text-[13px] font-bold text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] transition-colors select-none";
+  const stepVal = "min-w-[46px] text-center text-[11px] font-bold tabular-nums text-indigo-300";
 
   const activeFilterCount =
     (showStage2AOnly ? 1 : 0) +
     (showCoiledOnly ? 1 : 0) +
     (marketCapFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
-    (vwapFilter !== 'All' ? 1 : 0);
+    (vwapFilter !== 'All' ? 1 : 0) +
+    (tuningChanged ? 1 : 0);
+
+  // Compact stepper for a tuning threshold
+  const renderStepper = (
+    label: string,
+    value: number,
+    setValue: (v: number) => void,
+    step: number,
+    min: number,
+    max: number,
+    fmt: (v: number) => string
+  ) => (
+    <div className={pillWrap}>
+      <span className={pillLabel}>{label}</span>
+      <div className="flex items-center gap-0.5">
+        <button onClick={() => setValue(Math.max(min, +(value - step).toFixed(1)))} className={stepBtn}>−</button>
+        <span className={stepVal}>{fmt(value)}</span>
+        <button onClick={() => setValue(Math.min(max, +(value + step).toFixed(1)))} className={stepBtn}>+</button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
@@ -251,51 +312,65 @@ export default function Consolidation1021() {
                 Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
               </button>
             </div>
-            {/* Expanded: one uniform pill strip */}
             {showFilters && (
-              <div className="flex flex-wrap justify-center items-center gap-3 w-full">
-                <div className={pillWrap}>
-                  <span className={pillLabel}>STAGE</span>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => setShowStage2AOnly(!showStage2AOnly)} className={`${pillBtn} ${showStage2AOnly ? filterBtnActive : filterBtnIdle}`}>2A</button>
-                  </div>
+              <>
+                {/* Row 1: scan-tuning thresholds (the 10/21 settings) */}
+                <div className="flex flex-wrap justify-center items-center gap-3 w-full">
+                  {renderStepper('COIL ≤', coilMax, setCoilMax, 1, 4, 14, (v) => `${v.toFixed(0)}%`)}
+                  {renderStepper('10 EMA ±', dist10Max, setDist10Max, 0.5, 1, 5, (v) => `${v.toFixed(1)}%`)}
+                  {renderStepper('21 EMA ≤ +', above21Max, setAbove21Max, 0.5, 1, 8, (v) => `${v.toFixed(1)}%`)}
+                  {renderStepper('OFF HI ≤', offHighMax, setOffHighMax, 1, 3, 25, (v) => `${v.toFixed(0)}%`)}
+                  {tuningChanged && (
+                    <button onClick={resetTuning} className="px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase text-slate-500 border border-white/5 hover:text-slate-300 hover:bg-white/[0.04] transition-colors">
+                      Reset
+                    </button>
+                  )}
                 </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>STAT</span>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => setShowCoiledOnly(!showCoiledOnly)} className={`${pillBtn} ${showCoiledOnly ? filterBtnActive : filterBtnIdle}`}>Coiled</button>
+                {/* Row 2: category pills */}
+                <div className="flex flex-wrap justify-center items-center gap-3 w-full">
+                  <div className={pillWrap}>
+                    <span className={pillLabel}>STAGE</span>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => setShowStage2AOnly(!showStage2AOnly)} className={`${pillBtn} ${showStage2AOnly ? filterBtnActive : filterBtnIdle}`}>2A</button>
+                    </div>
                   </div>
-                </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>MKT CAP</span>
-                  <div className="flex items-center gap-1">
-                    {['All', 'Small', 'Large'].map((cap) => (
-                      <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>{cap}</button>
-                    ))}
+                  <div className={pillWrap}>
+                    <span className={pillLabel}>STAT</span>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => setShowCoiledOnly(!showCoiledOnly)} className={`${pillBtn} ${showCoiledOnly ? filterBtnActive : filterBtnIdle}`}>Coiled</button>
+                    </div>
                   </div>
-                </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>CNF</span>
-                  <div className="flex items-center gap-1">
-                    {(['A', 'B', 'C'] as CnfFilterType[]).map((g) => (
-                      <button key={g} onClick={() => handleCnfFilter(g)} className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}>
-                        {g}
+                  <div className={pillWrap}>
+                    <span className={pillLabel}>MKT CAP</span>
+                    <div className="flex items-center gap-1">
+                      {['All', 'Small', 'Large'].map((cap) => (
+                        <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>{cap}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className={pillWrap}>
+                    <span className={pillLabel}>CNF</span>
+                    <div className="flex items-center gap-1">
+                      {(['A', 'B', 'C'] as CnfFilterType[]).map((g) => (
+                        <button key={g} onClick={() => handleCnfFilter(g)} className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}>
+                          {g}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className={pillWrap}>
+                    <span className={pillLabel}>VWAP</span>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
                       </button>
-                    ))}
+                      <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
+                        <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Below
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>VWAP</span>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
-                    </button>
-                    <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
-                      <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Below
-                    </button>
-                  </div>
-                </div>
-              </div>
+              </>
             )}
           </div>
 
@@ -322,7 +397,7 @@ export default function Consolidation1021() {
 
               <tbody className="divide-y divide-white/5">
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={14} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No names match the current filters.' : 'No names coiling on the 10/21 right now — loose tape.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
+                  <tr><td colSpan={14} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No names match the current thresholds — loosen the steppers.' : 'No names coiling on the 10/21 right now — loose tape.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
                 ) : (
                   filtered.map((row) => {
                     const isPositive = (row.changePct ?? 0) >= 0;

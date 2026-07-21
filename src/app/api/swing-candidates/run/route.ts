@@ -29,7 +29,7 @@ const CONFIG = {
   rsLookback: 63,
   earningsBlackoutDays: 7,
 
-  maxSymbolsToAnalyze: 120, // trimmed slightly: 3 API calls per symbol now
+  maxSymbolsToAnalyze: 200, // trimmed slightly: 3 API calls per symbol now
   concurrency: 10,
 };
 
@@ -409,12 +409,12 @@ function analyze(
 // the Minervini/Wish trend-hold entry BEFORE the breakout, not after it.
 // ---------------------------------------------------------------
 const CONSOL_CONFIG = {
-  maxDistToEma10: 2.5,    // hugging the 10 EMA
-  maxAboveEma21: 4,       // not extended above the 21
-  maxBelowEma21: 1.5,     // small undercuts tolerated, no breakdowns
-  maxRange10: 9,          // 10-day high-low range, % — the coil
-  maxDayChange: 3,        // quiet tape today, no event bars
-  maxPctOffHigh: 15,      // basing near highs, not repairing damage
+  maxDistToEma10: 5,      // permissive outer bound — card filters tighter
+  maxAboveEma21: 8,       // permissive outer bound — card filters tighter
+  maxBelowEma21: 3,       // small undercuts tolerated, no breakdowns
+  maxRange10: 14,         // permissive outer bound — card filters tighter
+  maxDayChange: 5,        // quiet-ish tape today, no event bars
+  maxPctOffHigh: 25,      // permissive outer bound — card filters tighter
 };
 
 function analyzeConsolidation(
@@ -589,7 +589,7 @@ export async function GET() {
     // 10/21 consolidation list — an empty list is a legitimate result on a
     // loose tape, so persist whenever the universe resolved at all.
     if (universe.length > 0) {
-      await kv.set('consol_1021_v1', consols.slice(0, 15));
+      await kv.set('consol_1021_v1', consols.slice(0, 40));
       await kv.set('consol_1021_meta_v1', { count: consols.length });
       await kv.set('consol_1021_last_scan_v1', scanTime);
     }
