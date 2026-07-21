@@ -61,7 +61,8 @@ const formatTime = (date: Date) => {
 
 // Builds a data-driven market-tone read straight from the live quotes and
 // breadth internals — no AI call, so it costs nothing and updates every
-// refresh with the actual numbers.
+// refresh with the actual numbers. Sentences are newline-separated so the
+// card can render one per line.
 const buildToneNarrative = (
   q: Record<string, TickData>,
   breadth: BreadthData | null,
@@ -149,7 +150,7 @@ const buildToneNarrative = (
     }
   }
 
-  return [s1, s2, s3].filter(Boolean).join(' ');
+  return [s1, s2, s3].filter(Boolean).join('\n');
 };
 
 /* ============================================================
@@ -502,7 +503,13 @@ export default function MacroScorecard() {
                 <span className={`w-1.5 h-1.5 rounded-full ${toneStyles.dot}`}></span>
                 Tone
               </span>
-              <p className="text-[13px] leading-relaxed text-slate-200">{renderToneText(narrative)}</p>
+              <div className="space-y-2">
+                {narrative.split('\n').filter(Boolean).map((line, li) => (
+                  <p key={li} className="text-[13px] leading-relaxed text-slate-200">
+                    {renderToneText(line)}
+                  </p>
+                ))}
+              </div>
             </div>
           )}
 
