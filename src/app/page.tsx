@@ -7,7 +7,6 @@ import React, { Suspense } from 'react';
 import { MarketDataProvider } from '../components/MarketDataContext'; 
 
 import Scorecard from '../components/Scorecard';
-import NewsCatalysts from '../components/NewsCatalysts';
 import SectorsFlow from '../components/SectorsFlow';
 import DailySetupsComponent from '../components/DailySetups';
 import StocksInPlay from '../components/StocksInPlay';
@@ -43,7 +42,6 @@ export default function DailySetupsPage() {
               <StocksInPlay />
               <DailySetupsComponent />
               <SwingCandidates />
-              <NewsCatalysts />
               <TechnicalsEcon />
               <EarningsCalendar />
               
