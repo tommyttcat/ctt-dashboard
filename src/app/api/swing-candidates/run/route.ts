@@ -14,9 +14,9 @@ const BASE = "https://api.polygon.io";
 // CONFIG — tune all filter thresholds here
 // ---------------------------------------------------------------
 const CONFIG = {
-  minPrice: 1,
+  minPrice: 10,
   maxPrice: 2000,
-  minPrevDayDollarVol: 20_000_000,
+  minPrevDayDollarVol: 50_000_000,
 
   minAtrPct: 1.5,
   maxAtrPct: 6.0,
@@ -72,6 +72,7 @@ interface Candidate {
   goldenCross: boolean;
   ema21Rising: boolean;
   range10Pct?: number;
+  blueDot?: boolean;
 }
 
 // ---------------------------------------------------------------
@@ -530,12 +531,12 @@ function analyze(
 // the Minervini/Wish trend-hold entry BEFORE the breakout, not after it.
 // ---------------------------------------------------------------
 const CONSOL_CONFIG = {
-  maxDistToEma10: 5,      // permissive outer bound — the card's steppers filter tighter
-  maxAboveEma21: 8,       // permissive outer bound — the card's steppers filter tighter
-  maxBelowEma21: 3,       // small undercuts tolerated, no breakdowns
-  maxRange10: 14,         // permissive outer bound — the card's steppers filter tighter
-  maxDayChange: 5,        // quiet-ish tape today, no event bars
-  maxPctOffHigh: 25,      // permissive outer bound — the card's steppers filter tighter
+  maxDistToEma10: 5,      // hugging the 10 EMA (±5%)
+  maxAboveEma21: 5,       // not extended more than 5% above the 21
+  maxBelowEma21: 1.5,     // small undercuts tolerated, no breakdowns
+  maxRange10: 10,         // 10-day high-low range — the coil
+  maxDayChange: 3,        // quiet tape today, no event bars
+  maxPctOffHigh: 10,      // basing near highs, not repairing damage
 };
 
 // Market-wide consolidation shortlist settings
@@ -590,6 +591,21 @@ function analyzeConsolidation(
   const range10 = lo10 > 0 ? ((hi10 - lo10) / lo10) * 100 : 999;
 
   const changePct = snap?.changePct ?? 0;
+
+  // Blue Dot (Dr. Wish): raw 10-period stoch was oversold (<=25) within the
+  // last 3 sessions and price is turning up while holding the 21 EMA —
+  // the same trigger the scanner uses for Blue Dot Rev.
+  const rawKAt = (offset: number): number => {
+    const idx = bars.length - 1 - offset;
+    if (idx < 9) return 50;
+    const win = bars.slice(idx - 9, idx + 1);
+    const hh = Math.max(...win.map(b => b.h));
+    const ll = Math.min(...win.map(b => b.l));
+    return hh === ll ? 50 : ((bars[idx].c - ll) / (hh - ll)) * 100;
+  };
+  const oversoldRecent = rawKAt(0) <= 25 || rawKAt(1) <= 25 || rawKAt(2) <= 25;
+  const upDay = closes.length >= 2 && closes[closes.length - 1] > closes[closes.length - 2];
+  const blueDot = oversoldRecent && upDay && price >= ema21;
 
   // --- Gates: liquid, trending, riding the EMAs, tight, quiet, near highs ---
   if (avgDollarVol < CONFIG.minPrevDayDollarVol) return null;
@@ -660,6 +676,7 @@ function analyzeConsolidation(
     goldenCross: sma50 > sma200,
     ema21Rising,
     range10Pct: +range10.toFixed(1),
+    blueDot,
   };
 }
 
