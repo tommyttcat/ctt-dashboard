@@ -71,6 +71,7 @@ interface Candidate {
   avgDollarVolM: number;
   goldenCross: boolean;
   ema21Rising: boolean;
+  range10Pct?: number;
 }
 
 // ---------------------------------------------------------------
@@ -403,6 +404,138 @@ function analyze(
 }
 
 // ---------------------------------------------------------------
+// Stage 2b: 10/21 consolidation analyzer — same inputs, different setup.
+// Finds names coiling tightly on rising 10/21 EMAs in a confirmed uptrend:
+// the Minervini/Wish trend-hold entry BEFORE the breakout, not after it.
+// ---------------------------------------------------------------
+const CONSOL_CONFIG = {
+  maxDistToEma10: 2.5,    // hugging the 10 EMA
+  maxAboveEma21: 4,       // not extended above the 21
+  maxBelowEma21: 1.5,     // small undercuts tolerated, no breakdowns
+  maxRange10: 9,          // 10-day high-low range, % — the coil
+  maxDayChange: 3,        // quiet tape today, no event bars
+  maxPctOffHigh: 15,      // basing near highs, not repairing damage
+};
+
+function analyzeConsolidation(
+  symbol: string,
+  bars: Bar[],
+  spyReturn: number | null,
+  details: any,
+  shortData: any,
+  snap: SnapInfo | undefined
+): Candidate | null {
+  if (bars.length < 210) return null;
+
+  const closes = bars.map(b => b.c);
+  const price = closes[closes.length - 1];
+
+  const sma50 = sma(closes, 50);
+  const sma200 = sma(closes, 200);
+  const ema10 = ema(closes, 10);
+  const ema21 = ema(closes, 21);
+  const ema21Prev = ema(closes.slice(0, -3), 21);
+  const atr14 = atr(bars, 14);
+  const kVal = stochK(bars, 10, 4);
+
+  if (!sma50 || !sma200 || !ema10 || !ema21 || !atr14 || kVal == null) return null;
+
+  const atrPct = (atr14 / price) * 100;
+  const hi52 = Math.max(...bars.slice(-252).map(b => b.h));
+  const pctOffHigh = ((hi52 - price) / hi52) * 100;
+  const distToEma21 = ((price - ema21) / ema21) * 100;
+  const distToEma10 = ((price - ema10) / ema10) * 100;
+  const ema21Rising = ema21Prev != null && ema21 > ema21Prev;
+
+  const dollarVols = bars.slice(-20).map(b => b.c * b.v);
+  const avgDollarVol = dollarVols.reduce((a, b) => a + b, 0) / dollarVols.length;
+  const vols = bars.slice(-20).map(b => b.v).filter(v => v > 0);
+  const avgVol = vols.length > 0 ? vols.reduce((a, b) => a + b, 0) / vols.length : 0;
+
+  const ret = pctReturn(closes, CONFIG.rsLookback);
+  const rsVsSpy = ret != null && spyReturn != null ? ret - spyReturn : null;
+
+  // The coil: 10-day high-low range
+  const win10 = bars.slice(-10);
+  const hi10 = Math.max(...win10.map(b => b.h));
+  const lo10 = Math.min(...win10.map(b => b.l));
+  const range10 = lo10 > 0 ? ((hi10 - lo10) / lo10) * 100 : 999;
+
+  const changePct = snap?.changePct ?? 0;
+
+  // --- Gates: liquid, trending, riding the EMAs, tight, quiet, near highs ---
+  if (avgDollarVol < CONFIG.minPrevDayDollarVol) return null;
+  if (price < sma50 || price < sma200) return null;
+  if (!(sma50 > sma200)) return null;
+  if (!ema21Rising) return null;
+  if (Math.abs(distToEma10) > CONSOL_CONFIG.maxDistToEma10) return null;
+  if (distToEma21 > CONSOL_CONFIG.maxAboveEma21 || distToEma21 < -CONSOL_CONFIG.maxBelowEma21) return null;
+  if (range10 > CONSOL_CONFIG.maxRange10) return null;
+  if (Math.abs(changePct) > CONSOL_CONFIG.maxDayChange) return null;
+  if (pctOffHigh > CONSOL_CONFIG.maxPctOffHigh) return null;
+  if (rsVsSpy == null || rsVsSpy <= 0) return null;
+
+  // Score (0-100) on the CNF grade lines (A>=70, B>=50):
+  // tightness 30 (range 4% or less saturates), EMA proximity 25,
+  // RS 30 (saturates at +20 vs SPY), trend quality 15.
+  const tightScore = Math.max(0, Math.min(1, (CONSOL_CONFIG.maxRange10 - range10) / (CONSOL_CONFIG.maxRange10 - 4))) * 30;
+  const proxScore =
+    (1 - Math.abs(distToEma10) / CONSOL_CONFIG.maxDistToEma10) * 15 +
+    Math.max(0, 1 - Math.abs(distToEma21) / CONSOL_CONFIG.maxAboveEma21) * 10;
+  const rsScore = Math.min(rsVsSpy / 20, 1) * 30;
+  const trendScore = 10 + (pctOffHigh <= 7 ? 5 : 0);
+  const score = Math.round(Math.max(0, Math.min(100, tightScore + proxScore + rsScore + trendScore)));
+
+  const stage = computeStage(closes, price);
+  const vol = snap?.vol || bars[bars.length - 1].v || 0;
+  const rvol = avgVol > 0 && vol > 0 ? +(vol / avgVol).toFixed(2) : null;
+
+  let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
+  if (snap?.vwap && snap?.livePrice) {
+    vwapStatus = snap.livePrice >= snap.vwap ? 'above' : 'below';
+  }
+
+  const name = details?.results?.name || symbol;
+  const mktCap = details?.results?.market_cap || null;
+  const float = details?.results?.share_class_shares_outstanding || (mktCap && price ? mktCap / price : null);
+  const sector = cleanSectorDescription(details?.results?.sic_description, details?.results?.sector, details?.results?.industry);
+
+  let shortPct: number | null = null;
+  if (shortData?.results && shortData.results.length > 0 && float) {
+    shortPct = +((shortData.results[0].short_interest / float) * 100).toFixed(1);
+  }
+
+  return {
+    symbol,
+    name,
+    sector,
+    price: +price.toFixed(2),
+    score,
+    changePct: +changePct.toFixed(2),
+    vol,
+    dVol: Math.round(price * vol),
+    rvol,
+    float,
+    shortPct,
+    mktCap,
+    stage,
+    vwapStatus,
+    atrPct: +atrPct.toFixed(2),
+    pctOffHigh: +pctOffHigh.toFixed(1),
+    distToEma21: +distToEma21.toFixed(2),
+    distToEma10: +distToEma10.toFixed(2),
+    aboveEma10: price >= ema10,
+    aboveEma21: price >= ema21,
+    stochK: +kVal.toFixed(1),
+    rsVsSpy: +rsVsSpy.toFixed(1),
+    avgDollarVolM: Math.round(avgDollarVol / 1e6),
+    goldenCross: sma50 > sma200,
+    ema21Rising,
+    range10Pct: +range10.toFixed(1),
+  };
+}
+
+// ---------------------------------------------------------------
 // Run handler: execute scan, write results to KV
 // ---------------------------------------------------------------
 export async function GET() {
@@ -417,17 +550,25 @@ export async function GET() {
     const [{ symbols: universe, snapMap }, earningsBlackout] = await Promise.all([getUniverse(), getEarningsBlackout()]);
     const toScan = universe.filter(sym => !earningsBlackout.has(sym));
 
-    const candidates = await inBatches(toScan, CONFIG.concurrency, async (sym) => {
-      // Bars + details (mktCap/float/sector) + short interest, in parallel per symbol
+    const results = await inBatches(toScan, CONFIG.concurrency, async (sym) => {
+      // Bars + details (mktCap/float/sector) + short interest, in parallel per symbol.
+      // Both analyzers share the same fetched data — the 10/21 scan costs zero extra API calls.
       const [bars, details, shortData] = await Promise.all([
         getDailyBars(sym),
         polygonSafe<any>(`/v3/reference/tickers/${sym}`, {}),
         polygonSafe<any>(`/stocks/v1/short-interest?ticker=${sym}`, { results: [] }),
       ]);
-      return analyze(sym, bars, spyReturn, details, shortData, snapMap.get(sym));
+      const swing = analyze(sym, bars, spyReturn, details, shortData, snapMap.get(sym));
+      const consol = analyzeConsolidation(sym, bars, spyReturn, details, shortData, snapMap.get(sym));
+      if (!swing && !consol) return null;
+      return { swing, consol };
     });
 
+    const candidates = results.map(r => r.swing).filter((c): c is Candidate => !!c);
+    const consols = results.map(r => r.consol).filter((c): c is Candidate => !!c);
+
     candidates.sort((a, b) => b.score - a.score);
+    consols.sort((a, b) => b.score - a.score);
 
     const scanTime = Date.now();
     const hasRealData = universe.length > 0 && candidates.length > 0;
@@ -445,10 +586,19 @@ export async function GET() {
       console.warn('Swing scan produced no candidates; preserving previous KV snapshot.');
     }
 
+    // 10/21 consolidation list — an empty list is a legitimate result on a
+    // loose tape, so persist whenever the universe resolved at all.
+    if (universe.length > 0) {
+      await kv.set('consol_1021_v1', consols.slice(0, 15));
+      await kv.set('consol_1021_meta_v1', { count: consols.length });
+      await kv.set('consol_1021_last_scan_v1', scanTime);
+    }
+
     return NextResponse.json({
       success: true,
       lastScanTime: scanTime,
       count: candidates.length,
+      consolCount: consols.length,
       universeSize: universe.length,
       excludedForEarnings: universe.length - toScan.length,
       dataPersisted: hasRealData,

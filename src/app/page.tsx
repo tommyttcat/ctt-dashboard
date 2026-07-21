@@ -10,6 +10,7 @@ import Scorecard from '../components/Scorecard';
 import SectorsFlow from '../components/SectorsFlow';
 import DailySetupsComponent from '../components/DailySetups';
 import StocksInPlay from '../components/StocksInPlay';
+import Consolidation1021 from '../components/Consolidation1021';
 import TechnicalsEcon from '../components/TechnicalsEcon';
 import EarningsCalendar from '../components/EarningsCalendar';
 import MarketSummary from '../components/MarketSummary';
@@ -42,6 +43,7 @@ export default function DailySetupsPage() {
               <StocksInPlay />
               <DailySetupsComponent />
               <SwingCandidates />
+              <Consolidation1021 />
               <TechnicalsEcon />
               <EarningsCalendar />
               
