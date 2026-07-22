@@ -40,6 +40,7 @@ interface ConsolCandidate {
 }
 
 type CnfFilterType = 'All' | 'A' | 'B' | 'C';
+type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
 type StatFilterType = 'All' | 'Coiled' | 'Setting Up';
 
@@ -171,6 +172,7 @@ export default function Consolidation1021() {
   const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(false);
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
+  const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
 
@@ -199,6 +201,7 @@ export default function Consolidation1021() {
 
   // Clicking the active option clears back to All (toggle behavior)
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
+  const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
   const handleStatFilter = (val: StatFilterType) => setStatFilter(prev => prev === val ? 'All' : val);
 
@@ -218,11 +221,21 @@ export default function Consolidation1021() {
     if (cnfFilter !== 'All') {
       list = list.filter(c => cnfGradeOf(c.score) === cnfFilter);
     }
+    if (emaFilter !== 'All') {
+      list = list.filter(c => {
+        const a10 = above10(c);
+        const a21 = above21(c);
+        if (emaFilter === '>10') return a10 === true;
+        if (emaFilter === '>21') return a21 === true;
+        if (emaFilter === 'Both') return a10 === true && a21 === true;
+        return true;
+      });
+    }
     if (vwapFilter !== 'All') {
       list = list.filter(c => c.vwapStatus === vwapFilter);
     }
     return list;
-  }, [candidates, statFilter, showStage2AOnly, marketCapFilter, cnfFilter, vwapFilter]);
+  }, [candidates, statFilter, showStage2AOnly, marketCapFilter, cnfFilter, emaFilter, vwapFilter]);
 
   // Counts for the header chips — computed off the unfiltered set
   const coiledCount = useMemo(() => candidates.filter(c => statOf(c) === 'Coiled').length, [candidates]);
@@ -305,6 +318,7 @@ export default function Consolidation1021() {
     (statFilter !== 'All' ? 1 : 0) +
     (marketCapFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
+    (emaFilter !== 'All' ? 1 : 0) +
     (vwapFilter !== 'All' ? 1 : 0);
 
   return (
@@ -380,6 +394,16 @@ export default function Consolidation1021() {
                     {(['A', 'B', 'C'] as CnfFilterType[]).map((g) => (
                       <button key={g} onClick={() => handleCnfFilter(g)} className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}>
                         {g}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>10/21</span>
+                  <div className="flex items-center gap-1">
+                    {(['>10', '>21', 'Both'] as EmaFilterType[]).map((opt) => (
+                      <button key={opt} onClick={() => handleEmaFilter(opt)} className={`${pillBtn} ${emaFilter === opt ? filterBtnActive : filterBtnIdle}`}>
+                        {opt}
                       </button>
                     ))}
                   </div>
