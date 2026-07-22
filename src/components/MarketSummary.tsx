@@ -28,12 +28,15 @@ interface WatchItem {
   symbol: string;
   score?: number | string;
   reason: string;
+  catalyst?: string | null;
+  catalystUrl?: string | null;
 }
 
 interface TopCatalyst {
   ticker: string;
   headline: string;
   url: string | null;
+  brief?: string | null;
 }
 
 interface MacroInsights {
@@ -105,6 +108,12 @@ const num = (v: any): number => {
   return isNaN(n) ? 0 : n;
 };
 
+const numOrNull = (v: any): number | null => {
+  if (v == null || v === '' || v === '—' || v === '-') return null;
+  const n = Number(v);
+  return isNaN(n) ? null : n;
+};
+
 // CNF score reader — prefers conviction, then cnfScore, then legacy fields.
 const scoreOf = (s: any): number => num(s?.conviction ?? s?.cnfScore ?? s?.smbScore ?? s?.score);
 const chgOf = (s: any): number => num(s?.change ?? s?.changePct);
@@ -121,6 +130,9 @@ const setupOf = (s: any): string | null => {
 const hasRealCatalyst = (s: any): boolean =>
   !!s?.catalyst && !String(s.catalyst).toLowerCase().startsWith('technical momentum');
 
+const catalystTextOf = (s: any): string | null =>
+  hasRealCatalyst(s) ? String(s.catalyst).replace(/\.$/, '') : null;
+
 // Dollar volume — prefer the stored dVol, fall back to price * volume.
 const dVolOf = (s: any): number => {
   const d = Number(s?.dVol);
@@ -128,6 +140,64 @@ const dVolOf = (s: any): number => {
   const p = Number(s?.price) || 0;
   const v = Number(s?.volume ?? s?.vol) || 0;
   return p * v;
+};
+
+/* ---- 10/21 EMA posture readers ------------------------------
+   Tolerant: direct field → computed from price → parsed out of
+   the thesis string. Returns null when nothing resolves so the
+   10/21 section simply does not render.
+   ------------------------------------------------------------ */
+
+const priceOf = (s: any): number | null => numOrNull(s?.price ?? s?.last ?? s?.close);
+const ema10Of = (s: any): number | null => numOrNull(s?.ema10 ?? s?.ema10d ?? s?.tenEma ?? s?.ma10 ?? s?.sma10);
+const ema21Of = (s: any): number | null => numOrNull(s?.ema21 ?? s?.ema21d ?? s?.twentyOneEma ?? s?.ma21 ?? s?.sma21);
+
+// Percent distance from the 21 EMA (negative = below the line)
+const pctFrom21 = (s: any): number | null => {
+  const direct = numOrNull(s?.pctFrom21 ?? s?.dist21 ?? s?.pct21 ?? s?.ema21Dist ?? s?.distFrom21);
+  if (direct != null) return direct;
+  const p = priceOf(s);
+  const e21 = ema21Of(s);
+  if (p != null && e21 != null && e21 > 0) return ((p - e21) / e21) * 100;
+  const t = String(s?.thesis || '');
+  const m = t.match(/(\d+(?:\.\d+)?)%\s+(above|below)[^.]*?21\s*EMA/i);
+  if (m) return parseFloat(m[1]) * (m[2].toLowerCase() === 'below' ? -1 : 1);
+  return null;
+};
+
+// Percent distance from the 10 EMA
+const pctFrom10 = (s: any): number | null => {
+  const direct = numOrNull(s?.pctFrom10 ?? s?.dist10 ?? s?.pct10 ?? s?.ema10Dist ?? s?.distFrom10);
+  if (direct != null) return direct;
+  const p = priceOf(s);
+  const e10 = ema10Of(s);
+  if (p != null && e10 != null && e10 > 0) return ((p - e10) / e10) * 100;
+  const t = String(s?.thesis || '');
+  const m = t.match(/(\d+(?:\.\d+)?)%\s+(above|below)[^.]*?10\s*EMA/i);
+  if (m) return parseFloat(m[1]) * (m[2].toLowerCase() === 'below' ? -1 : 1);
+  return null;
+};
+
+// 21 EMA slope posture
+const slope21Of = (s: any): 'rising' | 'flat' | 'falling' | null => {
+  const raw = s?.ema21Slope ?? s?.slope21 ?? s?.ema21Trend ?? s?.trend21;
+  if (typeof raw === 'number' && !isNaN(raw)) return raw > 0.05 ? 'rising' : raw < -0.05 ? 'falling' : 'flat';
+  const txt = (typeof raw === 'string' ? raw : String(s?.thesis || '')).toLowerCase();
+  if (/declining|falling|rolling over|down-?slop/.test(txt)) return 'falling';
+  if (/rising|up-?slop|advancing|uptrend/.test(txt)) return 'rising';
+  if (/\bflat\b/.test(txt)) return 'flat';
+  return null;
+};
+
+// 10 above 21 (stacked) — direct comparison or inferred from the two distances
+const stackedOf = (s: any): boolean | null => {
+  const e10 = ema10Of(s);
+  const e21 = ema21Of(s);
+  if (e10 != null && e21 != null) return e10 > e21;
+  const d10 = pctFrom10(s);
+  const d21 = pctFrom21(s);
+  if (d10 != null && d21 != null) return d21 > d10;
+  return null;
 };
 
 const fmtDollar = (v: number): string => {
@@ -143,6 +213,29 @@ const fmtLeader = (s: any): string => {
   const su = setupOf(s);
   if (su) bits.push(su);
   return `${s.ticker} (${bits.join(', ')})`;
+};
+
+// Brief attached under a real news catalyst — why the headline matters mechanically.
+const buildCatalystBrief = (s: any): string => {
+  const bits: string[] = [];
+  const chg = chgOf(s);
+  const rv = rvolOf(s);
+  const su = setupOf(s);
+  const st = stageOf(s);
+  const d21 = pctFrom21(s);
+  const cnf = scoreOf(s);
+
+  bits.push(`${chg >= 0 ? 'Up' : 'Down'} ${Math.abs(chg).toFixed(2)}%${rv != null && rv > 0 ? ` on RVOL ${rv.toFixed(2)}` : ''}`);
+
+  if (rv != null && rv >= 2) bits.push('heavy participation is validating the headline');
+  else if (rv != null && rv >= 1.5) bits.push('volume is confirming');
+  else if (rv != null && rv > 0 && rv < 1) bits.push('headline pop without volume — fade risk');
+
+  if (su) bits.push(`${su}${st ? ` in Stage ${st}` : ''}`);
+  if (d21 != null) bits.push(`${d21 >= 0 ? '+' : ''}${d21.toFixed(1)}% vs the 21 EMA`);
+  if (cnf) bits.push(`CNF ${cnf}`);
+
+  return bits.join(' · ') + '.';
 };
 
 const buildWatchReason = (s: any): string => {
@@ -162,6 +255,20 @@ const buildWatchReason = (s: any): string => {
     else if (rv > 0 && rv < 1) parts.push('price without volume — fade risk');
   }
 
+  // 10/21 posture clause
+  const d21 = pctFrom21(s);
+  const d10 = pctFrom10(s);
+  const slope = slope21Of(s);
+  if (d21 != null) {
+    if (d21 > 0 && d10 != null && d10 < 0) {
+      parts.push(`in the 10/21 pullback zone (+${d21.toFixed(1)}% over the 21, under the 10)`);
+    } else if (d21 > 0) {
+      parts.push(`+${d21.toFixed(1)}% over a${slope === 'rising' ? ' rising' : slope === 'falling' ? ' declining' : slope === 'flat' ? ' flat' : ''} 21 EMA`);
+    } else {
+      parts.push(`${d21.toFixed(1)}% under the 21 EMA — trend needs repair`);
+    }
+  }
+
   if (s?.stochK != null && !isNaN(Number(s.stochK))) {
     const k = Number(s.stochK);
     if (k <= 25) parts.push(`stoch ${k.toFixed(0)} (oversold reset)`);
@@ -174,9 +281,63 @@ const buildWatchReason = (s: any): string => {
   if (tt?.startsWith('day')) parts.push('classified DAY — intraday only');
   else if (tt?.startsWith('swing')) parts.push('classified SWING — multi-day hold viable');
 
-  if (hasRealCatalyst(s)) parts.push(`catalyst: ${String(s.catalyst).replace(/\.$/, '')}`);
+  // Catalyst intentionally omitted here — it renders as its own chip on the card.
 
   return parts.join('; ') + '.';
+};
+
+/* ---- 10/21 Thesis paragraph builder ---- */
+const build1021Para = (pool: any[]): string => {
+  const rows = pool
+    .filter(s => s?.ticker)
+    .map(s => ({
+      ticker: s.ticker,
+      d21: pctFrom21(s),
+      d10: pctFrom10(s),
+      stacked: stackedOf(s),
+      slope: slope21Of(s),
+    }))
+    .filter(r => r.d21 != null);
+
+  if (rows.length < 2) return '';
+
+  const aligned = rows.filter(r => (r.d21 as number) > 0 && (r.d10 == null || (r.d10 as number) > 0));
+  const pullback = rows.filter(r => (r.d21 as number) > 0 && r.d10 != null && (r.d10 as number) <= 0);
+  const broken = rows.filter(r => (r.d21 as number) <= 0);
+  const badSlope = rows.filter(r => r.slope === 'falling' || r.slope === 'flat');
+  const unstacked = rows.filter(r => r.stacked === false);
+
+  const lines: string[] = [];
+
+  if (aligned.length) {
+    lines.push(`${aligned.length} of ${rows.length} hold above both the 10 and 21 EMA — trend-aligned, pullbacks are the entry.`);
+  } else {
+    lines.push(`Nothing in the scan holds above both the 10 and 21 EMA — no clean trend-aligned entries on the board.`);
+  }
+
+  if (pullback.length) {
+    lines.push(`In the 10/21 pullback zone (under the 10, still over the 21): ${pullback.map(r => r.ticker).slice(0, 6).join(', ')} — first-touch buys live here.`);
+  }
+
+  if (broken.length) {
+    const avgBroken = broken.reduce((a, r) => a + (r.d21 as number), 0) / broken.length;
+    lines.push(`Below the 21 EMA and in repair: ${broken.map(r => r.ticker).slice(0, 6).join(', ')} (avg ${avgBroken.toFixed(1)}% under the line).`);
+  }
+
+  if (unstacked.length) {
+    lines.push(`${unstacked.length} show the 10 under the 21 — short-term trend is still inverted, wait for the cross.`);
+  } else if (badSlope.length) {
+    lines.push(`${badSlope.length} sit under a flat or declining 21 EMA — no slope to lean on yet.`);
+  }
+
+  const avgAll = rows.reduce((a, r) => a + (r.d21 as number), 0) / rows.length;
+  lines.push(avgAll >= 10
+    ? `Group averages +${avgAll.toFixed(1)}% from the 21 EMA — extended, size down and let it come back to the line.`
+    : avgAll >= 0
+      ? `Group averages +${avgAll.toFixed(1)}% from the 21 EMA — healthy distance, not stretched.`
+      : `Group averages ${avgAll.toFixed(1)}% from the 21 EMA — the tape is below its own trend line.`);
+
+  return `10/21 Thesis: ${lines.join('\n')}`;
 };
 
 const buildLocalInsights = (scan: any): MacroInsights | null => {
@@ -202,6 +363,8 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
     symbol: s.ticker,
     score: scoreOf(s) || undefined,
     reason: buildWatchReason(s),
+    catalyst: catalystTextOf(s),
+    catalystUrl: s?.catalystUrl || null,
   }));
 
   /* ---- Top themed catalyst: highest-CNF name with a real headline ---- */
@@ -211,8 +374,10 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
   const topCatalyst: TopCatalyst | null = withNews.length
     ? {
         ticker: withNews[0].ticker,
-        headline: String(withNews[0].thesis || withNews[0].catalyst).replace(/\.$/, ''),
+        // Prefer the actual news line; only fall back to the technical thesis.
+        headline: String(withNews[0].catalyst || withNews[0].thesis).replace(/\.$/, ''),
         url: withNews[0].catalystUrl || null,
+        brief: buildCatalystBrief(withNews[0]),
       }
     : null;
 
@@ -280,7 +445,10 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
   }
   const dailyPara = dailyLines.length ? `Daily Setups Thesis: ${dailyLines.join('\n')}` : '';
 
-  /* ---- Paragraph 3: Industry Heat — one sentence per line ---- */
+  /* ---- Paragraph 3: 10/21 Thesis — trend posture across the scan ---- */
+  const ema1021Para = build1021Para(pool);
+
+  /* ---- Paragraph 4: Industry Heat — one sentence per line ---- */
   const heatAgg: Record<string, { sum: number; count: number }> = {};
   flowNames.forEach(s => {
     const sec = s?.sector && s.sector !== '—' && s.sector !== 'Other' ? String(s.sector) : null;
@@ -315,7 +483,7 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
     if (heatLines.length) heatPara = `Industry Heat: ${heatLines.join('\n')}`;
   }
 
-  /* ---- Paragraph 4: ETF Flow — one sentence per line ---- */
+  /* ---- Paragraph 5: ETF Flow — one sentence per line ---- */
   const etfAll = [...(movers['ETF Gainers'] || []), ...(movers['ETF Losers'] || [])];
   const etfSeen = new Set<string>();
   const etfs = etfAll
@@ -346,7 +514,7 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
     etfPara = `ETF Flow: ${etfLines.join('\n')}`;
   }
 
-  /* ---- Paragraph 5: Money Flow — one sentence per line ---- */
+  /* ---- Paragraph 6: Money Flow — one sentence per line ---- */
   let moneyPara = '';
   const totalD = flowNames.reduce((a, s) => a + dVolOf(s), 0);
   if (totalD > 0) {
@@ -376,7 +544,7 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
 
   return {
     theme,
-    briefing: [sipsPara, dailyPara, heatPara, etfPara, moneyPara].filter(Boolean).join('\n\n'),
+    briefing: [sipsPara, dailyPara, ema1021Para, heatPara, etfPara, moneyPara].filter(Boolean).join('\n\n'),
     watching,
     topCatalyst,
   };
@@ -417,7 +585,7 @@ const rsColor = (rs: number) => (rs >= 20 ? 'text-purple-400' : rs >= 10 ? 'text
 const renderBriefingText = (text: string): React.ReactNode[] => {
   // Capture metric phrases first (longest match), then index/asset names,
   // then dollar values, signed percents, and uppercase ticker-like tokens.
-  const rx = /(RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
+  const rx = /(RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
   const parts = text.split(rx);
 
   return parts.map((part, i) => {
@@ -448,6 +616,11 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
     if (m) {
       const v = parseFloat(m[1]);
       return <span key={i}>RS <span className={`${valNum} ${rsColor(v)}`}>{m[1]}</span></span>;
+    }
+
+    // 10/21 pair label — violet, matches the section rule
+    if (part === '10/21') {
+      return <span key={i} className={`${valNum} text-violet-400 font-bold`}>10/21</span>;
     }
 
     // Index/asset names — gray badge
@@ -490,6 +663,7 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
 const BRIEFING_SECTIONS: { label: string; color: string }[] = [
   { label: 'SIPs Thesis', color: 'cyan' },
   { label: 'Daily Setups Thesis', color: 'emerald' },
+  { label: '10/21 Thesis', color: 'violet' },
   { label: 'Industry Heat', color: 'amber' },
   { label: 'ETF Flow', color: 'indigo' },
   { label: 'Money Flow', color: 'rose' },
@@ -502,6 +676,7 @@ const sectionStyles = (color: string) => {
     case 'emerald': return { border: 'border-emerald-500', badge: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20', bg: 'bg-emerald-500/[0.04]' };
     case 'amber': return { border: 'border-amber-500', badge: 'text-amber-400 bg-amber-500/10 border-amber-500/20', bg: 'bg-amber-500/[0.04]' };
     case 'rose': return { border: 'border-rose-500', badge: 'text-rose-400 bg-rose-500/10 border-rose-500/20', bg: 'bg-rose-500/[0.04]' };
+    case 'violet': return { border: 'border-violet-500', badge: 'text-violet-400 bg-violet-500/10 border-violet-500/20', bg: 'bg-violet-500/[0.04]' };
     case 'indigo': default: return { border: 'border-indigo-500', badge: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20', bg: 'bg-indigo-500/[0.04]' };
   }
 };
@@ -612,6 +787,7 @@ export default function MarketSummary() {
     if (!text) return "";
     return text
       .replace(/(Daily Setups Thesis:)/gi, '\n\n$1')
+      .replace(/(10\/21 Thesis:)/gi, '\n\n$1')
       .replace(/(Industry Heat:)/gi, '\n\n$1')
       .replace(/(ETF Flow:)/gi, '\n\n$1')
       .replace(/(Money Flow:)/gi, '\n\n$1')
@@ -695,25 +871,33 @@ export default function MarketSummary() {
                 <span className="text-sm md:text-base font-black text-white tracking-wide">{macroInsights.theme}</span>
               </div>
 
-              {/* Top themed catalyst — highest-conviction name with real news */}
+              {/* Top themed catalyst — highest-conviction name with real news + brief */}
               {macroInsights.topCatalyst && (
-                <div className="flex items-center gap-2.5 mb-6 relative z-10 flex-wrap">
-                  <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded shrink-0">TOP CATALYST</span>
-                  <span className="text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider shrink-0">{macroInsights.topCatalyst.ticker}</span>
-                  {macroInsights.topCatalyst.url ? (
-                    <a href={macroInsights.topCatalyst.url} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-300 font-medium hover:text-cyan-300 transition-colors hover:underline">
-                      {macroInsights.topCatalyst.headline}
-                    </a>
-                  ) : (
-                    <span className="text-xs text-slate-300 font-medium">{macroInsights.topCatalyst.headline}</span>
+                <div className="mb-6 relative z-10 border-l-[3px] border-amber-500 bg-amber-500/[0.04] rounded-r-xl px-4 py-3">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded shrink-0">TOP CATALYST</span>
+                    <span className="text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider shrink-0">{macroInsights.topCatalyst.ticker}</span>
+                    {macroInsights.topCatalyst.url ? (
+                      <a href={macroInsights.topCatalyst.url} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-300 font-medium hover:text-cyan-300 transition-colors hover:underline">
+                        {macroInsights.topCatalyst.headline}
+                      </a>
+                    ) : (
+                      <span className="text-xs text-slate-300 font-medium">{macroInsights.topCatalyst.headline}</span>
+                    )}
+                  </div>
+                  {macroInsights.topCatalyst.brief && (
+                    <p className="text-[12px] text-slate-400 font-medium leading-relaxed mt-2">
+                      {renderBriefingText(macroInsights.topCatalyst.brief)}
+                    </p>
                   )}
                 </div>
               )}
 
-              <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Stacked layout — narrative first, watchlist beneath it */}
+              <div className="relative z-10 flex flex-col gap-8">
                 <div>
                   <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-3">Narrative Breakdown</h3>
-                  <div className="space-y-3">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                     {formatBriefing(macroInsights.briefing).split('\n\n').filter(Boolean).map((para, idx) => {
                       const { label, color, body } = splitBriefingSection(para.trim());
                       const st = sectionStyles(color);
@@ -737,12 +921,14 @@ export default function MarketSummary() {
                   </div>
                 </div>
 
-                <div>
-                  <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-3">What To Watch & Why</h3>
-                  <ul className="space-y-3">
+                <div className="border-t border-white/5 pt-6">
+                  <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-3">What To Watch &amp; Why</h3>
+                  <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                     {macroInsights.watching?.map((item, idx) => {
                       const symbol = typeof item === 'string' ? item : item.symbol;
                       const reason = typeof item === 'string' ? 'Momentum continuation and algorithmic confluence.' : item.reason;
+                      const catalyst = typeof item === 'string' ? null : item.catalyst;
+                      const catalystUrl = typeof item === 'string' ? null : item.catalystUrl;
                       
                       let parsedScore: number | undefined = undefined;
                       if (typeof item === 'object' && item.score !== undefined && item.score !== null) {
@@ -792,6 +978,20 @@ export default function MarketSummary() {
                               </div>
                             );
                           })()}
+
+                          {/* Current catalyst on the name, when there is real news */}
+                          {catalyst && (
+                            <div className="flex items-start gap-2 pt-2 mt-0.5 border-t border-white/5">
+                              <span className="text-[8px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded shrink-0 mt-[1px]">NEWS</span>
+                              {catalystUrl ? (
+                                <a href={catalystUrl} target="_blank" rel="noopener noreferrer" className="text-[12px] text-slate-400 font-medium leading-relaxed hover:text-cyan-300 hover:underline transition-colors">
+                                  {catalyst}
+                                </a>
+                              ) : (
+                                <span className="text-[12px] text-slate-400 font-medium leading-relaxed">{catalyst}</span>
+                              )}
+                            </div>
+                          )}
                         </li>
                       );
                     })}
