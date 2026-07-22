@@ -31,6 +31,11 @@ interface ConsolCandidate {
   ema21Rising: boolean;
   range10Pct?: number;
   blueDot?: boolean;
+  catalyst?: string | null;
+  catalystUrl?: string | null;
+  news?: string | null;
+  newsUrl?: string | null;
+  headline?: string | null;
 }
 
 type CnfFilterType = 'All' | 'A' | 'B' | 'C';
@@ -72,6 +77,20 @@ const cnfGradeOf = (score: number | null | undefined): CnfFilterType | null => {
   if (score >= 50) return 'B';
   return 'C';
 };
+
+// True only for the backend's generic no-news fallback labels.
+const isGenericCatalyst = (catalyst: string | null | undefined) =>
+  !catalyst || catalyst.toLowerCase().startsWith('technical momentum');
+
+// Real news headline for the thesis line — tolerant of the field name the
+// consolidation feed uses. Returns null when there's only the generic fallback.
+const catalystOf = (c: ConsolCandidate): string | null => {
+  const raw = c.catalyst ?? c.news ?? c.headline ?? null;
+  if (isGenericCatalyst(raw)) return null;
+  return String(raw).trim().replace(/\.$/, '');
+};
+
+const catalystUrlOf = (c: ConsolCandidate): string | null => c.catalystUrl ?? c.newsUrl ?? null;
 
 // Plain-English readout for the sub-row, built from the row's own numbers.
 const buildReadout = (c: ConsolCandidate) => {
@@ -202,8 +221,10 @@ export default function Consolidation1021() {
     return 'text-slate-500';
   };
 
-  const thBase = "px-1 py-3 text-[10px] text-slate-500 font-bold tracking-wider text-center";
-  const tdBase = "px-1 pt-3 pb-2 text-center";
+  // Shared styles — every column centered, tightened padding so the full
+  // table fits inside the container without horizontal clipping.
+  const thBase = "px-1 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight text-center";
+  const tdBase = "px-1 pt-2.5 pb-1.5 text-center";
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
   const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
   const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
@@ -218,8 +239,8 @@ export default function Consolidation1021() {
     (vwapFilter !== 'All' ? 1 : 0);
 
   return (
-    <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
-      <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-6 border-b border-white/5 pb-4' : ''}`}>
+    <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
+      <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
         <div className="flex items-center gap-3">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
@@ -300,24 +321,24 @@ export default function Consolidation1021() {
             )}
           </div>
 
-          <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[1100px] table-fixed border-collapse">
+          <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
+            <table className="w-full min-w-[1060px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} w-[7%]`}>TICKER</th>
-                  <th className={`${thBase} w-[5%]`}>CNF</th>
-                  <th className={`${thBase} w-[7%]`}>PRICE</th>
+                  <th className={`${thBase} w-[6%]`}>TICKER</th>
+                  <th className={`${thBase} w-[4%]`}>CNF</th>
+                  <th className={`${thBase} w-[6%]`}>PRICE</th>
                   <th className={`${thBase} w-[6%]`}>CHG%</th>
-                  <th className={`${thBase} w-[7%]`}>10/21</th>
-                  <th className={`${thBase} w-[6%]`}>VOL</th>
-                  <th className={`${thBase} w-[6%]`}>$VOL</th>
+                  <th className={`${thBase} w-[6%]`}>10/21</th>
+                  <th className={`${thBase} w-[5%]`}>VOL</th>
+                  <th className={`${thBase} w-[5%]`}>$VOL</th>
                   <th className={`${thBase} w-[5%]`}>RVOL</th>
                   <th className={`${thBase} w-[6%]`}>COIL</th>
                   <th className={`${thBase} w-[6%]`}>RS/SPY</th>
-                  <th className={`${thBase} w-[6%]`}>%OFF HI</th>
-                  <th className={`${thBase} w-[7%]`}>MCAP</th>
-                  <th className={`${thBase} w-[6%] border-l border-white/5`}>STAGE</th>
-                  <th className={`${thBase} w-[15%]`}>SECTOR</th>
+                  <th className={`${thBase} w-[7%]`}>%OFF HI</th>
+                  <th className={`${thBase} w-[5%]`}>MCAP</th>
+                  <th className={`${thBase} w-[5%] border-l border-white/5`}>STAGE</th>
+                  <th className={`${thBase} w-[28%]`}>SECTOR</th>
                 </tr>
               </thead>
 
@@ -327,6 +348,8 @@ export default function Consolidation1021() {
                 ) : (
                   filtered.map((row) => {
                     const isPositive = (row.changePct ?? 0) >= 0;
+                    const cat = catalystOf(row);
+                    const catUrl = catalystUrlOf(row);
                     return (
                       <React.Fragment key={row.symbol}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -368,22 +391,34 @@ export default function Consolidation1021() {
                             <span className={`text-[11px] font-bold tracking-wide ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span>
                           </td>
                           <td className={tdBase}>
-                            <span className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{row.sector || '—'}</span>
+                            <span className="block text-[10px] font-semibold tracking-wide uppercase text-slate-400 leading-tight break-words">{row.sector || '—'}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: spacer | 10/21 HOLD + readout | STR/STAT centered */}
+                        {/* Sub-row: spacer | 10/21 HOLD + readout + catalyst | STR/STAT centered */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td className="w-[7%]"></td>
-                          <td colSpan={11} className="pb-3.5 pt-2.5 pr-4">
+                          <td className="w-[6%]"></td>
+                          <td colSpan={11} className="pb-2.5 pt-1.5 pr-3">
                             <div className="flex items-center text-left">
-                              <span className="shrink-0 w-[92px] text-[#7c8bfa] font-bold text-[11px] tracking-[0.1em] uppercase">10/21 HOLD</span>
-                              <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-4">
+                              <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">10/21 HOLD</span>
+                              <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-3">
                                 <span className="text-slate-500">{buildReadout(row)}</span>
+                                {cat && (
+                                  <>
+                                    {' '}
+                                    <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400/90">News:</span>
+                                    {' '}
+                                    {catUrl ? (
+                                      <a href={catUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] hover:underline transition-colors">{cat}</a>
+                                    ) : (
+                                      <span className="text-indigo-300/90 font-medium">{cat}</span>
+                                    )}
+                                  </>
+                                )}
                               </p>
                             </div>
                           </td>
-                          <td colSpan={2} className="pb-3.5 pt-2.5 align-middle">
-                            <div className="flex items-center justify-center gap-4 border-l border-white/10 px-2 py-1">
+                          <td colSpan={2} className="pb-2.5 pt-1.5 align-middle">
+                            <div className="flex items-center justify-center gap-3 border-l border-white/10 px-2 py-1">
                               <span className="flex items-center gap-1.5">
                                 <span className="text-[11px] text-slate-500">STR:</span>
                                 <span className={`text-[11px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
