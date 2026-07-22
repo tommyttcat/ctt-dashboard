@@ -333,7 +333,7 @@ export default function StocksInPlay() {
     (vwapFilter !== 'All' ? 1 : 0);
 
   return (
-    <div className="bg-[#101623] border border-white/5 rounded-2xl p-2 md:p-3 relative overflow-hidden shadow-xl w-full max-w-[1040px] mx-auto">
+    <div className="bg-[#101623] border border-white/5 rounded-2xl p-2 md:p-3 relative overflow-hidden shadow-xl w-full max-w-[940px] mx-auto">
       <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-4 border-b border-white/5 pb-3' : ''}`}>
         <div className="flex items-center gap-3">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-3 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
