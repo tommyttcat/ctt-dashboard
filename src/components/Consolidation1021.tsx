@@ -479,7 +479,7 @@ export default function Consolidation1021() {
                         {/* Sub-row: spacer | 10/21 HOLD + readout + catalyst | STR/STAT centered */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[8%]"></td>
-                          <td colSpan={11} className="pb-2.5 pt-1.5 pr-3">
+                          <td colSpan={10} className="pb-2.5 pt-1.5 pr-3">
                             <div className="flex items-center text-left">
                               <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">10/21 HOLD</span>
                               <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-3">
@@ -499,14 +499,14 @@ export default function Consolidation1021() {
                               </p>
                             </div>
                           </td>
-                          <td colSpan={2} className="pb-2.5 pt-1.5 align-middle">
+                          <td colSpan={3} className="pb-2.5 pt-1.5 align-middle">
                             <div className="flex items-center justify-center gap-2 border-l border-white/10 px-1 py-1">
                               <span className="flex items-center gap-1">
                                 <span className="text-[10px] text-slate-500">STR:</span>
                                 <span className={`text-[10px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
                                 <span className={`text-[10px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
                               </span>
-                              <span className="flex items-center gap-1">
+                              <span className="flex items-center gap-1 whitespace-nowrap">
                                 <span className="text-[10px] text-slate-500">STAT:</span>
                                 {st === 'Coiled' ? (
                                   <span className="text-[10px] font-semibold text-emerald-400">Coiled</span>
