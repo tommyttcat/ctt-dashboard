@@ -30,6 +30,7 @@ interface ConsolCandidate {
   goldenCross: boolean;
   ema21Rising: boolean;
   range10Pct?: number;
+  coilRatio?: number | null;
   blueDot?: boolean;
   catalyst?: string | null;
   catalystUrl?: string | null;
@@ -41,6 +42,15 @@ interface ConsolCandidate {
 type CnfFilterType = 'All' | 'A' | 'B' | 'C';
 type VwapFilterType = 'All' | 'above' | 'below';
 type StatFilterType = 'All' | 'Coiled' | 'Setting Up';
+
+/* ---- Coil thresholds, in multiples of daily ATR ----------------
+   Mirrors CONSOL_CONFIG.tightCoilRatio / maxCoilRatio in the scan
+   route — keep these in sync if either side is tuned.
+   ---------------------------------------------------------------- */
+const COIL_TIGHT_RATIO = 2.5;
+const COIL_LOOSE_RATIO = 4.0;
+const COIL_TIGHT_PCT = 6;
+const COIL_LOOSE_PCT = 10;
 
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
@@ -68,13 +78,25 @@ const formatStageText = (stage: string | undefined) => {
   return stage.replace(/Stage\s*/i, '');
 };
 
-// Tight coil (<=6% ten-day range) = primed; looser = still setting up.
-const isCoiled = (c: ConsolCandidate) => c.range10Pct != null && c.range10Pct <= 6;
+// Range width normalized by the stock's own daily ATR. Prefers the stored
+// value, computes it when both inputs are present, else null.
+const coilRatioOf = (c: ConsolCandidate): number | null => {
+  if (c.coilRatio != null && !isNaN(Number(c.coilRatio)) && Number(c.coilRatio) > 0) return Number(c.coilRatio);
+  const range = Number(c.range10Pct);
+  const atr = Number(c.atrPct);
+  if (!isNaN(range) && !isNaN(atr) && atr > 0) return range / atr;
+  return null;
+};
 
-// Rows with no range data can't be classified — they show as neutral and are
-// excluded from both STAT filters rather than defaulting into "Setting Up".
-const statOf = (c: ConsolCandidate): StatFilterType | null =>
-  c.range10Pct == null ? null : (isCoiled(c) ? 'Coiled' : 'Setting Up');
+// Coiled = inside 2.5x ATR (or 6% raw when ATR is unavailable).
+const statOf = (c: ConsolCandidate): StatFilterType | null => {
+  const ratio = coilRatioOf(c);
+  if (ratio != null) return ratio <= COIL_TIGHT_RATIO ? 'Coiled' : 'Setting Up';
+  if (c.range10Pct == null) return null;
+  return c.range10Pct <= COIL_TIGHT_PCT ? 'Coiled' : 'Setting Up';
+};
+
+const isCoiled = (c: ConsolCandidate) => statOf(c) === 'Coiled';
 
 // CNF grade from the score: A >= 70, B >= 50, C below (same lines as all cards).
 const cnfGradeOf = (score: number | null | undefined): CnfFilterType | null => {
@@ -84,12 +106,34 @@ const cnfGradeOf = (score: number | null | undefined): CnfFilterType | null => {
   return 'C';
 };
 
-// True only for the backend's generic no-news fallback labels.
-const isGenericCatalyst = (catalyst: string | null | undefined) =>
-  !catalyst || catalyst.toLowerCase().startsWith('technical momentum');
+// Blue Dot marker — oversold stoch reset firing on the daily.
+const BlueDot = ({ className = '' }: { className?: string }) => (
+  <span
+    title="Blue Dot — oversold stoch reset firing on the daily"
+    className={`inline-block w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.7)] align-middle shrink-0 ${className}`}
+  />
+);
 
-// Real news headline for the thesis line — tolerant of the field name the
-// consolidation feed uses. Returns null when there's only the generic fallback.
+// Sector strings sometimes arrive ticker-prefixed ("RKLB - AEROSPACE") from the
+// scanner payload. Strip the prefix so one bad row can't widen the column.
+const cleanSector = (sector: string | null | undefined, ticker?: string): string => {
+  if (!sector || sector === '—' || sector === '-') return '—';
+  let s = String(sector).trim();
+  if (ticker) {
+    const rx = new RegExp(`^${ticker}\\s*[-–—:]\\s*`, 'i');
+    s = s.replace(rx, '');
+  }
+  s = s.replace(/^[A-Z]{1,5}\s*[-–—:]\s*/, '');
+  return s.trim() || '—';
+};
+
+// Fallback labels the backend uses when there's no real headline.
+const isGenericCatalyst = (catalyst: string | null | undefined) => {
+  if (!catalyst) return true;
+  const c = catalyst.toLowerCase().trim();
+  return c.startsWith('technical momentum') || c === 'recent news' || c === 'news' || c === 'technical';
+};
+
 const catalystOf = (c: ConsolCandidate): string | null => {
   const raw = c.catalyst ?? c.news ?? c.headline ?? null;
   if (isGenericCatalyst(raw)) return null;
@@ -100,13 +144,16 @@ const catalystUrlOf = (c: ConsolCandidate): string | null => c.catalystUrl ?? c.
 
 // Plain-English readout for the sub-row, built from the row's own numbers.
 const buildReadout = (c: ConsolCandidate) => {
-  const range = c.range10Pct != null ? `${c.range10Pct.toFixed(1)}% ten-day range` : 'tight range';
+  const ratio = coilRatioOf(c);
+  const range = c.range10Pct != null
+    ? `${c.range10Pct.toFixed(1)}% ten-day range${ratio != null ? ` (${ratio.toFixed(1)}x its ${c.atrPct.toFixed(1)}% ATR)` : ''}`
+    : 'tight range';
   const d10 = c.distToEma10 != null ? `${c.distToEma10 >= 0 ? '+' : ''}${c.distToEma10.toFixed(1)}% vs 10 EMA` : '';
   const d21 = `${c.distToEma21 >= 0 ? '+' : ''}${c.distToEma21.toFixed(1)}% vs 21 EMA`;
   const structure = c.goldenCross ? '50>200 intact' : '50<200';
-  const posture = c.range10Pct != null && c.range10Pct > 6
-    ? 'Range is still wide — needs further contraction before it is actionable'
-    : 'Watching for a range break on expanding volume';
+  const posture = isCoiled(c)
+    ? 'Watching for a range break on expanding volume'
+    : 'Still wide for its own volatility — wants further contraction before it is actionable';
   return `Coiling in a ${range} on the rising 10/21 (${[d10, d21].filter(Boolean).join(', ')}), ${c.pctOffHigh.toFixed(0)}% off highs with RS +${c.rsVsSpy.toFixed(0)} vs SPY, ${structure}. ${posture}.`;
 };
 
@@ -200,11 +247,19 @@ export default function Consolidation1021() {
     if (rvol >= 1.5) return 'text-emerald-400';
     return 'text-slate-500';
   };
-  const getRangeColor = (r: number | null | undefined) => {
-    if (r == null) return 'text-slate-500';
-    if (r <= 5) return 'text-purple-400';
-    if (r <= 6.5) return 'text-emerald-400';
-    if (r <= 10) return 'text-amber-400';
+  // Coil color keys off the ATR-normalized ratio, not the raw percent.
+  const getCoilColor = (c: ConsolCandidate) => {
+    const ratio = coilRatioOf(c);
+    if (ratio == null) {
+      const r = c.range10Pct;
+      if (r == null) return 'text-slate-500';
+      if (r <= COIL_TIGHT_PCT) return 'text-emerald-400';
+      if (r <= COIL_LOOSE_PCT) return 'text-amber-400';
+      return 'text-slate-300';
+    }
+    if (ratio <= 2.0) return 'text-purple-400';
+    if (ratio <= COIL_TIGHT_RATIO) return 'text-emerald-400';
+    if (ratio <= COIL_LOOSE_RATIO) return 'text-amber-400';
     return 'text-slate-300';
   };
   const getRsColor = (rs: number) => {
@@ -236,8 +291,7 @@ export default function Consolidation1021() {
     return 'text-slate-500';
   };
 
-  // Shared styles — every column centered, tightened padding so the full
-  // table fits inside the container without horizontal clipping.
+  // Shared styles — every column centered, uniform tight padding
   const thBase = "px-1 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight text-center";
   const tdBase = "px-1 pt-2.5 pb-1.5 text-center";
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
@@ -349,20 +403,20 @@ export default function Consolidation1021() {
             <table className="w-full min-w-[1060px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} w-[6%]`}>TICKER</th>
+                  <th className={`${thBase} w-[7%]`}>TICKER</th>
                   <th className={`${thBase} w-[4%]`}>CNF</th>
-                  <th className={`${thBase} w-[6%]`}>PRICE</th>
-                  <th className={`${thBase} w-[6%]`}>CHG%</th>
-                  <th className={`${thBase} w-[6%]`}>10/21</th>
-                  <th className={`${thBase} w-[5%]`}>VOL</th>
-                  <th className={`${thBase} w-[5%]`}>$VOL</th>
-                  <th className={`${thBase} w-[5%]`}>RVOL</th>
+                  <th className={`${thBase} w-[7%]`}>PRICE</th>
+                  <th className={`${thBase} w-[7%]`}>CHG%</th>
+                  <th className={`${thBase} w-[7%]`}>10/21</th>
+                  <th className={`${thBase} w-[6%]`}>VOL</th>
+                  <th className={`${thBase} w-[7%]`}>$VOL</th>
+                  <th className={`${thBase} w-[6%]`}>RVOL</th>
                   <th className={`${thBase} w-[6%]`}>COIL</th>
                   <th className={`${thBase} w-[6%]`}>RS/SPY</th>
                   <th className={`${thBase} w-[7%]`}>%OFF HI</th>
-                  <th className={`${thBase} w-[5%]`}>MCAP</th>
-                  <th className={`${thBase} w-[5%] border-l border-white/5`}>STAGE</th>
-                  <th className={`${thBase} w-[28%]`}>SECTOR</th>
+                  <th className={`${thBase} w-[6%]`}>MCAP</th>
+                  <th className={`${thBase} w-[4%] border-l border-white/5`}>STAGE</th>
+                  <th className={`${thBase} w-[20%]`}>SECTOR</th>
                 </tr>
               </thead>
 
@@ -375,15 +429,15 @@ export default function Consolidation1021() {
                     const cat = catalystOf(row);
                     const catUrl = catalystUrlOf(row);
                     const st = statOf(row);
+                    const ratio = coilRatioOf(row);
+                    const sectorText = cleanSector(row.sector, row.symbol);
                     return (
                       <React.Fragment key={row.symbol}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
                           <td className={tdBase}>
                             <div className="flex items-center justify-center gap-1.5">
                               <span title={row.name || row.symbol} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.symbol}</span>
-                              {row.blueDot && (
-                                <div className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.7)] shrink-0" title="Blue Dot — oversold stoch reset firing on the daily"></div>
-                              )}
+                              {row.blueDot && <BlueDot />}
                             </div>
                           </td>
                           <td className={tdBase}>
@@ -408,7 +462,10 @@ export default function Consolidation1021() {
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{row.dVol ? formatCurrency(row.dVol) : (row.avgDollarVolM ? `$${row.avgDollarVolM}M` : '—')}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRangeColor(row.range10Pct)}`} title="10-day high-low range">{row.range10Pct != null ? `${row.range10Pct.toFixed(1)}%` : '—'}</td>
+                          <td className={`${tdBase} whitespace-nowrap tabular-nums`} title={`10-day range${ratio != null ? ` — ${ratio.toFixed(2)}x the ${row.atrPct.toFixed(1)}% daily ATR` : ''}`}>
+                            <div className={`text-xs font-bold leading-tight ${getCoilColor(row)}`}>{row.range10Pct != null ? `${row.range10Pct.toFixed(1)}%` : '—'}</div>
+                            {ratio != null && (<div className="text-[9px] text-slate-500 font-medium leading-tight">{ratio.toFixed(1)}× ATR</div>)}
+                          </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy >= 0 ? '+' : ''}{row.rsVsSpy.toFixed(1)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getOffHighColor(row.pctOffHigh)}`}>{row.pctOffHigh.toFixed(1)}%</td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
@@ -416,12 +473,12 @@ export default function Consolidation1021() {
                             <span className={`text-[11px] font-bold tracking-wide ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span>
                           </td>
                           <td className={tdBase}>
-                            <span className="block text-[10px] font-semibold tracking-wide uppercase text-slate-400 leading-tight break-words">{row.sector || '—'}</span>
+                            <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
                         {/* Sub-row: spacer | 10/21 HOLD + readout + catalyst | STR/STAT centered */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td className="w-[6%]"></td>
+                          <td className="w-[7%]"></td>
                           <td colSpan={11} className="pb-2.5 pt-1.5 pr-3">
                             <div className="flex items-center text-left">
                               <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">10/21 HOLD</span>
@@ -443,20 +500,20 @@ export default function Consolidation1021() {
                             </div>
                           </td>
                           <td colSpan={2} className="pb-2.5 pt-1.5 align-middle">
-                            <div className="flex items-center justify-center gap-3 border-l border-white/10 px-2 py-1">
-                              <span className="flex items-center gap-1.5">
-                                <span className="text-[11px] text-slate-500">STR:</span>
-                                <span className={`text-[11px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
-                                <span className={`text-[11px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
+                            <div className="flex items-center justify-center gap-2 border-l border-white/10 px-1 py-1">
+                              <span className="flex items-center gap-1">
+                                <span className="text-[10px] text-slate-500">STR:</span>
+                                <span className={`text-[10px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
+                                <span className={`text-[10px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
                               </span>
-                              <span className="flex items-center gap-1.5">
-                                <span className="text-[11px] text-slate-500">STAT:</span>
+                              <span className="flex items-center gap-1">
+                                <span className="text-[10px] text-slate-500">STAT:</span>
                                 {st === 'Coiled' ? (
-                                  <span className="text-[11px] font-semibold text-emerald-400">Coiled</span>
+                                  <span className="text-[10px] font-semibold text-emerald-400">Coiled</span>
                                 ) : st === 'Setting Up' ? (
-                                  <span className="text-[11px] font-semibold text-amber-400">Setting Up</span>
+                                  <span className="text-[10px] font-semibold text-amber-400">Setting Up</span>
                                 ) : (
-                                  <span className="text-[11px] font-semibold text-slate-600">—</span>
+                                  <span className="text-[10px] font-semibold text-slate-600">—</span>
                                 )}
                               </span>
                             </div>

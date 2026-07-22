@@ -72,6 +72,7 @@ interface Candidate {
   goldenCross: boolean;
   ema21Rising: boolean;
   range10Pct?: number;
+  coilRatio?: number;
   blueDot?: boolean;
 }
 
@@ -337,7 +338,9 @@ async function getGroupedSeries(validSymbols: Set<string>): Promise<Map<string, 
 
 // ---------------------------------------------------------------
 // First-pass shortlist: cheap 10/21 math on the grouped series.
-// Returns the tightest coils market-wide for the full deep analysis.
+// Ranks by coil ratio (10-day range normalized by daily ATR), so a
+// high-volatility name isn't punished for its own normal wiggle and a
+// sleepy mega cap doesn't rank as "tight" just for being sleepy.
 // ---------------------------------------------------------------
 function shortlistConsolidation(series: Map<string, LiteBar[]>): string[] {
   const emaLite = (closes: number[], period: number): number | null => {
@@ -348,7 +351,21 @@ function shortlistConsolidation(series: Map<string, LiteBar[]>): string[] {
     return e;
   };
 
-  const picks: { sym: string; range10: number }[] = [];
+  // Wilder ATR on the lite bars, expressed as a percent of price
+  const atrPctLite = (bars: LiteBar[], period = 14): number | null => {
+    if (bars.length < period + 1) return null;
+    const trs: number[] = [];
+    for (let i = 1; i < bars.length; i++) {
+      const pc = bars[i - 1].c;
+      trs.push(Math.max(bars[i].h - bars[i].l, Math.abs(bars[i].h - pc), Math.abs(bars[i].l - pc)));
+    }
+    let a = trs.slice(0, period).reduce((x, y) => x + y, 0) / period;
+    for (let i = period; i < trs.length; i++) a = (a * (period - 1) + trs[i]) / period;
+    const price = bars[bars.length - 1].c;
+    return price > 0 ? (a / price) * 100 : null;
+  };
+
+  const picks: { sym: string; ratio: number }[] = [];
 
   series.forEach((bars, sym) => {
     if (bars.length < 28) return;
@@ -378,15 +395,20 @@ function shortlistConsolidation(series: Map<string, LiteBar[]>): string[] {
     const range10 = lo10 > 0 ? ((hi10 - lo10) / lo10) * 100 : 999;
     if (range10 > CONSOL_CONFIG.maxRange10) return;
 
+    // Coil ratio — how many daily ATRs wide the ten-day range is.
+    const aPct = atrPctLite(bars, 14);
+    const ratio = aPct && aPct > 0 ? range10 / aPct : range10 / 3; // ~3% ATR assumed if unknown
+    if (ratio > CONSOL_CONFIG.maxCoilRatio) return;
+
     const prevClose = closes[closes.length - 2];
     const dayChg = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
     if (Math.abs(dayChg) > CONSOL_CONFIG.maxDayChange) return;
 
-    picks.push({ sym, range10 });
+    picks.push({ sym, ratio });
   });
 
-  // Tightest coils first
-  picks.sort((a, b) => a.range10 - b.range10);
+  // Tightest coils relative to their own volatility, first
+  picks.sort((a, b) => a.ratio - b.ratio);
   return picks.slice(0, CONSOL_SHORTLIST.shortlistSize).map(p => p.sym);
 }
 
@@ -529,21 +551,27 @@ function analyze(
 // Stage 2b: 10/21 consolidation analyzer — same inputs, different setup.
 // Finds names coiling tightly on rising 10/21 EMAs in a confirmed uptrend:
 // the Minervini/Wish trend-hold entry BEFORE the breakout, not after it.
+//
+// Tightness is judged by coil ratio = 10-day range / daily ATR%, so an
+// 8.6%-ATR name and a 1.5%-ATR name are held to the same standard.
+// A stock drifts to roughly 3-4x ATR over ten sessions; tighter is a coil.
 // ---------------------------------------------------------------
 const CONSOL_CONFIG = {
   maxDistToEma10: 5,      // hugging the 10 EMA (±5%)
   maxAboveEma21: 5,       // not extended more than 5% above the 21
   maxBelowEma21: 1.5,     // small undercuts tolerated, no breakdowns
-  maxRange10: 10,         // 10-day high-low range — the coil
+  maxRange10: 14,         // absolute ceiling on the raw 10-day range
+  maxCoilRatio: 4.0,      // primary gate — range in multiples of daily ATR
+  tightCoilRatio: 2.5,    // at or under this the UI calls it "Coiled"
   maxDayChange: 3,        // quiet tape today, no event bars
-  maxPctOffHigh: 10,      // basing near highs, not repairing damage
+  maxPctOffHigh: 15,      // basing below highs, not repairing real damage
 };
 
 // Market-wide consolidation shortlist settings
 const CONSOL_SHORTLIST = {
   groupedDays: 35,        // trading days of grouped history for the first pass
   maxCalendarDays: 55,    // calendar window to find those trading days in
-  shortlistSize: 50,      // finalists that get the full 450-day treatment
+  shortlistSize: 80,      // finalists that get the full 450-day treatment
 };
 
 function analyzeConsolidation(
@@ -584,11 +612,12 @@ function analyzeConsolidation(
   const ret = pctReturn(closes, CONFIG.rsLookback);
   const rsVsSpy = ret != null && spyReturn != null ? ret - spyReturn : null;
 
-  // The coil: 10-day high-low range
+  // The coil: 10-day high-low range, and that range in units of daily ATR
   const win10 = bars.slice(-10);
   const hi10 = Math.max(...win10.map(b => b.h));
   const lo10 = Math.min(...win10.map(b => b.l));
   const range10 = lo10 > 0 ? ((hi10 - lo10) / lo10) * 100 : 999;
+  const coilRatio = atrPct > 0 ? range10 / atrPct : 999;
 
   const changePct = snap?.changePct ?? 0;
 
@@ -607,7 +636,7 @@ function analyzeConsolidation(
   const upDay = closes.length >= 2 && closes[closes.length - 1] > closes[closes.length - 2];
   const blueDot = oversoldRecent && upDay && price >= ema21;
 
-  // --- Gates: liquid, trending, riding the EMAs, tight, quiet, near highs ---
+  // --- Gates: liquid, trending, riding the EMAs, tight for its own ATR ---
   if (avgDollarVol < CONFIG.minPrevDayDollarVol) return null;
   if (price < sma50 || price < sma200) return null;
   if (!(sma50 > sma200)) return null;
@@ -615,14 +644,17 @@ function analyzeConsolidation(
   if (Math.abs(distToEma10) > CONSOL_CONFIG.maxDistToEma10) return null;
   if (distToEma21 > CONSOL_CONFIG.maxAboveEma21 || distToEma21 < -CONSOL_CONFIG.maxBelowEma21) return null;
   if (range10 > CONSOL_CONFIG.maxRange10) return null;
+  if (coilRatio > CONSOL_CONFIG.maxCoilRatio) return null;
   if (Math.abs(changePct) > CONSOL_CONFIG.maxDayChange) return null;
   if (pctOffHigh > CONSOL_CONFIG.maxPctOffHigh) return null;
   if (rsVsSpy == null || rsVsSpy <= 0) return null;
 
   // Score (0-100) on the CNF grade lines (A>=70, B>=50):
-  // tightness 30 (range 4% or less saturates), EMA proximity 25,
+  // tightness 30 (2.0x ATR or tighter saturates), EMA proximity 25,
   // RS 30 (saturates at +20 vs SPY), trend quality 15.
-  const tightScore = Math.max(0, Math.min(1, (CONSOL_CONFIG.maxRange10 - range10) / (CONSOL_CONFIG.maxRange10 - 4))) * 30;
+  const tightScore = Math.max(0, Math.min(1,
+    (CONSOL_CONFIG.maxCoilRatio - coilRatio) / (CONSOL_CONFIG.maxCoilRatio - 2.0)
+  )) * 30;
   const proxScore =
     (1 - Math.abs(distToEma10) / CONSOL_CONFIG.maxDistToEma10) * 15 +
     Math.max(0, 1 - Math.abs(distToEma21) / CONSOL_CONFIG.maxAboveEma21) * 10;
@@ -676,6 +708,7 @@ function analyzeConsolidation(
     goldenCross: sma50 > sma200,
     ema21Rising,
     range10Pct: +range10.toFixed(1),
+    coilRatio: +coilRatio.toFixed(2),
     blueDot,
   };
 }
@@ -696,7 +729,7 @@ export async function GET() {
     const toScan = universe.filter(sym => !earningsBlackout.has(sym));
 
     // Market-wide 10/21 shortlist: grouped history for every symbol in the
-    // tradeable band, cheap EMA/coil math, keep the tightest names.
+    // tradeable band, cheap EMA/coil math, keep the tightest names by ATR ratio.
     const groupedSeries = await getGroupedSeries(new Set(snapMapAll.keys()));
     const consolShortlist = shortlistConsolidation(groupedSeries)
       .filter(sym => !earningsBlackout.has(sym));

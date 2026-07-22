@@ -29,6 +29,7 @@ interface SwingCandidate {
   avgDollarVolM: number;
   goldenCross: boolean;
   ema21Rising: boolean;
+  blueDot?: boolean;
   catalyst?: string | null;
   catalystUrl?: string | null;
   news?: string | null;
@@ -78,9 +79,34 @@ const cnfGradeOf = (score: number | null | undefined): CnfFilterType | null => {
   return 'C';
 };
 
-// True only for the backend's generic no-news fallback labels.
-const isGenericCatalyst = (catalyst: string | null | undefined) =>
-  !catalyst || catalyst.toLowerCase().startsWith('technical momentum');
+// Blue Dot marker — same treatment as the 10/21 consolidation table.
+const BlueDot = ({ className = '' }: { className?: string }) => (
+  <span
+    title="Blue Dot — oversold stoch reset firing on the daily"
+    className={`inline-block w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.7)] align-middle shrink-0 ${className}`}
+  />
+);
+
+// Sector strings sometimes arrive ticker-prefixed ("RKLB - AEROSPACE") from the
+// scanner payload. Strip the prefix so one bad row can't widen the column.
+const cleanSector = (sector: string | null | undefined, ticker?: string): string => {
+  if (!sector || sector === '—' || sector === '-') return '—';
+  let s = String(sector).trim();
+  if (ticker) {
+    const rx = new RegExp(`^${ticker}\\s*[-–—:]\\s*`, 'i');
+    s = s.replace(rx, '');
+  }
+  // Generic fallback: any leading 1-5 char all-caps token followed by a dash
+  s = s.replace(/^[A-Z]{1,5}\s*[-–—:]\s*/, '');
+  return s.trim() || '—';
+};
+
+// Fallback labels the backend uses when there's no real headline.
+const isGenericCatalyst = (catalyst: string | null | undefined) => {
+  if (!catalyst) return true;
+  const c = catalyst.toLowerCase().trim();
+  return c.startsWith('technical momentum') || c === 'recent news' || c === 'news' || c === 'technical';
+};
 
 // Real news headline for the thesis line — tolerant of the field name the
 // swing feed uses. Returns null when there's only the generic fallback.
@@ -264,8 +290,7 @@ export default function SwingCandidates() {
     return 'text-slate-500';
   };
 
-  // Shared styles — every column centered, tightened padding so the full
-  // table fits inside the container without horizontal clipping.
+  // Shared styles — every column centered, uniform tight padding
   const thBase = "px-1 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
   const tdBase = "px-1 pt-2.5 pb-1.5 text-center";
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
@@ -274,6 +299,7 @@ export default function SwingCandidates() {
   const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
   const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
   const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
+
   const activeFilterCount =
     (showStage2AOnly ? 1 : 0) +
     (showReadyOnly ? 1 : 0) +
@@ -381,21 +407,21 @@ export default function SwingCandidates() {
             <table className="w-full min-w-[1060px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
                   <th className={`${thBase} w-[4%]`} onClick={() => handleSort('score')}>CNF{getSortIcon('score')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className={`${thBase} w-[6%]`}>10/21</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} w-[7%]`}>10/21</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className={`${thBase} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} w-[26%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} w-[4%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className={`${thBase} w-[15%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
 
@@ -407,11 +433,15 @@ export default function SwingCandidates() {
                     const isPositive = (row.changePct ?? 0) >= 0;
                     const cat = catalystOf(row);
                     const catUrl = catalystUrlOf(row);
+                    const sectorText = cleanSector(row.sector, row.symbol);
                     return (
                       <React.Fragment key={row.symbol}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
                           <td className={tdBase}>
-                            <span title={row.name || row.symbol} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.symbol}</span>
+                            <div className="flex items-center justify-center gap-1.5">
+                              <span title={row.name || row.symbol} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.symbol}</span>
+                              {row.blueDot && <BlueDot />}
+                            </div>
                           </td>
                           <td className={tdBase}>
                             <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.score)}`}>{row.score}</span>
@@ -444,12 +474,12 @@ export default function SwingCandidates() {
                             <span className={`text-[11px] font-bold tracking-wide ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span>
                           </td>
                           <td className={tdBase}>
-                            <span className="block text-[10px] font-semibold tracking-wide uppercase text-slate-400 leading-tight break-words">{row.sector || '—'}</span>
+                            <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
                         {/* Sub-row: spacer | EMA PB + readout + catalyst | STR/STAT centered */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td className="w-[6%]"></td>
+                          <td className="w-[7%]"></td>
                           <td colSpan={12} className="pb-2.5 pt-1.5 pr-3">
                             <div className="flex items-center text-left">
                               <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">EMA PB</span>
@@ -471,18 +501,18 @@ export default function SwingCandidates() {
                             </div>
                           </td>
                           <td colSpan={2} className="pb-2.5 pt-1.5 align-middle">
-                            <div className="flex items-center justify-center gap-3 border-l border-white/10 px-2 py-1">
-                              <span className="flex items-center gap-1.5">
-                                <span className="text-[11px] text-slate-500">STR:</span>
-                                <span className={`text-[11px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
-                                <span className={`text-[11px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
+                            <div className="flex items-center justify-center gap-2 border-l border-white/10 px-1 py-1">
+                              <span className="flex items-center gap-1">
+                                <span className="text-[10px] text-slate-500">STR:</span>
+                                <span className={`text-[10px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
+                                <span className={`text-[10px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
                               </span>
-                              <span className="flex items-center gap-1.5">
-                                <span className="text-[11px] text-slate-500">STAT:</span>
+                              <span className="flex items-center gap-1">
+                                <span className="text-[10px] text-slate-500">STAT:</span>
                                 {isReady(row) ? (
-                                  <span className="text-[11px] font-semibold text-emerald-400">Ready</span>
+                                  <span className="text-[10px] font-semibold text-emerald-400">Ready</span>
                                 ) : (
-                                  <span className="text-[11px] font-semibold text-amber-400">Forming</span>
+                                  <span className="text-[10px] font-semibold text-amber-400">Forming</span>
                                 )}
                               </span>
                             </div>

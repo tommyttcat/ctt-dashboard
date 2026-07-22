@@ -72,9 +72,40 @@ const formatSetupName = (name: string | null) => {
   return name;
 };
 
-// True only for the backend's generic no-news fallback labels.
-const isGenericCatalyst = (catalyst: string | null | undefined) =>
-  !catalyst || catalyst.toLowerCase().startsWith('technical momentum');
+// Blue Dot Reversal renders as the dot itself rather than a text label.
+const isBlueDotSetup = (name: string | null | undefined): boolean => {
+  if (!name) return false;
+  const n = String(name).toLowerCase();
+  return n === 'blue dot rev' || n.includes('blue dot') || n.includes('bd rev');
+};
+
+const BlueDot = ({ className = '' }: { className?: string }) => (
+  <span
+    title="Blue Dot Reversal"
+    className={`inline-block w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.7)] align-middle shrink-0 ${className}`}
+  />
+);
+
+// Sector strings sometimes arrive ticker-prefixed ("RKLB - AEROSPACE") from the
+// scanner payload. Strip the prefix so one bad row can't widen the column.
+const cleanSector = (sector: string | null | undefined, ticker?: string): string => {
+  if (!sector || sector === '—' || sector === '-') return '—';
+  let s = String(sector).trim();
+  if (ticker) {
+    const rx = new RegExp(`^${ticker}\\s*[-–—:]\\s*`, 'i');
+    s = s.replace(rx, '');
+  }
+  // Generic fallback: any leading 1-5 char all-caps token followed by a dash
+  s = s.replace(/^[A-Z]{1,5}\s*[-–—:]\s*/, '');
+  return s.trim() || '—';
+};
+
+// Fallback labels the backend uses when there's no real headline.
+const isGenericCatalyst = (catalyst: string | null | undefined) => {
+  if (!catalyst) return true;
+  const c = catalyst.toLowerCase().trim();
+  return c.startsWith('technical momentum') || c === 'recent news' || c === 'news' || c === 'technical';
+};
 
 // Real news headline for the thesis line. Returns null when there's only the
 // generic fallback, or when the thesis already restates the headline (the
@@ -330,8 +361,7 @@ export default function DailySetups() {
     return 'text-slate-500';
   };
 
-  // Shared styles — every column centered, tightened padding so the full
-  // table fits inside the container without horizontal clipping.
+  // Shared styles — every column centered, uniform tight padding
   const thBase = "px-1 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
   const tdBase = "px-1 pt-2.5 pb-1.5 text-center";
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
@@ -440,22 +470,22 @@ export default function DailySetups() {
             <table className="w-full min-w-[1060px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
                   <th className={`${thBase} w-[4%]`} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className={`${thBase} w-[6%]`}>10/21</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} w-[7%]`}>10/21</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className={`${thBase} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} w-[12%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className={`${thBase} w-[14%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} w-[4%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               
@@ -470,6 +500,8 @@ export default function DailySetups() {
                     const tt = tradeTypeLabel(row.tradeType);
                     const st = rowStatus(row);
                     const cat = catalystForThesis(row);
+                    const sectorText = cleanSector(row.sector, row.ticker);
+                    const bdRev = isBlueDotSetup(row.setupName);
                     return (
                       <React.Fragment key={i}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -507,7 +539,7 @@ export default function DailySetups() {
                             <span className={`text-[11px] font-bold tracking-wide ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span>
                           </td>
                           <td className={tdBase}>
-                            <span className="block text-[10px] font-semibold tracking-wide uppercase text-slate-400 leading-tight break-words">{row.sector || '—'}</span>
+                            <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                           <td className={`${tdBase} text-[10px] leading-snug whitespace-normal break-words`}>
                             {!isGenericCatalyst(row.catalyst) ? (
@@ -516,6 +548,8 @@ export default function DailySetups() {
                               ) : (
                                 <span className="text-indigo-300/90 font-medium">{row.catalyst}</span>
                               )
+                            ) : bdRev ? (
+                              <BlueDot />
                             ) : formatSetupName(row.setupName) !== '—' ? (
                               <span className="text-slate-400 font-medium">{formatSetupName(row.setupName)}</span>
                             ) : (
@@ -525,12 +559,14 @@ export default function DailySetups() {
                         </tr>
                         {/* Sub-row: DAY/SWING chip under TICKER | name + thesis + catalyst | STR/STAT centered */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td className="w-[6%] text-center align-middle">
+                          <td className="w-[7%] text-center align-middle">
                             {tt && (<span className={typeChip}>{tt}</span>)}
                           </td>
                           <td colSpan={12} className="pb-2.5 pt-1.5 pr-3">
                             <div className="flex items-center text-left">
-                              <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">{formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—'}</span>
+                              <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">
+                                {bdRev ? <BlueDot /> : (formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—')}
+                              </span>
                               <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-3">
                                 {row.thesis ? (<span className="text-slate-500">{row.thesis}</span>) : (<span className="text-slate-600 italic">Awaiting quantitative confluence analysis…</span>)}
                                 {cat && (
@@ -549,20 +585,20 @@ export default function DailySetups() {
                             </div>
                           </td>
                           <td colSpan={3} className="pb-2.5 pt-1.5 align-middle">
-                            <div className="flex items-center justify-center gap-3 border-l border-white/10 px-2 py-1">
-                              <span className="flex items-center gap-1.5">
-                                <span className="text-[11px] text-slate-500">STR:</span>
-                                <span className={`text-[11px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
-                                <span className={`text-[11px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
+                            <div className="flex items-center justify-center gap-2 border-l border-white/10 px-1 py-1">
+                              <span className="flex items-center gap-1">
+                                <span className="text-[10px] text-slate-500">STR:</span>
+                                <span className={`text-[10px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
+                                <span className={`text-[10px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
                               </span>
-                              <span className="flex items-center gap-1.5">
-                                <span className="text-[11px] text-slate-500">STAT:</span>
+                              <span className="flex items-center gap-1">
+                                <span className="text-[10px] text-slate-500">STAT:</span>
                                 {st === 'Ready' ? (
-                                  <span className="text-[11px] font-semibold text-emerald-400">Ready</span>
+                                  <span className="text-[10px] font-semibold text-emerald-400">Ready</span>
                                 ) : st === 'Forming' ? (
-                                  <span className="text-[11px] font-semibold text-amber-400">Forming</span>
+                                  <span className="text-[10px] font-semibold text-amber-400">Forming</span>
                                 ) : (
-                                  <span className="text-[11px] font-semibold text-slate-600">—</span>
+                                  <span className="text-[10px] font-semibold text-slate-600">—</span>
                                 )}
                               </span>
                             </div>

@@ -70,6 +70,20 @@ const formatSetupName = (name: string | null) => {
   return name;
 };
 
+// Blue Dot Reversal renders as the dot itself rather than a text label.
+const isBlueDotSetup = (name: string | null | undefined): boolean => {
+  if (!name) return false;
+  const n = String(name).toLowerCase();
+  return n === 'blue dot rev' || n.includes('blue dot') || n.includes('bd rev');
+};
+
+const BlueDot = ({ className = '' }: { className?: string }) => (
+  <span
+    title="Blue Dot Reversal"
+    className={`inline-block w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.7)] align-middle shrink-0 ${className}`}
+  />
+);
+
 // Sector strings sometimes arrive ticker-prefixed ("RKLB - AEROSPACE") from the
 // scanner payload. Strip the prefix so one bad row can't widen the column.
 const cleanSector = (sector: string | null | undefined, ticker?: string): string => {
@@ -448,6 +462,7 @@ export default function StocksInPlay() {
                     const st = rowStatus(row);
                     const cat = catalystForThesis(row);
                     const sectorText = cleanSector(row.sector, row.ticker);
+                    const bdRev = isBlueDotSetup(row.setupName);
                     return (
                       <React.Fragment key={i}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -494,6 +509,8 @@ export default function StocksInPlay() {
                               ) : (
                                 <span className="text-indigo-300/90 font-medium">{row.catalyst}</span>
                               )
+                            ) : bdRev ? (
+                              <BlueDot />
                             ) : formatSetupName(row.setupName) !== '—' ? (
                               <span className="text-slate-400 font-medium">{formatSetupName(row.setupName)}</span>
                             ) : (
@@ -506,7 +523,9 @@ export default function StocksInPlay() {
                           <td className="w-[7%]"></td>
                           <td colSpan={12} className="pb-2.5 pt-1.5 pr-3">
                             <div className="flex items-center text-left">
-                              <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">{formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—'}</span>
+                              <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">
+                                {bdRev ? <BlueDot /> : (formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—')}
+                              </span>
                               <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-3">
                                 {row.thesis ? (<span className="text-slate-500">{row.thesis}</span>) : (<span className="text-slate-600 italic">Awaiting quantitative confluence analysis…</span>)}
                                 {cat && (
