@@ -238,6 +238,12 @@ export default function MacroScorecard() {
   const [breadth, setBreadth] = useState<BreadthData | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
 
+  // A/D trend: the feed only sends current counts, so direction is derived by
+  // comparing the incoming ratio against the previous poll. Flat until the
+  // move clears 1%, so tiny jitter doesn't flip the arrow every minute.
+  const [adTrend, setAdTrend] = useState<'up' | 'down' | 'flat'>('flat');
+  const prevAdRatio = useRef<number | null>(null);
+
   const cryptoWs = useRef<WebSocket | null>(null);
 
   // --- ENGINE 1: AUTO-MACRO SENTIMENT ALGO ---
@@ -274,6 +280,21 @@ export default function MacroScorecard() {
       setRiskMode(totalScore >= 0 ? 'ON' : 'OFF');
     }
   }, [quotes, breadth]);
+
+  // --- A/D DIRECTION: compare each new ratio against the last one ---
+  useEffect(() => {
+    if (!breadth || breadth.decliners <= 0) return;
+    const ratio = breadth.advancers / breadth.decliners;
+    const prev = prevAdRatio.current;
+
+    if (prev != null && prev > 0) {
+      const delta = (ratio - prev) / prev;
+      if (delta > 0.01) setAdTrend('up');
+      else if (delta < -0.01) setAdTrend('down');
+      // inside the dead-band: hold the previous arrow rather than flickering
+    }
+    prevAdRatio.current = ratio;
+  }, [breadth]);
 
   // --- ENGINE 2: SERVER-CACHED MACRO QUOTES ---
   // Reads /api/macro (KV-cached, ~1 FMP hit/min for ALL clients) instead of
@@ -519,6 +540,20 @@ export default function MacroScorecard() {
               <span className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 shrink-0">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
                 Internals
+              </span>
+
+              {/* A/D direction since the last refresh */}
+              <span
+                className={`text-sm font-bold leading-none shrink-0 ${
+                  adTrend === 'up' ? 'text-emerald-400' : adTrend === 'down' ? 'text-rose-400' : 'text-slate-600'
+                }`}
+                title={
+                  adTrend === 'up' ? 'A/D ratio improving since last refresh'
+                  : adTrend === 'down' ? 'A/D ratio deteriorating since last refresh'
+                  : 'A/D ratio unchanged'
+                }
+              >
+                {adTrend === 'up' ? '▲' : adTrend === 'down' ? '▼' : '–'}
               </span>
 
               <div className="flex items-center gap-3 flex-1 min-w-0">
