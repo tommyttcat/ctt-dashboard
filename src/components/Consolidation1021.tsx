@@ -403,20 +403,20 @@ export default function Consolidation1021() {
             <table className="w-full min-w-[1060px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} w-[7%]`}>TICKER</th>
-                  <th className={`${thBase} w-[4%]`}>CNF</th>
-                  <th className={`${thBase} w-[7%]`}>PRICE</th>
-                  <th className={`${thBase} w-[7%]`}>CHG%</th>
-                  <th className={`${thBase} w-[7%]`}>10/21</th>
-                  <th className={`${thBase} w-[6%]`}>VOL</th>
-                  <th className={`${thBase} w-[7%]`}>$VOL</th>
-                  <th className={`${thBase} w-[6%]`}>RVOL</th>
-                  <th className={`${thBase} w-[6%]`}>COIL</th>
-                  <th className={`${thBase} w-[6%]`}>RS/SPY</th>
-                  <th className={`${thBase} w-[7%]`}>%OFF HI</th>
-                  <th className={`${thBase} w-[6%]`}>MCAP</th>
+                  <th className={`${thBase} w-[8%]`}>TICKER</th>
+                  <th className={`${thBase} w-[5%]`}>CNF</th>
+                  <th className={`${thBase} w-[8%]`}>PRICE</th>
+                  <th className={`${thBase} w-[8%]`}>CHG%</th>
+                  <th className={`${thBase} w-[8%]`}>10/21</th>
+                  <th className={`${thBase} w-[7%]`}>VOL</th>
+                  <th className={`${thBase} w-[8%]`}>$VOL</th>
+                  <th className={`${thBase} w-[7%]`}>RVOL</th>
+                  <th className={`${thBase} w-[8%]`}>COIL</th>
+                  <th className={`${thBase} w-[7%]`}>RS/SPY</th>
+                  <th className={`${thBase} w-[8%]`}>%OFF HI</th>
+                  <th className={`${thBase} w-[7%]`}>MCAP</th>
                   <th className={`${thBase} w-[4%] border-l border-white/5`}>STAGE</th>
-                  <th className={`${thBase} w-[20%]`}>SECTOR</th>
+                  <th className={`${thBase} w-[7%]`}>SECTOR</th>
                 </tr>
               </thead>
 
@@ -478,7 +478,7 @@ export default function Consolidation1021() {
                         </tr>
                         {/* Sub-row: spacer | 10/21 HOLD + readout + catalyst | STR/STAT centered */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td className="w-[7%]"></td>
+                          <td className="w-[8%]"></td>
                           <td colSpan={11} className="pb-2.5 pt-1.5 pr-3">
                             <div className="flex items-center text-left">
                               <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">10/21 HOLD</span>
