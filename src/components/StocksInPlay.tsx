@@ -70,9 +70,26 @@ const formatSetupName = (name: string | null) => {
   return name;
 };
 
-// True only for the backend's generic no-news fallback labels.
-const isGenericCatalyst = (catalyst: string | null | undefined) =>
-  !catalyst || catalyst.toLowerCase().startsWith('technical momentum');
+// Sector strings sometimes arrive ticker-prefixed ("RKLB - AEROSPACE") from the
+// scanner payload. Strip the prefix so one bad row can't widen the column.
+const cleanSector = (sector: string | null | undefined, ticker?: string): string => {
+  if (!sector || sector === '—' || sector === '-') return '—';
+  let s = String(sector).trim();
+  if (ticker) {
+    const rx = new RegExp(`^${ticker}\\s*[-–—:]\\s*`, 'i');
+    s = s.replace(rx, '');
+  }
+  // Generic fallback: any leading 1-5 char all-caps token followed by a dash
+  s = s.replace(/^[A-Z]{1,5}\s*[-–—:]\s*/, '');
+  return s.trim() || '—';
+};
+
+// Fallback labels the backend uses when there's no real headline.
+const isGenericCatalyst = (catalyst: string | null | undefined) => {
+  if (!catalyst) return true;
+  const c = catalyst.toLowerCase().trim();
+  return c.startsWith('technical momentum') || c === 'recent news' || c === 'news' || c === 'technical';
+};
 
 // Real news headline for the thesis line. Returns null when there's only the
 // generic fallback, or when the thesis already restates the headline (the
@@ -297,10 +314,10 @@ export default function StocksInPlay() {
     return 'text-slate-500';
   };
 
-  // Shared styles — every column centered, tightened padding so the full
-  // table fits inside the container without horizontal clipping.
-  const thBase = "px-1 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
-  const tdBase = "px-1 pt-2.5 pb-1.5 text-center";
+  // Shared styles — every column centered, tight padding so the full table
+  // fits inside the container without horizontal clipping.
+  const thBase = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
+  const tdBase = "px-0.5 pt-2.5 pb-1.5 text-center";
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
   const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
   // Filter pills — matched to the Filter: 2A button (same height, font, tracking)
@@ -316,7 +333,7 @@ export default function StocksInPlay() {
     (vwapFilter !== 'All' ? 1 : 0);
 
   return (
-    <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
+    <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-4 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
       <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
         <div className="flex items-center gap-3">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
@@ -401,25 +418,25 @@ export default function StocksInPlay() {
             )}
           </div>
           <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            <table className="w-full min-w-[1060px] table-fixed border-collapse">
+            <table className="w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
                   <th className={`${thBase} w-[4%]`} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[6%]`}>10/21</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thBase} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} w-[12%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className={`${thBase} w-[14%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className={`${thBase} w-[10%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} w-[13%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               
@@ -431,6 +448,7 @@ export default function StocksInPlay() {
                     const isPositive = row.changePct >= 0;
                     const st = rowStatus(row);
                     const cat = catalystForThesis(row);
+                    const sectorText = cleanSector(row.sector, row.ticker);
                     return (
                       <React.Fragment key={i}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -468,7 +486,7 @@ export default function StocksInPlay() {
                             <span className={`text-[11px] font-bold tracking-wide ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span>
                           </td>
                           <td className={tdBase}>
-                            <span className="block text-[10px] font-semibold tracking-wide uppercase text-slate-400 leading-tight break-words">{row.sector || '—'}</span>
+                            <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                           <td className={`${tdBase} text-[10px] leading-snug whitespace-normal break-words`}>
                             {!isGenericCatalyst(row.catalyst) ? (
@@ -489,7 +507,7 @@ export default function StocksInPlay() {
                           <td className="w-[6%]"></td>
                           <td colSpan={12} className="pb-2.5 pt-1.5 pr-3">
                             <div className="flex items-center text-left">
-                              <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">{formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—'}</span>
+                              <span className="shrink-0 w-[100px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">{formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—'}</span>
                               <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-3">
                                 {row.thesis ? (<span className="text-slate-500">{row.thesis}</span>) : (<span className="text-slate-600 italic">Awaiting quantitative confluence analysis…</span>)}
                                 {cat && (
