@@ -314,16 +314,16 @@ export default function StocksInPlay() {
     return 'text-slate-500';
   };
 
-  // Shared styles — every column centered, tight padding so the full table
-  // fits inside the container without horizontal clipping.
-  const thBase = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
-  const tdBase = "px-0.5 pt-2.5 pb-1.5 text-center";
+  // Shared styles — compact type and minimal padding so 16 columns fit in
+  // ~720px without horizontal clipping.
+  const thBase = "px-0.5 py-2 text-[9px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
+  const tdBase = "px-0.5 pt-2 pb-1.5 text-center";
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
   const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
   // Filter pills — matched to the Filter: 2A button (same height, font, tracking)
-  const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
-  const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
-  const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
+  const pillWrap = "flex items-center gap-2 px-3 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
+  const pillLabel = "text-[10px] font-bold tracking-widest uppercase text-slate-400";
+  const pillBtn = "px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
 
   const activeFilterCount =
     (showStage2AOnly ? 1 : 0) +
@@ -333,30 +333,30 @@ export default function StocksInPlay() {
     (vwapFilter !== 'All' ? 1 : 0);
 
   return (
-    <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-4 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
-      <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
+    <div className="bg-[#101623] border border-white/5 rounded-2xl p-2 md:p-3 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
+      <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-4 border-b border-white/5 pb-3' : ''}`}>
         <div className="flex items-center gap-3">
-          <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
+          <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-3 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
             STOCKS IN PLAY
           </span>
         </div>
-        <div className="flex flex-col items-center gap-1.5">
-          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
+        <div className="flex flex-col items-center gap-1">
+          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-3 py-1 rounded-[10px] min-w-[110px]">
             <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>{displaySession}</span>
           </div>
-          {lastScanTime && (<span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">Updated: {formatTime(lastScanTime)} EST</span>)}
+          {lastScanTime && (<span className="text-[10px] text-slate-400/80 font-medium px-1 tracking-wide">Updated: {formatTime(lastScanTime)} EST</span>)}
         </div>
       </div>
       
       {isExpanded && (
         <>
-          <div className="flex flex-col gap-3 mb-4 relative z-10" onClick={(e) => e.stopPropagation()}>
+          <div className="flex flex-col gap-3 mb-3 relative z-10" onClick={(e) => e.stopPropagation()}>
             {/* Collapsed disclosure — one button, shows active filter count */}
             <div className="flex justify-center">
               <button
                 onClick={() => setShowFilters(!showFilters)}
-                className={`px-4 py-1.5 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 flex items-center gap-2 ${
+                className={`px-3 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all duration-300 flex items-center gap-2 ${
                   activeFilterCount > 0
                     ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]'
                     : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'
@@ -368,7 +368,7 @@ export default function StocksInPlay() {
             </div>
             {/* Expanded: one uniform pill strip */}
             {showFilters && (
-              <div className="flex flex-wrap justify-center items-center gap-3 w-full">
+              <div className="flex flex-wrap justify-center items-center gap-2 w-full">
                 <div className={pillWrap}>
                   <span className={pillLabel}>STAGE</span>
                   <div className="flex items-center gap-1">
@@ -418,24 +418,24 @@ export default function StocksInPlay() {
             )}
           </div>
           <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            <table className="w-full min-w-[940px] table-fixed border-collapse">
+            <table className="w-full min-w-[720px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
                   <th className={`${thBase} w-[4%]`} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[6%]`}>10/21</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thBase} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} w-[10%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} w-[9%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                   <th className={`${thBase} w-[13%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
@@ -453,17 +453,17 @@ export default function StocksInPlay() {
                       <React.Fragment key={i}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
                           <td className={tdBase}>
-                            <span title={row.name || row.ticker} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
+                            <span title={row.name || row.ticker} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[10px] font-bold px-1 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
                           </td>
                           <td className={tdBase}>
-                            <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.conviction)}`}>{row.conviction != null ? row.conviction : '--'}</span>
+                            <span className={`inline-block whitespace-nowrap px-1 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.conviction)}`}>{row.conviction != null ? row.conviction : '--'}</span>
                           </td>
-                          <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
+                          <td className={`${tdBase} text-[11px] text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
                             <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div>
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
+                          <td className={`${tdBase} text-[11px] font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
                           <td className={`${tdBase} whitespace-nowrap`}>
-                            <div className="flex items-center justify-center gap-1.5">
+                            <div className="flex items-center justify-center gap-1">
                               <div className="flex items-center gap-0.5">
                                 <span className="text-[9px] font-bold text-slate-500">10</span>
                                 <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} title={`10 EMA: ${row.aboveEma10 == null ? 'n/a' : row.aboveEma10 ? 'above' : 'below'}`}></div>
@@ -474,21 +474,21 @@ export default function StocksInPlay() {
                               </div>
                             </div>
                           </td>
-                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
-                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)}` : '—'}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
-                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
+                          <td className={`${tdBase} text-[11px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
+                          <td className={`${tdBase} text-[11px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
+                          <td className={`${tdBase} text-[11px] font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
+                          <td className={`${tdBase} text-[11px] font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
+                          <td className={`${tdBase} text-[11px] font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)}` : '—'}</td>
+                          <td className={`${tdBase} text-[11px] font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
+                          <td className={`${tdBase} text-[11px] font-bold whitespace-nowrap tabular-nums ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
+                          <td className={`${tdBase} text-[11px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
                           <td className={`${tdBase} whitespace-nowrap border-l border-white/5`}>
-                            <span className={`text-[11px] font-bold tracking-wide ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span>
+                            <span className={`text-[10px] font-bold tracking-wide ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span>
                           </td>
                           <td className={tdBase}>
-                            <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
+                            <span title={sectorText} className="block truncate text-[9px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
-                          <td className={`${tdBase} text-[10px] leading-snug whitespace-normal break-words`}>
+                          <td className={`${tdBase} text-[9px] leading-snug whitespace-normal break-words`}>
                             {!isGenericCatalyst(row.catalyst) ? (
                               row.catalystUrl ? (
                                 <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>
@@ -505,10 +505,10 @@ export default function StocksInPlay() {
                         {/* Sub-row: spacer | name + thesis + catalyst | STR/STAT centered */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[6%]"></td>
-                          <td colSpan={12} className="pb-2.5 pt-1.5 pr-3">
+                          <td colSpan={12} className="pb-2 pt-1 pr-2">
                             <div className="flex items-center text-left">
-                              <span className="shrink-0 w-[100px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">{formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—'}</span>
-                              <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-3">
+                              <span className="shrink-0 w-[88px] pr-2 text-[#7c8bfa] font-bold text-[10px] tracking-[0.08em] uppercase leading-tight">{formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—'}</span>
+                              <p className="flex-1 text-[10px] leading-relaxed whitespace-normal border-l border-white/10 pl-2.5">
                                 {row.thesis ? (<span className="text-slate-500">{row.thesis}</span>) : (<span className="text-slate-600 italic">Awaiting quantitative confluence analysis…</span>)}
                                 {cat && (
                                   <>
@@ -525,21 +525,21 @@ export default function StocksInPlay() {
                               </p>
                             </div>
                           </td>
-                          <td colSpan={3} className="pb-2.5 pt-1.5 align-middle">
-                            <div className="flex items-center justify-center gap-3 border-l border-white/10 px-2 py-1">
-                              <span className="flex items-center gap-1.5">
-                                <span className="text-[11px] text-slate-500">STR:</span>
-                                <span className={`text-[11px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
-                                <span className={`text-[11px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
+                          <td colSpan={3} className="pb-2 pt-1 align-middle">
+                            <div className="flex items-center justify-center gap-2 border-l border-white/10 px-1 py-1">
+                              <span className="flex items-center gap-1">
+                                <span className="text-[10px] text-slate-500">STR:</span>
+                                <span className={`text-[10px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
+                                <span className={`text-[10px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
                               </span>
-                              <span className="flex items-center gap-1.5">
-                                <span className="text-[11px] text-slate-500">STAT:</span>
+                              <span className="flex items-center gap-1">
+                                <span className="text-[10px] text-slate-500">STAT:</span>
                                 {st === 'Ready' ? (
-                                  <span className="text-[11px] font-semibold text-emerald-400">Ready</span>
+                                  <span className="text-[10px] font-semibold text-emerald-400">Ready</span>
                                 ) : st === 'Forming' ? (
-                                  <span className="text-[11px] font-semibold text-amber-400">Forming</span>
+                                  <span className="text-[10px] font-semibold text-amber-400">Forming</span>
                                 ) : (
-                                  <span className="text-[11px] font-semibold text-slate-600">—</span>
+                                  <span className="text-[10px] font-semibold text-slate-600">—</span>
                                 )}
                               </span>
                             </div>
