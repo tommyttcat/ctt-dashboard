@@ -40,6 +40,7 @@ interface ConsolCandidate {
 
 type CnfFilterType = 'All' | 'A' | 'B' | 'C';
 type VwapFilterType = 'All' | 'above' | 'below';
+type StatFilterType = 'All' | 'Coiled' | 'Setting Up';
 
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
@@ -70,6 +71,11 @@ const formatStageText = (stage: string | undefined) => {
 // Tight coil (<=6% ten-day range) = primed; looser = still setting up.
 const isCoiled = (c: ConsolCandidate) => c.range10Pct != null && c.range10Pct <= 6;
 
+// Rows with no range data can't be classified — they show as neutral and are
+// excluded from both STAT filters rather than defaulting into "Setting Up".
+const statOf = (c: ConsolCandidate): StatFilterType | null =>
+  c.range10Pct == null ? null : (isCoiled(c) ? 'Coiled' : 'Setting Up');
+
 // CNF grade from the score: A >= 70, B >= 50, C below (same lines as all cards).
 const cnfGradeOf = (score: number | null | undefined): CnfFilterType | null => {
   if (score == null) return null;
@@ -98,7 +104,10 @@ const buildReadout = (c: ConsolCandidate) => {
   const d10 = c.distToEma10 != null ? `${c.distToEma10 >= 0 ? '+' : ''}${c.distToEma10.toFixed(1)}% vs 10 EMA` : '';
   const d21 = `${c.distToEma21 >= 0 ? '+' : ''}${c.distToEma21.toFixed(1)}% vs 21 EMA`;
   const structure = c.goldenCross ? '50>200 intact' : '50<200';
-  return `Coiling in a ${range} on the rising 10/21 (${[d10, d21].filter(Boolean).join(', ')}), ${c.pctOffHigh.toFixed(0)}% off highs with RS +${c.rsVsSpy.toFixed(0)} vs SPY, ${structure}. Watching for a range break on expanding volume.`;
+  const posture = c.range10Pct != null && c.range10Pct > 6
+    ? 'Range is still wide — needs further contraction before it is actionable'
+    : 'Watching for a range break on expanding volume';
+  return `Coiling in a ${range} on the rising 10/21 (${[d10, d21].filter(Boolean).join(', ')}), ${c.pctOffHigh.toFixed(0)}% off highs with RS +${c.rsVsSpy.toFixed(0)} vs SPY, ${structure}. ${posture}.`;
 };
 
 const above21 = (c: ConsolCandidate) => c.aboveEma21 ?? c.distToEma21 >= 0;
@@ -111,7 +120,7 @@ export default function Consolidation1021() {
   const [status, setStatus] = useState<string>('Syncing...');
   const [generatedAt, setGeneratedAt] = useState<number | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
-  const [showCoiledOnly, setShowCoiledOnly] = useState<boolean>(false);
+  const [statFilter, setStatFilter] = useState<StatFilterType>('All');
   const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(false);
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
@@ -144,10 +153,11 @@ export default function Consolidation1021() {
   // Clicking the active option clears back to All (toggle behavior)
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
+  const handleStatFilter = (val: StatFilterType) => setStatFilter(prev => prev === val ? 'All' : val);
 
   const filtered = useMemo(() => {
     let list = [...candidates];
-    if (showCoiledOnly) list = list.filter(isCoiled);
+    if (statFilter !== 'All') list = list.filter(c => statOf(c) === statFilter);
     if (showStage2AOnly) list = list.filter(c => c.stage && c.stage.includes('2A'));
     if (marketCapFilter !== 'All') {
       list = list.filter(c => {
@@ -165,7 +175,11 @@ export default function Consolidation1021() {
       list = list.filter(c => c.vwapStatus === vwapFilter);
     }
     return list;
-  }, [candidates, showCoiledOnly, showStage2AOnly, marketCapFilter, cnfFilter, vwapFilter]);
+  }, [candidates, statFilter, showStage2AOnly, marketCapFilter, cnfFilter, vwapFilter]);
+
+  // Counts for the header chips — computed off the unfiltered set
+  const coiledCount = useMemo(() => candidates.filter(c => statOf(c) === 'Coiled').length, [candidates]);
+  const settingUpCount = useMemo(() => candidates.filter(c => statOf(c) === 'Setting Up').length, [candidates]);
 
   const getScoreBadge = (score: number) => {
     if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
@@ -190,6 +204,7 @@ export default function Consolidation1021() {
     if (r == null) return 'text-slate-500';
     if (r <= 5) return 'text-purple-400';
     if (r <= 6.5) return 'text-emerald-400';
+    if (r <= 10) return 'text-amber-400';
     return 'text-slate-300';
   };
   const getRsColor = (rs: number) => {
@@ -233,7 +248,7 @@ export default function Consolidation1021() {
 
   const activeFilterCount =
     (showStage2AOnly ? 1 : 0) +
-    (showCoiledOnly ? 1 : 0) +
+    (statFilter !== 'All' ? 1 : 0) +
     (marketCapFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
     (vwapFilter !== 'All' ? 1 : 0);
@@ -241,12 +256,17 @@ export default function Consolidation1021() {
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
       <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
             10/21 CONSOLIDATION
           </span>
-          <span className="hidden md:inline text-[10px] text-slate-500 font-medium tracking-wide">Tight bases riding the 10/21 EMAs</span>
+          {candidates.length > 0 && (
+            <span className="hidden md:flex items-center gap-2">
+              <span className="text-[10px] font-bold tracking-wider uppercase text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">{coiledCount} Coiled</span>
+              <span className="text-[10px] font-bold tracking-wider uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">{settingUpCount} Setting Up</span>
+            </span>
+          )}
         </div>
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
@@ -285,7 +305,11 @@ export default function Consolidation1021() {
                 <div className={pillWrap}>
                   <span className={pillLabel}>STAT</span>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => setShowCoiledOnly(!showCoiledOnly)} className={`${pillBtn} ${showCoiledOnly ? filterBtnActive : filterBtnIdle}`}>Coiled</button>
+                    {(['Coiled', 'Setting Up'] as StatFilterType[]).map((opt) => (
+                      <button key={opt} onClick={() => handleStatFilter(opt)} className={`${pillBtn} ${statFilter === opt ? filterBtnActive : filterBtnIdle}`}>
+                        {opt}
+                      </button>
+                    ))}
                   </div>
                 </div>
                 <div className={pillWrap}>
@@ -350,6 +374,7 @@ export default function Consolidation1021() {
                     const isPositive = (row.changePct ?? 0) >= 0;
                     const cat = catalystOf(row);
                     const catUrl = catalystUrlOf(row);
+                    const st = statOf(row);
                     return (
                       <React.Fragment key={row.symbol}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -426,10 +451,12 @@ export default function Consolidation1021() {
                               </span>
                               <span className="flex items-center gap-1.5">
                                 <span className="text-[11px] text-slate-500">STAT:</span>
-                                {isCoiled(row) ? (
+                                {st === 'Coiled' ? (
                                   <span className="text-[11px] font-semibold text-emerald-400">Coiled</span>
-                                ) : (
+                                ) : st === 'Setting Up' ? (
                                   <span className="text-[11px] font-semibold text-amber-400">Setting Up</span>
+                                ) : (
+                                  <span className="text-[11px] font-semibold text-slate-600">—</span>
                                 )}
                               </span>
                             </div>
