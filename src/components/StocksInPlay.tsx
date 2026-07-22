@@ -314,8 +314,8 @@ export default function StocksInPlay() {
     return 'text-slate-500';
   };
 
-  // Shared styles — compact type and minimal padding so 16 columns fit in
-  // ~720px without horizontal clipping.
+  // Shared styles — compact type and minimal padding so 16 columns sit tight
+  // inside the narrowed card.
   const thBase = "px-0.5 py-2 text-[9px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
   const tdBase = "px-0.5 pt-2 pb-1.5 text-center";
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
@@ -333,7 +333,7 @@ export default function StocksInPlay() {
     (vwapFilter !== 'All' ? 1 : 0);
 
   return (
-    <div className="bg-[#101623] border border-white/5 rounded-2xl p-2 md:p-3 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
+    <div className="bg-[#101623] border border-white/5 rounded-2xl p-2 md:p-3 relative overflow-hidden shadow-xl w-full max-w-[1040px] mx-auto">
       <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-4 border-b border-white/5 pb-3' : ''}`}>
         <div className="flex items-center gap-3">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-3 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
@@ -421,22 +421,22 @@ export default function StocksInPlay() {
             <table className="w-full min-w-[720px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
                   <th className={`${thBase} w-[4%]`} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[6%]`}>10/21</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thBase} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} w-[9%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className={`${thBase} w-[13%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} w-[11%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               
@@ -504,7 +504,7 @@ export default function StocksInPlay() {
                         </tr>
                         {/* Sub-row: spacer | name + thesis + catalyst | STR/STAT centered */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td className="w-[6%]"></td>
+                          <td className="w-[7%]"></td>
                           <td colSpan={12} className="pb-2 pt-1 pr-2">
                             <div className="flex items-center text-left">
                               <span className="shrink-0 w-[88px] pr-2 text-[#7c8bfa] font-bold text-[10px] tracking-[0.08em] uppercase leading-tight">{formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—'}</span>
