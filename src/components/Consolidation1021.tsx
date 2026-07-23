@@ -175,6 +175,7 @@ export default function Consolidation1021() {
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
+  const [copied, setCopied] = useState<boolean>(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -236,6 +237,29 @@ export default function Consolidation1021() {
     }
     return list;
   }, [candidates, statFilter, showStage2AOnly, marketCapFilter, cnfFilter, emaFilter, vwapFilter]);
+
+  // Copy the visible tickers, comma-separated — TradingView's watchlist
+  // import format. Respects whatever filters are active.
+  const handleCopyTickers = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const tickers = filtered.map(c => c.symbol).join(',');
+    if (!tickers) return;
+    try {
+      await navigator.clipboard.writeText(tickers);
+    } catch {
+      // Clipboard API needs a secure context; fall back to a temp textarea.
+      const ta = document.createElement('textarea');
+      ta.value = tickers;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch {}
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
 
   // Counts for the header chips — computed off the unfiltered set
   const coiledCount = useMemo(() => candidates.filter(c => statOf(c) === 'Coiled').length, [candidates]);
@@ -334,6 +358,19 @@ export default function Consolidation1021() {
               <span className="text-[10px] font-bold tracking-wider uppercase text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">{coiledCount} Coiled</span>
               <span className="text-[10px] font-bold tracking-wider uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">{settingUpCount} Setting Up</span>
             </span>
+          )}
+          {filtered.length > 0 && (
+            <button
+              onClick={handleCopyTickers}
+              title={`Copy ${filtered.length} ticker${filtered.length !== 1 ? 's' : ''} for TradingView`}
+              className={`text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded border transition-all duration-200 ${
+                copied
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  : 'bg-[#161c2a] text-slate-400 border-white/5 hover:text-slate-200 hover:bg-white/[0.04]'
+              }`}
+            >
+              {copied ? `✓ Copied ${filtered.length}` : `Copy ${filtered.length}`}
+            </button>
           )}
         </div>
         <div className="flex flex-col items-center gap-1.5">
