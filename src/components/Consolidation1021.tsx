@@ -47,7 +47,8 @@ type DVolFilterType = 'All' | '20' | '50' | '100';
 
 /* ---- Coil thresholds, in multiples of daily ATR ----------------
    Mirrors CONSOL_CONFIG.tightCoilRatio / maxCoilRatio in the scan
-   route — keep these in sync if either side is tuned.
+   route (app/api/swing-candidates/run/route.ts) — keep these in
+   sync if either side is tuned.
    ---------------------------------------------------------------- */
 const COIL_TIGHT_RATIO = 2.5;
 const COIL_LOOSE_RATIO = 4.0;
@@ -55,8 +56,8 @@ const COIL_TIGHT_PCT = 6;
 const COIL_LOOSE_PCT = 10;
 
 // $VOL filter buckets, in millions of 20-day average dollar volume.
-// The scan's own floor is $10M, so "10" is effectively everything.
-const DVOL_BUCKETS: DVolFilterType[] = ['10', '20', '50', '100'];
+// The scan's own floor is $10M, so buckets start above that.
+const DVOL_BUCKETS: DVolFilterType[] = ['20', '50', '100'];
 
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
