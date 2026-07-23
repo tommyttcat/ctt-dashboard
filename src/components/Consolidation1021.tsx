@@ -43,7 +43,7 @@ type CnfFilterType = 'All' | 'A' | 'B' | 'C';
 type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
 type StatFilterType = 'All' | 'Coiled' | 'Setting Up';
-type DVolFilterType = 'All' | '10' | '20' | '50' | '100';
+type DVolFilterType = 'All' | '20' | '50' | '100';
 
 /* ---- Coil thresholds, in multiples of daily ATR ----------------
    Mirrors CONSOL_CONFIG.tightCoilRatio / maxCoilRatio in the scan
