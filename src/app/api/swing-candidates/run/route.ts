@@ -373,10 +373,11 @@ function shortlistConsolidation(series: Map<string, LiteBar[]>): string[] {
     const price = closes[closes.length - 1];
     if (price < CONFIG.minPrice || price > CONFIG.maxPrice) return;
 
-    // Liquidity: 20-day average dollar volume
+    // Liquidity: 20-day average dollar volume (consolidation floor, not the
+    // swing scan's — coiling names are quieter by definition).
     const dv = bars.slice(-20).map(b => b.c * b.v);
     const avgDollarVol = dv.reduce((a, b) => a + b, 0) / dv.length;
-    if (avgDollarVol < CONFIG.minPrevDayDollarVol) return;
+    if (avgDollarVol < CONSOL_CONFIG.minDollarVol) return;
 
     const e10 = emaLite(closes, 10);
     const e21 = emaLite(closes, 21);
@@ -557,14 +558,15 @@ function analyze(
 // A stock drifts to roughly 3-4x ATR over ten sessions; tighter is a coil.
 // ---------------------------------------------------------------
 const CONSOL_CONFIG = {
-  maxDistToEma10: 5,      // hugging the 10 EMA (±5%)
-  maxAboveEma21: 5,       // not extended more than 5% above the 21
-  maxBelowEma21: 1.5,     // small undercuts tolerated, no breakdowns
-  maxRange10: 14,         // absolute ceiling on the raw 10-day range
-  maxCoilRatio: 4.0,      // primary gate — range in multiples of daily ATR
-  tightCoilRatio: 2.5,    // at or under this the UI calls it "Coiled"
-  maxDayChange: 3,        // quiet tape today, no event bars
-  maxPctOffHigh: 15,      // basing below highs, not repairing real damage
+  minDollarVol: 10_000_000, // hard floor — 20-day avg dollar volume
+  maxDistToEma10: 5,        // hugging the 10 EMA (±5%)
+  maxAboveEma21: 5,         // not extended more than 5% above the 21
+  maxBelowEma21: 1.5,       // small undercuts tolerated, no breakdowns
+  maxRange10: 14,           // absolute ceiling on the raw 10-day range
+  maxCoilRatio: 4.0,        // primary gate — range in multiples of daily ATR
+  tightCoilRatio: 2.5,      // at or under this the UI calls it "Coiled"
+  maxDayChange: 3,          // quiet tape today, no event bars
+  maxPctOffHigh: 15,        // basing below highs, not repairing real damage
 };
 
 // Market-wide consolidation shortlist settings
@@ -637,7 +639,7 @@ function analyzeConsolidation(
   const blueDot = oversoldRecent && upDay && price >= ema21;
 
   // --- Gates: liquid, trending, riding the EMAs, tight for its own ATR ---
-  if (avgDollarVol < CONFIG.minPrevDayDollarVol) return null;
+  if (avgDollarVol < CONSOL_CONFIG.minDollarVol) return null;
   if (price < sma50 || price < sma200) return null;
   if (!(sma50 > sma200)) return null;
   if (!ema21Rising) return null;

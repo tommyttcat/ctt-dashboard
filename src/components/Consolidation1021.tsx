@@ -43,6 +43,7 @@ type CnfFilterType = 'All' | 'A' | 'B' | 'C';
 type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
 type StatFilterType = 'All' | 'Coiled' | 'Setting Up';
+type DVolFilterType = 'All' | '10' | '20' | '50' | '100';
 
 /* ---- Coil thresholds, in multiples of daily ATR ----------------
    Mirrors CONSOL_CONFIG.tightCoilRatio / maxCoilRatio in the scan
@@ -52,6 +53,10 @@ const COIL_TIGHT_RATIO = 2.5;
 const COIL_LOOSE_RATIO = 4.0;
 const COIL_TIGHT_PCT = 6;
 const COIL_LOOSE_PCT = 10;
+
+// $VOL filter buckets, in millions of 20-day average dollar volume.
+// The scan's own floor is $10M, so "10" is effectively everything.
+const DVOL_BUCKETS: DVolFilterType[] = ['10', '20', '50', '100'];
 
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
@@ -173,6 +178,7 @@ export default function Consolidation1021() {
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
+  const [dVolFilter, setDVolFilter] = useState<DVolFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
@@ -203,6 +209,7 @@ export default function Consolidation1021() {
   // Clicking the active option clears back to All (toggle behavior)
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
   const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
+  const handleDVolFilter = (val: DVolFilterType) => setDVolFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
   const handleStatFilter = (val: StatFilterType) => setStatFilter(prev => prev === val ? 'All' : val);
 
@@ -232,11 +239,17 @@ export default function Consolidation1021() {
         return true;
       });
     }
+    // $VOL buckets are "and above", measured on 20-day average dollar volume —
+    // the same metric the scan gates on, not today's (light-by-design) volume.
+    if (dVolFilter !== 'All') {
+      const minM = Number(dVolFilter);
+      list = list.filter(c => (Number(c.avgDollarVolM) || 0) >= minM);
+    }
     if (vwapFilter !== 'All') {
       list = list.filter(c => c.vwapStatus === vwapFilter);
     }
     return list;
-  }, [candidates, statFilter, showStage2AOnly, marketCapFilter, cnfFilter, emaFilter, vwapFilter]);
+  }, [candidates, statFilter, showStage2AOnly, marketCapFilter, cnfFilter, emaFilter, dVolFilter, vwapFilter]);
 
   // Copy the visible tickers, comma-separated — TradingView's watchlist
   // import format. Respects whatever filters are active.
@@ -343,6 +356,7 @@ export default function Consolidation1021() {
     (marketCapFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
     (emaFilter !== 'All' ? 1 : 0) +
+    (dVolFilter !== 'All' ? 1 : 0) +
     (vwapFilter !== 'All' ? 1 : 0);
 
   return (
@@ -422,6 +436,21 @@ export default function Consolidation1021() {
                   <div className="flex items-center gap-1">
                     {['All', 'Small', 'Large'].map((cap) => (
                       <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>{cap}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>$VOL</span>
+                  <div className="flex items-center gap-1">
+                    {DVOL_BUCKETS.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => handleDVolFilter(opt)}
+                        title={`20-day average dollar volume of $${opt}M and above`}
+                        className={`${pillBtn} ${dVolFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {opt}M+
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -521,7 +550,12 @@ export default function Consolidation1021() {
                             </div>
                           </td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
-                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{row.dVol ? formatCurrency(row.dVol) : (row.avgDollarVolM ? `$${row.avgDollarVolM}M` : '—')}</td>
+                          <td
+                            className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}
+                            title={row.avgDollarVolM ? `Today: ${row.dVol ? formatCurrency(row.dVol) : '—'} · 20-day avg: $${row.avgDollarVolM}M (what the $VOL filter uses)` : undefined}
+                          >
+                            {row.dVol ? formatCurrency(row.dVol) : (row.avgDollarVolM ? `$${row.avgDollarVolM}M` : '—')}
+                          </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
                           <td className={`${tdBase} whitespace-nowrap tabular-nums`} title={`10-day range${ratio != null ? ` — ${ratio.toFixed(2)}x the ${row.atrPct.toFixed(1)}% daily ATR` : ''}`}>
                             <div className={`text-xs font-bold leading-tight ${getCoilColor(row)}`}>{row.range10Pct != null ? `${row.range10Pct.toFixed(1)}%` : '—'}</div>
