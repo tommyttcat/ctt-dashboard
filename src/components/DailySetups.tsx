@@ -35,10 +35,15 @@ interface SetupData {
 }
 
 type SortDirection = 'asc' | 'desc';
-type CnfFilterType = 'All' | 'A' | 'B' | 'C';
+type CnfFilterType = 'All' | 'A' | 'B';
 type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
 type AdrFilterType = 'All' | '5' | '10';
+
+// CNF is a floor, not an exact grade: picking B shows B and A. Unset shows
+// everything, which is effectively "C and above".
+const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
+const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 
 // ADR buckets in percent — the scan already floors at 3%, so these tighten.
 const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
@@ -136,14 +141,6 @@ const tradeTypeLabel = (tradeType: string | null | undefined): string | null => 
   if (t.startsWith('day')) return 'DAY';
   if (t.startsWith('swing')) return 'SWING';
   return tradeType.toUpperCase();
-};
-
-// CNF grade from the unified score: A >= 70, B >= 50, C below.
-const cnfGradeOf = (score: number | null | undefined): CnfFilterType | null => {
-  if (score == null) return null;
-  if (score >= 70) return 'A';
-  if (score >= 50) return 'B';
-  return 'C';
 };
 
 // Status: prefer the backend field; derive from the raw metrics when the KV
@@ -275,8 +272,10 @@ export default function DailySetups() {
       });
     }
 
+    // CNF is "grade and above": B keeps both B and A.
     if (cnfFilter !== 'All') {
-      filtered = filtered.filter(s => cnfGradeOf(s.conviction) === cnfFilter);
+      const minScore = CNF_MIN_SCORE[cnfFilter];
+      filtered = filtered.filter(s => (s.conviction ?? -1) >= minScore);
     }
 
     if (emaFilter !== 'All') {
@@ -517,8 +516,13 @@ export default function DailySetups() {
                 <div className={pillWrap}>
                   <span className={pillLabel}>CNF</span>
                   <div className="flex items-center gap-1">
-                    {(['A', 'B', 'C'] as CnfFilterType[]).map((g) => (
-                      <button key={g} onClick={() => handleCnfFilter(g)} className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}>
+                    {CNF_BUCKETS.map((g) => (
+                      <button
+                        key={g}
+                        onClick={() => handleCnfFilter(g)}
+                        title={g === 'A' ? 'A only — CNF 70 and above' : 'B and above — includes A (CNF 50+)'}
+                        className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}
+                      >
                         {g}
                       </button>
                     ))}
@@ -577,7 +581,7 @@ export default function DailySetups() {
                 {status.includes('Syncing') && setups.length === 0 ? (
                   <tr><td colSpan={17} className="py-12 text-center border-b border-white/5"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
                 ) : filteredAndSortedSetups.length === 0 ? (
-                  <tr><td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">No active tracking items currently matching momentum criteria.</td></tr>
+                  <tr><td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">{setups.length > 0 ? 'No names match the current filters.' : 'No active tracking items currently matching momentum criteria.'}</td></tr>
                 ) : (
                   filteredAndSortedSetups.map((row, i) => {
                     const isPositive = row.changePct >= 0;

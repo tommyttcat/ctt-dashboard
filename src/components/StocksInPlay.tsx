@@ -34,10 +34,15 @@ interface StockInPlay {
 }
 
 type SortDirection = 'asc' | 'desc';
-type CnfFilterType = 'All' | 'A' | 'B' | 'C';
+type CnfFilterType = 'All' | 'A' | 'B';
 type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
 type AdrFilterType = 'All' | '5' | '10';
+
+// CNF is a floor, not an exact grade: picking B shows B and A. Unset shows
+// everything, which is effectively "C and above".
+const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
+const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 
 // ADR buckets in percent — the scan already floors at 3%, so these tighten.
 const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
@@ -125,14 +130,6 @@ const catalystForThesis = (row: StockInPlay): string | null => {
 const adrOf = (row: StockInPlay): number | null => {
   if (row.adrPct == null || isNaN(Number(row.adrPct))) return null;
   return Number(row.adrPct);
-};
-
-// CNF grade from the unified score: A >= 70, B >= 50, C below.
-const cnfGradeOf = (score: number | null | undefined): CnfFilterType | null => {
-  if (score == null) return null;
-  if (score >= 70) return 'A';
-  if (score >= 50) return 'B';
-  return 'C';
 };
 
 // Status: prefer the backend field; derive from the raw metrics when the KV
@@ -245,8 +242,10 @@ export default function StocksInPlay() {
         return true;
       });
     }
+    // CNF is "grade and above": B keeps both B and A.
     if (cnfFilter !== 'All') {
-      filtered = filtered.filter(s => cnfGradeOf(s.conviction) === cnfFilter);
+      const minScore = CNF_MIN_SCORE[cnfFilter];
+      filtered = filtered.filter(s => (s.conviction ?? -1) >= minScore);
     }
     if (emaFilter !== 'All') {
       filtered = filtered.filter(s => {
@@ -321,7 +320,7 @@ export default function StocksInPlay() {
   // ADR — more daily range means more to capture once it moves.
   const getAdrColor = (a: number | null) => {
     if (a == null) return 'text-slate-500';
-    if (a >= 8) return 'text-purple-400';
+    if (a >= 10) return 'text-purple-400';
     if (a >= 5) return 'text-emerald-400';
     if (a >= 3) return 'text-slate-300';
     return 'text-slate-500';
@@ -481,8 +480,13 @@ export default function StocksInPlay() {
                 <div className={pillWrap}>
                   <span className={pillLabel}>CNF</span>
                   <div className="flex items-center gap-1">
-                    {(['A', 'B', 'C'] as CnfFilterType[]).map((g) => (
-                      <button key={g} onClick={() => handleCnfFilter(g)} className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}>
+                    {CNF_BUCKETS.map((g) => (
+                      <button
+                        key={g}
+                        onClick={() => handleCnfFilter(g)}
+                        title={g === 'A' ? 'A only — CNF 70 and above' : 'B and above — includes A (CNF 50+)'}
+                        className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}
+                      >
                         {g}
                       </button>
                     ))}
@@ -537,8 +541,8 @@ export default function StocksInPlay() {
               </thead>
               
               <tbody className="divide-y divide-white/5">
-                {stocks.length === 0 ? (
-                  <tr><td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td></tr>
+                {filteredAndSortedStocks.length === 0 ? (
+                  <tr><td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium">{stocks.length > 0 ? 'No names match the current filters.' : 'No tracking instruments currently found matching criteria.'}</td></tr>
                 ) : (
                   filteredAndSortedStocks.map((row, i) => {
                     const isPositive = row.changePct >= 0;

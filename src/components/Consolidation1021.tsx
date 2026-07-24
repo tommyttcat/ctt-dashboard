@@ -40,7 +40,7 @@ interface ConsolCandidate {
   headline?: string | null;
 }
 
-type CnfFilterType = 'All' | 'A' | 'B' | 'C';
+type CnfFilterType = 'All' | 'A' | 'B';
 type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
 type StatFilterType = 'All' | 'Coiled' | 'Setting Up';
@@ -56,6 +56,11 @@ const COIL_TIGHT_RATIO = 2.5;
 const COIL_LOOSE_RATIO = 4.0;
 const COIL_TIGHT_PCT = 6;
 const COIL_LOOSE_PCT = 10;
+
+// CNF is a floor, not an exact grade: picking B shows B and A. Unset shows
+// everything, which is effectively "C and above".
+const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
+const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 
 // $VOL buckets in millions of 20-day average dollar volume (scan floor: $10M).
 const DVOL_BUCKETS: DVolFilterType[] = ['20', '50', '100'];
@@ -112,14 +117,6 @@ const statOf = (c: ConsolCandidate): StatFilterType | null => {
 };
 
 const isCoiled = (c: ConsolCandidate) => statOf(c) === 'Coiled';
-
-// CNF grade from the score: A >= 70, B >= 50, C below (same lines as all cards).
-const cnfGradeOf = (score: number | null | undefined): CnfFilterType | null => {
-  if (score == null) return null;
-  if (score >= 70) return 'A';
-  if (score >= 50) return 'B';
-  return 'C';
-};
 
 // Blue Dot marker — oversold stoch reset firing on the daily.
 const BlueDot = ({ className = '' }: { className?: string }) => (
@@ -239,8 +236,10 @@ export default function Consolidation1021() {
         return true;
       });
     }
+    // CNF is "grade and above": B keeps both B and A.
     if (cnfFilter !== 'All') {
-      list = list.filter(c => cnfGradeOf(c.score) === cnfFilter);
+      const minScore = CNF_MIN_SCORE[cnfFilter];
+      list = list.filter(c => (c.score ?? -1) >= minScore);
     }
     if (emaFilter !== 'All') {
       list = list.filter(c => {
@@ -502,8 +501,13 @@ export default function Consolidation1021() {
                 <div className={pillWrap}>
                   <span className={pillLabel}>CNF</span>
                   <div className="flex items-center gap-1">
-                    {(['A', 'B', 'C'] as CnfFilterType[]).map((g) => (
-                      <button key={g} onClick={() => handleCnfFilter(g)} className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}>
+                    {CNF_BUCKETS.map((g) => (
+                      <button
+                        key={g}
+                        onClick={() => handleCnfFilter(g)}
+                        title={g === 'A' ? 'A only — CNF 70 and above' : 'B and above — includes A (CNF 50+)'}
+                        className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}
+                      >
                         {g}
                       </button>
                     ))}

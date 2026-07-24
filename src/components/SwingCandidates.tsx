@@ -39,10 +39,15 @@ interface SwingCandidate {
 }
 
 type SortDirection = 'asc' | 'desc';
-type CnfFilterType = 'All' | 'A' | 'B' | 'C';
+type CnfFilterType = 'All' | 'A' | 'B';
 type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
 type AdrFilterType = 'All' | '5' | '10';
+
+// CNF is a floor, not an exact grade: picking B shows B and A. Unset shows
+// everything, which is effectively "C and above".
+const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
+const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 
 // ADR buckets in percent — the scan already floors at 3%, so these tighten.
 const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
@@ -75,14 +80,6 @@ const formatStageText = (stage: string | undefined) => {
 
 // Ready = stoch deep and pullback tight — the blue dot could fire imminently.
 const isReady = (c: SwingCandidate) => c.stochK <= 25 && Math.abs(c.distToEma21) <= 2.5;
-
-// CNF grade from the score: A >= 70, B >= 50, C below (same lines as all cards).
-const cnfGradeOf = (score: number | null | undefined): CnfFilterType | null => {
-  if (score == null) return null;
-  if (score >= 70) return 'A';
-  if (score >= 50) return 'B';
-  return 'C';
-};
 
 const adrOf = (c: SwingCandidate): number | null => {
   if (c.adrPct == null || isNaN(Number(c.adrPct))) return null;
@@ -212,8 +209,10 @@ export default function SwingCandidates() {
         return true;
       });
     }
+    // CNF is "grade and above": B keeps both B and A.
     if (cnfFilter !== 'All') {
-      filtered = filtered.filter(c => cnfGradeOf(c.score) === cnfFilter);
+      const minScore = CNF_MIN_SCORE[cnfFilter];
+      filtered = filtered.filter(c => (c.score ?? -1) >= minScore);
     }
     if (emaFilter !== 'All') {
       filtered = filtered.filter(c => {
@@ -454,8 +453,13 @@ export default function SwingCandidates() {
                 <div className={pillWrap}>
                   <span className={pillLabel}>CNF</span>
                   <div className="flex items-center gap-1">
-                    {(['A', 'B', 'C'] as CnfFilterType[]).map((g) => (
-                      <button key={g} onClick={() => handleCnfFilter(g)} className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}>
+                    {CNF_BUCKETS.map((g) => (
+                      <button
+                        key={g}
+                        onClick={() => handleCnfFilter(g)}
+                        title={g === 'A' ? 'A only — CNF 70 and above' : 'B and above — includes A (CNF 50+)'}
+                        className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}
+                      >
                         {g}
                       </button>
                     ))}
