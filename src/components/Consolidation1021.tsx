@@ -45,7 +45,7 @@ type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
 type StatFilterType = 'All' | 'Coiled' | 'Setting Up';
 type DVolFilterType = 'All' | '20' | '50' | '100';
-type AdrFilterType = 'All' | '5' | '7' | '10';
+type AdrFilterType = 'All' | '5' | '10';
 
 /* ---- Coil thresholds, in multiples of daily ATR ----------------
    Mirrors CONSOL_CONFIG.tightCoilRatio / maxCoilRatio in the scan
@@ -59,8 +59,8 @@ const COIL_LOOSE_PCT = 10;
 
 // $VOL buckets in millions of 20-day average dollar volume (scan floor: $10M).
 const DVOL_BUCKETS: DVolFilterType[] = ['20', '50', '100'];
-// ADR buckets in percent — the scan already floors at 4%, so these tighten.
-const ADR_BUCKETS: AdrFilterType[] = ['5', '7', '10'];
+// ADR buckets in percent — the scan already floors at 3%, so these tighten.
+const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
 
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
@@ -321,9 +321,9 @@ export default function Consolidation1021() {
   // ADR — more daily range means more to capture on the break.
   const getAdrColor = (a: number | null) => {
     if (a == null) return 'text-slate-500';
-    if (a >= 8) return 'text-purple-400';
-    if (a >= 6) return 'text-emerald-400';
-    if (a >= 4) return 'text-slate-300';
+    if (a >= 10) return 'text-purple-400';
+    if (a >= 5) return 'text-emerald-400';
+    if (a >= 3) return 'text-slate-300';
     return 'text-slate-500';
   };
   // Coil color keys off the ATR-normalized ratio, not the raw percent.
@@ -491,7 +491,7 @@ export default function Consolidation1021() {
                       <button
                         key={opt}
                         onClick={() => handleAdrFilter(opt)}
-                        title={`20-day average daily range of ${opt}% and above — scan floor is 4%`}
+                        title={`20-day average daily range of ${opt}% and above — scan floor is 3%`}
                         className={`${pillBtn} ${adrFilter === opt ? filterBtnActive : filterBtnIdle}`}
                       >
                         {opt}%+

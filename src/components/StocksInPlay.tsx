@@ -27,6 +27,7 @@ interface StockInPlay {
   stochK?: number | null;
   rsVsSpy?: number | null;
   distToEma21?: number | null;
+  adrPct?: number | null;
   goldenCross?: boolean | null;
   ema21Rising?: boolean | null;
   status?: string | null;
@@ -36,6 +37,10 @@ type SortDirection = 'asc' | 'desc';
 type CnfFilterType = 'All' | 'A' | 'B' | 'C';
 type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
+type AdrFilterType = 'All' | '5' | '10';
+
+// ADR buckets in percent — the scan already floors at 3%, so these tighten.
+const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
 
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
@@ -117,6 +122,11 @@ const catalystForThesis = (row: StockInPlay): string | null => {
   return cat;
 };
 
+const adrOf = (row: StockInPlay): number | null => {
+  if (row.adrPct == null || isNaN(Number(row.adrPct))) return null;
+  return Number(row.adrPct);
+};
+
 // CNF grade from the unified score: A >= 70, B >= 50, C below.
 const cnfGradeOf = (score: number | null | undefined): CnfFilterType | null => {
   if (score == null) return null;
@@ -146,8 +156,10 @@ export default function StocksInPlay() {
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
+  const [adrFilter, setAdrFilter] = useState<AdrFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
+  const [copied, setCopied] = useState<boolean>(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -189,6 +201,7 @@ export default function StocksInPlay() {
               stochK: item.stochK ?? null,
               rsVsSpy: item.rsVsSpy ?? null,
               distToEma21: item.distToEma21 ?? null,
+              adrPct: item.adrPct ?? null,
               goldenCross: item.goldenCross ?? null,
               ema21Rising: item.ema21Rising ?? null,
               status: item.status ?? null,
@@ -217,6 +230,7 @@ export default function StocksInPlay() {
   // Clicking the active option clears back to All (toggle behavior)
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
   const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
+  const handleAdrFilter = (val: AdrFilterType) => setAdrFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
 
   const filteredAndSortedStocks = useMemo(() => {
@@ -242,6 +256,14 @@ export default function StocksInPlay() {
         return true;
       });
     }
+    // ADR buckets are "and above" on the 20-day average daily range.
+    if (adrFilter !== 'All') {
+      const minAdr = Number(adrFilter);
+      filtered = filtered.filter(s => {
+        const a = adrOf(s);
+        return a != null && a >= minAdr;
+      });
+    }
     if (vwapFilter !== 'All') {
       filtered = filtered.filter(s => s.vwapStatus === vwapFilter);
     }
@@ -255,7 +277,30 @@ export default function StocksInPlay() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [stocks, sortConfig, showStage2AOnly, marketCapFilter, cnfFilter, emaFilter, vwapFilter]);
+  }, [stocks, sortConfig, showStage2AOnly, marketCapFilter, cnfFilter, emaFilter, adrFilter, vwapFilter]);
+
+  // Copy the visible tickers, comma-separated — TradingView's watchlist
+  // import format. Respects whatever filters are active.
+  const handleCopyTickers = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const tickers = filteredAndSortedStocks.map(s => s.ticker).join(',');
+    if (!tickers) return;
+    try {
+      await navigator.clipboard.writeText(tickers);
+    } catch {
+      // Clipboard API needs a secure context; fall back to a temp textarea.
+      const ta = document.createElement('textarea');
+      ta.value = tickers;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch {}
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
 
   const getSortIcon = (columnKey: keyof StockInPlay) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
@@ -271,6 +316,14 @@ export default function StocksInPlay() {
     if (!rvol) return 'text-slate-500';
     if (rvol >= 2) return 'text-amber-400';
     if (rvol >= 1.5) return 'text-emerald-400';
+    return 'text-slate-500';
+  };
+  // ADR — more daily range means more to capture once it moves.
+  const getAdrColor = (a: number | null) => {
+    if (a == null) return 'text-slate-500';
+    if (a >= 8) return 'text-purple-400';
+    if (a >= 5) return 'text-emerald-400';
+    if (a >= 3) return 'text-slate-300';
     return 'text-slate-500';
   };
   const getFloatColor = (float: number | null) => {
@@ -343,16 +396,30 @@ export default function StocksInPlay() {
     (marketCapFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
     (emaFilter !== 'All' ? 1 : 0) +
+    (adrFilter !== 'All' ? 1 : 0) +
     (vwapFilter !== 'All' ? 1 : 0);
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
       <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
             STOCKS IN PLAY
           </span>
+          {filteredAndSortedStocks.length > 0 && (
+            <button
+              onClick={handleCopyTickers}
+              title={`Copy ${filteredAndSortedStocks.length} ticker${filteredAndSortedStocks.length !== 1 ? 's' : ''} for TradingView`}
+              className={`text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded border transition-all duration-200 ${
+                copied
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  : 'bg-[#161c2a] text-slate-400 border-white/5 hover:text-slate-200 hover:bg-white/[0.04]'
+              }`}
+            >
+              {copied ? `✓ Copied ${filteredAndSortedStocks.length}` : `Copy ${filteredAndSortedStocks.length}`}
+            </button>
+          )}
         </div>
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
@@ -397,6 +464,21 @@ export default function StocksInPlay() {
                   </div>
                 </div>
                 <div className={pillWrap}>
+                  <span className={pillLabel}>ADR</span>
+                  <div className="flex items-center gap-1">
+                    {ADR_BUCKETS.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => handleAdrFilter(opt)}
+                        title={`20-day average daily range of ${opt}% and above — scan floor is 3%`}
+                        className={`${pillBtn} ${adrFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {opt}%+
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
                   <span className={pillLabel}>CNF</span>
                   <div className="flex items-center gap-1">
                     {(['A', 'B', 'C'] as CnfFilterType[]).map((g) => (
@@ -431,31 +513,32 @@ export default function StocksInPlay() {
             )}
           </div>
           <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            <table className="w-full min-w-[1060px] table-fixed border-collapse">
+            <table className="w-full min-w-[1120px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
                   <th className={`${thBase} w-[4%]`} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className={`${thBase} w-[7%]`}>10/21</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} w-[6%]`}>10/21</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thBase} w-[4%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className={`${thBase} w-[9%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
               
               <tbody className="divide-y divide-white/5">
                 {stocks.length === 0 ? (
-                  <tr><td colSpan={16} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td></tr>
+                  <tr><td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td></tr>
                 ) : (
                   filteredAndSortedStocks.map((row, i) => {
                     const isPositive = row.changePct >= 0;
@@ -463,6 +546,7 @@ export default function StocksInPlay() {
                     const cat = catalystForThesis(row);
                     const sectorText = cleanSector(row.sector, row.ticker);
                     const bdRev = isBlueDotSetup(row.setupName);
+                    const adr = adrOf(row);
                     return (
                       <React.Fragment key={i}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -492,6 +576,9 @@ export default function StocksInPlay() {
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`} title="20-day average daily range (high/low) — the anti-chop measure">
+                            {adr != null ? `${adr.toFixed(1)}%` : '—'}
+                          </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)}` : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
@@ -521,7 +608,7 @@ export default function StocksInPlay() {
                         {/* Sub-row: spacer | name + thesis + catalyst | STR/STAT centered */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%]"></td>
-                          <td colSpan={12} className="pb-2.5 pt-1.5 pr-3">
+                          <td colSpan={13} className="pb-2.5 pt-1.5 pr-3">
                             <div className="flex items-center text-left">
                               <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">
                                 {bdRev ? <BlueDot /> : (formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—')}
@@ -550,7 +637,7 @@ export default function StocksInPlay() {
                                 <span className={`text-[10px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
                                 <span className={`text-[10px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
                               </span>
-                              <span className="flex items-center gap-1">
+                              <span className="flex items-center gap-1 whitespace-nowrap">
                                 <span className="text-[10px] text-slate-500">STAT:</span>
                                 {st === 'Ready' ? (
                                   <span className="text-[10px] font-semibold text-emerald-400">Ready</span>

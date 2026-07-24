@@ -19,6 +19,7 @@ interface SwingCandidate {
   stage?: string;
   vwapStatus?: 'above' | 'below' | 'neutral';
   atrPct: number;
+  adrPct?: number | null;
   pctOffHigh: number;
   distToEma21: number;
   distToEma10?: number;
@@ -41,6 +42,10 @@ type SortDirection = 'asc' | 'desc';
 type CnfFilterType = 'All' | 'A' | 'B' | 'C';
 type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
+type AdrFilterType = 'All' | '5' | '10';
+
+// ADR buckets in percent — the scan already floors at 3%, so these tighten.
+const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
 
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
@@ -77,6 +82,11 @@ const cnfGradeOf = (score: number | null | undefined): CnfFilterType | null => {
   if (score >= 70) return 'A';
   if (score >= 50) return 'B';
   return 'C';
+};
+
+const adrOf = (c: SwingCandidate): number | null => {
+  if (c.adrPct == null || isNaN(Number(c.adrPct))) return null;
+  return Number(c.adrPct);
 };
 
 // Blue Dot marker — same treatment as the 10/21 consolidation table.
@@ -124,7 +134,9 @@ const buildReadout = (c: SwingCandidate) => {
   const emaState = c.ema21Rising ? 'rising' : 'flat/declining';
   const stochState = c.stochK <= 20 ? 'deeply oversold' : c.stochK <= 30 ? 'oversold' : 'approaching oversold';
   const structure = c.goldenCross ? '50>200 intact' : '50<200 — weaker structure';
-  return `${Math.abs(c.distToEma21).toFixed(1)}% ${emaSide} ${emaState} 21 EMA, stoch ${c.stochK.toFixed(0)} (${stochState}), ATR ${c.atrPct.toFixed(1)}%, ${c.pctOffHigh.toFixed(0)}% off highs with RS +${c.rsVsSpy.toFixed(0)} vs SPY, ${structure}. Watching for BD + MACD confirmation.`;
+  const adr = adrOf(c);
+  const adrBit = adr != null ? `, ADR ${adr.toFixed(1)}%` : '';
+  return `${Math.abs(c.distToEma21).toFixed(1)}% ${emaSide} ${emaState} 21 EMA, stoch ${c.stochK.toFixed(0)} (${stochState}), ATR ${c.atrPct.toFixed(1)}%${adrBit}, ${c.pctOffHigh.toFixed(0)}% off highs with RS +${c.rsVsSpy.toFixed(0)} vs SPY, ${structure}. Watching for BD + MACD confirmation.`;
 };
 
 // Backward-compatible: derive above-EMA from dist if the payload predates the booleans
@@ -145,8 +157,10 @@ export default function SwingCandidates() {
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
+  const [adrFilter, setAdrFilter] = useState<AdrFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
+  const [copied, setCopied] = useState<boolean>(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -181,6 +195,7 @@ export default function SwingCandidates() {
 
   // Clicking the active option clears back to All (toggle behavior)
   const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
+  const handleAdrFilter = (val: AdrFilterType) => setAdrFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
 
@@ -210,6 +225,14 @@ export default function SwingCandidates() {
         return true;
       });
     }
+    // ADR buckets are "and above" on the 20-day average daily range.
+    if (adrFilter !== 'All') {
+      const minAdr = Number(adrFilter);
+      filtered = filtered.filter(c => {
+        const a = adrOf(c);
+        return a != null && a >= minAdr;
+      });
+    }
     if (vwapFilter !== 'All') {
       filtered = filtered.filter(c => c.vwapStatus === vwapFilter);
     }
@@ -223,7 +246,30 @@ export default function SwingCandidates() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, showReadyOnly, showStage2AOnly, marketCapFilter, cnfFilter, emaFilter, vwapFilter]);
+  }, [candidates, sortConfig, showReadyOnly, showStage2AOnly, marketCapFilter, cnfFilter, emaFilter, adrFilter, vwapFilter]);
+
+  // Copy the visible tickers, comma-separated — TradingView's watchlist
+  // import format. Respects whatever filters are active.
+  const handleCopyTickers = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const tickers = filteredAndSorted.map(c => c.symbol).join(',');
+    if (!tickers) return;
+    try {
+      await navigator.clipboard.writeText(tickers);
+    } catch {
+      // Clipboard API needs a secure context; fall back to a temp textarea.
+      const ta = document.createElement('textarea');
+      ta.value = tickers;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch {}
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
 
   const getSortIcon = (columnKey: keyof SwingCandidate) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
@@ -245,6 +291,14 @@ export default function SwingCandidates() {
     if (!rvol) return 'text-slate-500';
     if (rvol >= 2) return 'text-amber-400';
     if (rvol >= 1.5) return 'text-emerald-400';
+    return 'text-slate-500';
+  };
+  // ADR — more daily range means more to capture once it moves.
+  const getAdrColor = (a: number | null) => {
+    if (a == null) return 'text-slate-500';
+    if (a >= 10) return 'text-purple-400';
+    if (a >= 5) return 'text-emerald-400';
+    if (a >= 3) return 'text-slate-300';
     return 'text-slate-500';
   };
   const getFloatColor = (float: number | null | undefined) => {
@@ -306,18 +360,32 @@ export default function SwingCandidates() {
     (marketCapFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
     (emaFilter !== 'All' ? 1 : 0) +
+    (adrFilter !== 'All' ? 1 : 0) +
     (vwapFilter !== 'All' ? 1 : 0);
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
       <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
             REVERSAL / SWING
           </span>
           {spyReturn !== null && (
             <span className="hidden md:inline text-[10px] text-slate-500 font-medium tracking-wide">SPY 3M: {spyReturn >= 0 ? '+' : ''}{spyReturn.toFixed(1)}%</span>
+          )}
+          {filteredAndSorted.length > 0 && (
+            <button
+              onClick={handleCopyTickers}
+              title={`Copy ${filteredAndSorted.length} ticker${filteredAndSorted.length !== 1 ? 's' : ''} for TradingView`}
+              className={`text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded border transition-all duration-200 ${
+                copied
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  : 'bg-[#161c2a] text-slate-400 border-white/5 hover:text-slate-200 hover:bg-white/[0.04]'
+              }`}
+            >
+              {copied ? `✓ Copied ${filteredAndSorted.length}` : `Copy ${filteredAndSorted.length}`}
+            </button>
           )}
         </div>
         <div className="flex flex-col items-center gap-1.5">
@@ -369,6 +437,21 @@ export default function SwingCandidates() {
                   </div>
                 </div>
                 <div className={pillWrap}>
+                  <span className={pillLabel}>ADR</span>
+                  <div className="flex items-center gap-1">
+                    {ADR_BUCKETS.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => handleAdrFilter(opt)}
+                        title={`20-day average daily range of ${opt}% and above — scan floor is 3%`}
+                        className={`${pillBtn} ${adrFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {opt}%+
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
                   <span className={pillLabel}>CNF</span>
                   <div className="flex items-center gap-1">
                     {(['A', 'B', 'C'] as CnfFilterType[]).map((g) => (
@@ -404,36 +487,38 @@ export default function SwingCandidates() {
           </div>
 
           <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            <table className="w-full min-w-[1060px] table-fixed border-collapse">
+            <table className="w-full min-w-[1120px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
                   <th className={`${thBase} w-[4%]`} onClick={() => handleSort('score')}>CNF{getSortIcon('score')}</th>
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className={`${thBase} w-[7%]`}>10/21</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} w-[6%]`}>10/21</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thBase} w-[4%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} w-[15%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} w-[16%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-white/5">
-                {candidates.length === 0 ? (
-                  <tr><td colSpan={15} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? 'No candidates match current filter criteria.' : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
+                {filteredAndSorted.length === 0 ? (
+                  <tr><td colSpan={16} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No candidates in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
                 ) : (
                   filteredAndSorted.map((row) => {
                     const isPositive = (row.changePct ?? 0) >= 0;
                     const cat = catalystOf(row);
                     const catUrl = catalystUrlOf(row);
                     const sectorText = cleanSector(row.sector, row.symbol);
+                    const adr = adrOf(row);
                     return (
                       <React.Fragment key={row.symbol}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -466,6 +551,9 @@ export default function SwingCandidates() {
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{row.dVol ? formatCurrency(row.dVol) : (row.avgDollarVolM ? `$${row.avgDollarVolM}M` : '—')}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`} title="20-day average daily range (high/low) — the anti-chop measure">
+                            {adr != null ? `${adr.toFixed(1)}%` : '—'}
+                          </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy >= 0 ? '+' : ''}{row.rsVsSpy.toFixed(1)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK.toFixed(1)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
@@ -480,7 +568,7 @@ export default function SwingCandidates() {
                         {/* Sub-row: spacer | EMA PB + readout + catalyst | STR/STAT centered */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%]"></td>
-                          <td colSpan={12} className="pb-2.5 pt-1.5 pr-3">
+                          <td colSpan={13} className="pb-2.5 pt-1.5 pr-3">
                             <div className="flex items-center text-left">
                               <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">EMA PB</span>
                               <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-3">
@@ -507,7 +595,7 @@ export default function SwingCandidates() {
                                 <span className={`text-[10px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
                                 <span className={`text-[10px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
                               </span>
-                              <span className="flex items-center gap-1">
+                              <span className="flex items-center gap-1 whitespace-nowrap">
                                 <span className="text-[10px] text-slate-500">STAT:</span>
                                 {isReady(row) ? (
                                   <span className="text-[10px] font-semibold text-emerald-400">Ready</span>

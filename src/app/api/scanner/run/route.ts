@@ -331,6 +331,7 @@ const buildReadout = (t: any): string | null => {
   if (t.pctOffHigh != null) parts.push(`${Math.abs(t.pctOffHigh).toFixed(0)}% off highs`);
   if (t.rsVsSpy != null) parts.push(`RS ${t.rsVsSpy >= 0 ? '+' : ''}${t.rsVsSpy.toFixed(0)} vs SPY`);
   if (t.atrPct != null) parts.push(`ATR ${t.atrPct.toFixed(1)}%`);
+  if (t.adrPct != null) parts.push(`ADR ${t.adrPct.toFixed(1)}%`);
   if (t.goldenCross != null) parts.push(t.goldenCross ? '50>200 intact' : '50<200');
   if (parts.length === 0) return null;
   return parts.join(', ') + '.';
@@ -692,6 +693,10 @@ export async function GET(request: Request) {
     const MIN_CHANGE = 4.0;
     const MIN_PRICE = 1.00;
     const MIN_DOLLAR_VOL = 5000000; // $5M traded — kills untradeable low-priced spikes
+    // Anti-chop: 20-day average daily range. A name that can't travel 3% on a
+    // typical session isn't worth an intraday or swing entry, however clean
+    // the setup looks. Same floor used by the swing and 10/21 scans.
+    const MIN_ADR_PCT = 3.0;
 
     let processedSnapshot: any[] = [];
 
@@ -897,6 +902,20 @@ export async function GET(request: Request) {
         avgVol = barCount > 0 ? sumVol / barCount : 0;
         atr = trCount > 0 ? sumTR / trCount : 0;
       }
+
+      // Average Daily Range % (Minervini): SMA20(High/Low) - 1. Unlike ATR it
+      // has no gap component, so it measures the intraday room a typical
+      // session actually offers — the anti-chop metric.
+      let adrPct: number | null = null;
+      if (dailyBars.length >= 20) {
+        let ratioSum = 0;
+        let ratioCount = 0;
+        for (let i = 0; i < 20; i++) {
+          const b = dailyBars[i];
+          if (b && b.h > 0 && b.l > 0) { ratioSum += b.h / b.l; ratioCount++; }
+        }
+        if (ratioCount > 0) adrPct = ((ratioSum / ratioCount) - 1) * 100;
+      }
       
       // 10 & 21 EMA + trend-structure fields (STR data + readout).
       let aboveEma10: boolean | null = null;
@@ -1025,6 +1044,7 @@ export async function GET(request: Request) {
         goldenCross,
         pctOffHigh: pctOffHigh != null ? parseFloat(pctOffHigh.toFixed(1)) : null,
         atrPct: atrPct != null ? parseFloat(atrPct.toFixed(2)) : null,
+        adrPct: adrPct != null ? parseFloat(adrPct.toFixed(2)) : null,
         stochK: stochK != null ? parseFloat(stochK.toFixed(1)) : null,
         rsVsSpy: rsVsSpy != null ? parseFloat(rsVsSpy.toFixed(1)) : null,
         gapPct: gapPct != null ? parseFloat(gapPct.toFixed(2)) : null,
@@ -1190,7 +1210,8 @@ export async function GET(request: Request) {
          r.dVol >= MIN_DOLLAR_VOL &&
          r.changePct >= MIN_CHANGE &&
          r.atr >= 1.0 && 
-         r.avgVol >= MIN_AVG_VOL
+         r.avgVol >= MIN_AVG_VOL &&
+         r.adrPct != null && r.adrPct >= MIN_ADR_PCT
       )
       .slice(0, 10);
 
@@ -1200,7 +1221,8 @@ export async function GET(request: Request) {
          r !== undefined && 
          r.vol >= MIN_VOLUME && 
          r.dVol >= MIN_DOLLAR_VOL &&
-         r.changePct >= MIN_CHANGE
+         r.changePct >= MIN_CHANGE &&
+         r.adrPct != null && r.adrPct >= MIN_ADR_PCT
       )
       .slice(0, 10);
     
