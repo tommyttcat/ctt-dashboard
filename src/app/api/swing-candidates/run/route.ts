@@ -61,6 +61,7 @@ interface Candidate {
   stage: string;
   vwapStatus: 'above' | 'below' | 'neutral';
   atrPct: number;
+  adrPct?: number;
   pctOffHigh: number;
   distToEma21: number;
   distToEma10: number;
@@ -189,6 +190,21 @@ function atr(bars: Bar[], period = 14): number | null {
   let a = trs.slice(0, period).reduce((x, y) => x + y, 0) / period;
   for (let i = period; i < trs.length; i++) a = (a * (period - 1) + trs[i]) / period;
   return a;
+}
+
+// Average Daily Range % — the Minervini definition: SMA(High/Low) - 1.
+// Distinct from ATR: no gap component, so it measures how much intraday
+// room the stock actually gives you on a typical session.
+function adrPct(bars: Bar[], period = 20): number | null {
+  if (bars.length < period) return null;
+  const recent = bars.slice(-period);
+  let sum = 0;
+  let n = 0;
+  for (const b of recent) {
+    if (b.l > 0 && b.h > 0) { sum += b.h / b.l; n++; }
+  }
+  if (n === 0) return null;
+  return ((sum / n) - 1) * 100;
 }
 
 function stochK(bars: Bar[], length = 10, smooth = 4): number | null {
@@ -365,6 +381,20 @@ function shortlistConsolidation(series: Map<string, LiteBar[]>): string[] {
     return price > 0 ? (a / price) * 100 : null;
   };
 
+  // ADR% on the lite bars — same Minervini formula as the full pass, so
+  // names that will fail the ADR gate don't burn shortlist slots.
+  const adrPctLite = (bars: LiteBar[], period = 20): number | null => {
+    if (bars.length < period) return null;
+    const recent = bars.slice(-period);
+    let sum = 0;
+    let n = 0;
+    for (const b of recent) {
+      if (b.l > 0 && b.h > 0) { sum += b.h / b.l; n++; }
+    }
+    if (n === 0) return null;
+    return ((sum / n) - 1) * 100;
+  };
+
   const picks: { sym: string; ratio: number }[] = [];
 
   series.forEach((bars, sym) => {
@@ -378,6 +408,10 @@ function shortlistConsolidation(series: Map<string, LiteBar[]>): string[] {
     const dv = bars.slice(-20).map(b => b.c * b.v);
     const avgDollarVol = dv.reduce((a, b) => a + b, 0) / dv.length;
     if (avgDollarVol < CONSOL_CONFIG.minDollarVol) return;
+
+    // Chop gate: the stock has to actually move on a typical day.
+    const adr = adrPctLite(bars, 20);
+    if (adr == null || adr < CONSOL_CONFIG.minAdrPct) return;
 
     const e10 = emaLite(closes, 10);
     const e21 = emaLite(closes, 21);
@@ -461,6 +495,7 @@ function analyze(
   if (!sma50 || !sma200 || !ema10 || !ema21 || !atr14 || kVal == null) return null;
 
   const atrPct = (atr14 / price) * 100;
+  const adr = adrPct(bars, 20);
   const hi52 = Math.max(...bars.slice(-252).map(b => b.h));
   const pctOffHigh = ((hi52 - price) / hi52) * 100;
   const distToEma21 = ((price - ema21) / ema21) * 100;
@@ -535,6 +570,7 @@ function analyze(
     stage,
     vwapStatus,
     atrPct: +atrPct.toFixed(2),
+    adrPct: adr != null ? +adr.toFixed(2) : undefined,
     pctOffHigh: +pctOffHigh.toFixed(1),
     distToEma21: +distToEma21.toFixed(2),
     distToEma10: +distToEma10.toFixed(2),
@@ -556,9 +592,14 @@ function analyze(
 // Tightness is judged by coil ratio = 10-day range / daily ATR%, so an
 // 8.6%-ATR name and a 1.5%-ATR name are held to the same standard.
 // A stock drifts to roughly 3-4x ATR over ten sessions; tighter is a coil.
+//
+// The ADR gate is the anti-chop filter: a name with a 1.5% average daily
+// range can look beautifully "coiled" while simply being dead. Requiring
+// real daily range means the eventual break has something behind it.
 // ---------------------------------------------------------------
 const CONSOL_CONFIG = {
   minDollarVol: 10_000_000, // hard floor — 20-day avg dollar volume
+  minAdrPct: 3.0,           // anti-chop — 20-day average daily range %
   maxDistToEma10: 5,        // hugging the 10 EMA (±5%)
   maxAboveEma21: 5,         // not extended more than 5% above the 21
   maxBelowEma21: 1.5,       // small undercuts tolerated, no breakdowns
@@ -600,6 +641,7 @@ function analyzeConsolidation(
   if (!sma50 || !sma200 || !ema10 || !ema21 || !atr14 || kVal == null) return null;
 
   const atrPct = (atr14 / price) * 100;
+  const adr = adrPct(bars, 20);
   const hi52 = Math.max(...bars.slice(-252).map(b => b.h));
   const pctOffHigh = ((hi52 - price) / hi52) * 100;
   const distToEma21 = ((price - ema21) / ema21) * 100;
@@ -638,8 +680,9 @@ function analyzeConsolidation(
   const upDay = closes.length >= 2 && closes[closes.length - 1] > closes[closes.length - 2];
   const blueDot = oversoldRecent && upDay && price >= ema21;
 
-  // --- Gates: liquid, trending, riding the EMAs, tight for its own ATR ---
+  // --- Gates: liquid, moves enough to matter, trending, riding the EMAs ---
   if (avgDollarVol < CONSOL_CONFIG.minDollarVol) return null;
+  if (adr == null || adr < CONSOL_CONFIG.minAdrPct) return null;
   if (price < sma50 || price < sma200) return null;
   if (!(sma50 > sma200)) return null;
   if (!ema21Rising) return null;
@@ -699,6 +742,7 @@ function analyzeConsolidation(
     stage,
     vwapStatus,
     atrPct: +atrPct.toFixed(2),
+    adrPct: +adr.toFixed(2),
     pctOffHigh: +pctOffHigh.toFixed(1),
     distToEma21: +distToEma21.toFixed(2),
     distToEma10: +distToEma10.toFixed(2),

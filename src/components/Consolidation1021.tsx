@@ -19,6 +19,7 @@ interface ConsolCandidate {
   stage?: string;
   vwapStatus?: 'above' | 'below' | 'neutral';
   atrPct: number;
+  adrPct?: number | null;
   pctOffHigh: number;
   distToEma21: number;
   distToEma10?: number;
@@ -44,6 +45,7 @@ type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
 type StatFilterType = 'All' | 'Coiled' | 'Setting Up';
 type DVolFilterType = 'All' | '20' | '50' | '100';
+type AdrFilterType = 'All' | '5' | '7' | '10';
 
 /* ---- Coil thresholds, in multiples of daily ATR ----------------
    Mirrors CONSOL_CONFIG.tightCoilRatio / maxCoilRatio in the scan
@@ -55,9 +57,10 @@ const COIL_LOOSE_RATIO = 4.0;
 const COIL_TIGHT_PCT = 6;
 const COIL_LOOSE_PCT = 10;
 
-// $VOL filter buckets, in millions of 20-day average dollar volume.
-// The scan's own floor is $10M, so buckets start above that.
+// $VOL buckets in millions of 20-day average dollar volume (scan floor: $10M).
 const DVOL_BUCKETS: DVolFilterType[] = ['20', '50', '100'];
+// ADR buckets in percent — the scan already floors at 4%, so these tighten.
+const ADR_BUCKETS: AdrFilterType[] = ['5', '7', '10'];
 
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
@@ -93,6 +96,11 @@ const coilRatioOf = (c: ConsolCandidate): number | null => {
   const atr = Number(c.atrPct);
   if (!isNaN(range) && !isNaN(atr) && atr > 0) return range / atr;
   return null;
+};
+
+const adrOf = (c: ConsolCandidate): number | null => {
+  if (c.adrPct == null || isNaN(Number(c.adrPct))) return null;
+  return Number(c.adrPct);
 };
 
 // Coiled = inside 2.5x ATR (or 6% raw when ATR is unavailable).
@@ -152,16 +160,18 @@ const catalystUrlOf = (c: ConsolCandidate): string | null => c.catalystUrl ?? c.
 // Plain-English readout for the sub-row, built from the row's own numbers.
 const buildReadout = (c: ConsolCandidate) => {
   const ratio = coilRatioOf(c);
+  const adr = adrOf(c);
   const range = c.range10Pct != null
     ? `${c.range10Pct.toFixed(1)}% ten-day range${ratio != null ? ` (${ratio.toFixed(1)}x its ${c.atrPct.toFixed(1)}% ATR)` : ''}`
     : 'tight range';
   const d10 = c.distToEma10 != null ? `${c.distToEma10 >= 0 ? '+' : ''}${c.distToEma10.toFixed(1)}% vs 10 EMA` : '';
   const d21 = `${c.distToEma21 >= 0 ? '+' : ''}${c.distToEma21.toFixed(1)}% vs 21 EMA`;
   const structure = c.goldenCross ? '50>200 intact' : '50<200';
+  const adrBit = adr != null ? ` ADR ${adr.toFixed(1)}% gives it room to travel once it goes.` : '';
   const posture = isCoiled(c)
     ? 'Watching for a range break on expanding volume'
     : 'Still wide for its own volatility — wants further contraction before it is actionable';
-  return `Coiling in a ${range} on the rising 10/21 (${[d10, d21].filter(Boolean).join(', ')}), ${c.pctOffHigh.toFixed(0)}% off highs with RS +${c.rsVsSpy.toFixed(0)} vs SPY, ${structure}. ${posture}.`;
+  return `Coiling in a ${range} on the rising 10/21 (${[d10, d21].filter(Boolean).join(', ')}), ${c.pctOffHigh.toFixed(0)}% off highs with RS +${c.rsVsSpy.toFixed(0)} vs SPY, ${structure}.${adrBit} ${posture}.`;
 };
 
 const above21 = (c: ConsolCandidate) => c.aboveEma21 ?? c.distToEma21 >= 0;
@@ -180,6 +190,7 @@ export default function Consolidation1021() {
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [dVolFilter, setDVolFilter] = useState<DVolFilterType>('All');
+  const [adrFilter, setAdrFilter] = useState<AdrFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
@@ -211,6 +222,7 @@ export default function Consolidation1021() {
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
   const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
   const handleDVolFilter = (val: DVolFilterType) => setDVolFilter(prev => prev === val ? 'All' : val);
+  const handleAdrFilter = (val: AdrFilterType) => setAdrFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
   const handleStatFilter = (val: StatFilterType) => setStatFilter(prev => prev === val ? 'All' : val);
 
@@ -246,11 +258,19 @@ export default function Consolidation1021() {
       const minM = Number(dVolFilter);
       list = list.filter(c => (Number(c.avgDollarVolM) || 0) >= minM);
     }
+    // ADR buckets are "and above" on the 20-day average daily range.
+    if (adrFilter !== 'All') {
+      const minAdr = Number(adrFilter);
+      list = list.filter(c => {
+        const a = adrOf(c);
+        return a != null && a >= minAdr;
+      });
+    }
     if (vwapFilter !== 'All') {
       list = list.filter(c => c.vwapStatus === vwapFilter);
     }
     return list;
-  }, [candidates, statFilter, showStage2AOnly, marketCapFilter, cnfFilter, emaFilter, dVolFilter, vwapFilter]);
+  }, [candidates, statFilter, showStage2AOnly, marketCapFilter, cnfFilter, emaFilter, dVolFilter, adrFilter, vwapFilter]);
 
   // Copy the visible tickers, comma-separated — TradingView's watchlist
   // import format. Respects whatever filters are active.
@@ -296,6 +316,14 @@ export default function Consolidation1021() {
     if (!rvol) return 'text-slate-500';
     if (rvol >= 2) return 'text-amber-400';
     if (rvol >= 1.5) return 'text-emerald-400';
+    return 'text-slate-500';
+  };
+  // ADR — more daily range means more to capture on the break.
+  const getAdrColor = (a: number | null) => {
+    if (a == null) return 'text-slate-500';
+    if (a >= 8) return 'text-purple-400';
+    if (a >= 6) return 'text-emerald-400';
+    if (a >= 4) return 'text-slate-300';
     return 'text-slate-500';
   };
   // Coil color keys off the ATR-normalized ratio, not the raw percent.
@@ -358,6 +386,7 @@ export default function Consolidation1021() {
     (cnfFilter !== 'All' ? 1 : 0) +
     (emaFilter !== 'All' ? 1 : 0) +
     (dVolFilter !== 'All' ? 1 : 0) +
+    (adrFilter !== 'All' ? 1 : 0) +
     (vwapFilter !== 'All' ? 1 : 0);
 
   return (
@@ -456,6 +485,21 @@ export default function Consolidation1021() {
                   </div>
                 </div>
                 <div className={pillWrap}>
+                  <span className={pillLabel}>ADR</span>
+                  <div className="flex items-center gap-1">
+                    {ADR_BUCKETS.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => handleAdrFilter(opt)}
+                        title={`20-day average daily range of ${opt}% and above — scan floor is 4%`}
+                        className={`${pillBtn} ${adrFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {opt}%+
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
                   <span className={pillLabel}>CNF</span>
                   <div className="flex items-center gap-1">
                     {(['A', 'B', 'C'] as CnfFilterType[]).map((g) => (
@@ -496,15 +540,16 @@ export default function Consolidation1021() {
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[8%]`}>TICKER</th>
                   <th className={`${thBase} w-[5%]`}>CNF</th>
-                  <th className={`${thBase} w-[8%]`}>PRICE</th>
-                  <th className={`${thBase} w-[8%]`}>CHG%</th>
-                  <th className={`${thBase} w-[8%]`}>10/21</th>
+                  <th className={`${thBase} w-[7%]`}>PRICE</th>
+                  <th className={`${thBase} w-[7%]`}>CHG%</th>
+                  <th className={`${thBase} w-[7%]`}>10/21</th>
                   <th className={`${thBase} w-[7%]`}>VOL</th>
-                  <th className={`${thBase} w-[8%]`}>$VOL</th>
+                  <th className={`${thBase} w-[7%]`}>$VOL</th>
                   <th className={`${thBase} w-[7%]`}>RVOL</th>
-                  <th className={`${thBase} w-[8%]`}>COIL</th>
+                  <th className={`${thBase} w-[7%]`}>COIL</th>
+                  <th className={`${thBase} w-[6%]`}>ADR</th>
                   <th className={`${thBase} w-[7%]`}>RS/SPY</th>
-                  <th className={`${thBase} w-[8%]`}>%OFF HI</th>
+                  <th className={`${thBase} w-[7%]`}>%OFF HI</th>
                   <th className={`${thBase} w-[7%]`}>MCAP</th>
                   <th className={`${thBase} w-[4%] border-l border-white/5`}>STAGE</th>
                   <th className={`${thBase} w-[7%]`}>SECTOR</th>
@@ -513,7 +558,7 @@ export default function Consolidation1021() {
 
               <tbody className="divide-y divide-white/5">
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={14} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No names match the current filters.' : 'No names coiling on the 10/21 right now — loose tape.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
+                  <tr><td colSpan={15} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No names match the current filters.' : 'No names coiling on the 10/21 right now — loose tape.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
                 ) : (
                   filtered.map((row) => {
                     const isPositive = (row.changePct ?? 0) >= 0;
@@ -521,6 +566,7 @@ export default function Consolidation1021() {
                     const catUrl = catalystUrlOf(row);
                     const st = statOf(row);
                     const ratio = coilRatioOf(row);
+                    const adr = adrOf(row);
                     const sectorText = cleanSector(row.sector, row.symbol);
                     return (
                       <React.Fragment key={row.symbol}>
@@ -562,6 +608,9 @@ export default function Consolidation1021() {
                             <div className={`text-xs font-bold leading-tight ${getCoilColor(row)}`}>{row.range10Pct != null ? `${row.range10Pct.toFixed(1)}%` : '—'}</div>
                             {ratio != null && (<div className="text-[9px] text-slate-500 font-medium leading-tight">{ratio.toFixed(1)}× ATR</div>)}
                           </td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`} title="20-day average daily range (high/low), the anti-chop measure">
+                            {adr != null ? `${adr.toFixed(1)}%` : '—'}
+                          </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy >= 0 ? '+' : ''}{row.rsVsSpy.toFixed(1)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getOffHighColor(row.pctOffHigh)}`}>{row.pctOffHigh.toFixed(1)}%</td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
@@ -575,7 +624,7 @@ export default function Consolidation1021() {
                         {/* Sub-row: spacer | 10/21 HOLD + readout + catalyst | STR/STAT centered */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[8%]"></td>
-                          <td colSpan={10} className="pb-2.5 pt-1.5 pr-3">
+                          <td colSpan={11} className="pb-2.5 pt-1.5 pr-3">
                             <div className="flex items-center text-left">
                               <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">10/21 HOLD</span>
                               <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-3">
