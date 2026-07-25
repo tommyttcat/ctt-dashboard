@@ -1,16 +1,17 @@
-// app/api/swing-candidates/run/route.ts — v1.4
+// app/api/swing-candidates/run/route.ts — v1.5
 // v1.1: + RMV(15) on Swing and 10/21; + batched Benzinga WIIM catalysts
-// v1.2: RMV imported from lib/indicators/rmv (shared with the scanner route)
+// v1.2: RMV imported from lib/indicators/rmv
 // v1.3: Weinstein sub-stages via lib/indicators/stage
-// v1.4: + Money Flow (21) on both analyzers; + T2108 market breadth, computed
-//       free from the grouped series already fetched for the 10/21 shortlist.
-//       groupedDays raised 35 -> 45 because T2108 needs a 40-day MA per name.
+// v1.4: + Money Flow (21); + T2108 market breadth from the grouped series
+// v1.5: thresholds moved to lib/scanConfig and shipped in the payload, so the
+//       on-screen key renders the gates the scan ACTUALLY used.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { computeRMV } from '@/lib/indicators/rmv';
 import { computeStage } from '@/lib/indicators/stage';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
+import { SWING, CONSOL, SWING_META, CONSOL_META } from '@/lib/scanConfig';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -20,24 +21,13 @@ const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYG
 const BENZINGA_KEY = process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '';
 const BASE = "https://api.polygon.io";
 
-const CONFIG = {
-  minPrice: 10,
-  maxPrice: 2000,
-  minPrevDayDollarVol: 50_000_000,
-
-  minAtrPct: 1.5,
-  maxAtrPct: 6.0,
-  maxPctOffHigh: 20,
-  minPctOffHigh: 2,
-  maxDistToEma21: 4,
-  maxStochK: 35,
-  requireAbove50: true,
-  requireAbove200: true,
-  rsLookback: 63,
-  earningsBlackoutDays: 7,
-
-  maxSymbolsToAnalyze: 120,
-  concurrency: 10,
+// Grouped-history windows. Not scan gates — these are fetch mechanics, so they
+// stay local rather than living in scanConfig. 45 trading days because T2108
+// needs a 40-day MA per symbol.
+const GROUPED = {
+  days: 45,
+  maxCalendarDays: 70,
+  shortlistSize: 80,
 };
 
 interface Bar { t: number; o: number; h: number; l: number; c: number; v: number; }
@@ -61,6 +51,7 @@ interface Candidate {
   rvol: number | null;
   float: number | null;
   shortPct: number | null;
+  daysToCover: number | null;
   mktCap: number | null;
   stage: string;
   vwapStatus: 'above' | 'below' | 'neutral';
@@ -69,6 +60,7 @@ interface Candidate {
   rmv?: number | null;
   mf?: number | null;
   mfTrend?: number;
+  rme?: number | null;
   pctOffHigh: number;
   distToEma21: number;
   distToEma10: number;
@@ -238,12 +230,12 @@ async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, 
       if (!/^[A-Z]{1,5}$/.test(sym)) return false;
       const prev = t.prevDay;
       if (!prev || !prev.c || !prev.v) return false;
-      if (prev.c < CONFIG.minPrice || prev.c > CONFIG.maxPrice) return false;
-      if (prev.c * prev.v < CONFIG.minPrevDayDollarVol) return false;
+      if (prev.c < SWING.minPrice || prev.c > SWING.maxPrice) return false;
+      if (prev.c * prev.v < SWING.minAvgDollarVol) return false;
       return true;
     })
     .sort((a, b) => (b.prevDay.c * b.prevDay.v) - (a.prevDay.c * a.prevDay.v))
-    .slice(0, CONFIG.maxSymbolsToAnalyze);
+    .slice(0, SWING.universeSize);
 
   const buildSnap = (t: any): SnapInfo => {
     const livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || null;
@@ -268,7 +260,7 @@ async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, 
     if (!/^[A-Z]{1,5}$/.test(sym)) continue;
     const prev = t.prevDay;
     if (!prev || !prev.c) continue;
-    if (prev.c < CONFIG.minPrice || prev.c > CONFIG.maxPrice) continue;
+    if (prev.c < SWING.minPrice || prev.c > SWING.maxPrice) continue;
     snapMapAll.set(sym, buildSnap(t));
   }
 
@@ -279,7 +271,7 @@ interface LiteBar { c: number; h: number; l: number; v: number; }
 
 async function getGroupedSeries(validSymbols: Set<string>): Promise<Map<string, LiteBar[]>> {
   const dates: string[] = [];
-  for (let d = CONSOL_SHORTLIST.maxCalendarDays; d >= 1; d--) {
+  for (let d = GROUPED.maxCalendarDays; d >= 1; d--) {
     const dt = new Date(Date.now() - d * 86400000);
     const day = dt.getUTCDay();
     if (day === 0 || day === 6) continue;
@@ -305,7 +297,7 @@ async function getGroupedSeries(validSymbols: Set<string>): Promise<Map<string, 
   }
 
   dayResults.sort((a, b) => a.date.localeCompare(b.date));
-  const kept = dayResults.slice(-CONSOL_SHORTLIST.groupedDays);
+  const kept = dayResults.slice(-GROUPED.days);
 
   for (const day of kept) {
     for (const t of day.results) {
@@ -327,9 +319,8 @@ async function getGroupedSeries(validSymbols: Set<string>): Promise<Map<string, 
 // guaranteed. Above 80 is the mirror — froth, and breakouts start failing.
 //
 // Classically NYSE-only. This computes it across the full scanned universe,
-// which is a broader base and will run a few points different from the
-// official print. The LEVELS still work; don't expect an exact match to a
-// TradingView T2108 chart.
+// which is a broader base and runs a few points off the official print. The
+// LEVELS still work; don't expect an exact match to a TradingView chart.
 //
 // Free: reuses the grouped series already fetched for the 10/21 shortlist.
 // ---------------------------------------------------------------
@@ -410,14 +401,14 @@ function shortlistConsolidation(series: Map<string, LiteBar[]>): string[] {
     if (bars.length < 28) return;
     const closes = bars.map(b => b.c);
     const price = closes[closes.length - 1];
-    if (price < CONFIG.minPrice || price > CONFIG.maxPrice) return;
+    if (price < SWING.minPrice || price > SWING.maxPrice) return;
 
     const dv = bars.slice(-20).map(b => b.c * b.v);
     const avgDollarVol = dv.reduce((a, b) => a + b, 0) / dv.length;
-    if (avgDollarVol < CONSOL_CONFIG.minDollarVol) return;
+    if (avgDollarVol < CONSOL.minDollarVol) return;
 
     const adr = adrPctLite(bars, 20);
-    if (adr == null || adr < CONSOL_CONFIG.minAdrPct) return;
+    if (adr == null || adr < CONSOL.minAdrPct) return;
 
     const e10 = emaLite(closes, 10);
     const e21 = emaLite(closes, 21);
@@ -426,36 +417,36 @@ function shortlistConsolidation(series: Map<string, LiteBar[]>): string[] {
 
     const dist10 = ((price - e10) / e10) * 100;
     const dist21 = ((price - e21) / e21) * 100;
-    if (Math.abs(dist10) > CONSOL_CONFIG.maxDistToEma10) return;
-    if (dist21 > CONSOL_CONFIG.maxAboveEma21 || dist21 < -CONSOL_CONFIG.maxBelowEma21) return;
+    if (Math.abs(dist10) > CONSOL.maxDistToEma10) return;
+    if (dist21 > CONSOL.maxAboveEma21 || dist21 < -CONSOL.maxBelowEma21) return;
     if (e21Prev != null && e21 <= e21Prev) return;
 
     const win10 = bars.slice(-10);
     const hi10 = Math.max(...win10.map(b => b.h));
     const lo10 = Math.min(...win10.map(b => b.l));
     const range10 = lo10 > 0 ? ((hi10 - lo10) / lo10) * 100 : 999;
-    if (range10 > CONSOL_CONFIG.maxRange10) return;
+    if (range10 > CONSOL.maxRange10) return;
 
     const aPct = atrPctLite(bars, 14);
     const ratio = aPct && aPct > 0 ? range10 / aPct : range10 / 3;
-    if (ratio > CONSOL_CONFIG.maxCoilRatio) return;
+    if (ratio > CONSOL.maxCoilRatio) return;
 
     const prevClose = closes[closes.length - 2];
     const dayChg = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
-    if (Math.abs(dayChg) > CONSOL_CONFIG.maxDayChange) return;
+    if (Math.abs(dayChg) > CONSOL.maxDayChange) return;
 
     picks.push({ sym, ratio });
   });
 
   picks.sort((a, b) => a.ratio - b.ratio);
-  return picks.slice(0, CONSOL_SHORTLIST.shortlistSize).map(p => p.sym);
+  return picks.slice(0, GROUPED.shortlistSize).map(p => p.sym);
 }
 
 async function getEarningsBlackout(): Promise<Set<string>> {
   if (!BENZINGA_KEY) return new Set();
   try {
     const from = dateStr(0);
-    const to = dateStr(-CONFIG.earningsBlackoutDays);
+    const to = dateStr(-SWING.earningsBlackoutDays);
     const url =
       `https://api.benzinga.com/api/v2.1/calendar/earnings?token=${BENZINGA_KEY}` +
       `&parameters[date_from]=${from}&parameters[date_to]=${to}&pagesize=1000`;
@@ -469,11 +460,6 @@ async function getEarningsBlackout(): Promise<Set<string>> {
   }
 }
 
-// ---------------------------------------------------------------
-// WIIM catalysts — "Why Is It Moving" headlines from Benzinga.
-// Runs ONCE, after scoring, over the final lists only: ~2 batched calls for
-// the whole run, not one per symbol. Fails open.
-// ---------------------------------------------------------------
 const WIIM_MAX_AGE_DAYS = 4;
 const WIIM_MAX_BREADTH = 12;
 
@@ -570,14 +556,12 @@ function analyze(
 
   if (!sma50 || !sma200 || !ema10 || !ema21 || !atr14 || kVal == null) return null;
 
-  const atrPct = (atr14 / price) * 100;
+  const atrPctVal = (atr14 / price) * 100;
   const adr = adrPct(bars, 20);
-  // RMV(15) — where today's volatility sits inside its own 15-bar range.
-  // Bars are ascending here; the module's default order is 'asc'.
   const rmv = computeRMV(bars, { lookback: 15 });
-  // Money Flow (21) — accumulation vs distribution over the last month.
-  // On a pullback candidate this is the key confirmation: price pulling back
-  // with MF still above 55 is orderly profit-taking, not distribution.
+  // Money Flow (21) — on a pullback candidate this is the key confirmation:
+  // price pulling back with MF still above 55 is orderly profit-taking, not
+  // distribution.
   const mf = computeMoneyFlow(bars, { length: 21 });
   const mfTrend = moneyFlowTrend(bars, { length: 21, lookback: 5 });
   const hi52 = Math.max(...bars.slice(-252).map(b => b.h));
@@ -592,28 +576,28 @@ function analyze(
   const vols = bars.slice(-20).map(b => b.v).filter(v => v > 0);
   const avgVol = vols.length > 0 ? vols.reduce((a, b) => a + b, 0) / vols.length : 0;
 
-  const ret = pctReturn(closes, CONFIG.rsLookback);
+  const ret = pctReturn(closes, SWING.rsLookback);
   const rsVsSpy = ret != null && spyReturn != null ? ret - spyReturn : null;
 
-  if (avgDollarVol < CONFIG.minPrevDayDollarVol) return null;
-  if (CONFIG.requireAbove50 && price < sma50) return null;
-  if (CONFIG.requireAbove200 && price < sma200) return null;
-  if (atrPct < CONFIG.minAtrPct || atrPct > CONFIG.maxAtrPct) return null;
-  if (pctOffHigh < CONFIG.minPctOffHigh || pctOffHigh > CONFIG.maxPctOffHigh) return null;
-  if (Math.abs(distToEma21) > CONFIG.maxDistToEma21) return null;
-  if (kVal > CONFIG.maxStochK) return null;
+  if (avgDollarVol < SWING.minAvgDollarVol) return null;
+  if (price < sma50) return null;
+  if (price < sma200) return null;
+  if (atrPctVal < SWING.minAtrPct || atrPctVal > SWING.maxAtrPct) return null;
+  if (pctOffHigh < SWING.minPctOffHigh || pctOffHigh > SWING.maxPctOffHigh) return null;
+  if (Math.abs(distToEma21) > SWING.maxDistToEma21) return null;
+  if (kVal > SWING.maxStochK) return null;
   if (rsVsSpy == null || rsVsSpy <= 0) return null;
 
   const rsScore = Math.min(rsVsSpy / 20, 1) * 35;
   const pullbackScore =
-    (1 - Math.abs(distToEma21) / CONFIG.maxDistToEma21) * 15 +
-    (1 - kVal / CONFIG.maxStochK) * 15;
-  const volScore = Math.max(0, (1 - Math.abs(atrPct - 3.0) / 3.0) * 20);
+    (1 - Math.abs(distToEma21) / SWING.maxDistToEma21) * 15 +
+    (1 - kVal / SWING.maxStochK) * 15;
+  const volScore = Math.max(0, (1 - Math.abs(atrPctVal - 3.0) / 3.0) * 20);
   const trendScore = (sma50 > sma200 ? 10 : 0) + (ema21Rising ? 5 : 0);
   const score = Math.round(Math.max(0, rsScore + pullbackScore + volScore + trendScore));
 
-  // v1.3: real sub-stage. Live snapshot price when available — the 30 and 50
-  // SMAs sit close together, so a stale close misclassifies 2A/2B.
+  // Live snapshot price when available — the 30 and 50 SMAs sit close
+  // together, so a stale close misclassifies 2A/2B.
   const stage = computeStage(closes, { price: snap?.livePrice ?? price });
 
   const changePct = snap?.changePct ?? 0;
@@ -631,9 +615,10 @@ function analyze(
   const sector = cleanSectorDescription(details?.results?.sic_description, details?.results?.sector, details?.results?.industry);
 
   let shortPct: number | null = null;
-  if (shortData?.results && shortData.results.length > 0 && float) {
-    shortPct = +((shortData.results[0].short_interest / float) * 100).toFixed(1);
-  }
+  let daysToCover: number | null = null;
+  const shortInterest = shortData?.results?.[0]?.short_interest;
+  if (shortInterest && float) shortPct = +((shortInterest / float) * 100).toFixed(1);
+  if (shortInterest && avgVol > 0) daysToCover = +(shortInterest / avgVol).toFixed(1);
 
   return {
     symbol,
@@ -647,10 +632,11 @@ function analyze(
     rvol: rvolVal,
     float,
     shortPct,
+    daysToCover,
     mktCap,
     stage,
     vwapStatus,
-    atrPct: +atrPct.toFixed(2),
+    atrPct: +atrPctVal.toFixed(2),
     adrPct: adr != null ? +adr.toFixed(2) : undefined,
     rmv,
     mf,
@@ -667,25 +653,6 @@ function analyze(
     ema21Rising,
   };
 }
-
-const CONSOL_CONFIG = {
-  minDollarVol: 10_000_000,
-  minAdrPct: 3.0,
-  maxDistToEma10: 5,
-  maxAboveEma21: 5,
-  maxBelowEma21: 1.5,
-  maxRange10: 14,
-  maxCoilRatio: 4.0,
-  tightCoilRatio: 2.5,
-  maxDayChange: 3,
-  maxPctOffHigh: 15,
-};
-
-const CONSOL_SHORTLIST = {
-  groupedDays: 45,        // 45 not 35: T2108 needs a 40-day MA per symbol
-  maxCalendarDays: 70,    // wider calendar span to find those trading days
-  shortlistSize: 80,
-};
 
 function analyzeConsolidation(
   symbol: string,
@@ -710,12 +677,12 @@ function analyzeConsolidation(
 
   if (!sma50 || !sma200 || !ema10 || !ema21 || !atr14 || kVal == null) return null;
 
-  const atrPct = (atr14 / price) * 100;
+  const atrPctVal = (atr14 / price) * 100;
   const adr = adrPct(bars, 20);
   const rmv = computeRMV(bars, { lookback: 15 });
   // Money Flow matters most on this table: a tight coil with MF above 55 is
-  // accumulation inside the base. The same coil with MF under 45 is a name
-  // being quietly distributed while it looks like it's resting.
+  // accumulation inside the base. The same coil under 45 is a name being
+  // quietly distributed while it looks like it's resting.
   const mf = computeMoneyFlow(bars, { length: 21 });
   const mfTrend = moneyFlowTrend(bars, { length: 21, lookback: 5 });
   const hi52 = Math.max(...bars.slice(-252).map(b => b.h));
@@ -729,14 +696,14 @@ function analyzeConsolidation(
   const vols = bars.slice(-20).map(b => b.v).filter(v => v > 0);
   const avgVol = vols.length > 0 ? vols.reduce((a, b) => a + b, 0) / vols.length : 0;
 
-  const ret = pctReturn(closes, CONFIG.rsLookback);
+  const ret = pctReturn(closes, SWING.rsLookback);
   const rsVsSpy = ret != null && spyReturn != null ? ret - spyReturn : null;
 
   const win10 = bars.slice(-10);
   const hi10 = Math.max(...win10.map(b => b.h));
   const lo10 = Math.min(...win10.map(b => b.l));
   const range10 = lo10 > 0 ? ((hi10 - lo10) / lo10) * 100 : 999;
-  const coilRatio = atrPct > 0 ? range10 / atrPct : 999;
+  const coilRatio = atrPctVal > 0 ? range10 / atrPctVal : 999;
 
   const changePct = snap?.changePct ?? 0;
 
@@ -752,25 +719,25 @@ function analyzeConsolidation(
   const upDay = closes.length >= 2 && closes[closes.length - 1] > closes[closes.length - 2];
   const blueDot = oversoldRecent && upDay && price >= ema21;
 
-  if (avgDollarVol < CONSOL_CONFIG.minDollarVol) return null;
-  if (adr == null || adr < CONSOL_CONFIG.minAdrPct) return null;
+  if (avgDollarVol < CONSOL.minDollarVol) return null;
+  if (adr == null || adr < CONSOL.minAdrPct) return null;
   if (price < sma50 || price < sma200) return null;
   if (!(sma50 > sma200)) return null;
   if (!ema21Rising) return null;
-  if (Math.abs(distToEma10) > CONSOL_CONFIG.maxDistToEma10) return null;
-  if (distToEma21 > CONSOL_CONFIG.maxAboveEma21 || distToEma21 < -CONSOL_CONFIG.maxBelowEma21) return null;
-  if (range10 > CONSOL_CONFIG.maxRange10) return null;
-  if (coilRatio > CONSOL_CONFIG.maxCoilRatio) return null;
-  if (Math.abs(changePct) > CONSOL_CONFIG.maxDayChange) return null;
-  if (pctOffHigh > CONSOL_CONFIG.maxPctOffHigh) return null;
+  if (Math.abs(distToEma10) > CONSOL.maxDistToEma10) return null;
+  if (distToEma21 > CONSOL.maxAboveEma21 || distToEma21 < -CONSOL.maxBelowEma21) return null;
+  if (range10 > CONSOL.maxRange10) return null;
+  if (coilRatio > CONSOL.maxCoilRatio) return null;
+  if (Math.abs(changePct) > CONSOL.maxDayChange) return null;
+  if (pctOffHigh > CONSOL.maxPctOffHigh) return null;
   if (rsVsSpy == null || rsVsSpy <= 0) return null;
 
   const tightScore = Math.max(0, Math.min(1,
-    (CONSOL_CONFIG.maxCoilRatio - coilRatio) / (CONSOL_CONFIG.maxCoilRatio - 2.0)
+    (CONSOL.maxCoilRatio - coilRatio) / (CONSOL.maxCoilRatio - 2.0)
   )) * 30;
   const proxScore =
-    (1 - Math.abs(distToEma10) / CONSOL_CONFIG.maxDistToEma10) * 15 +
-    Math.max(0, 1 - Math.abs(distToEma21) / CONSOL_CONFIG.maxAboveEma21) * 10;
+    (1 - Math.abs(distToEma10) / CONSOL.maxDistToEma10) * 15 +
+    Math.max(0, 1 - Math.abs(distToEma21) / CONSOL.maxAboveEma21) * 10;
   const rsScore = Math.min(rsVsSpy / 20, 1) * 30;
   const trendScore = 10 + (pctOffHigh <= 7 ? 5 : 0);
   const score = Math.round(Math.max(0, Math.min(100, tightScore + proxScore + rsScore + trendScore)));
@@ -790,9 +757,10 @@ function analyzeConsolidation(
   const sector = cleanSectorDescription(details?.results?.sic_description, details?.results?.sector, details?.results?.industry);
 
   let shortPct: number | null = null;
-  if (shortData?.results && shortData.results.length > 0 && float) {
-    shortPct = +((shortData.results[0].short_interest / float) * 100).toFixed(1);
-  }
+  let daysToCover: number | null = null;
+  const shortInterest = shortData?.results?.[0]?.short_interest;
+  if (shortInterest && float) shortPct = +((shortInterest / float) * 100).toFixed(1);
+  if (shortInterest && avgVol > 0) daysToCover = +(shortInterest / avgVol).toFixed(1);
 
   return {
     symbol,
@@ -806,10 +774,11 @@ function analyzeConsolidation(
     rvol: rvolVal,
     float,
     shortPct,
+    daysToCover,
     mktCap,
     stage,
     vwapStatus,
-    atrPct: +atrPct.toFixed(2),
+    atrPct: +atrPctVal.toFixed(2),
     adrPct: +adr.toFixed(2),
     rmv,
     mf,
@@ -837,7 +806,7 @@ export async function GET() {
     }
 
     const spyBars = await getDailyBars("SPY");
-    const spyReturn = pctReturn(spyBars.map(b => b.c), CONFIG.rsLookback);
+    const spyReturn = pctReturn(spyBars.map(b => b.c), SWING.rsLookback);
 
     const [{ symbols: universe, snapMap, snapMapAll }, earningsBlackout] = await Promise.all([getUniverse(), getEarningsBlackout()]);
     const toScan = universe.filter(sym => !earningsBlackout.has(sym));
@@ -860,7 +829,7 @@ export async function GET() {
     const swingSet = new Set(toScan);
     const consolExtra = consolShortlist.filter(sym => !swingSet.has(sym));
 
-    const results = await inBatches(toScan, CONFIG.concurrency, async (sym) => {
+    const results = await inBatches(toScan, 10, async (sym) => {
       const [bars, details, shortData] = await Promise.all([
         getDailyBars(sym),
         polygonSafe<any>(`/v3/reference/tickers/${sym}`, {}),
@@ -872,7 +841,7 @@ export async function GET() {
       return { swing, consol };
     });
 
-    const extraConsols = await inBatches(consolExtra, CONFIG.concurrency, async (sym) => {
+    const extraConsols = await inBatches(consolExtra, 10, async (sym) => {
       const [bars, details, shortData] = await Promise.all([
         getDailyBars(sym),
         polygonSafe<any>(`/v3/reference/tickers/${sym}`, {}),
@@ -891,7 +860,7 @@ export async function GET() {
     consols.sort((a, b) => b.score - a.score);
 
     // --- Catalysts: one batched WIIM lookup across both final lists --------
-    const consolKeep = consols.slice(0, 40);
+    const consolKeep = consols.slice(0, CONSOL.finalSize);
     const newsSymbols = Array.from(new Set([
       ...candidates.map(c => c.symbol),
       ...consolKeep.map(c => c.symbol),
@@ -924,6 +893,8 @@ export async function GET() {
         universeSize: universe.length,
         excludedForEarnings: universe.length - toScan.length,
         count: candidates.length,
+        // Gate metadata for the on-screen key — the config this run enforced.
+        scanMeta: SWING_META,
       });
       await kv.set('swing_last_scan_v1', scanTime);
     } else {
@@ -932,7 +903,10 @@ export async function GET() {
 
     if (universe.length > 0) {
       await kv.set('consol_1021_v1', consolKeep);
-      await kv.set('consol_1021_meta_v1', { count: consols.length });
+      await kv.set('consol_1021_meta_v1', {
+        count: consols.length,
+        scanMeta: CONSOL_META,
+      });
       await kv.set('consol_1021_last_scan_v1', scanTime);
     }
 
@@ -948,6 +922,7 @@ export async function GET() {
       t2108: t2108.value,
       t2108Zone: t2108.zone,
       t2108Sample: t2108.total,
+      scanMeta: { swing: SWING_META, consol: CONSOL_META },
       dataPersisted: hasRealData,
     });
   } catch (error: any) {

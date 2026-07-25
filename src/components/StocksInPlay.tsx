@@ -1,21 +1,26 @@
 'use client';
 
-// StocksInPlay — v1.5
-// v1.1: + RMV column; CATALYST column removed (news moved to thesis line)
-// v1.2: Weinstein sub-stage coloring; + CNF breakdown tooltip
-// v1.3: + Money Flow (21)
-// v1.4: RMV/RME collapsed into a fixed-width STATE chip on the sub-row;
-//       headline truncates to one line; RS rounds with 1k compaction;
-//       SHT% -> DTC; 10/21 dots tightened.
-// v1.5: STATE chip stacked three lines — quadrant word, RMV/RME label, then
-//       the pair. Self-documenting beats compact for a new metric, and the
-//       extra sub-row height gives the primary row room to breathe.
+// StocksInPlay — v1.6
+// v1.4: RMV/RME collapsed into a fixed-width STATE chip on the sub-row
+// v1.5: STATE chip stacked — quadrant word, RMV/RME label, pair
+// v1.6: sub-row tightened throughout (labels 9px, dots smaller, padding cut) —
+//       row 2 is context, not primary data, and was competing with the row
+//       above it. + MetricsKey: the scan gates were otherwise invisible, so a
+//       name that failed one silently vanished with no way to know which.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { stateOf, stateTooltip } from '@/lib/indicators/state';
+import { SCANNER_SIP_META } from '@/lib/scanConfig';
+import MetricsKey from './MetricsKey';
+
+// Columns this table shows — drives which entries the key documents.
+const KEY_COLUMNS = [
+  'CNF', 'PRICE', 'CHG%', '10/21', 'VOL', '$VOL', 'RVOL', 'FLOAT', 'ADR',
+  'MF', 'RS', 'STOCH', 'DTC', 'MCAP', 'STAGE', 'SECTOR', 'STATE', 'STR', 'STAT',
+];
 
 interface StockInPlay {
   ticker: string;
@@ -60,14 +65,10 @@ type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
 type AdrFilterType = 'All' | '5' | '10';
 
-// CNF is a floor, not an exact grade: picking B shows B and A.
 const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
 const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
-
-// ADR buckets in percent — the scan already floors at 3%, so these tighten.
 const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
 
-// Human labels for the CNF breakdown keys the scanner ships.
 const CNF_LABELS: Record<string, string> = {
   rvol: 'Relative volume',
   gap: 'Gap',
@@ -104,12 +105,10 @@ const formatCurrency = (num: number | null) => {
   return '$' + num.toLocaleString();
 };
 
-/* --------------------------------------------------------------
-   RS vs SPY — 3-month relative strength in percentage points.
-   Whole numbers only: the decimal was false precision on a 63-day
-   figure. Above 1000pp compacts to "1k%" — real for the moonshots,
-   and the raw number would blow out the column.
-   -------------------------------------------------------------- */
+/* RS vs SPY — 3-month relative strength in percentage points. Whole numbers
+   only: the decimal was false precision on a 63-day figure. Above 1000pp
+   compacts to "1k%" — real for the moonshots, and the raw number would blow
+   out the column. */
 const formatRs = (rs: number | null | undefined): string => {
   if (rs == null || isNaN(Number(rs))) return '—';
   const v = Number(rs);
@@ -125,8 +124,8 @@ const formatRs = (rs: number | null | undefined): string => {
   return `${sign}${Math.round(abs)}%`;
 };
 
-/* RMV/RME pair for the state chip. RMV is always 0-100 positive, so a
-   minus sign can only mean RME — no need for an explicit "+". */
+/* RMV/RME pair for the state chip. RMV is always 0-100 positive, so a minus
+   sign can only mean RME — no need for an explicit "+". */
 const statePair = (rmv: number | null, rme: number | null): string => {
   const v = rmv == null ? '—' : String(Math.round(rmv));
   const e = rme == null ? '—' : String(Math.round(rme));
@@ -140,7 +139,6 @@ const formatSetupName = (name: string | null) => {
   return name;
 };
 
-// Blue Dot Reversal renders as the dot itself rather than a text label.
 const isBlueDotSetup = (name: string | null | undefined): boolean => {
   if (!name) return false;
   const n = String(name).toLowerCase();
@@ -150,11 +148,10 @@ const isBlueDotSetup = (name: string | null | undefined): boolean => {
 const BlueDot = ({ className = '' }: { className?: string }) => (
   <span
     title="Blue Dot Reversal"
-    className={`inline-block w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.7)] align-middle shrink-0 ${className}`}
+    className={`inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)] align-middle shrink-0 ${className}`}
   />
 );
 
-// Sector strings sometimes arrive ticker-prefixed ("RKLB - AEROSPACE").
 const cleanSector = (sector: string | null | undefined, ticker?: string): string => {
   if (!sector || sector === '—' || sector === '-') return '—';
   let s = String(sector).trim();
@@ -166,7 +163,6 @@ const cleanSector = (sector: string | null | undefined, ticker?: string): string
   return s.trim() || '—';
 };
 
-// Fallback labels the backend uses when there's no real headline.
 const isGenericCatalyst = (catalyst: string | null | undefined) => {
   if (!catalyst) return true;
   const c = catalyst.toLowerCase().trim();
@@ -217,7 +213,6 @@ const rmeLabel = (rme: number | null): string => {
   return 'at historical extension low';
 };
 
-// Full CNF explanation for the badge tooltip.
 const cnfTooltip = (row: StockInPlay): string => {
   const score = row.conviction;
   const lines: string[] = [
@@ -249,7 +244,6 @@ const cnfTooltip = (row: StockInPlay): string => {
   return lines.join('\n');
 };
 
-// Status: prefer the backend field; derive when the KV payload predates it.
 const rowStatus = (row: StockInPlay): 'Ready' | 'Forming' | null => {
   if (row.status === 'Ready' || row.status === 'Forming') return row.status;
   if (row.stochK != null && row.distToEma21 != null) {
@@ -263,6 +257,7 @@ export default function StocksInPlay() {
   const [stocks, setStocks] = useState<StockInPlay[]>([]);
   const [status, setStatus] = useState<string>('Syncing DB...');
   const [lastScanTime, setLastScanTime] = useState<number | null>(null);
+  const [scanMeta, setScanMeta] = useState<any>(null);
   const [sortConfig, setSortConfig] = useState<{ key: keyof StockInPlay; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const [showStage2Only, setShowStage2Only] = useState<boolean>(false);
@@ -324,6 +319,7 @@ export default function StocksInPlay() {
           });
           setStocks(safeData);
           setLastScanTime(data.lastScanTime || Date.now());
+          if (data.scanMeta?.sip) setScanMeta(data.scanMeta.sip);
           setStatus('Live');
         }
       } catch (error) {
@@ -518,6 +514,7 @@ export default function StocksInPlay() {
               {copied ? `✓ Copied ${filteredAndSortedStocks.length}` : `Copy ${filteredAndSortedStocks.length}`}
             </button>
           )}
+          <MetricsKey meta={SCANNER_SIP_META} liveGates={scanMeta?.gates} columns={KEY_COLUMNS} />
         </div>
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
@@ -720,37 +717,38 @@ export default function StocksInPlay() {
                             <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: setup | STATE chip (stacked) | news catalyst | STR/STAT.
-                            Everything left of the headline is fixed-width and the headline
-                            truncates, so row height is constant and the news column starts
-                            at the same x on every row. */}
+                        {/* Sub-row: setup | STATE chip | news catalyst | STR/STAT.
+                            Deliberately smaller than the primary row — this is
+                            context, not data you scan. Everything left of the
+                            headline is fixed-width and the headline truncates,
+                            so row height never changes. */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%]"></td>
-                          <td colSpan={14} className="pb-2.5 pt-1.5 pr-3">
+                          <td colSpan={14} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
-                              <span className="shrink-0 w-[92px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight truncate">
+                              <span className="shrink-0 w-[76px] pr-2 text-[#7c8bfa]/90 font-bold text-[9px] tracking-[0.06em] uppercase leading-none truncate">
                                 {bdRev ? <BlueDot /> : (formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—')}
                               </span>
                               <span
                                 title={stateTooltip(rmv, rme)}
-                                className="shrink-0 w-[130px] flex flex-col items-start justify-center border-l border-white/10 pl-3 cursor-help leading-none gap-[3px]"
+                                className="shrink-0 w-[108px] flex flex-col items-start justify-center border-l border-white/10 pl-2.5 cursor-help leading-none gap-[2px]"
                               >
-                                <span className={`text-[10px] font-bold tracking-widest uppercase ${stateRes.color}`}>
+                                <span className={`text-[9px] font-bold tracking-[0.12em] uppercase ${stateRes.color}`}>
                                   {stateRes.state === 'UNKNOWN' ? '—' : stateRes.state}
                                 </span>
-                                <span className="text-[8px] font-bold tracking-widest uppercase text-slate-600">
+                                <span className="text-[7px] font-bold tracking-[0.12em] uppercase text-slate-600">
                                   RMV/RME
                                 </span>
-                                <span className="text-[10px] font-semibold text-slate-200 tabular-nums">
+                                <span className="text-[9px] font-semibold text-slate-200 tabular-nums">
                                   {statePair(rmv, rme)}
                                 </span>
                               </span>
-                              <p className="flex-1 min-w-0 text-[11px] leading-relaxed border-l border-white/10 pl-3 truncate" title={headline || undefined}>
+                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 truncate" title={headline || undefined}>
                                 {headline || tag ? (
                                   <>
                                     {tag && (
                                       <>
-                                        <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400/70">{tag}</span>
+                                        <span className="text-[8px] font-bold tracking-[0.12em] uppercase text-amber-400/70">{tag}</span>
                                         {headline ? ' ' : ''}
                                       </>
                                     )}
@@ -768,21 +766,21 @@ export default function StocksInPlay() {
                               </p>
                             </div>
                           </td>
-                          <td colSpan={2} className="pb-2.5 pt-1.5 align-middle">
-                            <div className="flex items-center justify-center gap-2 border-l border-white/10 px-1 py-1">
-                              <span className="flex items-center gap-1">
-                                <span className="text-[10px] text-slate-500">STR:</span>
-                                <span className={`text-[10px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
-                                <span className={`text-[10px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
+                          <td colSpan={2} className="pb-1.5 pt-1 align-middle">
+                            <div className="flex items-center justify-center gap-1.5 border-l border-white/10 px-1">
+                              <span className="flex items-center gap-0.5">
+                                <span className="text-[8px] text-slate-600 tracking-wider">STR</span>
+                                <span className={`text-[9px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
+                                <span className={`text-[9px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
                               </span>
-                              <span className="flex items-center gap-1 whitespace-nowrap">
-                                <span className="text-[10px] text-slate-500">STAT:</span>
+                              <span className="flex items-center gap-0.5 whitespace-nowrap">
+                                <span className="text-[8px] text-slate-600 tracking-wider">STAT</span>
                                 {st === 'Ready' ? (
-                                  <span className="text-[10px] font-semibold text-emerald-400">Ready</span>
+                                  <span className="text-[9px] font-semibold text-emerald-400">Ready</span>
                                 ) : st === 'Forming' ? (
-                                  <span className="text-[10px] font-semibold text-amber-400">Forming</span>
+                                  <span className="text-[9px] font-semibold text-amber-400">Forming</span>
                                 ) : (
-                                  <span className="text-[10px] font-semibold text-slate-600">—</span>
+                                  <span className="text-[9px] font-semibold text-slate-600">—</span>
                                 )}
                               </span>
                             </div>

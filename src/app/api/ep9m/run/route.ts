@@ -1,4 +1,4 @@
-// app/api/ep9m/run/route.ts — v1.2
+// app/api/ep9m/run/route.ts — v1.3
 //
 // EP9M — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee)
 //
@@ -15,10 +15,11 @@
 // Deliberately does NOT gate on % change. A non-gapping stock quietly trading
 // 10x its normal volume is the highest-value case this scan exists to find.
 //
-// v1.1: Weinstein sub-stages via lib/indicators/stage (was hardcoded to 'A').
-// v1.2: + Money Flow (21). This is the sharpest cross-check the scan has:
-//       heavy abnormal volume with MF under 45 is 21 sessions of distribution,
-//       not accumulation, however good the single-day print looks.
+// v1.1: Weinstein sub-stages via lib/indicators/stage.
+// v1.2: + Money Flow (21), also scored — heavy abnormal volume with MF under
+//       45 is 21 sessions of distribution, however good today's print looks.
+// v1.3: thresholds moved to lib/scanConfig and shipped in the payload, so the
+//       on-screen key renders the gates the scan ACTUALLY used.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -26,6 +27,7 @@ import { computeRMV } from '@/lib/indicators/rmv';
 import { computeRMEDetail } from '@/lib/indicators/rme';
 import { computeStage } from '@/lib/indicators/stage';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
+import { EP9M, EP9M_META } from '@/lib/scanConfig';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -36,31 +38,11 @@ const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYG
 const BENZINGA_KEY = process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '';
 const BASE = 'https://api.polygon.io';
 
-// ---------------------------------------------------------------
-// CONFIG
-// ---------------------------------------------------------------
-const CONFIG = {
-  // The namesake threshold. Absolute, not time-weighted — a stock either has
-  // traded 9M shares today or it hasn't. Names therefore appear progressively
-  // through the session, which mirrors how the scan is actually run live
-  // (once in the 9:30-10:30 window, again around 1:30).
-  minVolume: 9_000_000,
-
-  minPrice: 3.00,      // Bonde's floor — below this the volume is noise
-  maxPrice: 2000,
-
-  // THE gate. Without this the scan returns mega caps every day.
-  minRvol: 3.0,
-
-  minDollarVol: 20_000_000,  // has to be actually tradeable
-
-  volProfileDays: 60,        // trailing window for avg + "unprecedented" test
-  maxCalendarDays: 90,       // calendar span to find those trading days in
-
-  shortlistSize: 40,         // how many get per-symbol enrichment
-  finalSize: 25,
-
-  registryDays: 90,          // how long a trigger stays on the DEP registry
+// Fetch-window mechanics, not scan gates — these stay local rather than
+// living in scanConfig, since they describe how much history to pull rather
+// than what qualifies a name.
+const WINDOW = {
+  maxCalendarDays: 90,
   concurrency: 8,
 };
 
@@ -135,9 +117,6 @@ interface Ep9mCandidate {
   scoreBreakdown: Record<string, number>;
 }
 
-// ---------------------------------------------------------------
-// Fetch helpers
-// ---------------------------------------------------------------
 async function polygon<T = any>(path: string): Promise<T> {
   const sep = path.includes('?') ? '&' : '?';
   const res = await fetch(`${BASE}${path}${sep}apiKey=${POLYGON_KEY}`);
@@ -164,9 +143,6 @@ async function inBatches<T, R>(items: T[], size: number, fn: (item: T) => Promis
   return out;
 }
 
-// ---------------------------------------------------------------
-// Sector classification — same logic as the other two routes
-// ---------------------------------------------------------------
 function cleanSectorDescription(sic: string | undefined, sector: string | undefined, industry: string | undefined): string {
   const ind = (industry || '').toLowerCase();
   const sicTxt = (sic || '').toLowerCase();
@@ -212,9 +188,6 @@ function cleanSectorDescription(sic: string | undefined, sector: string | undefi
   return 'Other';
 }
 
-// ---------------------------------------------------------------
-// Indicator math (ascending bars)
-// ---------------------------------------------------------------
 function sma(values: number[], period: number): number | null {
   if (values.length < period) return null;
   return values.slice(-period).reduce((a, b) => a + b, 0) / period;
@@ -275,10 +248,10 @@ async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, 
 
     const price = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || 0;
     const vol = t.day?.v || 0;
-    if (price < CONFIG.minPrice || price > CONFIG.maxPrice) continue;
+    if (price < EP9M.minPrice || price > EP9M.maxPrice) continue;
 
     // The namesake gate.
-    if (vol < CONFIG.minVolume) continue;
+    if (vol < EP9M.minVolume) continue;
 
     const prevClose = t.prevDay?.c || 0;
     let changePct = 0;
@@ -311,7 +284,7 @@ async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, 
 // ---------------------------------------------------------------
 async function getVolumeProfile(validSymbols: Set<string>): Promise<Map<string, LiteBar[]>> {
   const dates: string[] = [];
-  for (let d = CONFIG.maxCalendarDays; d >= 1; d--) {
+  for (let d = WINDOW.maxCalendarDays; d >= 1; d--) {
     const dt = new Date(Date.now() - d * 86400000);
     const day = dt.getUTCDay();
     if (day === 0 || day === 6) continue;
@@ -335,7 +308,7 @@ async function getVolumeProfile(validSymbols: Set<string>): Promise<Map<string, 
   }
 
   dayResults.sort((a, b) => a.date.localeCompare(b.date));
-  const kept = dayResults.slice(-CONFIG.volProfileDays);
+  const kept = dayResults.slice(-EP9M.volProfileDays);
 
   const series = new Map<string, LiteBar[]>();
   for (const day of kept) {
@@ -375,9 +348,8 @@ function shortlistAbnormal(
   series.forEach((bars, sym) => {
     const snap = snapMap.get(sym);
     if (!snap) return;
-    if (bars.length < 25) return; // too little history to call anything abnormal
+    if (bars.length < 25) return;
 
-    // Exclude the most recent bar — it may be today, partially formed.
     const prior = bars.slice(0, -1);
     if (prior.length < 20) return;
 
@@ -387,10 +359,10 @@ function shortlistAbnormal(
     if (avgVol <= 0) return;
 
     const rvol = snap.vol / avgVol;
-    if (rvol < CONFIG.minRvol) return;
+    if (rvol < EP9M.minRvol) return;
 
     const dVol = snap.vol * snap.price;
-    if (dVol < CONFIG.minDollarVol) return;
+    if (dVol < EP9M.minDollarVol) return;
 
     const priorVols = prior.map(b => b.v).filter(v => v > 0);
     const vol60dMax = priorVols.length > 0 ? Math.max(...priorVols) : null;
@@ -407,15 +379,10 @@ function shortlistAbnormal(
     });
   });
 
-  // Most abnormal first — that's the whole ranking premise.
   picks.sort((a, b) => b.rvol - a.rvol);
-  return picks.slice(0, CONFIG.shortlistSize);
+  return picks.slice(0, EP9M.shortlistSize);
 }
 
-// ---------------------------------------------------------------
-// WIIM catalysts — Bonde researches the story AFTER the scan flags the
-// volume. This surfaces it inline so that step is one glance, not a search.
-// ---------------------------------------------------------------
 const WIIM_MAX_AGE_DAYS = 4;
 const WIIM_MAX_BREADTH = 12;
 
@@ -500,12 +467,11 @@ async function fetchBenzingaWiims(
 //
 // Volume abnormality carries half the weight because it IS the setup.
 // Close strength matters more than it looks: a stock that traded 12M shares
-// and closed on its low moved that volume from buyers to sellers. That's
-// distribution wearing an accumulation costume.
+// and closed on its low moved that volume from buyers to sellers.
 //
-// v1.2: Money Flow added as a modifier. Close strength is one day; MF is 21.
-// A name can close strong on the trigger day while the prior month was
-// steady distribution — that combination is a trap, and only MF sees it.
+// Money Flow is a modifier. Close strength is one day; MF is 21. A name can
+// close strong on the trigger day while the prior month was steady
+// distribution — that combination is a trap, and only MF sees it.
 // ---------------------------------------------------------------
 function scoreEp9m(q: {
   rvol: number;
@@ -519,7 +485,6 @@ function scoreEp9m(q: {
 }): { score: number; grade: string; breakdown: Record<string, number> } {
   const b: Record<string, number> = {};
 
-  // --- Volume abnormality: the core signal ---
   b.rvol = 0;
   if (q.rvol >= 10) b.rvol = 30;
   else if (q.rvol >= 7) b.rvol = 26;
@@ -527,7 +492,6 @@ function scoreEp9m(q: {
   else if (q.rvol >= 4) b.rvol = 17;
   else if (q.rvol >= 3) b.rvol = 12;
 
-  // --- Unprecedented: exceeding its own 60-day volume record ---
   b.unprecedented = 0;
   if (q.volVs60dMax != null) {
     if (q.volVs60dMax >= 2.0) b.unprecedented = 20;
@@ -536,8 +500,6 @@ function scoreEp9m(q: {
     else if (q.volVs60dMax >= 0.7) b.unprecedented = 5;
   }
 
-  // --- Float turnover: a small float churning multiples of itself is the
-  // purest version of "something significant is happening here".
   b.floatTurnover = 0;
   if (q.floatTurnover != null) {
     if (q.floatTurnover >= 1.0) b.floatTurnover = 15;
@@ -546,15 +508,11 @@ function scoreEp9m(q: {
     else if (q.floatTurnover >= 0.10) b.floatTurnover = 4;
   }
 
-  // --- Catalyst quality. Unlike the main scanner this is a bonus rather than
-  // a requirement — the volume alone is a valid EP9M trigger, and finding the
-  // story before the crowd is the entire edge.
   b.catalyst = 0;
   if (q.catalystTier === 'strong') b.catalyst = 15;
   else if (q.catalystTier === 'neutral') b.catalyst = 9;
-  else if (q.catalystTier === 'negative') b.catalyst = -20; // pump-then-offering
+  else if (q.catalystTier === 'negative') b.catalyst = -20;
 
-  // --- Close strength: where in the day's range it settled ---
   b.closeStrength = 0;
   if (q.closeStrength != null) {
     if (q.closeStrength >= 0.85) b.closeStrength = 10;
@@ -563,9 +521,6 @@ function scoreEp9m(q: {
     else if (q.closeStrength <= 0.25) b.closeStrength = -8;
   }
 
-  // --- Money Flow: 21 sessions of accumulation vs distribution. Scored
-  // modestly — the trigger day is what matters most — but a genuinely
-  // distributed name gets a real penalty regardless of today's print.
   b.moneyFlow = 0;
   if (q.mf != null) {
     if (q.mf >= 65) b.moneyFlow = 8;
@@ -574,7 +529,6 @@ function scoreEp9m(q: {
     else if (q.mf <= 45) b.moneyFlow = -5;
   }
 
-  // --- Days to cover: the "5" in MAGNA 53. Short interest is squeeze fuel.
   b.daysToCover = 0;
   if (q.daysToCover != null) {
     if (q.daysToCover >= 5) b.daysToCover = 10;
@@ -582,7 +536,6 @@ function scoreEp9m(q: {
     else if (q.daysToCover >= 1.5) b.daysToCover = 3;
   }
 
-  // --- Sugar baby: repeat EP9M offenders make repeatable swings ---
   b.repeatOffender = q.priorTriggers >= 2 ? 5 : q.priorTriggers === 1 ? 3 : 0;
 
   const raw = Object.values(b).reduce((s, v) => s + v, 0);
@@ -592,10 +545,9 @@ function scoreEp9m(q: {
 }
 
 // ---------------------------------------------------------------
-// Registry — every trigger, kept for 90 days.
-// Free to maintain, and it's the prerequisite for the Delayed Reaction EP
-// (Bonde's highest-size setup): watch these names for a tight pullback over
-// the following weeks, then buy the re-break with a sub-1% stop.
+// Registry — every trigger, kept for 90 days. Free to maintain, and it's the
+// prerequisite for the Delayed Reaction EP: watch these names for a tight
+// pullback over the following weeks, then buy the re-break with a sub-1% stop.
 // Also gives "sugar baby" detection for free.
 // ---------------------------------------------------------------
 interface RegistryEntry {
@@ -611,16 +563,13 @@ async function readRegistry(): Promise<RegistryEntry[]> {
   try {
     const stored = await kv.get<RegistryEntry[]>('ep9m_registry_v1');
     if (!Array.isArray(stored)) return [];
-    const cutoff = dateStr(CONFIG.registryDays);
+    const cutoff = dateStr(EP9M.registryDays);
     return stored.filter(e => e?.date && e.date >= cutoff);
   } catch {
     return [];
   }
 }
 
-// ---------------------------------------------------------------
-// Handler
-// ---------------------------------------------------------------
 export async function GET() {
   try {
     if (!POLYGON_KEY) {
@@ -629,7 +578,6 @@ export async function GET() {
 
     const today = dateStr(0);
 
-    // SPY 3-month return for the RS column
     const spyRes = await polygonSafe<{ results?: Bar[] }>(
       `/v2/aggs/ticker/SPY/range/1/day/${dateStr(450)}/${today}?adjusted=true&sort=asc&limit=5000`,
       { results: [] }
@@ -637,33 +585,31 @@ export async function GET() {
     const spyBars = spyRes.results ?? [];
     const spyReturn = pctReturn(spyBars.map(b => b.c), 63);
 
-    // Stage 1 — who traded 9M+ today
     const { symbols, snapMap } = await getUniverse();
 
     if (symbols.length === 0) {
       const scanTime = Date.now();
       await kv.set('ep9m_v1', []);
       await kv.set('ep9m_last_scan_v1', scanTime);
-      await kv.set('ep9m_meta_v1', { raw9m: 0, shortlisted: 0, count: 0 });
+      await kv.set('ep9m_meta_v1', { raw9m: 0, shortlisted: 0, count: 0, scanMeta: EP9M_META });
       return NextResponse.json({
         success: true, lastScanTime: scanTime, raw9m: 0, shortlisted: 0, count: 0,
+        scanMeta: EP9M_META,
         note: 'No names above the 9M share threshold yet — expected early in the session.',
       });
     }
 
-    // Stage 2 + 3 — is that volume abnormal for them
     const profile = await getVolumeProfile(new Set(symbols));
     const shortlist = shortlistAbnormal(profile, snapMap);
 
     const registry = await readRegistry();
     const priorCounts = new Map<string, number>();
     for (const e of registry) {
-      if (e.date === today) continue; // today's own trigger isn't "prior"
+      if (e.date === today) continue;
       priorCounts.set(e.ticker, (priorCounts.get(e.ticker) || 0) + 1);
     }
 
-    // Stage 4 — full enrichment, shortlist only
-    const enriched = await inBatches(shortlist, CONFIG.concurrency, async (ab) => {
+    const enriched = await inBatches(shortlist, WINDOW.concurrency, async (ab) => {
       const sym = ab.sym;
       const snap = snapMap.get(sym);
       if (!snap) return null;
@@ -721,10 +667,8 @@ export async function GET() {
       if (si && float && float > 0) shortPct = (si / float) * 100;
       if (si && ab.avgVol > 0) daysToCover = si / ab.avgVol;
 
-      // How much of the tradeable float changed hands today.
       const floatTurnover = float && float > 0 ? snap.vol / float : null;
 
-      // Where in the day's range price settled. 1.0 = closed on the high.
       let closeStrength: number | null = null;
       if (snap.dayHigh != null && snap.dayLow != null && snap.dayHigh > snap.dayLow) {
         closeStrength = (price - snap.dayLow) / (snap.dayHigh - snap.dayLow);
@@ -765,13 +709,11 @@ export async function GET() {
           goldenCross: sma50 != null && sma200 != null ? sma50 > sma200 : null,
           pctOffHigh,
           rsVsSpy,
-          // v1.1: real sub-stage, using the live snapshot price.
           stage: computeStage(closes, { price }),
         },
       };
     });
 
-    // Stage 5 — catalysts for survivors only
     const wiimMap = await fetchBenzingaWiims(enriched.map(e => e.ab.sym));
     const STRONG_TAGS = new Set(['Earnings', 'FDA / Data', 'M&A', 'Guidance', 'Contract']);
     const NEGATIVE_TAGS = new Set(['Offering', 'Legal / Risk']);
@@ -851,10 +793,10 @@ export async function GET() {
     });
 
     candidates.sort((a, b) => b.score - a.score);
-    const finalList = candidates.slice(0, CONFIG.finalSize);
+    const finalList = candidates.slice(0, EP9M.finalSize);
 
     // Update the registry — one entry per ticker per day, best score wins.
-    const cutoff = dateStr(CONFIG.registryDays);
+    const cutoff = dateStr(EP9M.registryDays);
     const registryMap = new Map<string, RegistryEntry>();
     for (const e of registry) {
       if (e.date >= cutoff) registryMap.set(`${e.ticker}|${e.date}`, e);
@@ -878,8 +820,10 @@ export async function GET() {
       raw9m: symbols.length,
       shortlisted: shortlist.length,
       count: finalList.length,
-      minRvol: CONFIG.minRvol,
-      minVolume: CONFIG.minVolume,
+      minRvol: EP9M.minRvol,
+      minVolume: EP9M.minVolume,
+      // Gate metadata for the on-screen key — the config this run enforced.
+      scanMeta: EP9M_META,
     });
     await kv.set('ep9m_registry_v1', nextRegistry);
 
@@ -891,6 +835,7 @@ export async function GET() {
       count: finalList.length,
       registrySize: nextRegistry.length,
       catalystsFound: wiimMap.size,
+      scanMeta: EP9M_META,
     });
   } catch (error: any) {
     console.error('EP9M_RUN_ERROR:', error);

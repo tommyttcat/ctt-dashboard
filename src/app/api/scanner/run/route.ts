@@ -1,11 +1,13 @@
-// app/api/scanner/run/route.ts — v6.5
+// app/api/scanner/run/route.ts — v6.6
 // v6.1: + RMV(15); thesis is news-headline-only (stats moved to t.readout)
 // v6.2: RMV/RME imported from lib/indicators; RME(21) replaces the binary
 //       `extended` penalty in CNF; + cnfBreakdown for the badge tooltip
 // v6.3: Weinstein sub-stages (2A/2B/2C etc) via lib/indicators/stage
 // v6.4: + Money Flow (21) — accumulation vs distribution
-// v6.5: + daysToCover (short interest / avg volume) — replaces SHT% in the
-//       tables. Scales short interest against the liquidity to unwind it.
+// v6.5: + daysToCover (short interest / avg volume) — replaces SHT%
+// v6.6: thresholds moved to lib/scanConfig and shipped in the payload, so the
+//       on-screen key renders the gates the scan ACTUALLY used rather than a
+//       hardcoded copy that can silently drift.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -13,6 +15,7 @@ import { computeRMV } from '@/lib/indicators/rmv';
 import { computeRMEDetail, rmeScoreAdjustment } from '@/lib/indicators/rme';
 import { computeStageDetail } from '@/lib/indicators/stage';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
+import { SCANNER, SCANNER_SIP_META, SCANNER_DAILY_META, TOPMOVERS_META } from '@/lib/scanConfig';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -385,8 +388,7 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
 
   // Weinstein stage + sub-stage. Bars here are DESC (newest first), and the
   // live price is passed so the sub-stage reflects the intraday print rather
-  // than yesterday's close — the 30 and 50 SMAs sit close together, so a
-  // stale price misclassifies 2A/2B on any day with real movement.
+  // than yesterday's close — the 30 and 50 SMAs sit close together.
   const stageDetail = computeStageDetail(bars, { order: 'desc', price: currentPrice });
   stage = stageDetail.label;
   const stageNum = stageDetail.stage;
@@ -633,6 +635,15 @@ export async function GET(request: Request) {
     'Expires': '0',
   };
 
+  // Scan-gate metadata for the on-screen key. Shipped with every response,
+  // including cached and weekend ones, so the "?" panel always has something
+  // to render regardless of which path served the data.
+  const scanMeta = {
+    sip: SCANNER_SIP_META,
+    daily: SCANNER_DAILY_META,
+    topMovers: TOPMOVERS_META,
+  };
+
   // --- WEEKEND GUARD ---------------------------------------------------------
   if (isWeekend && !forceRefresh) {
     const [wDaily, wSip, wTop, wMacro, wBench, wTime] = await Promise.all([
@@ -655,6 +666,7 @@ export async function GET(request: Request) {
       benchmark: wBench || null,
       sips: wSip || [],
       dailySetups: wDaily || [],
+      scanMeta,
       fromCache: true
     }, { headers: noStoreHeaders });
   }
@@ -686,6 +698,7 @@ export async function GET(request: Request) {
           benchmark: cachedBenchmark,
           sips: cachedSip,
           dailySetups: cachedDaily,
+          scanMeta,
           fromCache: true
         }, { headers: noStoreHeaders });
       }
@@ -700,17 +713,6 @@ export async function GET(request: Request) {
   const benzingaApiKey = process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '';
 
   try {
-    const MIN_VOLUME = 500000;
-    const MIN_AVG_VOL = 2000000; 
-    const MIN_MARKET_CAP = 20000000; 
-    const MIN_CHANGE = 4.0;
-    const MIN_PRICE = 1.00;
-    const MIN_DOLLAR_VOL = 5000000; // $5M traded — kills untradeable low-priced spikes
-    // Anti-chop: 20-day average daily range. A name that can't travel 3% on a
-    // typical session isn't worth an intraday or swing entry, however clean
-    // the setup looks. Same floor used by the swing and 10/21 scans.
-    const MIN_ADR_PCT = 3.0;
-
     let processedSnapshot: any[] = [];
 
     if (currentPhase === 'Offline') {
@@ -790,7 +792,7 @@ export async function GET(request: Request) {
       });
     }
 
-    const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= MIN_PRICE && t._liveVol >= MIN_VOLUME);
+    const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= SCANNER.minPrice && t._liveVol >= SCANNER.minVolume);
 
     const spyChgToday = processedSnapshot.find((t: any) => t.ticker === 'SPY')?._liveChg ?? 0;
 
@@ -822,12 +824,12 @@ export async function GET(request: Request) {
     } catch (e) { console.error('breadth persist failed', e); }
 
     const dailyCandidates = [...viableSetups]
-      .filter((t: any) => t._liveChg >= MIN_CHANGE)
+      .filter((t: any) => t._liveChg >= SCANNER.minChange)
       .sort((a: any, b: any) => (b._livePrice * b._liveVol) - (a._livePrice * a._liveVol))
       .slice(0, 30);
       
     const sipCandidates = [...viableSetups]
-      .filter((t: any) => Math.abs(t._liveChg) >= MIN_CHANGE && t._livePrice >= t._liveVwap)
+      .filter((t: any) => Math.abs(t._liveChg) >= SCANNER.minChange && t._livePrice >= t._liveVwap)
       .sort((a: any, b: any) => b._liveVol - a._liveVol)
       .slice(0, 40);
 
@@ -840,7 +842,7 @@ export async function GET(request: Request) {
     
     const regularStocksRaw = viableSetups.filter((t: any) => !ETF_TARGET_MAP[t.ticker] && !MEGA_CAP_TICKERS.has(t.ticker));
     
-    const gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= MIN_CHANGE).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 40);
+    const gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= SCANNER.minChange).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 40);
     const losersRaw = [...regularStocksRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 40);
 
     const todayDate = new Date();
@@ -889,7 +891,7 @@ export async function GET(request: Request) {
       ]);
 
       const marketCap = details?.results?.market_cap || 0;
-      if (marketCap > 0 && marketCap < MIN_MARKET_CAP) return null;
+      if (marketCap > 0 && marketCap < SCANNER.minMarketCap) return null;
 
       const rawBars = aggs.results || [];
       const dailyBars = rawBars.sort((a: any, b: any) => b.t - a.t); 
@@ -930,19 +932,12 @@ export async function GET(request: Request) {
         if (ratioCount > 0) adrPct = ((ratioSum / ratioCount) - 1) * 100;
       }
 
-      // RMV(15) — where today's volatility sits inside its own 15-bar range.
       const rmv = computeRMV(dailyBars, { order: 'desc', lookback: 15 });
-
-      // RME(21) — where price sits vs its OWN history of extension from the
-      // 21 EMA. Feeds CNF as the extension penalty. -100..+100.
       const rmeDetail = computeRMEDetail(dailyBars, { order: 'desc', maLength: 21, lookback: 250 });
-
-      // Money Flow (21) — accumulation vs distribution. RVOL says volume
-      // showed up; MF says which side got filled.
       const mf = computeMoneyFlow(dailyBars, { order: 'desc', length: 21 });
       const mfTrend = moneyFlowTrend(dailyBars, { order: 'desc', length: 21, lookback: 5 });
       
-      // 10 & 21 EMA + trend-structure fields (STR data + readout).
+      // 10 & 21 EMA + trend-structure fields.
       let aboveEma10: boolean | null = null;
       let aboveEma21: boolean | null = null;
       let distToEma21: number | null = null;
@@ -1036,10 +1031,9 @@ export async function GET(request: Request) {
       if (shortInterest && float) {
         shortPct = (shortInterest / float) * 100;
       }
-      // Days to cover — the "5" in Bonde's MAGNA 53. Short interest divided by
-      // average daily volume: how many sessions of normal trade it would take
-      // shorts to exit. More decision-relevant than raw short %, because it
-      // scales the position against the liquidity available to close it.
+      // Days to cover — the "5" in Bonde's MAGNA 53. Sessions of normal trade
+      // for shorts to exit; scales short interest against the liquidity to
+      // unwind it, which raw short percent does not.
       if (shortInterest && avgVol > 0) {
         daysToCover = shortInterest / avgVol;
       }
@@ -1150,11 +1144,8 @@ export async function GET(request: Request) {
         ? wiim.title
         : (t._rawHeadline && t._daysOld <= 4 ? t._rawHeadline : null);
 
-      // Stat readout kept off the thesis line but still available.
       t.readout = buildReadout(t);
 
-      // Catalyst quality tier — dilution/legal headlines are negative even
-      // when the stock is gapping up on them (pump-then-offering trap).
       if ((catalystTag && NEGATIVE_TAGS.has(catalystTag)) ||
           isNegativeHeadline(t._rawHeadline) ||
           (wiim && isNegativeHeadline(wiim.title))) {
@@ -1171,17 +1162,14 @@ export async function GET(request: Request) {
 
       t.tradeType = deriveTradeType(t.setupName);
 
-      // Scan persistence streak (only builds during live sessions).
       t.scanStreak = currentPhase !== 'Offline'
         ? (prevStreaks[t.ticker] || 0) + 1
         : (prevStreaks[t.ticker] || 1);
       newStreaks[t.ticker] = t.scanStreak;
 
-      // Extension flag — NO LONGER scored (RME handles that). Kept for the UI.
       t.extended = (t.moveVsAtr != null && t.moveVsAtr >= 3.5) ||
         (t.distToEma21 != null && t.atrPct != null && t.atrPct > 0 && t.distToEma21 > 3 * t.atrPct);
 
-      // --- STATUS: pullback readiness; DAY names below VWAP never rate Ready.
       t.status = (t.stochK != null && t.stochK <= 25 && t.distToEma21 != null && Math.abs(t.distToEma21) <= 2.5)
         ? 'Ready' : 'Forming';
       if (t.tradeType === 'Day Trade' && t.vwapStatus === 'below') t.status = 'Forming';
@@ -1236,7 +1224,6 @@ export async function GET(request: Request) {
       enrichedMap.set(t.ticker, t); 
     });
 
-    // Persist streaks so the next scan (15 min out) can build on them.
     if (currentPhase !== 'Offline') {
       try {
         await kv.set('scan_streaks_v6', { date: currentDate, counts: newStreaks });
@@ -1247,35 +1234,35 @@ export async function GET(request: Request) {
       .map((t: any) => enrichedMap.get(t.ticker))
       .filter((r: any) => 
          r !== undefined && 
-         r.vol >= MIN_VOLUME && 
-         r.dVol >= MIN_DOLLAR_VOL &&
-         r.changePct >= MIN_CHANGE &&
-         r.atr >= 1.0 && 
-         r.avgVol >= MIN_AVG_VOL &&
-         r.adrPct != null && r.adrPct >= MIN_ADR_PCT
+         r.vol >= SCANNER.minVolume && 
+         r.dVol >= SCANNER.minDollarVol &&
+         r.changePct >= SCANNER.minChange &&
+         r.atr >= SCANNER.minAtr && 
+         r.avgVol >= SCANNER.minAvgVol &&
+         r.adrPct != null && r.adrPct >= SCANNER.minAdrPct
       )
-      .slice(0, 10);
+      .slice(0, SCANNER.finalSize);
 
     const finalDaily = dailyCandidates
       .map((t: any) => enrichedMap.get(t.ticker))
       .filter((r: any) => 
          r !== undefined && 
-         r.vol >= MIN_VOLUME && 
-         r.dVol >= MIN_DOLLAR_VOL &&
-         r.changePct >= MIN_CHANGE &&
-         r.adrPct != null && r.adrPct >= MIN_ADR_PCT
+         r.vol >= SCANNER.minVolume && 
+         r.dVol >= SCANNER.minDollarVol &&
+         r.changePct >= SCANNER.minChange &&
+         r.adrPct != null && r.adrPct >= SCANNER.minAdrPct
       )
-      .slice(0, 10);
+      .slice(0, SCANNER.finalSize);
     
     const finalTopMovers = {
       'Mega Caps': megaCapsRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10),
-      'Gainers': gainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.vol >= MIN_VOLUME).slice(0, 10),
+      'Gainers': gainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.vol >= SCANNER.minVolume).slice(0, 10),
       'Losers': losersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10),
       'ETF Gainers': etfGainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10),
       'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10)
     };
 
-    // QQQ benchmark moving averages (unchanged)
+    // QQQ benchmark moving averages
     let benchmark: any = null;
     try {
       const qqqTo = new Date().toISOString().split('T')[0];
@@ -1341,6 +1328,9 @@ export async function GET(request: Request) {
       await kv.set('stocks_in_play_v6', finalSip);
       await kv.set('top_movers_v6', finalTopMovers);
       await kv.set('last_scan_time_v6', finalScanTime);
+      // Persist the gate metadata too, so the `latest` endpoint can serve the
+      // key even on a cold read where no scan has run this session.
+      await kv.set('scan_meta_v6', scanMeta);
     } else {
       console.warn('Scan produced no movers; preserving previous KV snapshot.');
     }
@@ -1364,6 +1354,7 @@ export async function GET(request: Request) {
       benchmark,
       sips: finalSip,            
       dailySetups: finalDaily,
+      scanMeta,
       dataPersisted: hasRealData,
       fromCache: false
     }, { headers: noStoreHeaders });
