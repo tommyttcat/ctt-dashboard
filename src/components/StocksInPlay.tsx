@@ -1,14 +1,13 @@
 'use client';
 
-// StocksInPlay — v1.8
-// v1.6: sub-row tightened throughout; + MetricsKey
+// StocksInPlay — v1.9
 // v1.7: column meanings moved to native `title` on the headers
-// v1.8: sub-row restructured. STR (GC / 21↑) dropped entirely — the labels
-//       never changed and only their colour carried meaning, which made them
-//       easy to stop seeing. STATE takes that slot instead: it answers a
-//       question you actually ask. RMV/RME moves to the end of the catalyst
-//       section, right-aligned, and both get a size bump now that the row has
-//       fewer things competing on it.
+// v1.8: STR dropped; STATE takes that slot; RMV/RME moved to the end of the
+//       catalyst section
+// v1.9: sub-row typography settled — RMV/RME now reads in the same muted
+//       slate as the catalyst text rather than competing with the primary
+//       row, everything a size smaller, and STATE + readiness left-aligned
+//       so they form a column rather than floating centred.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -719,9 +718,10 @@ export default function StocksInPlay() {
                           </td>
                         </tr>
                         {/* Sub-row: setup | catalyst | RMV/RME | STATE + readiness.
-                            The headline truncates to one line and everything
-                            around it is fixed-width, so row height never changes
-                            and the columns line up down the table. */}
+                            All of it deliberately muted and a size below the
+                            primary row — this is context you read once you have
+                            already decided a row is interesting, not data you
+                            scan down the table. */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%]"></td>
                           <td colSpan={14} className="pb-1.5 pt-1 pr-3">
@@ -750,29 +750,29 @@ export default function StocksInPlay() {
                                   <span className="text-slate-600 italic">No news catalyst — technical setup only.</span>
                                 )}
                               </p>
-                              {/* RMV/RME sits at the end of the catalyst section,
-                                  fixed width so it forms a clean column. */}
+                              {/* RMV/RME closes out the catalyst section, in the
+                                  same muted slate as the headline. */}
                               <span
                                 title={stateTooltip(rmv, rme)}
-                                className="shrink-0 flex items-center gap-1.5 cursor-help whitespace-nowrap"
+                                className="shrink-0 flex items-baseline gap-1.5 cursor-help whitespace-nowrap"
                               >
-                                <span className="text-[9px] font-bold tracking-[0.1em] uppercase text-slate-600">RMV/RME</span>
-                                <span className="text-[11px] font-semibold text-slate-200 tabular-nums">{statePair(rmv, rme)}</span>
+                                <span className="text-[8px] font-bold tracking-[0.1em] uppercase text-slate-600">RMV/RME</span>
+                                <span className="text-[9px] font-semibold text-slate-500 tabular-nums">{statePair(rmv, rme)}</span>
                               </span>
                             </div>
                           </td>
                           <td colSpan={2} className="pb-1.5 pt-1 align-middle">
-                            <div className="flex items-center justify-center gap-2 border-l border-white/10 px-1">
+                            <div className="flex items-baseline gap-2 border-l border-white/10 pl-3">
                               <span
                                 title={stateTooltip(rmv, rme)}
-                                className={`text-[11px] font-bold tracking-[0.1em] uppercase cursor-help ${stateRes.color}`}
+                                className={`text-[9px] font-bold tracking-[0.1em] uppercase cursor-help ${stateRes.color}`}
                               >
                                 {stateRes.state === 'UNKNOWN' ? '—' : stateRes.state}
                               </span>
                               {st === 'Ready' ? (
-                                <span className="text-[10px] font-semibold text-emerald-400">Ready</span>
+                                <span className="text-[9px] font-semibold text-emerald-400">Ready</span>
                               ) : st === 'Forming' ? (
-                                <span className="text-[10px] font-semibold text-amber-400">Forming</span>
+                                <span className="text-[9px] font-semibold text-amber-400">Forming</span>
                               ) : null}
                             </div>
                           </td>
