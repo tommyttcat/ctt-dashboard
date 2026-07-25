@@ -16,7 +16,7 @@ import EarningsCalendar from '../components/EarningsCalendar';
 import MarketSummary from '../components/MarketSummary';
 import TopMovers from '../components/TopMovers';
 import SwingCandidates from '../components/SwingCandidates';
-import Ep9m from './components/Ep9m';
+import Ep9m from '../components/Ep9m'; 
 
 export default function DailySetupsPage() {
   return (
