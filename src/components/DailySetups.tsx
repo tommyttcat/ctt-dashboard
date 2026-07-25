@@ -1,16 +1,89 @@
 'use client';
 
-// DailySetups — v1.4
+// DailySetups — v1.5
 // v1.1: + RMV(15) column; CATALYST column removed (news moved to thesis line)
 // v1.2: FLOAT column removed; RME(21) surfaced via the CNF badge tooltip
 // v1.3: Weinstein sub-stage coloring via lib/indicators/stage
-// v1.4: + Money Flow (21). The tell to watch: a big CHG% with MF under 45 is
-//       a gap being sold into — the move is real, the demand isn't.
+// v1.4: + Money Flow (21)
+// v1.5: Full SIPs v2.4 parity pass —
+//       • RMV standalone column removed, replaced by STATE chip + RMV/RME
+//         pair on the sub-row (same stacked layout as SIPs).
+//       • SHT% → DTC (days to cover).
+//       • RS/SPY → RS, rounded with 1k% compaction via formatRs().
+//       • STAGE/SECTOR right-aligned, widths cut from 5%/10% → 4%/7%;
+//         freed % redistributed to data columns.
+//       • Cell padding px-1 → px-0.5 for more interior room.
+//       • FALLBACK_NOTES + colTip() — every header now has a native tooltip.
+//       • MetricsKey ? wired in the header bar.
+//       • Sub-row tightened: 9px labels, smaller dots, STATE under STAGE
+//         and readiness under SECTOR, both right-aligned to match.
+//       • overflow-visible on card so MetricsKey panel isn't clipped.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
+import { stateOf, stateTooltip, stateLegend, readinessTooltip } from '@/lib/indicators/state';
+import { SCANNER_DAILY_META, COLUMN_NOTES } from '@/lib/scanConfig';
+import MetricsKey from './MetricsKey';
+
+const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
+  TICKER: { what: 'Symbol. Hover shows the company name.' },
+  CNF: {
+    what: 'Confluence score 0–100 — how many independent factors line up: RVOL, gap, range expansion, RS, catalyst quality, persistence, VWAP, regime, sector heat. Hover the badge for the per-row breakdown.',
+    colour: 'Green 70+ (A) · amber 50+ (B) · grey below (C).',
+  },
+  PRICE: {
+    what: 'Last price. The dot beside it is VWAP position.',
+    colour: 'Green dot above VWAP · red dot below.',
+  },
+  'CHG%': {
+    what: 'Change vs prior close. Scan floor is +4%.',
+    colour: 'Green up · red down.',
+  },
+  '10/21': {
+    what: 'Price vs the 10 and 21 EMAs — the Dr. Wish trend pair.',
+    colour: 'Green dot above that EMA · red below · grey no data.',
+  },
+  VOL: { what: 'Shares traded today. Scan floor is 500K.' },
+  '$VOL': { what: 'Dollar volume — price × volume. Scan floor is $5M.' },
+  RVOL: {
+    what: 'Relative volume vs the 20-day average at this time of day.',
+    colour: 'Amber 2x+ · green 1.5x+ · grey below.',
+  },
+  ADR: {
+    what: '20-day average daily range. The anti-chop gate — scan floor is 3%.',
+    colour: 'Purple 10%+ · green 5%+ · grey at the floor.',
+  },
+  MF: {
+    what: 'Money Flow (21) — volume-weighted accumulation vs distribution, 0–100. Arrow shows the bar-over-bar trend.',
+    colour: 'Green high (accumulation) · red low (distribution).',
+  },
+  RS: {
+    what: 'Relative strength vs SPY over three months, in percentage points.',
+    colour: 'Purple +20 · green +10 · grey positive · red negative.',
+  },
+  STOCH: {
+    what: 'Stochastic %K (10). Low readings near a rising 21 EMA are the Blue Dot precondition.',
+    colour: 'Purple ≤20 · green ≤30 · grey above.',
+  },
+  DTC: {
+    what: 'Days to cover — sessions of normal volume for shorts to exit. Above 5 is trapped supply that has to buy at some point.',
+    colour: 'Purple 5+ · green 3+ · grey below.',
+  },
+  MCAP: { what: 'Market cap. Scan floor is $20M.' },
+  STAGE: {
+    what: 'Weinstein stage with sub-stage. 2A strong advance · 2B extended · 2C sagging below the 50 SMA. Hover the value for the row-specific read.',
+    colour: 'Green healthy Stage 2 · amber sagging · red Stage 4.',
+  },
+  SECTOR: { what: 'Sector, cleaned of ticker prefixes.' },
+};
+
+const colTip = (key: string): string | undefined => {
+  const n = COLUMN_NOTES?.[key] ?? FALLBACK_NOTES[key];
+  if (!n) return undefined;
+  return n.colour ? `${n.what}\n\n${n.colour}` : n.what;
+};
 
 interface SetupData {
   ticker: string;
@@ -24,14 +97,15 @@ interface SetupData {
   rvol: number | null;
   float: number | null;
   shortPct: number | null;
+  daysToCover: number | null;
   mktCap: number | null;
   stage: string;
   setupName: string | null;
   catalyst?: string | null;
   catalystUrl?: string | null;
-  conviction?: number | null; 
-  thesis?: string | null;     
-  tradeType?: string | null;  
+  conviction?: number | null;
+  thesis?: string | null;
+  tradeType?: string | null;
   aboveEma10?: boolean | null;
   aboveEma21?: boolean | null;
   stochK?: number | null;
@@ -55,15 +129,10 @@ type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
 type AdrFilterType = 'All' | '5' | '10';
 
-// CNF is a floor, not an exact grade: picking B shows B and A. Unset shows
-// everything, which is effectively "C and above".
 const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
 const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
-
-// ADR buckets in percent — the scan already floors at 3%, so these tighten.
 const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
 
-// Human labels for the CNF breakdown keys the scanner ships.
 const CNF_LABELS: Record<string, string> = {
   rvol: 'Relative volume',
   gap: 'Gap',
@@ -100,6 +169,27 @@ const formatCurrency = (num: number | null) => {
   return '$' + num.toLocaleString();
 };
 
+const formatRs = (rs: number | null | undefined): string => {
+  if (rs == null || isNaN(Number(rs))) return '—';
+  const v = Number(rs);
+  const sign = v >= 0 ? '+' : '-';
+  const abs = Math.abs(v);
+  if (abs >= 1000) {
+    const k = abs / 1000;
+    const s = k >= 10
+      ? Math.round(k).toString()
+      : (Math.round(k * 10) / 10).toString().replace(/\.0$/, '');
+    return `${sign}${s}k%`;
+  }
+  return `${sign}${Math.round(abs)}%`;
+};
+
+const statePair = (rmv: number | null, rme: number | null): string => {
+  const v = rmv == null ? '—' : String(Math.round(rmv));
+  const e = rme == null ? '—' : String(Math.round(rme));
+  return `${v}/${e}`;
+};
+
 const formatSetupName = (name: string | null) => {
   if (!name || name === '-' || name === '—') return '—';
   if (name.includes('BB SQZ')) return 'BB SQZ';
@@ -108,7 +198,6 @@ const formatSetupName = (name: string | null) => {
   return name;
 };
 
-// Blue Dot Reversal renders as the dot itself rather than a text label.
 const isBlueDotSetup = (name: string | null | undefined): boolean => {
   if (!name) return false;
   const n = String(name).toLowerCase();
@@ -118,12 +207,10 @@ const isBlueDotSetup = (name: string | null | undefined): boolean => {
 const BlueDot = ({ className = '' }: { className?: string }) => (
   <span
     title="Blue Dot Reversal"
-    className={`inline-block w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.7)] align-middle shrink-0 ${className}`}
+    className={`inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)] align-middle shrink-0 ${className}`}
   />
 );
 
-// Sector strings sometimes arrive ticker-prefixed ("RKLB - AEROSPACE") from the
-// scanner payload. Strip the prefix so one bad row can't widen the column.
 const cleanSector = (sector: string | null | undefined, ticker?: string): string => {
   if (!sector || sector === '—' || sector === '-') return '—';
   let s = String(sector).trim();
@@ -131,27 +218,22 @@ const cleanSector = (sector: string | null | undefined, ticker?: string): string
     const rx = new RegExp(`^${ticker}\\s*[-–—:]\\s*`, 'i');
     s = s.replace(rx, '');
   }
-  // Generic fallback: any leading 1-5 char all-caps token followed by a dash
   s = s.replace(/^[A-Z]{1,5}\s*[-–—:]\s*/, '');
   return s.trim() || '—';
 };
 
-// Fallback labels the backend uses when there's no real headline.
 const isGenericCatalyst = (catalyst: string | null | undefined) => {
   if (!catalyst) return true;
   const c = catalyst.toLowerCase().trim();
   return c.startsWith('technical momentum') || c === 'recent news' || c === 'news' || c === 'technical';
 };
 
-// Catalyst TAG — the classified bucket ("Earnings", "M&A", "Contract").
 const catalystTagOf = (row: SetupData): string | null => {
   if (isGenericCatalyst(row.catalyst)) return null;
   const cat = String(row.catalyst).trim().replace(/\.$/, '');
   return cat || null;
 };
 
-// Catalyst HEADLINE — the actual news sentence. This is the whole thesis line
-// now; the backend sends null here when the move has no news behind it.
 const headlineOf = (row: SetupData): string | null => {
   if (!row.thesis) return null;
   const s = String(row.thesis).trim();
@@ -163,25 +245,19 @@ const adrOf = (row: SetupData): number | null => {
   return Number(row.adrPct);
 };
 
-// RMV — where today's volatility sits inside its own 15-bar range.
-// 0 = tightest of the window, 100 = most expanded.
-const rmvOf = (row: SetupData): number | null => {
-  if (row.rmv == null || isNaN(Number(row.rmv))) return null;
-  return Number(row.rmv);
-};
-
-// Money Flow (21) — accumulation vs distribution. RVOL says volume showed up;
-// MF says which side got filled.
 const mfOf = (row: SetupData): number | null => {
   if (row.mf == null || isNaN(Number(row.mf))) return null;
   return Number(row.mf);
 };
 
-// RME — where price sits vs this stock's OWN history of extension from the
-// 21 EMA. -100..+100. Feeds CNF; surfaced on the badge tooltip.
 const rmeOf = (row: SetupData): number | null => {
   if (row.rme == null || isNaN(Number(row.rme))) return null;
   return Number(row.rme);
+};
+
+const rmvOf = (row: SetupData): number | null => {
+  if (row.rmv == null || isNaN(Number(row.rmv))) return null;
+  return Number(row.rmv);
 };
 
 const rmeLabel = (rme: number | null): string => {
@@ -196,8 +272,6 @@ const rmeLabel = (rme: number | null): string => {
   return 'at historical extension low';
 };
 
-// Full CNF explanation for the badge tooltip. Non-zero components only,
-// biggest contributors first, so the reason for a score is one hover away.
 const cnfTooltip = (row: SetupData): string => {
   const score = row.conviction;
   const lines: string[] = [
@@ -212,8 +286,7 @@ const cnfTooltip = (row: SetupData): string => {
     if (entries.length > 0) {
       lines.push('');
       for (const [k, v] of entries) {
-        const label = CNF_LABELS[k] || k;
-        lines.push(`${v > 0 ? '+' : ''}${v}  ${label}`);
+        lines.push(`${v > 0 ? '+' : ''}${v}  ${CNF_LABELS[k] || k}`);
       }
     }
   }
@@ -230,7 +303,6 @@ const cnfTooltip = (row: SetupData): string => {
   return lines.join('\n');
 };
 
-// Day Trade vs Swing label — rendered as a chip identical to the CNF score chip.
 const tradeTypeLabel = (tradeType: string | null | undefined): string | null => {
   if (!tradeType) return null;
   const t = tradeType.toLowerCase();
@@ -239,8 +311,6 @@ const tradeTypeLabel = (tradeType: string | null | undefined): string | null => 
   return tradeType.toUpperCase();
 };
 
-// Status: prefer the backend field; derive from the raw metrics when the KV
-// payload predates it (Ready = stoch <= 25 and within 2.5% of the 21 EMA).
 const rowStatus = (row: SetupData): 'Ready' | 'Forming' | null => {
   if (row.status === 'Ready' || row.status === 'Forming') return row.status;
   if (row.stochK != null && row.distToEma21 != null) {
@@ -250,15 +320,16 @@ const rowStatus = (row: SetupData): 'Ready' | 'Forming' | null => {
 };
 
 export default function DailySetups() {
-  const { session } = useMarketData(); 
+  const { session } = useMarketData();
 
   const [setups, setSetups] = useState<SetupData[]>([]);
   const [status, setStatus] = useState<string>('Syncing DB...');
   const [lastScanTime, setLastScanTime] = useState<number | null>(null);
+  const [scanMeta, setScanMeta] = useState<any>(null);
   const [sortConfig, setSortConfig] = useState<{ key: keyof SetupData; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
-  const [showStage2Only, setShowStage2Only] = useState<boolean>(false); 
-  const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
+  const [showStage2Only, setShowStage2Only] = useState<boolean>(false);
+  const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [adrFilter, setAdrFilter] = useState<AdrFilterType>('All');
@@ -272,14 +343,11 @@ export default function DailySetups() {
       try {
         const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
         const data = await res.json();
-        
+
         if (isMounted && data.success) {
           const rawList = data.dailySetups || [];
           const safeData = rawList.map((item: any) => {
-            // Thesis is the news headline verbatim, or nothing. No synthesized
-            // sentence from the tag — an invented thesis reads like signal.
             const rawThesis = item.thesis || item.aiThesis || item.analysis || item.reasoning || null;
-
             return {
               ticker: item.ticker || '—',
               name: item.name || '',
@@ -292,12 +360,13 @@ export default function DailySetups() {
               rvol: item.rvol || null,
               float: item.float || null,
               shortPct: item.shortPct || null,
+              daysToCover: item.daysToCover ?? null,
               mktCap: item.mktCap || null,
               stage: item.stage || '—',
               setupName: item.setupName || null,
               catalyst: item.catalyst || null,
               catalystUrl: item.catalystUrl || null,
-              conviction: item.conviction != null ? Number(item.conviction) : ((item.cnfScore ?? item.smbScore ?? item.aiScore ?? item.score) ?? null), 
+              conviction: item.conviction != null ? Number(item.conviction) : ((item.cnfScore ?? item.smbScore ?? item.aiScore ?? item.score) ?? null),
               thesis: rawThesis,
               tradeType: item.tradeType || null,
               aboveEma10: item.aboveEma10 ?? null,
@@ -320,6 +389,7 @@ export default function DailySetups() {
 
           setSetups(safeData);
           setLastScanTime(data.lastScanTime || Date.now());
+          if (data.scanMeta?.daily) setScanMeta(data.scanMeta.daily);
           setStatus('Live');
         }
       } catch (error) {
@@ -329,54 +399,37 @@ export default function DailySetups() {
 
     fetchDatabaseSnapshot();
     const interval = setInterval(fetchDatabaseSnapshot, 60000);
-
-    return () => { 
-      isMounted = false; 
-      clearInterval(interval); 
-    };
+    return () => { isMounted = false; clearInterval(interval); };
   }, []);
 
   const handleSort = (key: keyof SetupData) => {
-    let direction: SortDirection = 'desc'; 
+    let direction: SortDirection = 'desc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
     else if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') { setSortConfig(null); return; }
     setSortConfig({ key, direction });
   };
 
-  // Clicking the active option clears back to All (toggle behavior)
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
   const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
   const handleAdrFilter = (val: AdrFilterType) => setAdrFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
 
   const filteredAndSortedSetups = useMemo(() => {
-    let filtered = setups.filter(s => 
-      s.changePct >= 4.0 && 
-      s.vol >= 500000 && 
-      s.mktCap !== null && s.mktCap >= 20000000
-    );
-    
-    // Stage 2 filter matches any sub-stage — 2A, 2B and 2C are all Stage 2.
-    if (showStage2Only) {
-      filtered = filtered.filter(s => stageShort(s.stage).startsWith('2'));
-    }
-    
+    let filtered = setups.filter(s => s.changePct >= 4.0 && s.vol >= 500000 && s.mktCap !== null && s.mktCap >= 20000000);
+    if (showStage2Only) filtered = filtered.filter(s => stageShort(s.stage).startsWith('2'));
     if (marketCapFilter !== 'All') {
       filtered = filtered.filter(s => {
         const mc = s.mktCap;
-        if (!mc) return true; 
+        if (!mc) return true;
         if (marketCapFilter === 'Large') return mc >= 2e9;
         if (marketCapFilter === 'Small') return mc < 2e9;
         return true;
       });
     }
-
-    // CNF is "grade and above": B keeps both B and A.
     if (cnfFilter !== 'All') {
       const minScore = CNF_MIN_SCORE[cnfFilter];
       filtered = filtered.filter(s => (s.conviction ?? -1) >= minScore);
     }
-
     if (emaFilter !== 'All') {
       filtered = filtered.filter(s => {
         if (emaFilter === '>10') return s.aboveEma10 === true;
@@ -385,8 +438,6 @@ export default function DailySetups() {
         return true;
       });
     }
-
-    // ADR buckets are "and above" on the 20-day average daily range.
     if (adrFilter !== 'All') {
       const minAdr = Number(adrFilter);
       filtered = filtered.filter(s => {
@@ -394,13 +445,10 @@ export default function DailySetups() {
         return a != null && a >= minAdr;
       });
     }
-
     if (vwapFilter !== 'All') {
       filtered = filtered.filter(s => s.vwapStatus === vwapFilter);
     }
-
     if (!sortConfig) return filtered;
-    
     return [...filtered].sort((a, b) => {
       const aVal = a[sortConfig.key] as any;
       const bVal = b[sortConfig.key] as any;
@@ -412,8 +460,6 @@ export default function DailySetups() {
     });
   }, [setups, sortConfig, showStage2Only, marketCapFilter, cnfFilter, emaFilter, adrFilter, vwapFilter]);
 
-  // Copy the visible tickers, comma-separated — TradingView's watchlist
-  // import format. Respects whatever filters are active.
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
     const tickers = filteredAndSortedSetups.map(s => s.ticker).join(',');
@@ -421,7 +467,6 @@ export default function DailySetups() {
     try {
       await navigator.clipboard.writeText(tickers);
     } catch {
-      // Clipboard API needs a secure context; fall back to a temp textarea.
       const ta = document.createElement('textarea');
       ta.value = tickers;
       ta.style.position = 'fixed';
@@ -443,7 +488,6 @@ export default function DailySetups() {
     if (rvol >= 1.5) return 'text-emerald-400';
     return 'text-slate-500';
   };
-  // ADR — more daily range means more to capture once it moves.
   const getAdrColor = (a: number | null) => {
     if (a == null) return 'text-slate-500';
     if (a >= 10) return 'text-purple-400';
@@ -451,33 +495,19 @@ export default function DailySetups() {
     if (a >= 3) return 'text-slate-300';
     return 'text-slate-500';
   };
-  // RMV — inverted scale: low is tight, high is expanded. Runs opposite to
-  // ADR, and on a gapping setup a HIGH reading is expected — it confirms the
-  // range actually expanded today. The tell is a big CHG% with a low RMV:
-  // that's a drift, not an impulse.
-  const getRmvColor = (r: number | null) => {
-    if (r == null) return 'text-slate-500';
-    if (r <= 10) return 'text-emerald-400';
-    if (r <= 25) return 'text-lime-400';
-    if (r <= 45) return 'text-yellow-400';
-    if (r <= 65) return 'text-amber-400';
-    if (r <= 80) return 'text-orange-400';
-    return 'text-rose-400';
+  const getDtcColor = (d: number | null) => {
+    if (d == null) return 'text-slate-500';
+    if (d >= 5) return 'text-purple-400';
+    if (d >= 3) return 'text-emerald-400';
+    if (d >= 1.5) return 'text-slate-300';
+    return 'text-slate-500';
   };
-  const getShortColor = (short: number | null) => {
-    if (!short) return 'text-slate-500';
-    if (short >= 20) return 'text-purple-400'; 
-    if (short >= 10) return 'text-emerald-400';
-    return 'text-slate-300';
-  };
-
   const getStochColor = (k: number | null | undefined) => {
     if (k == null) return 'text-slate-500';
     if (k <= 20) return 'text-purple-400';
     if (k <= 30) return 'text-emerald-400';
     return 'text-slate-400';
   };
-
   const getRsColor = (rs: number | null | undefined) => {
     if (rs == null) return 'text-slate-500';
     if (rs >= 20) return 'text-purple-400';
@@ -485,8 +515,6 @@ export default function DailySetups() {
     if (rs >= 0) return 'text-slate-300';
     return 'text-rose-400';
   };
-
-  // CNF-graded score badge: green = A (>=70), amber = B (>=50), gray = C
   const getScoreBadge = (score: number | null | undefined) => {
     if (score == null) return 'bg-white/[0.02] text-slate-600 border-white/5';
     if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
@@ -499,12 +527,6 @@ export default function DailySetups() {
     return state ? 'bg-emerald-400' : 'bg-rose-500';
   };
 
-  // STR data color: emerald = true, rose = false, dim gray = unknown
-  const structColor = (state: boolean | null | undefined) => {
-    if (state === null || state === undefined) return 'text-slate-600';
-    return state ? 'text-emerald-400' : 'text-rose-400';
-  };
-
   const displaySession = ['Pre-Market', 'Open', 'Post-Market', 'Closed'].includes(session) ? session : 'Closed';
   const getSessionTextColor = () => {
     if (displaySession === 'Pre-Market') return 'text-amber-500';
@@ -513,16 +535,16 @@ export default function DailySetups() {
     return 'text-slate-500';
   };
 
-  // Shared styles — every column centered, uniform tight padding
-  const thBase = "px-1 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
-  const tdBase = "px-1 pt-2.5 pb-1.5 text-center";
+  const thBase = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
+  const tdBase = "px-0.5 pt-2.5 pb-1.5 text-center";
+  const thRight = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-right";
+  const tdRight = "px-0.5 pt-2.5 pb-1.5 text-right";
+
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
   const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
-  // Filter pills — matched to the Filter: 2 button (same height, font, tracking)
   const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
   const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
   const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
-  // DAY/SWING chip — identical to the CNF score chip, off-white text
   const typeChip = "inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border bg-zinc-800/50 text-slate-300 border-zinc-700/50";
 
   const activeFilterCount =
@@ -534,7 +556,7 @@ export default function DailySetups() {
     (vwapFilter !== 'All' ? 1 : 0);
 
   return (
-    <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
+    <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-visible shadow-xl w-full max-w-[1280px] mx-auto">
       <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
@@ -554,6 +576,9 @@ export default function DailySetups() {
               {copied ? `✓ Copied ${filteredAndSortedSetups.length}` : `Copy ${filteredAndSortedSetups.length}`}
             </button>
           )}
+          <span className="relative z-40 inline-flex">
+            <MetricsKey meta={SCANNER_DAILY_META} liveGates={scanMeta?.gates} />
+          </span>
         </div>
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
@@ -562,11 +587,10 @@ export default function DailySetups() {
           {lastScanTime && (<span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">Updated: {formatTime(lastScanTime)} EST</span>)}
         </div>
       </div>
-      
+
       {isExpanded && (
         <>
           <div className="flex flex-col gap-3 mb-4 relative z-10" onClick={(e) => e.stopPropagation()}>
-            {/* Collapsed disclosure — one button, shows active filter count */}
             <div className="flex justify-center">
               <button
                 onClick={() => setShowFilters(!showFilters)}
@@ -580,7 +604,6 @@ export default function DailySetups() {
                 Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
               </button>
             </div>
-            {/* Expanded: one uniform pill strip */}
             {showFilters && (
               <div className="flex flex-wrap justify-center items-center gap-3 w-full">
                 <div className={pillWrap}>
@@ -658,35 +681,35 @@ export default function DailySetups() {
             )}
           </div>
 
-          <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            <table className="w-full min-w-[1120px] table-fixed border-collapse">
+          <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
+            {/* 16 columns (no FLOAT): 7+4+7+6+6+7+7+7+6+5+7+6+7+7+4+7 = 100 */}
+            <table className="w-full min-w-[1100px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
-                  <th className={`${thBase} w-[4%]`} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className={`${thBase} w-[6%]`}>10/21</th>
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rmv')}>RMV{getSortIcon('rmv')}</th>
-                  <th className={`${thBase} w-[4%]`} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className={`${thBase} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} w-[10%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} w-[7%]`} title={colTip('TICKER')} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className={`${thBase} w-[4%]`} title={colTip('CNF')} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
+                  <th className={`${thBase} w-[7%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('10/21')}>10/21</th>
+                  <th className={`${thBase} w-[7%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} w-[7%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[7%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
+                  <th className={`${thBase} w-[7%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
+                  <th className={`${thBase} w-[7%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
+                  <th className={`${thBase} w-[7%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thRight} w-[4%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className={`${thRight} w-[7%] pr-2`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
-              
+
               <tbody className="divide-y divide-white/5">
                 {status.includes('Syncing') && setups.length === 0 ? (
-                  <tr><td colSpan={17} className="py-12 text-center border-b border-white/5"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
+                  <tr><td colSpan={16} className="py-12 text-center border-b border-white/5"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
                 ) : filteredAndSortedSetups.length === 0 ? (
-                  <tr><td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">{setups.length > 0 ? 'No names match the current filters.' : 'No active tracking items currently matching momentum criteria.'}</td></tr>
+                  <tr><td colSpan={16} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">{setups.length > 0 ? 'No names match the current filters.' : 'No active tracking items currently matching momentum criteria.'}</td></tr>
                 ) : (
                   filteredAndSortedSetups.map((row, i) => {
                     const isPositive = row.changePct >= 0;
@@ -697,8 +720,10 @@ export default function DailySetups() {
                     const sectorText = cleanSector(row.sector, row.ticker);
                     const bdRev = isBlueDotSetup(row.setupName);
                     const adr = adrOf(row);
-                    const rmv = rmvOf(row);
                     const mf = mfOf(row);
+                    const rmv = rmvOf(row);
+                    const rme = rmeOf(row);
+                    const stateRes = stateOf(rmv, rme);
                     return (
                       <React.Fragment key={i}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -718,13 +743,13 @@ export default function DailySetups() {
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
                           <td className={`${tdBase} whitespace-nowrap`}>
-                            <div className="flex items-center justify-center gap-1.5">
-                              <div className="flex items-center gap-0.5">
-                                <span className="text-[9px] font-bold text-slate-500">10</span>
+                            <div className="flex items-center justify-center gap-1">
+                              <div className="flex items-center gap-px">
+                                <span className="text-[8px] font-bold text-slate-500">10</span>
                                 <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} title={`10 EMA: ${row.aboveEma10 == null ? 'n/a' : row.aboveEma10 ? 'above' : 'below'}`}></div>
                               </div>
-                              <div className="flex items-center gap-0.5">
-                                <span className="text-[9px] font-bold text-slate-500">21</span>
+                              <div className="flex items-center gap-px">
+                                <span className="text-[8px] font-bold text-slate-500">21</span>
                                 <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma21)}`} title={`21 EMA: ${row.aboveEma21 == null ? 'n/a' : row.aboveEma21 ? 'above' : 'below'}`}></div>
                               </div>
                             </div>
@@ -732,20 +757,21 @@ export default function DailySetups() {
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`} title="20-day average daily range (high/low) — the anti-chop measure">
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`}>
                             {adr != null ? `${adr.toFixed(1)}%` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRmvColor(rmv)}`} title="RMV(15) — 0 = tightest price action of the last 15 bars, 100 = most volatile. Low is coiled.">
-                            {rmv != null ? rmv.toFixed(0) : '—'}
-                          </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={`Money Flow (21) — ${mfLabel(mf)}. Above 50 is accumulation, below is distribution. Arrow shows the 5-day direction.`}>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={mf != null ? `Money Flow ${mf.toFixed(0)} — ${mfLabel(mf)}` : undefined}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)}` : '—'}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`} title={row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)} percentage points vs SPY over three months` : undefined}>
+                            {formatRs(row.rsVsSpy)}
+                          </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`}>
+                            {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
+                          </td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
-                          <td className={`${tdBase} whitespace-nowrap border-l border-white/5`}>
+                          <td className={`${tdRight} whitespace-nowrap border-l border-white/5`}>
                             <span
                               title={stageDescription(row.stage)}
                               className={`text-[11px] font-bold tracking-wide cursor-help ${stageColor(row.stage)}`}
@@ -753,34 +779,36 @@ export default function DailySetups() {
                               {stageShort(row.stage)}
                             </span>
                           </td>
-                          <td className={tdBase}>
-                            <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
+                          <td className={`${tdRight} pr-2`}>
+                            <span title={sectorText} className="block truncate text-right text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: DAY/SWING chip under TICKER | setup label + news catalyst | STR/STAT centered */}
+                        {/* Sub-row: DAY/SWING chip | setup + catalyst | RMV/RME,
+                            then STATE under STAGE and readiness under SECTOR —
+                            right-aligned to match the main row. */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%] text-center align-middle">
                             {tt && (<span className={typeChip}>{tt}</span>)}
                           </td>
-                          <td colSpan={14} className="pb-2.5 pt-1.5 pr-3">
-                            <div className="flex items-center text-left">
-                              <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">
+                          <td colSpan={13} className="pb-1.5 pt-1 pr-3">
+                            <div className="flex items-center text-left gap-0 min-w-0">
+                              <span className="shrink-0 w-[76px] pr-2 text-[#7c8bfa]/90 font-bold text-[9px] tracking-[0.06em] uppercase leading-none truncate">
                                 {bdRev ? <BlueDot /> : (formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—')}
                               </span>
-                              <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-3">
+                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={headline || undefined}>
                                 {headline || tag ? (
                                   <>
                                     {tag && (
                                       <>
-                                        <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400/90">{tag}</span>
+                                        <span className="text-[8px] font-bold tracking-[0.12em] uppercase text-amber-400/70">{tag}</span>
                                         {headline ? ' ' : ''}
                                       </>
                                     )}
                                     {headline && (
                                       row.catalystUrl ? (
-                                        <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] hover:underline transition-colors">{headline}</a>
+                                        <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-slate-500 font-normal hover:text-slate-300 hover:underline transition-colors">{headline}</a>
                                       ) : (
-                                        <span className="text-indigo-300/90 font-medium">{headline}</span>
+                                        <span className="text-slate-500 font-normal">{headline}</span>
                                       )
                                     )}
                                   </>
@@ -788,26 +816,29 @@ export default function DailySetups() {
                                   <span className="text-slate-600 italic">No news catalyst — technical setup only.</span>
                                 )}
                               </p>
+                              <span
+                                title={stateTooltip(rmv, rme)}
+                                className="shrink-0 flex items-baseline gap-1.5 cursor-help whitespace-nowrap"
+                              >
+                                <span className="text-[8px] font-bold tracking-[0.1em] uppercase text-slate-600">RMV/RME</span>
+                                <span className="text-[9px] font-semibold text-slate-500 tabular-nums">{statePair(rmv, rme)}</span>
+                              </span>
                             </div>
                           </td>
-                          <td colSpan={2} className="pb-2.5 pt-1.5 align-middle">
-                            <div className="flex items-center justify-center gap-2 border-l border-white/10 px-1 py-1">
-                              <span className="flex items-center gap-1">
-                                <span className="text-[10px] text-slate-500">STR:</span>
-                                <span className={`text-[10px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
-                                <span className={`text-[10px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
-                              </span>
-                              <span className="flex items-center gap-1 whitespace-nowrap">
-                                <span className="text-[10px] text-slate-500">STAT:</span>
-                                {st === 'Ready' ? (
-                                  <span className="text-[10px] font-semibold text-emerald-400">Ready</span>
-                                ) : st === 'Forming' ? (
-                                  <span className="text-[10px] font-semibold text-amber-400">Forming</span>
-                                ) : (
-                                  <span className="text-[10px] font-semibold text-slate-600">—</span>
-                                )}
-                              </span>
-                            </div>
+                          <td className="pb-1.5 pt-1 px-0.5 text-right align-middle border-l border-white/5">
+                            <span
+                              title={stateLegend(rmv, rme)}
+                              className={`text-[9px] font-bold cursor-help whitespace-nowrap ${stateRes.color}`}
+                            >
+                              {stateRes.state === 'UNKNOWN' ? '—' : stateRes.state}
+                            </span>
+                          </td>
+                          <td className="pb-1.5 pt-1 px-0.5 pr-2 text-right align-middle">
+                            {st === 'Ready' ? (
+                              <span title={readinessTooltip(st)} className="text-[9px] font-semibold text-emerald-400 cursor-help whitespace-nowrap">Ready</span>
+                            ) : st === 'Forming' ? (
+                              <span title={readinessTooltip(st)} className="text-[9px] font-semibold text-amber-400 cursor-help whitespace-nowrap">Forming</span>
+                            ) : null}
                           </td>
                         </tr>
                       </React.Fragment>
