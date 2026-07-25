@@ -1,26 +1,29 @@
 'use client';
 
-// StocksInPlay — v1.6
-// v1.4: RMV/RME collapsed into a fixed-width STATE chip on the sub-row
-// v1.5: STATE chip stacked — quadrant word, RMV/RME label, pair
-// v1.6: sub-row tightened throughout (labels 9px, dots smaller, padding cut) —
-//       row 2 is context, not primary data, and was competing with the row
-//       above it. + MetricsKey: the scan gates were otherwise invisible, so a
-//       name that failed one silently vanished with no way to know which.
+// StocksInPlay — v1.8
+// v1.6: sub-row tightened throughout; + MetricsKey
+// v1.7: column meanings moved to native `title` on the headers
+// v1.8: sub-row restructured. STR (GC / 21↑) dropped entirely — the labels
+//       never changed and only their colour carried meaning, which made them
+//       easy to stop seeing. STATE takes that slot instead: it answers a
+//       question you actually ask. RMV/RME moves to the end of the catalyst
+//       section, right-aligned, and both get a size bump now that the row has
+//       fewer things competing on it.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { stateOf, stateTooltip } from '@/lib/indicators/state';
-import { SCANNER_SIP_META } from '@/lib/scanConfig';
+import { SCANNER_SIP_META, COLUMN_NOTES } from '@/lib/scanConfig';
 import MetricsKey from './MetricsKey';
 
-// Columns this table shows — drives which entries the key documents.
-const KEY_COLUMNS = [
-  'CNF', 'PRICE', 'CHG%', '10/21', 'VOL', '$VOL', 'RVOL', 'FLOAT', 'ADR',
-  'MF', 'RS', 'STOCH', 'DTC', 'MCAP', 'STAGE', 'SECTOR', 'STATE', 'STR', 'STAT',
-];
+// Native header tooltip: what the column means, then how to read its colour.
+const colTip = (key: string): string => {
+  const n = COLUMN_NOTES[key];
+  if (!n) return '';
+  return n.colour ? `${n.what}\n\n${n.colour}` : n.what;
+};
 
 interface StockInPlay {
   ticker: string;
@@ -124,8 +127,8 @@ const formatRs = (rs: number | null | undefined): string => {
   return `${sign}${Math.round(abs)}%`;
 };
 
-/* RMV/RME pair for the state chip. RMV is always 0-100 positive, so a minus
-   sign can only mean RME — no need for an explicit "+". */
+/* RMV/RME pair. RMV is always 0-100 positive, so a minus sign can only mean
+   RME — no need for an explicit "+". */
 const statePair = (rmv: number | null, rme: number | null): string => {
   const v = rmv == null ? '—' : String(Math.round(rmv));
   const e = rme == null ? '—' : String(Math.round(rme));
@@ -244,6 +247,9 @@ const cnfTooltip = (row: StockInPlay): string => {
   return lines.join('\n');
 };
 
+// Readiness: stochastic deep AND price tight to the 21 EMA — the trigger
+// could fire imminently. Prefer the backend field; derive when the KV payload
+// predates it.
 const rowStatus = (row: StockInPlay): 'Ready' | 'Forming' | null => {
   if (row.status === 'Ready' || row.status === 'Forming') return row.status;
   if (row.stochK != null && row.distToEma21 != null) {
@@ -464,11 +470,6 @@ export default function StocksInPlay() {
     return state ? 'bg-emerald-400' : 'bg-rose-500';
   };
 
-  const structColor = (state: boolean | null | undefined) => {
-    if (state === null || state === undefined) return 'text-slate-600';
-    return state ? 'text-emerald-400' : 'text-rose-400';
-  };
-
   const displaySession = ['Pre-Market', 'Open', 'Post-Market', 'Closed'].includes(session) ? session : 'Closed';
   const getSessionTextColor = () => {
     if (displaySession === 'Pre-Market') return 'text-amber-500';
@@ -494,7 +495,7 @@ export default function StocksInPlay() {
     (vwapFilter !== 'All' ? 1 : 0);
 
   return (
-    <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
+    <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-visible shadow-xl w-full max-w-[1280px] mx-auto">
       <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
@@ -514,7 +515,7 @@ export default function StocksInPlay() {
               {copied ? `✓ Copied ${filteredAndSortedStocks.length}` : `Copy ${filteredAndSortedStocks.length}`}
             </button>
           )}
-          <MetricsKey meta={SCANNER_SIP_META} liveGates={scanMeta?.gates} columns={KEY_COLUMNS} />
+          <MetricsKey meta={SCANNER_SIP_META} liveGates={scanMeta?.gates} />
         </div>
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
@@ -622,22 +623,22 @@ export default function StocksInPlay() {
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
-                  <th className={`${thBase} w-[4%]`} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className={`${thBase} w-[6%]`}>10/21</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
-                  <th className={`${thBase} w-[4%]`} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className={`${thBase} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} w-[10%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} w-[4%]`} title={colTip('CNF')} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
+                  <th className={`${thBase} w-[7%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('10/21')}>10/21</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} w-[7%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('FLOAT')} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
+                  <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} w-[5%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className={`${thBase} w-[10%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
 
@@ -691,17 +692,17 @@ export default function StocksInPlay() {
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`} title="20-day average daily range (high/low) — the anti-chop measure">
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`}>
                             {adr != null ? `${adr.toFixed(1)}%` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={`Money Flow (21) — ${mfLabel(mf)}. Above 50 is accumulation, below is distribution. Arrow shows the 5-day direction.`}>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={mf != null ? `Money Flow ${mf.toFixed(0)} — ${mfLabel(mf)}` : undefined}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`} title={row.rsVsSpy != null ? `3-month return vs SPY: ${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)} percentage points` : undefined}>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`} title={row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)} percentage points vs SPY over three months` : undefined}>
                             {formatRs(row.rsVsSpy)}
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover — short interest divided by average daily volume. Sessions of normal trade for shorts to exit; above 5 is trapped supply.">
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`}>
                             {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
                           </td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
@@ -717,11 +718,10 @@ export default function StocksInPlay() {
                             <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: setup | STATE chip | news catalyst | STR/STAT.
-                            Deliberately smaller than the primary row — this is
-                            context, not data you scan. Everything left of the
-                            headline is fixed-width and the headline truncates,
-                            so row height never changes. */}
+                        {/* Sub-row: setup | catalyst | RMV/RME | STATE + readiness.
+                            The headline truncates to one line and everything
+                            around it is fixed-width, so row height never changes
+                            and the columns line up down the table. */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%]"></td>
                           <td colSpan={14} className="pb-1.5 pt-1 pr-3">
@@ -729,21 +729,7 @@ export default function StocksInPlay() {
                               <span className="shrink-0 w-[76px] pr-2 text-[#7c8bfa]/90 font-bold text-[9px] tracking-[0.06em] uppercase leading-none truncate">
                                 {bdRev ? <BlueDot /> : (formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—')}
                               </span>
-                              <span
-                                title={stateTooltip(rmv, rme)}
-                                className="shrink-0 w-[108px] flex flex-col items-start justify-center border-l border-white/10 pl-2.5 cursor-help leading-none gap-[2px]"
-                              >
-                                <span className={`text-[9px] font-bold tracking-[0.12em] uppercase ${stateRes.color}`}>
-                                  {stateRes.state === 'UNKNOWN' ? '—' : stateRes.state}
-                                </span>
-                                <span className="text-[7px] font-bold tracking-[0.12em] uppercase text-slate-600">
-                                  RMV/RME
-                                </span>
-                                <span className="text-[9px] font-semibold text-slate-200 tabular-nums">
-                                  {statePair(rmv, rme)}
-                                </span>
-                              </span>
-                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 truncate" title={headline || undefined}>
+                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={headline || undefined}>
                                 {headline || tag ? (
                                   <>
                                     {tag && (
@@ -764,25 +750,30 @@ export default function StocksInPlay() {
                                   <span className="text-slate-600 italic">No news catalyst — technical setup only.</span>
                                 )}
                               </p>
+                              {/* RMV/RME sits at the end of the catalyst section,
+                                  fixed width so it forms a clean column. */}
+                              <span
+                                title={stateTooltip(rmv, rme)}
+                                className="shrink-0 flex items-center gap-1.5 cursor-help whitespace-nowrap"
+                              >
+                                <span className="text-[9px] font-bold tracking-[0.1em] uppercase text-slate-600">RMV/RME</span>
+                                <span className="text-[11px] font-semibold text-slate-200 tabular-nums">{statePair(rmv, rme)}</span>
+                              </span>
                             </div>
                           </td>
                           <td colSpan={2} className="pb-1.5 pt-1 align-middle">
-                            <div className="flex items-center justify-center gap-1.5 border-l border-white/10 px-1">
-                              <span className="flex items-center gap-0.5">
-                                <span className="text-[8px] text-slate-600 tracking-wider">STR</span>
-                                <span className={`text-[9px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
-                                <span className={`text-[9px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
+                            <div className="flex items-center justify-center gap-2 border-l border-white/10 px-1">
+                              <span
+                                title={stateTooltip(rmv, rme)}
+                                className={`text-[11px] font-bold tracking-[0.1em] uppercase cursor-help ${stateRes.color}`}
+                              >
+                                {stateRes.state === 'UNKNOWN' ? '—' : stateRes.state}
                               </span>
-                              <span className="flex items-center gap-0.5 whitespace-nowrap">
-                                <span className="text-[8px] text-slate-600 tracking-wider">STAT</span>
-                                {st === 'Ready' ? (
-                                  <span className="text-[9px] font-semibold text-emerald-400">Ready</span>
-                                ) : st === 'Forming' ? (
-                                  <span className="text-[9px] font-semibold text-amber-400">Forming</span>
-                                ) : (
-                                  <span className="text-[9px] font-semibold text-slate-600">—</span>
-                                )}
-                              </span>
+                              {st === 'Ready' ? (
+                                <span className="text-[10px] font-semibold text-emerald-400">Ready</span>
+                              ) : st === 'Forming' ? (
+                                <span className="text-[10px] font-semibold text-amber-400">Forming</span>
+                              ) : null}
                             </div>
                           </td>
                         </tr>
