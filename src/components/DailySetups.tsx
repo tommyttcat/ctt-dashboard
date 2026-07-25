@@ -1,10 +1,10 @@
 'use client';
 
-// DailySetups — v1.1
-// v1.1: + RMV(15) column (low = tight = green, high = expanded = red);
-//       CATALYST column removed — news now lives on the thesis line, which
-//       carries the headline only. The stat readout was unreadable and
-//       duplicated the columns directly above it.
+// DailySetups — v1.2
+// v1.1: + RMV(15) column; CATALYST column removed (news moved to thesis line)
+// v1.2: FLOAT column removed; RME(21) surfaced via the CNF badge tooltip —
+//       it's a scoring input, not a column, so it shows on hover with the
+//       full point breakdown rather than eating table width.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -36,6 +36,9 @@ interface SetupData {
   distToEma21?: number | null;
   adrPct?: number | null;
   rmv?: number | null;
+  rme?: number | null;
+  rmeExtPct?: number | null;
+  cnfBreakdown?: Record<string, number> | null;
   goldenCross?: boolean | null;
   ema21Rising?: boolean | null;
   status?: string | null;
@@ -54,6 +57,21 @@ const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 
 // ADR buckets in percent — the scan already floors at 3%, so these tighten.
 const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
+
+// Human labels for the CNF breakdown keys the scanner ships.
+const CNF_LABELS: Record<string, string> = {
+  rvol: 'Relative volume',
+  gap: 'Gap',
+  rangeExpansion: 'Range expansion',
+  relStrength: 'RS vs market',
+  catalyst: 'Catalyst',
+  earnings: 'Earnings proximity',
+  persistence: 'Scan persistence',
+  extension: 'Extension (RME)',
+  vwap: 'VWAP',
+  regime: 'Market regime',
+  sector: 'Sector heat',
+};
 
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
@@ -151,6 +169,59 @@ const rmvOf = (row: SetupData): number | null => {
   return Number(row.rmv);
 };
 
+// RME — where price sits vs this stock's OWN history of extension from the
+// 21 EMA. -100..+100. Feeds CNF; surfaced on the badge tooltip.
+const rmeOf = (row: SetupData): number | null => {
+  if (row.rme == null || isNaN(Number(row.rme))) return null;
+  return Number(row.rme);
+};
+
+const rmeLabel = (rme: number | null): string => {
+  if (rme == null) return 'n/a';
+  if (rme >= 90) return 'at historical extension high';
+  if (rme >= 75) return 'heavily extended';
+  if (rme >= 60) return 'extended';
+  if (rme >= 25) return 'moderately above anchor';
+  if (rme > -25) return 'near anchor';
+  if (rme > -60) return 'moderately below anchor';
+  if (rme > -85) return 'deeply below anchor';
+  return 'at historical extension low';
+};
+
+// Full CNF explanation for the badge tooltip. Non-zero components only,
+// biggest contributors first, so the reason for a score is one hover away.
+const cnfTooltip = (row: SetupData): string => {
+  const score = row.conviction;
+  const lines: string[] = [
+    score != null ? `CNF ${score} — ${score >= 70 ? 'A' : score >= 50 ? 'B' : 'C'}` : 'CNF — not scored',
+  ];
+
+  const bd = row.cnfBreakdown;
+  if (bd && typeof bd === 'object') {
+    const entries = Object.entries(bd)
+      .filter(([, v]) => typeof v === 'number' && v !== 0)
+      .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+    if (entries.length > 0) {
+      lines.push('');
+      for (const [k, v] of entries) {
+        const label = CNF_LABELS[k] || k;
+        lines.push(`${v > 0 ? '+' : ''}${v}  ${label}`);
+      }
+    }
+  }
+
+  const rme = rmeOf(row);
+  if (rme != null) {
+    lines.push('');
+    lines.push(`RME ${rme > 0 ? '+' : ''}${rme.toFixed(0)} — ${rmeLabel(rme)}`);
+    if (row.rmeExtPct != null) {
+      lines.push(`(${row.rmeExtPct >= 0 ? '+' : ''}${row.rmeExtPct.toFixed(1)}% from the 21 EMA)`);
+    }
+  }
+
+  return lines.join('\n');
+};
+
 // Day Trade vs Swing label — rendered as a chip identical to the CNF score chip.
 const tradeTypeLabel = (tradeType: string | null | undefined): string | null => {
   if (!tradeType) return null;
@@ -228,6 +299,9 @@ export default function DailySetups() {
               distToEma21: item.distToEma21 ?? null,
               adrPct: item.adrPct ?? null,
               rmv: item.rmv ?? null,
+              rme: item.rme ?? null,
+              rmeExtPct: item.rmeExtPct ?? null,
+              cnfBreakdown: item.cnfBreakdown ?? null,
               goldenCross: item.goldenCross ?? null,
               ema21Rising: item.ema21Rising ?? null,
               status: item.status ?? null,
@@ -385,12 +459,6 @@ export default function DailySetups() {
     if (r <= 65) return 'text-amber-400';
     if (r <= 80) return 'text-orange-400';
     return 'text-rose-400';
-  };
-  const getFloatColor = (float: number | null) => {
-    if (!float) return 'text-slate-500';
-    if (float <= 20000000) return 'text-purple-400'; 
-    if (float <= 50000000) return 'text-emerald-400';
-    return 'text-slate-300';
   };
   const getShortColor = (short: number | null) => {
     if (!short) return 'text-slate-500';
@@ -581,34 +649,33 @@ export default function DailySetups() {
           </div>
 
           <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            <table className="w-full min-w-[1120px] table-fixed border-collapse">
+            <table className="w-full min-w-[1080px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
                   <th className={`${thBase} w-[4%]`} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[6%]`}>10/21</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rmv')}>RMV{getSortIcon('rmv')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thBase} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} w-[9%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} w-[14%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
               
               <tbody className="divide-y divide-white/5">
                 {status.includes('Syncing') && setups.length === 0 ? (
-                  <tr><td colSpan={17} className="py-12 text-center border-b border-white/5"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
+                  <tr><td colSpan={16} className="py-12 text-center border-b border-white/5"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
                 ) : filteredAndSortedSetups.length === 0 ? (
-                  <tr><td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">{setups.length > 0 ? 'No names match the current filters.' : 'No active tracking items currently matching momentum criteria.'}</td></tr>
+                  <tr><td colSpan={16} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">{setups.length > 0 ? 'No names match the current filters.' : 'No active tracking items currently matching momentum criteria.'}</td></tr>
                 ) : (
                   filteredAndSortedSetups.map((row, i) => {
                     const isPositive = row.changePct >= 0;
@@ -627,7 +694,12 @@ export default function DailySetups() {
                             <span title={row.name || row.ticker} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
                           </td>
                           <td className={tdBase}>
-                            <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.conviction)}`}>{row.conviction != null ? row.conviction : '--'}</span>
+                            <span
+                              title={cnfTooltip(row)}
+                              className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border cursor-help ${getScoreBadge(row.conviction)}`}
+                            >
+                              {row.conviction != null ? row.conviction : '--'}
+                            </span>
                           </td>
                           <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
                             <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div>
@@ -648,7 +720,6 @@ export default function DailySetups() {
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`} title="20-day average daily range (high/low) — the anti-chop measure">
                             {adr != null ? `${adr.toFixed(1)}%` : '—'}
                           </td>
@@ -671,7 +742,7 @@ export default function DailySetups() {
                           <td className="w-[7%] text-center align-middle">
                             {tt && (<span className={typeChip}>{tt}</span>)}
                           </td>
-                          <td colSpan={14} className="pb-2.5 pt-1.5 pr-3">
+                          <td colSpan={13} className="pb-2.5 pt-1.5 pr-3">
                             <div className="flex items-center text-left">
                               <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">
                                 {bdRev ? <BlueDot /> : (formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—')}
