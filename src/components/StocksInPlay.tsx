@@ -1,13 +1,15 @@
 'use client';
 
-// StocksInPlay — v2.0
-// v1.8: STR dropped; STATE takes that slot; RMV/RME moved to end of catalyst
-// v1.9: sub-row typography settled — RMV/RME muted to match the catalyst text
-// v2.0: readiness pushed right so the sub-row ends on a clean edge; STATE and
-//       readiness both carry full legends on hover. Header raised to z-30 —
-//       it and the table wrapper were both z-10, so the table painted over the
-//       "?" panel regardless of the panel's own z-index. That was the
-//       "transparent background", not the background colour.
+// StocksInPlay — v2.2
+// v2.0: readiness pushed right; header raised to z-30 so the table stops
+//       painting over the "?" panel
+// v2.1: STATE and readiness split so they align under STAGE / SECTOR
+// v2.2: z-30 moved OFF the header row and onto the MetricsKey wrapper alone.
+//       The header row spans the full card width, so raising it put an
+//       invisible layer over the table — hovering the sub-row landed on the
+//       header, which is why RMV/RME, STATE and readiness showed the
+//       cursor-help pointer but never fired their tooltips. Only the "?" and
+//       its panel need to sit above the table.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -495,9 +497,7 @@ export default function StocksInPlay() {
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-visible shadow-xl w-full max-w-[1280px] mx-auto">
-      {/* z-30: the header must sit above the table wrapper, or the table paints
-          over the "?" panel no matter what z-index the panel itself carries. */}
-      <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-30 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
+      <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
@@ -516,7 +516,11 @@ export default function StocksInPlay() {
               {copied ? `✓ Copied ${filteredAndSortedStocks.length}` : `Copy ${filteredAndSortedStocks.length}`}
             </button>
           )}
-          <MetricsKey meta={SCANNER_SIP_META} liveGates={scanMeta?.gates} />
+          {/* z-40 scoped to the key alone. Raising the whole header row put an
+              invisible layer across the table and killed the sub-row tooltips. */}
+          <span className="relative z-40 inline-flex">
+            <MetricsKey meta={SCANNER_SIP_META} liveGates={scanMeta?.gates} />
+          </span>
         </div>
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
@@ -528,7 +532,7 @@ export default function StocksInPlay() {
 
       {isExpanded && (
         <>
-          <div className="flex flex-col gap-3 mb-4 relative z-20" onClick={(e) => e.stopPropagation()}>
+          <div className="flex flex-col gap-3 mb-4 relative z-10" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-center">
               <button
                 onClick={() => setShowFilters(!showFilters)}
@@ -719,11 +723,9 @@ export default function StocksInPlay() {
                             <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: setup | catalyst | RMV/RME | STATE + readiness.
-                            All of it deliberately muted and a size below the
-                            primary row — this is context you read once you have
-                            already decided a row is interesting, not data you
-                            scan down the table. */}
+                        {/* Sub-row: setup | catalyst | RMV/RME | STATE | readiness.
+                            STATE and readiness get their own cells so they line
+                            up under STAGE and SECTOR rather than drifting. */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%]"></td>
                           <td colSpan={14} className="pb-1.5 pt-1 pr-3">
@@ -752,8 +754,6 @@ export default function StocksInPlay() {
                                   <span className="text-slate-600 italic">No news catalyst — technical setup only.</span>
                                 )}
                               </p>
-                              {/* RMV/RME closes out the catalyst section, in the
-                                  same muted slate as the headline. */}
                               <span
                                 title={stateTooltip(rmv, rme)}
                                 className="shrink-0 flex items-baseline gap-1.5 cursor-help whitespace-nowrap"
@@ -763,20 +763,20 @@ export default function StocksInPlay() {
                               </span>
                             </div>
                           </td>
-                          <td colSpan={2} className="pb-1.5 pt-1 align-middle">
-                            <div className="flex items-baseline justify-between gap-2 border-l border-white/10 pl-3 pr-2">
-                              <span
-                                title={stateLegend(rmv, rme)}
-                                className={`text-[9px] font-bold tracking-[0.1em] uppercase cursor-help ${stateRes.color}`}
-                              >
-                                {stateRes.state === 'UNKNOWN' ? '—' : stateRes.state}
-                              </span>
-                              {st === 'Ready' ? (
-                                <span title={readinessTooltip(st)} className="text-[9px] font-semibold text-emerald-400 cursor-help">Ready</span>
-                              ) : st === 'Forming' ? (
-                                <span title={readinessTooltip(st)} className="text-[9px] font-semibold text-amber-400 cursor-help">Forming</span>
-                              ) : null}
-                            </div>
+                          <td className="pb-1.5 pt-1 pl-3 text-left align-middle border-l border-white/10">
+                            <span
+                              title={stateLegend(rmv, rme)}
+                              className={`text-[9px] font-bold tracking-[0.1em] uppercase cursor-help ${stateRes.color}`}
+                            >
+                              {stateRes.state === 'UNKNOWN' ? '—' : stateRes.state}
+                            </span>
+                          </td>
+                          <td className="pb-1.5 pt-1 pl-1 text-left align-middle">
+                            {st === 'Ready' ? (
+                              <span title={readinessTooltip(st)} className="text-[9px] font-semibold text-emerald-400 cursor-help">Ready</span>
+                            ) : st === 'Forming' ? (
+                              <span title={readinessTooltip(st)} className="text-[9px] font-semibold text-amber-400 cursor-help">Forming</span>
+                            ) : null}
                           </td>
                         </tr>
                       </React.Fragment>
