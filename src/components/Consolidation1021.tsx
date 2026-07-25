@@ -1,12 +1,16 @@
 'use client';
 
-// Consolidation1021 — v1.1
-// v1.1: + RMV(15) column (low = tight = green, high = expanded = red);
-//       sub-row thesis is now the news catalyst only — the deterministic
-//       stat readout was unreadable and duplicated the columns above it.
+// Consolidation1021 — v1.3
+// v1.1: + RMV(15) column; sub-row thesis is the news catalyst only
+// v1.2: Weinstein sub-stage coloring via lib/indicators/stage
+// v1.3: + Money Flow (21). This is where MF matters most — a tight coil with
+//       MF above 55 is accumulation inside the base. The same coil under 45
+//       is a name being quietly distributed while it looks like it's resting.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
+import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
+import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 
 interface ConsolCandidate {
   symbol: string;
@@ -26,6 +30,8 @@ interface ConsolCandidate {
   atrPct: number;
   adrPct?: number | null;
   rmv?: number | null;
+  mf?: number | null;
+  mfTrend?: number;
   pctOffHigh: number;
   distToEma21: number;
   distToEma10?: number;
@@ -95,11 +101,6 @@ const formatCurrency = (num: number | null | undefined) => {
   return '$' + num.toLocaleString();
 };
 
-const formatStageText = (stage: string | undefined) => {
-  if (!stage || stage === '-' || stage === '—') return '—';
-  return stage.replace(/Stage\s*/i, '');
-};
-
 // Range width normalized by the stock's own daily ATR. Prefers the stored
 // value, computes it when both inputs are present, else null.
 const coilRatioOf = (c: ConsolCandidate): number | null => {
@@ -122,6 +123,13 @@ const rmvOf = (c: ConsolCandidate): number | null => {
   return Number(c.rmv);
 };
 
+// Money Flow (21) — accumulation vs distribution. RVOL says volume showed up;
+// MF says which side got filled.
+const mfOf = (c: ConsolCandidate): number | null => {
+  if (c.mf == null || isNaN(Number(c.mf))) return null;
+  return Number(c.mf);
+};
+
 // Coiled = inside 2.5x ATR (or 6% raw when ATR is unavailable).
 const statOf = (c: ConsolCandidate): StatFilterType | null => {
   const ratio = coilRatioOf(c);
@@ -129,8 +137,6 @@ const statOf = (c: ConsolCandidate): StatFilterType | null => {
   if (c.range10Pct == null) return null;
   return c.range10Pct <= COIL_TIGHT_PCT ? 'Coiled' : 'Setting Up';
 };
-
-const isCoiled = (c: ConsolCandidate) => statOf(c) === 'Coiled';
 
 // Blue Dot marker — oversold stoch reset firing on the daily.
 const BlueDot = ({ className = '' }: { className?: string }) => (
@@ -187,7 +193,7 @@ export default function Consolidation1021() {
   const [generatedAt, setGeneratedAt] = useState<number | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const [statFilter, setStatFilter] = useState<StatFilterType>('All');
-  const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(false);
+  const [showStage2Only, setShowStage2Only] = useState<boolean>(false);
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
@@ -231,7 +237,8 @@ export default function Consolidation1021() {
   const filtered = useMemo(() => {
     let list = [...candidates];
     if (statFilter !== 'All') list = list.filter(c => statOf(c) === statFilter);
-    if (showStage2AOnly) list = list.filter(c => c.stage && c.stage.includes('2A'));
+    // Stage 2 filter matches any sub-stage — 2A, 2B and 2C are all Stage 2.
+    if (showStage2Only) list = list.filter(c => stageShort(c.stage).startsWith('2'));
     if (marketCapFilter !== 'All') {
       list = list.filter(c => {
         const mc = c.mktCap;
@@ -274,7 +281,7 @@ export default function Consolidation1021() {
       list = list.filter(c => c.vwapStatus === vwapFilter);
     }
     return list;
-  }, [candidates, statFilter, showStage2AOnly, marketCapFilter, cnfFilter, emaFilter, dVolFilter, adrFilter, vwapFilter]);
+  }, [candidates, statFilter, showStage2Only, marketCapFilter, cnfFilter, emaFilter, dVolFilter, adrFilter, vwapFilter]);
 
   // Copy the visible tickers, comma-separated — TradingView's watchlist
   // import format. Respects whatever filters are active.
@@ -307,14 +314,6 @@ export default function Consolidation1021() {
     if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
     if (score >= 50) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
     return 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50';
-  };
-  const getStageColor = (stage: string | undefined) => {
-    if (!stage || stage === '-') return 'text-slate-500';
-    if (stage.includes('1')) return 'text-slate-400';
-    if (stage.includes('2')) return 'text-emerald-400';
-    if (stage.includes('3')) return 'text-amber-400';
-    if (stage.includes('4')) return 'text-rose-400';
-    return 'text-slate-500';
   };
   const getRvolColor = (rvol: number | null | undefined) => {
     if (!rvol) return 'text-slate-500';
@@ -396,7 +395,7 @@ export default function Consolidation1021() {
   const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
 
   const activeFilterCount =
-    (showStage2AOnly ? 1 : 0) +
+    (showStage2Only ? 1 : 0) +
     (statFilter !== 'All' ? 1 : 0) +
     (marketCapFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
@@ -464,7 +463,13 @@ export default function Consolidation1021() {
                 <div className={pillWrap}>
                   <span className={pillLabel}>STAGE</span>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => setShowStage2AOnly(!showStage2AOnly)} className={`${pillBtn} ${showStage2AOnly ? filterBtnActive : filterBtnIdle}`}>2A</button>
+                    <button
+                      onClick={() => setShowStage2Only(!showStage2Only)}
+                      title="Stage 2 only — includes 2A, 2B and 2C"
+                      className={`${pillBtn} ${showStage2Only ? filterBtnActive : filterBtnIdle}`}
+                    >
+                      2
+                    </button>
                   </div>
                 </div>
                 <div className={pillWrap}>
@@ -556,7 +561,7 @@ export default function Consolidation1021() {
           </div>
 
           <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            <table className="w-full min-w-[1120px] table-fixed border-collapse">
+            <table className="w-full min-w-[1160px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[8%]`}>TICKER</th>
@@ -568,19 +573,20 @@ export default function Consolidation1021() {
                   <th className={`${thBase} w-[7%]`}>$VOL</th>
                   <th className={`${thBase} w-[6%]`}>RVOL</th>
                   <th className={`${thBase} w-[7%]`}>COIL</th>
-                  <th className={`${thBase} w-[6%]`}>ADR</th>
-                  <th className={`${thBase} w-[6%]`}>RMV</th>
+                  <th className={`${thBase} w-[5%]`}>ADR</th>
+                  <th className={`${thBase} w-[5%]`}>RMV</th>
+                  <th className={`${thBase} w-[4%]`}>MF</th>
                   <th className={`${thBase} w-[7%]`}>RS/SPY</th>
                   <th className={`${thBase} w-[7%]`}>%OFF HI</th>
-                  <th className={`${thBase} w-[6%]`}>MCAP</th>
+                  <th className={`${thBase} w-[5%]`}>MCAP</th>
                   <th className={`${thBase} w-[4%] border-l border-white/5`}>STAGE</th>
-                  <th className={`${thBase} w-[5%]`}>SECTOR</th>
+                  <th className={`${thBase} w-[4%]`}>SECTOR</th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-white/5">
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={16} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No names match the current filters.' : 'No names coiling on the 10/21 right now — loose tape.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
+                  <tr><td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No names match the current filters.' : 'No names coiling on the 10/21 right now — loose tape.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
                 ) : (
                   filtered.map((row) => {
                     const isPositive = (row.changePct ?? 0) >= 0;
@@ -591,6 +597,7 @@ export default function Consolidation1021() {
                     const ratio = coilRatioOf(row);
                     const adr = adrOf(row);
                     const rmv = rmvOf(row);
+                    const mf = mfOf(row);
                     const sectorText = cleanSector(row.sector, row.symbol);
                     return (
                       <React.Fragment key={row.symbol}>
@@ -638,11 +645,19 @@ export default function Consolidation1021() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRmvColor(rmv)}`} title="RMV(15) — 0 = tightest price action of the last 15 bars, 100 = most volatile. Low is coiled.">
                             {rmv != null ? rmv.toFixed(0) : '—'}
                           </td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={`Money Flow (21) — ${mfLabel(mf)}. A tight coil with MF above 55 is accumulation inside the base; under 45 it's quiet distribution. Arrow shows the 5-day direction.`}>
+                            {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
+                          </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy >= 0 ? '+' : ''}{row.rsVsSpy.toFixed(1)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getOffHighColor(row.pctOffHigh)}`}>{row.pctOffHigh.toFixed(1)}%</td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
                           <td className={`${tdBase} whitespace-nowrap border-l border-white/5`}>
-                            <span className={`text-[11px] font-bold tracking-wide ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span>
+                            <span
+                              title={stageDescription(row.stage)}
+                              className={`text-[11px] font-bold tracking-wide cursor-help ${stageColor(row.stage)}`}
+                            >
+                              {stageShort(row.stage)}
+                            </span>
                           </td>
                           <td className={tdBase}>
                             <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
@@ -651,7 +666,7 @@ export default function Consolidation1021() {
                         {/* Sub-row: spacer | 10/21 HOLD + news catalyst | STR/STAT centered */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[8%]"></td>
-                          <td colSpan={12} className="pb-2.5 pt-1.5 pr-3">
+                          <td colSpan={13} className="pb-2.5 pt-1.5 pr-3">
                             <div className="flex items-center text-left">
                               <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">10/21 HOLD</span>
                               <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-3">

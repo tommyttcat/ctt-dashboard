@@ -1,9 +1,17 @@
-// app/api/scan/route.ts — v6.1
-// v6.1: + RMV(15) volatility rank on every row; thesis is news-headline-only
-//       (deterministic stat readout moved to t.readout)
+// app/api/scanner/run/route.ts — v6.4
+// v6.1: + RMV(15); thesis is news-headline-only (stats moved to t.readout)
+// v6.2: RMV/RME imported from lib/indicators; RME(21) replaces the binary
+//       `extended` penalty in CNF; + cnfBreakdown for the badge tooltip
+// v6.3: Weinstein sub-stages (2A/2B/2C etc) via lib/indicators/stage
+// v6.4: + Money Flow (21) — accumulation vs distribution. RVOL says volume
+//       showed up; MF says which side got filled.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
+import { computeRMV } from '@/lib/indicators/rmv';
+import { computeRMEDetail, rmeScoreAdjustment } from '@/lib/indicators/rme';
+import { computeStageDetail } from '@/lib/indicators/stage';
+import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -228,10 +236,28 @@ const deriveTradeType = (setupName: string | null | undefined): string => {
   return 'Swing';
 };
 
+// Setup family classification — used by both the regime gate and the RME
+// penalty, so a name is treated consistently by each.
+const isReversalSetupName = (setupName: string | null | undefined): boolean =>
+  /blue dot|ema pb|sqz building|inside day/.test((setupName || '').toLowerCase());
+
+const isBreakoutSetupName = (setupName: string | null | undefined): boolean =>
+  /gap & go|r2g|sqz fired|episodic|glb/.test((setupName || '').toLowerCase());
+
 // --- CNF "Confluence" score ---------------------------------------------------
 // THE unified score for the dashboard (written into `conviction`).
 // Fully deterministic — built from RVOL, gap, range expansion, relative
-// strength, and catalyst presence. No AI involved.
+// strength, extension, and catalyst presence. No AI involved.
+//
+// v6.2: the binary `extended` penalty is gone. It asked whether the move was
+// large relative to daily noise (dist > 3x ATR%). RME asks whether the move is
+// large relative to what THIS stock has historically done off its 21 EMA —
+// which is the question that actually predicts a failed entry.
+//
+// NOTE: Money Flow is deliberately NOT scored here. It's shipped as a column
+// so you can see it, but folding it into CNF would double-count against RVOL
+// and gap, which already reward the same volume event from a different angle.
+// Worth revisiting once there's live data on how often MF and CNF disagree.
 const computeCnfScore = (
   rvol: number | null,
   gapPct: number | null,
@@ -241,7 +267,7 @@ const computeCnfScore = (
     catalystTier: 'strong' | 'neutral' | 'headline' | 'negative' | 'none';
     hasEarnings: boolean;
     scanStreak: number;
-    extended: boolean;
+    rme: number | null;
     vwapStatus: string;
     tradeType: string;
     setupName: string | null;
@@ -249,72 +275,80 @@ const computeCnfScore = (
     spyAbove21: boolean | null;
     inHotSector: boolean;
   }
-): { score: number; grade: string } => {
-  let score = 0;
+): { score: number; grade: string; breakdown: Record<string, number> } => {
+  const b: Record<string, number> = {};
 
   // --- Core tape components ---
+  b.rvol = 0;
   if (rvol != null) {
-    if (rvol >= 3) score += 30;
-    else if (rvol >= 2) score += 24;
-    else if (rvol >= 1.5) score += 18;
-    else if (rvol >= 1) score += 10;
+    if (rvol >= 3) b.rvol = 30;
+    else if (rvol >= 2) b.rvol = 24;
+    else if (rvol >= 1.5) b.rvol = 18;
+    else if (rvol >= 1) b.rvol = 10;
   }
 
+  b.gap = 0;
   if (gapPct != null) {
     const g = Math.abs(gapPct);
-    if (g >= 5) score += 20;
-    else if (g >= 3) score += 15;
-    else if (g >= 1.5) score += 8;
+    if (g >= 5) b.gap = 20;
+    else if (g >= 3) b.gap = 15;
+    else if (g >= 1.5) b.gap = 8;
   }
 
+  b.rangeExpansion = 0;
   if (atrExpansion != null) {
-    if (atrExpansion >= 2) score += 20;
-    else if (atrExpansion >= 1.5) score += 15;
-    else if (atrExpansion >= 1) score += 8;
+    if (atrExpansion >= 2) b.rangeExpansion = 20;
+    else if (atrExpansion >= 1.5) b.rangeExpansion = 15;
+    else if (atrExpansion >= 1) b.rangeExpansion = 8;
   }
 
+  b.relStrength = 0;
   if (rsVsMkt != null) {
     const d = Math.abs(rsVsMkt);
-    if (d >= 3) score += 10;
-    else if (d >= 1.5) score += 6;
+    if (d >= 3) b.relStrength = 10;
+    else if (d >= 1.5) b.relStrength = 6;
   }
 
   // --- Catalyst quality tier: earnings/FDA/M&A > vague PR; dilution is a trap ---
-  if (q.catalystTier === 'strong') score += 18;
-  else if (q.catalystTier === 'neutral') score += 10;
-  else if (q.catalystTier === 'headline') score += 8;
-  else if (q.catalystTier === 'negative') score -= 15;
+  b.catalyst = 0;
+  if (q.catalystTier === 'strong') b.catalyst = 18;
+  else if (q.catalystTier === 'neutral') b.catalyst = 10;
+  else if (q.catalystTier === 'headline') b.catalyst = 8;
+  else if (q.catalystTier === 'negative') b.catalyst = -15;
 
-  if (q.hasEarnings) score += 5;
+  b.earnings = q.hasEarnings ? 5 : 0;
 
   // --- Scan persistence: held its move across multiple 15-min scans = real ---
-  if (q.scanStreak >= 4) score += 10;
-  else if (q.scanStreak >= 3) score += 8;
-  else if (q.scanStreak === 2) score += 4;
+  b.persistence = 0;
+  if (q.scanStreak >= 4) b.persistence = 10;
+  else if (q.scanStreak >= 3) b.persistence = 8;
+  else if (q.scanStreak === 2) b.persistence = 4;
 
-  // --- Extension: already ran 3.5x ATR or stretched 3x ATR% off the 21 EMA ---
-  if (q.extended) score -= 10;
+  // --- Extension (RME): where price sits vs its own 21 EMA extension history.
+  // Reversal setups aren't penalized for being deeply below — that's the setup.
+  b.extension = rmeScoreAdjustment(q.rme, isReversalSetupName(q.setupName));
 
   // --- VWAP: longs below VWAP fight the tape; near-disqualifying for DAY ---
-  if (q.vwapStatus === 'below') score -= (q.tradeType === 'Day Trade' ? 12 : 4);
+  b.vwap = q.vwapStatus === 'below' ? -(q.tradeType === 'Day Trade' ? 12 : 4) : 0;
 
   // --- Market regime gate: breakouts fail in weak breadth, reversals thrive ---
-  const s = (q.setupName || '').toLowerCase();
-  const isBreakoutSetup = /gap & go|r2g|sqz fired|episodic|glb/.test(s);
-  const isReversalSetup = /blue dot|ema pb|sqz building|inside day/.test(s);
+  b.regime = 0;
+  const isBreakout = isBreakoutSetupName(q.setupName);
+  const isReversal = isReversalSetupName(q.setupName);
   if (q.breadthSignal === 'RED') {
-    if (isBreakoutSetup) score -= 8;
-    if (isReversalSetup) score += 4;
+    if (isBreakout) b.regime -= 8;
+    if (isReversal) b.regime += 4;
   } else if (q.breadthSignal === 'GREEN' && q.spyAbove21 !== false) {
-    if (isBreakoutSetup) score += 4;
+    if (isBreakout) b.regime += 4;
   }
 
   // --- Sector confirmation: leader inside a hot group, not a lone wolf ---
-  if (q.inHotSector) score += 5;
+  b.sector = q.inHotSector ? 5 : 0;
 
-  score = Math.max(0, Math.min(100, Math.round(score)));
+  const raw = Object.values(b).reduce((s, v) => s + v, 0);
+  const score = Math.max(0, Math.min(100, Math.round(raw)));
   const grade = score >= 70 ? 'A' : score >= 50 ? 'B' : 'C';
-  return { score, grade };
+  return { score, grade, breakdown: b };
 };
 
 // --- Deterministic setup readout ---------------------------------------------
@@ -340,72 +374,6 @@ const buildReadout = (t: any): string | null => {
   return parts.join(', ') + '.';
 };
 
-// --- RMV: Relative Measured Volatility (v6.1) --------------------------------
-// Port of CTT RMV V1.0 / Deepvue RMV. Composite ATR (5/10/15, Wilder RMA)
-// ranked against its own high/low over a 15-bar window.
-//   0   = tightest price action of the window (max compression)
-//   100 = most volatile of the window
-// Bars arrive DESCENDING (newest first), so we flip to ascending for the
-// recursive smoothing. Returns null when history is too thin to be honest.
-const computeRMV = (
-  barsDesc: any[],
-  lookback = 15,
-  atrLens: number[] = [5, 10, 15]
-): number | null => {
-  const need = Math.max(...atrLens) + lookback + 5;
-  if (!Array.isArray(barsDesc) || barsDesc.length < need) return null;
-
-  // 150 bars of warm-up is plenty for a 15-period Wilder average to converge.
-  const asc = barsDesc.slice(0, Math.min(150, barsDesc.length)).slice().reverse();
-
-  // True Range
-  const tr: number[] = [];
-  for (let i = 0; i < asc.length; i++) {
-    const h = asc[i]?.h;
-    const l = asc[i]?.l;
-    if (h == null || l == null) return null;
-    if (i === 0) { tr.push(h - l); continue; }
-    const pc = asc[i - 1].c;
-    tr.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
-  }
-
-  // Wilder's RMA — exactly what Pine's ta.atr() uses under the hood.
-  const rma = (src: number[], len: number): number[] => {
-    const out: number[] = new Array(src.length).fill(NaN);
-    if (src.length < len) return out;
-    let seed = 0;
-    for (let i = 0; i < len; i++) seed += src[i];
-    out[len - 1] = seed / len;
-    for (let i = len; i < src.length; i++) {
-      out[i] = (out[i - 1] * (len - 1) + src[i]) / len;
-    }
-    return out;
-  };
-
-  const atrSeries = atrLens.map((l) => rma(tr, l));
-
-  const comp: number[] = asc.map((_: any, i: number) => {
-    let sum = 0;
-    for (const s of atrSeries) {
-      const v = s[i];
-      if (!isFinite(v)) return NaN;
-      sum += v;
-    }
-    return sum / atrSeries.length;
-  });
-
-  const win = comp.slice(-lookback);
-  if (win.length < lookback || win.some((v) => !isFinite(v))) return null;
-
-  const cur = win[win.length - 1];
-  const hi = Math.max(...win);
-  const lo = Math.min(...win);
-  const span = hi - lo;
-
-  const rmv = span > 0 ? ((cur - lo) / span) * 100 : 0;
-  return Math.round(rmv * 10) / 10;
-};
-
 const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, vwap: number, rvol: number | null): { name: string | null, stage: string } => {
   let stage = '-';
   if (!bars || bars.length < 80) return { name: null, stage }; 
@@ -420,34 +388,13 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
       ema20 = (bars[i].c * k20) + (ema20 * (1 - k20));
   }
 
-  if (bars.length >= 210) {
-    const getSMA = (startIndex: number, periods: number) => {
-      if (bars.length < startIndex + periods) return 0;
-      let sum = 0;
-      for (let i = startIndex; i < startIndex + periods; i++) sum += bars[i].c;
-      return sum / periods;
-    };
-
-    const sma150_now = getSMA(0, 150);
-    const sma150_20d = getSMA(20, 150);
-    const sma150_60d = getSMA(60, 150);
-
-    if (sma150_now > 0 && sma150_20d > 0 && sma150_60d > 0) {
-      const slope = (sma150_now - sma150_20d) / sma150_20d;
-
-      if (slope > 0.015 && currentPrice > sma150_now) {
-        stage = `Stage 2A`; 
-      } else if (slope < -0.015 && currentPrice < sma150_now) {
-        stage = `Stage 4A`; 
-      } else {
-        if (sma150_20d > sma150_60d) {
-          stage = `Stage 3A`; 
-        } else {
-          stage = `Stage 1A`; 
-        }
-      }
-    }
-  }
+  // v6.3: Weinstein stage + sub-stage. Bars here are DESC (newest first), and
+  // the live price is passed so the sub-stage reflects the intraday print
+  // rather than yesterday's close — the 30 and 50 SMAs sit close together, so
+  // a stale price misclassifies 2A/2B on any day with real movement.
+  const stageDetail = computeStageDetail(bars, { order: 'desc', price: currentPrice });
+  stage = stageDetail.label;
+  const stageNum = stageDetail.stage;
 
   const checkSqueeze = (offset: number) => {
     let sum = 0;
@@ -520,7 +467,10 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
     const slice = bars.slice(start, start + len);
     return slice.reduce((s, b) => s + (b.v || 0), 0) / Math.max(slice.length, 1);
   };
-  if ((stage === 'Stage 2A' || stage === 'Stage 3A') && bars.length >= 50) {
+  // v6.3: compare the stage NUMBER — sub-stages mean 'Stage 2B' and 'Stage 2C'
+  // are also valid VCP contexts, and the old exact-label match would have
+  // silently excluded them once the letter stopped being hardcoded to 'A'.
+  if ((stageNum === 2 || stageNum === 3) && bars.length >= 50) {
     const rNear = windowRange(1, 12), rMid = windowRange(13, 12), rFar = windowRange(25, 12);
     const vNear = windowVol(1, 12), vMid = windowVol(13, 12), vFar = windowVol(25, 12);
     const contracting = rNear < rMid && rMid < rFar;
@@ -989,7 +939,17 @@ export async function GET(request: Request) {
       // RMV(15) — where today's volatility sits inside its own 15-bar range.
       // Low = coiled/tight, high = expanded. Companion to ADR, not a duplicate:
       // ADR is absolute room, RMV is relative compression.
-      const rmv = computeRMV(dailyBars, 15);
+      const rmv = computeRMV(dailyBars, { order: 'desc', lookback: 15 });
+
+      // RME(21) — where price sits vs its OWN history of extension from the
+      // 21 EMA. Feeds CNF as the extension penalty. -100..+100.
+      const rmeDetail = computeRMEDetail(dailyBars, { order: 'desc', maLength: 21, lookback: 250 });
+
+      // Money Flow (21) — accumulation vs distribution. RVOL says volume
+      // showed up; MF says which side got filled. A name up 6% on 4x volume
+      // with MF under 45 was sold into all day.
+      const mf = computeMoneyFlow(dailyBars, { order: 'desc', length: 21 });
+      const mfTrend = moneyFlowTrend(dailyBars, { order: 'desc', length: 21, lookback: 5 });
       
       // 10 & 21 EMA + trend-structure fields (STR data + readout).
       let aboveEma10: boolean | null = null;
@@ -1120,6 +1080,11 @@ export async function GET(request: Request) {
         atrPct: atrPct != null ? parseFloat(atrPct.toFixed(2)) : null,
         adrPct: adrPct != null ? parseFloat(adrPct.toFixed(2)) : null,
         rmv,
+        mf,
+        mfTrend,
+        rme: rmeDetail.rme,
+        rmeExtPct: rmeDetail.extPct,
+        rmeSampled: rmeDetail.sampled,
         stochK: stochK != null ? parseFloat(stochK.toFixed(1)) : null,
         rsVsSpy: rsVsSpy != null ? parseFloat(rsVsSpy.toFixed(1)) : null,
         gapPct: gapPct != null ? parseFloat(gapPct.toFixed(2)) : null,
@@ -1158,8 +1123,8 @@ export async function GET(request: Request) {
     } catch (e) { console.error('streak read failed', e); }
     const newStreaks: Record<string, number> = {};
 
-    // --- NO AI: catalysts from WIIM, theses from WIIM or the deterministic
-    // readout, tradeType from the setup classifier. Zero LLM calls, zero cost.
+    // --- NO AI: catalysts from WIIM, theses from WIIM headlines, tradeType
+    // from the setup classifier. Zero LLM calls, zero cost.
     const enrichedMap = new Map();
 
     // --- PASS 1: catalyst tier, tradeType, streaks, extension, status --------
@@ -1217,8 +1182,8 @@ export async function GET(request: Request) {
         : (prevStreaks[t.ticker] || 1);
       newStreaks[t.ticker] = t.scanStreak;
 
-      // Extension flag: already moved 3.5x+ ATR off yesterday's close, or
-      // stretched more than 3x its own daily ATR% above the 21 EMA.
+      // Extension flag — v6.2: NO LONGER scored (RME handles that). Kept for
+      // the UI, which uses it as a display hint.
       t.extended = (t.moveVsAtr != null && t.moveVsAtr >= 3.5) ||
         (t.distToEma21 != null && t.atrPct != null && t.atrPct > 0 && t.distToEma21 > 3 * t.atrPct);
 
@@ -1259,7 +1224,7 @@ export async function GET(request: Request) {
           catalystTier: t._catalystTier,
           hasEarnings,
           scanStreak: t.scanStreak || 1,
-          extended: !!t.extended,
+          rme: t.rme,
           vwapStatus: t.vwapStatus || 'neutral',
           tradeType: t.tradeType || '',
           setupName: t.setupName || null,
@@ -1270,6 +1235,7 @@ export async function GET(request: Request) {
       );
       t.cnfScore = cnf.score;
       t.cnfGrade = cnf.grade;
+      t.cnfBreakdown = cnf.breakdown;
       t.hasEarnings = hasEarnings;
       t.conviction = cnf.score;
       delete t._catalystTier;

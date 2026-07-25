@@ -1,12 +1,17 @@
 'use client';
 
-// SwingCandidates — v1.2
+// SwingCandidates — v1.4
 // v1.1: + RMV(15) column; sub-row thesis is the news catalyst only
-// v1.2: FLOAT column removed — squeeze mechanics matter on a gapper, not on
-//       a name pulling back into its 21 EMA. Width reallocated to SECTOR.
+// v1.2: FLOAT column removed
+// v1.3: Weinstein sub-stage coloring via lib/indicators/stage
+// v1.4: + Money Flow (21). MF earns the most on this table: a pullback with
+//       MF still above 55 is orderly profit-taking; the same pullback under
+//       45 is distribution wearing a pullback's clothes.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
+import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
+import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 
 interface SwingCandidate {
   symbol: string;
@@ -26,6 +31,8 @@ interface SwingCandidate {
   atrPct: number;
   adrPct?: number | null;
   rmv?: number | null;
+  mf?: number | null;
+  mfTrend?: number;
   pctOffHigh: number;
   distToEma21: number;
   distToEma10?: number;
@@ -80,11 +87,6 @@ const formatCurrency = (num: number | null | undefined) => {
   return '$' + num.toLocaleString();
 };
 
-const formatStageText = (stage: string | undefined) => {
-  if (!stage || stage === '-' || stage === '—') return '—';
-  return stage.replace(/Stage\s*/i, '');
-};
-
 // Ready = stoch deep and pullback tight — the blue dot could fire imminently.
 const isReady = (c: SwingCandidate) => c.stochK <= 25 && Math.abs(c.distToEma21) <= 2.5;
 
@@ -98,6 +100,13 @@ const adrOf = (c: SwingCandidate): number | null => {
 const rmvOf = (c: SwingCandidate): number | null => {
   if (c.rmv == null || isNaN(Number(c.rmv))) return null;
   return Number(c.rmv);
+};
+
+// Money Flow (21) — accumulation vs distribution. RVOL says volume showed up;
+// MF says which side got filled.
+const mfOf = (c: SwingCandidate): number | null => {
+  if (c.mf == null || isNaN(Number(c.mf))) return null;
+  return Number(c.mf);
 };
 
 // Blue Dot marker — same treatment as the 10/21 consolidation table.
@@ -160,7 +169,7 @@ export default function SwingCandidates() {
   const [sortConfig, setSortConfig] = useState<{ key: keyof SwingCandidate; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const [showReadyOnly, setShowReadyOnly] = useState<boolean>(false);
-  const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(false);
+  const [showStage2Only, setShowStage2Only] = useState<boolean>(false);
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
@@ -209,7 +218,8 @@ export default function SwingCandidates() {
   const filteredAndSorted = useMemo(() => {
     let filtered = [...candidates];
     if (showReadyOnly) filtered = filtered.filter(isReady);
-    if (showStage2AOnly) filtered = filtered.filter(c => c.stage && c.stage.includes('2A'));
+    // Stage 2 filter matches any sub-stage — 2A, 2B and 2C are all Stage 2.
+    if (showStage2Only) filtered = filtered.filter(c => stageShort(c.stage).startsWith('2'));
     if (marketCapFilter !== 'All') {
       filtered = filtered.filter(c => {
         const mc = c.mktCap;
@@ -255,7 +265,7 @@ export default function SwingCandidates() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, showReadyOnly, showStage2AOnly, marketCapFilter, cnfFilter, emaFilter, adrFilter, vwapFilter]);
+  }, [candidates, sortConfig, showReadyOnly, showStage2Only, marketCapFilter, cnfFilter, emaFilter, adrFilter, vwapFilter]);
 
   // Copy the visible tickers, comma-separated — TradingView's watchlist
   // import format. Respects whatever filters are active.
@@ -287,14 +297,6 @@ export default function SwingCandidates() {
     if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
     if (score >= 50) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
     return 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50';
-  };
-  const getStageColor = (stage: string | undefined) => {
-    if (!stage || stage === '-') return 'text-slate-500';
-    if (stage.includes('1')) return 'text-slate-400';
-    if (stage.includes('2')) return 'text-emerald-400';
-    if (stage.includes('3')) return 'text-amber-400';
-    if (stage.includes('4')) return 'text-rose-400';
-    return 'text-slate-500';
   };
   const getRvolColor = (rvol: number | null | undefined) => {
     if (!rvol) return 'text-slate-500';
@@ -364,13 +366,13 @@ export default function SwingCandidates() {
   const tdBase = "px-1 pt-2.5 pb-1.5 text-center";
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
   const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
-  // Filter pills — matched to the Filter: 2A button (same height, font, tracking)
+  // Filter pills — matched to the Filter: 2 button (same height, font, tracking)
   const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
   const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
   const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
 
   const activeFilterCount =
-    (showStage2AOnly ? 1 : 0) +
+    (showStage2Only ? 1 : 0) +
     (showReadyOnly ? 1 : 0) +
     (marketCapFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
@@ -434,7 +436,13 @@ export default function SwingCandidates() {
                 <div className={pillWrap}>
                   <span className={pillLabel}>STAGE</span>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => setShowStage2AOnly(!showStage2AOnly)} className={`${pillBtn} ${showStage2AOnly ? filterBtnActive : filterBtnIdle}`}>2A</button>
+                    <button
+                      onClick={() => setShowStage2Only(!showStage2Only)}
+                      title="Stage 2 only — includes 2A, 2B and 2C"
+                      className={`${pillBtn} ${showStage2Only ? filterBtnActive : filterBtnIdle}`}
+                    >
+                      2
+                    </button>
                   </div>
                 </div>
                 <div className={pillWrap}>
@@ -507,7 +515,7 @@ export default function SwingCandidates() {
           </div>
 
           <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            <table className="w-full min-w-[1080px] table-fixed border-collapse">
+            <table className="w-full min-w-[1120px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
@@ -520,18 +528,19 @@ export default function SwingCandidates() {
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rmv')}>RMV{getSortIcon('rmv')}</th>
+                  <th className={`${thBase} w-[4%]`} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thBase} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} w-[14%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} w-[10%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
-                  <tr><td colSpan={16} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No candidates in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
+                  <tr><td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No candidates in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
                 ) : (
                   filteredAndSorted.map((row) => {
                     const isPositive = (row.changePct ?? 0) >= 0;
@@ -541,6 +550,7 @@ export default function SwingCandidates() {
                     const sectorText = cleanSector(row.sector, row.symbol);
                     const adr = adrOf(row);
                     const rmv = rmvOf(row);
+                    const mf = mfOf(row);
                     return (
                       <React.Fragment key={row.symbol}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -578,12 +588,20 @@ export default function SwingCandidates() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRmvColor(rmv)}`} title="RMV(15) — 0 = tightest price action of the last 15 bars, 100 = most volatile. Low is coiled.">
                             {rmv != null ? rmv.toFixed(0) : '—'}
                           </td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={`Money Flow (21) — ${mfLabel(mf)}. On a pullback, above 55 is orderly profit-taking; below 45 is distribution. Arrow shows the 5-day direction.`}>
+                            {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
+                          </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy >= 0 ? '+' : ''}{row.rsVsSpy.toFixed(1)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK.toFixed(1)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
                           <td className={`${tdBase} whitespace-nowrap border-l border-white/5`}>
-                            <span className={`text-[11px] font-bold tracking-wide ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span>
+                            <span
+                              title={stageDescription(row.stage)}
+                              className={`text-[11px] font-bold tracking-wide cursor-help ${stageColor(row.stage)}`}
+                            >
+                              {stageShort(row.stage)}
+                            </span>
                           </td>
                           <td className={tdBase}>
                             <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
@@ -592,7 +610,7 @@ export default function SwingCandidates() {
                         {/* Sub-row: spacer | EMA PB + news catalyst | STR/STAT centered */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%]"></td>
-                          <td colSpan={13} className="pb-2.5 pt-1.5 pr-3">
+                          <td colSpan={14} className="pb-2.5 pt-1.5 pr-3">
                             <div className="flex items-center text-left">
                               <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">EMA PB</span>
                               <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-3">

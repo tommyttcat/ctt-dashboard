@@ -1,13 +1,16 @@
 'use client';
 
-// DailySetups — v1.2
+// DailySetups — v1.4
 // v1.1: + RMV(15) column; CATALYST column removed (news moved to thesis line)
-// v1.2: FLOAT column removed; RME(21) surfaced via the CNF badge tooltip —
-//       it's a scoring input, not a column, so it shows on hover with the
-//       full point breakdown rather than eating table width.
+// v1.2: FLOAT column removed; RME(21) surfaced via the CNF badge tooltip
+// v1.3: Weinstein sub-stage coloring via lib/indicators/stage
+// v1.4: + Money Flow (21). The tell to watch: a big CHG% with MF under 45 is
+//       a gap being sold into — the move is real, the demand isn't.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
+import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
+import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 
 interface SetupData {
   ticker: string;
@@ -36,6 +39,8 @@ interface SetupData {
   distToEma21?: number | null;
   adrPct?: number | null;
   rmv?: number | null;
+  mf?: number | null;
+  mfTrend?: number;
   rme?: number | null;
   rmeExtPct?: number | null;
   cnfBreakdown?: Record<string, number> | null;
@@ -71,6 +76,7 @@ const CNF_LABELS: Record<string, string> = {
   vwap: 'VWAP',
   regime: 'Market regime',
   sector: 'Sector heat',
+  moneyFlow: 'Money Flow',
 };
 
 const formatTime = (timestamp: number | Date) => {
@@ -92,11 +98,6 @@ const formatCurrency = (num: number | null) => {
   if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
   if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
   return '$' + num.toLocaleString();
-};
-
-const formatStageText = (stage: string | undefined) => {
-  if (!stage || stage === '-' || stage === '—') return '—';
-  return stage.replace(/Stage\s*/i, ''); 
 };
 
 const formatSetupName = (name: string | null) => {
@@ -167,6 +168,13 @@ const adrOf = (row: SetupData): number | null => {
 const rmvOf = (row: SetupData): number | null => {
   if (row.rmv == null || isNaN(Number(row.rmv))) return null;
   return Number(row.rmv);
+};
+
+// Money Flow (21) — accumulation vs distribution. RVOL says volume showed up;
+// MF says which side got filled.
+const mfOf = (row: SetupData): number | null => {
+  if (row.mf == null || isNaN(Number(row.mf))) return null;
+  return Number(row.mf);
 };
 
 // RME — where price sits vs this stock's OWN history of extension from the
@@ -249,7 +257,7 @@ export default function DailySetups() {
   const [lastScanTime, setLastScanTime] = useState<number | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: keyof SetupData; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
-  const [showStage2AOnly, setShowStage2AOnly] = useState<boolean>(false); 
+  const [showStage2Only, setShowStage2Only] = useState<boolean>(false); 
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
@@ -285,7 +293,7 @@ export default function DailySetups() {
               float: item.float || null,
               shortPct: item.shortPct || null,
               mktCap: item.mktCap || null,
-              stage: item.stage || '2A',
+              stage: item.stage || '—',
               setupName: item.setupName || null,
               catalyst: item.catalyst || null,
               catalystUrl: item.catalystUrl || null,
@@ -299,6 +307,8 @@ export default function DailySetups() {
               distToEma21: item.distToEma21 ?? null,
               adrPct: item.adrPct ?? null,
               rmv: item.rmv ?? null,
+              mf: item.mf ?? null,
+              mfTrend: item.mfTrend ?? 0,
               rme: item.rme ?? null,
               rmeExtPct: item.rmeExtPct ?? null,
               cnfBreakdown: item.cnfBreakdown ?? null,
@@ -346,8 +356,9 @@ export default function DailySetups() {
       s.mktCap !== null && s.mktCap >= 20000000
     );
     
-    if (showStage2AOnly) {
-      filtered = filtered.filter(s => s.stage && s.stage.includes('2A'));
+    // Stage 2 filter matches any sub-stage — 2A, 2B and 2C are all Stage 2.
+    if (showStage2Only) {
+      filtered = filtered.filter(s => stageShort(s.stage).startsWith('2'));
     }
     
     if (marketCapFilter !== 'All') {
@@ -399,7 +410,7 @@ export default function DailySetups() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [setups, sortConfig, showStage2AOnly, marketCapFilter, cnfFilter, emaFilter, adrFilter, vwapFilter]);
+  }, [setups, sortConfig, showStage2Only, marketCapFilter, cnfFilter, emaFilter, adrFilter, vwapFilter]);
 
   // Copy the visible tickers, comma-separated — TradingView's watchlist
   // import format. Respects whatever filters are active.
@@ -425,14 +436,7 @@ export default function DailySetups() {
   };
 
   const getSortIcon = (columnKey: keyof SetupData) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
-  const getStageColor = (stage: string | undefined) => {
-    if (!stage || stage === '-') return 'text-slate-500';
-    if (stage.includes('1')) return 'text-slate-400';
-    if (stage.includes('2')) return 'text-emerald-400';
-    if (stage.includes('3')) return 'text-amber-400';
-    if (stage.includes('4')) return 'text-rose-400';
-    return 'text-slate-500'; 
-  };
+
   const getRvolColor = (rvol: number | null) => {
     if (!rvol) return 'text-slate-500';
     if (rvol >= 2) return 'text-amber-400';
@@ -514,7 +518,7 @@ export default function DailySetups() {
   const tdBase = "px-1 pt-2.5 pb-1.5 text-center";
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
   const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
-  // Filter pills — matched to the Filter: 2A button (same height, font, tracking)
+  // Filter pills — matched to the Filter: 2 button (same height, font, tracking)
   const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
   const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
   const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
@@ -522,7 +526,7 @@ export default function DailySetups() {
   const typeChip = "inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border bg-zinc-800/50 text-slate-300 border-zinc-700/50";
 
   const activeFilterCount =
-    (showStage2AOnly ? 1 : 0) +
+    (showStage2Only ? 1 : 0) +
     (marketCapFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
     (emaFilter !== 'All' ? 1 : 0) +
@@ -582,7 +586,13 @@ export default function DailySetups() {
                 <div className={pillWrap}>
                   <span className={pillLabel}>STAGE</span>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => setShowStage2AOnly(!showStage2AOnly)} className={`${pillBtn} ${showStage2AOnly ? filterBtnActive : filterBtnIdle}`}>2A</button>
+                    <button
+                      onClick={() => setShowStage2Only(!showStage2Only)}
+                      title="Stage 2 only — includes 2A, 2B and 2C"
+                      className={`${pillBtn} ${showStage2Only ? filterBtnActive : filterBtnIdle}`}
+                    >
+                      2
+                    </button>
                   </div>
                 </div>
                 <div className={pillWrap}>
@@ -649,7 +659,7 @@ export default function DailySetups() {
           </div>
 
           <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            <table className="w-full min-w-[1080px] table-fixed border-collapse">
+            <table className="w-full min-w-[1120px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
@@ -662,20 +672,21 @@ export default function DailySetups() {
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rmv')}>RMV{getSortIcon('rmv')}</th>
+                  <th className={`${thBase} w-[4%]`} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thBase} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} w-[14%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} w-[10%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
               
               <tbody className="divide-y divide-white/5">
                 {status.includes('Syncing') && setups.length === 0 ? (
-                  <tr><td colSpan={16} className="py-12 text-center border-b border-white/5"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
+                  <tr><td colSpan={17} className="py-12 text-center border-b border-white/5"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
                 ) : filteredAndSortedSetups.length === 0 ? (
-                  <tr><td colSpan={16} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">{setups.length > 0 ? 'No names match the current filters.' : 'No active tracking items currently matching momentum criteria.'}</td></tr>
+                  <tr><td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">{setups.length > 0 ? 'No names match the current filters.' : 'No active tracking items currently matching momentum criteria.'}</td></tr>
                 ) : (
                   filteredAndSortedSetups.map((row, i) => {
                     const isPositive = row.changePct >= 0;
@@ -687,6 +698,7 @@ export default function DailySetups() {
                     const bdRev = isBlueDotSetup(row.setupName);
                     const adr = adrOf(row);
                     const rmv = rmvOf(row);
+                    const mf = mfOf(row);
                     return (
                       <React.Fragment key={i}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -726,12 +738,20 @@ export default function DailySetups() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRmvColor(rmv)}`} title="RMV(15) — 0 = tightest price action of the last 15 bars, 100 = most volatile. Low is coiled.">
                             {rmv != null ? rmv.toFixed(0) : '—'}
                           </td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={`Money Flow (21) — ${mfLabel(mf)}. Above 50 is accumulation, below is distribution. Arrow shows the 5-day direction.`}>
+                            {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
+                          </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)}` : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
                           <td className={`${tdBase} whitespace-nowrap border-l border-white/5`}>
-                            <span className={`text-[11px] font-bold tracking-wide ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span>
+                            <span
+                              title={stageDescription(row.stage)}
+                              className={`text-[11px] font-bold tracking-wide cursor-help ${stageColor(row.stage)}`}
+                            >
+                              {stageShort(row.stage)}
+                            </span>
                           </td>
                           <td className={tdBase}>
                             <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
@@ -742,7 +762,7 @@ export default function DailySetups() {
                           <td className="w-[7%] text-center align-middle">
                             {tt && (<span className={typeChip}>{tt}</span>)}
                           </td>
-                          <td colSpan={13} className="pb-2.5 pt-1.5 pr-3">
+                          <td colSpan={14} className="pb-2.5 pt-1.5 pr-3">
                             <div className="flex items-center text-left">
                               <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">
                                 {bdRev ? <BlueDot /> : (formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—')}

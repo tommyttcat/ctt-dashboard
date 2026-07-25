@@ -1,5 +1,10 @@
 'use client';
 
+// MacroScorecard — v1.1
+// v1.1: SOL removed; T2108 added as the twelfth card (11 assets + T2108 keeps
+//       the 4-column grid square). T2108 also feeds the tone narrative — it's
+//       Bonde's primary regime gauge and it changes which setups to hunt.
+
 import React, { useEffect, useState, useRef } from 'react';
 
 // Unified Asset Dictionary
@@ -14,8 +19,7 @@ const MACRO_ASSETS = [
   { id: 'SLV', fmp: 'SLV', ws: 'SLV', name: 'Silver ETF', type: 'stock' },
   { id: 'USO', fmp: 'USO', ws: 'USO', name: 'Crude Oil', type: 'stock' },
   { id: 'BTC', fmp: 'BTCUSD', ws: 'BTC-USD', name: 'Bitcoin', type: 'crypto' },
-  { id: 'ETH', fmp: 'ETHUSD', ws: 'ETH-USD', name: 'Ethereum', type: 'crypto' },
-  { id: 'SOL', fmp: 'SOLUSD', ws: 'SOL-USD', name: 'Solana', type: 'crypto' }
+  { id: 'ETH', fmp: 'ETHUSD', ws: 'ETH-USD', name: 'Ethereum', type: 'crypto' }
 ];
 
 interface TickData {
@@ -34,6 +38,14 @@ interface BreadthData {
   decliners: number;
   up4: number;
   down4: number;
+}
+
+interface T2108Data {
+  value: number | null;
+  zone: string;
+  above: number | null;
+  total: number | null;
+  updatedAt: string | null;
 }
 
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
@@ -59,6 +71,42 @@ const formatTime = (date: Date) => {
   });
 };
 
+/* ------------------------------------------------------------------
+   T2108 — % of stocks above their own 40-day MA.
+   NOT a simple good/bad scale: both extremes are actionable, in
+   opposite directions. Low means washed out (Bonde hunts reversals
+   aggressively under 20, calls sub-10 a near-guaranteed bounce).
+   High means froth, where breakouts start failing.
+   ------------------------------------------------------------------ */
+const t2108Color = (v: number | null): string => {
+  if (v == null) return 'text-slate-500';
+  if (v <= 10) return 'text-purple-400';
+  if (v <= 20) return 'text-emerald-400';
+  if (v <= 35) return 'text-lime-400';
+  if (v <= 65) return 'text-slate-200';
+  if (v <= 80) return 'text-amber-400';
+  return 'text-rose-400';
+};
+
+const t2108CardStyle = (v: number | null): { bg: string; border: string } => {
+  if (v == null) return { bg: 'bg-[#161c2a]/60', border: 'border-white/5' };
+  if (v <= 20) return { bg: 'bg-emerald-950/10', border: 'border-emerald-500/20' };
+  if (v <= 35) return { bg: 'bg-lime-950/10', border: 'border-lime-500/20' };
+  if (v <= 65) return { bg: 'bg-[#161c2a]/60', border: 'border-white/10' };
+  if (v <= 80) return { bg: 'bg-amber-950/10', border: 'border-amber-500/20' };
+  return { bg: 'bg-rose-950/10', border: 'border-rose-500/20' };
+};
+
+const t2108ZoneLabel = (v: number | null, zone: string): string => {
+  if (v == null) return zone === 'unknown' ? 'NO DATA' : zone.toUpperCase();
+  if (v <= 10) return 'WASHED OUT';
+  if (v <= 20) return 'DEEP OVERSOLD';
+  if (v <= 35) return 'OVERSOLD';
+  if (v <= 65) return 'NEUTRAL';
+  if (v <= 80) return 'EXTENDED';
+  return 'FROTHY';
+};
+
 // Builds a data-driven market-tone read straight from the live quotes and
 // breadth internals — no AI call, so it costs nothing and updates every
 // refresh with the actual numbers. Sentences are newline-separated so the
@@ -66,7 +114,8 @@ const formatTime = (date: Date) => {
 const buildToneNarrative = (
   q: Record<string, TickData>,
   breadth: BreadthData | null,
-  session: MarketSession
+  session: MarketSession,
+  t2108: T2108Data | null
 ): string => {
   const pct = (id: string): number | null => (q[id] && q[id].synced ? q[id].pct : null);
   const fmt = (v: number): string => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
@@ -150,7 +199,28 @@ const buildToneNarrative = (
     }
   }
 
-  return [s1, s2, s3].filter(Boolean).join('\n');
+  // Sentence 4 — regime, from T2108. This is the one that changes WHICH
+  // setups to hunt rather than just describing the day: sub-20 favours
+  // reversals, 80+ is where breakouts start failing.
+  let s4 = '';
+  const t = t2108?.value ?? null;
+  if (t != null) {
+    if (t <= 10) {
+      s4 = `T2108 ${t.toFixed(0)} — the market is washed out. Historically this is where mean reversion pays; hunt reversals, not breakouts.`;
+    } else if (t <= 20) {
+      s4 = `T2108 ${t.toFixed(0)} — deeply oversold. Reversal setups have the edge here; breakouts into this tape tend to fail.`;
+    } else if (t <= 35) {
+      s4 = `T2108 ${t.toFixed(0)} — oversold, with more names below their 40-day than above. Favour pullback entries over chasing strength.`;
+    } else if (t >= 85) {
+      s4 = `T2108 ${t.toFixed(0)} — frothy. Most names are extended above their 40-day; tighten stops and expect breakouts to fail more often.`;
+    } else if (t >= 70) {
+      s4 = `T2108 ${t.toFixed(0)} — extended. Participation is broad but late; the easy part of the move is likely behind us.`;
+    } else {
+      s4 = `T2108 ${t.toFixed(0)} — a neutral regime, with no strong mean-reversion edge either way.`;
+    }
+  }
+
+  return [s1, s2, s3, s4].filter(Boolean).join('\n');
 };
 
 /* ============================================================
@@ -166,8 +236,8 @@ const valNum = "text-[12px] tabular-nums";
 
 const renderToneText = (text: string): React.ReactNode[] => {
   // Capture: VIX phrases w/ percent, asset names, signed percents,
-  // breadth n/6, "N advancers/decliners", and "N names up/down 4%+"
-  const rx = /((?:the )?VIX is [a-z ]+?\(?[+-]\d+(?:\.\d+)?%\)?|S&P|Nasdaq|Dow|Bitcoin|VIX|[+-]\d+(?:\.\d+)?%|breadth \d\/6|[\d,]+ advancers|[\d,]+ decliners|\d+ names (?:up|down) 4%\+)/g;
+  // breadth n/6, "N advancers/decliners", "N names up/down 4%+", T2108 nn
+  const rx = /((?:the )?VIX is [a-z ]+?\(?[+-]\d+(?:\.\d+)?%\)?|T2108 \d+(?:\.\d+)?|S&P|Nasdaq|Dow|Bitcoin|VIX|[+-]\d+(?:\.\d+)?%|breadth \d\/6|[\d,]+ advancers|[\d,]+ decliners|\d+ names (?:up|down) 4%\+)/g;
   const parts = text.split(rx);
 
   return parts.map((part, i) => {
@@ -181,6 +251,18 @@ const renderToneText = (text: string): React.ReactNode[] => {
       return (
         <span key={i}>
           {vixMatch[1] || ''}<span className={nameChipCls}>VIX</span>{vixMatch[2]}<span className={`${valNum} ${cls}`}>{vixMatch[3]}</span>{vixMatch[4]}
+        </span>
+      );
+    }
+
+    // T2108 reading — badge the name, color the value by regime
+    const tm = part.match(/^T2108 (\d+(?:\.\d+)?)$/);
+    if (tm) {
+      const v = parseFloat(tm[1]);
+      return (
+        <span key={i}>
+          <span className={nameChipCls}>T2108</span>
+          <span className={`${valNum} ${t2108Color(v)}`}>{tm[1]}</span>
         </span>
       );
     }
@@ -236,6 +318,7 @@ export default function MacroScorecard() {
   const [riskMode, setRiskMode] = useState<'ON' | 'OFF'>('ON');
   const [marketTone, setMarketTone] = useState<'BULLISH' | 'NEUTRAL' | 'BEARISH'>('NEUTRAL');
   const [breadth, setBreadth] = useState<BreadthData | null>(null);
+  const [t2108, setT2108] = useState<T2108Data | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
 
   // A/D trend: the feed only sends current counts, so direction is derived by
@@ -267,6 +350,11 @@ export default function MacroScorecard() {
     // Maps 6 -> +1.5, 3 -> 0, 0 -> -1.5.
     const breadthAdj = breadth ? ((breadth.score - 3) / 3) * 1.5 : 0;
 
+    // T2108 is deliberately NOT folded into tone. It's a MEAN-REVERSION gauge,
+    // not a directional one — a washed-out 15 reading is bearish today and
+    // bullish for what comes next. Blending it into a single bull/bear score
+    // would destroy exactly the information it carries. It gets its own card
+    // and its own line in the narrative instead.
     const totalScore = eqScore + volScore + cryptoScore + breadthAdj;
 
     if (totalScore >= 1.0) {
@@ -354,6 +442,36 @@ export default function MacroScorecard() {
     };
   }, []);
 
+  // --- ENGINE 2b: T2108 ---
+  // Written by the swing-candidates scan, which runs on its own schedule.
+  // Polls every 5 min — this is a slow-moving daily-bar metric, not a tick.
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchT2108 = async () => {
+      try {
+        const res = await fetch(`/api/t2108/latest?t=${Date.now()}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (isMounted && data && data.success) {
+          setT2108({
+            value: data.value ?? null,
+            zone: data.zone ?? 'unknown',
+            above: data.above ?? null,
+            total: data.total ?? null,
+            updatedAt: data.updatedAt ?? null,
+          });
+        }
+      } catch {
+        // Silent — T2108 missing just leaves the card in its unsynced state.
+      }
+    };
+
+    fetchT2108();
+    const interval = setInterval(() => { if (isMounted) fetchT2108(); }, 300000);
+    return () => { isMounted = false; clearInterval(interval); };
+  }, []);
+
   // --- ENGINE 3: COINBASE WEBSOCKET (CRYPTO) ---
   useEffect(() => {
     let isMounted = true;
@@ -432,12 +550,15 @@ export default function MacroScorecard() {
     return { border: 'border-amber-500/20', bg: 'bg-amber-500/[0.04]', label: 'text-amber-400', dot: 'bg-amber-400' };
   };
 
-  const narrative = buildToneNarrative(quotes, breadth, session);
+  const narrative = buildToneNarrative(quotes, breadth, session, t2108);
   const toneStyles = getToneStyles();
 
   // Advance/decline share for the internals bar (0-100)
   const adTotal = breadth ? breadth.advancers + breadth.decliners : 0;
   const advPct = breadth && adTotal > 0 ? (breadth.advancers / adTotal) * 100 : 50;
+
+  const tVal = t2108?.value ?? null;
+  const tStyle = t2108CardStyle(tVal);
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-xl">
@@ -656,6 +777,52 @@ export default function MacroScorecard() {
                 </div>
               );
             })}
+
+            {/* T2108 — the twelfth card. Not a price, so it renders a regime
+                label where the others show a percent change. */}
+            {tVal == null ? (
+              <div className="bg-[#161c2a]/60 border border-white/5 rounded-xl p-4 flex flex-col justify-between h-24 opacity-60">
+                <div className="flex justify-between items-start">
+                  <span className="text-sm font-bold text-slate-300">T2108</span>
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">% Above 40 MA</span>
+                </div>
+                <div className="flex flex-col mt-2">
+                  <span className="text-sm font-medium text-slate-500 animate-pulse">Awaiting scan…</span>
+                </div>
+              </div>
+            ) : (
+              <div
+                className={`rounded-xl p-4 flex flex-col justify-between h-24 transition-colors duration-300 border ${tStyle.bg} ${tStyle.border} hover:bg-white/[0.02] shadow-sm`}
+                title={`T2108 — ${t2108?.above?.toLocaleString() ?? '?'} of ${t2108?.total?.toLocaleString() ?? '?'} scanned names are above their own 40-day MA.\n\nBelow 20: washed out, favour reversals.\nAbove 80: frothy, breakouts start failing.\n\nComputed across the full scanned universe rather than NYSE only, so it runs a few points off the official print.`}
+              >
+                <div className="flex justify-between items-start">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-bold text-slate-200">T2108</span>
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500 truncate max-w-[90px]">
+                      % Above 40 MA
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col items-end">
+                    <span className={`text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded ${
+                      tVal <= 20 ? 'bg-emerald-500/10 text-emerald-400'
+                      : tVal <= 35 ? 'bg-lime-500/10 text-lime-400'
+                      : tVal <= 65 ? 'bg-slate-500/10 text-slate-300'
+                      : tVal <= 80 ? 'bg-amber-500/10 text-amber-400'
+                      : 'bg-rose-500/10 text-rose-400'
+                    }`}>
+                      {t2108ZoneLabel(tVal, t2108?.zone ?? '')}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col items-start mt-2">
+                  <span className={`text-2xl font-semibold tracking-tight transition-colors duration-200 ${t2108Color(tVal)}`}>
+                    {tVal.toFixed(0)}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}

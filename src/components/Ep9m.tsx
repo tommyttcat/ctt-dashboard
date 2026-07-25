@@ -1,6 +1,6 @@
 'use client';
 
-// Ep9m — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee) — v1.0
+// Ep9m — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee) — v1.2
 //
 // Fewer than ~2% of US listings trade 9M+ shares in a session. When a stock
 // that normally trades 800k suddenly does 12M, institutions are accumulating
@@ -10,9 +10,16 @@
 // Unlike every other table here, this one does NOT gate on % change. A
 // non-gapping stock quietly trading 10x its normal volume is the highest-value
 // case the scan exists to find.
+//
+// v1.1: Weinstein sub-stage coloring via lib/indicators/stage.
+// v1.2: + Money Flow (21), which is also scored. CLS reads the trigger day;
+//       MF reads the prior month. A name that closes strong on 8x volume
+//       after 21 sessions of distribution is a trap, and only MF sees it.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
+import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
+import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 
 interface Ep9mCandidate {
   ticker: string;
@@ -39,6 +46,8 @@ interface Ep9mCandidate {
   atrPct?: number | null;
   adrPct?: number | null;
   rmv?: number | null;
+  mf?: number | null;
+  mfTrend?: number;
   rme?: number | null;
   aboveEma10?: boolean | null;
   aboveEma21?: boolean | null;
@@ -68,6 +77,18 @@ const EP_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 // RVOL buckets — the scan already floors at 3x, so these tighten.
 const RVOL_BUCKETS: RvolFilterType[] = ['5', '10'];
 
+// Human labels for the EP score breakdown keys the route ships.
+const EP_LABELS: Record<string, string> = {
+  rvol: 'Volume abnormality',
+  unprecedented: 'Vs 60-day volume high',
+  floatTurnover: 'Float turnover',
+  catalyst: 'Catalyst',
+  closeStrength: 'Close strength',
+  moneyFlow: 'Money Flow',
+  daysToCover: 'Days to cover',
+  repeatOffender: 'Repeat trigger',
+};
+
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
   const date = new Date(timestamp);
@@ -87,11 +108,6 @@ const formatCurrency = (num: number | null | undefined) => {
   if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
   if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
   return '$' + num.toLocaleString();
-};
-
-const formatStageText = (stage: string | undefined) => {
-  if (!stage || stage === '-' || stage === '—') return '—';
-  return stage.replace(/Stage\s*/i, '');
 };
 
 // Sector strings sometimes arrive ticker-prefixed ("RKLB - AEROSPACE").
@@ -132,6 +148,39 @@ const adrOf = (c: Ep9mCandidate): number | null =>
 const rmvOf = (c: Ep9mCandidate): number | null =>
   c.rmv == null || isNaN(Number(c.rmv)) ? null : Number(c.rmv);
 
+// Money Flow (21) — accumulation vs distribution. RVOL says volume showed up;
+// MF says which side got filled.
+const mfOf = (c: Ep9mCandidate): number | null =>
+  c.mf == null || isNaN(Number(c.mf)) ? null : Number(c.mf);
+
+// Full EP score explanation for the badge tooltip. Non-zero components only,
+// biggest contributors first.
+const epTooltip = (c: Ep9mCandidate): string => {
+  const lines: string[] = [
+    `EP ${c.score} — ${c.score >= 70 ? 'A' : c.score >= 50 ? 'B' : 'C'}`,
+  ];
+
+  const bd = c.scoreBreakdown;
+  if (bd && typeof bd === 'object') {
+    const entries = Object.entries(bd)
+      .filter(([, v]) => typeof v === 'number' && v !== 0)
+      .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+    if (entries.length > 0) {
+      lines.push('');
+      for (const [k, v] of entries) {
+        lines.push(`${v > 0 ? '+' : ''}${v}  ${EP_LABELS[k] || k}`);
+      }
+    }
+  }
+
+  if (c.priorTriggers && c.priorTriggers > 0) {
+    lines.push('');
+    lines.push(`${c.priorTriggers} prior trigger${c.priorTriggers !== 1 ? 's' : ''} in the last 90 days`);
+  }
+
+  return lines.join('\n');
+};
+
 // Unprecedented — today's volume exceeds the stock's own 60-day record.
 const UnprecedentedMark = () => (
   <span
@@ -165,6 +214,7 @@ export default function Ep9m() {
   const [catalystFilter, setCatalystFilter] = useState<CatalystFilterType>('All');
   const [showUnprecedentedOnly, setShowUnprecedentedOnly] = useState<boolean>(false);
   const [showSugarBabyOnly, setShowSugarBabyOnly] = useState<boolean>(false);
+  const [showStage2Only, setShowStage2Only] = useState<boolean>(false);
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
@@ -226,6 +276,10 @@ export default function Ep9m() {
     }
     if (showUnprecedentedOnly) list = list.filter(c => c.unprecedented === true);
     if (showSugarBabyOnly) list = list.filter(c => c.sugarBaby === true);
+    // Stage 2 filter matches any sub-stage — 2A, 2B and 2C are all Stage 2.
+    // This scan has no trend gate, so it's the only way to separate
+    // accumulation in an uptrend from capitulation in a downtrend.
+    if (showStage2Only) list = list.filter(c => stageShort(c.stage).startsWith('2'));
     if (marketCapFilter !== 'All') {
       list = list.filter(c => {
         const mc = c.mktCap;
@@ -249,7 +303,7 @@ export default function Ep9m() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, epFilter, rvolFilter, catalystFilter, showUnprecedentedOnly, showSugarBabyOnly, marketCapFilter, vwapFilter]);
+  }, [candidates, sortConfig, epFilter, rvolFilter, catalystFilter, showUnprecedentedOnly, showSugarBabyOnly, showStage2Only, marketCapFilter, vwapFilter]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -281,14 +335,6 @@ export default function Ep9m() {
     if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
     if (score >= 50) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
     return 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50';
-  };
-  const getStageColor = (stage: string | undefined) => {
-    if (!stage || stage === '-') return 'text-slate-500';
-    if (stage.includes('1')) return 'text-slate-400';
-    if (stage.includes('2')) return 'text-emerald-400';
-    if (stage.includes('3')) return 'text-amber-400';
-    if (stage.includes('4')) return 'text-rose-400';
-    return 'text-slate-500';
   };
   // RVOL is the headline metric here, so its scale runs hotter than elsewhere:
   // the scan floors at 3x, which would already be the top bucket on other tables.
@@ -348,10 +394,6 @@ export default function Ep9m() {
     return chg >= 0 ? 'text-emerald-400' : 'text-rose-400';
   };
 
-  const emaDot = (state: boolean | null | undefined) => {
-    if (state === null || state === undefined) return 'bg-slate-600';
-    return state ? 'bg-emerald-400' : 'bg-rose-500';
-  };
   const structColor = (state: boolean | null | undefined) => {
     if (state === null || state === undefined) return 'text-slate-600';
     return state ? 'text-emerald-400' : 'text-rose-400';
@@ -392,6 +434,7 @@ export default function Ep9m() {
     (catalystFilter !== 'All' ? 1 : 0) +
     (showUnprecedentedOnly ? 1 : 0) +
     (showSugarBabyOnly ? 1 : 0) +
+    (showStage2Only ? 1 : 0) +
     (marketCapFilter !== 'All' ? 1 : 0) +
     (vwapFilter !== 'All' ? 1 : 0);
 
@@ -485,6 +528,18 @@ export default function Ep9m() {
                   </div>
                 </div>
                 <div className={pillWrap}>
+                  <span className={pillLabel}>STAGE</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setShowStage2Only(!showStage2Only)}
+                      title="Stage 2 only — separates accumulation in an uptrend from capitulation in a downtrend"
+                      className={`${pillBtn} ${showStage2Only ? filterBtnActive : filterBtnIdle}`}
+                    >
+                      2
+                    </button>
+                  </div>
+                </div>
+                <div className={pillWrap}>
                   <span className={pillLabel}>STORY</span>
                   <div className="flex items-center gap-1">
                     <button
@@ -546,7 +601,7 @@ export default function Ep9m() {
           </div>
 
           <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            <table className="w-full min-w-[1120px] table-fixed border-collapse">
+            <table className="w-full min-w-[1160px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[10%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
@@ -560,17 +615,18 @@ export default function Ep9m() {
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('daysToCover')}>D2C{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rmv')}>RMV{getSortIcon('rmv')}</th>
+                  <th className={`${thBase} w-[4%]`} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thBase} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} w-[11%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
                   <tr>
-                    <td colSpan={15} className="py-12 text-center text-slate-500 text-sm font-medium">
+                    <td colSpan={16} className="py-12 text-center text-slate-500 text-sm font-medium">
                       {status === 'Live'
                         ? (candidates.length > 0
                             ? 'No names match the current filters.'
@@ -587,6 +643,7 @@ export default function Ep9m() {
                     const sectorText = cleanSector(row.sector, row.ticker);
                     const adr = adrOf(row);
                     const rmv = rmvOf(row);
+                    const mf = mfOf(row);
                     const cs = closeState(row);
                     return (
                       <React.Fragment key={row.ticker}>
@@ -599,7 +656,12 @@ export default function Ep9m() {
                             </div>
                           </td>
                           <td className={tdBase}>
-                            <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.score)}`}>{row.score}</span>
+                            <span
+                              title={epTooltip(row)}
+                              className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border cursor-help ${getScoreBadge(row.score)}`}
+                            >
+                              {row.score}
+                            </span>
                           </td>
                           <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
                             <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus && row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div>
@@ -630,12 +692,20 @@ export default function Ep9m() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRmvColor(rmv)}`} title="RMV(15) — 0 = tightest price action of the last 15 bars, 100 = most volatile. High is expected here; low alongside heavy volume means trade going nowhere.">
                             {rmv != null ? rmv.toFixed(0) : '—'}
                           </td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={`Money Flow (21) — ${mfLabel(mf)}. CLS reads today; MF reads the prior month. Heavy volume with MF under 45 is distribution, however strong today's close. Arrow shows the 5-day direction.`}>
+                            {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
+                          </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>
                             {row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)}` : '—'}
                           </td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
                           <td className={`${tdBase} whitespace-nowrap border-l border-white/5`}>
-                            <span className={`text-[11px] font-bold tracking-wide ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span>
+                            <span
+                              title={stageDescription(row.stage)}
+                              className={`text-[11px] font-bold tracking-wide cursor-help ${stageColor(row.stage)}`}
+                            >
+                              {stageShort(row.stage)}
+                            </span>
                           </td>
                           <td className={tdBase}>
                             <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
@@ -644,7 +714,7 @@ export default function Ep9m() {
                         {/* Sub-row: spacer | EP 9M + news catalyst | STR/CLOSE centered */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[10%]"></td>
-                          <td colSpan={12} className="pb-2.5 pt-1.5 pr-3">
+                          <td colSpan={13} className="pb-2.5 pt-1.5 pr-3">
                             <div className="flex items-center text-left">
                               <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">EP 9M</span>
                               <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-3">
@@ -691,13 +761,13 @@ export default function Ep9m() {
               </tbody>
             </table>
           </div>
-        </>
-      )}
 
-      {funnelNote && isExpanded && (
-        <div className="relative z-10 mt-3 text-center">
-          <span className="text-[10px] text-slate-600 font-medium tracking-wide">{funnelNote}</span>
-        </div>
+          {funnelNote && (
+            <div className="relative z-10 mt-3 text-center">
+              <span className="text-[10px] text-slate-600 font-medium tracking-wide">{funnelNote}</span>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

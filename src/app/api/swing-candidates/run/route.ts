@@ -1,22 +1,25 @@
-// app/api/swing-candidates/run/route.ts — v1.1
-// v1.1: + RMV(15) relative measured volatility on Swing and 10/21 candidates
-//       + batched Benzinga WIIM catalysts (tag + headline + url) on both lists
+// app/api/swing-candidates/run/route.ts — v1.4
+// v1.1: + RMV(15) on Swing and 10/21; + batched Benzinga WIIM catalysts
+// v1.2: RMV imported from lib/indicators/rmv (shared with the scanner route)
+// v1.3: Weinstein sub-stages via lib/indicators/stage
+// v1.4: + Money Flow (21) on both analyzers; + T2108 market breadth, computed
+//       free from the grouped series already fetched for the 10/21 shortlist.
+//       groupedDays raised 35 -> 45 because T2108 needs a 40-day MA per name.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
+import { computeRMV } from '@/lib/indicators/rmv';
+import { computeStage } from '@/lib/indicators/stage';
+import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 60;
 
-// Match the scanner's env-var chain exactly — same Polygon key, same fallbacks.
 const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
 const BENZINGA_KEY = process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '';
 const BASE = "https://api.polygon.io";
 
-// ---------------------------------------------------------------
-// CONFIG — tune all filter thresholds here
-// ---------------------------------------------------------------
 const CONFIG = {
   minPrice: 10,
   maxPrice: 2000,
@@ -33,13 +36,10 @@ const CONFIG = {
   rsLookback: 63,
   earningsBlackoutDays: 7,
 
-  maxSymbolsToAnalyze: 120, // trimmed slightly: 3 API calls per symbol now
+  maxSymbolsToAnalyze: 120,
   concurrency: 10,
 };
 
-// ---------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------
 interface Bar { t: number; o: number; h: number; l: number; c: number; v: number; }
 
 interface SnapInfo {
@@ -67,6 +67,8 @@ interface Candidate {
   atrPct: number;
   adrPct?: number;
   rmv?: number | null;
+  mf?: number | null;
+  mfTrend?: number;
   pctOffHigh: number;
   distToEma21: number;
   distToEma10: number;
@@ -85,9 +87,6 @@ interface Candidate {
   thesis?: string | null;
 }
 
-// ---------------------------------------------------------------
-// Fetch helpers (Polygon: apiKey as query param, matching the scanner)
-// ---------------------------------------------------------------
 async function polygon<T = any>(path: string): Promise<T> {
   const sep = path.includes("?") ? "&" : "?";
   const res = await fetch(`${BASE}${path}${sep}apiKey=${POLYGON_KEY}`);
@@ -123,10 +122,6 @@ async function inBatches<T, R>(items: T[], size: number, fn: (item: T) => Promis
   return out;
 }
 
-// ---------------------------------------------------------------
-// Sector classification — ported from the scanner's cleanSectorDescription
-// (reads SIC description, which is the field Polygon actually populates)
-// ---------------------------------------------------------------
 function cleanSectorDescription(sic: string | undefined, sector: string | undefined, industry: string | undefined): string {
   const ind = (industry || '').toLowerCase();
   const sicTxt = (sic || '').toLowerCase();
@@ -172,9 +167,6 @@ function cleanSectorDescription(sic: string | undefined, sector: string | undefi
   return 'Other';
 }
 
-// ---------------------------------------------------------------
-// Indicator math
-// ---------------------------------------------------------------
 function sma(values: number[], period: number): number | null {
   if (values.length < period) return null;
   return values.slice(-period).reduce((a, b) => a + b, 0) / period;
@@ -215,73 +207,6 @@ function adrPct(bars: Bar[], period = 20): number | null {
   return ((sum / n) - 1) * 100;
 }
 
-// ---------------------------------------------------------------
-// RMV — Relative Measured Volatility (v1.1)
-// Port of CTT RMV V1.0 / Deepvue RMV. Composite ATR (5/10/15, Wilder RMA)
-// ranked against its own high/low across a 15-bar window.
-//   0   = tightest price action of the window (max compression)
-//   100 = most volatile of the window
-// NOTE: bars in this route are ASCENDING (sort=asc), the opposite of the
-// main scanner route — hence a separate implementation, not a copy.
-// Companion to ADR, not a duplicate: ADR is absolute room, RMV is relative
-// compression measured against the stock's own recent behaviour. The pair
-// worth hunting is high ADR + low RMV — a mover that is currently coiled.
-// ---------------------------------------------------------------
-function rmvValue(bars: Bar[], lookback = 15, atrLens: number[] = [5, 10, 15]): number | null {
-  const need = Math.max(...atrLens) + lookback + 5;
-  if (!Array.isArray(bars) || bars.length < need) return null;
-
-  // 150 bars of warm-up is ample for a 15-period Wilder average to converge.
-  const win = bars.slice(-Math.min(150, bars.length));
-
-  // True Range
-  const tr: number[] = [];
-  for (let i = 0; i < win.length; i++) {
-    const h = win[i]?.h;
-    const l = win[i]?.l;
-    if (h == null || l == null) return null;
-    if (i === 0) { tr.push(h - l); continue; }
-    const pc = win[i - 1].c;
-    tr.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
-  }
-
-  // Wilder's RMA — exactly what Pine's ta.atr() uses under the hood.
-  const rma = (src: number[], len: number): number[] => {
-    const out: number[] = new Array(src.length).fill(NaN);
-    if (src.length < len) return out;
-    let seed = 0;
-    for (let i = 0; i < len; i++) seed += src[i];
-    out[len - 1] = seed / len;
-    for (let i = len; i < src.length; i++) {
-      out[i] = (out[i - 1] * (len - 1) + src[i]) / len;
-    }
-    return out;
-  };
-
-  const atrSeries = atrLens.map(l => rma(tr, l));
-
-  const comp: number[] = win.map((_, i) => {
-    let sum = 0;
-    for (const s of atrSeries) {
-      const v = s[i];
-      if (!isFinite(v)) return NaN;
-      sum += v;
-    }
-    return sum / atrSeries.length;
-  });
-
-  const slice = comp.slice(-lookback);
-  if (slice.length < lookback || slice.some(v => !isFinite(v))) return null;
-
-  const cur = slice[slice.length - 1];
-  const hi = Math.max(...slice);
-  const lo = Math.min(...slice);
-  const span = hi - lo;
-
-  const rmv = span > 0 ? ((cur - lo) / span) * 100 : 0;
-  return Math.round(rmv * 10) / 10;
-}
-
 function stochK(bars: Bar[], length = 10, smooth = 4): number | null {
   if (bars.length < length + smooth) return null;
   const rawKs: number[] = [];
@@ -301,29 +226,6 @@ function pctReturn(closes: number[], lookback: number): number | null {
   return ((closes[closes.length - 1] - then) / then) * 100;
 }
 
-// Weinstein Stage from the 150-SMA slope — same logic as the scanner
-function computeStage(closes: number[], price: number): string {
-  if (closes.length < 210) return '-';
-  const smaAt = (endOffset: number): number | null => {
-    const end = closes.length - endOffset;
-    if (end < 150) return null;
-    let sum = 0;
-    for (let i = end - 150; i < end; i++) sum += closes[i];
-    return sum / 150;
-  };
-  const now = smaAt(0);
-  const d20 = smaAt(20);
-  const d60 = smaAt(60);
-  if (!now || !d20 || !d60) return '-';
-  const slope = (now - d20) / d20;
-  if (slope > 0.015 && price > now) return 'Stage 2A';
-  if (slope < -0.015 && price < now) return 'Stage 4A';
-  return d20 > d60 ? 'Stage 3A' : 'Stage 1A';
-}
-
-// ---------------------------------------------------------------
-// Stage 1: coarse universe from the full-market snapshot (1 call)
-// ---------------------------------------------------------------
 async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, SnapInfo>; snapMapAll: Map<string, SnapInfo> }> {
   const data = await polygon<{ tickers?: any[] }>(
     `/v2/snapshot/locale/us/markets/stocks/tickers`
@@ -360,8 +262,6 @@ async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, 
   const snapMap = new Map<string, SnapInfo>();
   for (const t of filtered) snapMap.set(t.ticker, buildSnap(t));
 
-  // Full-market snap map for the consolidation shortlist — every clean symbol
-  // in the tradeable price band, NOT just the top names by dollar volume.
   const snapMapAll = new Map<string, SnapInfo>();
   for (const t of tickers) {
     const sym: string = t.ticker ?? "";
@@ -375,15 +275,9 @@ async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, 
   return { symbols: filtered.map(t => t.ticker as string), snapMap, snapMapAll };
 }
 
-// ---------------------------------------------------------------
-// Market-wide grouped history: ~35 daily bars for EVERY US stock in
-// ~35 API calls total. This is what lets the 10/21 scan see the whole
-// market instead of only the loudest names by dollar volume.
-// ---------------------------------------------------------------
 interface LiteBar { c: number; h: number; l: number; v: number; }
 
 async function getGroupedSeries(validSymbols: Set<string>): Promise<Map<string, LiteBar[]>> {
-  // Candidate weekdays, oldest -> newest
   const dates: string[] = [];
   for (let d = CONSOL_SHORTLIST.maxCalendarDays; d >= 1; d--) {
     const dt = new Date(Date.now() - d * 86400000);
@@ -395,7 +289,6 @@ async function getGroupedSeries(validSymbols: Set<string>): Promise<Map<string, 
   const series = new Map<string, LiteBar[]>();
   const dayResults: { date: string; results: any[] }[] = [];
 
-  // Fetch grouped days in small parallel batches
   const BATCH = 7;
   for (let i = 0; i < dates.length; i += BATCH) {
     const chunk = dates.slice(i, i + BATCH);
@@ -411,7 +304,6 @@ async function getGroupedSeries(validSymbols: Set<string>): Promise<Map<string, 
     }
   }
 
-  // Keep the most recent N trading days, in ascending order
   dayResults.sort((a, b) => a.date.localeCompare(b.date));
   const kept = dayResults.slice(-CONSOL_SHORTLIST.groupedDays);
 
@@ -428,11 +320,56 @@ async function getGroupedSeries(validSymbols: Set<string>): Promise<Map<string, 
 }
 
 // ---------------------------------------------------------------
-// First-pass shortlist: cheap 10/21 math on the grouped series.
-// Ranks by coil ratio (10-day range normalized by daily ATR), so a
-// high-volatility name isn't punished for its own normal wiggle and a
-// sleepy mega cap doesn't rank as "tight" just for being sleepy.
+// T2108 — percentage of stocks trading above their own 40-day MA.
+//
+// Bonde's primary regime gauge. Below 20 the market is washed out and he
+// hunts reversals aggressively; below 10 he considers a bounce close to
+// guaranteed. Above 80 is the mirror — froth, and breakouts start failing.
+//
+// Classically NYSE-only. This computes it across the full scanned universe,
+// which is a broader base and will run a few points different from the
+// official print. The LEVELS still work; don't expect an exact match to a
+// TradingView T2108 chart.
+//
+// Free: reuses the grouped series already fetched for the 10/21 shortlist.
 // ---------------------------------------------------------------
+function computeT2108(series: Map<string, LiteBar[]>): {
+  value: number | null;
+  above: number;
+  total: number;
+  zone: string;
+} {
+  let above = 0;
+  let total = 0;
+
+  series.forEach((bars) => {
+    if (bars.length < 41) return;
+    const closes = bars.map(b => b.c).filter(c => c > 0);
+    if (closes.length < 41) return;
+
+    const window = closes.slice(-40);
+    const ma40 = window.reduce((a, b) => a + b, 0) / 40;
+    if (!isFinite(ma40) || ma40 <= 0) return;
+
+    total++;
+    if (closes[closes.length - 1] > ma40) above++;
+  });
+
+  // Too thin a sample is worse than no reading — a breadth number built on
+  // 40 names says nothing about the market.
+  if (total < 100) return { value: null, above, total, zone: 'unknown' };
+
+  const value = (above / total) * 100;
+  const zone =
+    value <= 10 ? 'washed out' :
+    value <= 20 ? 'deeply oversold' :
+    value <= 35 ? 'oversold' :
+    value <= 65 ? 'neutral' :
+    value <= 80 ? 'extended' : 'frothy';
+
+  return { value: Math.round(value * 10) / 10, above, total, zone };
+}
+
 function shortlistConsolidation(series: Map<string, LiteBar[]>): string[] {
   const emaLite = (closes: number[], period: number): number | null => {
     if (closes.length < period) return null;
@@ -442,7 +379,6 @@ function shortlistConsolidation(series: Map<string, LiteBar[]>): string[] {
     return e;
   };
 
-  // Wilder ATR on the lite bars, expressed as a percent of price
   const atrPctLite = (bars: LiteBar[], period = 14): number | null => {
     if (bars.length < period + 1) return null;
     const trs: number[] = [];
@@ -456,8 +392,6 @@ function shortlistConsolidation(series: Map<string, LiteBar[]>): string[] {
     return price > 0 ? (a / price) * 100 : null;
   };
 
-  // ADR% on the lite bars — same Minervini formula as the full pass, so
-  // names that will fail the ADR gate don't burn shortlist slots.
   const adrPctLite = (bars: LiteBar[], period = 20): number | null => {
     if (bars.length < period) return null;
     const recent = bars.slice(-period);
@@ -478,13 +412,10 @@ function shortlistConsolidation(series: Map<string, LiteBar[]>): string[] {
     const price = closes[closes.length - 1];
     if (price < CONFIG.minPrice || price > CONFIG.maxPrice) return;
 
-    // Liquidity: 20-day average dollar volume (consolidation floor, not the
-    // swing scan's — coiling names are quieter by definition).
     const dv = bars.slice(-20).map(b => b.c * b.v);
     const avgDollarVol = dv.reduce((a, b) => a + b, 0) / dv.length;
     if (avgDollarVol < CONSOL_CONFIG.minDollarVol) return;
 
-    // Chop gate: the stock has to actually move on a typical day.
     const adr = adrPctLite(bars, 20);
     if (adr == null || adr < CONSOL_CONFIG.minAdrPct) return;
 
@@ -497,7 +428,7 @@ function shortlistConsolidation(series: Map<string, LiteBar[]>): string[] {
     const dist21 = ((price - e21) / e21) * 100;
     if (Math.abs(dist10) > CONSOL_CONFIG.maxDistToEma10) return;
     if (dist21 > CONSOL_CONFIG.maxAboveEma21 || dist21 < -CONSOL_CONFIG.maxBelowEma21) return;
-    if (e21Prev != null && e21 <= e21Prev) return; // 21 EMA must be rising
+    if (e21Prev != null && e21 <= e21Prev) return;
 
     const win10 = bars.slice(-10);
     const hi10 = Math.max(...win10.map(b => b.h));
@@ -505,9 +436,8 @@ function shortlistConsolidation(series: Map<string, LiteBar[]>): string[] {
     const range10 = lo10 > 0 ? ((hi10 - lo10) / lo10) * 100 : 999;
     if (range10 > CONSOL_CONFIG.maxRange10) return;
 
-    // Coil ratio — how many daily ATRs wide the ten-day range is.
     const aPct = atrPctLite(bars, 14);
-    const ratio = aPct && aPct > 0 ? range10 / aPct : range10 / 3; // ~3% ATR assumed if unknown
+    const ratio = aPct && aPct > 0 ? range10 / aPct : range10 / 3;
     if (ratio > CONSOL_CONFIG.maxCoilRatio) return;
 
     const prevClose = closes[closes.length - 2];
@@ -517,14 +447,10 @@ function shortlistConsolidation(series: Map<string, LiteBar[]>): string[] {
     picks.push({ sym, ratio });
   });
 
-  // Tightest coils relative to their own volatility, first
   picks.sort((a, b) => a.ratio - b.ratio);
   return picks.slice(0, CONSOL_SHORTLIST.shortlistSize).map(p => p.sym);
 }
 
-// ---------------------------------------------------------------
-// Earnings blackout — Benzinga calendar directly. Fails open.
-// ---------------------------------------------------------------
 async function getEarningsBlackout(): Promise<Set<string>> {
   if (!BENZINGA_KEY) return new Set();
   try {
@@ -544,11 +470,9 @@ async function getEarningsBlackout(): Promise<Set<string>> {
 }
 
 // ---------------------------------------------------------------
-// WIIM catalysts (v1.1) — "Why Is It Moving" headlines from Benzinga.
-// Ported from the main scanner route so both feeds classify news the
-// same way. Runs ONCE, after scoring, over the final lists only:
-// ~2 batched calls for the whole run, not one per symbol.
-// Fails open — no key, bad response, or no match just means no catalyst.
+// WIIM catalysts — "Why Is It Moving" headlines from Benzinga.
+// Runs ONCE, after scoring, over the final lists only: ~2 batched calls for
+// the whole run, not one per symbol. Fails open.
 // ---------------------------------------------------------------
 const WIIM_MAX_AGE_DAYS = 4;
 const WIIM_MAX_BREADTH = 12;
@@ -602,7 +526,6 @@ async function fetchBenzingaWiims(
       const title = (item?.title || '').trim();
       if (!title) continue;
 
-      // A headline tagged to a dozen names is a sector note, not a catalyst.
       const stocks = Array.isArray(item?.stocks) ? item.stocks : [];
       if (stocks.length === 0 || stocks.length > WIIM_MAX_BREADTH) continue;
 
@@ -610,16 +533,13 @@ async function fetchBenzingaWiims(
       const daysOld = created > 0 ? (now - created) / (1000 * 60 * 60 * 24) : 999;
       if (daysOld > WIIM_MAX_AGE_DAYS) continue;
 
-      const link = item?.url || null;
-      // Freshest wins; narrower breadth breaks ties.
       const score = daysOld + stocks.length * 0.02;
-
       for (const s of stocks) {
         const sym = (s?.name || '').toUpperCase();
         if (!sym) continue;
         const prev = out.get(sym);
         if (!prev || score < prev.score) {
-          out.set(sym, { title, url: link, daysOld, score });
+          out.set(sym, { title, url: item?.url || null, daysOld, score });
         }
       }
     }
@@ -627,9 +547,6 @@ async function fetchBenzingaWiims(
   return out;
 }
 
-// ---------------------------------------------------------------
-// Stage 2: analyze one symbol
-// ---------------------------------------------------------------
 function analyze(
   symbol: string,
   bars: Bar[],
@@ -655,7 +572,14 @@ function analyze(
 
   const atrPct = (atr14 / price) * 100;
   const adr = adrPct(bars, 20);
-  const rmv = rmvValue(bars, 15);
+  // RMV(15) — where today's volatility sits inside its own 15-bar range.
+  // Bars are ascending here; the module's default order is 'asc'.
+  const rmv = computeRMV(bars, { lookback: 15 });
+  // Money Flow (21) — accumulation vs distribution over the last month.
+  // On a pullback candidate this is the key confirmation: price pulling back
+  // with MF still above 55 is orderly profit-taking, not distribution.
+  const mf = computeMoneyFlow(bars, { length: 21 });
+  const mfTrend = moneyFlowTrend(bars, { length: 21, lookback: 5 });
   const hi52 = Math.max(...bars.slice(-252).map(b => b.h));
   const pctOffHigh = ((hi52 - price) / hi52) * 100;
   const distToEma21 = ((price - ema21) / ema21) * 100;
@@ -665,7 +589,6 @@ function analyze(
   const dollarVols = bars.slice(-20).map(b => b.c * b.v);
   const avgDollarVol = dollarVols.reduce((a, b) => a + b, 0) / dollarVols.length;
 
-  // 20-day average share volume for RVOL
   const vols = bars.slice(-20).map(b => b.v).filter(v => v > 0);
   const avgVol = vols.length > 0 ? vols.reduce((a, b) => a + b, 0) / vols.length : 0;
 
@@ -681,8 +604,6 @@ function analyze(
   if (kVal > CONFIG.maxStochK) return null;
   if (rsVsSpy == null || rsVsSpy <= 0) return null;
 
-  // Score (0-100), rescaled to the CNF grade lines (A>=70, B>=50):
-  // RS 35 (saturates at +20 vs SPY), pullback 30, volatility fit 20, trend 15.
   const rsScore = Math.min(rsVsSpy / 20, 1) * 35;
   const pullbackScore =
     (1 - Math.abs(distToEma21) / CONFIG.maxDistToEma21) * 15 +
@@ -691,19 +612,19 @@ function analyze(
   const trendScore = (sma50 > sma200 ? 10 : 0) + (ema21Rising ? 5 : 0);
   const score = Math.round(Math.max(0, rsScore + pullbackScore + volScore + trendScore));
 
-  const stage = computeStage(closes, price);
+  // v1.3: real sub-stage. Live snapshot price when available — the 30 and 50
+  // SMAs sit close together, so a stale close misclassifies 2A/2B.
+  const stage = computeStage(closes, { price: snap?.livePrice ?? price });
 
-  // Snapshot-derived live fields (fall back to daily-bar data off-hours)
   const changePct = snap?.changePct ?? 0;
   const vol = snap?.vol || bars[bars.length - 1].v || 0;
-  const rvol = avgVol > 0 && vol > 0 ? +(vol / avgVol).toFixed(2) : null;
+  const rvolVal = avgVol > 0 && vol > 0 ? +(vol / avgVol).toFixed(2) : null;
 
   let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
   if (snap?.vwap && snap?.livePrice) {
     vwapStatus = snap.livePrice >= snap.vwap ? 'above' : 'below';
   }
 
-  // Details-derived fields (same sources as the scanner)
   const name = details?.results?.name || symbol;
   const mktCap = details?.results?.market_cap || null;
   const float = details?.results?.share_class_shares_outstanding || (mktCap && price ? mktCap / price : null);
@@ -723,7 +644,7 @@ function analyze(
     changePct: +changePct.toFixed(2),
     vol,
     dVol: Math.round(price * vol),
-    rvol,
+    rvol: rvolVal,
     float,
     shortPct,
     mktCap,
@@ -732,6 +653,8 @@ function analyze(
     atrPct: +atrPct.toFixed(2),
     adrPct: adr != null ? +adr.toFixed(2) : undefined,
     rmv,
+    mf,
+    mfTrend,
     pctOffHigh: +pctOffHigh.toFixed(1),
     distToEma21: +distToEma21.toFixed(2),
     distToEma10: +distToEma10.toFixed(2),
@@ -745,37 +668,23 @@ function analyze(
   };
 }
 
-// ---------------------------------------------------------------
-// Stage 2b: 10/21 consolidation analyzer — same inputs, different setup.
-// Finds names coiling tightly on rising 10/21 EMAs in a confirmed uptrend:
-// the Minervini/Wish trend-hold entry BEFORE the breakout, not after it.
-//
-// Tightness is judged by coil ratio = 10-day range / daily ATR%, so an
-// 8.6%-ATR name and a 1.5%-ATR name are held to the same standard.
-// A stock drifts to roughly 3-4x ATR over ten sessions; tighter is a coil.
-//
-// The ADR gate is the anti-chop filter: a name with a 1.5% average daily
-// range can look beautifully "coiled" while simply being dead. Requiring
-// real daily range means the eventual break has something behind it.
-// ---------------------------------------------------------------
 const CONSOL_CONFIG = {
-  minDollarVol: 10_000_000, // hard floor — 20-day avg dollar volume
-  minAdrPct: 3.0,           // anti-chop — 20-day average daily range %
-  maxDistToEma10: 5,        // hugging the 10 EMA (±5%)
-  maxAboveEma21: 5,         // not extended more than 5% above the 21
-  maxBelowEma21: 1.5,       // small undercuts tolerated, no breakdowns
-  maxRange10: 14,           // absolute ceiling on the raw 10-day range
-  maxCoilRatio: 4.0,        // primary gate — range in multiples of daily ATR
-  tightCoilRatio: 2.5,      // at or under this the UI calls it "Coiled"
-  maxDayChange: 3,          // quiet tape today, no event bars
-  maxPctOffHigh: 15,        // basing below highs, not repairing real damage
+  minDollarVol: 10_000_000,
+  minAdrPct: 3.0,
+  maxDistToEma10: 5,
+  maxAboveEma21: 5,
+  maxBelowEma21: 1.5,
+  maxRange10: 14,
+  maxCoilRatio: 4.0,
+  tightCoilRatio: 2.5,
+  maxDayChange: 3,
+  maxPctOffHigh: 15,
 };
 
-// Market-wide consolidation shortlist settings
 const CONSOL_SHORTLIST = {
-  groupedDays: 35,        // trading days of grouped history for the first pass
-  maxCalendarDays: 55,    // calendar window to find those trading days in
-  shortlistSize: 80,      // finalists that get the full 450-day treatment
+  groupedDays: 45,        // 45 not 35: T2108 needs a 40-day MA per symbol
+  maxCalendarDays: 70,    // wider calendar span to find those trading days
+  shortlistSize: 80,
 };
 
 function analyzeConsolidation(
@@ -803,7 +712,12 @@ function analyzeConsolidation(
 
   const atrPct = (atr14 / price) * 100;
   const adr = adrPct(bars, 20);
-  const rmv = rmvValue(bars, 15);
+  const rmv = computeRMV(bars, { lookback: 15 });
+  // Money Flow matters most on this table: a tight coil with MF above 55 is
+  // accumulation inside the base. The same coil with MF under 45 is a name
+  // being quietly distributed while it looks like it's resting.
+  const mf = computeMoneyFlow(bars, { length: 21 });
+  const mfTrend = moneyFlowTrend(bars, { length: 21, lookback: 5 });
   const hi52 = Math.max(...bars.slice(-252).map(b => b.h));
   const pctOffHigh = ((hi52 - price) / hi52) * 100;
   const distToEma21 = ((price - ema21) / ema21) * 100;
@@ -818,7 +732,6 @@ function analyzeConsolidation(
   const ret = pctReturn(closes, CONFIG.rsLookback);
   const rsVsSpy = ret != null && spyReturn != null ? ret - spyReturn : null;
 
-  // The coil: 10-day high-low range, and that range in units of daily ATR
   const win10 = bars.slice(-10);
   const hi10 = Math.max(...win10.map(b => b.h));
   const lo10 = Math.min(...win10.map(b => b.l));
@@ -827,9 +740,6 @@ function analyzeConsolidation(
 
   const changePct = snap?.changePct ?? 0;
 
-  // Blue Dot (Dr. Wish): raw 10-period stoch was oversold (<=25) within the
-  // last 3 sessions and price is turning up while holding the 21 EMA —
-  // the same trigger the scanner uses for Blue Dot Rev.
   const rawKAt = (offset: number): number => {
     const idx = bars.length - 1 - offset;
     if (idx < 9) return 50;
@@ -842,7 +752,6 @@ function analyzeConsolidation(
   const upDay = closes.length >= 2 && closes[closes.length - 1] > closes[closes.length - 2];
   const blueDot = oversoldRecent && upDay && price >= ema21;
 
-  // --- Gates: liquid, moves enough to matter, trending, riding the EMAs ---
   if (avgDollarVol < CONSOL_CONFIG.minDollarVol) return null;
   if (adr == null || adr < CONSOL_CONFIG.minAdrPct) return null;
   if (price < sma50 || price < sma200) return null;
@@ -856,9 +765,6 @@ function analyzeConsolidation(
   if (pctOffHigh > CONSOL_CONFIG.maxPctOffHigh) return null;
   if (rsVsSpy == null || rsVsSpy <= 0) return null;
 
-  // Score (0-100) on the CNF grade lines (A>=70, B>=50):
-  // tightness 30 (2.0x ATR or tighter saturates), EMA proximity 25,
-  // RS 30 (saturates at +20 vs SPY), trend quality 15.
   const tightScore = Math.max(0, Math.min(1,
     (CONSOL_CONFIG.maxCoilRatio - coilRatio) / (CONSOL_CONFIG.maxCoilRatio - 2.0)
   )) * 30;
@@ -869,9 +775,9 @@ function analyzeConsolidation(
   const trendScore = 10 + (pctOffHigh <= 7 ? 5 : 0);
   const score = Math.round(Math.max(0, Math.min(100, tightScore + proxScore + rsScore + trendScore)));
 
-  const stage = computeStage(closes, price);
+  const stage = computeStage(closes, { price: snap?.livePrice ?? price });
   const vol = snap?.vol || bars[bars.length - 1].v || 0;
-  const rvol = avgVol > 0 && vol > 0 ? +(vol / avgVol).toFixed(2) : null;
+  const rvolVal = avgVol > 0 && vol > 0 ? +(vol / avgVol).toFixed(2) : null;
 
   let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
   if (snap?.vwap && snap?.livePrice) {
@@ -897,7 +803,7 @@ function analyzeConsolidation(
     changePct: +changePct.toFixed(2),
     vol,
     dVol: Math.round(price * vol),
-    rvol,
+    rvol: rvolVal,
     float,
     shortPct,
     mktCap,
@@ -906,6 +812,8 @@ function analyzeConsolidation(
     atrPct: +atrPct.toFixed(2),
     adrPct: +adr.toFixed(2),
     rmv,
+    mf,
+    mfTrend,
     pctOffHigh: +pctOffHigh.toFixed(1),
     distToEma21: +distToEma21.toFixed(2),
     distToEma10: +distToEma10.toFixed(2),
@@ -922,9 +830,6 @@ function analyzeConsolidation(
   };
 }
 
-// ---------------------------------------------------------------
-// Run handler: execute scan, write results to KV
-// ---------------------------------------------------------------
 export async function GET() {
   try {
     if (!POLYGON_KEY) {
@@ -937,17 +842,25 @@ export async function GET() {
     const [{ symbols: universe, snapMap, snapMapAll }, earningsBlackout] = await Promise.all([getUniverse(), getEarningsBlackout()]);
     const toScan = universe.filter(sym => !earningsBlackout.has(sym));
 
-    // Market-wide 10/21 shortlist: grouped history for every symbol in the
-    // tradeable band, cheap EMA/coil math, keep the tightest names by ATR ratio.
     const groupedSeries = await getGroupedSeries(new Set(snapMapAll.keys()));
+
+    // T2108 — market-wide breadth from the same grouped data. Persisted
+    // independently so the Scorecard can read it without touching the
+    // swing payload.
+    const t2108 = computeT2108(groupedSeries);
+    try {
+      await kv.set('t2108_v1', {
+        ...t2108,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (e) { console.error('t2108 persist failed', e); }
+
     const consolShortlist = shortlistConsolidation(groupedSeries)
       .filter(sym => !earningsBlackout.has(sym));
     const swingSet = new Set(toScan);
     const consolExtra = consolShortlist.filter(sym => !swingSet.has(sym));
 
     const results = await inBatches(toScan, CONFIG.concurrency, async (sym) => {
-      // Bars + details (mktCap/float/sector) + short interest, in parallel per symbol.
-      // Both analyzers share the same fetched data — the 10/21 scan costs zero extra API calls.
       const [bars, details, shortData] = await Promise.all([
         getDailyBars(sym),
         polygonSafe<any>(`/v3/reference/tickers/${sym}`, {}),
@@ -959,7 +872,6 @@ export async function GET() {
       return { swing, consol };
     });
 
-    // Deep-analyze the shortlisted consolidation names not already covered above
     const extraConsols = await inBatches(consolExtra, CONFIG.concurrency, async (sym) => {
       const [bars, details, shortData] = await Promise.all([
         getDailyBars(sym),
@@ -979,7 +891,6 @@ export async function GET() {
     consols.sort((a, b) => b.score - a.score);
 
     // --- Catalysts: one batched WIIM lookup across both final lists --------
-    // Done after sorting/slicing so we only pay for names that made the cut.
     const consolKeep = consols.slice(0, 40);
     const newsSymbols = Array.from(new Set([
       ...candidates.map(c => c.symbol),
@@ -995,7 +906,6 @@ export async function GET() {
         c.catalystUrl = null;
         return;
       }
-      // A 2-day-old WIIM still explains the move, but flag it as stale.
       const tag = classifyWiim(w.title);
       c.catalyst = w.daysOld >= 1.5 ? `${tag} (Delayed)` : tag;
       c.thesis = w.title;
@@ -1020,8 +930,6 @@ export async function GET() {
       console.warn('Swing scan produced no candidates; preserving previous KV snapshot.');
     }
 
-    // 10/21 consolidation list — an empty list is a legitimate result on a
-    // loose tape, so persist whenever the universe resolved at all.
     if (universe.length > 0) {
       await kv.set('consol_1021_v1', consolKeep);
       await kv.set('consol_1021_meta_v1', { count: consols.length });
@@ -1037,6 +945,9 @@ export async function GET() {
       universeSize: universe.length,
       excludedForEarnings: universe.length - toScan.length,
       catalystsFound: wiimMap.size,
+      t2108: t2108.value,
+      t2108Zone: t2108.zone,
+      t2108Sample: t2108.total,
       dataPersisted: hasRealData,
     });
   } catch (error: any) {

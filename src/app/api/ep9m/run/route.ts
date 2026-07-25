@@ -1,4 +1,4 @@
-// app/api/ep9m/run/route.ts — v1.0
+// app/api/ep9m/run/route.ts — v1.2
 //
 // EP9M — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee)
 //
@@ -14,11 +14,18 @@
 //
 // Deliberately does NOT gate on % change. A non-gapping stock quietly trading
 // 10x its normal volume is the highest-value case this scan exists to find.
+//
+// v1.1: Weinstein sub-stages via lib/indicators/stage (was hardcoded to 'A').
+// v1.2: + Money Flow (21). This is the sharpest cross-check the scan has:
+//       heavy abnormal volume with MF under 45 is 21 sessions of distribution,
+//       not accumulation, however good the single-day print looks.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { computeRMV } from '@/lib/indicators/rmv';
 import { computeRMEDetail } from '@/lib/indicators/rme';
+import { computeStage } from '@/lib/indicators/stage';
+import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -110,6 +117,8 @@ interface Ep9mCandidate {
   atrPct: number | null;
   adrPct: number | null;
   rmv: number | null;
+  mf: number | null;
+  mfTrend: number;
   rme: number | null;
   aboveEma10: boolean | null;
   aboveEma21: boolean | null;
@@ -247,25 +256,6 @@ function pctReturn(closes: number[], lookback: number): number | null {
   if (closes.length < lookback + 1) return null;
   const then = closes[closes.length - 1 - lookback];
   return then > 0 ? ((closes[closes.length - 1] - then) / then) * 100 : null;
-}
-
-function computeStage(closes: number[], price: number): string {
-  if (closes.length < 210) return '-';
-  const smaAt = (endOffset: number): number | null => {
-    const end = closes.length - endOffset;
-    if (end < 150) return null;
-    let sum = 0;
-    for (let i = end - 150; i < end; i++) sum += closes[i];
-    return sum / 150;
-  };
-  const now = smaAt(0);
-  const d20 = smaAt(20);
-  const d60 = smaAt(60);
-  if (!now || !d20 || !d60) return '-';
-  const slope = (now - d20) / d20;
-  if (slope > 0.015 && price > now) return 'Stage 2A';
-  if (slope < -0.015 && price < now) return 'Stage 4A';
-  return d20 > d60 ? 'Stage 3A' : 'Stage 1A';
 }
 
 // ---------------------------------------------------------------
@@ -512,6 +502,10 @@ async function fetchBenzingaWiims(
 // Close strength matters more than it looks: a stock that traded 12M shares
 // and closed on its low moved that volume from buyers to sellers. That's
 // distribution wearing an accumulation costume.
+//
+// v1.2: Money Flow added as a modifier. Close strength is one day; MF is 21.
+// A name can close strong on the trigger day while the prior month was
+// steady distribution — that combination is a trap, and only MF sees it.
 // ---------------------------------------------------------------
 function scoreEp9m(q: {
   rvol: number;
@@ -519,6 +513,7 @@ function scoreEp9m(q: {
   floatTurnover: number | null;
   daysToCover: number | null;
   closeStrength: number | null;
+  mf: number | null;
   catalystTier: 'strong' | 'neutral' | 'negative' | 'none';
   priorTriggers: number;
 }): { score: number; grade: string; breakdown: Record<string, number> } {
@@ -566,6 +561,17 @@ function scoreEp9m(q: {
     else if (q.closeStrength >= 0.70) b.closeStrength = 7;
     else if (q.closeStrength >= 0.50) b.closeStrength = 3;
     else if (q.closeStrength <= 0.25) b.closeStrength = -8;
+  }
+
+  // --- Money Flow: 21 sessions of accumulation vs distribution. Scored
+  // modestly — the trigger day is what matters most — but a genuinely
+  // distributed name gets a real penalty regardless of today's print.
+  b.moneyFlow = 0;
+  if (q.mf != null) {
+    if (q.mf >= 65) b.moneyFlow = 8;
+    else if (q.mf >= 55) b.moneyFlow = 5;
+    else if (q.mf <= 35) b.moneyFlow = -10;
+    else if (q.mf <= 45) b.moneyFlow = -5;
   }
 
   // --- Days to cover: the "5" in MAGNA 53. Short interest is squeeze fuel.
@@ -687,6 +693,12 @@ export async function GET() {
       const rmv = computeRMV(bars, { lookback: 15 });
       const rmeDetail = computeRMEDetail(bars, { maLength: 21, lookback: 250 });
 
+      // Money Flow (21) — the sharpest cross-check this scan has. Heavy
+      // abnormal volume with MF under 45 means the last month was steady
+      // distribution, however good today's single-day print looks.
+      const mf = computeMoneyFlow(bars, { length: 21 });
+      const mfTrend = moneyFlowTrend(bars, { length: 21, lookback: 5 });
+
       const e10 = ema(closes, 10);
       const e21 = ema(closes, 21);
       const e21Prev = ema(closes.slice(0, -3), 21);
@@ -743,6 +755,8 @@ export async function GET() {
           atrPct: atrPctVal,
           adrPct: adr,
           rmv,
+          mf,
+          mfTrend,
           rme: rmeDetail.rme,
           aboveEma10: e10 != null ? price >= e10 : null,
           aboveEma21: e21 != null ? price >= e21 : null,
@@ -751,7 +765,8 @@ export async function GET() {
           goldenCross: sma50 != null && sma200 != null ? sma50 > sma200 : null,
           pctOffHigh,
           rsVsSpy,
-          stage: computeStage(closes, price),
+          // v1.1: real sub-stage, using the live snapshot price.
+          stage: computeStage(closes, { price }),
         },
       };
     });
@@ -786,6 +801,7 @@ export async function GET() {
         floatTurnover: raw.floatTurnover,
         daysToCover: raw.daysToCover,
         closeStrength: raw.closeStrength,
+        mf: raw.mf,
         catalystTier: tier,
         priorTriggers,
       });
@@ -815,6 +831,8 @@ export async function GET() {
         atrPct: raw.atrPct != null ? +raw.atrPct.toFixed(2) : null,
         adrPct: raw.adrPct != null ? +raw.adrPct.toFixed(2) : null,
         rmv: raw.rmv,
+        mf: raw.mf,
+        mfTrend: raw.mfTrend,
         rme: raw.rme,
         aboveEma10: raw.aboveEma10,
         aboveEma21: raw.aboveEma21,
