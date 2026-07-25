@@ -1,20 +1,21 @@
 'use client';
 
-// StocksInPlay — v1.4
+// StocksInPlay — v1.5
 // v1.1: + RMV column; CATALYST column removed (news moved to thesis line)
 // v1.2: Weinstein sub-stage coloring; + CNF breakdown tooltip
 // v1.3: + Money Flow (21)
-// v1.4: RMV/RME collapsed into a fixed-width STATE chip on the sub-row (they
-//       are orthogonal and can't be averaged, but they read cleanly as a
-//       quadrant label); headline is now off-white and truncates to a single
-//       line so row height never changes; RS rounds with 1k compaction;
-//       SHT% -> DTC (days to cover); 10/21 dots tightened.
+// v1.4: RMV/RME collapsed into a fixed-width STATE chip on the sub-row;
+//       headline truncates to one line; RS rounds with 1k compaction;
+//       SHT% -> DTC; 10/21 dots tightened.
+// v1.5: STATE chip stacked three lines — quadrant word, RMV/RME label, then
+//       the pair. Self-documenting beats compact for a new metric, and the
+//       extra sub-row height gives the primary row room to breathe.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
-import { stateOf, stateTooltip, stateNumbers } from '@/lib/indicators/state';
+import { stateOf, stateTooltip } from '@/lib/indicators/state';
 
 interface StockInPlay {
   ticker: string;
@@ -124,6 +125,14 @@ const formatRs = (rs: number | null | undefined): string => {
   return `${sign}${Math.round(abs)}%`;
 };
 
+/* RMV/RME pair for the state chip. RMV is always 0-100 positive, so a
+   minus sign can only mean RME — no need for an explicit "+". */
+const statePair = (rmv: number | null, rme: number | null): string => {
+  const v = rmv == null ? '—' : String(Math.round(rmv));
+  const e = rme == null ? '—' : String(Math.round(rme));
+  return `${v}/${e}`;
+};
+
 const formatSetupName = (name: string | null) => {
   if (!name || name === '-' || name === '—') return '—';
   if (name.includes('BB SQZ')) return 'BB SQZ';
@@ -146,7 +155,6 @@ const BlueDot = ({ className = '' }: { className?: string }) => (
 );
 
 // Sector strings sometimes arrive ticker-prefixed ("RKLB - AEROSPACE").
-// Strip the prefix so one bad row can't widen the column.
 const cleanSector = (sector: string | null | undefined, ticker?: string): string => {
   if (!sector || sector === '—' || sector === '-') return '—';
   let s = String(sector).trim();
@@ -209,8 +217,7 @@ const rmeLabel = (rme: number | null): string => {
   return 'at historical extension low';
 };
 
-// Full CNF explanation for the badge tooltip. Non-zero components only,
-// biggest contributors first.
+// Full CNF explanation for the badge tooltip.
 const cnfTooltip = (row: StockInPlay): string => {
   const score = row.conviction;
   const lines: string[] = [
@@ -713,10 +720,10 @@ export default function StocksInPlay() {
                             <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: setup | STATE chip | news catalyst | STR/STAT.
-                            Every element left of the headline is fixed-width and the
-                            headline itself truncates, so row height is constant and
-                            the news column starts at the same x on every row. */}
+                        {/* Sub-row: setup | STATE chip (stacked) | news catalyst | STR/STAT.
+                            Everything left of the headline is fixed-width and the headline
+                            truncates, so row height is constant and the news column starts
+                            at the same x on every row. */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%]"></td>
                           <td colSpan={14} className="pb-2.5 pt-1.5 pr-3">
@@ -726,13 +733,16 @@ export default function StocksInPlay() {
                               </span>
                               <span
                                 title={stateTooltip(rmv, rme)}
-                                className="shrink-0 w-[124px] flex items-center gap-1.5 border-l border-white/10 pl-3 cursor-help"
+                                className="shrink-0 w-[130px] flex flex-col items-start justify-center border-l border-white/10 pl-3 cursor-help leading-none gap-[3px]"
                               >
                                 <span className={`text-[10px] font-bold tracking-widest uppercase ${stateRes.color}`}>
                                   {stateRes.state === 'UNKNOWN' ? '—' : stateRes.state}
                                 </span>
-                                <span className="text-[9px] text-slate-600 font-medium tabular-nums">
-                                  {stateNumbers(rmv, rme)}
+                                <span className="text-[8px] font-bold tracking-widest uppercase text-slate-600">
+                                  RMV/RME
+                                </span>
+                                <span className="text-[10px] font-semibold text-slate-200 tabular-nums">
+                                  {statePair(rmv, rme)}
                                 </span>
                               </span>
                               <p className="flex-1 min-w-0 text-[11px] leading-relaxed border-l border-white/10 pl-3 truncate" title={headline || undefined}>
@@ -740,15 +750,15 @@ export default function StocksInPlay() {
                                   <>
                                     {tag && (
                                       <>
-                                        <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400/80">{tag}</span>
+                                        <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400/70">{tag}</span>
                                         {headline ? ' ' : ''}
                                       </>
                                     )}
                                     {headline && (
                                       row.catalystUrl ? (
-                                        <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-slate-400 font-normal hover:text-slate-200 hover:underline transition-colors">{headline}</a>
+                                        <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-slate-500 font-normal hover:text-slate-300 hover:underline transition-colors">{headline}</a>
                                       ) : (
-                                        <span className="text-slate-400 font-normal">{headline}</span>
+                                        <span className="text-slate-500 font-normal">{headline}</span>
                                       )
                                     )}
                                   </>
