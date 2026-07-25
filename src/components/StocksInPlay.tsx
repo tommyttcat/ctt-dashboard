@@ -1,6 +1,6 @@
 'use client';
 
-// StocksInPlay — v2.3
+// StocksInPlay — v2.4
 // v2.1: STATE and readiness split so they align under STAGE / SECTOR
 // v2.2: z-30 moved OFF the header row and onto the MetricsKey wrapper alone
 // v2.3: sub-row collision fixed — STATE was left-aligned with pl-3 and
@@ -10,6 +10,13 @@
 //       the main row, tracking cut, nowrap on both. + FALLBACK_NOTES: colTip
 //       returned '' for any key missing from COLUMN_NOTES, which renders NO
 //       tooltip — every header now always has one.
+// v2.4: column spacing pass. STAGE 5%→4% and SECTOR 10%→7%; the freed 4% goes
+//       to RVOL/FLOAT/STOCH/DTC, which were the columns actually wrapping.
+//       Both right-aligned (header, value AND sub-row cell) so the cluster
+//       sits flush to the card edge instead of floating centered with dead
+//       space beyond it. Cell padding px-1 → px-0.5: under table-fixed this
+//       does not move the column boundaries, it only widens the usable
+//       interior of every cell, which is where the wrapping was coming from.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -540,8 +547,17 @@ export default function StocksInPlay() {
     return 'text-slate-500';
   };
 
-  const thBase = "px-1 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
-  const tdBase = "px-1 pt-2.5 pb-1.5 text-center";
+  // px-0.5 rather than px-1. Under table-fixed the percentages own the column
+  // boundaries, so this does not widen anything — it hands ~8px of interior
+  // back to every cell, which is where RVOL/STOCH/DTC were running out.
+  const thBase = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
+  const tdBase = "px-0.5 pt-2.5 pb-1.5 text-center";
+
+  // Right-hand cluster. Its own alignment so STAGE/SECTOR sit against the card
+  // edge instead of floating centered in a column wider than their content.
+  const thRight = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-right";
+  const tdRight = "px-0.5 pt-2.5 pb-1.5 text-right";
+
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
   const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
   const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
@@ -695,16 +711,16 @@ export default function StocksInPlay() {
                   <th className={`${thBase} w-[6%]`} title={colTip('10/21')}>10/21</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
                   <th className={`${thBase} w-[7%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('FLOAT')} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('FLOAT')} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className={`${thBase} w-[5%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} w-[10%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thRight} w-[4%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className={`${thRight} w-[7%] pr-2`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
 
@@ -772,7 +788,7 @@ export default function StocksInPlay() {
                             {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
                           </td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
-                          <td className={`${tdBase} whitespace-nowrap border-l border-white/5`}>
+                          <td className={`${tdRight} whitespace-nowrap border-l border-white/5`}>
                             <span
                               title={stageDescription(row.stage)}
                               className={`text-[11px] font-bold tracking-wide cursor-help ${stageColor(row.stage)}`}
@@ -780,14 +796,15 @@ export default function StocksInPlay() {
                               {stageShort(row.stage)}
                             </span>
                           </td>
-                          <td className={tdBase}>
-                            <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
+                          <td className={`${tdRight} pr-2`}>
+                            <span title={sectorText} className="block truncate text-right text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
                         {/* Sub-row: setup | catalyst | RMV/RME, then STATE under
-                            STAGE and readiness under SECTOR — centered like the
-                            main row so the columns read as one unit, nowrap so
-                            long labels (IMPULSE, WASHED) can never collide. */}
+                            STAGE and readiness under SECTOR. Right-aligned to
+                            match the main row now that the cluster sits against
+                            the card edge; nowrap so long labels (IMPULSE,
+                            WASHED) can never collide with the cell beside them. */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%]"></td>
                           <td colSpan={14} className="pb-1.5 pt-1 pr-3">
@@ -825,7 +842,7 @@ export default function StocksInPlay() {
                               </span>
                             </div>
                           </td>
-                          <td className="pb-1.5 pt-1 px-0.5 text-center align-middle border-l border-white/5">
+                          <td className="pb-1.5 pt-1 px-0.5 text-right align-middle border-l border-white/5">
                             <span
                               title={stateLegend(rmv, rme)}
                               className={`text-[9px] font-bold cursor-help whitespace-nowrap ${stateRes.color}`}
@@ -833,7 +850,7 @@ export default function StocksInPlay() {
                               {stateRes.state === 'UNKNOWN' ? '—' : stateRes.state}
                             </span>
                           </td>
-                          <td className="pb-1.5 pt-1 px-0.5 text-center align-middle">
+                          <td className="pb-1.5 pt-1 px-0.5 pr-2 text-right align-middle">
                             {st === 'Ready' ? (
                               <span title={readinessTooltip(st)} className="text-[9px] font-semibold text-emerald-400 cursor-help whitespace-nowrap">Ready</span>
                             ) : st === 'Forming' ? (
