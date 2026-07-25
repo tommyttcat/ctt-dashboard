@@ -1,5 +1,10 @@
 'use client';
 
+// Consolidation1021 — v1.1
+// v1.1: + RMV(15) column (low = tight = green, high = expanded = red);
+//       sub-row thesis is now the news catalyst only — the deterministic
+//       stat readout was unreadable and duplicated the columns above it.
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 
@@ -20,6 +25,7 @@ interface ConsolCandidate {
   vwapStatus?: 'above' | 'below' | 'neutral';
   atrPct: number;
   adrPct?: number | null;
+  rmv?: number | null;
   pctOffHigh: number;
   distToEma21: number;
   distToEma10?: number;
@@ -35,6 +41,7 @@ interface ConsolCandidate {
   blueDot?: boolean;
   catalyst?: string | null;
   catalystUrl?: string | null;
+  thesis?: string | null;
   news?: string | null;
   newsUrl?: string | null;
   headline?: string | null;
@@ -108,6 +115,13 @@ const adrOf = (c: ConsolCandidate): number | null => {
   return Number(c.adrPct);
 };
 
+// RMV — where today's volatility sits inside its own 15-bar range.
+// 0 = tightest of the window, 100 = most expanded.
+const rmvOf = (c: ConsolCandidate): number | null => {
+  if (c.rmv == null || isNaN(Number(c.rmv))) return null;
+  return Number(c.rmv);
+};
+
 // Coiled = inside 2.5x ATR (or 6% raw when ATR is unavailable).
 const statOf = (c: ConsolCandidate): StatFilterType | null => {
   const ratio = coilRatioOf(c);
@@ -146,30 +160,21 @@ const isGenericCatalyst = (catalyst: string | null | undefined) => {
   return c.startsWith('technical momentum') || c === 'recent news' || c === 'news' || c === 'technical';
 };
 
-const catalystOf = (c: ConsolCandidate): string | null => {
-  const raw = c.catalyst ?? c.news ?? c.headline ?? null;
-  if (isGenericCatalyst(raw)) return null;
-  return String(raw).trim().replace(/\.$/, '');
+// Catalyst TAG — the classified bucket ("Earnings", "M&A", "Contract").
+const catalystTagOf = (c: ConsolCandidate): string | null => {
+  if (isGenericCatalyst(c.catalyst)) return null;
+  return String(c.catalyst).trim().replace(/\.$/, '');
+};
+
+// Catalyst HEADLINE — the actual news sentence. This is the whole sub-row now.
+const headlineOf = (c: ConsolCandidate): string | null => {
+  const raw = c.thesis ?? c.news ?? c.headline ?? null;
+  if (!raw) return null;
+  const s = String(raw).trim();
+  return s.length > 0 ? s : null;
 };
 
 const catalystUrlOf = (c: ConsolCandidate): string | null => c.catalystUrl ?? c.newsUrl ?? null;
-
-// Plain-English readout for the sub-row, built from the row's own numbers.
-const buildReadout = (c: ConsolCandidate) => {
-  const ratio = coilRatioOf(c);
-  const adr = adrOf(c);
-  const range = c.range10Pct != null
-    ? `${c.range10Pct.toFixed(1)}% ten-day range${ratio != null ? ` (${ratio.toFixed(1)}x its ${c.atrPct.toFixed(1)}% ATR)` : ''}`
-    : 'tight range';
-  const d10 = c.distToEma10 != null ? `${c.distToEma10 >= 0 ? '+' : ''}${c.distToEma10.toFixed(1)}% vs 10 EMA` : '';
-  const d21 = `${c.distToEma21 >= 0 ? '+' : ''}${c.distToEma21.toFixed(1)}% vs 21 EMA`;
-  const structure = c.goldenCross ? '50>200 intact' : '50<200';
-  const adrBit = adr != null ? ` ADR ${adr.toFixed(1)}% gives it room to travel once it goes.` : '';
-  const posture = isCoiled(c)
-    ? 'Watching for a range break on expanding volume'
-    : 'Still wide for its own volatility — wants further contraction before it is actionable';
-  return `Coiling in a ${range} on the rising 10/21 (${[d10, d21].filter(Boolean).join(', ')}), ${c.pctOffHigh.toFixed(0)}% off highs with RS +${c.rsVsSpy.toFixed(0)} vs SPY, ${structure}.${adrBit} ${posture}.`;
-};
 
 const above21 = (c: ConsolCandidate) => c.aboveEma21 ?? c.distToEma21 >= 0;
 const above10 = (c: ConsolCandidate) => c.aboveEma10 ?? (c.distToEma10 != null ? c.distToEma10 >= 0 : null);
@@ -324,6 +329,18 @@ export default function Consolidation1021() {
     if (a >= 5) return 'text-emerald-400';
     if (a >= 3) return 'text-slate-300';
     return 'text-slate-500';
+  };
+  // RMV — inverted scale: low is what we want here. Tight/coiled reads green,
+  // expanded reads red. Note this runs opposite to ADR: a name can be high-ADR
+  // (lots of room) AND low-RMV (currently compressed), which is the ideal pair.
+  const getRmvColor = (r: number | null) => {
+    if (r == null) return 'text-slate-500';
+    if (r <= 10) return 'text-emerald-400';
+    if (r <= 25) return 'text-lime-400';
+    if (r <= 45) return 'text-yellow-400';
+    if (r <= 65) return 'text-amber-400';
+    if (r <= 80) return 'text-orange-400';
+    return 'text-rose-400';
   };
   // Coil color keys off the ATR-normalized ratio, not the raw percent.
   const getCoilColor = (c: ConsolCandidate) => {
@@ -539,38 +556,41 @@ export default function Consolidation1021() {
           </div>
 
           <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            <table className="w-full min-w-[1060px] table-fixed border-collapse">
+            <table className="w-full min-w-[1120px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[8%]`}>TICKER</th>
                   <th className={`${thBase} w-[5%]`}>CNF</th>
                   <th className={`${thBase} w-[7%]`}>PRICE</th>
-                  <th className={`${thBase} w-[7%]`}>CHG%</th>
+                  <th className={`${thBase} w-[6%]`}>CHG%</th>
                   <th className={`${thBase} w-[7%]`}>10/21</th>
-                  <th className={`${thBase} w-[7%]`}>VOL</th>
+                  <th className={`${thBase} w-[6%]`}>VOL</th>
                   <th className={`${thBase} w-[7%]`}>$VOL</th>
-                  <th className={`${thBase} w-[7%]`}>RVOL</th>
+                  <th className={`${thBase} w-[6%]`}>RVOL</th>
                   <th className={`${thBase} w-[7%]`}>COIL</th>
                   <th className={`${thBase} w-[6%]`}>ADR</th>
+                  <th className={`${thBase} w-[6%]`}>RMV</th>
                   <th className={`${thBase} w-[7%]`}>RS/SPY</th>
                   <th className={`${thBase} w-[7%]`}>%OFF HI</th>
-                  <th className={`${thBase} w-[7%]`}>MCAP</th>
+                  <th className={`${thBase} w-[6%]`}>MCAP</th>
                   <th className={`${thBase} w-[4%] border-l border-white/5`}>STAGE</th>
-                  <th className={`${thBase} w-[7%]`}>SECTOR</th>
+                  <th className={`${thBase} w-[5%]`}>SECTOR</th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-white/5">
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={15} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No names match the current filters.' : 'No names coiling on the 10/21 right now — loose tape.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
+                  <tr><td colSpan={16} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No names match the current filters.' : 'No names coiling on the 10/21 right now — loose tape.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
                 ) : (
                   filtered.map((row) => {
                     const isPositive = (row.changePct ?? 0) >= 0;
-                    const cat = catalystOf(row);
+                    const tag = catalystTagOf(row);
+                    const headline = headlineOf(row);
                     const catUrl = catalystUrlOf(row);
                     const st = statOf(row);
                     const ratio = coilRatioOf(row);
                     const adr = adrOf(row);
+                    const rmv = rmvOf(row);
                     const sectorText = cleanSector(row.sector, row.symbol);
                     return (
                       <React.Fragment key={row.symbol}>
@@ -615,6 +635,9 @@ export default function Consolidation1021() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`} title="20-day average daily range (high/low), the anti-chop measure">
                             {adr != null ? `${adr.toFixed(1)}%` : '—'}
                           </td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRmvColor(rmv)}`} title="RMV(15) — 0 = tightest price action of the last 15 bars, 100 = most volatile. Low is coiled.">
+                            {rmv != null ? rmv.toFixed(0) : '—'}
+                          </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy >= 0 ? '+' : ''}{row.rsVsSpy.toFixed(1)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getOffHighColor(row.pctOffHigh)}`}>{row.pctOffHigh.toFixed(1)}%</td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
@@ -625,25 +648,31 @@ export default function Consolidation1021() {
                             <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: spacer | 10/21 HOLD + readout + catalyst | STR/STAT centered */}
+                        {/* Sub-row: spacer | 10/21 HOLD + news catalyst | STR/STAT centered */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[8%]"></td>
-                          <td colSpan={11} className="pb-2.5 pt-1.5 pr-3">
+                          <td colSpan={12} className="pb-2.5 pt-1.5 pr-3">
                             <div className="flex items-center text-left">
                               <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">10/21 HOLD</span>
                               <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-3">
-                                <span className="text-slate-500">{buildReadout(row)}</span>
-                                {cat && (
+                                {headline || tag ? (
                                   <>
-                                    {' '}
-                                    <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400/90">News:</span>
-                                    {' '}
-                                    {catUrl ? (
-                                      <a href={catUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] hover:underline transition-colors">{cat}</a>
-                                    ) : (
-                                      <span className="text-indigo-300/90 font-medium">{cat}</span>
+                                    {tag && (
+                                      <>
+                                        <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400/90">{tag}</span>
+                                        {headline ? ' ' : ''}
+                                      </>
+                                    )}
+                                    {headline && (
+                                      catUrl ? (
+                                        <a href={catUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] hover:underline transition-colors">{headline}</a>
+                                      ) : (
+                                        <span className="text-indigo-300/90 font-medium">{headline}</span>
+                                      )
                                     )}
                                   </>
+                                ) : (
+                                  <span className="text-slate-600 italic">No news catalyst — technical setup only.</span>
                                 )}
                               </p>
                             </div>

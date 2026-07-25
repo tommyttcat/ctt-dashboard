@@ -1,5 +1,10 @@
 'use client';
 
+// SwingCandidates — v1.1
+// v1.1: + RMV(15) column (low = tight = green, high = expanded = red);
+//       sub-row thesis is now the news catalyst only — the deterministic
+//       stat readout was unreadable and duplicated the columns above it.
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 
@@ -20,6 +25,7 @@ interface SwingCandidate {
   vwapStatus?: 'above' | 'below' | 'neutral';
   atrPct: number;
   adrPct?: number | null;
+  rmv?: number | null;
   pctOffHigh: number;
   distToEma21: number;
   distToEma10?: number;
@@ -33,6 +39,7 @@ interface SwingCandidate {
   blueDot?: boolean;
   catalyst?: string | null;
   catalystUrl?: string | null;
+  thesis?: string | null;
   news?: string | null;
   newsUrl?: string | null;
   headline?: string | null;
@@ -86,6 +93,13 @@ const adrOf = (c: SwingCandidate): number | null => {
   return Number(c.adrPct);
 };
 
+// RMV — where today's volatility sits inside its own 15-bar range.
+// 0 = tightest of the window, 100 = most expanded.
+const rmvOf = (c: SwingCandidate): number | null => {
+  if (c.rmv == null || isNaN(Number(c.rmv))) return null;
+  return Number(c.rmv);
+};
+
 // Blue Dot marker — same treatment as the 10/21 consolidation table.
 const BlueDot = ({ className = '' }: { className?: string }) => (
   <span
@@ -115,26 +129,22 @@ const isGenericCatalyst = (catalyst: string | null | undefined) => {
   return c.startsWith('technical momentum') || c === 'recent news' || c === 'news' || c === 'technical';
 };
 
-// Real news headline for the thesis line — tolerant of the field name the
-// swing feed uses. Returns null when there's only the generic fallback.
-const catalystOf = (c: SwingCandidate): string | null => {
-  const raw = c.catalyst ?? c.news ?? c.headline ?? null;
-  if (isGenericCatalyst(raw)) return null;
-  return String(raw).trim().replace(/\.$/, '');
+// Catalyst TAG — the classified bucket ("Analyst", "M&A", "Contract").
+const catalystTagOf = (c: SwingCandidate): string | null => {
+  if (isGenericCatalyst(c.catalyst)) return null;
+  return String(c.catalyst).trim().replace(/\.$/, '');
+};
+
+// Catalyst HEADLINE — the actual news sentence. This is the whole sub-row now.
+// Tolerant of the older field names the swing feed used to send.
+const headlineOf = (c: SwingCandidate): string | null => {
+  const raw = c.thesis ?? c.news ?? c.headline ?? null;
+  if (!raw) return null;
+  const s = String(raw).trim();
+  return s.length > 0 ? s : null;
 };
 
 const catalystUrlOf = (c: SwingCandidate): string | null => c.catalystUrl ?? c.newsUrl ?? null;
-
-// Plain-English setup readout for the sub-row, built from the row's own numbers.
-const buildReadout = (c: SwingCandidate) => {
-  const emaSide = c.distToEma21 >= 0 ? 'above' : 'below';
-  const emaState = c.ema21Rising ? 'rising' : 'flat/declining';
-  const stochState = c.stochK <= 20 ? 'deeply oversold' : c.stochK <= 30 ? 'oversold' : 'approaching oversold';
-  const structure = c.goldenCross ? '50>200 intact' : '50<200 — weaker structure';
-  const adr = adrOf(c);
-  const adrBit = adr != null ? `, ADR ${adr.toFixed(1)}%` : '';
-  return `${Math.abs(c.distToEma21).toFixed(1)}% ${emaSide} ${emaState} 21 EMA, stoch ${c.stochK.toFixed(0)} (${stochState}), ATR ${c.atrPct.toFixed(1)}%${adrBit}, ${c.pctOffHigh.toFixed(0)}% off highs with RS +${c.rsVsSpy.toFixed(0)} vs SPY, ${structure}. Watching for BD + MACD confirmation.`;
-};
 
 // Backward-compatible: derive above-EMA from dist if the payload predates the booleans
 const above21 = (c: SwingCandidate) => c.aboveEma21 ?? c.distToEma21 >= 0;
@@ -299,6 +309,18 @@ export default function SwingCandidates() {
     if (a >= 5) return 'text-emerald-400';
     if (a >= 3) return 'text-slate-300';
     return 'text-slate-500';
+  };
+  // RMV — inverted scale: low is tight, high is expanded. On a pullback
+  // candidate a LOW reading is the good one: the stock is resting quietly
+  // into the 21 EMA rather than selling off in a widening range.
+  const getRmvColor = (r: number | null) => {
+    if (r == null) return 'text-slate-500';
+    if (r <= 10) return 'text-emerald-400';
+    if (r <= 25) return 'text-lime-400';
+    if (r <= 45) return 'text-yellow-400';
+    if (r <= 65) return 'text-amber-400';
+    if (r <= 80) return 'text-orange-400';
+    return 'text-rose-400';
   };
   const getFloatColor = (float: number | null | undefined) => {
     if (!float) return 'text-slate-500';
@@ -500,29 +522,32 @@ export default function SwingCandidates() {
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[6%]`}>10/21</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rmv')}>RMV{getSortIcon('rmv')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className={`${thBase} w-[4%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} w-[16%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className={`${thBase} w-[9%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
-                  <tr><td colSpan={16} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No candidates in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
+                  <tr><td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No candidates in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
                 ) : (
                   filteredAndSorted.map((row) => {
                     const isPositive = (row.changePct ?? 0) >= 0;
-                    const cat = catalystOf(row);
+                    const tag = catalystTagOf(row);
+                    const headline = headlineOf(row);
                     const catUrl = catalystUrlOf(row);
                     const sectorText = cleanSector(row.sector, row.symbol);
                     const adr = adrOf(row);
+                    const rmv = rmvOf(row);
                     return (
                       <React.Fragment key={row.symbol}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -558,6 +583,9 @@ export default function SwingCandidates() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`} title="20-day average daily range (high/low) — the anti-chop measure">
                             {adr != null ? `${adr.toFixed(1)}%` : '—'}
                           </td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRmvColor(rmv)}`} title="RMV(15) — 0 = tightest price action of the last 15 bars, 100 = most volatile. Low is coiled.">
+                            {rmv != null ? rmv.toFixed(0) : '—'}
+                          </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy >= 0 ? '+' : ''}{row.rsVsSpy.toFixed(1)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK.toFixed(1)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
@@ -569,25 +597,31 @@ export default function SwingCandidates() {
                             <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: spacer | EMA PB + readout + catalyst | STR/STAT centered */}
+                        {/* Sub-row: spacer | EMA PB + news catalyst | STR/STAT centered */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%]"></td>
-                          <td colSpan={13} className="pb-2.5 pt-1.5 pr-3">
+                          <td colSpan={14} className="pb-2.5 pt-1.5 pr-3">
                             <div className="flex items-center text-left">
                               <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">EMA PB</span>
                               <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-3">
-                                <span className="text-slate-500">{buildReadout(row)}</span>
-                                {cat && (
+                                {headline || tag ? (
                                   <>
-                                    {' '}
-                                    <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400/90">News:</span>
-                                    {' '}
-                                    {catUrl ? (
-                                      <a href={catUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] hover:underline transition-colors">{cat}</a>
-                                    ) : (
-                                      <span className="text-indigo-300/90 font-medium">{cat}</span>
+                                    {tag && (
+                                      <>
+                                        <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400/90">{tag}</span>
+                                        {headline ? ' ' : ''}
+                                      </>
+                                    )}
+                                    {headline && (
+                                      catUrl ? (
+                                        <a href={catUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] hover:underline transition-colors">{headline}</a>
+                                      ) : (
+                                        <span className="text-indigo-300/90 font-medium">{headline}</span>
+                                      )
                                     )}
                                   </>
+                                ) : (
+                                  <span className="text-slate-600 italic">No news catalyst — technical setup only.</span>
                                 )}
                               </p>
                             </div>

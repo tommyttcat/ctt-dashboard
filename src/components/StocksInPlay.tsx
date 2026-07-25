@@ -1,5 +1,11 @@
 'use client';
 
+// StocksInPlay — v1.1
+// v1.1: + RMV(15) column (low = tight = green, high = expanded = red);
+//       CATALYST column removed — news now lives on the thesis line, which
+//       carries the headline only. The stat readout was unreadable and
+//       duplicated the columns directly above it.
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 
@@ -28,6 +34,7 @@ interface StockInPlay {
   rsVsSpy?: number | null;
   distToEma21?: number | null;
   adrPct?: number | null;
+  rmv?: number | null;
   goldenCross?: boolean | null;
   ema21Rising?: boolean | null;
   status?: string | null;
@@ -115,21 +122,31 @@ const isGenericCatalyst = (catalyst: string | null | undefined) => {
   return c.startsWith('technical momentum') || c === 'recent news' || c === 'news' || c === 'technical';
 };
 
-// Real news headline for the thesis line. Returns null when there's only the
-// generic fallback, or when the thesis already restates the headline (the
-// fetch synthesizes "Institutional buying triggered by …" when thesis is absent).
-const catalystForThesis = (row: StockInPlay): string | null => {
+// Catalyst TAG — the classified bucket ("Earnings", "M&A", "Contract").
+const catalystTagOf = (row: StockInPlay): string | null => {
   if (isGenericCatalyst(row.catalyst)) return null;
   const cat = String(row.catalyst).trim().replace(/\.$/, '');
-  if (!cat) return null;
-  const thesis = (row.thesis || '').toLowerCase();
-  if (thesis && thesis.includes(cat.toLowerCase())) return null;
-  return cat;
+  return cat || null;
+};
+
+// Catalyst HEADLINE — the actual news sentence. This is the whole thesis line
+// now; the backend sends null here when the move has no news behind it.
+const headlineOf = (row: StockInPlay): string | null => {
+  if (!row.thesis) return null;
+  const s = String(row.thesis).trim();
+  return s.length > 0 ? s : null;
 };
 
 const adrOf = (row: StockInPlay): number | null => {
   if (row.adrPct == null || isNaN(Number(row.adrPct))) return null;
   return Number(row.adrPct);
+};
+
+// RMV — where today's volatility sits inside its own 15-bar range.
+// 0 = tightest of the window, 100 = most expanded.
+const rmvOf = (row: StockInPlay): number | null => {
+  if (row.rmv == null || isNaN(Number(row.rmv))) return null;
+  return Number(row.rmv);
 };
 
 // Status: prefer the backend field; derive from the raw metrics when the KV
@@ -168,12 +185,9 @@ export default function StocksInPlay() {
         if (isMounted && data.success) {
           const rawList = data.stocksInPlay || [];
           const safeData = rawList.map((item: any) => {
-            const rawCatalyst = item.catalyst || null;
-            let finalThesis = item.thesis || item.aiThesis || item.analysis || item.reasoning || null;
-            if (!finalThesis && rawCatalyst) {
-              const cleanedCat = rawCatalyst.trim().replace(/\.$/, '');
-              finalThesis = `Institutional buying triggered by ${cleanedCat.toLowerCase()}.`;
-            }
+            // Thesis is the news headline verbatim, or nothing. No synthesized
+            // sentence from the tag — an invented thesis reads like signal.
+            const rawThesis = item.thesis || item.aiThesis || item.analysis || item.reasoning || null;
             return {
               ticker: item.ticker || '—',
               name: item.name || '',
@@ -189,16 +203,17 @@ export default function StocksInPlay() {
               mktCap: item.mktCap || null,
               stage: item.stage || '2A',
               setupName: item.setupName || null,
-              catalyst: rawCatalyst,
+              catalyst: item.catalyst || null,
               catalystUrl: item.catalystUrl || null,
               conviction: item.conviction != null ? Number(item.conviction) : ((item.cnfScore ?? item.smbScore ?? item.aiScore ?? item.score) ?? null), 
-              thesis: finalThesis,         
+              thesis: rawThesis,
               aboveEma10: item.aboveEma10 ?? null,
               aboveEma21: item.aboveEma21 ?? null,
               stochK: item.stochK ?? null,
               rsVsSpy: item.rsVsSpy ?? null,
               distToEma21: item.distToEma21 ?? null,
               adrPct: item.adrPct ?? null,
+              rmv: item.rmv ?? null,
               goldenCross: item.goldenCross ?? null,
               ema21Rising: item.ema21Rising ?? null,
               status: item.status ?? null,
@@ -324,6 +339,18 @@ export default function StocksInPlay() {
     if (a >= 5) return 'text-emerald-400';
     if (a >= 3) return 'text-slate-300';
     return 'text-slate-500';
+  };
+  // RMV — inverted scale: low is tight, high is expanded. Note this runs
+  // opposite to ADR, and on a gapping SIP name a HIGH reading is expected —
+  // it's confirmation the range actually expanded today, not a warning.
+  const getRmvColor = (r: number | null) => {
+    if (r == null) return 'text-slate-500';
+    if (r <= 10) return 'text-emerald-400';
+    if (r <= 25) return 'text-lime-400';
+    if (r <= 45) return 'text-yellow-400';
+    if (r <= 65) return 'text-amber-400';
+    if (r <= 80) return 'text-orange-400';
+    return 'text-rose-400';
   };
   const getFloatColor = (float: number | null) => {
     if (!float) return 'text-slate-500';
@@ -526,17 +553,17 @@ export default function StocksInPlay() {
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[6%]`}>10/21</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rmv')}>RMV{getSortIcon('rmv')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className={`${thBase} w-[4%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className={`${thBase} w-[9%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className={`${thBase} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className={`${thBase} w-[9%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
               
@@ -547,10 +574,12 @@ export default function StocksInPlay() {
                   filteredAndSortedStocks.map((row, i) => {
                     const isPositive = row.changePct >= 0;
                     const st = rowStatus(row);
-                    const cat = catalystForThesis(row);
+                    const tag = catalystTagOf(row);
+                    const headline = headlineOf(row);
                     const sectorText = cleanSector(row.sector, row.ticker);
                     const bdRev = isBlueDotSetup(row.setupName);
                     const adr = adrOf(row);
+                    const rmv = rmvOf(row);
                     return (
                       <React.Fragment key={i}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -583,6 +612,9 @@ export default function StocksInPlay() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`} title="20-day average daily range (high/low) — the anti-chop measure">
                             {adr != null ? `${adr.toFixed(1)}%` : '—'}
                           </td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRmvColor(rmv)}`} title="RMV(15) — 0 = tightest price action of the last 15 bars, 100 = most volatile. Low is coiled.">
+                            {rmv != null ? rmv.toFixed(0) : '—'}
+                          </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)}` : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
@@ -593,48 +625,39 @@ export default function StocksInPlay() {
                           <td className={tdBase}>
                             <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
-                          <td className={`${tdBase} text-[10px] leading-snug whitespace-normal break-words`}>
-                            {!isGenericCatalyst(row.catalyst) ? (
-                              row.catalystUrl ? (
-                                <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>
-                              ) : (
-                                <span className="text-indigo-300/90 font-medium">{row.catalyst}</span>
-                              )
-                            ) : bdRev ? (
-                              <BlueDot />
-                            ) : formatSetupName(row.setupName) !== '—' ? (
-                              <span className="text-slate-400 font-medium">{formatSetupName(row.setupName)}</span>
-                            ) : (
-                              <span className="text-slate-500 font-medium">Technical</span>
-                            )}
-                          </td>
                         </tr>
-                        {/* Sub-row: spacer | name + thesis + catalyst | STR/STAT centered */}
+                        {/* Sub-row: spacer | setup label + news catalyst | STR/STAT centered */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%]"></td>
-                          <td colSpan={13} className="pb-2.5 pt-1.5 pr-3">
+                          <td colSpan={14} className="pb-2.5 pt-1.5 pr-3">
                             <div className="flex items-center text-left">
                               <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">
                                 {bdRev ? <BlueDot /> : (formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—')}
                               </span>
                               <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-3">
-                                {row.thesis ? (<span className="text-slate-500">{row.thesis}</span>) : (<span className="text-slate-600 italic">Awaiting quantitative confluence analysis…</span>)}
-                                {cat && (
+                                {headline || tag ? (
                                   <>
-                                    {' '}
-                                    <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400/90">News:</span>
-                                    {' '}
-                                    {row.catalystUrl ? (
-                                      <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] hover:underline transition-colors">{cat}</a>
-                                    ) : (
-                                      <span className="text-indigo-300/90 font-medium">{cat}</span>
+                                    {tag && (
+                                      <>
+                                        <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400/90">{tag}</span>
+                                        {headline ? ' ' : ''}
+                                      </>
+                                    )}
+                                    {headline && (
+                                      row.catalystUrl ? (
+                                        <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] hover:underline transition-colors">{headline}</a>
+                                      ) : (
+                                        <span className="text-indigo-300/90 font-medium">{headline}</span>
+                                      )
                                     )}
                                   </>
+                                ) : (
+                                  <span className="text-slate-600 italic">No news catalyst — technical setup only.</span>
                                 )}
                               </p>
                             </div>
                           </td>
-                          <td colSpan={3} className="pb-2.5 pt-1.5 align-middle">
+                          <td colSpan={2} className="pb-2.5 pt-1.5 align-middle">
                             <div className="flex items-center justify-center gap-2 border-l border-white/10 px-1 py-1">
                               <span className="flex items-center gap-1">
                                 <span className="text-[10px] text-slate-500">STR:</span>

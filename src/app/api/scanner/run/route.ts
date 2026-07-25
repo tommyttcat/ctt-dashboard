@@ -1,3 +1,7 @@
+// app/api/scan/route.ts — v6.1
+// v6.1: + RMV(15) volatility rank on every row; thesis is news-headline-only
+//       (deterministic stat readout moved to t.readout)
+
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 
@@ -314,9 +318,8 @@ const computeCnfScore = (
 };
 
 // --- Deterministic setup readout ---------------------------------------------
-// The row's own numbers restated as a sentence. Used as the thesis whenever
-// there's no WIIM headline — zero cost, recomputed every scan, never a
-// fabricated price level.
+// The row's own numbers restated as a sentence. v6.1: NO LONGER used as the
+// thesis (that line is news-only now) — parked on `readout` for tooltips.
 const buildReadout = (t: any): string | null => {
   const parts: string[] = [];
   if (t.distToEma21 != null) {
@@ -335,6 +338,72 @@ const buildReadout = (t: any): string | null => {
   if (t.goldenCross != null) parts.push(t.goldenCross ? '50>200 intact' : '50<200');
   if (parts.length === 0) return null;
   return parts.join(', ') + '.';
+};
+
+// --- RMV: Relative Measured Volatility (v6.1) --------------------------------
+// Port of CTT RMV V1.0 / Deepvue RMV. Composite ATR (5/10/15, Wilder RMA)
+// ranked against its own high/low over a 15-bar window.
+//   0   = tightest price action of the window (max compression)
+//   100 = most volatile of the window
+// Bars arrive DESCENDING (newest first), so we flip to ascending for the
+// recursive smoothing. Returns null when history is too thin to be honest.
+const computeRMV = (
+  barsDesc: any[],
+  lookback = 15,
+  atrLens: number[] = [5, 10, 15]
+): number | null => {
+  const need = Math.max(...atrLens) + lookback + 5;
+  if (!Array.isArray(barsDesc) || barsDesc.length < need) return null;
+
+  // 150 bars of warm-up is plenty for a 15-period Wilder average to converge.
+  const asc = barsDesc.slice(0, Math.min(150, barsDesc.length)).slice().reverse();
+
+  // True Range
+  const tr: number[] = [];
+  for (let i = 0; i < asc.length; i++) {
+    const h = asc[i]?.h;
+    const l = asc[i]?.l;
+    if (h == null || l == null) return null;
+    if (i === 0) { tr.push(h - l); continue; }
+    const pc = asc[i - 1].c;
+    tr.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+
+  // Wilder's RMA — exactly what Pine's ta.atr() uses under the hood.
+  const rma = (src: number[], len: number): number[] => {
+    const out: number[] = new Array(src.length).fill(NaN);
+    if (src.length < len) return out;
+    let seed = 0;
+    for (let i = 0; i < len; i++) seed += src[i];
+    out[len - 1] = seed / len;
+    for (let i = len; i < src.length; i++) {
+      out[i] = (out[i - 1] * (len - 1) + src[i]) / len;
+    }
+    return out;
+  };
+
+  const atrSeries = atrLens.map((l) => rma(tr, l));
+
+  const comp: number[] = asc.map((_: any, i: number) => {
+    let sum = 0;
+    for (const s of atrSeries) {
+      const v = s[i];
+      if (!isFinite(v)) return NaN;
+      sum += v;
+    }
+    return sum / atrSeries.length;
+  });
+
+  const win = comp.slice(-lookback);
+  if (win.length < lookback || win.some((v) => !isFinite(v))) return null;
+
+  const cur = win[win.length - 1];
+  const hi = Math.max(...win);
+  const lo = Math.min(...win);
+  const span = hi - lo;
+
+  const rmv = span > 0 ? ((cur - lo) / span) * 100 : 0;
+  return Math.round(rmv * 10) / 10;
 };
 
 const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, vwap: number, rvol: number | null): { name: string | null, stage: string } => {
@@ -916,6 +985,11 @@ export async function GET(request: Request) {
         }
         if (ratioCount > 0) adrPct = ((ratioSum / ratioCount) - 1) * 100;
       }
+
+      // RMV(15) — where today's volatility sits inside its own 15-bar range.
+      // Low = coiled/tight, high = expanded. Companion to ADR, not a duplicate:
+      // ADR is absolute room, RMV is relative compression.
+      const rmv = computeRMV(dailyBars, 15);
       
       // 10 & 21 EMA + trend-structure fields (STR data + readout).
       let aboveEma10: boolean | null = null;
@@ -1045,6 +1119,7 @@ export async function GET(request: Request) {
         pctOffHigh: pctOffHigh != null ? parseFloat(pctOffHigh.toFixed(1)) : null,
         atrPct: atrPct != null ? parseFloat(atrPct.toFixed(2)) : null,
         adrPct: adrPct != null ? parseFloat(adrPct.toFixed(2)) : null,
+        rmv,
         stochK: stochK != null ? parseFloat(stochK.toFixed(1)) : null,
         rsVsSpy: rsVsSpy != null ? parseFloat(rsVsSpy.toFixed(1)) : null,
         gapPct: gapPct != null ? parseFloat(gapPct.toFixed(2)) : null,
@@ -1100,16 +1175,23 @@ export async function GET(request: Request) {
         let tag = catalystTag;
         if (wiim.daysOld >= 1.5) tag = `${tag} (Delayed)`;
         t.catalyst = tag;
-        t.thesis = wiim.title;
         if (wiim.url) t.catalystUrl = wiim.url;
       } else {
         if (t._rawHeadline && t._daysOld < 1.5) t.catalyst = "Recent News";
         else if (t._rawHeadline && t._daysOld >= 1.5 && t._daysOld <= 4) t.catalyst = "Delayed Reaction";
         else t.catalyst = 'Technical Momentum';
-        
-        // No WIIM: deterministic setup readout from the row's own numbers.
-        t.thesis = buildReadout(t);
       }
+
+      // v6.1: THESIS = NEWS HEADLINE ONLY. No stat blobs — those are already
+      // in the columns and were unreadable on the second line. Null when the
+      // move has no news behind it (the catalyst tag alone tells that story).
+      t.thesis = wiim
+        ? wiim.title
+        : (t._rawHeadline && t._daysOld <= 4 ? t._rawHeadline : null);
+
+      // Stat readout kept off the thesis line but still available (tooltips,
+      // detail panes, future use).
+      t.readout = buildReadout(t);
 
       // Catalyst quality tier — dilution/legal headlines are negative even
       // when the stock is gapping up on them (pump-then-offering trap).

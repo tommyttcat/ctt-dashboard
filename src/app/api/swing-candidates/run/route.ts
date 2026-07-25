@@ -1,3 +1,7 @@
+// app/api/swing-candidates/run/route.ts — v1.1
+// v1.1: + RMV(15) relative measured volatility on Swing and 10/21 candidates
+//       + batched Benzinga WIIM catalysts (tag + headline + url) on both lists
+
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 
@@ -62,6 +66,7 @@ interface Candidate {
   vwapStatus: 'above' | 'below' | 'neutral';
   atrPct: number;
   adrPct?: number;
+  rmv?: number | null;
   pctOffHigh: number;
   distToEma21: number;
   distToEma10: number;
@@ -75,6 +80,9 @@ interface Candidate {
   range10Pct?: number;
   coilRatio?: number;
   blueDot?: boolean;
+  catalyst?: string | null;
+  catalystUrl?: string | null;
+  thesis?: string | null;
 }
 
 // ---------------------------------------------------------------
@@ -205,6 +213,73 @@ function adrPct(bars: Bar[], period = 20): number | null {
   }
   if (n === 0) return null;
   return ((sum / n) - 1) * 100;
+}
+
+// ---------------------------------------------------------------
+// RMV — Relative Measured Volatility (v1.1)
+// Port of CTT RMV V1.0 / Deepvue RMV. Composite ATR (5/10/15, Wilder RMA)
+// ranked against its own high/low across a 15-bar window.
+//   0   = tightest price action of the window (max compression)
+//   100 = most volatile of the window
+// NOTE: bars in this route are ASCENDING (sort=asc), the opposite of the
+// main scanner route — hence a separate implementation, not a copy.
+// Companion to ADR, not a duplicate: ADR is absolute room, RMV is relative
+// compression measured against the stock's own recent behaviour. The pair
+// worth hunting is high ADR + low RMV — a mover that is currently coiled.
+// ---------------------------------------------------------------
+function rmvValue(bars: Bar[], lookback = 15, atrLens: number[] = [5, 10, 15]): number | null {
+  const need = Math.max(...atrLens) + lookback + 5;
+  if (!Array.isArray(bars) || bars.length < need) return null;
+
+  // 150 bars of warm-up is ample for a 15-period Wilder average to converge.
+  const win = bars.slice(-Math.min(150, bars.length));
+
+  // True Range
+  const tr: number[] = [];
+  for (let i = 0; i < win.length; i++) {
+    const h = win[i]?.h;
+    const l = win[i]?.l;
+    if (h == null || l == null) return null;
+    if (i === 0) { tr.push(h - l); continue; }
+    const pc = win[i - 1].c;
+    tr.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+
+  // Wilder's RMA — exactly what Pine's ta.atr() uses under the hood.
+  const rma = (src: number[], len: number): number[] => {
+    const out: number[] = new Array(src.length).fill(NaN);
+    if (src.length < len) return out;
+    let seed = 0;
+    for (let i = 0; i < len; i++) seed += src[i];
+    out[len - 1] = seed / len;
+    for (let i = len; i < src.length; i++) {
+      out[i] = (out[i - 1] * (len - 1) + src[i]) / len;
+    }
+    return out;
+  };
+
+  const atrSeries = atrLens.map(l => rma(tr, l));
+
+  const comp: number[] = win.map((_, i) => {
+    let sum = 0;
+    for (const s of atrSeries) {
+      const v = s[i];
+      if (!isFinite(v)) return NaN;
+      sum += v;
+    }
+    return sum / atrSeries.length;
+  });
+
+  const slice = comp.slice(-lookback);
+  if (slice.length < lookback || slice.some(v => !isFinite(v))) return null;
+
+  const cur = slice[slice.length - 1];
+  const hi = Math.max(...slice);
+  const lo = Math.min(...slice);
+  const span = hi - lo;
+
+  const rmv = span > 0 ? ((cur - lo) / span) * 100 : 0;
+  return Math.round(rmv * 10) / 10;
 }
 
 function stochK(bars: Bar[], length = 10, smooth = 4): number | null {
@@ -469,6 +544,90 @@ async function getEarningsBlackout(): Promise<Set<string>> {
 }
 
 // ---------------------------------------------------------------
+// WIIM catalysts (v1.1) — "Why Is It Moving" headlines from Benzinga.
+// Ported from the main scanner route so both feeds classify news the
+// same way. Runs ONCE, after scoring, over the final lists only:
+// ~2 batched calls for the whole run, not one per symbol.
+// Fails open — no key, bad response, or no match just means no catalyst.
+// ---------------------------------------------------------------
+const WIIM_MAX_AGE_DAYS = 4;
+const WIIM_MAX_BREADTH = 12;
+
+function classifyWiim(title: string): string {
+  const s = (title || '').toLowerCase();
+  if (/\b(earnings|eps|revenue|beat|miss|quarter|q[1-4]\b)/.test(s)) return 'Earnings';
+  if (/\b(fda|approval|phase\s*[123]|trial|clinical|topline|drug|therap)/.test(s)) return 'FDA / Data';
+  if (/\b(upgrade|downgrade|price target|initiat|analyst|rating|overweight|underweight|outperform|reiterat)/.test(s)) return 'Analyst';
+  if (/\b(merger|acquir|acquisition|buyout|takeover|to acquire|stake|going private)/.test(s)) return 'M&A';
+  if (/\b(offering|dilut|prices?\s|secondary|registered direct|atm |capital raise|warrant)/.test(s)) return 'Offering';
+  if (/\b(contract|partnership|collaborat|agreement|awarded|order|wins |selected)/.test(s)) return 'Contract';
+  if (/\b(guidance|raises|lowers|cuts |reaffirm|outlook|forecast)/.test(s)) return 'Guidance';
+  if (/\b(lawsuit|sec |investigat|probe|fraud|settle|recall|halt)/.test(s)) return 'Legal / Risk';
+  if (/\b(short|squeeze|volatil|spik|surg|plung|tumbl)/.test(s)) return 'Volatility';
+  if (/\b(sector|broader market|index|futures|rotat|peers)/.test(s)) return 'Sector Move';
+  return 'News';
+}
+
+async function fetchBenzingaWiims(
+  tickers: string[]
+): Promise<Map<string, { title: string; url: string | null; daysOld: number; score: number }>> {
+  const out = new Map<string, { title: string; url: string | null; daysOld: number; score: number }>();
+  if (!BENZINGA_KEY || tickers.length === 0) return out;
+
+  const now = Date.now();
+  const BATCH = 50;
+  for (let i = 0; i < tickers.length; i += BATCH) {
+    const batch = tickers.slice(i, i + BATCH);
+    const url =
+      `https://api.benzinga.com/api/v2/news?token=${BENZINGA_KEY}` +
+      `&tickers=${encodeURIComponent(batch.join(','))}` +
+      `&channels=WIIM&displayOutput=full&pageSize=100`;
+
+    let items: any = [];
+    try {
+      const res = await fetch(url, { headers: { accept: 'application/json' } });
+      if (!res.ok) continue;
+      items = await res.json();
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(items)) continue;
+
+    for (const item of items) {
+      const isWiim =
+        Array.isArray(item?.channels) &&
+        item.channels.some((c: any) => (c?.name || '').toUpperCase() === 'WIIM');
+      if (!isWiim) continue;
+
+      const title = (item?.title || '').trim();
+      if (!title) continue;
+
+      // A headline tagged to a dozen names is a sector note, not a catalyst.
+      const stocks = Array.isArray(item?.stocks) ? item.stocks : [];
+      if (stocks.length === 0 || stocks.length > WIIM_MAX_BREADTH) continue;
+
+      const created = item?.created ? new Date(item.created).getTime() : 0;
+      const daysOld = created > 0 ? (now - created) / (1000 * 60 * 60 * 24) : 999;
+      if (daysOld > WIIM_MAX_AGE_DAYS) continue;
+
+      const link = item?.url || null;
+      // Freshest wins; narrower breadth breaks ties.
+      const score = daysOld + stocks.length * 0.02;
+
+      for (const s of stocks) {
+        const sym = (s?.name || '').toUpperCase();
+        if (!sym) continue;
+        const prev = out.get(sym);
+        if (!prev || score < prev.score) {
+          out.set(sym, { title, url: link, daysOld, score });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------
 // Stage 2: analyze one symbol
 // ---------------------------------------------------------------
 function analyze(
@@ -496,6 +655,7 @@ function analyze(
 
   const atrPct = (atr14 / price) * 100;
   const adr = adrPct(bars, 20);
+  const rmv = rmvValue(bars, 15);
   const hi52 = Math.max(...bars.slice(-252).map(b => b.h));
   const pctOffHigh = ((hi52 - price) / hi52) * 100;
   const distToEma21 = ((price - ema21) / ema21) * 100;
@@ -571,6 +731,7 @@ function analyze(
     vwapStatus,
     atrPct: +atrPct.toFixed(2),
     adrPct: adr != null ? +adr.toFixed(2) : undefined,
+    rmv,
     pctOffHigh: +pctOffHigh.toFixed(1),
     distToEma21: +distToEma21.toFixed(2),
     distToEma10: +distToEma10.toFixed(2),
@@ -642,6 +803,7 @@ function analyzeConsolidation(
 
   const atrPct = (atr14 / price) * 100;
   const adr = adrPct(bars, 20);
+  const rmv = rmvValue(bars, 15);
   const hi52 = Math.max(...bars.slice(-252).map(b => b.h));
   const pctOffHigh = ((hi52 - price) / hi52) * 100;
   const distToEma21 = ((price - ema21) / ema21) * 100;
@@ -743,6 +905,7 @@ function analyzeConsolidation(
     vwapStatus,
     atrPct: +atrPct.toFixed(2),
     adrPct: +adr.toFixed(2),
+    rmv,
     pctOffHigh: +pctOffHigh.toFixed(1),
     distToEma21: +distToEma21.toFixed(2),
     distToEma10: +distToEma10.toFixed(2),
@@ -815,6 +978,32 @@ export async function GET() {
     candidates.sort((a, b) => b.score - a.score);
     consols.sort((a, b) => b.score - a.score);
 
+    // --- Catalysts: one batched WIIM lookup across both final lists --------
+    // Done after sorting/slicing so we only pay for names that made the cut.
+    const consolKeep = consols.slice(0, 40);
+    const newsSymbols = Array.from(new Set([
+      ...candidates.map(c => c.symbol),
+      ...consolKeep.map(c => c.symbol),
+    ]));
+    const wiimMap = await fetchBenzingaWiims(newsSymbols);
+
+    const attachCatalyst = (c: Candidate) => {
+      const w = wiimMap.get(c.symbol);
+      if (!w) {
+        c.catalyst = null;
+        c.thesis = null;
+        c.catalystUrl = null;
+        return;
+      }
+      // A 2-day-old WIIM still explains the move, but flag it as stale.
+      const tag = classifyWiim(w.title);
+      c.catalyst = w.daysOld >= 1.5 ? `${tag} (Delayed)` : tag;
+      c.thesis = w.title;
+      c.catalystUrl = w.url;
+    };
+    candidates.forEach(attachCatalyst);
+    consolKeep.forEach(attachCatalyst);
+
     const scanTime = Date.now();
     const hasRealData = universe.length > 0 && candidates.length > 0;
 
@@ -834,7 +1023,7 @@ export async function GET() {
     // 10/21 consolidation list — an empty list is a legitimate result on a
     // loose tape, so persist whenever the universe resolved at all.
     if (universe.length > 0) {
-      await kv.set('consol_1021_v1', consols.slice(0, 40));
+      await kv.set('consol_1021_v1', consolKeep);
       await kv.set('consol_1021_meta_v1', { count: consols.length });
       await kv.set('consol_1021_last_scan_v1', scanTime);
     }
@@ -847,6 +1036,7 @@ export async function GET() {
       consolShortlisted: consolShortlist.length,
       universeSize: universe.length,
       excludedForEarnings: universe.length - toScan.length,
+      catalystsFound: wiimMap.size,
       dataPersisted: hasRealData,
     });
   } catch (error: any) {
