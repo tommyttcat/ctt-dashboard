@@ -1,5 +1,11 @@
 'use client';
 
+// TopMovers — v1.1
+// v1.1: RS renders as a rounded percentage with 1k+ compaction (a name can
+//       outrun SPY by 1000pp in three months and the raw number wrecks the
+//       column); SHT% replaced by DTC (days to cover); 10/21 dots tightened to
+//       match the other tables; + Copy button for TradingView watchlists.
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 
@@ -16,6 +22,7 @@ interface StockData {
   mktCap: number | null;
   float: number | null;
   shortPct: number | null;
+  daysToCover: number | null;
   catalyst: string | null;
   catalystUrl: string | null;
   stage: string;
@@ -68,6 +75,28 @@ const formatCurrency = (num: number | null) => {
   return '$' + num.toLocaleString();
 };
 
+/* --------------------------------------------------------------
+   RS vs SPY — 3-month relative strength in percentage points.
+   Whole numbers only: the decimal was false precision on a 63-day
+   figure. Above 1000pp compacts to "1k%" — a real reading for the
+   moonshots (a name up 1100% while SPY did nothing), and the raw
+   number would blow out the column width.
+   -------------------------------------------------------------- */
+const formatRs = (rs: number | null): string => {
+  if (rs == null || isNaN(rs)) return '—';
+  const sign = rs >= 0 ? '+' : '-';
+  const abs = Math.abs(rs);
+  if (abs >= 1000) {
+    const k = abs / 1000;
+    // One decimal below 10k, none above — "+2k%" reads cleaner than "+2.0k%".
+    const s = k >= 10
+      ? Math.round(k).toString()
+      : (Math.round(k * 10) / 10).toString().replace(/\.0$/, '');
+    return `${sign}${s}k%`;
+  }
+  return `${sign}${Math.round(abs)}%`;
+};
+
 const formatSetupName = (name: string | null) => {
   if (!name || name === '-' || name === '—') return null;
   if (name.includes('BB SQZ')) return 'BB SQZ';
@@ -105,6 +134,7 @@ export default function TopMovers() {
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
+  const [copied, setCopied] = useState<boolean>(false);
 
   useEffect(() => { setSortConfig(null); }, [activeTab]);
 
@@ -137,6 +167,7 @@ export default function TopMovers() {
               mktCap: item.mktCap || null,
               float: item.float || null,
               shortPct: item.shortPct || null,
+              daysToCover: item.daysToCover ?? null,
               catalyst: item.catalyst || null,
               catalystUrl: item.catalystUrl || null,
               stage: item.stage || '—',
@@ -222,6 +253,29 @@ export default function TopMovers() {
     }).slice(0, 10);
   }, [topMoversData, activeTab, sortConfig, marketCapFilter, emaFilter, vwapFilter, cnfFilter]);
 
+  // Copy the visible tickers, comma-separated — TradingView's watchlist
+  // import format. Respects the active tab and whatever filters are on.
+  const handleCopyTickers = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const tickers = sortedStocks.map(s => s.ticker).join(',');
+    if (!tickers) return;
+    try {
+      await navigator.clipboard.writeText(tickers);
+    } catch {
+      // Clipboard API needs a secure context; fall back to a temp textarea.
+      const ta = document.createElement('textarea');
+      ta.value = tickers;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch {}
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+
   const getSortIcon = (columnKey: keyof StockData) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
   
   const getSessionTextColor = () => {
@@ -254,11 +308,14 @@ export default function TopMovers() {
     return 'text-slate-300';
   };
 
-  const getShortColor = (short: number | null) => {
-    if (!short) return 'text-slate-500';
-    if (short >= 20) return 'text-purple-400'; 
-    if (short >= 10) return 'text-emerald-400';
-    return 'text-slate-300';
+  // Days to cover — sessions of normal volume for shorts to exit. Above 5 is
+  // Bonde's threshold; that's trapped supply which has to buy at some point.
+  const getDtcColor = (d: number | null) => {
+    if (d == null) return 'text-slate-500';
+    if (d >= 5) return 'text-purple-400';
+    if (d >= 3) return 'text-emerald-400';
+    if (d >= 1.5) return 'text-slate-300';
+    return 'text-slate-500';
   };
 
   const getStochColor = (k: number | null) => {
@@ -294,11 +351,24 @@ export default function TopMovers() {
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
       <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-6 border-b border-white/5 pb-4' : ''}`}>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
             TOP MOVERS
           </span>
+          {sortedStocks.length > 0 && (
+            <button
+              onClick={handleCopyTickers}
+              title={`Copy ${sortedStocks.length} ticker${sortedStocks.length !== 1 ? 's' : ''} from ${activeTab} for TradingView`}
+              className={`text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded border transition-all duration-200 ${
+                copied
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  : 'bg-[#161c2a] text-slate-400 border-white/5 hover:text-slate-200 hover:bg-white/[0.04]'
+              }`}
+            >
+              {copied ? `✓ Copied ${sortedStocks.length}` : `Copy ${sortedStocks.length}`}
+            </button>
+          )}
         </div>
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
@@ -416,9 +486,9 @@ export default function TopMovers() {
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thBase} w-[9%] border-l border-white/5`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                   <th className={`${thBase} w-[14%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
@@ -448,12 +518,12 @@ export default function TopMovers() {
                         </td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
                         <td className={`${tdBase} whitespace-nowrap`}>
-                          <div className="flex items-center justify-center gap-2">
-                            <div className="flex items-center gap-1">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <div className="flex items-center gap-0.5">
                               <span className="text-[9px] font-bold text-slate-500">10</span>
                               <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} title={`10 EMA: ${row.aboveEma10 === null ? 'n/a' : row.aboveEma10 ? 'above' : 'below'}`}></div>
                             </div>
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-0.5">
                               <span className="text-[9px] font-bold text-slate-500">21</span>
                               <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma21)}`} title={`21 EMA: ${row.aboveEma21 === null ? 'n/a' : row.aboveEma21 ? 'above' : 'below'}`}></div>
                             </div>
@@ -463,9 +533,13 @@ export default function TopMovers() {
                         <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)}` : '—'}</td>
+                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`} title={row.rsVsSpy != null ? `3-month return vs SPY: ${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)} percentage points` : undefined}>
+                          {formatRs(row.rsVsSpy)}
+                        </td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
+                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover — short interest divided by average daily volume. Sessions of normal trade for shorts to exit; above 5 is trapped supply.">
+                          {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
+                        </td>
                         <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
                         <td className={`${tdBase} border-l border-white/5`}>
                           <span className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{row.sector || '—'}</span>

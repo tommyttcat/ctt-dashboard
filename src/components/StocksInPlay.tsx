@@ -1,15 +1,20 @@
 'use client';
 
-// StocksInPlay — v1.3
-// v1.1: + RMV(15) column; CATALYST column removed (news moved to thesis line)
+// StocksInPlay — v1.4
+// v1.1: + RMV column; CATALYST column removed (news moved to thesis line)
 // v1.2: Weinstein sub-stage coloring; + CNF breakdown tooltip
-// v1.3: + Money Flow (21). RVOL says volume showed up; MF says which side got
-//       filled. A SIP up 6% on 4x volume with MF under 45 was sold into.
+// v1.3: + Money Flow (21)
+// v1.4: RMV/RME collapsed into a fixed-width STATE chip on the sub-row (they
+//       are orthogonal and can't be averaged, but they read cleanly as a
+//       quadrant label); headline is now off-white and truncates to a single
+//       line so row height never changes; RS rounds with 1k compaction;
+//       SHT% -> DTC (days to cover); 10/21 dots tightened.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
+import { stateOf, stateTooltip, stateNumbers } from '@/lib/indicators/state';
 
 interface StockInPlay {
   ticker: string;
@@ -23,13 +28,14 @@ interface StockInPlay {
   rvol: number | null;
   float: number | null;
   shortPct: number | null;
+  daysToCover: number | null;
   mktCap: number | null;
   stage: string;
   setupName: string | null;
   catalyst?: string | null;
   catalystUrl?: string | null;
-  conviction?: number | null; 
-  thesis?: string | null;     
+  conviction?: number | null;
+  thesis?: string | null;
   aboveEma10?: boolean | null;
   aboveEma21?: boolean | null;
   stochK?: number | null;
@@ -53,8 +59,7 @@ type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
 type AdrFilterType = 'All' | '5' | '10';
 
-// CNF is a floor, not an exact grade: picking B shows B and A. Unset shows
-// everything, which is effectively "C and above".
+// CNF is a floor, not an exact grade: picking B shows B and A.
 const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
 const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 
@@ -98,6 +103,27 @@ const formatCurrency = (num: number | null) => {
   return '$' + num.toLocaleString();
 };
 
+/* --------------------------------------------------------------
+   RS vs SPY — 3-month relative strength in percentage points.
+   Whole numbers only: the decimal was false precision on a 63-day
+   figure. Above 1000pp compacts to "1k%" — real for the moonshots,
+   and the raw number would blow out the column.
+   -------------------------------------------------------------- */
+const formatRs = (rs: number | null | undefined): string => {
+  if (rs == null || isNaN(Number(rs))) return '—';
+  const v = Number(rs);
+  const sign = v >= 0 ? '+' : '-';
+  const abs = Math.abs(v);
+  if (abs >= 1000) {
+    const k = abs / 1000;
+    const s = k >= 10
+      ? Math.round(k).toString()
+      : (Math.round(k * 10) / 10).toString().replace(/\.0$/, '');
+    return `${sign}${s}k%`;
+  }
+  return `${sign}${Math.round(abs)}%`;
+};
+
 const formatSetupName = (name: string | null) => {
   if (!name || name === '-' || name === '—') return '—';
   if (name.includes('BB SQZ')) return 'BB SQZ';
@@ -119,8 +145,8 @@ const BlueDot = ({ className = '' }: { className?: string }) => (
   />
 );
 
-// Sector strings sometimes arrive ticker-prefixed ("RKLB - AEROSPACE") from the
-// scanner payload. Strip the prefix so one bad row can't widen the column.
+// Sector strings sometimes arrive ticker-prefixed ("RKLB - AEROSPACE").
+// Strip the prefix so one bad row can't widen the column.
 const cleanSector = (sector: string | null | undefined, ticker?: string): string => {
   if (!sector || sector === '—' || sector === '-') return '—';
   let s = String(sector).trim();
@@ -128,7 +154,6 @@ const cleanSector = (sector: string | null | undefined, ticker?: string): string
     const rx = new RegExp(`^${ticker}\\s*[-–—:]\\s*`, 'i');
     s = s.replace(rx, '');
   }
-  // Generic fallback: any leading 1-5 char all-caps token followed by a dash
   s = s.replace(/^[A-Z]{1,5}\s*[-–—:]\s*/, '');
   return s.trim() || '—';
 };
@@ -140,15 +165,12 @@ const isGenericCatalyst = (catalyst: string | null | undefined) => {
   return c.startsWith('technical momentum') || c === 'recent news' || c === 'news' || c === 'technical';
 };
 
-// Catalyst TAG — the classified bucket ("Earnings", "M&A", "Contract").
 const catalystTagOf = (row: StockInPlay): string | null => {
   if (isGenericCatalyst(row.catalyst)) return null;
   const cat = String(row.catalyst).trim().replace(/\.$/, '');
   return cat || null;
 };
 
-// Catalyst HEADLINE — the actual news sentence. This is the whole thesis line
-// now; the backend sends null here when the move has no news behind it.
 const headlineOf = (row: StockInPlay): string | null => {
   if (!row.thesis) return null;
   const s = String(row.thesis).trim();
@@ -160,25 +182,19 @@ const adrOf = (row: StockInPlay): number | null => {
   return Number(row.adrPct);
 };
 
-// RMV — where today's volatility sits inside its own 15-bar range.
-// 0 = tightest of the window, 100 = most expanded.
-const rmvOf = (row: StockInPlay): number | null => {
-  if (row.rmv == null || isNaN(Number(row.rmv))) return null;
-  return Number(row.rmv);
-};
-
-// Money Flow (21) — accumulation vs distribution. RVOL says volume showed up;
-// MF says which side got filled.
 const mfOf = (row: StockInPlay): number | null => {
   if (row.mf == null || isNaN(Number(row.mf))) return null;
   return Number(row.mf);
 };
 
-// RME — where price sits vs this stock's OWN history of extension from the
-// 21 EMA. -100..+100. Feeds CNF; surfaced on the badge tooltip.
 const rmeOf = (row: StockInPlay): number | null => {
   if (row.rme == null || isNaN(Number(row.rme))) return null;
   return Number(row.rme);
+};
+
+const rmvOf = (row: StockInPlay): number | null => {
+  if (row.rmv == null || isNaN(Number(row.rmv))) return null;
+  return Number(row.rmv);
 };
 
 const rmeLabel = (rme: number | null): string => {
@@ -194,7 +210,7 @@ const rmeLabel = (rme: number | null): string => {
 };
 
 // Full CNF explanation for the badge tooltip. Non-zero components only,
-// biggest contributors first, so the reason for a score is one hover away.
+// biggest contributors first.
 const cnfTooltip = (row: StockInPlay): string => {
   const score = row.conviction;
   const lines: string[] = [
@@ -209,8 +225,7 @@ const cnfTooltip = (row: StockInPlay): string => {
     if (entries.length > 0) {
       lines.push('');
       for (const [k, v] of entries) {
-        const label = CNF_LABELS[k] || k;
-        lines.push(`${v > 0 ? '+' : ''}${v}  ${label}`);
+        lines.push(`${v > 0 ? '+' : ''}${v}  ${CNF_LABELS[k] || k}`);
       }
     }
   }
@@ -227,8 +242,7 @@ const cnfTooltip = (row: StockInPlay): string => {
   return lines.join('\n');
 };
 
-// Status: prefer the backend field; derive from the raw metrics when the KV
-// payload predates it (Ready = stoch <= 25 and within 2.5% of the 21 EMA).
+// Status: prefer the backend field; derive when the KV payload predates it.
 const rowStatus = (row: StockInPlay): 'Ready' | 'Forming' | null => {
   if (row.status === 'Ready' || row.status === 'Forming') return row.status;
   if (row.stochK != null && row.distToEma21 != null) {
@@ -238,14 +252,14 @@ const rowStatus = (row: StockInPlay): 'Ready' | 'Forming' | null => {
 };
 
 export default function StocksInPlay() {
-  const { session } = useMarketData(); 
+  const { session } = useMarketData();
   const [stocks, setStocks] = useState<StockInPlay[]>([]);
   const [status, setStatus] = useState<string>('Syncing DB...');
   const [lastScanTime, setLastScanTime] = useState<number | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: keyof StockInPlay; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
-  const [showStage2Only, setShowStage2Only] = useState<boolean>(false); 
-  const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
+  const [showStage2Only, setShowStage2Only] = useState<boolean>(false);
+  const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [adrFilter, setAdrFilter] = useState<AdrFilterType>('All');
@@ -259,12 +273,10 @@ export default function StocksInPlay() {
       try {
         const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
         const data = await res.json();
-        
+
         if (isMounted && data.success) {
           const rawList = data.stocksInPlay || [];
           const safeData = rawList.map((item: any) => {
-            // Thesis is the news headline verbatim, or nothing. No synthesized
-            // sentence from the tag — an invented thesis reads like signal.
             const rawThesis = item.thesis || item.aiThesis || item.analysis || item.reasoning || null;
             return {
               ticker: item.ticker || '—',
@@ -278,12 +290,13 @@ export default function StocksInPlay() {
               rvol: item.rvol || null,
               float: item.float || null,
               shortPct: item.shortPct || null,
+              daysToCover: item.daysToCover ?? null,
               mktCap: item.mktCap || null,
               stage: item.stage || '—',
               setupName: item.setupName || null,
               catalyst: item.catalyst || null,
               catalystUrl: item.catalystUrl || null,
-              conviction: item.conviction != null ? Number(item.conviction) : ((item.cnfScore ?? item.smbScore ?? item.aiScore ?? item.score) ?? null), 
+              conviction: item.conviction != null ? Number(item.conviction) : ((item.cnfScore ?? item.smbScore ?? item.aiScore ?? item.score) ?? null),
               thesis: rawThesis,
               aboveEma10: item.aboveEma10 ?? null,
               aboveEma21: item.aboveEma21 ?? null,
@@ -303,7 +316,7 @@ export default function StocksInPlay() {
             };
           });
           setStocks(safeData);
-          setLastScanTime(data.lastScanTime || Date.now()); 
+          setLastScanTime(data.lastScanTime || Date.now());
           setStatus('Live');
         }
       } catch (error) {
@@ -316,13 +329,12 @@ export default function StocksInPlay() {
   }, []);
 
   const handleSort = (key: keyof StockInPlay) => {
-    let direction: SortDirection = 'desc'; 
+    let direction: SortDirection = 'desc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
     else if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') { setSortConfig(null); return; }
     setSortConfig({ key, direction });
   };
 
-  // Clicking the active option clears back to All (toggle behavior)
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
   const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
   const handleAdrFilter = (val: AdrFilterType) => setAdrFilter(prev => prev === val ? 'All' : val);
@@ -330,18 +342,16 @@ export default function StocksInPlay() {
 
   const filteredAndSortedStocks = useMemo(() => {
     let filtered = stocks.filter(s => s.changePct >= 4.0 && s.vol >= 500000 && s.mktCap !== null && s.mktCap >= 20000000);
-    // Stage 2 filter matches any sub-stage — 2A, 2B and 2C are all Stage 2.
     if (showStage2Only) filtered = filtered.filter(s => stageShort(s.stage).startsWith('2'));
     if (marketCapFilter !== 'All') {
       filtered = filtered.filter(s => {
         const mc = s.mktCap;
-        if (!mc) return true; 
+        if (!mc) return true;
         if (marketCapFilter === 'Large') return mc >= 2e9;
         if (marketCapFilter === 'Small') return mc < 2e9;
         return true;
       });
     }
-    // CNF is "grade and above": B keeps both B and A.
     if (cnfFilter !== 'All') {
       const minScore = CNF_MIN_SCORE[cnfFilter];
       filtered = filtered.filter(s => (s.conviction ?? -1) >= minScore);
@@ -354,7 +364,6 @@ export default function StocksInPlay() {
         return true;
       });
     }
-    // ADR buckets are "and above" on the 20-day average daily range.
     if (adrFilter !== 'All') {
       const minAdr = Number(adrFilter);
       filtered = filtered.filter(s => {
@@ -377,8 +386,6 @@ export default function StocksInPlay() {
     });
   }, [stocks, sortConfig, showStage2Only, marketCapFilter, cnfFilter, emaFilter, adrFilter, vwapFilter]);
 
-  // Copy the visible tickers, comma-separated — TradingView's watchlist
-  // import format. Respects whatever filters are active.
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
     const tickers = filteredAndSortedStocks.map(s => s.ticker).join(',');
@@ -386,7 +393,6 @@ export default function StocksInPlay() {
     try {
       await navigator.clipboard.writeText(tickers);
     } catch {
-      // Clipboard API needs a secure context; fall back to a temp textarea.
       const ta = document.createElement('textarea');
       ta.value = tickers;
       ta.style.position = 'fixed';
@@ -408,7 +414,6 @@ export default function StocksInPlay() {
     if (rvol >= 1.5) return 'text-emerald-400';
     return 'text-slate-500';
   };
-  // ADR — more daily range means more to capture once it moves.
   const getAdrColor = (a: number | null) => {
     if (a == null) return 'text-slate-500';
     if (a >= 10) return 'text-purple-400';
@@ -416,38 +421,27 @@ export default function StocksInPlay() {
     if (a >= 3) return 'text-slate-300';
     return 'text-slate-500';
   };
-  // RMV — inverted scale: low is tight, high is expanded. Note this runs
-  // opposite to ADR, and on a gapping SIP name a HIGH reading is expected —
-  // it's confirmation the range actually expanded today, not a warning.
-  const getRmvColor = (r: number | null) => {
-    if (r == null) return 'text-slate-500';
-    if (r <= 10) return 'text-emerald-400';
-    if (r <= 25) return 'text-lime-400';
-    if (r <= 45) return 'text-yellow-400';
-    if (r <= 65) return 'text-amber-400';
-    if (r <= 80) return 'text-orange-400';
-    return 'text-rose-400';
-  };
   const getFloatColor = (float: number | null) => {
     if (!float) return 'text-slate-500';
-    if (float <= 20000000) return 'text-purple-400'; 
+    if (float <= 20000000) return 'text-purple-400';
     if (float <= 50000000) return 'text-emerald-400';
     return 'text-slate-300';
   };
-  const getShortColor = (short: number | null) => {
-    if (!short) return 'text-slate-500';
-    if (short >= 20) return 'text-purple-400'; 
-    if (short >= 10) return 'text-emerald-400';
-    return 'text-slate-300';
+  // Days to cover — sessions of normal volume for shorts to exit. Above 5 is
+  // Bonde's threshold; that's trapped supply which has to buy at some point.
+  const getDtcColor = (d: number | null) => {
+    if (d == null) return 'text-slate-500';
+    if (d >= 5) return 'text-purple-400';
+    if (d >= 3) return 'text-emerald-400';
+    if (d >= 1.5) return 'text-slate-300';
+    return 'text-slate-500';
   };
-
   const getStochColor = (k: number | null | undefined) => {
     if (k == null) return 'text-slate-500';
     if (k <= 20) return 'text-purple-400';
     if (k <= 30) return 'text-emerald-400';
     return 'text-slate-400';
   };
-
   const getRsColor = (rs: number | null | undefined) => {
     if (rs == null) return 'text-slate-500';
     if (rs >= 20) return 'text-purple-400';
@@ -455,8 +449,6 @@ export default function StocksInPlay() {
     if (rs >= 0) return 'text-slate-300';
     return 'text-rose-400';
   };
-
-  // CNF-graded score badge: green = A (>=70), amber = B (>=50), gray = C
   const getScoreBadge = (score: number | null | undefined) => {
     if (score == null) return 'bg-white/[0.02] text-slate-600 border-white/5';
     if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
@@ -469,7 +461,6 @@ export default function StocksInPlay() {
     return state ? 'bg-emerald-400' : 'bg-rose-500';
   };
 
-  // STR data color: emerald = true, rose = false, dim gray = unknown
   const structColor = (state: boolean | null | undefined) => {
     if (state === null || state === undefined) return 'text-slate-600';
     return state ? 'text-emerald-400' : 'text-rose-400';
@@ -483,12 +474,10 @@ export default function StocksInPlay() {
     return 'text-slate-500';
   };
 
-  // Shared styles — every column centered, uniform tight padding
   const thBase = "px-1 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
   const tdBase = "px-1 pt-2.5 pb-1.5 text-center";
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
   const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
-  // Filter pills — matched to the Filter: 2 button (same height, font, tracking)
   const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
   const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
   const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
@@ -530,11 +519,10 @@ export default function StocksInPlay() {
           {lastScanTime && (<span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">Updated: {formatTime(lastScanTime)} EST</span>)}
         </div>
       </div>
-      
+
       {isExpanded && (
         <>
           <div className="flex flex-col gap-3 mb-4 relative z-10" onClick={(e) => e.stopPropagation()}>
-            {/* Collapsed disclosure — one button, shows active filter count */}
             <div className="flex justify-center">
               <button
                 onClick={() => setShowFilters(!showFilters)}
@@ -548,7 +536,6 @@ export default function StocksInPlay() {
                 Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
               </button>
             </div>
-            {/* Expanded: one uniform pill strip */}
             {showFilters && (
               <div className="flex flex-wrap justify-center items-center gap-3 w-full">
                 <div className={pillWrap}>
@@ -625,8 +612,9 @@ export default function StocksInPlay() {
               </div>
             )}
           </div>
+
           <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            <table className="w-full min-w-[1160px] table-fixed border-collapse">
+            <table className="w-full min-w-[1100px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
@@ -639,20 +627,19 @@ export default function StocksInPlay() {
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rmv')}>RMV{getSortIcon('rmv')}</th>
                   <th className={`${thBase} w-[4%]`} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('shortPct')}>SHT%{getSortIcon('shortPct')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thBase} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} w-[10%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
-              
+
               <tbody className="divide-y divide-white/5">
                 {filteredAndSortedStocks.length === 0 ? (
-                  <tr><td colSpan={18} className="py-12 text-center text-slate-500 text-sm font-medium">{stocks.length > 0 ? 'No names match the current filters.' : 'No tracking instruments currently found matching criteria.'}</td></tr>
+                  <tr><td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium">{stocks.length > 0 ? 'No names match the current filters.' : 'No tracking instruments currently found matching criteria.'}</td></tr>
                 ) : (
                   filteredAndSortedStocks.map((row, i) => {
                     const isPositive = row.changePct >= 0;
@@ -662,8 +649,10 @@ export default function StocksInPlay() {
                     const sectorText = cleanSector(row.sector, row.ticker);
                     const bdRev = isBlueDotSetup(row.setupName);
                     const adr = adrOf(row);
-                    const rmv = rmvOf(row);
                     const mf = mfOf(row);
+                    const rmv = rmvOf(row);
+                    const rme = rmeOf(row);
+                    const stateRes = stateOf(rmv, rme);
                     return (
                       <React.Fragment key={i}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -683,13 +672,13 @@ export default function StocksInPlay() {
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
                           <td className={`${tdBase} whitespace-nowrap`}>
-                            <div className="flex items-center justify-center gap-1.5">
-                              <div className="flex items-center gap-0.5">
-                                <span className="text-[9px] font-bold text-slate-500">10</span>
+                            <div className="flex items-center justify-center gap-1">
+                              <div className="flex items-center gap-px">
+                                <span className="text-[8px] font-bold text-slate-500">10</span>
                                 <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} title={`10 EMA: ${row.aboveEma10 == null ? 'n/a' : row.aboveEma10 ? 'above' : 'below'}`}></div>
                               </div>
-                              <div className="flex items-center gap-0.5">
-                                <span className="text-[9px] font-bold text-slate-500">21</span>
+                              <div className="flex items-center gap-px">
+                                <span className="text-[8px] font-bold text-slate-500">21</span>
                                 <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma21)}`} title={`21 EMA: ${row.aboveEma21 == null ? 'n/a' : row.aboveEma21 ? 'above' : 'below'}`}></div>
                               </div>
                             </div>
@@ -701,15 +690,16 @@ export default function StocksInPlay() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`} title="20-day average daily range (high/low) — the anti-chop measure">
                             {adr != null ? `${adr.toFixed(1)}%` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRmvColor(rmv)}`} title="RMV(15) — 0 = tightest price action of the last 15 bars, 100 = most volatile. Low is coiled.">
-                            {rmv != null ? rmv.toFixed(0) : '—'}
-                          </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={`Money Flow (21) — ${mfLabel(mf)}. Above 50 is accumulation, below is distribution. Arrow shows the 5-day direction.`}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>{row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)}` : '—'}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`} title={row.rsVsSpy != null ? `3-month return vs SPY: ${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)} percentage points` : undefined}>
+                            {formatRs(row.rsVsSpy)}
+                          </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getShortColor(row.shortPct)}`}>{row.shortPct ? `${row.shortPct.toFixed(1)}%` : '—'}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover — short interest divided by average daily volume. Sessions of normal trade for shorts to exit; above 5 is trapped supply.">
+                            {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
+                          </td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
                           <td className={`${tdBase} whitespace-nowrap border-l border-white/5`}>
                             <span
@@ -723,28 +713,42 @@ export default function StocksInPlay() {
                             <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: spacer | setup label + news catalyst | STR/STAT centered */}
+                        {/* Sub-row: setup | STATE chip | news catalyst | STR/STAT.
+                            Every element left of the headline is fixed-width and the
+                            headline itself truncates, so row height is constant and
+                            the news column starts at the same x on every row. */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%]"></td>
-                          <td colSpan={15} className="pb-2.5 pt-1.5 pr-3">
-                            <div className="flex items-center text-left">
-                              <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">
+                          <td colSpan={14} className="pb-2.5 pt-1.5 pr-3">
+                            <div className="flex items-center text-left gap-0 min-w-0">
+                              <span className="shrink-0 w-[92px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight truncate">
                                 {bdRev ? <BlueDot /> : (formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—')}
                               </span>
-                              <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-3">
+                              <span
+                                title={stateTooltip(rmv, rme)}
+                                className="shrink-0 w-[124px] flex items-center gap-1.5 border-l border-white/10 pl-3 cursor-help"
+                              >
+                                <span className={`text-[10px] font-bold tracking-widest uppercase ${stateRes.color}`}>
+                                  {stateRes.state === 'UNKNOWN' ? '—' : stateRes.state}
+                                </span>
+                                <span className="text-[9px] text-slate-600 font-medium tabular-nums">
+                                  {stateNumbers(rmv, rme)}
+                                </span>
+                              </span>
+                              <p className="flex-1 min-w-0 text-[11px] leading-relaxed border-l border-white/10 pl-3 truncate" title={headline || undefined}>
                                 {headline || tag ? (
                                   <>
                                     {tag && (
                                       <>
-                                        <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400/90">{tag}</span>
+                                        <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400/80">{tag}</span>
                                         {headline ? ' ' : ''}
                                       </>
                                     )}
                                     {headline && (
                                       row.catalystUrl ? (
-                                        <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] hover:underline transition-colors">{headline}</a>
+                                        <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-slate-400 font-normal hover:text-slate-200 hover:underline transition-colors">{headline}</a>
                                       ) : (
-                                        <span className="text-indigo-300/90 font-medium">{headline}</span>
+                                        <span className="text-slate-400 font-normal">{headline}</span>
                                       )
                                     )}
                                   </>

@@ -1,10 +1,11 @@
-// app/api/scanner/run/route.ts — v6.4
+// app/api/scanner/run/route.ts — v6.5
 // v6.1: + RMV(15); thesis is news-headline-only (stats moved to t.readout)
 // v6.2: RMV/RME imported from lib/indicators; RME(21) replaces the binary
 //       `extended` penalty in CNF; + cnfBreakdown for the badge tooltip
 // v6.3: Weinstein sub-stages (2A/2B/2C etc) via lib/indicators/stage
-// v6.4: + Money Flow (21) — accumulation vs distribution. RVOL says volume
-//       showed up; MF says which side got filled.
+// v6.4: + Money Flow (21) — accumulation vs distribution
+// v6.5: + daysToCover (short interest / avg volume) — replaces SHT% in the
+//       tables. Scales short interest against the liquidity to unwind it.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -249,15 +250,9 @@ const isBreakoutSetupName = (setupName: string | null | undefined): boolean =>
 // Fully deterministic — built from RVOL, gap, range expansion, relative
 // strength, extension, and catalyst presence. No AI involved.
 //
-// v6.2: the binary `extended` penalty is gone. It asked whether the move was
-// large relative to daily noise (dist > 3x ATR%). RME asks whether the move is
-// large relative to what THIS stock has historically done off its 21 EMA —
-// which is the question that actually predicts a failed entry.
-//
 // NOTE: Money Flow is deliberately NOT scored here. It's shipped as a column
 // so you can see it, but folding it into CNF would double-count against RVOL
 // and gap, which already reward the same volume event from a different angle.
-// Worth revisiting once there's live data on how often MF and CNF disagree.
 const computeCnfScore = (
   rvol: number | null,
   gapPct: number | null,
@@ -352,8 +347,8 @@ const computeCnfScore = (
 };
 
 // --- Deterministic setup readout ---------------------------------------------
-// The row's own numbers restated as a sentence. v6.1: NO LONGER used as the
-// thesis (that line is news-only now) — parked on `readout` for tooltips.
+// The row's own numbers restated as a sentence. NO LONGER used as the thesis
+// (that line is news-only now) — parked on `readout` for tooltips.
 const buildReadout = (t: any): string | null => {
   const parts: string[] = [];
   if (t.distToEma21 != null) {
@@ -388,10 +383,10 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
       ema20 = (bars[i].c * k20) + (ema20 * (1 - k20));
   }
 
-  // v6.3: Weinstein stage + sub-stage. Bars here are DESC (newest first), and
-  // the live price is passed so the sub-stage reflects the intraday print
-  // rather than yesterday's close — the 30 and 50 SMAs sit close together, so
-  // a stale price misclassifies 2A/2B on any day with real movement.
+  // Weinstein stage + sub-stage. Bars here are DESC (newest first), and the
+  // live price is passed so the sub-stage reflects the intraday print rather
+  // than yesterday's close — the 30 and 50 SMAs sit close together, so a
+  // stale price misclassifies 2A/2B on any day with real movement.
   const stageDetail = computeStageDetail(bars, { order: 'desc', price: currentPrice });
   stage = stageDetail.label;
   const stageNum = stageDetail.stage;
@@ -467,9 +462,8 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
     const slice = bars.slice(start, start + len);
     return slice.reduce((s, b) => s + (b.v || 0), 0) / Math.max(slice.length, 1);
   };
-  // v6.3: compare the stage NUMBER — sub-stages mean 'Stage 2B' and 'Stage 2C'
-  // are also valid VCP contexts, and the old exact-label match would have
-  // silently excluded them once the letter stopped being hardcoded to 'A'.
+  // Compare the stage NUMBER — sub-stages mean 'Stage 2B' and 'Stage 2C' are
+  // also valid VCP contexts, and an exact-label match would exclude them.
   if ((stageNum === 2 || stageNum === 3) && bars.length >= 50) {
     const rNear = windowRange(1, 12), rMid = windowRange(13, 12), rFar = windowRange(25, 12);
     const vNear = windowVol(1, 12), vMid = windowVol(13, 12), vFar = windowVol(25, 12);
@@ -855,7 +849,7 @@ export async function GET(request: Request) {
     const toStr = todayDate.toISOString().split('T')[0];
     const fromStr = lookbackDate.toISOString().split('T')[0];
 
-    // SPY 63-day (~3 month) return — benchmark for the RS/SPY column.
+    // SPY 63-day (~3 month) return — benchmark for the RS column.
     const spyHistRes = await fetchSafeJson(
       `https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=desc&limit=350&apiKey=${polygonApiKey}`,
       { results: [] }
@@ -937,8 +931,6 @@ export async function GET(request: Request) {
       }
 
       // RMV(15) — where today's volatility sits inside its own 15-bar range.
-      // Low = coiled/tight, high = expanded. Companion to ADR, not a duplicate:
-      // ADR is absolute room, RMV is relative compression.
       const rmv = computeRMV(dailyBars, { order: 'desc', lookback: 15 });
 
       // RME(21) — where price sits vs its OWN history of extension from the
@@ -946,8 +938,7 @@ export async function GET(request: Request) {
       const rmeDetail = computeRMEDetail(dailyBars, { order: 'desc', maLength: 21, lookback: 250 });
 
       // Money Flow (21) — accumulation vs distribution. RVOL says volume
-      // showed up; MF says which side got filled. A name up 6% on 4x volume
-      // with MF under 45 was sold into all day.
+      // showed up; MF says which side got filled.
       const mf = computeMoneyFlow(dailyBars, { order: 'desc', length: 21 });
       const mfTrend = moneyFlowTrend(dailyBars, { order: 'desc', length: 21, lookback: 5 });
       
@@ -1040,8 +1031,17 @@ export async function GET(request: Request) {
 
       const float = details?.results?.share_class_shares_outstanding || (marketCap && price ? marketCap / price : null);
       let shortPct = null;
-      if (shortData?.results && shortData.results.length > 0 && float) {
-          shortPct = (shortData.results[0].short_interest / float) * 100;
+      let daysToCover = null;
+      const shortInterest = shortData?.results?.[0]?.short_interest;
+      if (shortInterest && float) {
+        shortPct = (shortInterest / float) * 100;
+      }
+      // Days to cover — the "5" in Bonde's MAGNA 53. Short interest divided by
+      // average daily volume: how many sessions of normal trade it would take
+      // shorts to exit. More decision-relevant than raw short %, because it
+      // scales the position against the liquidity available to close it.
+      if (shortInterest && avgVol > 0) {
+        daysToCover = shortInterest / avgVol;
       }
 
       const apiSectorRaw = cleanSectorDescription(details?.results?.sic_description, details?.results?.sector, details?.results?.industry);
@@ -1071,7 +1071,9 @@ export async function GET(request: Request) {
       
       return {
         ticker: sym, name: companyName, sector: deepSector, price, vwapStatus, changePct: chgPct, vol, avgVol, atr, dVol: vol * vwap, rvol: rvol ? parseFloat(rvol.toFixed(2)) : null,
-        float, shortPct, mktCap: marketCap, stage: setupMatched.stage, setupName: setupMatched.name, catalystUrl: finalCatalystUrl,
+        float, shortPct,
+        daysToCover: daysToCover != null ? parseFloat(daysToCover.toFixed(1)) : null,
+        mktCap: marketCap, stage: setupMatched.stage, setupName: setupMatched.name, catalystUrl: finalCatalystUrl,
         aboveEma10, aboveEma21,
         distToEma21: distToEma21 != null ? parseFloat(distToEma21.toFixed(2)) : null,
         ema21Rising,
@@ -1112,8 +1114,6 @@ export async function GET(request: Request) {
     const earningsSoonSet = await fetchEarningsProximity(benzingaApiKey);
 
     // --- Scan persistence: how many consecutive scans has each name held? ---
-    // A one-scan wonder is noise; a name that survives 3+ scans with its move
-    // intact is real accumulation. Resets daily and whenever a name drops out.
     let prevStreaks: Record<string, number> = {};
     try {
       const storedStreaks = await kv.get<any>('scan_streaks_v6');
@@ -1123,8 +1123,6 @@ export async function GET(request: Request) {
     } catch (e) { console.error('streak read failed', e); }
     const newStreaks: Record<string, number> = {};
 
-    // --- NO AI: catalysts from WIIM, theses from WIIM headlines, tradeType
-    // from the setup classifier. Zero LLM calls, zero cost.
     const enrichedMap = new Map();
 
     // --- PASS 1: catalyst tier, tradeType, streaks, extension, status --------
@@ -1147,15 +1145,12 @@ export async function GET(request: Request) {
         else t.catalyst = 'Technical Momentum';
       }
 
-      // v6.1: THESIS = NEWS HEADLINE ONLY. No stat blobs — those are already
-      // in the columns and were unreadable on the second line. Null when the
-      // move has no news behind it (the catalyst tag alone tells that story).
+      // THESIS = NEWS HEADLINE ONLY. Null when the move has no news behind it.
       t.thesis = wiim
         ? wiim.title
         : (t._rawHeadline && t._daysOld <= 4 ? t._rawHeadline : null);
 
-      // Stat readout kept off the thesis line but still available (tooltips,
-      // detail panes, future use).
+      // Stat readout kept off the thesis line but still available.
       t.readout = buildReadout(t);
 
       // Catalyst quality tier — dilution/legal headlines are negative even
@@ -1182,13 +1177,11 @@ export async function GET(request: Request) {
         : (prevStreaks[t.ticker] || 1);
       newStreaks[t.ticker] = t.scanStreak;
 
-      // Extension flag — v6.2: NO LONGER scored (RME handles that). Kept for
-      // the UI, which uses it as a display hint.
+      // Extension flag — NO LONGER scored (RME handles that). Kept for the UI.
       t.extended = (t.moveVsAtr != null && t.moveVsAtr >= 3.5) ||
         (t.distToEma21 != null && t.atrPct != null && t.atrPct > 0 && t.distToEma21 > 3 * t.atrPct);
 
-      // --- STATUS: pullback readiness (same rule as the swing card); ---------
-      // DAY-classified names below VWAP never rate Ready.
+      // --- STATUS: pullback readiness; DAY names below VWAP never rate Ready.
       t.status = (t.stochK != null && t.stochK <= 25 && t.distToEma21 != null && Math.abs(t.distToEma21) <= 2.5)
         ? 'Ready' : 'Forming';
       if (t.tradeType === 'Day Trade' && t.vwapStatus === 'below') t.status = 'Forming';
@@ -1354,8 +1347,6 @@ export async function GET(request: Request) {
 
     if (benchmark) await kv.set('benchmark_v6', benchmark);
 
-    // macroInsights: no longer generated (the Market Briefing card builds its
-    // own deterministically). Serve whatever is stored for legacy fallback.
     let macroInsights = null;
     try {
       macroInsights = await kv.get('macro_insights_v6');
