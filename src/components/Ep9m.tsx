@@ -1,887 +1,704 @@
-// app/api/swing-candidates/run/route.ts — v1.2
-// v1.1: + RMV(15) on Swing and 10/21; + batched Benzinga WIIM catalysts
-// v1.2: RMV now imported from lib/indicators/rmv (single source of truth
-//       shared with the main scanner route — no more duplicated math)
+'use client';
 
-import { NextResponse } from 'next/server';
-import { kv } from '@vercel/kv';
-import { computeRMV } from '@/lib/indicators/rmv';
+// Ep9m — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee) — v1.0
+//
+// Fewer than ~2% of US listings trade 9M+ shares in a session. When a stock
+// that normally trades 800k suddenly does 12M, institutions are accumulating
+// and the news hasn't been priced yet. The volume IS the signal — you research
+// the catalyst after the scan flags it, not before.
+//
+// Unlike every other table here, this one does NOT gate on % change. A
+// non-gapping stock quietly trading 10x its normal volume is the highest-value
+// case the scan exists to find.
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
-export const maxDuration = 60;
+import React, { useState, useEffect, useMemo } from 'react';
+import { useMarketData } from './MarketDataContext';
 
-const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
-const BENZINGA_KEY = process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '';
-const BASE = "https://api.polygon.io";
-
-const CONFIG = {
-  minPrice: 10,
-  maxPrice: 2000,
-  minPrevDayDollarVol: 50_000_000,
-
-  minAtrPct: 1.5,
-  maxAtrPct: 6.0,
-  maxPctOffHigh: 20,
-  minPctOffHigh: 2,
-  maxDistToEma21: 4,
-  maxStochK: 35,
-  requireAbove50: true,
-  requireAbove200: true,
-  rsLookback: 63,
-  earningsBlackoutDays: 7,
-
-  maxSymbolsToAnalyze: 120,
-  concurrency: 10,
-};
-
-interface Bar { t: number; o: number; h: number; l: number; c: number; v: number; }
-
-interface SnapInfo {
-  vwap: number | null;
-  livePrice: number | null;
-  changePct: number;
-  vol: number;
-}
-
-interface Candidate {
-  symbol: string;
-  name: string;
-  sector: string;
+interface Ep9mCandidate {
+  ticker: string;
+  name?: string;
+  sector?: string;
   price: number;
   score: number;
-  changePct: number;
+  grade?: string;
+  changePct?: number;
   vol: number;
-  dVol: number;
-  rvol: number | null;
-  float: number | null;
-  shortPct: number | null;
-  mktCap: number | null;
-  stage: string;
-  vwapStatus: 'above' | 'below' | 'neutral';
-  atrPct: number;
-  adrPct?: number;
+  dVol?: number;
+  avgVol?: number;
+  rvol: number;
+  volVs60dMax?: number | null;
+  unprecedented?: boolean;
+  floatTurnover?: number | null;
+  daysToCover?: number | null;
+  closeStrength?: number | null;
+  float?: number | null;
+  shortPct?: number | null;
+  mktCap?: number | null;
+  stage?: string;
+  vwapStatus?: 'above' | 'below' | 'neutral';
+  atrPct?: number | null;
+  adrPct?: number | null;
   rmv?: number | null;
-  pctOffHigh: number;
-  distToEma21: number;
-  distToEma10: number;
-  aboveEma10: boolean;
-  aboveEma21: boolean;
-  stochK: number;
-  rsVsSpy: number;
-  avgDollarVolM: number;
-  goldenCross: boolean;
-  ema21Rising: boolean;
-  range10Pct?: number;
-  coilRatio?: number;
-  blueDot?: boolean;
+  rme?: number | null;
+  aboveEma10?: boolean | null;
+  aboveEma21?: boolean | null;
+  distToEma21?: number | null;
+  ema21Rising?: boolean | null;
+  goldenCross?: boolean | null;
+  pctOffHigh?: number | null;
+  rsVsSpy?: number | null;
+  priorTriggers?: number;
+  sugarBaby?: boolean;
   catalyst?: string | null;
   catalystUrl?: string | null;
   thesis?: string | null;
+  scoreBreakdown?: Record<string, number>;
 }
 
-async function polygon<T = any>(path: string): Promise<T> {
-  const sep = path.includes("?") ? "&" : "?";
-  const res = await fetch(`${BASE}${path}${sep}apiKey=${POLYGON_KEY}`);
-  if (!res.ok) throw new Error(`Polygon ${res.status}: ${path.split("?")[0]}`);
-  return res.json() as Promise<T>;
-}
+type SortDirection = 'asc' | 'desc';
+type EpFilterType = 'All' | 'A' | 'B';
+type RvolFilterType = 'All' | '5' | '10';
+type CatalystFilterType = 'All' | 'News' | 'Silent';
+type VwapFilterType = 'All' | 'above' | 'below';
 
-async function polygonSafe<T = any>(path: string, fallback: T): Promise<T> {
-  try { return await polygon<T>(path); } catch { return fallback; }
-}
+// EP grade is a floor, not an exact grade: picking B shows B and A.
+const EP_BUCKETS: EpFilterType[] = ['A', 'B'];
+const EP_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 
-function dateStr(daysAgo: number): string {
-  return new Date(Date.now() - daysAgo * 86400000).toISOString().slice(0, 10);
-}
+// RVOL buckets — the scan already floors at 3x, so these tighten.
+const RVOL_BUCKETS: RvolFilterType[] = ['5', '10'];
 
-async function getDailyBars(symbol: string): Promise<Bar[]> {
-  const from = dateStr(450);
-  const to = dateStr(0);
-  const data = await polygon<{ results?: Bar[] }>(
-    `/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=5000`
-  );
-  return data.results ?? [];
-}
+const formatTime = (timestamp: number | Date) => {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
+};
 
-async function inBatches<T, R>(items: T[], size: number, fn: (item: T) => Promise<R | null>): Promise<R[]> {
-  const out: R[] = [];
-  for (let i = 0; i < items.length; i += size) {
-    const results = await Promise.allSettled(items.slice(i, i + size).map(fn));
-    for (const r of results) {
-      if (r.status === "fulfilled" && r.value) out.push(r.value);
-    }
+const formatNumber = (num: number | null | undefined) => {
+  if (num === null || num === undefined || num === 0 || isNaN(num)) return '—';
+  if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
+  if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
+  if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
+  return num.toLocaleString();
+};
+
+const formatCurrency = (num: number | null | undefined) => {
+  if (num === null || num === undefined || num === 0 || isNaN(num)) return '—';
+  if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
+  if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
+  return '$' + num.toLocaleString();
+};
+
+const formatStageText = (stage: string | undefined) => {
+  if (!stage || stage === '-' || stage === '—') return '—';
+  return stage.replace(/Stage\s*/i, '');
+};
+
+// Sector strings sometimes arrive ticker-prefixed ("RKLB - AEROSPACE").
+// Strip the prefix so one bad row can't widen the column.
+const cleanSector = (sector: string | null | undefined, ticker?: string): string => {
+  if (!sector || sector === '—' || sector === '-') return '—';
+  let s = String(sector).trim();
+  if (ticker) {
+    const rx = new RegExp(`^${ticker}\\s*[-–—:]\\s*`, 'i');
+    s = s.replace(rx, '');
   }
-  return out;
-}
+  s = s.replace(/^[A-Z]{1,5}\s*[-–—:]\s*/, '');
+  return s.trim() || '—';
+};
 
-function cleanSectorDescription(sic: string | undefined, sector: string | undefined, industry: string | undefined): string {
-  const ind = (industry || '').toLowerCase();
-  const sicTxt = (sic || '').toLowerCase();
-  const blob = `${ind} ${sicTxt}`;
+const isGenericCatalyst = (catalyst: string | null | undefined) => {
+  if (!catalyst) return true;
+  const c = catalyst.toLowerCase().trim();
+  return c.startsWith('technical momentum') || c === 'recent news' || c === 'news' || c === 'technical';
+};
 
-  if (/nuclear|uranium/.test(blob)) return 'Nuclear';
-  if (/solar|photovoltaic/.test(blob)) return 'Solar';
-  if (/electric vehicle|auto manufacturer|motor vehicle|passenger car/.test(blob)) return 'EV';
-  if (/biotechnolog|biological product|in vitro|medicinal chem/.test(blob)) return 'Biotech';
-  if (/semiconductor/.test(blob)) return "Semi's";
-  if (/artificial intelligence/.test(blob)) return 'AI';
-  if (/cybersecurity|security software/.test(blob)) return 'Cyber';
-  if (/fintech|financial technology/.test(blob)) return 'Fintech';
-  if (/aerospace|\bdefense\b|aircraft|guided missile|space vehicle/.test(blob)) return 'Aerospace';
+const catalystTagOf = (c: Ep9mCandidate): string | null => {
+  if (isGenericCatalyst(c.catalyst)) return null;
+  return String(c.catalyst).trim().replace(/\.$/, '');
+};
 
-  if (sicTxt) {
-    if (/software|prepackaged|computer program|data processing|information retrieval|computer integrated|computer communication|electronic computer|computer peripheral|computer storage|computer terminal|electronic component|printed circuit/.test(sicTxt)) return 'IT';
-    if (/pharmaceutical|drug|medicinal|surgical|\bmedical\b|\bhealth\b|dental|hospital|diagnostic|laborator/.test(sicTxt)) return 'Healthcare';
-    if (/crude petroleum|natural gas|petroleum|drilling|\boil\b|\bcoal\b|\benergy\b/.test(sicTxt)) return 'Energy';
-    if (/\bbank\b|savings instit|credit institution|insurance|investment office|securities broker|security broker|personal credit|holding compan|fire, marine/.test(sicTxt)) return 'Financials';
-    if (/real estate|land subdivid|operators of apartment|operators of nonresident/.test(sicTxt)) return 'Real Estate';
-    if (/electric services|gas & other|water supply|cogeneration|electric & other services/.test(sicTxt)) return 'Utilities';
-    if (/telephone|telecommunic|radio|television|broadcast|cable|motion picture|advertising|publishing|newspaper|periodical|entertainment/.test(sicTxt)) return 'Comm Serv';
-    if (/retail|catalog|mail-order|eating place|restaurant|apparel|footwear|hotel|department store|grocery|variety store|jewelry/.test(sicTxt)) return 'Con Disc';
-    if (/beverage|\bfood\b|tobacco|soap|cosmetic|household|dairy|bakery/.test(sicTxt)) return 'Con Staples';
-    if (/gold mining|metal mining|steel|aluminum|chemical|industrial inorganic|plastics material|paper mill|fertilizer|\bmining\b/.test(sicTxt)) return 'Materials';
-    if (/aircraft|machinery|industrial|construction|engineering|electrical industrial|transportation|railroad|trucking|air transport/.test(sicTxt)) return 'Industrials';
-  }
+const headlineOf = (c: Ep9mCandidate): string | null => {
+  if (!c.thesis) return null;
+  const s = String(c.thesis).trim();
+  return s.length > 0 ? s : null;
+};
 
-  const sec = (sector || '').toLowerCase();
-  if (sec.includes('technology')) return 'IT';
-  if (sec.includes('healthcare') || sec.includes('health care')) return 'Healthcare';
-  if (sec.includes('financial')) return 'Financials';
-  if (sec.includes('consumer discretionary')) return 'Con Disc';
-  if (sec.includes('consumer staples')) return 'Con Staples';
-  if (sec.includes('energy')) return 'Energy';
-  if (sec.includes('materials')) return 'Materials';
-  if (sec.includes('industrials')) return 'Industrials';
-  if (sec.includes('real estate')) return 'Real Estate';
-  if (sec.includes('utilities')) return 'Utilities';
-  if (sec.includes('communication')) return 'Comm Serv';
+const hasCatalyst = (c: Ep9mCandidate): boolean => catalystTagOf(c) != null || headlineOf(c) != null;
 
-  return 'Other';
-}
+const adrOf = (c: Ep9mCandidate): number | null =>
+  c.adrPct == null || isNaN(Number(c.adrPct)) ? null : Number(c.adrPct);
 
-function sma(values: number[], period: number): number | null {
-  if (values.length < period) return null;
-  return values.slice(-period).reduce((a, b) => a + b, 0) / period;
-}
+const rmvOf = (c: Ep9mCandidate): number | null =>
+  c.rmv == null || isNaN(Number(c.rmv)) ? null : Number(c.rmv);
 
-function ema(values: number[], period: number): number | null {
-  if (values.length < period) return null;
-  const k = 2 / (period + 1);
-  let e = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  for (let i = period; i < values.length; i++) e = values[i] * k + e * (1 - k);
-  return e;
-}
+// Unprecedented — today's volume exceeds the stock's own 60-day record.
+const UnprecedentedMark = () => (
+  <span
+    title="Unprecedented — today's volume exceeds this stock's own 60-day high"
+    className="inline-block w-2 h-2 rounded-full bg-fuchsia-400 shadow-[0_0_6px_rgba(232,121,249,0.7)] align-middle shrink-0"
+  />
+);
 
-function atr(bars: Bar[], period = 14): number | null {
-  if (bars.length < period + 1) return null;
-  const trs: number[] = [];
-  for (let i = 1; i < bars.length; i++) {
-    const pc = bars[i - 1].c;
-    trs.push(Math.max(bars[i].h - bars[i].l, Math.abs(bars[i].h - pc), Math.abs(bars[i].l - pc)));
-  }
-  let a = trs.slice(0, period).reduce((x, y) => x + y, 0) / period;
-  for (let i = period; i < trs.length; i++) a = (a * (period - 1) + trs[i]) / period;
-  return a;
-}
+// Sugar Baby — repeat EP9M offender. These make repeatable 40-50% swings.
+const SugarBabyMark = () => (
+  <span
+    title="Sugar Baby — has triggered EP9M multiple times in the last 90 days"
+    className="text-[9px] font-bold text-amber-400/90 leading-none align-middle"
+  >
+    ★
+  </span>
+);
 
-// Average Daily Range % — the Minervini definition: SMA(High/Low) - 1.
-// Distinct from ATR: no gap component, so it measures how much intraday
-// room the stock actually gives you on a typical session.
-function adrPct(bars: Bar[], period = 20): number | null {
-  if (bars.length < period) return null;
-  const recent = bars.slice(-period);
-  let sum = 0;
-  let n = 0;
-  for (const b of recent) {
-    if (b.l > 0 && b.h > 0) { sum += b.h / b.l; n++; }
-  }
-  if (n === 0) return null;
-  return ((sum / n) - 1) * 100;
-}
+export default function Ep9m() {
+  const { session } = useMarketData();
 
-function stochK(bars: Bar[], length = 10, smooth = 4): number | null {
-  if (bars.length < length + smooth) return null;
-  const rawKs: number[] = [];
-  for (let i = length - 1; i < bars.length; i++) {
-    const win = bars.slice(i - length + 1, i + 1);
-    const hh = Math.max(...win.map(b => b.h));
-    const ll = Math.min(...win.map(b => b.l));
-    rawKs.push(hh === ll ? 50 : ((bars[i].c - ll) / (hh - ll)) * 100);
-  }
-  const lastN = rawKs.slice(-smooth);
-  return lastN.reduce((a, b) => a + b, 0) / lastN.length;
-}
+  const [candidates, setCandidates] = useState<Ep9mCandidate[]>([]);
+  const [status, setStatus] = useState<string>('Syncing...');
+  const [generatedAt, setGeneratedAt] = useState<number | null>(null);
+  const [raw9m, setRaw9m] = useState<number | null>(null);
+  const [shortlisted, setShortlisted] = useState<number | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: keyof Ep9mCandidate; direction: SortDirection } | null>(null);
+  const [isExpanded, setIsExpanded] = useState<boolean>(true);
+  const [epFilter, setEpFilter] = useState<EpFilterType>('All');
+  const [rvolFilter, setRvolFilter] = useState<RvolFilterType>('All');
+  const [catalystFilter, setCatalystFilter] = useState<CatalystFilterType>('All');
+  const [showUnprecedentedOnly, setShowUnprecedentedOnly] = useState<boolean>(false);
+  const [showSugarBabyOnly, setShowSugarBabyOnly] = useState<boolean>(false);
+  const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
+  const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
+  const [showFilters, setShowFilters] = useState<boolean>(false);
+  const [copied, setCopied] = useState<boolean>(false);
 
-function pctReturn(closes: number[], lookback: number): number | null {
-  if (closes.length < lookback + 1) return null;
-  const then = closes[closes.length - 1 - lookback];
-  return ((closes[closes.length - 1] - then) / then) * 100;
-}
+  useEffect(() => {
+    let isMounted = true;
+    const fetchCandidates = async () => {
+      try {
+        const res = await fetch(`/api/ep9m/latest?t=${Date.now()}`, { cache: 'no-store' });
+        const data = await res.json();
 
-function computeStage(closes: number[], price: number): string {
-  if (closes.length < 210) return '-';
-  const smaAt = (endOffset: number): number | null => {
-    const end = closes.length - endOffset;
-    if (end < 150) return null;
-    let sum = 0;
-    for (let i = end - 150; i < end; i++) sum += closes[i];
-    return sum / 150;
-  };
-  const now = smaAt(0);
-  const d20 = smaAt(20);
-  const d60 = smaAt(60);
-  if (!now || !d20 || !d60) return '-';
-  const slope = (now - d20) / d20;
-  if (slope > 0.015 && price > now) return 'Stage 2A';
-  if (slope < -0.015 && price < now) return 'Stage 4A';
-  return d20 > d60 ? 'Stage 3A' : 'Stage 1A';
-}
-
-async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, SnapInfo>; snapMapAll: Map<string, SnapInfo> }> {
-  const data = await polygon<{ tickers?: any[] }>(
-    `/v2/snapshot/locale/us/markets/stocks/tickers`
-  );
-  const tickers = data.tickers ?? [];
-
-  const filtered = tickers
-    .filter(t => {
-      const sym: string = t.ticker ?? "";
-      if (!/^[A-Z]{1,5}$/.test(sym)) return false;
-      const prev = t.prevDay;
-      if (!prev || !prev.c || !prev.v) return false;
-      if (prev.c < CONFIG.minPrice || prev.c > CONFIG.maxPrice) return false;
-      if (prev.c * prev.v < CONFIG.minPrevDayDollarVol) return false;
-      return true;
-    })
-    .sort((a, b) => (b.prevDay.c * b.prevDay.v) - (a.prevDay.c * a.prevDay.v))
-    .slice(0, CONFIG.maxSymbolsToAnalyze);
-
-  const buildSnap = (t: any): SnapInfo => {
-    const livePrice = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || null;
-    const prevClose = t.prevDay?.c || 0;
-    const vwap = t.day?.vw || null;
-    const vol = t.day?.v || t.prevDay?.v || 0;
-    let changePct = 0;
-    if (t.todaysChangePerc !== undefined && t.todaysChangePerc !== null && t.todaysChangePerc !== 0) {
-      changePct = t.todaysChangePerc;
-    } else if (prevClose > 0 && livePrice) {
-      changePct = ((livePrice - prevClose) / prevClose) * 100;
-    }
-    return { vwap, livePrice, changePct: Number.isNaN(changePct) ? 0 : changePct, vol };
-  };
-
-  const snapMap = new Map<string, SnapInfo>();
-  for (const t of filtered) snapMap.set(t.ticker, buildSnap(t));
-
-  const snapMapAll = new Map<string, SnapInfo>();
-  for (const t of tickers) {
-    const sym: string = t.ticker ?? "";
-    if (!/^[A-Z]{1,5}$/.test(sym)) continue;
-    const prev = t.prevDay;
-    if (!prev || !prev.c) continue;
-    if (prev.c < CONFIG.minPrice || prev.c > CONFIG.maxPrice) continue;
-    snapMapAll.set(sym, buildSnap(t));
-  }
-
-  return { symbols: filtered.map(t => t.ticker as string), snapMap, snapMapAll };
-}
-
-interface LiteBar { c: number; h: number; l: number; v: number; }
-
-async function getGroupedSeries(validSymbols: Set<string>): Promise<Map<string, LiteBar[]>> {
-  const dates: string[] = [];
-  for (let d = CONSOL_SHORTLIST.maxCalendarDays; d >= 1; d--) {
-    const dt = new Date(Date.now() - d * 86400000);
-    const day = dt.getUTCDay();
-    if (day === 0 || day === 6) continue;
-    dates.push(dt.toISOString().slice(0, 10));
-  }
-
-  const series = new Map<string, LiteBar[]>();
-  const dayResults: { date: string; results: any[] }[] = [];
-
-  const BATCH = 7;
-  for (let i = 0; i < dates.length; i += BATCH) {
-    const chunk = dates.slice(i, i + BATCH);
-    const settled = await Promise.allSettled(chunk.map(async (date) => {
-      const data = await polygonSafe<{ results?: any[] }>(
-        `/v2/aggs/grouped/locale/us/market/stocks/${date}?adjusted=true`,
-        { results: [] }
-      );
-      return { date, results: data.results ?? [] };
-    }));
-    for (const r of settled) {
-      if (r.status === 'fulfilled' && r.value.results.length > 0) dayResults.push(r.value);
-    }
-  }
-
-  dayResults.sort((a, b) => a.date.localeCompare(b.date));
-  const kept = dayResults.slice(-CONSOL_SHORTLIST.groupedDays);
-
-  for (const day of kept) {
-    for (const t of day.results) {
-      const sym = t.T;
-      if (!validSymbols.has(sym)) continue;
-      let arr = series.get(sym);
-      if (!arr) { arr = []; series.set(sym, arr); }
-      arr.push({ c: t.c, h: t.h, l: t.l, v: t.v });
-    }
-  }
-  return series;
-}
-
-function shortlistConsolidation(series: Map<string, LiteBar[]>): string[] {
-  const emaLite = (closes: number[], period: number): number | null => {
-    if (closes.length < period) return null;
-    const k = 2 / (period + 1);
-    let e = closes.slice(0, period).reduce((a, b) => a + b, 0) / period;
-    for (let i = period; i < closes.length; i++) e = closes[i] * k + e * (1 - k);
-    return e;
-  };
-
-  const atrPctLite = (bars: LiteBar[], period = 14): number | null => {
-    if (bars.length < period + 1) return null;
-    const trs: number[] = [];
-    for (let i = 1; i < bars.length; i++) {
-      const pc = bars[i - 1].c;
-      trs.push(Math.max(bars[i].h - bars[i].l, Math.abs(bars[i].h - pc), Math.abs(bars[i].l - pc)));
-    }
-    let a = trs.slice(0, period).reduce((x, y) => x + y, 0) / period;
-    for (let i = period; i < trs.length; i++) a = (a * (period - 1) + trs[i]) / period;
-    const price = bars[bars.length - 1].c;
-    return price > 0 ? (a / price) * 100 : null;
-  };
-
-  const adrPctLite = (bars: LiteBar[], period = 20): number | null => {
-    if (bars.length < period) return null;
-    const recent = bars.slice(-period);
-    let sum = 0;
-    let n = 0;
-    for (const b of recent) {
-      if (b.l > 0 && b.h > 0) { sum += b.h / b.l; n++; }
-    }
-    if (n === 0) return null;
-    return ((sum / n) - 1) * 100;
-  };
-
-  const picks: { sym: string; ratio: number }[] = [];
-
-  series.forEach((bars, sym) => {
-    if (bars.length < 28) return;
-    const closes = bars.map(b => b.c);
-    const price = closes[closes.length - 1];
-    if (price < CONFIG.minPrice || price > CONFIG.maxPrice) return;
-
-    const dv = bars.slice(-20).map(b => b.c * b.v);
-    const avgDollarVol = dv.reduce((a, b) => a + b, 0) / dv.length;
-    if (avgDollarVol < CONSOL_CONFIG.minDollarVol) return;
-
-    const adr = adrPctLite(bars, 20);
-    if (adr == null || adr < CONSOL_CONFIG.minAdrPct) return;
-
-    const e10 = emaLite(closes, 10);
-    const e21 = emaLite(closes, 21);
-    const e21Prev = emaLite(closes.slice(0, -3), 21);
-    if (!e10 || !e21) return;
-
-    const dist10 = ((price - e10) / e10) * 100;
-    const dist21 = ((price - e21) / e21) * 100;
-    if (Math.abs(dist10) > CONSOL_CONFIG.maxDistToEma10) return;
-    if (dist21 > CONSOL_CONFIG.maxAboveEma21 || dist21 < -CONSOL_CONFIG.maxBelowEma21) return;
-    if (e21Prev != null && e21 <= e21Prev) return;
-
-    const win10 = bars.slice(-10);
-    const hi10 = Math.max(...win10.map(b => b.h));
-    const lo10 = Math.min(...win10.map(b => b.l));
-    const range10 = lo10 > 0 ? ((hi10 - lo10) / lo10) * 100 : 999;
-    if (range10 > CONSOL_CONFIG.maxRange10) return;
-
-    const aPct = atrPctLite(bars, 14);
-    const ratio = aPct && aPct > 0 ? range10 / aPct : range10 / 3;
-    if (ratio > CONSOL_CONFIG.maxCoilRatio) return;
-
-    const prevClose = closes[closes.length - 2];
-    const dayChg = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
-    if (Math.abs(dayChg) > CONSOL_CONFIG.maxDayChange) return;
-
-    picks.push({ sym, ratio });
-  });
-
-  picks.sort((a, b) => a.ratio - b.ratio);
-  return picks.slice(0, CONSOL_SHORTLIST.shortlistSize).map(p => p.sym);
-}
-
-async function getEarningsBlackout(): Promise<Set<string>> {
-  if (!BENZINGA_KEY) return new Set();
-  try {
-    const from = dateStr(0);
-    const to = dateStr(-CONFIG.earningsBlackoutDays);
-    const url =
-      `https://api.benzinga.com/api/v2.1/calendar/earnings?token=${BENZINGA_KEY}` +
-      `&parameters[date_from]=${from}&parameters[date_to]=${to}&pagesize=1000`;
-    const res = await fetch(url, { headers: { accept: 'application/json' } });
-    if (!res.ok) return new Set();
-    const data = await res.json();
-    const rows = Array.isArray(data?.earnings) ? data.earnings : [];
-    return new Set(rows.map((r: any) => (r?.ticker || '').toUpperCase()).filter(Boolean));
-  } catch {
-    return new Set();
-  }
-}
-
-// ---------------------------------------------------------------
-// WIIM catalysts — "Why Is It Moving" headlines from Benzinga.
-// Runs ONCE, after scoring, over the final lists only: ~2 batched calls for
-// the whole run, not one per symbol. Fails open.
-// ---------------------------------------------------------------
-const WIIM_MAX_AGE_DAYS = 4;
-const WIIM_MAX_BREADTH = 12;
-
-function classifyWiim(title: string): string {
-  const s = (title || '').toLowerCase();
-  if (/\b(earnings|eps|revenue|beat|miss|quarter|q[1-4]\b)/.test(s)) return 'Earnings';
-  if (/\b(fda|approval|phase\s*[123]|trial|clinical|topline|drug|therap)/.test(s)) return 'FDA / Data';
-  if (/\b(upgrade|downgrade|price target|initiat|analyst|rating|overweight|underweight|outperform|reiterat)/.test(s)) return 'Analyst';
-  if (/\b(merger|acquir|acquisition|buyout|takeover|to acquire|stake|going private)/.test(s)) return 'M&A';
-  if (/\b(offering|dilut|prices?\s|secondary|registered direct|atm |capital raise|warrant)/.test(s)) return 'Offering';
-  if (/\b(contract|partnership|collaborat|agreement|awarded|order|wins |selected)/.test(s)) return 'Contract';
-  if (/\b(guidance|raises|lowers|cuts |reaffirm|outlook|forecast)/.test(s)) return 'Guidance';
-  if (/\b(lawsuit|sec |investigat|probe|fraud|settle|recall|halt)/.test(s)) return 'Legal / Risk';
-  if (/\b(short|squeeze|volatil|spik|surg|plung|tumbl)/.test(s)) return 'Volatility';
-  if (/\b(sector|broader market|index|futures|rotat|peers)/.test(s)) return 'Sector Move';
-  return 'News';
-}
-
-async function fetchBenzingaWiims(
-  tickers: string[]
-): Promise<Map<string, { title: string; url: string | null; daysOld: number; score: number }>> {
-  const out = new Map<string, { title: string; url: string | null; daysOld: number; score: number }>();
-  if (!BENZINGA_KEY || tickers.length === 0) return out;
-
-  const now = Date.now();
-  const BATCH = 50;
-  for (let i = 0; i < tickers.length; i += BATCH) {
-    const batch = tickers.slice(i, i + BATCH);
-    const url =
-      `https://api.benzinga.com/api/v2/news?token=${BENZINGA_KEY}` +
-      `&tickers=${encodeURIComponent(batch.join(','))}` +
-      `&channels=WIIM&displayOutput=full&pageSize=100`;
-
-    let items: any = [];
-    try {
-      const res = await fetch(url, { headers: { accept: 'application/json' } });
-      if (!res.ok) continue;
-      items = await res.json();
-    } catch {
-      continue;
-    }
-    if (!Array.isArray(items)) continue;
-
-    for (const item of items) {
-      const isWiim =
-        Array.isArray(item?.channels) &&
-        item.channels.some((c: any) => (c?.name || '').toUpperCase() === 'WIIM');
-      if (!isWiim) continue;
-
-      const title = (item?.title || '').trim();
-      if (!title) continue;
-
-      const stocks = Array.isArray(item?.stocks) ? item.stocks : [];
-      if (stocks.length === 0 || stocks.length > WIIM_MAX_BREADTH) continue;
-
-      const created = item?.created ? new Date(item.created).getTime() : 0;
-      const daysOld = created > 0 ? (now - created) / (1000 * 60 * 60 * 24) : 999;
-      if (daysOld > WIIM_MAX_AGE_DAYS) continue;
-
-      const score = daysOld + stocks.length * 0.02;
-      for (const s of stocks) {
-        const sym = (s?.name || '').toUpperCase();
-        if (!sym) continue;
-        const prev = out.get(sym);
-        if (!prev || score < prev.score) {
-          out.set(sym, { title, url: item?.url || null, daysOld, score });
+        if (isMounted && data && data.success && Array.isArray(data.candidates)) {
+          setCandidates(data.candidates);
+          setGeneratedAt(data.lastScanTime ? Number(data.lastScanTime) : null);
+          setRaw9m(data.raw9m ?? null);
+          setShortlisted(data.shortlisted ?? null);
+          setStatus('Live');
+        } else if (isMounted && data?.error) {
+          setStatus('Feed Error');
         }
+      } catch {
+        if (isMounted) setStatus('Feed Offline');
       }
-    }
-  }
-  return out;
-}
-
-function analyze(
-  symbol: string,
-  bars: Bar[],
-  spyReturn: number | null,
-  details: any,
-  shortData: any,
-  snap: SnapInfo | undefined
-): Candidate | null {
-  if (bars.length < 210) return null;
-
-  const closes = bars.map(b => b.c);
-  const price = closes[closes.length - 1];
-
-  const sma50 = sma(closes, 50);
-  const sma200 = sma(closes, 200);
-  const ema10 = ema(closes, 10);
-  const ema21 = ema(closes, 21);
-  const ema21Prev = ema(closes.slice(0, -3), 21);
-  const atr14 = atr(bars, 14);
-  const kVal = stochK(bars, 10, 4);
-
-  if (!sma50 || !sma200 || !ema10 || !ema21 || !atr14 || kVal == null) return null;
-
-  const atrPct = (atr14 / price) * 100;
-  const adr = adrPct(bars, 20);
-  // RMV(15) — where today's volatility sits inside its own 15-bar range.
-  // Bars are ascending here; the module's default order is 'asc'.
-  const rmv = computeRMV(bars, { lookback: 15 });
-  const hi52 = Math.max(...bars.slice(-252).map(b => b.h));
-  const pctOffHigh = ((hi52 - price) / hi52) * 100;
-  const distToEma21 = ((price - ema21) / ema21) * 100;
-  const distToEma10 = ((price - ema10) / ema10) * 100;
-  const ema21Rising = ema21Prev != null && ema21 > ema21Prev;
-
-  const dollarVols = bars.slice(-20).map(b => b.c * b.v);
-  const avgDollarVol = dollarVols.reduce((a, b) => a + b, 0) / dollarVols.length;
-
-  const vols = bars.slice(-20).map(b => b.v).filter(v => v > 0);
-  const avgVol = vols.length > 0 ? vols.reduce((a, b) => a + b, 0) / vols.length : 0;
-
-  const ret = pctReturn(closes, CONFIG.rsLookback);
-  const rsVsSpy = ret != null && spyReturn != null ? ret - spyReturn : null;
-
-  if (avgDollarVol < CONFIG.minPrevDayDollarVol) return null;
-  if (CONFIG.requireAbove50 && price < sma50) return null;
-  if (CONFIG.requireAbove200 && price < sma200) return null;
-  if (atrPct < CONFIG.minAtrPct || atrPct > CONFIG.maxAtrPct) return null;
-  if (pctOffHigh < CONFIG.minPctOffHigh || pctOffHigh > CONFIG.maxPctOffHigh) return null;
-  if (Math.abs(distToEma21) > CONFIG.maxDistToEma21) return null;
-  if (kVal > CONFIG.maxStochK) return null;
-  if (rsVsSpy == null || rsVsSpy <= 0) return null;
-
-  const rsScore = Math.min(rsVsSpy / 20, 1) * 35;
-  const pullbackScore =
-    (1 - Math.abs(distToEma21) / CONFIG.maxDistToEma21) * 15 +
-    (1 - kVal / CONFIG.maxStochK) * 15;
-  const volScore = Math.max(0, (1 - Math.abs(atrPct - 3.0) / 3.0) * 20);
-  const trendScore = (sma50 > sma200 ? 10 : 0) + (ema21Rising ? 5 : 0);
-  const score = Math.round(Math.max(0, rsScore + pullbackScore + volScore + trendScore));
-
-  const stage = computeStage(closes, price);
-
-  const changePct = snap?.changePct ?? 0;
-  const vol = snap?.vol || bars[bars.length - 1].v || 0;
-  const rvol = avgVol > 0 && vol > 0 ? +(vol / avgVol).toFixed(2) : null;
-
-  let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
-  if (snap?.vwap && snap?.livePrice) {
-    vwapStatus = snap.livePrice >= snap.vwap ? 'above' : 'below';
-  }
-
-  const name = details?.results?.name || symbol;
-  const mktCap = details?.results?.market_cap || null;
-  const float = details?.results?.share_class_shares_outstanding || (mktCap && price ? mktCap / price : null);
-  const sector = cleanSectorDescription(details?.results?.sic_description, details?.results?.sector, details?.results?.industry);
-
-  let shortPct: number | null = null;
-  if (shortData?.results && shortData.results.length > 0 && float) {
-    shortPct = +((shortData.results[0].short_interest / float) * 100).toFixed(1);
-  }
-
-  return {
-    symbol,
-    name,
-    sector,
-    price: +price.toFixed(2),
-    score,
-    changePct: +changePct.toFixed(2),
-    vol,
-    dVol: Math.round(price * vol),
-    rvol,
-    float,
-    shortPct,
-    mktCap,
-    stage,
-    vwapStatus,
-    atrPct: +atrPct.toFixed(2),
-    adrPct: adr != null ? +adr.toFixed(2) : undefined,
-    rmv,
-    pctOffHigh: +pctOffHigh.toFixed(1),
-    distToEma21: +distToEma21.toFixed(2),
-    distToEma10: +distToEma10.toFixed(2),
-    aboveEma10: price >= ema10,
-    aboveEma21: price >= ema21,
-    stochK: +kVal.toFixed(1),
-    rsVsSpy: +rsVsSpy.toFixed(1),
-    avgDollarVolM: Math.round(avgDollarVol / 1e6),
-    goldenCross: sma50 > sma200,
-    ema21Rising,
-  };
-}
-
-const CONSOL_CONFIG = {
-  minDollarVol: 10_000_000,
-  minAdrPct: 3.0,
-  maxDistToEma10: 5,
-  maxAboveEma21: 5,
-  maxBelowEma21: 1.5,
-  maxRange10: 14,
-  maxCoilRatio: 4.0,
-  tightCoilRatio: 2.5,
-  maxDayChange: 3,
-  maxPctOffHigh: 15,
-};
-
-const CONSOL_SHORTLIST = {
-  groupedDays: 35,
-  maxCalendarDays: 55,
-  shortlistSize: 80,
-};
-
-function analyzeConsolidation(
-  symbol: string,
-  bars: Bar[],
-  spyReturn: number | null,
-  details: any,
-  shortData: any,
-  snap: SnapInfo | undefined
-): Candidate | null {
-  if (bars.length < 210) return null;
-
-  const closes = bars.map(b => b.c);
-  const price = closes[closes.length - 1];
-
-  const sma50 = sma(closes, 50);
-  const sma200 = sma(closes, 200);
-  const ema10 = ema(closes, 10);
-  const ema21 = ema(closes, 21);
-  const ema21Prev = ema(closes.slice(0, -3), 21);
-  const atr14 = atr(bars, 14);
-  const kVal = stochK(bars, 10, 4);
-
-  if (!sma50 || !sma200 || !ema10 || !ema21 || !atr14 || kVal == null) return null;
-
-  const atrPct = (atr14 / price) * 100;
-  const adr = adrPct(bars, 20);
-  const rmv = computeRMV(bars, { lookback: 15 });
-  const hi52 = Math.max(...bars.slice(-252).map(b => b.h));
-  const pctOffHigh = ((hi52 - price) / hi52) * 100;
-  const distToEma21 = ((price - ema21) / ema21) * 100;
-  const distToEma10 = ((price - ema10) / ema10) * 100;
-  const ema21Rising = ema21Prev != null && ema21 > ema21Prev;
-
-  const dollarVols = bars.slice(-20).map(b => b.c * b.v);
-  const avgDollarVol = dollarVols.reduce((a, b) => a + b, 0) / dollarVols.length;
-  const vols = bars.slice(-20).map(b => b.v).filter(v => v > 0);
-  const avgVol = vols.length > 0 ? vols.reduce((a, b) => a + b, 0) / vols.length : 0;
-
-  const ret = pctReturn(closes, CONFIG.rsLookback);
-  const rsVsSpy = ret != null && spyReturn != null ? ret - spyReturn : null;
-
-  const win10 = bars.slice(-10);
-  const hi10 = Math.max(...win10.map(b => b.h));
-  const lo10 = Math.min(...win10.map(b => b.l));
-  const range10 = lo10 > 0 ? ((hi10 - lo10) / lo10) * 100 : 999;
-  const coilRatio = atrPct > 0 ? range10 / atrPct : 999;
-
-  const changePct = snap?.changePct ?? 0;
-
-  const rawKAt = (offset: number): number => {
-    const idx = bars.length - 1 - offset;
-    if (idx < 9) return 50;
-    const win = bars.slice(idx - 9, idx + 1);
-    const hh = Math.max(...win.map(b => b.h));
-    const ll = Math.min(...win.map(b => b.l));
-    return hh === ll ? 50 : ((bars[idx].c - ll) / (hh - ll)) * 100;
-  };
-  const oversoldRecent = rawKAt(0) <= 25 || rawKAt(1) <= 25 || rawKAt(2) <= 25;
-  const upDay = closes.length >= 2 && closes[closes.length - 1] > closes[closes.length - 2];
-  const blueDot = oversoldRecent && upDay && price >= ema21;
-
-  if (avgDollarVol < CONSOL_CONFIG.minDollarVol) return null;
-  if (adr == null || adr < CONSOL_CONFIG.minAdrPct) return null;
-  if (price < sma50 || price < sma200) return null;
-  if (!(sma50 > sma200)) return null;
-  if (!ema21Rising) return null;
-  if (Math.abs(distToEma10) > CONSOL_CONFIG.maxDistToEma10) return null;
-  if (distToEma21 > CONSOL_CONFIG.maxAboveEma21 || distToEma21 < -CONSOL_CONFIG.maxBelowEma21) return null;
-  if (range10 > CONSOL_CONFIG.maxRange10) return null;
-  if (coilRatio > CONSOL_CONFIG.maxCoilRatio) return null;
-  if (Math.abs(changePct) > CONSOL_CONFIG.maxDayChange) return null;
-  if (pctOffHigh > CONSOL_CONFIG.maxPctOffHigh) return null;
-  if (rsVsSpy == null || rsVsSpy <= 0) return null;
-
-  const tightScore = Math.max(0, Math.min(1,
-    (CONSOL_CONFIG.maxCoilRatio - coilRatio) / (CONSOL_CONFIG.maxCoilRatio - 2.0)
-  )) * 30;
-  const proxScore =
-    (1 - Math.abs(distToEma10) / CONSOL_CONFIG.maxDistToEma10) * 15 +
-    Math.max(0, 1 - Math.abs(distToEma21) / CONSOL_CONFIG.maxAboveEma21) * 10;
-  const rsScore = Math.min(rsVsSpy / 20, 1) * 30;
-  const trendScore = 10 + (pctOffHigh <= 7 ? 5 : 0);
-  const score = Math.round(Math.max(0, Math.min(100, tightScore + proxScore + rsScore + trendScore)));
-
-  const stage = computeStage(closes, price);
-  const vol = snap?.vol || bars[bars.length - 1].v || 0;
-  const rvol = avgVol > 0 && vol > 0 ? +(vol / avgVol).toFixed(2) : null;
-
-  let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
-  if (snap?.vwap && snap?.livePrice) {
-    vwapStatus = snap.livePrice >= snap.vwap ? 'above' : 'below';
-  }
-
-  const name = details?.results?.name || symbol;
-  const mktCap = details?.results?.market_cap || null;
-  const float = details?.results?.share_class_shares_outstanding || (mktCap && price ? mktCap / price : null);
-  const sector = cleanSectorDescription(details?.results?.sic_description, details?.results?.sector, details?.results?.industry);
-
-  let shortPct: number | null = null;
-  if (shortData?.results && shortData.results.length > 0 && float) {
-    shortPct = +((shortData.results[0].short_interest / float) * 100).toFixed(1);
-  }
-
-  return {
-    symbol,
-    name,
-    sector,
-    price: +price.toFixed(2),
-    score,
-    changePct: +changePct.toFixed(2),
-    vol,
-    dVol: Math.round(price * vol),
-    rvol,
-    float,
-    shortPct,
-    mktCap,
-    stage,
-    vwapStatus,
-    atrPct: +atrPct.toFixed(2),
-    adrPct: +adr.toFixed(2),
-    rmv,
-    pctOffHigh: +pctOffHigh.toFixed(1),
-    distToEma21: +distToEma21.toFixed(2),
-    distToEma10: +distToEma10.toFixed(2),
-    aboveEma10: price >= ema10,
-    aboveEma21: price >= ema21,
-    stochK: +kVal.toFixed(1),
-    rsVsSpy: +rsVsSpy.toFixed(1),
-    avgDollarVolM: Math.round(avgDollarVol / 1e6),
-    goldenCross: sma50 > sma200,
-    ema21Rising,
-    range10Pct: +range10.toFixed(1),
-    coilRatio: +coilRatio.toFixed(2),
-    blueDot,
-  };
-}
-
-export async function GET() {
-  try {
-    if (!POLYGON_KEY) {
-      return NextResponse.json({ success: false, error: 'Missing Polygon API Key' }, { status: 500 });
-    }
-
-    const spyBars = await getDailyBars("SPY");
-    const spyReturn = pctReturn(spyBars.map(b => b.c), CONFIG.rsLookback);
-
-    const [{ symbols: universe, snapMap, snapMapAll }, earningsBlackout] = await Promise.all([getUniverse(), getEarningsBlackout()]);
-    const toScan = universe.filter(sym => !earningsBlackout.has(sym));
-
-    const groupedSeries = await getGroupedSeries(new Set(snapMapAll.keys()));
-    const consolShortlist = shortlistConsolidation(groupedSeries)
-      .filter(sym => !earningsBlackout.has(sym));
-    const swingSet = new Set(toScan);
-    const consolExtra = consolShortlist.filter(sym => !swingSet.has(sym));
-
-    const results = await inBatches(toScan, CONFIG.concurrency, async (sym) => {
-      const [bars, details, shortData] = await Promise.all([
-        getDailyBars(sym),
-        polygonSafe<any>(`/v3/reference/tickers/${sym}`, {}),
-        polygonSafe<any>(`/stocks/v1/short-interest?ticker=${sym}`, { results: [] }),
-      ]);
-      const swing = analyze(sym, bars, spyReturn, details, shortData, snapMap.get(sym));
-      const consol = analyzeConsolidation(sym, bars, spyReturn, details, shortData, snapMap.get(sym));
-      if (!swing && !consol) return null;
-      return { swing, consol };
-    });
-
-    const extraConsols = await inBatches(consolExtra, CONFIG.concurrency, async (sym) => {
-      const [bars, details, shortData] = await Promise.all([
-        getDailyBars(sym),
-        polygonSafe<any>(`/v3/reference/tickers/${sym}`, {}),
-        polygonSafe<any>(`/stocks/v1/short-interest?ticker=${sym}`, { results: [] }),
-      ]);
-      return analyzeConsolidation(sym, bars, spyReturn, details, shortData, snapMapAll.get(sym));
-    });
-
-    const candidates = results.map(r => r.swing).filter((c): c is Candidate => !!c);
-    const consols = [
-      ...results.map(r => r.consol).filter((c): c is Candidate => !!c),
-      ...extraConsols,
-    ];
-
-    candidates.sort((a, b) => b.score - a.score);
-    consols.sort((a, b) => b.score - a.score);
-
-    // --- Catalysts: one batched WIIM lookup across both final lists --------
-    const consolKeep = consols.slice(0, 40);
-    const newsSymbols = Array.from(new Set([
-      ...candidates.map(c => c.symbol),
-      ...consolKeep.map(c => c.symbol),
-    ]));
-    const wiimMap = await fetchBenzingaWiims(newsSymbols);
-
-    const attachCatalyst = (c: Candidate) => {
-      const w = wiimMap.get(c.symbol);
-      if (!w) {
-        c.catalyst = null;
-        c.thesis = null;
-        c.catalystUrl = null;
-        return;
-      }
-      const tag = classifyWiim(w.title);
-      c.catalyst = w.daysOld >= 1.5 ? `${tag} (Delayed)` : tag;
-      c.thesis = w.title;
-      c.catalystUrl = w.url;
     };
-    candidates.forEach(attachCatalyst);
-    consolKeep.forEach(attachCatalyst);
+    fetchCandidates();
+    const interval = setInterval(fetchCandidates, 60000);
+    return () => { isMounted = false; clearInterval(interval); };
+  }, []);
 
-    const scanTime = Date.now();
-    const hasRealData = universe.length > 0 && candidates.length > 0;
+  const handleSort = (key: keyof Ep9mCandidate) => {
+    let direction: SortDirection = 'desc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
+    else if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') { setSortConfig(null); return; }
+    setSortConfig({ key, direction });
+  };
 
-    if (hasRealData) {
-      await kv.set('swing_candidates_v1', candidates);
-      await kv.set('swing_meta_v1', {
-        spyReturn3M: spyReturn != null ? +spyReturn.toFixed(1) : null,
-        universeSize: universe.length,
-        excludedForEarnings: universe.length - toScan.length,
-        count: candidates.length,
+  // Clicking the active option clears back to All (toggle behavior)
+  const handleEpFilter = (val: EpFilterType) => setEpFilter(prev => prev === val ? 'All' : val);
+  const handleRvolFilter = (val: RvolFilterType) => setRvolFilter(prev => prev === val ? 'All' : val);
+  const handleCatalystFilter = (val: CatalystFilterType) => setCatalystFilter(prev => prev === val ? 'All' : val);
+  const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
+
+  const filteredAndSorted = useMemo(() => {
+    let list = [...candidates];
+
+    if (epFilter !== 'All') {
+      const minScore = EP_MIN_SCORE[epFilter];
+      list = list.filter(c => (c.score ?? -1) >= minScore);
+    }
+    if (rvolFilter !== 'All') {
+      const minRvol = Number(rvolFilter);
+      list = list.filter(c => (c.rvol ?? 0) >= minRvol);
+    }
+    // Silent = volume with no story yet. Often the most valuable state: the
+    // institutional footprint is visible before the news is.
+    if (catalystFilter !== 'All') {
+      list = list.filter(c => catalystFilter === 'News' ? hasCatalyst(c) : !hasCatalyst(c));
+    }
+    if (showUnprecedentedOnly) list = list.filter(c => c.unprecedented === true);
+    if (showSugarBabyOnly) list = list.filter(c => c.sugarBaby === true);
+    if (marketCapFilter !== 'All') {
+      list = list.filter(c => {
+        const mc = c.mktCap;
+        if (!mc) return true;
+        if (marketCapFilter === 'Large') return mc >= 2e9;
+        if (marketCapFilter === 'Small') return mc < 2e9;
+        return true;
       });
-      await kv.set('swing_last_scan_v1', scanTime);
-    } else {
-      console.warn('Swing scan produced no candidates; preserving previous KV snapshot.');
+    }
+    if (vwapFilter !== 'All') {
+      list = list.filter(c => c.vwapStatus === vwapFilter);
     }
 
-    if (universe.length > 0) {
-      await kv.set('consol_1021_v1', consolKeep);
-      await kv.set('consol_1021_meta_v1', { count: consols.length });
-      await kv.set('consol_1021_last_scan_v1', scanTime);
-    }
-
-    return NextResponse.json({
-      success: true,
-      lastScanTime: scanTime,
-      count: candidates.length,
-      consolCount: consols.length,
-      consolShortlisted: consolShortlist.length,
-      universeSize: universe.length,
-      excludedForEarnings: universe.length - toScan.length,
-      catalystsFound: wiimMap.size,
-      dataPersisted: hasRealData,
+    if (!sortConfig) return list;
+    return list.sort((a, b) => {
+      const aVal = a[sortConfig.key] as any;
+      const bVal = b[sortConfig.key] as any;
+      if (aVal === null || aVal === undefined) return 1;
+      if (bVal === null || bVal === undefined) return -1;
+      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
     });
-  } catch (error: any) {
-    console.error("SWING_RUN_ERROR:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-  }
+  }, [candidates, sortConfig, epFilter, rvolFilter, catalystFilter, showUnprecedentedOnly, showSugarBabyOnly, marketCapFilter, vwapFilter]);
+
+  const handleCopyTickers = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const tickers = filteredAndSorted.map(c => c.ticker).join(',');
+    if (!tickers) return;
+    try {
+      await navigator.clipboard.writeText(tickers);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = tickers;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch {}
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+
+  const silentCount = useMemo(() => candidates.filter(c => !hasCatalyst(c)).length, [candidates]);
+  const unprecedentedCount = useMemo(() => candidates.filter(c => c.unprecedented).length, [candidates]);
+
+  const getSortIcon = (columnKey: keyof Ep9mCandidate) =>
+    sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
+
+  const getScoreBadge = (score: number) => {
+    if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+    if (score >= 50) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+    return 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50';
+  };
+  const getStageColor = (stage: string | undefined) => {
+    if (!stage || stage === '-') return 'text-slate-500';
+    if (stage.includes('1')) return 'text-slate-400';
+    if (stage.includes('2')) return 'text-emerald-400';
+    if (stage.includes('3')) return 'text-amber-400';
+    if (stage.includes('4')) return 'text-rose-400';
+    return 'text-slate-500';
+  };
+  // RVOL is the headline metric here, so its scale runs hotter than elsewhere:
+  // the scan floors at 3x, which would already be the top bucket on other tables.
+  const getRvolColor = (rvol: number | null | undefined) => {
+    if (!rvol) return 'text-slate-500';
+    if (rvol >= 10) return 'text-fuchsia-400';
+    if (rvol >= 7) return 'text-purple-400';
+    if (rvol >= 5) return 'text-emerald-400';
+    return 'text-lime-400';
+  };
+  // Float turnover — how much of the tradeable float changed hands today.
+  // Above 1.0x the entire float traded, which is a genuine regime change.
+  const getTurnColor = (t: number | null | undefined) => {
+    if (t == null) return 'text-slate-500';
+    if (t >= 1.0) return 'text-fuchsia-400';
+    if (t >= 0.5) return 'text-purple-400';
+    if (t >= 0.25) return 'text-emerald-400';
+    if (t >= 0.10) return 'text-lime-400';
+    return 'text-slate-400';
+  };
+  // Days to cover — the "5" in MAGNA 53. Shorts are trapped fuel.
+  const getD2cColor = (d: number | null | undefined) => {
+    if (d == null) return 'text-slate-500';
+    if (d >= 5) return 'text-purple-400';
+    if (d >= 3) return 'text-emerald-400';
+    if (d >= 1.5) return 'text-slate-300';
+    return 'text-slate-500';
+  };
+  const getAdrColor = (a: number | null) => {
+    if (a == null) return 'text-slate-500';
+    if (a >= 10) return 'text-purple-400';
+    if (a >= 5) return 'text-emerald-400';
+    if (a >= 3) return 'text-slate-300';
+    return 'text-slate-500';
+  };
+  // RMV — inverted scale. On an EP9M name a HIGH reading is expected and fine:
+  // it confirms the range expanded with the volume. A low RMV alongside 8x
+  // volume is the odd one — heavy trade going nowhere, which is distribution.
+  const getRmvColor = (r: number | null) => {
+    if (r == null) return 'text-slate-500';
+    if (r <= 10) return 'text-emerald-400';
+    if (r <= 25) return 'text-lime-400';
+    if (r <= 45) return 'text-yellow-400';
+    if (r <= 65) return 'text-amber-400';
+    if (r <= 80) return 'text-orange-400';
+    return 'text-rose-400';
+  };
+  const getRsColor = (rs: number | null | undefined) => {
+    if (rs == null) return 'text-slate-500';
+    if (rs >= 20) return 'text-purple-400';
+    if (rs >= 10) return 'text-emerald-400';
+    if (rs >= 0) return 'text-slate-300';
+    return 'text-rose-400';
+  };
+  const getChgColor = (chg: number | null | undefined) => {
+    if (chg == null) return 'text-slate-500';
+    return chg >= 0 ? 'text-emerald-400' : 'text-rose-400';
+  };
+
+  const emaDot = (state: boolean | null | undefined) => {
+    if (state === null || state === undefined) return 'bg-slate-600';
+    return state ? 'bg-emerald-400' : 'bg-rose-500';
+  };
+  const structColor = (state: boolean | null | undefined) => {
+    if (state === null || state === undefined) return 'text-slate-600';
+    return state ? 'text-emerald-400' : 'text-rose-400';
+  };
+
+  // Close strength: where in the day's range price settled. A stock that
+  // traded 12M shares and closed on its low moved that volume from buyers to
+  // sellers — distribution wearing an accumulation costume.
+  const closeState = (c: Ep9mCandidate): { label: string; cls: string } => {
+    const s = c.closeStrength;
+    if (s == null) return { label: '—', cls: 'text-slate-600' };
+    if (s >= 0.85) return { label: 'Closed Strong', cls: 'text-emerald-400' };
+    if (s >= 0.70) return { label: 'Upper Range', cls: 'text-lime-400' };
+    if (s >= 0.50) return { label: 'Mid Range', cls: 'text-slate-400' };
+    if (s >= 0.25) return { label: 'Lower Range', cls: 'text-amber-400' };
+    return { label: 'Closed Weak', cls: 'text-rose-400' };
+  };
+
+  const displaySession = ['Pre-Market', 'Open', 'Post-Market', 'Closed'].includes(session) ? session : 'Closed';
+  const getSessionTextColor = () => {
+    if (displaySession === 'Pre-Market') return 'text-amber-500';
+    if (displaySession === 'Open') return 'text-[#00e676]';
+    if (displaySession === 'Post-Market') return 'text-indigo-400';
+    return 'text-slate-500';
+  };
+
+  const thBase = "px-1 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
+  const tdBase = "px-1 pt-2.5 pb-1.5 text-center";
+  const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
+  const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
+  const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
+  const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
+  const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
+
+  const activeFilterCount =
+    (epFilter !== 'All' ? 1 : 0) +
+    (rvolFilter !== 'All' ? 1 : 0) +
+    (catalystFilter !== 'All' ? 1 : 0) +
+    (showUnprecedentedOnly ? 1 : 0) +
+    (showSugarBabyOnly ? 1 : 0) +
+    (marketCapFilter !== 'All' ? 1 : 0) +
+    (vwapFilter !== 'All' ? 1 : 0);
+
+  // Funnel note — makes a thin list read as "quiet tape" rather than "broken scan".
+  const funnelNote = raw9m != null && shortlisted != null
+    ? `${raw9m} names cleared 9M shares · ${shortlisted} were abnormal for themselves`
+    : null;
+
+  return (
+    <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-hidden shadow-xl w-full max-w-[1280px] mx-auto">
+      <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
+            EP 9 MILLION
+          </span>
+          {candidates.length > 0 && (
+            <span className="hidden md:flex items-center gap-2">
+              <span className="text-[10px] font-bold tracking-wider uppercase text-fuchsia-400 bg-fuchsia-500/10 border border-fuchsia-500/20 px-2 py-0.5 rounded">{unprecedentedCount} Unprecedented</span>
+              <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400 bg-white/[0.03] border border-white/5 px-2 py-0.5 rounded">{silentCount} Silent</span>
+            </span>
+          )}
+          {filteredAndSorted.length > 0 && (
+            <button
+              onClick={handleCopyTickers}
+              title={`Copy ${filteredAndSorted.length} ticker${filteredAndSorted.length !== 1 ? 's' : ''} for TradingView`}
+              className={`text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded border transition-all duration-200 ${
+                copied
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  : 'bg-[#161c2a] text-slate-400 border-white/5 hover:text-slate-200 hover:bg-white/[0.04]'
+              }`}
+            >
+              {copied ? `✓ Copied ${filteredAndSorted.length}` : `Copy ${filteredAndSorted.length}`}
+            </button>
+          )}
+        </div>
+        <div className="flex flex-col items-center gap-1.5">
+          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
+            <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>{displaySession}</span>
+          </div>
+          {generatedAt && (<span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">Scanned: {formatTime(generatedAt)} EST</span>)}
+        </div>
+      </div>
+
+      {isExpanded && (
+        <>
+          <div className="flex flex-col gap-3 mb-4 relative z-10" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-center">
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className={`px-4 py-1.5 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 flex items-center gap-2 ${
+                  activeFilterCount > 0
+                    ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]'
+                    : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'
+                }`}
+              >
+                <span className={`inline-block transition-transform duration-200 ${showFilters ? 'rotate-90' : ''}`}>▸</span>
+                Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+              </button>
+            </div>
+            {showFilters && (
+              <div className="flex flex-wrap justify-center items-center gap-3 w-full">
+                <div className={pillWrap}>
+                  <span className={pillLabel}>EP</span>
+                  <div className="flex items-center gap-1">
+                    {EP_BUCKETS.map((g) => (
+                      <button
+                        key={g}
+                        onClick={() => handleEpFilter(g)}
+                        title={g === 'A' ? 'A only — EP 70 and above' : 'B and above — includes A (EP 50+)'}
+                        className={`${pillBtn} ${epFilter === g ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {g}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>RVOL</span>
+                  <div className="flex items-center gap-1">
+                    {RVOL_BUCKETS.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => handleRvolFilter(opt)}
+                        title={`Relative volume of ${opt}x and above — scan floor is 3x`}
+                        className={`${pillBtn} ${rvolFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {opt}x+
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>STORY</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleCatalystFilter('News')}
+                      title="Has a news catalyst attached"
+                      className={`${pillBtn} ${catalystFilter === 'News' ? filterBtnActive : filterBtnIdle}`}
+                    >
+                      News
+                    </button>
+                    <button
+                      onClick={() => handleCatalystFilter('Silent')}
+                      title="Heavy volume with no headline yet — the footprint before the story"
+                      className={`${pillBtn} ${catalystFilter === 'Silent' ? filterBtnActive : filterBtnIdle}`}
+                    >
+                      Silent
+                    </button>
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>FLAGS</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setShowUnprecedentedOnly(!showUnprecedentedOnly)}
+                      title="Today's volume exceeds this stock's own 60-day record"
+                      className={`${pillBtn} ${showUnprecedentedOnly ? filterBtnActive : filterBtnIdle}`}
+                    >
+                      Unprec
+                    </button>
+                    <button
+                      onClick={() => setShowSugarBabyOnly(!showSugarBabyOnly)}
+                      title="Repeat EP9M offender in the last 90 days"
+                      className={`${pillBtn} ${showSugarBabyOnly ? filterBtnActive : filterBtnIdle}`}
+                    >
+                      ★ Repeat
+                    </button>
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>MKT CAP</span>
+                  <div className="flex items-center gap-1">
+                    {['All', 'Small', 'Large'].map((cap) => (
+                      <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>{cap}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>VWAP</span>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
+                    </button>
+                    <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
+                      <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Below
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
+            <table className="w-full min-w-[1120px] table-fixed border-collapse">
+              <thead>
+                <tr className="border-b border-white/5 select-none">
+                  <th className={`${thBase} w-[10%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className={`${thBase} w-[4%]`} onClick={() => handleSort('score')}>EP{getSortIcon('score')}</th>
+                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} w-[8%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('floatTurnover')}>TURN{getSortIcon('floatTurnover')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('daysToCover')}>D2C{getSortIcon('daysToCover')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rmv')}>RMV{getSortIcon('rmv')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
+                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className={`${thBase} w-[11%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-white/5">
+                {filteredAndSorted.length === 0 ? (
+                  <tr>
+                    <td colSpan={15} className="py-12 text-center text-slate-500 text-sm font-medium">
+                      {status === 'Live'
+                        ? (candidates.length > 0
+                            ? 'No names match the current filters.'
+                            : 'Nothing trading abnormal size yet — volume builds through the session.')
+                        : status === 'Syncing...'
+                          ? 'Running scan…'
+                          : 'Feed unavailable — awaiting next scheduled scan.'}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredAndSorted.map((row) => {
+                    const tag = catalystTagOf(row);
+                    const headline = headlineOf(row);
+                    const sectorText = cleanSector(row.sector, row.ticker);
+                    const adr = adrOf(row);
+                    const rmv = rmvOf(row);
+                    const cs = closeState(row);
+                    return (
+                      <React.Fragment key={row.ticker}>
+                        <tr className="hover:bg-white/[0.02] transition-colors group">
+                          <td className={tdBase}>
+                            <div className="flex items-center justify-center gap-1.5">
+                              <span title={row.name || row.ticker} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
+                              {row.unprecedented && <UnprecedentedMark />}
+                              {row.sugarBaby && <SugarBabyMark />}
+                            </div>
+                          </td>
+                          <td className={tdBase}>
+                            <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.score)}`}>{row.score}</span>
+                          </td>
+                          <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
+                            <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus && row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div>
+                          </td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getChgColor(row.changePct)}`}>
+                            {row.changePct != null ? `${row.changePct >= 0 ? '+' : ''}${row.changePct.toFixed(2)}%` : '—'}
+                          </td>
+                          <td
+                            className={`${tdBase} whitespace-nowrap tabular-nums`}
+                            title={row.avgVol ? `20-day average: ${formatNumber(row.avgVol)}${row.volVs60dMax != null ? ` · ${row.volVs60dMax.toFixed(2)}x its 60-day volume high` : ''}` : undefined}
+                          >
+                            <div className="text-xs font-bold leading-tight text-slate-200">{formatNumber(row.vol)}</div>
+                            {row.avgVol ? (<div className="text-[9px] text-slate-500 font-medium leading-tight">avg {formatNumber(row.avgVol)}</div>) : null}
+                          </td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`} title="Today's volume vs its own 20-day average">
+                            {row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}
+                          </td>
+                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getTurnColor(row.floatTurnover)}`} title="Float turnover — share of the tradeable float that changed hands today. Above 1.0x the entire float traded.">
+                            {row.floatTurnover != null ? `${row.floatTurnover.toFixed(2)}x` : '—'}
+                          </td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getD2cColor(row.daysToCover)}`} title="Days to cover — short interest divided by average daily volume. Squeeze fuel.">
+                            {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
+                          </td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`} title="20-day average daily range (high/low) — the anti-chop measure">
+                            {adr != null ? `${adr.toFixed(1)}%` : '—'}
+                          </td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRmvColor(rmv)}`} title="RMV(15) — 0 = tightest price action of the last 15 bars, 100 = most volatile. High is expected here; low alongside heavy volume means trade going nowhere.">
+                            {rmv != null ? rmv.toFixed(0) : '—'}
+                          </td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`}>
+                            {row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)}` : '—'}
+                          </td>
+                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
+                          <td className={`${tdBase} whitespace-nowrap border-l border-white/5`}>
+                            <span className={`text-[11px] font-bold tracking-wide ${getStageColor(row.stage)}`}>{formatStageText(row.stage)}</span>
+                          </td>
+                          <td className={tdBase}>
+                            <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
+                          </td>
+                        </tr>
+                        {/* Sub-row: spacer | EP 9M + news catalyst | STR/CLOSE centered */}
+                        <tr className="bg-transparent border-t border-white/5">
+                          <td className="w-[10%]"></td>
+                          <td colSpan={12} className="pb-2.5 pt-1.5 pr-3">
+                            <div className="flex items-center text-left">
+                              <span className="shrink-0 w-[104px] pr-2 text-[#7c8bfa] font-bold text-[11px] tracking-[0.08em] uppercase leading-tight">EP 9M</span>
+                              <p className="flex-1 text-[11px] leading-relaxed whitespace-normal border-l border-white/10 pl-3">
+                                {headline || tag ? (
+                                  <>
+                                    {tag && (
+                                      <>
+                                        <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400/90">{tag}</span>
+                                        {headline ? ' ' : ''}
+                                      </>
+                                    )}
+                                    {headline && (
+                                      row.catalystUrl ? (
+                                        <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] hover:underline transition-colors">{headline}</a>
+                                      ) : (
+                                        <span className="text-indigo-300/90 font-medium">{headline}</span>
+                                      )
+                                    )}
+                                  </>
+                                ) : (
+                                  <span className="text-slate-600 italic">No headline yet — the volume is the signal. Research the story.</span>
+                                )}
+                              </p>
+                            </div>
+                          </td>
+                          <td colSpan={2} className="pb-2.5 pt-1.5 align-middle">
+                            <div className="flex items-center justify-center gap-2 border-l border-white/10 px-1 py-1">
+                              <span className="flex items-center gap-1">
+                                <span className="text-[10px] text-slate-500">STR:</span>
+                                <span className={`text-[10px] font-semibold ${structColor(row.goldenCross)}`} title="50 SMA > 200 SMA">GC</span>
+                                <span className={`text-[10px] font-semibold ${structColor(row.ema21Rising)}`} title="21 EMA rising">21↑</span>
+                              </span>
+                              <span className="flex items-center gap-1 whitespace-nowrap">
+                                <span className="text-[10px] text-slate-500">CLS:</span>
+                                <span className={`text-[10px] font-semibold ${cs.cls}`} title="Where in the day's range price settled">{cs.label}</span>
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      </React.Fragment>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {funnelNote && isExpanded && (
+        <div className="relative z-10 mt-3 text-center">
+          <span className="text-[10px] text-slate-600 font-medium tracking-wide">{funnelNote}</span>
+        </div>
+      )}
+    </div>
+  );
 }
