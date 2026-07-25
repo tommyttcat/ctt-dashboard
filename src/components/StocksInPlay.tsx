@@ -1,15 +1,15 @@
 'use client';
 
-// StocksInPlay — v2.2
-// v2.0: readiness pushed right; header raised to z-30 so the table stops
-//       painting over the "?" panel
+// StocksInPlay — v2.3
 // v2.1: STATE and readiness split so they align under STAGE / SECTOR
-// v2.2: z-30 moved OFF the header row and onto the MetricsKey wrapper alone.
-//       The header row spans the full card width, so raising it put an
-//       invisible layer over the table — hovering the sub-row landed on the
-//       header, which is why RMV/RME, STATE and readiness showed the
-//       cursor-help pointer but never fired their tooltips. Only the "?" and
-//       its panel need to sit above the table.
+// v2.2: z-30 moved OFF the header row and onto the MetricsKey wrapper alone
+// v2.3: sub-row collision fixed — STATE was left-aligned with pl-3 and
+//       tracking-[0.1em] inside STAGE's 5% cell, so IMPULSE/WASHED overflowed
+//       into the readiness cell (CHOP fit, which is why only long labels
+//       collided). STATE and readiness now center under their columns like
+//       the main row, tracking cut, nowrap on both. + FALLBACK_NOTES: colTip
+//       returned '' for any key missing from COLUMN_NOTES, which renders NO
+//       tooltip — every header now always has one.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -19,10 +19,71 @@ import { stateOf, stateTooltip, stateLegend, readinessTooltip } from '@/lib/indi
 import { SCANNER_SIP_META, COLUMN_NOTES } from '@/lib/scanConfig';
 import MetricsKey from './MetricsKey';
 
+// Local glossary — guarantees every header has a hover even if a key is
+// missing or spelled differently in scanConfig's COLUMN_NOTES.
+const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
+  TICKER: { what: 'Symbol. Hover shows the company name.' },
+  CNF: {
+    what: 'Confluence score 0–100 — how many independent factors line up: RVOL, gap, range expansion, RS, catalyst quality, persistence, VWAP, regime, sector heat. Hover the badge for the per-row breakdown.',
+    colour: 'Green 70+ (A) · amber 50+ (B) · grey below (C).',
+  },
+  PRICE: {
+    what: 'Last price. The dot beside it is VWAP position.',
+    colour: 'Green dot above VWAP · red dot below.',
+  },
+  'CHG%': {
+    what: 'Change vs prior close. Scan floor is +4%.',
+    colour: 'Green up · red down.',
+  },
+  '10/21': {
+    what: 'Price vs the 10 and 21 EMAs — the Dr. Wish trend pair.',
+    colour: 'Green dot above that EMA · red below · grey no data.',
+  },
+  VOL: { what: 'Shares traded today. Scan floor is 500K.' },
+  '$VOL': { what: 'Dollar volume — price × volume. Scan floor is $5M.' },
+  RVOL: {
+    what: 'Relative volume vs the 20-day average at this time of day.',
+    colour: 'Amber 2x+ · green 1.5x+ · grey below.',
+  },
+  FLOAT: {
+    what: 'Shares available to trade. Small floats move harder on the same demand.',
+    colour: 'Purple ≤20M · green ≤50M · grey above.',
+  },
+  ADR: {
+    what: '20-day average daily range. The anti-chop gate — scan floor is 3%.',
+    colour: 'Purple 10%+ · green 5%+ · grey at the floor.',
+  },
+  MF: {
+    what: 'Money Flow (21) — volume-weighted accumulation vs distribution, 0–100. Arrow shows the bar-over-bar trend.',
+    colour: 'Green high (accumulation) · red low (distribution).',
+  },
+  RS: {
+    what: 'Relative strength vs SPY over three months, in percentage points.',
+    colour: 'Purple +20 · green +10 · grey positive · red negative.',
+  },
+  STOCH: {
+    what: 'Stochastic %K (10). Low readings near a rising 21 EMA are the Blue Dot precondition.',
+    colour: 'Purple ≤20 · green ≤30 · grey above.',
+  },
+  DTC: {
+    what: 'Days to cover — sessions of normal volume for shorts to exit. Above 5 is trapped supply that has to buy at some point.',
+    colour: 'Purple 5+ · green 3+ · grey below.',
+  },
+  MCAP: { what: 'Market cap. Scan floor is $20M.' },
+  STAGE: {
+    what: 'Weinstein stage with sub-stage. 2A strong advance · 2B extended · 2C sagging below the 50 SMA. Hover the value for the row-specific read.',
+    colour: 'Green healthy Stage 2 · amber sagging · red Stage 4.',
+  },
+  SECTOR: { what: 'Sector, cleaned of ticker prefixes.' },
+};
+
 // Native header tooltip: what the column means, then how to read its colour.
-const colTip = (key: string): string => {
-  const n = COLUMN_NOTES[key];
-  if (!n) return '';
+// scanConfig's COLUMN_NOTES wins when present; the local fallback guarantees
+// a tooltip either way. Returns undefined (not '') so React omits the attr
+// instead of shipping an empty title that renders nothing.
+const colTip = (key: string): string | undefined => {
+  const n = COLUMN_NOTES?.[key] ?? FALLBACK_NOTES[key];
+  if (!n) return undefined;
   return n.colour ? `${n.what}\n\n${n.colour}` : n.what;
 };
 
@@ -627,7 +688,7 @@ export default function StocksInPlay() {
             <table className="w-full min-w-[1100px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className={`${thBase} w-[7%]`} title={colTip('TICKER')} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('CNF')} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
                   <th className={`${thBase} w-[7%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
@@ -723,9 +784,10 @@ export default function StocksInPlay() {
                             <span title={sectorText} className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: setup | catalyst | RMV/RME | STATE | readiness.
-                            STATE and readiness get their own cells so they line
-                            up under STAGE and SECTOR rather than drifting. */}
+                        {/* Sub-row: setup | catalyst | RMV/RME, then STATE under
+                            STAGE and readiness under SECTOR — centered like the
+                            main row so the columns read as one unit, nowrap so
+                            long labels (IMPULSE, WASHED) can never collide. */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%]"></td>
                           <td colSpan={14} className="pb-1.5 pt-1 pr-3">
@@ -763,19 +825,19 @@ export default function StocksInPlay() {
                               </span>
                             </div>
                           </td>
-                          <td className="pb-1.5 pt-1 pl-3 text-left align-middle border-l border-white/10">
+                          <td className="pb-1.5 pt-1 px-0.5 text-center align-middle border-l border-white/5">
                             <span
                               title={stateLegend(rmv, rme)}
-                              className={`text-[9px] font-bold tracking-[0.1em] uppercase cursor-help ${stateRes.color}`}
+                              className={`text-[9px] font-bold cursor-help whitespace-nowrap ${stateRes.color}`}
                             >
                               {stateRes.state === 'UNKNOWN' ? '—' : stateRes.state}
                             </span>
                           </td>
-                          <td className="pb-1.5 pt-1 pl-1 text-left align-middle">
+                          <td className="pb-1.5 pt-1 px-0.5 text-center align-middle">
                             {st === 'Ready' ? (
-                              <span title={readinessTooltip(st)} className="text-[9px] font-semibold text-emerald-400 cursor-help">Ready</span>
+                              <span title={readinessTooltip(st)} className="text-[9px] font-semibold text-emerald-400 cursor-help whitespace-nowrap">Ready</span>
                             ) : st === 'Forming' ? (
-                              <span title={readinessTooltip(st)} className="text-[9px] font-semibold text-amber-400 cursor-help">Forming</span>
+                              <span title={readinessTooltip(st)} className="text-[9px] font-semibold text-amber-400 cursor-help whitespace-nowrap">Forming</span>
                             ) : null}
                           </td>
                         </tr>

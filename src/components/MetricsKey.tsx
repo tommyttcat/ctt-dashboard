@@ -4,13 +4,12 @@
 //
 // Deliberately minimal: just the thresholds. They are the one thing you
 // genuinely cannot see anywhere else — when a name you are watching never
-// appears, there is no way to know which gate ate it. Everything else has a
-// home already: column meanings are native tooltips on the headers, and the
-// filter pills carry their own.
+// appears, there is no way to know which gate ate it. Column meanings live
+// as native tooltips on the headers. Nothing else renders here: no FILTERS
+// section, no glossary, no premise text.
 //
-// Hover to peek, click to pin. The close-delay matters — a panel that vanishes
-// the moment the cursor leaves the "?" is unusable, since you have to cross
-// dead space to read it.
+// Hover to peek, click to pin. Background is a solid inline hex so it can
+// never fall through to transparent regardless of layer ordering.
 
 import React, { useState, useRef, useEffect } from 'react';
 import type { ScanConfigMeta, ScanGate } from '@/lib/scanConfig';
@@ -51,6 +50,7 @@ export default function MetricsKey({ meta, liveGates, align = 'left' }: MetricsK
   // out is finding the "?" again, which is worse than the problem.
   useEffect(() => {
     if (!pinned) return;
+
     const onDown = (e: MouseEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
         setPinned(false);
@@ -58,8 +58,12 @@ export default function MetricsKey({ meta, liveGates, align = 'left' }: MetricsK
       }
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setPinned(false); setOpen(false); }
+      if (e.key === 'Escape') {
+        setPinned(false);
+        setOpen(false);
+      }
     };
+
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
     return () => {
@@ -72,8 +76,13 @@ export default function MetricsKey({ meta, liveGates, align = 'left' }: MetricsK
 
   const togglePin = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (pinned) { setPinned(false); setOpen(false); }
-    else { setPinned(true); setOpen(true); }
+    if (pinned) {
+      setPinned(false);
+      setOpen(false);
+    } else {
+      setPinned(true);
+      setOpen(true);
+    }
   };
 
   return (
@@ -86,41 +95,40 @@ export default function MetricsKey({ meta, liveGates, align = 'left' }: MetricsK
     >
       <button
         onClick={togglePin}
-        title={pinned ? 'Click to unpin' : 'Scan criteria'}
-        className={`w-5 h-5 flex items-center justify-center rounded-full border text-[10px] font-bold transition-all duration-200 ${
-          open
-            ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
-            : 'bg-[#161c2a] text-slate-500 border-white/5 hover:text-slate-300 hover:bg-white/[0.04]'
+        title={pinned ? 'Unpin' : 'Scan criteria — click to pin'}
+        aria-label="Scan criteria"
+        className={`w-6 h-6 rounded-full text-[11px] font-bold flex items-center justify-center transition-colors ${
+          pinned || open
+            ? 'bg-indigo-500/30 text-[#7c8bfa] ring-1 ring-indigo-400/40'
+            : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200'
         }`}
       >
         ?
       </button>
 
       {open && (
-        // Background set inline rather than via a Tailwind arbitrary value —
-        // the utility was resolving transparent and the table bled through.
         <div
-          className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-7 z-[60] rounded-xl border border-white/10 px-5 py-4`}
-          style={{
-            backgroundColor: '#0d121c',
-            boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
-            minWidth: '280px',
-          }}
+          onMouseEnter={cancelClose}
+          onMouseLeave={scheduleClose}
+          className={`absolute top-full mt-2 z-[70] w-[300px] rounded-xl border border-white/10 p-5 shadow-2xl shadow-black/60 ${
+            align === 'right' ? 'right-0' : 'left-0'
+          }`}
+          style={{ backgroundColor: '#10141f' }}
         >
-          <div className="text-[11px] font-bold tracking-widest uppercase text-slate-200 whitespace-nowrap">
+          <div className="text-[13px] font-bold tracking-[0.12em] uppercase text-slate-100">
             {meta.title}
           </div>
-          <div className="text-[10px] text-slate-500 mt-0.5 mb-3 whitespace-nowrap">
-            {meta.shows}
-          </div>
+          {meta.shows && (
+            <div className="text-[11px] text-slate-500 mt-0.5 mb-3">{meta.shows}</div>
+          )}
 
-          <div className="space-y-1.5">
+          <div className="space-y-2 mt-3">
             {gates.map((g) => (
-              <div key={g.label} className="flex items-baseline gap-6 whitespace-nowrap">
-                <span className="text-[10px] font-bold tracking-wide uppercase text-slate-400 w-[92px] shrink-0">
+              <div key={g.label} className="flex items-center justify-between gap-4">
+                <span className="text-[10px] font-bold tracking-wide uppercase text-slate-400 whitespace-nowrap">
                   {g.label}
                 </span>
-                <span className="text-[10px] font-semibold text-slate-200 tabular-nums">
+                <span className="text-[11px] font-semibold text-slate-100 tabular-nums whitespace-nowrap">
                   {g.value}
                 </span>
               </div>
