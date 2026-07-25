@@ -1,23 +1,12 @@
 'use client';
 
-// DailySetups — v1.5
-// v1.1: + RMV(15) column; CATALYST column removed (news moved to thesis line)
-// v1.2: FLOAT column removed; RME(21) surfaced via the CNF badge tooltip
-// v1.3: Weinstein sub-stage coloring via lib/indicators/stage
-// v1.4: + Money Flow (21)
-// v1.5: Full SIPs v2.4 parity pass —
-//       • RMV standalone column removed, replaced by STATE chip + RMV/RME
-//         pair on the sub-row (same stacked layout as SIPs).
-//       • SHT% → DTC (days to cover).
-//       • RS/SPY → RS, rounded with 1k% compaction via formatRs().
-//       • STAGE/SECTOR right-aligned, widths cut from 5%/10% → 4%/7%;
-//         freed % redistributed to data columns.
-//       • Cell padding px-1 → px-0.5 for more interior room.
-//       • FALLBACK_NOTES + colTip() — every header now has a native tooltip.
-//       • MetricsKey ? wired in the header bar.
-//       • Sub-row tightened: 9px labels, smaller dots, STATE under STAGE
-//         and readiness under SECTOR, both right-aligned to match.
-//       • overflow-visible on card so MetricsKey panel isn't clipped.
+// DailySetups — v1.6
+// v1.5: Full SIPs v2.4 parity — STATE chip, DTC, RS formatting, MetricsKey,
+//       tooltips, sub-row tightening, overflow-visible.
+// v1.6: STAGE/SECTOR visual fix. STAGE left-aligned + 9px so the short codes
+//       (2A, 3A, 4B) sit against the left edge of their cell. SECTOR shrunk
+//       to 8px and stays right-aligned with pr-2, creating a natural gutter
+//       and size hierarchy. Sub-row STATE/readiness alignment follows suit.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -537,8 +526,15 @@ export default function DailySetups() {
 
   const thBase = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
   const tdBase = "px-0.5 pt-2.5 pb-1.5 text-center";
-  const thRight = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-right";
-  const tdRight = "px-0.5 pt-2.5 pb-1.5 text-right";
+
+  // STAGE: left-aligned so short codes (2A, 4B) sit against the left edge,
+  // creating a gutter between them and SECTOR on the right.
+  const thStage = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
+  const tdStage = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
+
+  // SECTOR: right-aligned, flush to card edge.
+  const thSector = "px-0.5 pr-2 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-right";
+  const tdSector = "px-0.5 pr-2 pt-2.5 pb-1.5 text-right";
 
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
   const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
@@ -682,7 +678,6 @@ export default function DailySetups() {
           </div>
 
           <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            {/* 16 columns (no FLOAT): 7+4+7+6+6+7+7+7+6+5+7+6+7+7+4+7 = 100 */}
             <table className="w-full min-w-[1100px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
@@ -700,8 +695,8 @@ export default function DailySetups() {
                   <th className={`${thBase} w-[6%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[7%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[7%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className={`${thRight} w-[4%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thRight} w-[7%] pr-2`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thStage} w-[4%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className={`${thSector} w-[7%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
 
@@ -771,21 +766,21 @@ export default function DailySetups() {
                             {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
                           </td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
-                          <td className={`${tdRight} whitespace-nowrap border-l border-white/5`}>
+                          <td className={`${tdStage} whitespace-nowrap border-l border-white/5`}>
                             <span
                               title={stageDescription(row.stage)}
-                              className={`text-[11px] font-bold tracking-wide cursor-help ${stageColor(row.stage)}`}
+                              className={`text-[9px] font-bold tracking-wide cursor-help ${stageColor(row.stage)}`}
                             >
                               {stageShort(row.stage)}
                             </span>
                           </td>
-                          <td className={`${tdRight} pr-2`}>
-                            <span title={sectorText} className="block truncate text-right text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
+                          <td className={tdSector}>
+                            <span title={sectorText} className="block truncate text-right text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
                         {/* Sub-row: DAY/SWING chip | setup + catalyst | RMV/RME,
-                            then STATE under STAGE and readiness under SECTOR —
-                            right-aligned to match the main row. */}
+                            then STATE left-aligned under STAGE and readiness
+                            right-aligned under SECTOR. */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%] text-center align-middle">
                             {tt && (<span className={typeChip}>{tt}</span>)}
@@ -825,19 +820,19 @@ export default function DailySetups() {
                               </span>
                             </div>
                           </td>
-                          <td className="pb-1.5 pt-1 px-0.5 text-right align-middle border-l border-white/5">
+                          <td className="pb-1.5 pt-1 pl-1.5 text-left align-middle border-l border-white/5">
                             <span
                               title={stateLegend(rmv, rme)}
-                              className={`text-[9px] font-bold cursor-help whitespace-nowrap ${stateRes.color}`}
+                              className={`text-[8px] font-bold cursor-help whitespace-nowrap ${stateRes.color}`}
                             >
                               {stateRes.state === 'UNKNOWN' ? '—' : stateRes.state}
                             </span>
                           </td>
-                          <td className="pb-1.5 pt-1 px-0.5 pr-2 text-right align-middle">
+                          <td className="pb-1.5 pt-1 pr-2 text-right align-middle">
                             {st === 'Ready' ? (
-                              <span title={readinessTooltip(st)} className="text-[9px] font-semibold text-emerald-400 cursor-help whitespace-nowrap">Ready</span>
+                              <span title={readinessTooltip(st)} className="text-[8px] font-semibold text-emerald-400 cursor-help whitespace-nowrap">Ready</span>
                             ) : st === 'Forming' ? (
-                              <span title={readinessTooltip(st)} className="text-[9px] font-semibold text-amber-400 cursor-help whitespace-nowrap">Forming</span>
+                              <span title={readinessTooltip(st)} className="text-[8px] font-semibold text-amber-400 cursor-help whitespace-nowrap">Forming</span>
                             ) : null}
                           </td>
                         </tr>
