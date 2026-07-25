@@ -1,19 +1,19 @@
 'use client';
 
-// StocksInPlay — v1.9
-// v1.7: column meanings moved to native `title` on the headers
-// v1.8: STR dropped; STATE takes that slot; RMV/RME moved to the end of the
-//       catalyst section
-// v1.9: sub-row typography settled — RMV/RME now reads in the same muted
-//       slate as the catalyst text rather than competing with the primary
-//       row, everything a size smaller, and STATE + readiness left-aligned
-//       so they form a column rather than floating centred.
+// StocksInPlay — v2.0
+// v1.8: STR dropped; STATE takes that slot; RMV/RME moved to end of catalyst
+// v1.9: sub-row typography settled — RMV/RME muted to match the catalyst text
+// v2.0: readiness pushed right so the sub-row ends on a clean edge; STATE and
+//       readiness both carry full legends on hover. Header raised to z-30 —
+//       it and the table wrapper were both z-10, so the table painted over the
+//       "?" panel regardless of the panel's own z-index. That was the
+//       "transparent background", not the background colour.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
-import { stateOf, stateTooltip } from '@/lib/indicators/state';
+import { stateOf, stateTooltip, stateLegend, readinessTooltip } from '@/lib/indicators/state';
 import { SCANNER_SIP_META, COLUMN_NOTES } from '@/lib/scanConfig';
 import MetricsKey from './MetricsKey';
 
@@ -495,7 +495,9 @@ export default function StocksInPlay() {
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-visible shadow-xl w-full max-w-[1280px] mx-auto">
-      <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
+      {/* z-30: the header must sit above the table wrapper, or the table paints
+          over the "?" panel no matter what z-index the panel itself carries. */}
+      <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-30 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
@@ -526,7 +528,7 @@ export default function StocksInPlay() {
 
       {isExpanded && (
         <>
-          <div className="flex flex-col gap-3 mb-4 relative z-10" onClick={(e) => e.stopPropagation()}>
+          <div className="flex flex-col gap-3 mb-4 relative z-20" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-center">
               <button
                 onClick={() => setShowFilters(!showFilters)}
@@ -617,7 +619,7 @@ export default function StocksInPlay() {
             )}
           </div>
 
-          <div className="relative z-10 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
+          <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
             <table className="w-full min-w-[1100px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
@@ -762,17 +764,17 @@ export default function StocksInPlay() {
                             </div>
                           </td>
                           <td colSpan={2} className="pb-1.5 pt-1 align-middle">
-                            <div className="flex items-baseline gap-2 border-l border-white/10 pl-3">
+                            <div className="flex items-baseline justify-between gap-2 border-l border-white/10 pl-3 pr-2">
                               <span
-                                title={stateTooltip(rmv, rme)}
+                                title={stateLegend(rmv, rme)}
                                 className={`text-[9px] font-bold tracking-[0.1em] uppercase cursor-help ${stateRes.color}`}
                               >
                                 {stateRes.state === 'UNKNOWN' ? '—' : stateRes.state}
                               </span>
                               {st === 'Ready' ? (
-                                <span className="text-[9px] font-semibold text-emerald-400">Ready</span>
+                                <span title={readinessTooltip(st)} className="text-[9px] font-semibold text-emerald-400 cursor-help">Ready</span>
                               ) : st === 'Forming' ? (
-                                <span className="text-[9px] font-semibold text-amber-400">Forming</span>
+                                <span title={readinessTooltip(st)} className="text-[9px] font-semibold text-amber-400 cursor-help">Forming</span>
                               ) : null}
                             </div>
                           </td>

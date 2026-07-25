@@ -46,35 +46,35 @@ const RME_FAR = 60;
 const META: Record<PriceState, { color: string; description: string }> = {
   COILED: {
     color: 'text-emerald-400',
-    description: 'Coiled — tight range, sitting on its anchor. The classic 10/21 entry.',
+    description: 'tight range, sitting on its anchor — the classic 10/21 entry',
   },
   DRIFT: {
     color: 'text-amber-400',
-    description: 'Drift — quiet, but stretched above the anchor. Reads calm; it is extended.',
+    description: 'quiet, but stretched above the anchor — reads calm, is extended',
   },
   WASHED: {
     color: 'text-sky-400',
-    description: 'Washed — quiet and far below the anchor. Reversal watch, not a breakdown.',
+    description: 'quiet and far below the anchor — reversal watch, not a breakdown',
   },
   IMPULSE: {
     color: 'text-purple-400',
-    description: 'Impulse — range expanding and price extended. Normal on a gapper, late for a swing.',
+    description: 'range expanding and price extended — normal on a gapper, late for a swing',
   },
   FLUSH: {
     color: 'text-rose-400',
-    description: 'Flush — wide range, far below the anchor. Active capitulation.',
+    description: 'wide range, far below the anchor — active capitulation',
   },
   CHOP: {
     color: 'text-orange-400',
-    description: 'Chop — violent range with price going nowhere. No edge; sit it out.',
+    description: 'violent range with price going nowhere — no edge, sit it out',
   },
   NORMAL: {
     color: 'text-slate-400',
-    description: 'Normal — no compression or extension worth acting on.',
+    description: 'no compression or extension worth acting on',
   },
   UNKNOWN: {
     color: 'text-slate-600',
-    description: 'Insufficient history for a state read.',
+    description: 'insufficient history for a state read',
   },
 };
 
@@ -116,15 +116,19 @@ export function stateOf(
 }
 
 /**
- * Full tooltip text — the state description plus the raw inputs, so the
- * label is the glance and the numbers are one hover away.
+ * Compact tooltip — the current state plus the raw inputs. Used on the
+ * RMV/RME chip, where the numbers are already visible and you just want to
+ * know what they mean.
  */
 export function stateTooltip(
   rmv: number | null | undefined,
   rme: number | null | undefined
 ): string {
-  const { description } = stateOf(rmv, rme);
-  const lines = [description, ''];
+  const { state, description } = stateOf(rmv, rme);
+  const lines = [
+    state === 'UNKNOWN' ? 'No state read.' : `${state} — ${description}`,
+    '',
+  ];
 
   lines.push(
     rmv != null && isFinite(Number(rmv))
@@ -133,14 +137,59 @@ export function stateTooltip(
   );
   lines.push(
     rme != null && isFinite(Number(rme))
-      ? `RME ${Number(rme) > 0 ? '+' : ''}${Number(rme).toFixed(0)} — extension vs its own history off the 21 EMA (-100 to +100)`
+      ? `RME ${Number(rme).toFixed(0)} — extension vs its own history off the 21 EMA (-100 to +100)`
       : 'RME — unavailable'
   );
 
   return lines.join('\n');
 }
 
-/** Compact "14/+8" pairing for the chip, when both are present. */
+/**
+ * Full legend — every state listed, with the current one named first.
+ * Used on the STATE word itself, where the question is usually "what are the
+ * other options" rather than "what is this one".
+ */
+export function stateLegend(
+  rmv: number | null | undefined,
+  rme: number | null | undefined
+): string {
+  const { state, description } = stateOf(rmv, rme);
+  return [
+    state === 'UNKNOWN'
+      ? 'No state read — insufficient history.'
+      : `${state} — ${description}`,
+    '',
+    'RMV = how WIDE price is moving vs its own last 15 bars (0 tightest, 100 widest).',
+    'RME = how FAR from the 21 EMA vs a year of its own extension (-100 to +100).',
+    '',
+    'COILED    tight, at the anchor — the 10/21 entry',
+    'DRIFT     tight but stretched — reads calm, is extended',
+    'WASHED    quiet and far below — reversal watch',
+    'IMPULSE   expanding and extended — normal on a gapper',
+    'FLUSH     wide and far below — capitulation',
+    'CHOP      violent, going nowhere — no edge',
+    'NORMAL    nothing worth acting on',
+  ].join('\n');
+}
+
+/** Readiness legend — what Ready and Forming actually test. */
+export function readinessTooltip(status: 'Ready' | 'Forming' | null): string {
+  const head =
+    status === 'Ready' ? 'READY — the trigger could fire imminently.'
+    : status === 'Forming' ? 'FORMING — the setup is building but is not at the trigger.'
+    : 'No readiness read.';
+  return [
+    head,
+    '',
+    'Ready requires BOTH:',
+    '• Stochastic %K ≤ 25 (oversold)',
+    '• Price within 2.5% of the 21 EMA',
+    '',
+    'Anything else reads Forming. Day-trade names below VWAP never rate Ready.',
+  ].join('\n');
+}
+
+/** Compact "14/8" pairing for the chip, when both are present. */
 export function stateNumbers(
   rmv: number | null | undefined,
   rme: number | null | undefined
@@ -149,6 +198,6 @@ export function stateNumbers(
   const e = rme == null || !isFinite(Number(rme)) ? null : Math.round(Number(rme));
   if (v == null && e == null) return '';
   const vs = v == null ? '—' : String(v);
-  const es = e == null ? '—' : `${e > 0 ? '+' : ''}${e}`;
+  const es = e == null ? '—' : String(e);
   return `${vs}/${es}`;
 }
