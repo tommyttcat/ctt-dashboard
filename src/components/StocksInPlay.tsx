@@ -1,22 +1,14 @@
 'use client';
 
-// StocksInPlay — v2.4
-// v2.1: STATE and readiness split so they align under STAGE / SECTOR
-// v2.2: z-30 moved OFF the header row and onto the MetricsKey wrapper alone
-// v2.3: sub-row collision fixed — STATE was left-aligned with pl-3 and
-//       tracking-[0.1em] inside STAGE's 5% cell, so IMPULSE/WASHED overflowed
-//       into the readiness cell (CHOP fit, which is why only long labels
-//       collided). STATE and readiness now center under their columns like
-//       the main row, tracking cut, nowrap on both. + FALLBACK_NOTES: colTip
-//       returned '' for any key missing from COLUMN_NOTES, which renders NO
-//       tooltip — every header now always has one.
-// v2.4: column spacing pass. STAGE 5%→4% and SECTOR 10%→7%; the freed 4% goes
-//       to RVOL/FLOAT/STOCH/DTC, which were the columns actually wrapping.
-//       Both right-aligned (header, value AND sub-row cell) so the cluster
-//       sits flush to the card edge instead of floating centered with dead
-//       space beyond it. Cell padding px-1 → px-0.5: under table-fixed this
-//       does not move the column boundaries, it only widens the usable
-//       interior of every cell, which is where the wrapping was coming from.
+// StocksInPlay — v2.5
+// v2.3: sub-row collision fixed; FALLBACK_NOTES so every header has a tooltip
+// v2.4: column spacing pass — STAGE/SECTOR right-aligned + cut, px-0.5 padding
+// v2.5: min-w floor dropped 1100 → 960. That floor was forcing the table
+//       wider than the card at this viewport, which pushed STAGE/SECTOR off
+//       the right edge into the dead margin. Numeric columns tightened a
+//       further point each to buy the room. STAGE now left-aligned + 9px and
+//       SECTOR 8px right-aligned (matches DailySetups v1.6) so the short
+//       codes sit against the left edge with a clear gutter to SECTOR.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -26,8 +18,6 @@ import { stateOf, stateTooltip, stateLegend, readinessTooltip } from '@/lib/indi
 import { SCANNER_SIP_META, COLUMN_NOTES } from '@/lib/scanConfig';
 import MetricsKey from './MetricsKey';
 
-// Local glossary — guarantees every header has a hover even if a key is
-// missing or spelled differently in scanConfig's COLUMN_NOTES.
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name.' },
   CNF: {
@@ -84,10 +74,6 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   SECTOR: { what: 'Sector, cleaned of ticker prefixes.' },
 };
 
-// Native header tooltip: what the column means, then how to read its colour.
-// scanConfig's COLUMN_NOTES wins when present; the local fallback guarantees
-// a tooltip either way. Returns undefined (not '') so React omits the attr
-// instead of shipping an empty title that renders nothing.
 const colTip = (key: string): string | undefined => {
   const n = COLUMN_NOTES?.[key] ?? FALLBACK_NOTES[key];
   if (!n) return undefined;
@@ -177,10 +163,6 @@ const formatCurrency = (num: number | null) => {
   return '$' + num.toLocaleString();
 };
 
-/* RS vs SPY — 3-month relative strength in percentage points. Whole numbers
-   only: the decimal was false precision on a 63-day figure. Above 1000pp
-   compacts to "1k%" — real for the moonshots, and the raw number would blow
-   out the column. */
 const formatRs = (rs: number | null | undefined): string => {
   if (rs == null || isNaN(Number(rs))) return '—';
   const v = Number(rs);
@@ -196,8 +178,6 @@ const formatRs = (rs: number | null | undefined): string => {
   return `${sign}${Math.round(abs)}%`;
 };
 
-/* RMV/RME pair. RMV is always 0-100 positive, so a minus sign can only mean
-   RME — no need for an explicit "+". */
 const statePair = (rmv: number | null, rme: number | null): string => {
   const v = rmv == null ? '—' : String(Math.round(rmv));
   const e = rme == null ? '—' : String(Math.round(rme));
@@ -316,9 +296,6 @@ const cnfTooltip = (row: StockInPlay): string => {
   return lines.join('\n');
 };
 
-// Readiness: stochastic deep AND price tight to the 21 EMA — the trigger
-// could fire imminently. Prefer the backend field; derive when the KV payload
-// predates it.
 const rowStatus = (row: StockInPlay): 'Ready' | 'Forming' | null => {
   if (row.status === 'Ready' || row.status === 'Forming') return row.status;
   if (row.stochK != null && row.distToEma21 != null) {
@@ -505,8 +482,6 @@ export default function StocksInPlay() {
     if (float <= 50000000) return 'text-emerald-400';
     return 'text-slate-300';
   };
-  // Days to cover — sessions of normal volume for shorts to exit. Above 5 is
-  // Bonde's threshold; that's trapped supply which has to buy at some point.
   const getDtcColor = (d: number | null) => {
     if (d == null) return 'text-slate-500';
     if (d >= 5) return 'text-purple-400';
@@ -547,16 +522,16 @@ export default function StocksInPlay() {
     return 'text-slate-500';
   };
 
-  // px-0.5 rather than px-1. Under table-fixed the percentages own the column
-  // boundaries, so this does not widen anything — it hands ~8px of interior
-  // back to every cell, which is where RVOL/STOCH/DTC were running out.
   const thBase = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
   const tdBase = "px-0.5 pt-2.5 pb-1.5 text-center";
 
-  // Right-hand cluster. Its own alignment so STAGE/SECTOR sit against the card
-  // edge instead of floating centered in a column wider than their content.
-  const thRight = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-right";
-  const tdRight = "px-0.5 pt-2.5 pb-1.5 text-right";
+  // STAGE: left-aligned + 9px so short codes sit against the left edge.
+  const thStage = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
+  const tdStage = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
+
+  // SECTOR: right-aligned + 8px, flush to card edge.
+  const thSector = "px-0.5 pr-2 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-right";
+  const tdSector = "px-0.5 pr-2 pt-2.5 pb-1.5 text-right";
 
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
   const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
@@ -593,8 +568,6 @@ export default function StocksInPlay() {
               {copied ? `✓ Copied ${filteredAndSortedStocks.length}` : `Copy ${filteredAndSortedStocks.length}`}
             </button>
           )}
-          {/* z-40 scoped to the key alone. Raising the whole header row put an
-              invisible layer across the table and killed the sub-row tooltips. */}
           <span className="relative z-40 inline-flex">
             <MetricsKey meta={SCANNER_SIP_META} liveGates={scanMeta?.gates} />
           </span>
@@ -701,7 +674,9 @@ export default function StocksInPlay() {
           </div>
 
           <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            <table className="w-full min-w-[1100px] table-fixed border-collapse">
+            {/* min-w dropped 1100 → 960: the old floor forced the table wider
+                than the card, pushing STAGE/SECTOR off the right edge. */}
+            <table className="w-full min-w-[960px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%]`} title={colTip('TICKER')} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
@@ -711,16 +686,16 @@ export default function StocksInPlay() {
                   <th className={`${thBase} w-[6%]`} title={colTip('10/21')}>10/21</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
                   <th className={`${thBase} w-[7%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('FLOAT')} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className={`${thRight} w-[4%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thRight} w-[7%] pr-2`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thStage} w-[4%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className={`${thSector} w-[9%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
 
@@ -788,23 +763,18 @@ export default function StocksInPlay() {
                             {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
                           </td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
-                          <td className={`${tdRight} whitespace-nowrap border-l border-white/5`}>
+                          <td className={`${tdStage} whitespace-nowrap border-l border-white/5`}>
                             <span
                               title={stageDescription(row.stage)}
-                              className={`text-[11px] font-bold tracking-wide cursor-help ${stageColor(row.stage)}`}
+                              className={`text-[9px] font-bold tracking-wide cursor-help ${stageColor(row.stage)}`}
                             >
                               {stageShort(row.stage)}
                             </span>
                           </td>
-                          <td className={`${tdRight} pr-2`}>
-                            <span title={sectorText} className="block truncate text-right text-[10px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
+                          <td className={tdSector}>
+                            <span title={sectorText} className="block truncate text-right text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: setup | catalyst | RMV/RME, then STATE under
-                            STAGE and readiness under SECTOR. Right-aligned to
-                            match the main row now that the cluster sits against
-                            the card edge; nowrap so long labels (IMPULSE,
-                            WASHED) can never collide with the cell beside them. */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%]"></td>
                           <td colSpan={14} className="pb-1.5 pt-1 pr-3">
@@ -842,19 +812,19 @@ export default function StocksInPlay() {
                               </span>
                             </div>
                           </td>
-                          <td className="pb-1.5 pt-1 px-0.5 text-right align-middle border-l border-white/5">
+                          <td className="pb-1.5 pt-1 pl-1.5 text-left align-middle border-l border-white/5">
                             <span
                               title={stateLegend(rmv, rme)}
-                              className={`text-[9px] font-bold cursor-help whitespace-nowrap ${stateRes.color}`}
+                              className={`text-[8px] font-bold cursor-help whitespace-nowrap ${stateRes.color}`}
                             >
                               {stateRes.state === 'UNKNOWN' ? '—' : stateRes.state}
                             </span>
                           </td>
-                          <td className="pb-1.5 pt-1 px-0.5 pr-2 text-right align-middle">
+                          <td className="pb-1.5 pt-1 pr-2 text-right align-middle">
                             {st === 'Ready' ? (
-                              <span title={readinessTooltip(st)} className="text-[9px] font-semibold text-emerald-400 cursor-help whitespace-nowrap">Ready</span>
+                              <span title={readinessTooltip(st)} className="text-[8px] font-semibold text-emerald-400 cursor-help whitespace-nowrap">Ready</span>
                             ) : st === 'Forming' ? (
-                              <span title={readinessTooltip(st)} className="text-[9px] font-semibold text-amber-400 cursor-help whitespace-nowrap">Forming</span>
+                              <span title={readinessTooltip(st)} className="text-[8px] font-semibold text-amber-400 cursor-help whitespace-nowrap">Forming</span>
                             ) : null}
                           </td>
                         </tr>
