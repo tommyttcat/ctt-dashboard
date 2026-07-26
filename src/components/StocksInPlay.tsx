@@ -1,14 +1,20 @@
 'use client';
 
-// StocksInPlay — v2.5
-// v2.3: sub-row collision fixed; FALLBACK_NOTES so every header has a tooltip
+// StocksInPlay — v2.6
 // v2.4: column spacing pass — STAGE/SECTOR right-aligned + cut, px-0.5 padding
-// v2.5: min-w floor dropped 1100 → 960. That floor was forcing the table
-//       wider than the card at this viewport, which pushed STAGE/SECTOR off
-//       the right edge into the dead margin. Numeric columns tightened a
-//       further point each to buy the room. STAGE now left-aligned + 9px and
-//       SECTOR 8px right-aligned (matches DailySetups v1.6) so the short
-//       codes sit against the left edge with a clear gutter to SECTOR.
+// v2.5: min-w floor dropped 1100 → 960
+// v2.6: two fixes —
+//       (1) FILTERS bleed-through was z-fighting, not geometry: the ? panel is
+//           z-[70] but sits inside the header (relative z-10), while the
+//           FILTERS bar is a SIBLING div also at z-10 rendered later in the
+//           DOM — on a tie the later sibling paints on top, so its text showed
+//           through the panel. Header raised z-10 → z-30 so its stacking
+//           context beats the FILTERS bar; the opaque panel now fully covers
+//           the button while open. (Popover covers the button while open by
+//           design — expected, since you're reading the panel.)
+//       (2) min-w 960 → 880 and FLOAT/SECTOR trimmed a point each; 960 still
+//           forced a scroll that hid STAGE/SECTOR at this viewport, so the
+//           grid now fits inside the card outright.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -549,7 +555,10 @@ export default function StocksInPlay() {
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-visible shadow-xl w-full max-w-[1280px] mx-auto">
-      <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
+      {/* Header raised z-10 → z-30 so the ? panel (z-[70] within this context)
+          paints above the FILTERS bar (z-10) instead of losing the sibling
+          z-fight and letting FILTERS text bleed through the panel. */}
+      <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-30 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
@@ -582,6 +591,8 @@ export default function StocksInPlay() {
 
       {isExpanded && (
         <>
+          {/* FILTERS bar stays z-10 — below the header (z-30) so the ? panel
+              covers it cleanly, still above the table. */}
           <div className="flex flex-col gap-3 mb-4 relative z-10" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-center">
               <button
@@ -674,9 +685,9 @@ export default function StocksInPlay() {
           </div>
 
           <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            {/* min-w dropped 1100 → 960: the old floor forced the table wider
-                than the card, pushing STAGE/SECTOR off the right edge. */}
-            <table className="w-full min-w-[960px] table-fixed border-collapse">
+            {/* min-w 960 → 880 so the full grid fits inside the card at this
+                viewport without scrolling STAGE/SECTOR off the edge. */}
+            <table className="w-full min-w-[880px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%]`} title={colTip('TICKER')} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
@@ -687,7 +698,7 @@ export default function StocksInPlay() {
                   <th className={`${thBase} w-[6%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
                   <th className={`${thBase} w-[7%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('FLOAT')} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('FLOAT')} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
@@ -695,7 +706,7 @@ export default function StocksInPlay() {
                   <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thStage} w-[4%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thSector} w-[9%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thSector} w-[8%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
 
