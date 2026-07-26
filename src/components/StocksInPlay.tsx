@@ -1,13 +1,13 @@
 'use client';
 
-// StocksInPlay — v2.7
-// v2.5: min-w floor dropped 1100 → 960
-// v2.6: FILTERS bleed-through fixed (header z-10 → z-30 so the opaque ? panel
-//       occludes the FILTERS button on hover); min-w 960 → 880 so the grid
-//       fits inside the card without scrolling STAGE/SECTOR off the edge.
-// v2.7: STAGE/SECTOR gap tightened — 1% moved from SECTOR (8→7) to STAGE
-//       (4→5), pulling the two labels closer instead of leaving SECTOR
-//       hugging the card edge with a wide gap to STAGE.
+// StocksInPlay — v2.8
+// v2.6: FILTERS bleed-through fixed (header z-30); min-w 960 → 880
+// v2.7: 1% shifted STAGE 4→5 / SECTOR 8→7 — didn't help, SECTOR was still
+//       right-aligned so its text kept sliding to the card edge.
+// v2.8: SECTOR switched right-aligned → LEFT-aligned. That was the whole
+//       problem: pinned text-right, SECTOR hugged the card edge no matter its
+//       width, reopening the gap to STAGE every time. Left-aligned, it starts
+//       right after STAGE and the two sit adjacent.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -528,9 +528,10 @@ export default function StocksInPlay() {
   const thStage = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
   const tdStage = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
 
-  // SECTOR: right-aligned + 8px, flush to card edge.
-  const thSector = "px-0.5 pr-2 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-right";
-  const tdSector = "px-0.5 pr-2 pt-2.5 pb-1.5 text-right";
+  // SECTOR: LEFT-aligned so it starts right after STAGE — right-alignment was
+  // pinning it to the card edge and reopening the gap.
+  const thSector = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
+  const tdSector = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
 
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
   const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
@@ -548,9 +549,6 @@ export default function StocksInPlay() {
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-visible shadow-xl w-full max-w-[1280px] mx-auto">
-      {/* Header raised z-10 → z-30 so the ? panel (z-[70] within this context)
-          paints above the FILTERS bar (z-10) instead of losing the sibling
-          z-fight and letting FILTERS text bleed through the panel. */}
       <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-30 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
@@ -584,8 +582,6 @@ export default function StocksInPlay() {
 
       {isExpanded && (
         <>
-          {/* FILTERS bar stays z-10 — below the header (z-30) so the ? panel
-              covers it cleanly, still above the table. */}
           <div className="flex flex-col gap-3 mb-4 relative z-10" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-center">
               <button
@@ -678,8 +674,6 @@ export default function StocksInPlay() {
           </div>
 
           <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            {/* min-w 960 → 880 so the full grid fits inside the card at this
-                viewport without scrolling STAGE/SECTOR off the edge. */}
             <table className="w-full min-w-[880px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
@@ -776,7 +770,7 @@ export default function StocksInPlay() {
                             </span>
                           </td>
                           <td className={tdSector}>
-                            <span title={sectorText} className="block truncate text-right text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
+                            <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
                         <tr className="bg-transparent border-t border-white/5">
@@ -824,7 +818,7 @@ export default function StocksInPlay() {
                               {stateRes.state === 'UNKNOWN' ? '—' : stateRes.state}
                             </span>
                           </td>
-                          <td className="pb-1.5 pt-1 pr-2 text-right align-middle">
+                          <td className="pb-1.5 pt-1 pl-1.5 text-left align-middle">
                             {st === 'Ready' ? (
                               <span title={readinessTooltip(st)} className="text-[8px] font-semibold text-emerald-400 cursor-help whitespace-nowrap">Ready</span>
                             ) : st === 'Forming' ? (
