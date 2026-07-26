@@ -1,20 +1,13 @@
 'use client';
 
-// StocksInPlay — v2.6
-// v2.4: column spacing pass — STAGE/SECTOR right-aligned + cut, px-0.5 padding
+// StocksInPlay — v2.7
 // v2.5: min-w floor dropped 1100 → 960
-// v2.6: two fixes —
-//       (1) FILTERS bleed-through was z-fighting, not geometry: the ? panel is
-//           z-[70] but sits inside the header (relative z-10), while the
-//           FILTERS bar is a SIBLING div also at z-10 rendered later in the
-//           DOM — on a tie the later sibling paints on top, so its text showed
-//           through the panel. Header raised z-10 → z-30 so its stacking
-//           context beats the FILTERS bar; the opaque panel now fully covers
-//           the button while open. (Popover covers the button while open by
-//           design — expected, since you're reading the panel.)
-//       (2) min-w 960 → 880 and FLOAT/SECTOR trimmed a point each; 960 still
-//           forced a scroll that hid STAGE/SECTOR at this viewport, so the
-//           grid now fits inside the card outright.
+// v2.6: FILTERS bleed-through fixed (header z-10 → z-30 so the opaque ? panel
+//       occludes the FILTERS button on hover); min-w 960 → 880 so the grid
+//       fits inside the card without scrolling STAGE/SECTOR off the edge.
+// v2.7: STAGE/SECTOR gap tightened — 1% moved from SECTOR (8→7) to STAGE
+//       (4→5), pulling the two labels closer instead of leaving SECTOR
+//       hugging the card edge with a wide gap to STAGE.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -705,8 +698,8 @@ export default function StocksInPlay() {
                   <th className={`${thBase} w-[6%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className={`${thStage} w-[4%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thSector} w-[8%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thStage} w-[5%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className={`${thSector} w-[7%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
 
