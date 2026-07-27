@@ -1,6 +1,6 @@
 'use client';
 
-// Ep9m — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee) — v2.0
+// Ep9m — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee) — v2.1
 //
 // Fewer than ~2% of US listings trade 9M+ shares in a session. When a stock
 // that normally trades 800k suddenly does 12M, institutions are accumulating
@@ -13,13 +13,10 @@
 //
 // v1.1: Weinstein sub-stage coloring via lib/indicators/stage.
 // v1.2: + Money Flow (21), which is also scored.
-// v2.0: full parity pass with SIPs/Daily/Swing/Consolidation. + MetricsKey ?
-//       with EP-tuned tooltips on every header; STATE chip on the sub-row
-//       (under STAGE); Unprec/Silent status under SECTOR; VS60D added to the
-//       sub-row left cluster (today's volume vs the stock's own 60-day high —
-//       EP9M's defining number, previously only hinted at by the dot). GC/21↑
-//       and CLS removed from the sub-row. Header z-30 hover fix, overflow
-//       visible, STAGE/SECTOR left-aligned, min-w 880, px-0.5, RS via formatRs.
+// v2.0: full parity pass — MetricsKey ?, STATE chip, VS60D, GC/21↑ & CLS out.
+// v2.1: sub-row cluster shifted flush-left under TICKER (spacer merged into a
+//       colSpan={14} cell, no left pad); cluster wrapper is now cursor-help
+//       with a combined STATS_KEY_TOOLTIP, each stat keeps its own hover.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -89,6 +86,13 @@ const colTip = (key: string): string | undefined => {
   return n.colour ? `${n.what}\n\n${n.colour}` : n.what;
 };
 
+// Combined explainer for the sub-row stat cluster (shown on cluster hover).
+const STATS_KEY_TOOLTIP = [
+  'SUB-ROW STATS',
+  '',
+  "VS60D — Today's volume as a multiple of this stock's own 60-day volume high. Above 1.0× is unprecedented for this name — the purest expression of the EP9M signal.",
+].join('\n');
+
 interface Ep9mCandidate {
   ticker: string;
   name?: string;
@@ -139,14 +143,11 @@ type RvolFilterType = 'All' | '5' | '10';
 type CatalystFilterType = 'All' | 'News' | 'Silent';
 type VwapFilterType = 'All' | 'above' | 'below';
 
-// EP grade is a floor, not an exact grade: picking B shows B and A.
 const EP_BUCKETS: EpFilterType[] = ['A', 'B'];
 const EP_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 
-// RVOL buckets — the scan already floors at 3x, so these tighten.
 const RVOL_BUCKETS: RvolFilterType[] = ['5', '10'];
 
-// Human labels for the EP score breakdown keys the route ships.
 const EP_LABELS: Record<string, string> = {
   rvol: 'Volume abnormality',
   unprecedented: 'Vs 60-day volume high',
@@ -200,7 +201,6 @@ const statePair = (rmv: number | null, rme: number | null): string => {
   return `${v}/${e}`;
 };
 
-// Sector strings sometimes arrive ticker-prefixed ("RKLB - AEROSPACE").
 const cleanSector = (sector: string | null | undefined, ticker?: string): string => {
   if (!sector || sector === '—' || sector === '-') return '—';
   let s = String(sector).trim();
@@ -246,7 +246,6 @@ const mfOf = (c: Ep9mCandidate): number | null =>
 const vs60dOf = (c: Ep9mCandidate): number | null =>
   c.volVs60dMax == null || isNaN(Number(c.volVs60dMax)) ? null : Number(c.volVs60dMax);
 
-// Full EP score explanation for the badge tooltip.
 const epTooltip = (c: Ep9mCandidate): string => {
   const lines: string[] = [
     `EP ${c.score} — ${c.score >= 70 ? 'A' : c.score >= 50 ? 'B' : 'C'}`,
@@ -273,7 +272,6 @@ const epTooltip = (c: Ep9mCandidate): string => {
   return lines.join('\n');
 };
 
-// Unprecedented — today's volume exceeds the stock's own 60-day record.
 const UnprecedentedMark = () => (
   <span
     title="Unprecedented — today's volume exceeds this stock's own 60-day high"
@@ -281,7 +279,6 @@ const UnprecedentedMark = () => (
   />
 );
 
-// Sugar Baby — repeat EP9M offender.
 const SugarBabyMark = () => (
   <span
     title="Sugar Baby — has triggered EP9M multiple times in the last 90 days"
@@ -474,8 +471,6 @@ export default function Ep9m() {
     if (chg == null) return 'text-slate-500';
     return chg >= 0 ? 'text-emerald-400' : 'text-rose-400';
   };
-  // VS60D — today's volume as a multiple of the 60-day volume high. Above 1.0
-  // is unprecedented for this name.
   const getVs60dColor = (v: number | null) => {
     if (v == null) return 'text-slate-600';
     if (v >= 1.0) return 'text-fuchsia-400';
@@ -528,7 +523,6 @@ export default function Ep9m() {
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-visible shadow-xl w-full max-w-[1280px] mx-auto">
-      {/* Header z-10 → z-30 so the ? panel (z-[70]) paints above the FILTERS bar. */}
       <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-30 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
@@ -688,8 +682,6 @@ export default function Ep9m() {
           </div>
 
           <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            {/* min-w 1160 → 880; EP9M columns: EP/VOL(+avg)/RVOL/TURN/D2C/RMV kept,
-                RS/SPY via formatRs, STAGE/SECTOR left-aligned. */}
             <table className="w-full min-w-[880px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
@@ -706,7 +698,7 @@ export default function Ep9m() {
                   <th className={`${thBase} w-[5%]`} title={colTip('RMV')} onClick={() => handleSort('rmv')}>RMV{getSortIcon('rmv')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('RS/SPY')} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} w-[7%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thStage} w-[5%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
                   <th className={`${thSector} w-[7%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
@@ -802,14 +794,17 @@ export default function Ep9m() {
                             <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: VS60D cluster | EP 9M label + catalyst | RMV/RME,
-                            then STATE left under STAGE, Unprec/Silent status left
-                            under SECTOR. GC/21↑ and CLS removed. */}
+                        {/* Sub-row: cluster spans from under TICKER (colSpan={14},
+                            no left pad); cluster wrapper is cursor-help with the
+                            combined STATS_KEY_TOOLTIP, VS60D keeps its own hover.
+                            STATE under STAGE, Unprec/Silent under SECTOR. */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td className="w-[8%]"></td>
-                          <td colSpan={13} className="pb-1.5 pt-1 pr-3">
+                          <td colSpan={14} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
-                              <span className="shrink-0 flex items-center gap-2.5 pr-2 leading-none whitespace-nowrap">
+                              <span
+                                title={STATS_KEY_TOOLTIP}
+                                className="shrink-0 flex items-center gap-2.5 pr-2 leading-none whitespace-nowrap cursor-help"
+                              >
                                 <span className="text-[#7c8bfa] font-bold text-[9px] tracking-[0.08em] uppercase">EP 9M</span>
                                 <span className="flex items-baseline gap-1" title="Today's volume as a multiple of this stock's own 60-day volume high. Above 1.0× is unprecedented.">
                                   <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">VS60D</span>
