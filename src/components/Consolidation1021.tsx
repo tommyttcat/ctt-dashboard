@@ -1,12 +1,11 @@
 'use client';
 
-// Consolidation1021 — v2.1
-// v2.0: full parity pass — STATE chip, DTC, MetricsKey, tooltips, COIL kept,
-//       %OFF HI dropped, RS/STAGE/SECTOR fixed.
-// v2.1: sub-row right cluster corrected — GC/21↑ STR flags removed; STATE chip
-//       under STAGE, Coiled/Setting Up under SECTOR. Middle-left of the sub-row
-//       now carries DIC · PM% · BVR (days in coil, prior move %, breakout
-//       volume readiness), sourced from the writer's new fields.
+// Consolidation1021 — v2.2
+// v2.1: sub-row corrected — GC/21↑ removed, STATE under STAGE, Coiled/Setting
+//       Up under SECTOR, DIC·PM·BVR cluster added.
+// v2.2: DIC·PM·BVR cluster pinned flush-left in the sub-row content cell to
+//       match the label-slot start position on SIPs/Daily/Swing exactly
+//       (was floating right of where the other tables' setup label sits).
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -141,7 +140,6 @@ const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
 const VOL_BUCKETS: VolFilterType[] = ['20', '50', '100'];
 
-// Coil thresholds — ATR-normalized. Coiled ≤ 2.5×, Setting Up ≤ 4.0×.
 const COIL_COILED_MAX = 2.5;
 const COIL_SETTING_MAX = 4.0;
 
@@ -520,21 +518,18 @@ export default function Consolidation1021() {
     if (rs >= 0) return 'text-slate-300';
     return 'text-rose-400';
   };
-  // COIL colour by ATR ratio — lower is tighter.
   const getCoilColor = (r: number | null) => {
     if (r == null) return 'text-slate-500';
     if (r <= COIL_COILED_MAX) return 'text-purple-400';
     if (r <= COIL_SETTING_MAX) return 'text-emerald-400';
     return 'text-slate-400';
   };
-  // DIC — longer base is the premium setup.
   const getDicColor = (d: number | null) => {
     if (d == null) return 'text-slate-600';
     if (d >= 20) return 'text-purple-400';
     if (d >= 10) return 'text-slate-200';
     return 'text-slate-400';
   };
-  // PM% — the runup into the base. Strong prior move is the continuation tell.
   const getPmColor = (p: number | null) => {
     if (p == null) return 'text-slate-600';
     if (p >= 30) return 'text-emerald-400';
@@ -582,8 +577,6 @@ export default function Consolidation1021() {
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-visible shadow-xl w-full max-w-[1280px] mx-auto">
-      {/* Header raised z-10 → z-30 so the ? panel (z-[70]) paints above the
-          FILTERS bar (z-10) instead of losing the sibling z-fight. */}
       <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-30 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
@@ -617,8 +610,6 @@ export default function Consolidation1021() {
 
       {isExpanded && (
         <>
-          {/* FILTERS bar stays z-10 — below the header (z-30) so the ? panel
-              covers it cleanly, still above the table. */}
           <div className="flex flex-col gap-3 mb-4 relative z-10" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-center">
               <button
@@ -727,7 +718,6 @@ export default function Consolidation1021() {
           </div>
 
           <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            {/* min-w 880; COIL replaces FLOAT, %OFF HI dropped. */}
             <table className="w-full min-w-[880px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
@@ -761,7 +751,6 @@ export default function Consolidation1021() {
                     const headline = headlineOf(row);
                     const catUrl = catalystUrlOf(row);
                     const sectorText = cleanSector(row.sector, row.symbol);
-                    const bdRev = isBlueDotSetup(row.setupName);
                     const adr = adrOf(row);
                     const mf = mfOf(row);
                     const rmv = rmvOf(row);
@@ -810,7 +799,6 @@ export default function Consolidation1021() {
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{row.dVol ? formatCurrency(row.dVol) : (row.avgDollarVolM ? `$${row.avgDollarVolM}M` : '—')}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
-                          {/* COIL: raw 10d range % on top, N× ATR ratio below */}
                           <td className={`${tdBase} whitespace-nowrap tabular-nums ${getCoilColor(coilR)}`} title={coilR != null ? `10-day range normalized to ${coilR.toFixed(1)}× daily ATR` : undefined}>
                             <div className="flex flex-col leading-tight">
                               <span className="text-xs font-bold">{range10 != null ? `${range10.toFixed(1)}%` : '—'}</span>
@@ -843,14 +831,15 @@ export default function Consolidation1021() {
                             <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: DIC · PM% · BVR cluster | catalyst | RMV/RME,
-                            then STATE left under STAGE, Coiled/Setting Up left
-                            under SECTOR. */}
+                        {/* Sub-row: empty w-[7%] spacer under TICKER, then content
+                            cell — DIC·PM·BVR cluster starts flush-left in the
+                            same slot the setup label occupies on the other
+                            tables (shrink-0, pr-2, no left pad). */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%]"></td>
                           <td colSpan={13} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
-                              <span className="shrink-0 flex items-center gap-2 pr-2.5 leading-none whitespace-nowrap">
+                              <span className="shrink-0 flex items-center gap-2.5 pr-2 leading-none whitespace-nowrap">
                                 <span className="flex items-baseline gap-1" title="Days in coil — how long the base has held">
                                   <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">DIC</span>
                                   <span className={`text-[9px] font-bold tabular-nums ${getDicColor(dic)}`}>{dic != null ? dic : '—'}</span>
