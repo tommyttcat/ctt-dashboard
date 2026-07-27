@@ -545,16 +545,19 @@ export default function Ep9m() {
           )}
           {filteredAndSorted.length > 0 && (
             <button
-              onClick={handleCopyTickers}
-              title={`Copy ${filteredAndSorted.length} ticker${filteredAndSorted.length !== 1 ? 's' : ''} for TradingView`}
-              className={`text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded border transition-all duration-200 ${
-                copied
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+            onClick={handleCopyTickers}
+            disabled={filteredAndSorted.length === 0}
+            title={filteredAndSorted.length > 0 ? `Copy ${filteredAndSorted.length} ticker${filteredAndSorted.length !== 1 ? 's' : ''} for TradingView` : 'No tickers to copy'}
+            className={`text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded border transition-all duration-200 ${
+              copied
+                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                : filteredAndSorted.length === 0
+                  ? 'bg-[#161c2a]/50 text-slate-600 border-white/5 cursor-not-allowed'
                   : 'bg-[#161c2a] text-slate-400 border-white/5 hover:text-slate-200 hover:bg-white/[0.04]'
-              }`}
-            >
-              {copied ? `✓ Copied ${filteredAndSorted.length}` : `Copy ${filteredAndSorted.length}`}
-            </button>
+            }`}
+          >
+            {copied ? `✓ Copied ${filteredAndSorted.length}` : `Copy ${filteredAndSorted.length}`}
+          </button>
           )}
           <span className="relative z-40 inline-flex">
             <MetricsKey meta={EP9M_META} liveGates={scanMeta?.gates} />
