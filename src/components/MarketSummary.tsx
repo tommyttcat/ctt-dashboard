@@ -591,16 +591,23 @@ const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | nu
   }
   // Side-by-side: volume-confirmed left, faders right
   let sipsPara = '';
-  if (leaders.length && grinders.length) {
-    const leftCol = `Volume-confirmed:\n${leaders.map(fmtLeader).join('\n')}`;
-    const rightCol = `Sub-1.0 RVOL (faders):\n${sips.filter(s => rvolOf(s) != null && (rvolOf(s) as number) < 1).slice(0, 5).map(s =>
-      `${s.ticker} (${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%, RVOL ${(rvolOf(s) ?? 0).toFixed(2)})`
-    ).join('\n')}`;
-    const newsLine = newsItems.length ? `\nNews-driven:\n${newsItems.map(s => {
-      const cat = catalystTextOf(s) || '';
-      return `${s.ticker} — ${cat}`;
-    }).join('\n')}` : '';
-    sipsPara = `SIPs Thesis: ${leftCol}|||${rightCol}${newsLine}`;
+  // Build the two possible column contents
+  const newsCol = newsItems.length ? `News-driven:\n${newsItems.map(s => {
+    const cat = catalystTextOf(s) || '';
+    return `${s.ticker} (${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%${rvolOf(s) != null ? `, RVOL ${(rvolOf(s) as number).toFixed(2)}` : ''})${cat ? ` — ${cat}` : ''}`;
+  }).join('\n')}` : '';
+  const leadersCol = leaders.length ? `Volume-confirmed:\n${leaders.map(fmtLeader).join('\n')}` : '';
+  const fadersCol = grinders.length ? `Sub-1.0 RVOL (faders):\n${sips.filter(s => rvolOf(s) != null && (rvolOf(s) as number) < 1).slice(0, 5).map(s =>
+    `${s.ticker} (${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%, RVOL ${(rvolOf(s) ?? 0).toFixed(2)})`
+  ).join('\n')}` : '';
+
+  // Pick best two columns for side-by-side
+  const leftCol = leadersCol || newsCol;
+  const rightCol = leadersCol ? (fadersCol || newsCol) : fadersCol;
+
+  if (leftCol && rightCol && leftCol !== rightCol) {
+    const extra = (leadersCol && newsCol && fadersCol) ? `\n${newsCol}` : '';
+    sipsPara = `SIPs Thesis: ${leftCol}|||${rightCol}${extra}`;
   } else if (sipsLines.length) {
     sipsPara = `SIPs Thesis: ${sipsLines.join('\n')}`;
   } else if (sips.length) {
@@ -658,8 +665,7 @@ const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | nu
     const cold = heat.filter(h => h.avgChg < 0).slice(-4).reverse();
     const heatLines: string[] = [];
     if (hot.length && cold.length) {
-      heatLines.push(`Strongest:\n${hot.map(fmtHeat).join('\n')}`);
-      heatLines.push(`Weakest:\n${cold.map(fmtHeat).join('\n')}`);
+      heatLines.push(`Strongest:\n${hot.map(fmtHeat).join('\n')}|||Weakest:\n${cold.map(fmtHeat).join('\n')}`);
       const spread = hot[0].avgChg - cold[0].avgChg;
       heatLines.push(spread >= 8
         ? 'Wide dispersion between groups — a stock-picker\'s tape, stay in the leaders.'
