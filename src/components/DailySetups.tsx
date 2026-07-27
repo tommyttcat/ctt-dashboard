@@ -1,16 +1,12 @@
 'use client';
 
-// DailySetups — v1.7
-// v1.5: Full SIPs v2.4 parity — STATE chip, DTC, RS formatting, MetricsKey,
-//       tooltips, sub-row tightening, overflow-visible.
-// v1.6: STAGE left-aligned + 9px; SECTOR shrunk to 8px, right-aligned.
-// v1.7: matched to SIPs v2.8. (1) Header z-10 → z-30 so the ? panel (z-[70])
-//       wins the sibling z-fight against the FILTERS bar and occludes the
-//       button cleanly on hover instead of letting FILTERS bleed through.
-//       (2) SECTOR right-aligned → LEFT-aligned: right-alignment pinned it to
-//       the card edge and reopened the STAGE↔SECTOR gap; left-aligned it butts
-//       against STAGE. (3) STAGE 4→5%. (4) min-w 1100 → 880 so the grid fits
-//       the card without scrolling STAGE/SECTOR off-edge.
+// DailySetups — v1.8
+// v1.6: STAGE left-aligned + 9px; SECTOR 8px right-aligned.
+// v1.7: matched SIPs v2.8 — header z-30, SECTOR left-aligned, min-w 880,
+//       STAGE 5%.
+// v1.8: column widths copied 1:1 from SIPs v2.8 (FLOAT's 5% folded out) so the
+//       header spacing is visually identical to SIPs. Numeric columns trimmed;
+//       slack pools right.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -535,8 +531,7 @@ export default function DailySetups() {
   const thStage = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
   const tdStage = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
 
-  // SECTOR: LEFT-aligned so it starts right after STAGE — right-alignment was
-  // pinning it to the card edge and reopening the gap.
+  // SECTOR: LEFT-aligned so it starts right after STAGE.
   const thSector = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
   const tdSector = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
 
@@ -686,8 +681,8 @@ export default function DailySetups() {
           </div>
 
           <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            {/* min-w 1100 → 880 so the full grid fits inside the card without
-                scrolling STAGE/SECTOR off the edge. */}
+            {/* min-w 880; column widths copied 1:1 from SIPs v2.8 (FLOAT dropped)
+                so spacing is visually identical to SIPs. Sum 91, slack pools right. */}
             <table className="w-full min-w-[880px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
@@ -696,15 +691,15 @@ export default function DailySetups() {
                   <th className={`${thBase} w-[7%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('10/21')}>10/21</th>
-                  <th className={`${thBase} w-[7%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
                   <th className={`${thBase} w-[7%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`${thBase} w-[7%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
-                  <th className={`${thBase} w-[7%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
+                  <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
-                  <th className={`${thBase} w-[7%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
-                  <th className={`${thBase} w-[7%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thStage} w-[5%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
                   <th className={`${thSector} w-[7%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
@@ -789,8 +784,7 @@ export default function DailySetups() {
                           </td>
                         </tr>
                         {/* Sub-row: DAY/SWING chip | setup + catalyst | RMV/RME,
-                            then STATE left-aligned under STAGE and readiness
-                            left-aligned under SECTOR (matches SIPs v2.8). */}
+                            then STATE left under STAGE, readiness left under SECTOR. */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%] text-center align-middle">
                             {tt && (<span className={typeChip}>{tt}</span>)}
