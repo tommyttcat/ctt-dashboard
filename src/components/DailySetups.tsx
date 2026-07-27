@@ -1,12 +1,9 @@
 'use client';
 
-// DailySetups — v1.8
-// v1.6: STAGE left-aligned + 9px; SECTOR 8px right-aligned.
-// v1.7: matched SIPs v2.8 — header z-30, SECTOR left-aligned, min-w 880,
-//       STAGE 5%.
-// v1.8: column widths copied 1:1 from SIPs v2.8 (FLOAT's 5% folded out) so the
-//       header spacing is visually identical to SIPs. Numeric columns trimmed;
-//       slack pools right.
+// DailySetups — v1.9
+// v1.7: matched SIPs v2.8 — header z-30, SECTOR left-aligned, min-w 880.
+// v1.8: column widths copied 1:1 from SIPs v2.8 (FLOAT dropped).
+// v1.9: DAY/SWING chip text off-white — text-slate-300 → text-slate-200.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -540,7 +537,8 @@ export default function DailySetups() {
   const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
   const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
   const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
-  const typeChip = "inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border bg-zinc-800/50 text-slate-300 border-zinc-700/50";
+  // DAY/SWING chip — off-white text (text-slate-200) so it reads clearly.
+  const typeChip = "inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border bg-zinc-800/50 text-slate-200 border-zinc-700/50";
 
   const activeFilterCount =
     (showStage2Only ? 1 : 0) +
