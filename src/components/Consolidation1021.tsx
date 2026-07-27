@@ -1,11 +1,10 @@
 'use client';
 
-// Consolidation1021 — v2.4
-// v2.3: + 10/21% signed EMA gap in the sub-row cluster.
-// v2.4: sub-row cluster (DIC·PM·BVR·10/21%) shifted left to align flush under
-//       TICKER — the spacer + content cells merged into one colSpan={14} cell
-//       with no left pad. + a ? hover after the cluster explaining all four
-//       stats (StatsKey).
+// Consolidation1021 — v2.5
+// v2.4: cluster shifted left under TICKER (colSpan={14}); added a ? hover.
+// v2.5: dropped the ? badge — the cluster wrapper itself is now cursor-help
+//       with the combined STATS_KEY_TOOLTIP, and each stat keeps its own
+//       hover. Consistent with every other hover in the table.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -77,7 +76,7 @@ const colTip = (key: string): string | undefined => {
   return n.colour ? `${n.what}\n\n${n.colour}` : n.what;
 };
 
-// Combined explainer for the sub-row stat cluster (the ? hover).
+// Combined explainer for the sub-row stat cluster (shown on cluster hover).
 const STATS_KEY_TOOLTIP = [
   'SUB-ROW STATS',
   '',
@@ -857,15 +856,18 @@ export default function Consolidation1021() {
                             <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: cluster now spans from under TICKER (single
-                            colSpan={14} cell, no left pad) so DIC starts flush
-                            under the ticker chip. ? hover explains all four
-                            stats. STATE under STAGE, Coiled/Setting Up under
+                        {/* Sub-row: cluster spans from under TICKER (colSpan={14},
+                            no left pad); the cluster wrapper itself is cursor-help
+                            with the combined STATS_KEY_TOOLTIP, each stat keeps its
+                            own hover. STATE under STAGE, Coiled/Setting Up under
                             SECTOR. */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td colSpan={14} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
-                              <span className="shrink-0 flex items-center gap-2.5 pr-2 leading-none whitespace-nowrap">
+                              <span
+                                title={STATS_KEY_TOOLTIP}
+                                className="shrink-0 flex items-center gap-2.5 pr-2 leading-none whitespace-nowrap cursor-help"
+                              >
                                 <span className="flex items-baseline gap-1" title="Days in coil — how long the base has held">
                                   <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">DIC</span>
                                   <span className={`text-[9px] font-bold tabular-nums ${getDicColor(dic)}`}>{dic != null ? dic : '—'}</span>
@@ -881,12 +883,6 @@ export default function Consolidation1021() {
                                 <span className="flex items-baseline gap-1" title="10/21 EMA gap as % of price. Negative = 10 below 21 (coiling up into the cross); near zero = at the cross; positive = ribbon opening.">
                                   <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">10/21%</span>
                                   <span className={`text-[9px] font-bold tabular-nums ${getGap1021Color(gap1021)}`}>{gap1021 != null ? `${gap1021 >= 0 ? '+' : ''}${gap1021.toFixed(1)}%` : '—'}</span>
-                                </span>
-                                <span
-                                  title={STATS_KEY_TOOLTIP}
-                                  className="ml-0.5 inline-flex items-center justify-center w-3 h-3 rounded-full border border-white/15 text-slate-500 text-[7px] font-bold cursor-help hover:text-slate-300 hover:border-white/30 transition-colors"
-                                >
-                                  ?
                                 </span>
                               </span>
                               <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={headline || undefined}>
