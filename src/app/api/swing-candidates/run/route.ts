@@ -789,6 +789,7 @@ function analyzeConsolidation(
 
   const name = details?.results?.name || symbol;
   const mktCap = details?.results?.market_cap || null;
+  if (mktCap && mktCap > 0 && mktCap < CONSOL.minMarketCap) return null;
   const float = details?.results?.share_class_shares_outstanding || (mktCap && price ? mktCap / price : null);
   const sector = cleanSectorDescription(details?.results?.sic_description, details?.results?.sector, details?.results?.industry);
 
