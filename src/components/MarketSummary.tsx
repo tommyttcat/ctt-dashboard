@@ -431,14 +431,18 @@ const buildMoversPara = (movers: any): string => {
   const lines: string[] = [];
   if (topG.length) {
     const confirmed = topG.filter(s => (rvolOf(s) ?? 0) >= 1.5);
-    lines.push(`Leading the tape:\n${topG.map(fmtMover).join('\n')}`);
-    if (confirmed.length) {
-      lines.push(`Volume-confirmed: ${confirmed.map(s => s.ticker).join(', ')} — RVOL over 1.5 means the move has real participation, not just a thin gap.`);
+    const gLines = topG.map(fmtMover);
+    const confirmNote = confirmed.length
+      ? `Volume-confirmed: ${confirmed.map(s => s.ticker).join(', ')}`
+      : 'No RVOL over 1.5 — moves are thin, fade candidates.';
+    if (topL.length) {
+      // Two groups side by side: use ||| as column break marker
+      const lLines = topL.map(fmtMover);
+      lines.push(`Leading the tape:\n${gLines.join('\n')}\n${confirmNote}|||Heaviest red:\n${lLines.join('\n')}\nWeakness leaders / names to avoid long.`);
     } else {
-      lines.push('None of the top gainers carry RVOL over 1.5 — moves are thin, treat as fade candidates rather than momentum longs.');
+      lines.push(`Leading the tape:\n${gLines.join('\n')}\n${confirmNote}`);
     }
-  }
-  if (topL.length) {
+  } else if (topL.length) {
     lines.push(`Heaviest red:\n${topL.map(fmtMover).join('\n')}\nWeakness leaders for short setups or names to avoid on the long side.`);
   }
   return `Top Movers: ${lines.join('\n')}`;
@@ -465,14 +469,17 @@ const buildEp9mPara = (ep9m: any[]): string => {
   const news = rows.filter(hasRealCatalyst).sort((a, b) => scoreOf(b) - scoreOf(a));
 
   const lines: string[] = [];
-  if (unprec.length) {
-    lines.push(`Unprecedented volume (today beats their own 60-day record):\n${unprec.slice(0, 5).map(fmtEp).join('\n')}\nInstitutions are accumulating ahead of the story.`);
-  }
-  if (silent.length) {
-    lines.push(`Silent — heavy volume, no headline yet:\n${silent.slice(0, 5).map(s => s.ticker).join('\n')}\nThe footprint is visible before the news; these are the research-now names.`);
+  if (unprec.length && silent.length) {
+    const leftCol = `Unprecedented (beat 60d vol high):\n${unprec.slice(0, 5).map(fmtEp).join('\n')}`;
+    const rightCol = `Silent (no headline yet):\n${silent.slice(0, 5).map(fmtEp).join('\n')}`;
+    lines.push(`${leftCol}|||${rightCol}`);
+  } else if (unprec.length) {
+    lines.push(`Unprecedented volume (today beats their own 60-day record):\n${unprec.slice(0, 5).map(fmtEp).join('\n')}`);
+  } else if (silent.length) {
+    lines.push(`Silent — heavy volume, no headline yet:\n${silent.slice(0, 5).map(fmtEp).join('\n')}`);
   }
   if (news.length) {
-    lines.push(`With a catalyst already out:\n${news.slice(0, 4).map(s => s.ticker).join('\n')}`);
+    lines.push(`With a catalyst already out:\n${news.slice(0, 4).map(fmtEp).join('\n')}`);
   }
   if (!lines.length) {
     lines.push(`${rows.length} name${rows.length !== 1 ? 's' : ''} trading abnormal size:\n${rows.slice(0, 6).map(fmtEp).join('\n')}`);
@@ -566,35 +573,66 @@ const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | nu
 
   const sipsLines: string[] = [];
   if (leaders.length) {
-    sipsLines.push(`Volume-confirmed leadership:\n${leaders.map(fmtLeader).join('\n')}\nRVOL above 1.5 signals real participation behind the move.`);
+    sipsLines.push(`Volume-confirmed:\n${leaders.map(fmtLeader).join('\n')}`);
   }
-  if (newsNames.length) {
-    sipsLines.push(`News-driven:\n${newsNames.join('\n')}`);
+  // News-driven names with their actual headline
+  const newsItems = sips.filter(hasRealCatalyst).slice(0, 4);
+  if (newsItems.length) {
+    sipsLines.push(`News-driven:\n${newsItems.map(s => {
+      const cat = catalystTextOf(s) || '';
+      return `${s.ticker} (${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%${rvolOf(s) != null ? `, RVOL ${(rvolOf(s) as number).toFixed(2)}` : ''}) — ${cat}`;
+    }).join('\n')}`);
   }
   if (grinders.length) {
-    sipsLines.push(`Sub-1.0 RVOL (price without volume, prone to fading):\n${grinders.join('\n')}`);
+    const grinderStats = sips.filter(s => rvolOf(s) != null && (rvolOf(s) as number) < 1).slice(0, 7);
+    sipsLines.push(`Sub-1.0 RVOL (price without volume, prone to fading):\n${grinderStats.map(s =>
+      `${s.ticker} (${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%, RVOL ${(rvolOf(s) ?? 0).toFixed(2)})`
+    ).join('\n')}`);
   }
-  const sipsPara = sipsLines.length
-    ? `SIPs Thesis: ${sipsLines.join('\n')}`
-    : (sips.length ? `SIPs Thesis: No volume-confirmed leaders yet.` : '');
+  // Side-by-side: volume-confirmed left, faders right
+  let sipsPara = '';
+  if (leaders.length && grinders.length) {
+    const leftCol = `Volume-confirmed:\n${leaders.map(fmtLeader).join('\n')}`;
+    const rightCol = `Sub-1.0 RVOL (faders):\n${sips.filter(s => rvolOf(s) != null && (rvolOf(s) as number) < 1).slice(0, 5).map(s =>
+      `${s.ticker} (${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%, RVOL ${(rvolOf(s) ?? 0).toFixed(2)})`
+    ).join('\n')}`;
+    const newsLine = newsItems.length ? `\nNews-driven:\n${newsItems.map(s => {
+      const cat = catalystTextOf(s) || '';
+      return `${s.ticker} — ${cat}`;
+    }).join('\n')}` : '';
+    sipsPara = `SIPs Thesis: ${leftCol}|||${rightCol}${newsLine}`;
+  } else if (sipsLines.length) {
+    sipsPara = `SIPs Thesis: ${sipsLines.join('\n')}`;
+  } else if (sips.length) {
+    sipsPara = 'SIPs Thesis: No volume-confirmed leaders yet.';
+  }
 
-  /* ---- Paragraph 2: Daily Setups Thesis — one sentence per line ---- */
-  const dayCt = daily.filter(s => String(s?.tradeType || '').toLowerCase().startsWith('day')).length;
-  const swingCt = daily.filter(s => String(s?.tradeType || '').toLowerCase().startsWith('swing')).length;
-  const dailyTop = daily.slice().sort((a, b) => scoreOf(b) - scoreOf(a)).slice(0, 3);
-  const stage2Ct = daily.filter(s => String(s?.stage || '').includes('2')).length;
+  /* ---- Paragraph 2: Daily Setups Thesis — listed with stats ---- */
+  const fmtDaily = (s: any): string => {
+    const bits = [`${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`];
+    const rv = rvolOf(s);
+    if (rv != null && rv > 0) bits.push(`RVOL ${rv.toFixed(2)}`);
+    const su = setupOf(s);
+    if (su) bits.push(su);
+    const st = stageOf(s);
+    if (st) bits.push(`Stage ${st}`);
+    bits.push(`CNF ${scoreOf(s)}`);
+    return `${s.ticker} (${bits.join(', ')})`;
+  };
 
-  const dailyLines: string[] = [];
-  if (dayCt || swingCt) {
-    dailyLines.push(`${swingCt} classified SWING (structure supports a multi-day hold), ${dayCt} DAY (intraday momentum only).`);
+  const swingNames = daily.filter(s => String(s?.tradeType || '').toLowerCase().startsWith('swing')).sort((a, b) => scoreOf(b) - scoreOf(a)).slice(0, 6);
+  const dayNames = daily.filter(s => String(s?.tradeType || '').toLowerCase().startsWith('day')).sort((a, b) => scoreOf(b) - scoreOf(a)).slice(0, 6);
+
+  let dailyPara = '';
+  if (swingNames.length || dayNames.length) {
+    const swingCol = swingNames.length ? `SWING (multi-day hold):\n${swingNames.map(fmtDaily).join('\n')}` : '';
+    const dayCol = dayNames.length ? `DAY (intraday only):\n${dayNames.map(fmtDaily).join('\n')}` : '';
+    if (swingCol && dayCol) {
+      dailyPara = `Daily Setups Thesis: ${swingCol}|||${dayCol}`;
+    } else {
+      dailyPara = `Daily Setups Thesis: ${swingCol || dayCol}`;
+    }
   }
-  if (stage2Ct > 0) {
-    dailyLines.push(`${stage2Ct} of ${daily.length} sit in constructive Stage 2 bases.`);
-  }
-  if (dailyTop.length) {
-    dailyLines.push(`Highest conviction by CNF score: ${dailyTop.map(s => `${s.ticker} (${scoreOf(s)})`).join(', ')}.`);
-  }
-  const dailyPara = dailyLines.length ? `Daily Setups Thesis: ${dailyLines.join('\n')}` : '';
 
   /* ---- Paragraph 3: 10/21 Thesis — trend posture across the scan ---- */
   const ema1021Para = build1021Para(pool);
@@ -1109,7 +1147,7 @@ export default function MarketSummary() {
               <div className="relative z-10 flex flex-col gap-8">
                 <div>
                   <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-3">Narrative Breakdown</h3>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-3">
                     {formatBriefing(macroInsights.briefing).split('\n\n').filter(Boolean).map((para, idx) => {
                       const { label, color, body } = splitBriefingSection(para.trim());
                       const st = sectionStyles(color);
@@ -1120,13 +1158,45 @@ export default function MarketSummary() {
                               {label}
                             </span>
                           )}
-                          <div className="space-y-2">
-                            {body.split('\n').filter(Boolean).map((line, li) => (
-                              <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
-                                {renderBriefingText(line)}
-                              </p>
-                            ))}
-                          </div>
+                          {body.includes('|||') ? (
+                            /* Two-column layout: split on ||| marker */
+                            (() => {
+                              const parts = body.split('|||');
+                              const afterCols = parts.length > 2 ? parts.slice(2).join('') : '';
+                              return (
+                                <>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {parts.slice(0, 2).map((col, ci) => (
+                                      <div key={ci} className="space-y-1.5">
+                                        {col.trim().split('\n').filter(Boolean).map((line, li) => (
+                                          <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
+                                            {renderBriefingText(line)}
+                                          </p>
+                                        ))}
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {afterCols && (
+                                    <div className="space-y-1.5 mt-3">
+                                      {afterCols.trim().split('\n').filter(Boolean).map((line, li) => (
+                                        <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
+                                          {renderBriefingText(line)}
+                                        </p>
+                                      ))}
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()
+                          ) : (
+                            <div className="space-y-2">
+                              {body.split('\n').filter(Boolean).map((line, li) => (
+                                <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
+                                  {renderBriefingText(line)}
+                                </p>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
