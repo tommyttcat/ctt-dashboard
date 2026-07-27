@@ -38,6 +38,8 @@ interface BreadthData {
   decliners: number;
   up4: number;
   down4: number;
+  newHighs?: number;
+  newLows?: number;
 }
 
 interface T2108Data {
@@ -556,6 +558,8 @@ export default function MacroScorecard() {
   // Advance/decline share for the internals bar (0-100)
   const adTotal = breadth ? breadth.advancers + breadth.decliners : 0;
   const advPct = breadth && adTotal > 0 ? (breadth.advancers / adTotal) * 100 : 50;
+  const hlTotal = breadth ? (breadth.newHighs ?? 0) + (breadth.newLows ?? 0) : 0;
+  const highsPct = breadth && hlTotal > 0 ? ((breadth.newHighs ?? 0) / hlTotal) * 100 : 50;
 
   const tVal = t2108?.value ?? null;
   const tStyle = t2108CardStyle(tVal);
@@ -705,6 +709,40 @@ export default function MacroScorecard() {
                   <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">A/D:</span>
                   <span className={`text-[11px] font-bold tabular-nums ${breadth.decliners > 0 && breadth.advancers / breadth.decliners >= 1 ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {breadth.decliners > 0 ? (breadth.advancers / breadth.decliners).toFixed(2) : '—'}
+                  </span>
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* ATHI/ATLO — new highs vs new lows from the scanned universe */}
+          {breadth && ((breadth.newHighs ?? 0) > 0 || (breadth.newLows ?? 0) > 0) && (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border border-white/5 bg-[#161c2a]/40 rounded-xl px-4 py-3 relative z-10">
+              <span className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
+                ATHI / ATLO
+              </span>
+
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <span className="text-[11px] font-bold text-emerald-400 tabular-nums whitespace-nowrap">
+                  HIGHS {(breadth.newHighs ?? 0).toLocaleString()}
+                </span>
+                <div className="flex-1 h-1.5 rounded-full overflow-hidden bg-rose-500/30 min-w-[60px]" title={`${highsPct.toFixed(0)}% making new highs`}>
+                  <div
+                    className="h-full bg-emerald-400/80 rounded-full transition-all duration-500"
+                    style={{ width: `${highsPct}%` }}
+                  ></div>
+                </div>
+                <span className="text-[11px] font-bold text-rose-400 tabular-nums whitespace-nowrap">
+                  LOWS {(breadth.newLows ?? 0).toLocaleString()}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-4 shrink-0">
+                <span className="flex items-center gap-1.5 whitespace-nowrap" title="New Highs / New Lows ratio">
+                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">H/L:</span>
+                  <span className={`text-[11px] font-bold tabular-nums ${(breadth.newHighs ?? 0) >= (breadth.newLows ?? 0) ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {(breadth.newLows ?? 0) > 0 ? ((breadth.newHighs ?? 0) / (breadth.newLows ?? 0)).toFixed(2) : (breadth.newHighs ?? 0) > 0 ? '∞' : '—'}
                   </span>
                 </span>
               </div>

@@ -180,7 +180,7 @@ const resolveEtfSector = (sym: string, apiSector: string | undefined, apiName: s
   }
   const n = (apiName || '').toLowerCase();
   if (n.includes(' etf') || n.includes('proshares') || n.includes('direxion') || n.includes('defiance') || n.includes('fund') || n.includes('trust')) {
-    return `${sym} - ETF`;
+    return 'ETF';
   }
   return apiSector || 'Other';
 };
@@ -798,10 +798,15 @@ export async function GET(request: Request) {
 
     // --- Market breadth / GMI-style regime -----------------------------------
     let advancers = 0, decliners = 0, up4 = 0, down4 = 0;
+    let newHighs = 0, newLows = 0;
     for (const t of viableSetups) {
       const chg = t._liveChg || 0;
       if (chg > 0) advancers++; else if (chg < 0) decliners++;
       if (chg >= 4) up4++; else if (chg <= -4) down4++;
+      // ATHI/ATLO: within 1% of the 52-week high = new high territory;
+      // within 1% of the 52-week low = new low territory.
+      if (t.pctOffHigh != null && t.pctOffHigh >= -1) newHighs++;
+      if (t.pctOffLow != null && t.pctOffLow <= 1) newLows++;
     }
     const breadthTotal = advancers + decliners;
     const pctAdv = breadthTotal > 0 ? advancers / breadthTotal : 0;
@@ -818,6 +823,7 @@ export async function GET(request: Request) {
       await kv.set('market_breadth_v6', {
         score: breadthScore, signal: breadthSignal,
         advancers, decliners, up4, down4,
+        newHighs, newLows,
         pctAdv: Math.round(pctAdv * 1000) / 10,
         updatedAt: new Date().toISOString(),
       });
@@ -972,10 +978,16 @@ export async function GET(request: Request) {
       }
 
       // % off recent high (~6 months of bars) and ATR% of price
+      // % off 52-week high/low (~252 trading days, capped to available bars).
+      // Used for scanner display AND for the ATHI/ATLO breadth count.
       let pctOffHigh: number | null = null;
+      let pctOffLow: number | null = null;
       if (dailyBars.length >= 20 && price > 0) {
-        const hi = Math.max(...dailyBars.slice(0, Math.min(126, dailyBars.length)).map((b: any) => b.h));
+        const window = dailyBars.slice(0, Math.min(252, dailyBars.length));
+        const hi = Math.max(...window.map((b: any) => b.h));
+        const lo = Math.min(...window.map((b: any) => b.l));
         if (hi > 0) pctOffHigh = ((price - hi) / hi) * 100;
+        if (lo > 0) pctOffLow = ((price - lo) / lo) * 100;
       }
       const atrPct = (atr > 0 && price > 0) ? (atr / price) * 100 : null;
 
@@ -1073,6 +1085,7 @@ export async function GET(request: Request) {
         ema21Rising,
         goldenCross,
         pctOffHigh: pctOffHigh != null ? parseFloat(pctOffHigh.toFixed(1)) : null,
+        pctOffLow: pctOffLow != null ? parseFloat(pctOffLow.toFixed(1)) : null,
         atrPct: atrPct != null ? parseFloat(atrPct.toFixed(2)) : null,
         adrPct: adrPct != null ? parseFloat(adrPct.toFixed(2)) : null,
         rmv,
