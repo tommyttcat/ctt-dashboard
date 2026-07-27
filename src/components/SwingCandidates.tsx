@@ -1,21 +1,17 @@
 'use client';
 
-// SwingCandidates — v1.5
-// Full parity with DailySetups v1.9. Shared: STATE chip (RMV column removed),
-// DTC (was SHT%), RS via formatRs w/ 1k% compaction, MetricsKey ? + tooltips,
-// header z-30 hover fix, SECTOR left-aligned, STAGE left 9px, min-w 880,
-// px-0.5, overflow-visible, SIPs column widths, zinc-400 chips, DAY/SWING chip
-// in the sub-row (defaults to SWING since every row here is a swing candidate).
-// Swing-only kept: SwingCandidate shape + candidates endpoint, score/symbol
-// fields, blueDot beside ticker, SPY 3M header stat, STAT "Ready" filter,
-// "EMA PB" sub-row label.
+// SwingCandidates — v1.6
+// v1.5: full parity with DailySetups v1.9 + DAY/SWING chip.
+// v1.6: build fix — scanConfig exports the swing meta as SWING_META, not
+//       SCANNER_SWING_META (only SIP/Daily carry the SCANNER_ prefix). Import
+//       and MetricsKey call corrected.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { stateOf, stateTooltip, stateLegend, readinessTooltip } from '@/lib/indicators/state';
-import { SCANNER_SWING_META, COLUMN_NOTES } from '@/lib/scanConfig';
+import { SWING_META, COLUMN_NOTES } from '@/lib/scanConfig';
 import MetricsKey from './MetricsKey';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
@@ -548,7 +544,7 @@ export default function SwingCandidates() {
             </button>
           )}
           <span className="relative z-40 inline-flex">
-            <MetricsKey meta={SCANNER_SWING_META} liveGates={scanMeta?.gates} />
+            <MetricsKey meta={SWING_META} liveGates={scanMeta?.gates} />
           </span>
         </div>
         <div className="flex flex-col items-center gap-1.5">
@@ -661,8 +657,7 @@ export default function SwingCandidates() {
           </div>
 
           <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            {/* min-w 880; column widths copied 1:1 from SIPs v2.8 (FLOAT dropped)
-                so spacing is identical across tables. */}
+            {/* min-w 880; column widths copied 1:1 from SIPs v2.8 (FLOAT dropped). */}
             <table className="w-full min-w-[880px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
