@@ -798,15 +798,10 @@ export async function GET(request: Request) {
 
     // --- Market breadth / GMI-style regime -----------------------------------
     let advancers = 0, decliners = 0, up4 = 0, down4 = 0;
-    let newHighs = 0, newLows = 0;
     for (const t of viableSetups) {
       const chg = t._liveChg || 0;
       if (chg > 0) advancers++; else if (chg < 0) decliners++;
       if (chg >= 4) up4++; else if (chg <= -4) down4++;
-      // ATHI/ATLO: within 1% of the 52-week high = new high territory;
-      // within 1% of the 52-week low = new low territory.
-      if (t.pctOffHigh != null && t.pctOffHigh >= -1) newHighs++;
-      if (t.pctOffLow != null && t.pctOffLow <= 1) newLows++;
     }
     const breadthTotal = advancers + decliners;
     const pctAdv = breadthTotal > 0 ? advancers / breadthTotal : 0;
@@ -823,7 +818,6 @@ export async function GET(request: Request) {
       await kv.set('market_breadth_v6', {
         score: breadthScore, signal: breadthSignal,
         advancers, decliners, up4, down4,
-        newHighs, newLows,
         pctAdv: Math.round(pctAdv * 1000) / 10,
         updatedAt: new Date().toISOString(),
       });
@@ -1242,6 +1236,21 @@ export async function GET(request: Request) {
         await kv.set('scan_streaks_v6', { date: currentDate, counts: newStreaks });
       } catch (e) { console.error('streak persist failed', e); }
     }
+
+    // --- ATHI/ATLO: count new highs/lows from the ENRICHED universe ----------
+    // Must run after enrichment because pctOffHigh/pctOffLow are computed
+    // per-ticker during the enrich phase, not available on the raw snapshot.
+    let newHighs = 0, newLows = 0;
+    for (const t of enrichedList) {
+      if (t.pctOffHigh != null && t.pctOffHigh >= -1) newHighs++;
+      if (t.pctOffLow != null && t.pctOffLow <= 1) newLows++;
+    }
+    try {
+      const prevBreadth = await kv.get<any>('market_breadth_v6');
+      if (prevBreadth) {
+        await kv.set('market_breadth_v6', { ...prevBreadth, newHighs, newLows });
+      }
+    } catch (e) { console.error('ATHI/ATLO persist failed', e); }
     
     const finalSip = sipCandidates
       .map((t: any) => enrichedMap.get(t.ticker))
