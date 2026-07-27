@@ -74,6 +74,11 @@ interface Candidate {
   range10Pct?: number;
   coilRatio?: number;
   blueDot?: boolean;
+  coilDays?: number | null;
+  priorMovePct?: number | null;
+  bvrRatio?: number | null;
+  bvrReady?: boolean | null;
+  ema1021GapPct?: number | null;
   catalyst?: string | null;
   catalystUrl?: string | null;
   thesis?: string | null;
@@ -719,6 +724,37 @@ function analyzeConsolidation(
   const upDay = closes.length >= 2 && closes[closes.length - 1] > closes[closes.length - 2];
   const blueDot = oversoldRecent && upDay && price >= ema21;
 
+  // --- Consolidation sub-row stats -------------------------------------------
+  // DIC: count consecutive bars (from most recent backward) that stay inside
+  // the 10-day high/low range. When a bar breaks outside, the coil started.
+  let coilDays = 0;
+  for (let i = bars.length - 1; i >= Math.max(0, bars.length - 30); i--) {
+    if (bars[i].h <= hi10 * 1.005 && bars[i].l >= lo10 * 0.995) coilDays++;
+    else break;
+  }
+
+  // PM: prior move — how far did price run before entering the coil?
+  // Compare the close at the coil's start to the low of the 30 bars before it.
+  const coilStartIdx = bars.length - coilDays;
+  let priorMovePct: number | null = null;
+  if (coilStartIdx > 30) {
+    const preCoilBars = bars.slice(coilStartIdx - 30, coilStartIdx);
+    const preLow = Math.min(...preCoilBars.map(b => b.l));
+    const coilEntry = bars[coilStartIdx]?.c ?? price;
+    if (preLow > 0) priorMovePct = +(((coilEntry - preLow) / preLow) * 100).toFixed(1);
+  }
+
+  // BVR: breakout volume readiness — is volume drying up inside the coil?
+  // Ratio of recent 5-day avg volume to 20-day avg volume. Below 0.7 = dry.
+  const vol5 = bars.slice(-5).map(b => b.v).filter(v => v > 0);
+  const avg5 = vol5.length > 0 ? vol5.reduce((a, b) => a + b, 0) / vol5.length : 0;
+  const bvrRatio = avgVol > 0 && avg5 > 0 ? +(avg5 / avgVol).toFixed(2) : null;
+  const bvrReady = bvrRatio != null ? bvrRatio <= 0.7 : null;
+
+  // 10/21%: signed gap between the 10 and 21 EMAs as a % of price.
+  // Positive = 10 above 21 (stacked). Near zero = coiling into the cross.
+  const ema1021GapPct = price > 0 ? +(((ema10 - ema21) / price) * 100).toFixed(2) : null;
+
   if (avgDollarVol < CONSOL.minDollarVol) return null;
   if (adr == null || adr < CONSOL.minAdrPct) return null;
   if (price < sma50 || price < sma200) return null;
@@ -796,6 +832,11 @@ function analyzeConsolidation(
     range10Pct: +range10.toFixed(1),
     coilRatio: +coilRatio.toFixed(2),
     blueDot,
+    coilDays,
+    priorMovePct,
+    bvrRatio,
+    bvrReady,
+    ema1021GapPct,
   };
 }
 
