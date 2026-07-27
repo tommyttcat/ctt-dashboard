@@ -1,17 +1,19 @@
 'use client';
 
-// SwingCandidates — v1.6
-// v1.5: full parity with DailySetups v1.9 + DAY/SWING chip.
-// v1.6: build fix — scanConfig exports the swing meta as SWING_META, not
-//       SCANNER_SWING_META (only SIP/Daily carry the SCANNER_ prefix). Import
-//       and MetricsKey call corrected.
+// Consolidation1021 — v2.1
+// v2.0: full parity pass — STATE chip, DTC, MetricsKey, tooltips, COIL kept,
+//       %OFF HI dropped, RS/STAGE/SECTOR fixed.
+// v2.1: sub-row right cluster corrected — GC/21↑ STR flags removed; STATE chip
+//       under STAGE, Coiled/Setting Up under SECTOR. Middle-left of the sub-row
+//       now carries DIC · PM% · BVR (days in coil, prior move %, breakout
+//       volume readiness), sourced from the writer's new fields.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
-import { stateOf, stateTooltip, stateLegend, readinessTooltip } from '@/lib/indicators/state';
-import { SWING_META, COLUMN_NOTES } from '@/lib/scanConfig';
+import { stateOf, stateTooltip, stateLegend } from '@/lib/indicators/state';
+import { CONSOL_META, COLUMN_NOTES } from '@/lib/scanConfig';
 import MetricsKey from './MetricsKey';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
@@ -38,12 +40,16 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     what: 'Relative volume vs the 20-day average at this time of day.',
     colour: 'Amber 2x+ · green 1.5x+ · grey below.',
   },
+  COIL: {
+    what: 'Tightness of the last 10 days: raw 10-day range % on top, and below it that range normalized by daily ATR (N× ATR). Lower is tighter. Coiled ≤ 2.5× · Setting Up ≤ 4.0×.',
+    colour: 'Purple ≤2.5× (coiled) · green ≤4× (setting up) · grey looser.',
+  },
   ADR: {
     what: '20-day average daily range. The anti-chop gate — scan floor is 3%.',
     colour: 'Purple 10%+ · green 5%+ · grey at the floor.',
   },
   MF: {
-    what: 'Money Flow (21) — volume-weighted accumulation vs distribution, 0–100. On a pullback, above 55 is orderly profit-taking; below 45 is distribution. Arrow shows the bar-over-bar trend.',
+    what: 'Money Flow (21) — volume-weighted accumulation vs distribution, 0–100. Arrow shows the bar-over-bar trend.',
     colour: 'Green high (accumulation) · red low (distribution).',
   },
   RS: {
@@ -72,7 +78,7 @@ const colTip = (key: string): string | undefined => {
   return n.colour ? `${n.what}\n\n${n.colour}` : n.what;
 };
 
-interface SwingCandidate {
+interface ConsolidationCandidate {
   symbol: string;
   name?: string;
   sector?: string;
@@ -88,25 +94,30 @@ interface SwingCandidate {
   mktCap?: number | null;
   stage?: string;
   vwapStatus?: 'above' | 'below' | 'neutral';
-  atrPct: number;
+  atrPct?: number;
   adrPct?: number | null;
   rmv?: number | null;
   mf?: number | null;
   mfTrend?: number;
   rme?: number | null;
   rmeExtPct?: number | null;
-  pctOffHigh: number;
-  distToEma21: number;
+  pctOffHigh?: number;
+  distToEma21?: number;
   distToEma10?: number;
   aboveEma10?: boolean;
   aboveEma21?: boolean;
-  stochK: number;
-  rsVsSpy: number;
-  avgDollarVolM: number;
-  goldenCross: boolean;
-  ema21Rising: boolean;
+  stochK?: number;
+  rsVsSpy?: number;
+  avgDollarVolM?: number;
+  goldenCross?: boolean;
+  ema21Rising?: boolean;
+  range10Pct?: number | null;
+  coilRatio?: number | null;
+  coilDays?: number | null;
+  priorMovePct?: number | null;
+  bvrRatio?: number | null;
+  bvrReady?: boolean;
   blueDot?: boolean;
-  tradeType?: string | null;
   setupName?: string | null;
   catalyst?: string | null;
   catalystUrl?: string | null;
@@ -122,10 +133,17 @@ type CnfFilterType = 'All' | 'A' | 'B';
 type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
 type AdrFilterType = 'All' | '5' | '10';
+type StatFilterType = 'All' | 'Coiled' | 'Setting Up';
+type VolFilterType = 'All' | '20' | '50' | '100';
 
 const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
 const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
+const VOL_BUCKETS: VolFilterType[] = ['20', '50', '100'];
+
+// Coil thresholds — ATR-normalized. Coiled ≤ 2.5×, Setting Up ≤ 4.0×.
+const COIL_COILED_MAX = 2.5;
+const COIL_SETTING_MAX = 4.0;
 
 const CNF_LABELS: Record<string, string> = {
   rvol: 'Relative volume',
@@ -140,6 +158,7 @@ const CNF_LABELS: Record<string, string> = {
   regime: 'Market regime',
   sector: 'Sector heat',
   moneyFlow: 'Money Flow',
+  coil: 'Coil tightness',
 };
 
 const formatTime = (timestamp: number | Date) => {
@@ -184,14 +203,6 @@ const statePair = (rmv: number | null, rme: number | null): string => {
   return `${v}/${e}`;
 };
 
-const formatSetupName = (name: string | null | undefined) => {
-  if (!name || name === '-' || name === '—') return '—';
-  if (name.includes('BB SQZ')) return 'BB SQZ';
-  if (name === 'Blue Dot Rev') return 'BD Rev';
-  if (name === 'Episodic Pivot') return 'EP';
-  return name;
-};
-
 const isBlueDotSetup = (name: string | null | undefined): boolean => {
   if (!name) return false;
   const n = String(name).toLowerCase();
@@ -222,38 +233,71 @@ const isGenericCatalyst = (catalyst: string | null | undefined) => {
   return c.startsWith('technical momentum') || c === 'recent news' || c === 'news' || c === 'technical';
 };
 
-const catalystTagOf = (c: SwingCandidate): string | null => {
+const catalystTagOf = (c: ConsolidationCandidate): string | null => {
   if (isGenericCatalyst(c.catalyst)) return null;
   return String(c.catalyst).trim().replace(/\.$/, '') || null;
 };
 
-const headlineOf = (c: SwingCandidate): string | null => {
+const headlineOf = (c: ConsolidationCandidate): string | null => {
   const raw = c.thesis ?? c.news ?? c.headline ?? null;
   if (!raw) return null;
   const s = String(raw).trim();
   return s.length > 0 ? s : null;
 };
 
-const catalystUrlOf = (c: SwingCandidate): string | null => c.catalystUrl ?? c.newsUrl ?? null;
+const catalystUrlOf = (c: ConsolidationCandidate): string | null => c.catalystUrl ?? c.newsUrl ?? null;
 
-const adrOf = (c: SwingCandidate): number | null => {
+const adrOf = (c: ConsolidationCandidate): number | null => {
   if (c.adrPct == null || isNaN(Number(c.adrPct))) return null;
   return Number(c.adrPct);
 };
 
-const mfOf = (c: SwingCandidate): number | null => {
+const mfOf = (c: ConsolidationCandidate): number | null => {
   if (c.mf == null || isNaN(Number(c.mf))) return null;
   return Number(c.mf);
 };
 
-const rmeOf = (c: SwingCandidate): number | null => {
+const rmeOf = (c: ConsolidationCandidate): number | null => {
   if (c.rme == null || isNaN(Number(c.rme))) return null;
   return Number(c.rme);
 };
 
-const rmvOf = (c: SwingCandidate): number | null => {
+const rmvOf = (c: ConsolidationCandidate): number | null => {
   if (c.rmv == null || isNaN(Number(c.rmv))) return null;
   return Number(c.rmv);
+};
+
+const coilRatioOf = (c: ConsolidationCandidate): number | null => {
+  if (c.coilRatio == null || isNaN(Number(c.coilRatio))) return null;
+  return Number(c.coilRatio);
+};
+
+const range10Of = (c: ConsolidationCandidate): number | null => {
+  if (c.range10Pct == null || isNaN(Number(c.range10Pct))) return null;
+  return Number(c.range10Pct);
+};
+
+const coilDaysOf = (c: ConsolidationCandidate): number | null => {
+  if (c.coilDays == null || isNaN(Number(c.coilDays))) return null;
+  return Number(c.coilDays);
+};
+
+const priorMoveOf = (c: ConsolidationCandidate): number | null => {
+  if (c.priorMovePct == null || isNaN(Number(c.priorMovePct))) return null;
+  return Number(c.priorMovePct);
+};
+
+const bvrRatioOf = (c: ConsolidationCandidate): number | null => {
+  if (c.bvrRatio == null || isNaN(Number(c.bvrRatio))) return null;
+  return Number(c.bvrRatio);
+};
+
+const coilStat = (c: ConsolidationCandidate): 'Coiled' | 'Setting Up' | null => {
+  const r = coilRatioOf(c);
+  if (r == null) return null;
+  if (r <= COIL_COILED_MAX) return 'Coiled';
+  if (r <= COIL_SETTING_MAX) return 'Setting Up';
+  return null;
 };
 
 const rmeLabel = (rme: number | null): string => {
@@ -268,7 +312,7 @@ const rmeLabel = (rme: number | null): string => {
   return 'at historical extension low';
 };
 
-const cnfTooltip = (c: SwingCandidate): string => {
+const cnfTooltip = (c: ConsolidationCandidate): string => {
   const score = c.score;
   const lines: string[] = [
     score != null ? `CNF ${score} — ${score >= 70 ? 'A' : score >= 50 ? 'B' : 'C'}` : 'CNF — not scored',
@@ -299,37 +343,26 @@ const cnfTooltip = (c: SwingCandidate): string => {
   return lines.join('\n');
 };
 
-const tradeTypeLabel = (tradeType: string | null | undefined): string | null => {
-  const t = (tradeType || 'swing').toLowerCase();
-  if (t.startsWith('day')) return 'DAY';
-  if (t.startsWith('swing')) return 'SWING';
-  return tradeType!.toUpperCase();
-};
+const above21 = (c: ConsolidationCandidate) => c.aboveEma21 ?? (c.distToEma21 != null ? c.distToEma21 >= 0 : null);
+const above10 = (c: ConsolidationCandidate) => c.aboveEma10 ?? (c.distToEma10 != null ? c.distToEma10 >= 0 : null);
 
-// Backward-compatible: derive above-EMA from dist if payload predates booleans
-const above21 = (c: SwingCandidate) => c.aboveEma21 ?? c.distToEma21 >= 0;
-const above10 = (c: SwingCandidate) => c.aboveEma10 ?? (c.distToEma10 != null ? c.distToEma10 >= 0 : null);
-
-// Ready = stoch deep and pullback tight — the blue dot could fire imminently.
-const isReady = (c: SwingCandidate) => c.stochK <= 25 && Math.abs(c.distToEma21) <= 2.5;
-
-export default function SwingCandidates() {
+export default function Consolidation1021() {
   const { session } = useMarketData();
 
-  const [candidates, setCandidates] = useState<SwingCandidate[]>([]);
+  const [candidates, setCandidates] = useState<ConsolidationCandidate[]>([]);
   const [status, setStatus] = useState<string>('Syncing...');
   const [generatedAt, setGeneratedAt] = useState<number | null>(null);
-  const [spyReturn, setSpyReturn] = useState<number | null>(null);
   const [scanMeta, setScanMeta] = useState<any>(null);
-  const [sortConfig, setSortConfig] = useState<{ key: keyof SwingCandidate; direction: SortDirection } | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: keyof ConsolidationCandidate; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
-  const [showReadyOnly, setShowReadyOnly] = useState<boolean>(false);
   const [showStage2Only, setShowStage2Only] = useState<boolean>(false);
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [adrFilter, setAdrFilter] = useState<AdrFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
+  const [statFilter, setStatFilter] = useState<StatFilterType>('All');
+  const [volFilter, setVolFilter] = useState<VolFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
 
@@ -337,14 +370,14 @@ export default function SwingCandidates() {
     let isMounted = true;
     const fetchCandidates = async () => {
       try {
-        const res = await fetch(`/api/swing-candidates/latest?t=${Date.now()}`, { cache: 'no-store' });
+        const res = await fetch(`/api/consolidation/latest?t=${Date.now()}`, { cache: 'no-store' });
         const data = await res.json();
 
         if (isMounted && data && data.success && Array.isArray(data.candidates)) {
           setCandidates(data.candidates);
           setGeneratedAt(data.lastScanTime ? Number(data.lastScanTime) : Date.now());
-          setSpyReturn(data.spyReturn3M ?? null);
-          if (data.scanMeta?.swing) setScanMeta(data.scanMeta.swing);
+          if (data.scanMeta?.consolidation) setScanMeta(data.scanMeta.consolidation);
+          else if (data.scanMeta) setScanMeta(data.scanMeta);
           setStatus('Live');
         } else if (isMounted && data?.error) {
           setStatus('Feed Error');
@@ -358,7 +391,7 @@ export default function SwingCandidates() {
     return () => { isMounted = false; clearInterval(interval); };
   }, []);
 
-  const handleSort = (key: keyof SwingCandidate) => {
+  const handleSort = (key: keyof ConsolidationCandidate) => {
     let direction: SortDirection = 'desc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
     else if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') { setSortConfig(null); return; }
@@ -369,10 +402,11 @@ export default function SwingCandidates() {
   const handleAdrFilter = (val: AdrFilterType) => setAdrFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
+  const handleStatFilter = (val: StatFilterType) => setStatFilter(prev => prev === val ? 'All' : val);
+  const handleVolFilter = (val: VolFilterType) => setVolFilter(prev => prev === val ? 'All' : val);
 
   const filteredAndSorted = useMemo(() => {
     let filtered = [...candidates];
-    if (showReadyOnly) filtered = filtered.filter(isReady);
     if (showStage2Only) filtered = filtered.filter(c => stageShort(c.stage).startsWith('2'));
     if (marketCapFilter !== 'All') {
       filtered = filtered.filter(c => {
@@ -407,6 +441,13 @@ export default function SwingCandidates() {
     if (vwapFilter !== 'All') {
       filtered = filtered.filter(c => c.vwapStatus === vwapFilter);
     }
+    if (statFilter !== 'All') {
+      filtered = filtered.filter(c => coilStat(c) === statFilter);
+    }
+    if (volFilter !== 'All') {
+      const minVol = Number(volFilter) * 1e6;
+      filtered = filtered.filter(c => (c.dVol ?? (c.avgDollarVolM ? c.avgDollarVolM * 1e6 : 0)) >= minVol);
+    }
     if (!sortConfig) return filtered;
     return filtered.sort((a, b) => {
       const aVal = a[sortConfig.key] as any;
@@ -417,7 +458,7 @@ export default function SwingCandidates() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, showReadyOnly, showStage2Only, marketCapFilter, cnfFilter, emaFilter, adrFilter, vwapFilter]);
+  }, [candidates, sortConfig, showStage2Only, marketCapFilter, cnfFilter, emaFilter, adrFilter, vwapFilter, statFilter, volFilter]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -439,7 +480,7 @@ export default function SwingCandidates() {
     setTimeout(() => setCopied(false), 1800);
   };
 
-  const getSortIcon = (columnKey: keyof SwingCandidate) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
+  const getSortIcon = (columnKey: keyof ConsolidationCandidate) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
   const getScoreBadge = (score: number) => {
     if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
@@ -466,15 +507,38 @@ export default function SwingCandidates() {
     if (d >= 1.5) return 'text-slate-300';
     return 'text-slate-500';
   };
-  const getStochColor = (k: number) => {
+  const getStochColor = (k: number | null | undefined) => {
+    if (k == null) return 'text-slate-500';
     if (k <= 20) return 'text-purple-400';
     if (k <= 30) return 'text-emerald-400';
     return 'text-slate-400';
   };
-  const getRsColor = (rs: number) => {
+  const getRsColor = (rs: number | null | undefined) => {
+    if (rs == null) return 'text-slate-500';
     if (rs >= 20) return 'text-purple-400';
     if (rs >= 10) return 'text-emerald-400';
     if (rs >= 0) return 'text-slate-300';
+    return 'text-rose-400';
+  };
+  // COIL colour by ATR ratio — lower is tighter.
+  const getCoilColor = (r: number | null) => {
+    if (r == null) return 'text-slate-500';
+    if (r <= COIL_COILED_MAX) return 'text-purple-400';
+    if (r <= COIL_SETTING_MAX) return 'text-emerald-400';
+    return 'text-slate-400';
+  };
+  // DIC — longer base is the premium setup.
+  const getDicColor = (d: number | null) => {
+    if (d == null) return 'text-slate-600';
+    if (d >= 20) return 'text-purple-400';
+    if (d >= 10) return 'text-slate-200';
+    return 'text-slate-400';
+  };
+  // PM% — the runup into the base. Strong prior move is the continuation tell.
+  const getPmColor = (p: number | null) => {
+    if (p == null) return 'text-slate-600';
+    if (p >= 30) return 'text-emerald-400';
+    if (p >= 0) return 'text-slate-300';
     return 'text-rose-400';
   };
 
@@ -505,17 +569,16 @@ export default function SwingCandidates() {
   const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
   const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
   const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
-  // DAY/SWING chip — off-white text (zinc-400) matching the CNF badge.
-  const typeChip = "inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border bg-zinc-800/50 text-zinc-400 border-zinc-700/50";
 
   const activeFilterCount =
     (showStage2Only ? 1 : 0) +
-    (showReadyOnly ? 1 : 0) +
     (marketCapFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
     (emaFilter !== 'All' ? 1 : 0) +
     (adrFilter !== 'All' ? 1 : 0) +
-    (vwapFilter !== 'All' ? 1 : 0);
+    (vwapFilter !== 'All' ? 1 : 0) +
+    (statFilter !== 'All' ? 1 : 0) +
+    (volFilter !== 'All' ? 1 : 0);
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-visible shadow-xl w-full max-w-[1280px] mx-auto">
@@ -525,11 +588,8 @@ export default function SwingCandidates() {
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
-            REVERSAL / SWING
+            10/21 CONSOLIDATION
           </span>
-          {spyReturn !== null && (
-            <span className="hidden md:inline text-[10px] text-slate-500 font-medium tracking-wide">SPY 3M: {spyReturn >= 0 ? '+' : ''}{spyReturn.toFixed(1)}%</span>
-          )}
           {filteredAndSorted.length > 0 && (
             <button
               onClick={handleCopyTickers}
@@ -544,7 +604,7 @@ export default function SwingCandidates() {
             </button>
           )}
           <span className="relative z-40 inline-flex">
-            <MetricsKey meta={SWING_META} liveGates={scanMeta?.gates} />
+            <MetricsKey meta={CONSOL_META} liveGates={scanMeta?.gates} />
           </span>
         </div>
         <div className="flex flex-col items-center gap-1.5">
@@ -590,7 +650,17 @@ export default function SwingCandidates() {
                 <div className={pillWrap}>
                   <span className={pillLabel}>STAT</span>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => setShowReadyOnly(!showReadyOnly)} className={`${pillBtn} ${showReadyOnly ? filterBtnActive : filterBtnIdle}`}>Ready</button>
+                    {(['Coiled', 'Setting Up'] as StatFilterType[]).map((opt) => (
+                      <button key={opt} onClick={() => handleStatFilter(opt)} className={`${pillBtn} ${statFilter === opt ? filterBtnActive : filterBtnIdle}`}>{opt}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>$VOL</span>
+                  <div className="flex items-center gap-1">
+                    {VOL_BUCKETS.map((opt) => (
+                      <button key={opt} onClick={() => handleVolFilter(opt)} title={`Dollar volume of $${opt}M and above`} className={`${pillBtn} ${volFilter === opt ? filterBtnActive : filterBtnIdle}`}>{opt}M+</button>
+                    ))}
                   </div>
                 </div>
                 <div className={pillWrap}>
@@ -657,7 +727,7 @@ export default function SwingCandidates() {
           </div>
 
           <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            {/* min-w 880; column widths copied 1:1 from SIPs v2.8 (FLOAT dropped). */}
+            {/* min-w 880; COIL replaces FLOAT, %OFF HI dropped. */}
             <table className="w-full min-w-[880px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
@@ -669,7 +739,8 @@ export default function SwingCandidates() {
                   <th className={`${thBase} w-[6%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
                   <th className={`${thBase} w-[7%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('COIL')} onClick={() => handleSort('coilRatio')}>COIL{getSortIcon('coilRatio')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
@@ -682,11 +753,10 @@ export default function SwingCandidates() {
 
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
-                  <tr><td colSpan={16} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No candidates in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
+                  <tr><td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No consolidations in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
                 ) : (
                   filteredAndSorted.map((row) => {
                     const isPositive = (row.changePct ?? 0) >= 0;
-                    const tt = tradeTypeLabel(row.tradeType);
                     const tag = catalystTagOf(row);
                     const headline = headlineOf(row);
                     const catUrl = catalystUrlOf(row);
@@ -697,7 +767,13 @@ export default function SwingCandidates() {
                     const rmv = rmvOf(row);
                     const rme = rmeOf(row);
                     const stateRes = stateOf(rmv, rme);
-                    const st = isReady(row) ? 'Ready' : 'Forming';
+                    const coilR = coilRatioOf(row);
+                    const range10 = range10Of(row);
+                    const st = coilStat(row);
+                    const dic = coilDaysOf(row);
+                    const pm = priorMoveOf(row);
+                    const bvr = bvrRatioOf(row);
+                    const bvrReady = row.bvrReady === true;
                     return (
                       <React.Fragment key={row.symbol}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -727,23 +803,30 @@ export default function SwingCandidates() {
                               </div>
                               <div className="flex items-center gap-px">
                                 <span className="text-[8px] font-bold text-slate-500">21</span>
-                                <div className={`w-1.5 h-1.5 rounded-full ${emaDot(above21(row))}`} title={`21 EMA: ${above21(row) ? 'above' : 'below'}`}></div>
+                                <div className={`w-1.5 h-1.5 rounded-full ${emaDot(above21(row))}`} title={`21 EMA: ${above21(row) == null ? 'n/a' : above21(row) ? 'above' : 'below'}`}></div>
                               </div>
                             </div>
                           </td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{row.dVol ? formatCurrency(row.dVol) : (row.avgDollarVolM ? `$${row.avgDollarVolM}M` : '—')}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
+                          {/* COIL: raw 10d range % on top, N× ATR ratio below */}
+                          <td className={`${tdBase} whitespace-nowrap tabular-nums ${getCoilColor(coilR)}`} title={coilR != null ? `10-day range normalized to ${coilR.toFixed(1)}× daily ATR` : undefined}>
+                            <div className="flex flex-col leading-tight">
+                              <span className="text-xs font-bold">{range10 != null ? `${range10.toFixed(1)}%` : '—'}</span>
+                              <span className="text-[8px] font-semibold opacity-80">{coilR != null ? `${coilR.toFixed(1)}× ATR` : ''}</span>
+                            </div>
+                          </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`}>
                             {adr != null ? `${adr.toFixed(1)}%` : '—'}
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={mf != null ? `Money Flow ${mf.toFixed(0)} — ${mfLabel(mf)}` : undefined}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`} title={`${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)} percentage points vs SPY over three months`}>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`} title={row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)} percentage points vs SPY over three months` : undefined}>
                             {formatRs(row.rsVsSpy)}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK.toFixed(1)}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`}>
                             {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
                           </td>
@@ -760,16 +843,26 @@ export default function SwingCandidates() {
                             <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: DAY/SWING chip | EMA PB + catalyst | RMV/RME,
-                            then STATE left under STAGE, readiness left under SECTOR. */}
+                        {/* Sub-row: DIC · PM% · BVR cluster | catalyst | RMV/RME,
+                            then STATE left under STAGE, Coiled/Setting Up left
+                            under SECTOR. */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td className="w-[7%] text-center align-middle">
-                            {tt && (<span className={typeChip}>{tt}</span>)}
-                          </td>
+                          <td className="w-[7%]"></td>
                           <td colSpan={13} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
-                              <span className="shrink-0 w-[76px] pr-2 text-[#7c8bfa]/90 font-bold text-[9px] tracking-[0.06em] uppercase leading-none truncate">
-                                {bdRev ? <BlueDot /> : 'EMA PB'}
+                              <span className="shrink-0 flex items-center gap-2 pr-2.5 leading-none whitespace-nowrap">
+                                <span className="flex items-baseline gap-1" title="Days in coil — how long the base has held">
+                                  <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">DIC</span>
+                                  <span className={`text-[9px] font-bold tabular-nums ${getDicColor(dic)}`}>{dic != null ? dic : '—'}</span>
+                                </span>
+                                <span className="flex items-baseline gap-1" title="Prior move % — the runup into the base">
+                                  <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">PM</span>
+                                  <span className={`text-[9px] font-bold tabular-nums ${getPmColor(pm)}`}>{pm != null ? `${pm >= 0 ? '+' : ''}${pm}%` : '—'}</span>
+                                </span>
+                                <span className="flex items-baseline gap-1" title={bvr != null ? `Breakout volume readiness — coil vol is ${bvr.toFixed(2)}× the prior window (below 0.70 = dried up = ready)` : 'Breakout volume readiness'}>
+                                  <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">BVR</span>
+                                  <span className={`text-[9px] font-bold ${bvrReady ? 'text-emerald-400' : 'text-slate-500'}`}>{bvr != null ? (bvrReady ? '✓' : '✗') : '—'}</span>
+                                </span>
                               </span>
                               <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={headline || undefined}>
                                 {headline || tag ? (
@@ -810,11 +903,11 @@ export default function SwingCandidates() {
                             </span>
                           </td>
                           <td className="pb-1.5 pt-1 pl-1.5 text-left align-middle">
-                            {st === 'Ready' ? (
-                              <span title={readinessTooltip(st)} className="text-[8px] font-semibold text-emerald-400 cursor-help whitespace-nowrap">Ready</span>
-                            ) : (
-                              <span title={readinessTooltip(st)} className="text-[8px] font-semibold text-amber-400 cursor-help whitespace-nowrap">Forming</span>
-                            )}
+                            {st === 'Coiled' ? (
+                              <span className="text-[8px] font-semibold text-emerald-400 whitespace-nowrap">Coiled</span>
+                            ) : st === 'Setting Up' ? (
+                              <span className="text-[8px] font-semibold text-amber-400 whitespace-nowrap">Setting Up</span>
+                            ) : null}
                           </td>
                         </tr>
                       </React.Fragment>
