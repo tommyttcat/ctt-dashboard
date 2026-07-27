@@ -1,22 +1,23 @@
 'use client';
 
-// Ep9m — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee) — v2.1
+// Ep9m — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee) — v2.2
 //
 // Fewer than ~2% of US listings trade 9M+ shares in a session. When a stock
 // that normally trades 800k suddenly does 12M, institutions are accumulating
-// and the news hasn't been priced yet. The volume IS the signal — you research
-// the catalyst after the scan flags it, not before.
+// and the news hasn't been priced yet. The volume IS the signal.
 //
-// Unlike every other table here, this one does NOT gate on % change. A
-// non-gapping stock quietly trading 10x its normal volume is the highest-value
-// case the scan exists to find.
+// This scan does NOT gate on % change — a flat stock on 10x volume is the point.
 //
-// v1.1: Weinstein sub-stage coloring via lib/indicators/stage.
-// v1.2: + Money Flow (21), which is also scored.
-// v2.0: full parity pass — MetricsKey ?, STATE chip, VS60D, GC/21↑ & CLS out.
-// v2.1: sub-row cluster shifted flush-left under TICKER (spacer merged into a
-//       colSpan={14} cell, no left pad); cluster wrapper is now cursor-help
-//       with a combined STATS_KEY_TOOLTIP, each stat keeps its own hover.
+// v2.0: parity pass — MetricsKey ?, STATE chip, VS60D, GC/21↑ & CLS removed.
+// v2.1: sub-row cluster shifted flush-left under TICKER; cluster group hover.
+// v2.2: full column parity with the other tables — ADDED 10/21 dot column
+//       (after CHG%) and STOCH column; renamed D2C → DTC and RS/SPY → RS;
+//       REMOVED the standalone RMV main column (RMV/RME now live only in the
+//       sub-row STATE pair, like every other table). Standard column order:
+//       TICKER EP PRICE CHG% 10/21 VOL $VOL RVOL TURN ADR MF RS STOCH DTC MCAP
+//       STAGE SECTOR. EP-specifics kept: EP score, TURN, VOL-with-avg subline,
+//       Unprec/Sugar Baby marks, STORY/FLAGS filters, VS60D sub-row stat,
+//       Unprec/Silent status under SECTOR, funnel note.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -40,37 +41,41 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     what: 'Change vs prior close. Note: this scan does NOT gate on change — a flat stock on 10x volume is the point.',
     colour: 'Green up · red down.',
   },
+  '10/21': {
+    what: 'Price vs the 10 and 21 EMAs — the Dr. Wish trend pair.',
+    colour: 'Green dot above that EMA · red below · grey no data.',
+  },
   VOL: {
     what: "Shares traded today, with the 20-day average below. Scan floor is 9M shares.",
   },
+  '$VOL': { what: 'Dollar volume — price × volume.' },
   RVOL: {
     what: "Today's volume vs its own 20-day average. Scan floors at 3x — the headline metric here, so the scale runs hotter than other tables.",
     colour: 'Fuchsia 10x+ · purple 7x+ · green 5x+ · lime above the floor.',
   },
-  '$VOL': { what: 'Dollar volume — price × volume.' },
   TURN: {
     what: 'Float turnover — share of the tradeable float that changed hands today. Above 1.0x, the entire float traded, which is a genuine regime change.',
     colour: 'Fuchsia 1.0x+ · purple 0.5x+ · green 0.25x+ · lime 0.1x+.',
-  },
-  D2C: {
-    what: 'Days to cover — short interest ÷ average daily volume. Trapped shorts are squeeze fuel.',
-    colour: 'Purple 5+ · green 3+ · grey below.',
   },
   ADR: {
     what: '20-day average daily range. The anti-chop measure.',
     colour: 'Purple 10%+ · green 5%+ · grey at the floor.',
   },
-  RMV: {
-    what: 'RMV(15) — 0 = tightest price action of the last 15 bars, 100 = most volatile. High is EXPECTED here (range expanded with volume). Low RMV alongside heavy volume is the odd one — trade going nowhere = distribution.',
-    colour: 'Green tight · amber mid · rose most volatile (inverted vs other tables).',
-  },
   MF: {
     what: 'Money Flow (21) — accumulation vs distribution over the prior month. Heavy volume with MF under 45 is distribution however strong today looks. Arrow shows the 5-day direction.',
     colour: 'Green high (accumulation) · red low (distribution).',
   },
-  'RS/SPY': {
+  RS: {
     what: 'Relative strength vs SPY over three months, in percentage points.',
     colour: 'Purple +20 · green +10 · grey positive · red negative.',
+  },
+  STOCH: {
+    what: 'Stochastic %K (10). Low readings near a rising 21 EMA are the Blue Dot precondition.',
+    colour: 'Purple ≤20 · green ≤30 · grey above.',
+  },
+  DTC: {
+    what: 'Days to cover — short interest ÷ average daily volume. Trapped shorts are squeeze fuel.',
+    colour: 'Purple 5+ · green 3+ · grey below.',
   },
   MCAP: { what: 'Market cap.' },
   STAGE: {
@@ -86,7 +91,6 @@ const colTip = (key: string): string | undefined => {
   return n.colour ? `${n.what}\n\n${n.colour}` : n.what;
 };
 
-// Combined explainer for the sub-row stat cluster (shown on cluster hover).
 const STATS_KEY_TOOLTIP = [
   'SUB-ROW STATS',
   '',
@@ -125,12 +129,16 @@ interface Ep9mCandidate {
   aboveEma10?: boolean | null;
   aboveEma21?: boolean | null;
   distToEma21?: number | null;
+  distToEma10?: number | null;
   ema21Rising?: boolean | null;
   goldenCross?: boolean | null;
   pctOffHigh?: number | null;
+  stochK?: number | null;
   rsVsSpy?: number | null;
   priorTriggers?: number;
   sugarBaby?: boolean;
+  blueDot?: boolean;
+  setupName?: string | null;
   catalyst?: string | null;
   catalystUrl?: string | null;
   thesis?: string | null;
@@ -288,6 +296,9 @@ const SugarBabyMark = () => (
   </span>
 );
 
+const above21 = (c: Ep9mCandidate) => c.aboveEma21 ?? (c.distToEma21 != null ? c.distToEma21 >= 0 : null);
+const above10 = (c: Ep9mCandidate) => c.aboveEma10 ?? (c.distToEma10 != null ? c.distToEma10 >= 0 : null);
+
 export default function Ep9m() {
   const { session } = useMarketData();
 
@@ -437,7 +448,7 @@ export default function Ep9m() {
     if (t >= 0.10) return 'text-lime-400';
     return 'text-slate-400';
   };
-  const getD2cColor = (d: number | null | undefined) => {
+  const getDtcColor = (d: number | null | undefined) => {
     if (d == null) return 'text-slate-500';
     if (d >= 5) return 'text-purple-400';
     if (d >= 3) return 'text-emerald-400';
@@ -451,14 +462,11 @@ export default function Ep9m() {
     if (a >= 3) return 'text-slate-300';
     return 'text-slate-500';
   };
-  const getRmvColor = (r: number | null) => {
-    if (r == null) return 'text-slate-500';
-    if (r <= 10) return 'text-emerald-400';
-    if (r <= 25) return 'text-lime-400';
-    if (r <= 45) return 'text-yellow-400';
-    if (r <= 65) return 'text-amber-400';
-    if (r <= 80) return 'text-orange-400';
-    return 'text-rose-400';
+  const getStochColor = (k: number | null | undefined) => {
+    if (k == null) return 'text-slate-500';
+    if (k <= 20) return 'text-purple-400';
+    if (k <= 30) return 'text-emerald-400';
+    return 'text-slate-400';
   };
   const getRsColor = (rs: number | null | undefined) => {
     if (rs == null) return 'text-slate-500';
@@ -682,23 +690,27 @@ export default function Ep9m() {
           </div>
 
           <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
+            {/* Standard column order matching the other tables. EP replaces CNF;
+                10/21 dot column and STOCH added; D2C→DTC, RS/SPY→RS; RMV moved
+                to the sub-row. TURN kept as an EP-specific. Widths sum ~92. */}
             <table className="w-full min-w-[880px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} w-[8%]`} title={colTip('TICKER')} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className={`${thBase} w-[7%]`} title={colTip('TICKER')} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('EP')} onClick={() => handleSort('score')}>EP{getSortIcon('score')}</th>
                   <th className={`${thBase} w-[7%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className={`${thBase} w-[8%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('10/21')}>10/21</th>
+                  <th className={`${thBase} w-[7%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
                   <th className={`${thBase} w-[7%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('TURN')} onClick={() => handleSort('floatTurnover')}>TURN{getSortIcon('floatTurnover')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('D2C')} onClick={() => handleSort('daysToCover')}>D2C{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('RMV')} onClick={() => handleSort('rmv')}>RMV{getSortIcon('rmv')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('RS/SPY')} onClick={() => handleSort('rsVsSpy')}>RS/SPY{getSortIcon('rsVsSpy')}</th>
-                  <th className={`${thBase} w-[7%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thStage} w-[5%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
                   <th className={`${thSector} w-[7%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
@@ -707,7 +719,7 @@ export default function Ep9m() {
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
                   <tr>
-                    <td colSpan={16} className="py-12 text-center text-slate-500 text-sm font-medium">
+                    <td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium">
                       {status === 'Live'
                         ? (candidates.length > 0
                             ? 'No names match the current filters.'
@@ -752,6 +764,18 @@ export default function Ep9m() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getChgColor(row.changePct)}`}>
                             {row.changePct != null ? `${row.changePct >= 0 ? '+' : ''}${row.changePct.toFixed(2)}%` : '—'}
                           </td>
+                          <td className={`${tdBase} whitespace-nowrap`}>
+                            <div className="flex items-center justify-center gap-1">
+                              <div className="flex items-center gap-px">
+                                <span className="text-[8px] font-bold text-slate-500">10</span>
+                                <div className={`w-1.5 h-1.5 rounded-full ${emaDot(above10(row))}`} title={`10 EMA: ${above10(row) == null ? 'n/a' : above10(row) ? 'above' : 'below'}`}></div>
+                              </div>
+                              <div className="flex items-center gap-px">
+                                <span className="text-[8px] font-bold text-slate-500">21</span>
+                                <div className={`w-1.5 h-1.5 rounded-full ${emaDot(above21(row))}`} title={`21 EMA: ${above21(row) == null ? 'n/a' : above21(row) ? 'above' : 'below'}`}></div>
+                              </div>
+                            </div>
+                          </td>
                           <td
                             className={`${tdBase} whitespace-nowrap tabular-nums`}
                             title={row.avgVol ? `20-day average: ${formatNumber(row.avgVol)}${row.volVs60dMax != null ? ` · ${row.volVs60dMax.toFixed(2)}x its 60-day volume high` : ''}` : undefined}
@@ -759,27 +783,25 @@ export default function Ep9m() {
                             <div className="text-xs font-bold leading-tight text-slate-200">{formatNumber(row.vol)}</div>
                             {row.avgVol ? (<div className="text-[9px] text-slate-500 font-medium leading-tight">avg {formatNumber(row.avgVol)}</div>) : null}
                           </td>
+                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`} title="Today's volume vs its own 20-day average">
                             {row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getTurnColor(row.floatTurnover)}`} title="Float turnover — share of the tradeable float that changed hands today. Above 1.0x the entire float traded.">
                             {row.floatTurnover != null ? `${row.floatTurnover.toFixed(2)}x` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getD2cColor(row.daysToCover)}`} title="Days to cover — short interest divided by average daily volume. Squeeze fuel.">
-                            {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
-                          </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`} title="20-day average daily range (high/low) — the anti-chop measure">
                             {adr != null ? `${adr.toFixed(1)}%` : '—'}
-                          </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRmvColor(rmv)}`} title="RMV(15) — 0 = tightest price action of the last 15 bars, 100 = most volatile. High is expected here; low alongside heavy volume means trade going nowhere.">
-                            {rmv != null ? rmv.toFixed(0) : '—'}
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={`Money Flow (21) — ${mfLabel(mf)}. Heavy volume with MF under 45 is distribution, however strong today's close. Arrow shows the 5-day direction.`}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`} title={row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)} percentage points vs SPY over three months` : undefined}>
                             {formatRs(row.rsVsSpy)}
+                          </td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover — short interest divided by average daily volume. Squeeze fuel.">
+                            {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
                           </td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
                           <td className={`${tdStage} whitespace-nowrap border-l border-white/5`}>
@@ -794,10 +816,10 @@ export default function Ep9m() {
                             <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: cluster spans from under TICKER (colSpan={14},
-                            no left pad); cluster wrapper is cursor-help with the
-                            combined STATS_KEY_TOOLTIP, VS60D keeps its own hover.
-                            STATE under STAGE, Unprec/Silent under SECTOR. */}
+                        {/* Sub-row: EP 9M · VS60D cluster flush-left under TICKER
+                            (colSpan={14}, no left pad, group hover) | catalyst |
+                            RMV/RME, then STATE under STAGE, Unprec/Silent under
+                            SECTOR. */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td colSpan={14} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
