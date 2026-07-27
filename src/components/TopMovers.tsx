@@ -1,13 +1,13 @@
 'use client';
 
-// TopMovers — v1.1
-// v1.1: RS renders as a rounded percentage with 1k+ compaction (a name can
-//       outrun SPY by 1000pp in three months and the raw number wrecks the
-//       column); SHT% replaced by DTC (days to cover); 10/21 dots tightened to
-//       match the other tables; + Copy button for TradingView watchlists.
+// TopMovers — v1.2
+// v1.1: RS compaction, DTC, 10/21 dots, Copy button.
+// v1.2: + MetricsKey "?" panel showing scan gates from scanConfig.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
+import MetricsKey from './MetricsKey';
+import { TOPMOVERS_META } from '@/lib/scanConfig';
 
 interface StockData {
   ticker: string;
@@ -40,89 +40,20 @@ type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
 type CnfFilterType = 'All' | 'A' | 'B' | 'C';
 
-interface MovingAverage {
-  label: string;
-  value: number;
-  above: boolean;
-}
+interface MovingAverage { label: string; value: number; above: boolean; }
+interface Benchmark { symbol: string; price: number; day?: MovingAverage[]; week?: MovingAverage[]; mas?: MovingAverage[]; }
 
-interface Benchmark {
-  symbol: string;
-  price: number;
-  day?: MovingAverage[];
-  week?: MovingAverage[];
-  mas?: MovingAverage[]; // legacy shape, fallback only
-}
-
-const formatTime = (timestamp: number | Date) => {
-  if (!timestamp) return '';
-  const date = new Date(timestamp);
-  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
-};
-
-const formatNumber = (num: number | null) => {
-  if (num === null || num === 0 || isNaN(num)) return '—';
-  if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
-  if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
-  if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
-  return num.toLocaleString();
-};
-
-const formatCurrency = (num: number | null) => {
-  if (num === null || num === 0 || isNaN(num)) return '—';
-  if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
-  if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
-  return '$' + num.toLocaleString();
-};
-
-/* --------------------------------------------------------------
-   RS vs SPY — 3-month relative strength in percentage points.
-   Whole numbers only: the decimal was false precision on a 63-day
-   figure. Above 1000pp compacts to "1k%" — a real reading for the
-   moonshots (a name up 1100% while SPY did nothing), and the raw
-   number would blow out the column width.
-   -------------------------------------------------------------- */
-const formatRs = (rs: number | null): string => {
-  if (rs == null || isNaN(rs)) return '—';
-  const sign = rs >= 0 ? '+' : '-';
-  const abs = Math.abs(rs);
-  if (abs >= 1000) {
-    const k = abs / 1000;
-    // One decimal below 10k, none above — "+2k%" reads cleaner than "+2.0k%".
-    const s = k >= 10
-      ? Math.round(k).toString()
-      : (Math.round(k * 10) / 10).toString().replace(/\.0$/, '');
-    return `${sign}${s}k%`;
-  }
-  return `${sign}${Math.round(abs)}%`;
-};
-
-const formatSetupName = (name: string | null) => {
-  if (!name || name === '-' || name === '—') return null;
-  if (name.includes('BB SQZ')) return 'BB SQZ';
-  if (name === 'Blue Dot Rev') return 'BD Rev';
-  return name;
-};
-
-// True only for the backend's generic no-news fallback labels.
-const isGenericCatalyst = (catalyst: string | null | undefined) =>
-  !catalyst || catalyst.toLowerCase().startsWith('technical momentum');
-
-// CNF grade from the unified score: A >= 70, B >= 50, C below.
-const cnfGradeOf = (score: number | null): CnfFilterType | null => {
-  if (score == null) return null;
-  if (score >= 70) return 'A';
-  if (score >= 50) return 'B';
-  return 'C';
-};
+const formatTime = (timestamp: number | Date) => { if (!timestamp) return ''; const date = new Date(timestamp); return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' }); };
+const formatNumber = (num: number | null) => { if (num === null || num === 0 || isNaN(num)) return '\u2014'; if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B'; if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M'; if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K'; return num.toLocaleString(); };
+const formatCurrency = (num: number | null) => { if (num === null || num === 0 || isNaN(num)) return '\u2014'; if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B'; if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M'; return '$' + num.toLocaleString(); };
+const formatRs = (rs: number | null): string => { if (rs == null || isNaN(rs)) return '\u2014'; const sign = rs >= 0 ? '+' : '-'; const abs = Math.abs(rs); if (abs >= 1000) { const k = abs / 1000; const s = k >= 10 ? Math.round(k).toString() : (Math.round(k * 10) / 10).toString().replace(/\.0$/, ''); return `${sign}${s}k%`; } return `${sign}${Math.round(abs)}%`; };
+const formatSetupName = (name: string | null) => { if (!name || name === '-' || name === '\u2014') return null; if (name.includes('BB SQZ')) return 'BB SQZ'; if (name === 'Blue Dot Rev') return 'BD Rev'; return name; };
+const isGenericCatalyst = (catalyst: string | null | undefined) => !catalyst || catalyst.toLowerCase().startsWith('technical momentum');
+const cnfGradeOf = (score: number | null): CnfFilterType | null => { if (score == null) return null; if (score >= 70) return 'A'; if (score >= 50) return 'B'; return 'C'; };
 
 export default function TopMovers() {
   const { session } = useMarketData();
-  
-  const [topMoversData, setTopMoversData] = useState<Record<TabType, StockData[]>>({
-    'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': []
-  });
-  
+  const [topMoversData, setTopMoversData] = useState<Record<TabType, StockData[]>>({ 'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': [] });
   const [activeTab, setActiveTab] = useState<TabType>('Gainers');
   const [status, setStatus] = useState<string>('Syncing DB...');
   const [lastScanTime, setLastScanTime] = useState<number | null>(null);
@@ -130,11 +61,12 @@ export default function TopMovers() {
   const [maTimeframe, setMaTimeframe] = useState<'day' | 'week'>('day');
   const [sortConfig, setSortConfig] = useState<{ key: keyof StockData; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
-  const [marketCapFilter, setMarketCapFilter] = useState<string>('All'); 
+  const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [copied, setCopied] = useState<boolean>(false);
+  const [scanMeta, setScanMeta] = useState<any>(null);
 
   useEffect(() => { setSortConfig(null); }, [activeTab]);
 
@@ -144,206 +76,70 @@ export default function TopMovers() {
       try {
         const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
         const data = await res.json();
-        
         if (isMounted && data.success && data.topMovers) {
-          const safeData: Record<TabType, StockData[]> = {
-            'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': []
-          };
-          
+          const safeData: Record<TabType, StockData[]> = { 'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': [] };
           const categories: TabType[] = ['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'];
-          
           categories.forEach(category => {
             const rawList = data.topMovers[category] || [];
             safeData[category] = rawList.map((item: any) => ({
-              ticker: item.ticker || '—',
-              name: item.name || '',
-              sector: item.sector || '',
-              price: Number(item.price) || 0,
-              vwapStatus: item.vwapStatus || 'neutral',
-              changePct: Number((item.change ?? item.changePct) || 0), 
+              ticker: item.ticker || '\u2014', name: item.name || '', sector: item.sector || '',
+              price: Number(item.price) || 0, vwapStatus: item.vwapStatus || 'neutral',
+              changePct: Number((item.change ?? item.changePct) || 0),
               vol: Number((item.volume ?? item.vol) || 0),
               dVol: Number(item.dVol) || (Number(item.price || 0) * Number((item.volume ?? item.vol) || 0)),
-              rvol: item.rvol || null,
-              mktCap: item.mktCap || null,
-              float: item.float || null,
-              shortPct: item.shortPct || null,
-              daysToCover: item.daysToCover ?? null,
-              catalyst: item.catalyst || null,
-              catalystUrl: item.catalystUrl || null,
-              stage: item.stage || '—',
-              setupName: item.setupName || null,
+              rvol: item.rvol || null, mktCap: item.mktCap || null, float: item.float || null,
+              shortPct: item.shortPct || null, daysToCover: item.daysToCover ?? null,
+              catalyst: item.catalyst || null, catalystUrl: item.catalystUrl || null,
+              stage: item.stage || '\u2014', setupName: item.setupName || null,
               conviction: item.conviction != null ? Number(item.conviction) : ((item.cnfScore ?? item.smbScore) ?? null),
-              aboveEma10: item.aboveEma10 ?? null,
-              aboveEma21: item.aboveEma21 ?? null,
-              stochK: item.stochK ?? null,
-              rsVsSpy: item.rsVsSpy ?? null,
+              aboveEma10: item.aboveEma10 ?? null, aboveEma21: item.aboveEma21 ?? null,
+              stochK: item.stochK ?? null, rsVsSpy: item.rsVsSpy ?? null,
             }));
           });
-
           setTopMoversData(safeData);
-          setLastScanTime(data.lastScanTime || Date.now()); 
+          setLastScanTime(data.lastScanTime || Date.now());
           if (data.benchmark) setBenchmark(data.benchmark);
+          if (data.scanMeta?.topMovers) setScanMeta(data.scanMeta.topMovers);
           setStatus('Live');
         }
-      } catch (error) {
-        if (isMounted) setStatus('DB Offline');
-      }
+      } catch (error) { if (isMounted) setStatus('DB Offline'); }
     };
-
     fetchDatabaseSnapshot();
     const interval = setInterval(fetchDatabaseSnapshot, 60000);
     return () => { isMounted = false; clearInterval(interval); };
   }, []);
 
-  const handleSort = (key: keyof StockData) => {
-    let direction: SortDirection = 'desc'; 
-    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
-    else if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') { setSortConfig(null); return; }
-    setSortConfig({ key, direction });
-  };
-
-  // Clicking the active option clears back to All (toggle behavior)
+  const handleSort = (key: keyof StockData) => { let direction: SortDirection = 'desc'; if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc'; else if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') { setSortConfig(null); return; } setSortConfig({ key, direction }); };
   const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
 
   const sortedStocks = useMemo(() => {
     let currentList = topMoversData[activeTab] || [];
-
-    if (marketCapFilter !== 'All') {
-      currentList = currentList.filter(s => {
-        const mc = s.mktCap;
-        if (!mc) return true; 
-        if (marketCapFilter === 'Mega') return mc >= 200e9;
-        if (marketCapFilter === 'Large') return mc >= 10e9 && mc < 200e9;
-        if (marketCapFilter === 'Mid') return mc >= 2e9 && mc < 10e9;
-        if (marketCapFilter === 'Small') return mc >= 300e6 && mc < 2e9;
-        if (marketCapFilter === 'Micro') return mc < 300e6;
-        return true;
-      });
-    }
-
-    if (emaFilter !== 'All') {
-      currentList = currentList.filter(s => {
-        if (emaFilter === '>10') return s.aboveEma10 === true;
-        if (emaFilter === '>21') return s.aboveEma21 === true;
-        if (emaFilter === 'Both') return s.aboveEma10 === true && s.aboveEma21 === true;
-        return true;
-      });
-    }
-
-    if (vwapFilter !== 'All') {
-      currentList = currentList.filter(s => s.vwapStatus === vwapFilter);
-    }
-
-    if (cnfFilter !== 'All') {
-      currentList = currentList.filter(s => cnfGradeOf(s.conviction) === cnfFilter);
-    }
-
+    if (marketCapFilter !== 'All') { currentList = currentList.filter(s => { const mc = s.mktCap; if (!mc) return true; if (marketCapFilter === 'Mega') return mc >= 200e9; if (marketCapFilter === 'Large') return mc >= 10e9 && mc < 200e9; if (marketCapFilter === 'Mid') return mc >= 2e9 && mc < 10e9; if (marketCapFilter === 'Small') return mc >= 300e6 && mc < 2e9; if (marketCapFilter === 'Micro') return mc < 300e6; return true; }); }
+    if (emaFilter !== 'All') { currentList = currentList.filter(s => { if (emaFilter === '>10') return s.aboveEma10 === true; if (emaFilter === '>21') return s.aboveEma21 === true; if (emaFilter === 'Both') return s.aboveEma10 === true && s.aboveEma21 === true; return true; }); }
+    if (vwapFilter !== 'All') { currentList = currentList.filter(s => s.vwapStatus === vwapFilter); }
+    if (cnfFilter !== 'All') { currentList = currentList.filter(s => cnfGradeOf(s.conviction) === cnfFilter); }
     if (!sortConfig) return currentList.slice(0, 10);
-    
-    return [...currentList].sort((a, b) => {
-      const aVal = a[sortConfig.key] as any;
-      const bVal = b[sortConfig.key] as any;
-      if (aVal === null || aVal === undefined) return 1;
-      if (bVal === null || bVal === undefined) return -1;
-      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
-      return 0;
-    }).slice(0, 10);
+    return [...currentList].sort((a, b) => { const aVal = a[sortConfig.key] as any; const bVal = b[sortConfig.key] as any; if (aVal === null || aVal === undefined) return 1; if (bVal === null || bVal === undefined) return -1; if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1; if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1; return 0; }).slice(0, 10);
   }, [topMoversData, activeTab, sortConfig, marketCapFilter, emaFilter, vwapFilter, cnfFilter]);
 
-  // Copy the visible tickers, comma-separated — TradingView's watchlist
-  // import format. Respects the active tab and whatever filters are on.
-  const handleCopyTickers = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const tickers = sortedStocks.map(s => s.ticker).join(',');
-    if (!tickers) return;
-    try {
-      await navigator.clipboard.writeText(tickers);
-    } catch {
-      // Clipboard API needs a secure context; fall back to a temp textarea.
-      const ta = document.createElement('textarea');
-      ta.value = tickers;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand('copy'); } catch {}
-      document.body.removeChild(ta);
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
-  };
+  const handleCopyTickers = async (e: React.MouseEvent) => { e.stopPropagation(); const tickers = sortedStocks.map(s => s.ticker).join(','); if (!tickers) return; try { await navigator.clipboard.writeText(tickers); } catch { const ta = document.createElement('textarea'); ta.value = tickers; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch {} document.body.removeChild(ta); } setCopied(true); setTimeout(() => setCopied(false), 1800); };
 
-  const getSortIcon = (columnKey: keyof StockData) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
-  
-  const getSessionTextColor = () => {
-    if (status.includes('Err') || status.includes('Offline')) return 'text-rose-500';
-    if (status.includes('Syncing')) return 'text-amber-500'; 
-    if (session === 'Pre-Market') return 'text-amber-500';
-    if (session === 'Open') return 'text-[#00e676]';
-    if (session === 'Post-Market') return 'text-indigo-400';
-    return 'text-slate-500';
-  };
+  const getSortIcon = (columnKey: keyof StockData) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' \u2191' : ' \u2193') : '';
+  const getSessionTextColor = () => { if (status.includes('Err') || status.includes('Offline')) return 'text-rose-500'; if (status.includes('Syncing')) return 'text-amber-500'; if (session === 'Pre-Market') return 'text-amber-500'; if (session === 'Open') return 'text-[#00e676]'; if (session === 'Post-Market') return 'text-indigo-400'; return 'text-slate-500'; };
+  const getScoreBadge = (score: number | null) => { if (score == null) return 'bg-white/[0.02] text-slate-600 border-white/5'; if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'; if (score >= 50) return 'bg-amber-500/10 text-amber-400 border-amber-500/20'; return 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50'; };
+  const getRvolColor = (rvol: number | null) => { if (!rvol) return 'text-slate-500'; if (rvol >= 2) return 'text-amber-400'; if (rvol >= 1.5) return 'text-emerald-400'; return 'text-slate-500'; };
+  const getFloatColor = (float: number | null) => { if (!float) return 'text-slate-500'; if (float <= 20000000) return 'text-purple-400'; if (float <= 50000000) return 'text-emerald-400'; return 'text-slate-300'; };
+  const getDtcColor = (d: number | null) => { if (d == null) return 'text-slate-500'; if (d >= 5) return 'text-purple-400'; if (d >= 3) return 'text-emerald-400'; if (d >= 1.5) return 'text-slate-300'; return 'text-slate-500'; };
+  const getStochColor = (k: number | null) => { if (k == null) return 'text-slate-500'; if (k <= 20) return 'text-purple-400'; if (k <= 30) return 'text-emerald-400'; return 'text-slate-400'; };
+  const getRsColor = (rs: number | null) => { if (rs == null) return 'text-slate-500'; if (rs >= 20) return 'text-purple-400'; if (rs >= 10) return 'text-emerald-400'; if (rs >= 0) return 'text-slate-300'; return 'text-rose-400'; };
+  const emaDot = (state: boolean | null) => { if (state === null) return 'bg-slate-600'; return state ? 'bg-emerald-400' : 'bg-rose-500'; };
 
-  const getScoreBadge = (score: number | null) => {
-    if (score == null) return 'bg-white/[0.02] text-slate-600 border-white/5';
-    if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-    if (score >= 50) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-    return 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50';
-  };
-
-  const getRvolColor = (rvol: number | null) => {
-    if (!rvol) return 'text-slate-500';
-    if (rvol >= 2) return 'text-amber-400';
-    if (rvol >= 1.5) return 'text-emerald-400';
-    return 'text-slate-500';
-  };
-
-  const getFloatColor = (float: number | null) => {
-    if (!float) return 'text-slate-500';
-    if (float <= 20000000) return 'text-purple-400'; 
-    if (float <= 50000000) return 'text-emerald-400';
-    return 'text-slate-300';
-  };
-
-  // Days to cover — sessions of normal volume for shorts to exit. Above 5 is
-  // Bonde's threshold; that's trapped supply which has to buy at some point.
-  const getDtcColor = (d: number | null) => {
-    if (d == null) return 'text-slate-500';
-    if (d >= 5) return 'text-purple-400';
-    if (d >= 3) return 'text-emerald-400';
-    if (d >= 1.5) return 'text-slate-300';
-    return 'text-slate-500';
-  };
-
-  const getStochColor = (k: number | null) => {
-    if (k == null) return 'text-slate-500';
-    if (k <= 20) return 'text-purple-400';
-    if (k <= 30) return 'text-emerald-400';
-    return 'text-slate-400';
-  };
-
-  const getRsColor = (rs: number | null) => {
-    if (rs == null) return 'text-slate-500';
-    if (rs >= 20) return 'text-purple-400';
-    if (rs >= 10) return 'text-emerald-400';
-    if (rs >= 0) return 'text-slate-300';
-    return 'text-rose-400';
-  };
-
-  const emaDot = (state: boolean | null) => {
-    if (state === null) return 'bg-slate-600';
-    return state ? 'bg-emerald-400' : 'bg-rose-500';
-  };
-
-  // Shared styles — all columns centered under their titles
   const thBase = "px-3 py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 transition-colors text-center";
   const tdBase = "px-3 py-3 text-center";
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
   const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
-  // Compact pill styles: tighter padding + smaller fonts for multi-option badges
   const pillWrap = "flex items-center gap-1.5 px-2 py-0.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
   const pillLabel = "text-[8px] font-bold tracking-widest uppercase text-slate-500";
   const pillBtn = "px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase transition-all duration-300 whitespace-nowrap";
@@ -357,18 +153,13 @@ export default function TopMovers() {
             TOP MOVERS
           </span>
           {sortedStocks.length > 0 && (
-            <button
-              onClick={handleCopyTickers}
-              title={`Copy ${sortedStocks.length} ticker${sortedStocks.length !== 1 ? 's' : ''} from ${activeTab} for TradingView`}
-              className={`text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded border transition-all duration-200 ${
-                copied
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                  : 'bg-[#161c2a] text-slate-400 border-white/5 hover:text-slate-200 hover:bg-white/[0.04]'
-              }`}
-            >
-              {copied ? `✓ Copied ${sortedStocks.length}` : `Copy ${sortedStocks.length}`}
+            <button onClick={handleCopyTickers} title={`Copy ${sortedStocks.length} ticker${sortedStocks.length !== 1 ? 's' : ''} from ${activeTab} for TradingView`} className={`text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded border transition-all duration-200 ${copied ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-[#161c2a] text-slate-400 border-white/5 hover:text-slate-200 hover:bg-white/[0.04]'}`}>
+              {copied ? `\u2713 Copied ${sortedStocks.length}` : `Copy ${sortedStocks.length}`}
             </button>
           )}
+          <span className="relative z-40 inline-flex">
+            <MetricsKey meta={TOPMOVERS_META} liveGates={scanMeta?.gates} />
+          </span>
         </div>
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
@@ -381,7 +172,6 @@ export default function TopMovers() {
       {isExpanded && (
         <>
           <div className="flex flex-col gap-3 mb-6 relative z-10 pb-2">
-            {/* Row 1, centered: tabs → MKT CAP → CNF (A/B/C) */}
             <div className="flex flex-wrap justify-center items-center gap-3 w-full">
               <div className="flex gap-3 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
                 {(['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'] as TabType[]).map((tab) => (
@@ -392,37 +182,27 @@ export default function TopMovers() {
               </div>
               <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-0.5" onClick={(e) => e.stopPropagation()}>
                 {['All', 'Micro', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
-                  <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>
-                    {cap}
-                  </button>
+                  <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>{cap}</button>
                 ))}
               </div>
-              {/* CNF grade — clickable filter pill */}
               <div className={pillWrap} onClick={(e) => e.stopPropagation()}>
                 <span className={pillLabel}>CNF</span>
                 <div className="flex items-center gap-0.5">
                   {(['A', 'B', 'C'] as CnfFilterType[]).map((g) => (
-                    <button key={g} onClick={() => handleCnfFilter(g)} className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}>
-                      {g}
-                    </button>
+                    <button key={g} onClick={() => handleCnfFilter(g)} className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}>{g}</button>
                   ))}
                 </div>
               </div>
             </div>
-            {/* Row 2, centered: 10/21 → VWAP → QQQ benchmark */}
             <div className="flex flex-wrap justify-center items-center gap-3 w-full" onClick={(e) => e.stopPropagation()}>
-              {/* 10/21 — clickable filter pill */}
               <div className={pillWrap}>
                 <span className={pillLabel}>10/21</span>
                 <div className="flex items-center gap-0.5">
                   {(['>10', '>21', 'Both'] as EmaFilterType[]).map((opt) => (
-                    <button key={opt} onClick={() => handleEmaFilter(opt)} className={`${pillBtn} ${emaFilter === opt ? filterBtnActive : filterBtnIdle}`}>
-                      {opt}
-                    </button>
+                    <button key={opt} onClick={() => handleEmaFilter(opt)} className={`${pillBtn} ${emaFilter === opt ? filterBtnActive : filterBtnIdle}`}>{opt}</button>
                   ))}
                 </div>
               </div>
-              {/* VWAP — clickable filter pill */}
               <div className={pillWrap}>
                 <span className={pillLabel}>VWAP</span>
                 <div className="flex items-center gap-0.5">
@@ -434,33 +214,24 @@ export default function TopMovers() {
                   </button>
                 </div>
               </div>
-              {/* QQQ benchmark */}
               {benchmark && (() => {
-                const activeMas = maTimeframe === 'day'
-                  ? (benchmark.day || benchmark.mas || [])
-                  : (benchmark.week || []);
+                const activeMas = maTimeframe === 'day' ? (benchmark.day || benchmark.mas || []) : (benchmark.week || []);
                 const unit = maTimeframe === 'day' ? 'D' : 'W';
                 return (
                   <div className={pillWrap}>
                     <span className="text-[8px] font-bold tracking-widest uppercase text-[#7c8bfa]">{benchmark.symbol}</span>
-
                     <div className="flex items-center bg-[#0b101a] border border-white/5 rounded-md p-0.5">
                       {(['day', 'week'] as const).map((tf) => (
-                        <button
-                          key={tf}
-                          onClick={() => setMaTimeframe(tf)}
-                          className={`px-1.5 py-0.5 rounded text-[8px] font-bold tracking-widest uppercase transition-colors ${maTimeframe === tf ? 'bg-indigo-500/20 text-indigo-300' : 'text-slate-500 hover:text-slate-300'}`}
-                        >
+                        <button key={tf} onClick={() => setMaTimeframe(tf)} className={`px-1.5 py-0.5 rounded text-[8px] font-bold tracking-widest uppercase transition-colors ${maTimeframe === tf ? 'bg-indigo-500/20 text-indigo-300' : 'text-slate-500 hover:text-slate-300'}`}>
                           {tf === 'day' ? 'Day' : 'Week'}
                         </button>
                       ))}
                     </div>
-
                     <div className="flex items-center gap-1.5">
                       {activeMas.map((m, idx) => (
                         <React.Fragment key={m.label}>
                           {idx > 0 && <span className="text-[9px] text-slate-600">|</span>}
-                          <div className="flex items-center gap-1" title={`${benchmark.symbol} ${m.label}${unit} SMA: $${m.value.toFixed(2)} — ${m.above ? 'above' : 'below'}`}>
+                          <div className="flex items-center gap-1" title={`${benchmark.symbol} ${m.label}${unit} SMA: $${m.value.toFixed(2)} \u2014 ${m.above ? 'above' : 'below'}`}>
                             <span className="text-[9px] font-medium text-slate-400">{m.label}</span>
                             <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${m.above ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>
                           </div>
@@ -504,58 +275,26 @@ export default function TopMovers() {
                     const isPositive = row.changePct >= 0;
                     return (
                       <tr key={i} className="hover:bg-white/[0.02] transition-colors group">
-                        <td className={tdBase}>
-                          <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help" title={row.name || row.ticker}>{row.ticker}</span>
-                        </td>
-                        <td className={tdBase}>
-                          <span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.conviction)}`}>{row.conviction != null ? row.conviction : '--'}</span>
-                        </td>
-                        <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
-                          <div className="flex items-center justify-center gap-1.5">
-                            ${row.price.toFixed(2)}
-                            {row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}
-                          </div>
-                        </td>
+                        <td className={tdBase}><span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help" title={row.name || row.ticker}>{row.ticker}</span></td>
+                        <td className={tdBase}><span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.conviction)}`}>{row.conviction != null ? row.conviction : '--'}</span></td>
+                        <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}><div className="flex items-center justify-center gap-1.5">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div></td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
-                        <td className={`${tdBase} whitespace-nowrap`}>
-                          <div className="flex items-center justify-center gap-1.5">
-                            <div className="flex items-center gap-0.5">
-                              <span className="text-[9px] font-bold text-slate-500">10</span>
-                              <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} title={`10 EMA: ${row.aboveEma10 === null ? 'n/a' : row.aboveEma10 ? 'above' : 'below'}`}></div>
-                            </div>
-                            <div className="flex items-center gap-0.5">
-                              <span className="text-[9px] font-bold text-slate-500">21</span>
-                              <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma21)}`} title={`21 EMA: ${row.aboveEma21 === null ? 'n/a' : row.aboveEma21 ? 'above' : 'below'}`}></div>
-                            </div>
-                          </div>
-                        </td>
+                        <td className={`${tdBase} whitespace-nowrap`}><div className="flex items-center justify-center gap-1.5"><div className="flex items-center gap-0.5"><span className="text-[9px] font-bold text-slate-500">10</span><div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} title={`10 EMA: ${row.aboveEma10 === null ? 'n/a' : row.aboveEma10 ? 'above' : 'below'}`}></div></div><div className="flex items-center gap-0.5"><span className="text-[9px] font-bold text-slate-500">21</span><div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma21)}`} title={`21 EMA: ${row.aboveEma21 === null ? 'n/a' : row.aboveEma21 ? 'above' : 'below'}`}></div></div></div></td>
                         <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
                         <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
+                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '\u2014'}</td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`} title={row.rsVsSpy != null ? `3-month return vs SPY: ${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)} percentage points` : undefined}>
-                          {formatRs(row.rsVsSpy)}
-                        </td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover — short interest divided by average daily volume. Sessions of normal trade for shorts to exit; above 5 is trapped supply.">
-                          {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
-                        </td>
+                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`} title={row.rsVsSpy != null ? `3-month return vs SPY: ${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)} percentage points` : undefined}>{formatRs(row.rsVsSpy)}</td>
+                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '\u2014'}</td>
+                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover \u2014 short interest divided by average daily volume.">{row.daysToCover != null ? row.daysToCover.toFixed(1) : '\u2014'}</td>
                         <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
-                        <td className={`${tdBase} border-l border-white/5`}>
-                          <span className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{row.sector || '—'}</span>
-                        </td>
+                        <td className={`${tdBase} border-l border-white/5`}><span className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{row.sector || '\u2014'}</span></td>
                         <td className={`${tdBase} text-[10px] whitespace-normal break-words`}>
                           {!isGenericCatalyst(row.catalyst) ? (
-                            row.catalystUrl ? (
-                              <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>
-                            ) : (
-                              <span className="text-indigo-300/90 font-medium">{row.catalyst}</span>
-                            )
+                            row.catalystUrl ? (<a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>) : (<span className="text-indigo-300/90 font-medium">{row.catalyst}</span>)
                           ) : formatSetupName(row.setupName) ? (
                             <span className="text-slate-400 font-medium whitespace-nowrap">{formatSetupName(row.setupName)}</span>
-                          ) : (
-                            <span className="text-slate-500 font-medium">Technical</span>
-                          )}
+                          ) : (<span className="text-slate-500 font-medium">Technical</span>)}
                         </td>
                       </tr>
                     );

@@ -134,6 +134,14 @@ const hasRealCatalyst = (s: any): boolean =>
 const catalystTextOf = (s: any): string | null =>
   hasRealCatalyst(s) ? String(s.catalyst).replace(/\.$/, '') : null;
 
+// Format catalyst with URL as a markdown-style link for the renderer to pick up
+const catalystLinked = (s: any): string => {
+  const cat = catalystTextOf(s);
+  if (!cat) return '';
+  const url = s?.catalystUrl || s?.catalystUrl || null;
+  return url ? `[${cat}](${url})` : cat;
+};
+
 // Dollar volume — prefer the stored dVol, fall back to price * volume.
 const dVolOf = (s: any): number => {
   const d = Number(s?.dVol);
@@ -582,7 +590,7 @@ const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | nu
   const newsItems = sips.filter(hasRealCatalyst).slice(0, 4);
   if (newsItems.length) {
     sipsLines.push(`News-driven:\n${newsItems.map(s => {
-      const cat = catalystTextOf(s) || '';
+      const cat = catalystLinked(s);
       const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
       const rv = rvolOf(s);
       const rvolStr = rv != null ? ` · RVOL ${rv.toFixed(2)}` : '';
@@ -599,7 +607,7 @@ const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | nu
   let sipsPara = '';
   // Build the two possible column contents
   const newsCol = newsItems.length ? `News-driven:\n${newsItems.map(s => {
-    const cat = catalystTextOf(s) || '';
+    const cat = catalystLinked(s);
     const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
     const rv = rvolOf(s);
     const rvolStr = rv != null ? ` · RVOL ${rv.toFixed(2)}` : '';
@@ -818,13 +826,19 @@ const stochColor = (k: number) => (k <= 20 ? 'text-purple-400' : k <= 30 ? 'text
 const rsColor = (rs: number) => (rs >= 20 ? 'text-purple-400' : rs >= 10 ? 'text-emerald-400' : rs >= 0 ? 'text-slate-300' : 'text-rose-400');
 
 const renderBriefingText = (text: string): React.ReactNode[] => {
-  // Capture metric phrases first (longest match), then index/asset names,
-  // then dollar values, signed percents, and uppercase ticker-like tokens.
-  const rx = /(RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
+  // Capture: markdown links [text](url), metric phrases, index/asset names,
+  // dollar values, signed percents, and uppercase ticker-like tokens.
+  const rx = /(\[[^\]]+\]\([^)]+\)|RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
   const parts = text.split(rx);
 
   return parts.map((part, i) => {
     if (!part) return null;
+
+    // Markdown link [text](url) → clickable anchor
+    const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+    if (linkMatch) {
+      return <a key={i} href={linkMatch[2]} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-cyan-300 hover:underline transition-colors">{linkMatch[1]}</a>;
+    }
 
     // RVOL n.nn — table thresholds: amber >=2, emerald >=1.5
     let m = part.match(/^RVOL (\d+(?:\.\d+)?)$/);
@@ -896,15 +910,15 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
    ============================================================ */
 
 const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
-  { label: 'Regime', color: 'violet', blurb: 'One-line market posture from dollar-flow breadth and ETF direction.' },
-  { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves on the tape right now — volume-confirmed vs. thin gaps.' },
-  { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move and who is grinding on air.' },
-  { label: 'Daily Setups Thesis', color: 'emerald', blurb: 'Structured setups from the daily scan — SWING holds vs. DAY-only momentum.' },
-  { label: '10/21 Thesis', color: 'violet', blurb: '10/21 EMA trend posture — where entries live and where to stay away.' },
-  { label: 'EP9M Thesis', color: 'rose', blurb: 'Abnormal 9M+ share volume — institutional footprints before the headline.' },
-  { label: 'Industry Heat', color: 'amber', blurb: 'Sector rotation — where money is flowing and where it is leaving.' },
-  { label: 'ETF Flow', color: 'indigo', blurb: 'Heaviest ETF dollar volume and the advancing/declining split.' },
-  { label: 'Money Flow', color: 'rose', blurb: 'Total tracked dollar volume — who is buying and where the dollars concentrate.' },
+  { label: 'Regime', color: 'violet', blurb: 'Market posture from dollar-flow breadth and ETF direction — determines whether to buy strength or fade rips.' },
+  { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves right now. Volume-confirmed names are tradeable; thin gaps are fade candidates.' },
+  { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, who has news, and who is grinding on air.' },
+  { label: 'Daily Setups Thesis', color: 'emerald', blurb: 'Structured setups from the daily scan. SWING holds for days; DAY is intraday momentum only.' },
+  { label: '10/21 Thesis', color: 'violet', blurb: 'Dr. Wish 10/21 EMA trend posture — pullback-zone entries, pre-cross coils, and broken names to avoid.' },
+  { label: 'EP9M Thesis', color: 'rose', blurb: 'Abnormal 9M+ share volume — institutional footprints. Unprecedented = beat their own 60-day record.' },
+  { label: 'Industry Heat', color: 'amber', blurb: 'Sector rotation — where money is flowing in and where it is leaving. Wide dispersion = stock-picker tape.' },
+  { label: 'ETF Flow', color: 'indigo', blurb: 'Heaviest ETF dollar volume and the advancing/declining split — shows where leveraged money is betting.' },
+  { label: 'Money Flow', color: 'rose', blurb: 'Total tracked dollar volume across the scanned universe — who is buying, where dollars concentrate, and the advancing share.' },
   { label: 'Sector Flow', color: 'indigo', blurb: '' },
 ];
 
@@ -927,6 +941,44 @@ const splitBriefingSection = (para: string): { label: string | null; color: stri
   }
   return { label: null, color: 'indigo', blurb: '', body: para };
 };
+
+// Small copy button for section cards — copies extracted tickers as a
+// comma-separated list for pasting into TradingView or a screener.
+function SectionCopyButton({ tickers }: { tickers: string[] }) {
+  const [copied, setCopied] = React.useState(false);
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const text = tickers.join(',');
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch {}
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+  return (
+    <button
+      onClick={handleCopy}
+      title={`Copy ${tickers.length} ticker${tickers.length !== 1 ? 's' : ''}: ${tickers.join(', ')}`}
+      className={`text-[9px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border transition-all duration-200 ${
+        copied
+          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+          : 'bg-[#161c2a] text-slate-500 border-white/5 hover:text-slate-300 hover:bg-white/[0.04]'
+      }`}
+    >
+      {copied ? `✓ ${tickers.length}` : `Copy ${tickers.length}`}
+    </button>
+  );
+}
 
 export default function MarketSummary() {
   const [data, setData] = useState<SummaryData | null>(null);
@@ -1167,13 +1219,22 @@ export default function MarketSummary() {
                     {formatBriefing(macroInsights.briefing).split('\n\n').filter(Boolean).map((para, idx) => {
                       const { label, color, blurb, body } = splitBriefingSection(para.trim());
                       const st = sectionStyles(color);
+                      // Extract tickers from the body for the copy button
+                      const bodyTickers = Array.from(new Set(
+                        (body.match(/\b[A-Z]{2,5}\b/g) || []).filter(t => !TICKER_STOPWORDS.has(t))
+                      ));
                       return (
                         <div key={idx} className={`border-l-[3px] rounded-r-xl px-4 py-3 ${st.border} ${st.bg}`}>
                           {label && (
                             <div className="mb-2">
-                              <span className={`inline-block text-[9px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border ${st.badge}`}>
-                                {label}
-                              </span>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={`inline-block text-[9px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border ${st.badge}`}>
+                                  {label}
+                                </span>
+                                {bodyTickers.length > 0 && (
+                                  <SectionCopyButton tickers={bodyTickers} />
+                                )}
+                              </div>
                               {blurb && (
                                 <p className="text-[11px] text-slate-500 font-medium mt-1.5 leading-snug">{blurb}</p>
                               )}

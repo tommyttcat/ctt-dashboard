@@ -222,7 +222,28 @@ const buildToneNarrative = (
     }
   }
 
-  return [s1, s2, s3, s4].filter(Boolean).join('\n');
+  // Sentence 5 — ATHI/ATLO structural breadth: how many names are making
+  // new highs vs new lows. This tells you whether the tape's strength is
+  // broad (many names at highs) or narrow (index-level only).
+  let s5 = '';
+  const nh = breadth?.newHighs ?? 0;
+  const nl = breadth?.newLows ?? 0;
+  if (nh > 0 || nl > 0) {
+    const hlRatio = nl > 0 ? nh / nl : (nh > 0 ? Infinity : 0);
+    if (hlRatio >= 2.0) {
+      s5 = `New highs outnumber new lows ${nh} to ${nl} (${hlRatio === Infinity ? '∞' : hlRatio.toFixed(1)}:1) — structural strength, breakouts have broad participation behind them.`;
+    } else if (hlRatio >= 1.2) {
+      s5 = `New highs vs lows: ${nh} to ${nl} (${hlRatio.toFixed(1)}:1) — leaning constructive, but not dominant enough to chase extended names.`;
+    } else if (hlRatio >= 0.8) {
+      s5 = `New highs and lows are nearly even (${nh} vs ${nl}) — the rally is index-level more than broad-based. Stay selective.`;
+    } else if (hlRatio >= 0.5) {
+      s5 = `New lows outnumber highs ${nl} to ${nh} — more names are breaking down than up. Defensive tape, favour pullbacks over breakouts.`;
+    } else {
+      s5 = `New lows dominate: ${nl} vs just ${nh} highs — the tape is structurally weak underneath. Tighten stops, hunt reversals, not breakouts.`;
+    }
+  }
+
+  return [s1, s2, s3, s4, s5].filter(Boolean).join('\n');
 };
 
 /* ============================================================
@@ -717,7 +738,10 @@ export default function MacroScorecard() {
 
           {/* ATHI/ATLO — new highs vs new lows from the scanned universe */}
           {breadth && ((breadth.newHighs ?? 0) > 0 || (breadth.newLows ?? 0) > 0) && (
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border border-white/5 bg-[#161c2a]/40 rounded-xl px-4 py-3 relative z-10">
+            <div
+              className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border border-white/5 bg-[#161c2a]/40 rounded-xl px-4 py-3 relative z-10"
+              title={`ATHI / ATLO — stocks within 1% of their 52-week high vs 52-week low across the scanned universe.\n\nH/L above 2.0: strong structural tape, breakouts have wind behind them.\nH/L around 1.0: neutral, rally is index-level more than broad-based.\nH/L below 0.5: more names breaking down than up — defensive tape, favour reversals over breakouts.\n\nCurrently ${breadth.newHighs ?? 0} near highs, ${breadth.newLows ?? 0} near lows.`}
+            >
               <span className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 shrink-0">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
                 ATHI / ATLO
