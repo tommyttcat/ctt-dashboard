@@ -1,11 +1,11 @@
 'use client';
 
-// Consolidation1021 — v2.2
-// v2.1: sub-row corrected — GC/21↑ removed, STATE under STAGE, Coiled/Setting
-//       Up under SECTOR, DIC·PM·BVR cluster added.
-// v2.2: DIC·PM·BVR cluster pinned flush-left in the sub-row content cell to
-//       match the label-slot start position on SIPs/Daily/Swing exactly
-//       (was floating right of where the other tables' setup label sits).
+// Consolidation1021 — v2.3
+// v2.2: DIC·PM·BVR cluster pinned flush-left to match the other tables.
+// v2.3: + 10/21% — signed 10/21 EMA gap as % of price, in the sub-row cluster.
+//       Negative = 10 below 21 (coiling up into the cross), near zero = at the
+//       cross, positive = ribbon opening. Reads row.ema1021GapPct from the
+//       writer; shows — until the route emits it.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -30,7 +30,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Green up · red down.',
   },
   '10/21': {
-    what: 'Price vs the 10 and 21 EMAs — the Dr. Wish trend pair.',
+    what: 'Price vs the 10 and 21 EMAs — the Dr. Wish trend pair. The signed EMA gap (10/21%) is on the sub-row.',
     colour: 'Green dot above that EMA · red below · grey no data.',
   },
   VOL: { what: 'Shares traded today.' },
@@ -116,6 +116,7 @@ interface ConsolidationCandidate {
   priorMovePct?: number | null;
   bvrRatio?: number | null;
   bvrReady?: boolean;
+  ema1021GapPct?: number | null;
   blueDot?: boolean;
   setupName?: string | null;
   catalyst?: string | null;
@@ -288,6 +289,11 @@ const priorMoveOf = (c: ConsolidationCandidate): number | null => {
 const bvrRatioOf = (c: ConsolidationCandidate): number | null => {
   if (c.bvrRatio == null || isNaN(Number(c.bvrRatio))) return null;
   return Number(c.bvrRatio);
+};
+
+const gap1021Of = (c: ConsolidationCandidate): number | null => {
+  if (c.ema1021GapPct == null || isNaN(Number(c.ema1021GapPct))) return null;
+  return Number(c.ema1021GapPct);
 };
 
 const coilStat = (c: ConsolidationCandidate): 'Coiled' | 'Setting Up' | null => {
@@ -536,6 +542,17 @@ export default function Consolidation1021() {
     if (p >= 0) return 'text-slate-300';
     return 'text-rose-400';
   };
+  // 10/21 EMA gap — tight around zero is the money zone (at/just past the
+  // cross). Negative = 10 below 21, coiling up. Widening positive = opening.
+  const getGap1021Color = (g: number | null) => {
+    if (g == null) return 'text-slate-600';
+    const a = Math.abs(g);
+    if (a <= 0.5) return 'text-purple-400';        // at the cross
+    if (g > 0 && g <= 2) return 'text-emerald-400'; // freshly opening up
+    if (g > 2) return 'text-slate-400';             // extended
+    if (g < 0 && g >= -1) return 'text-lime-400';   // below but close — coiling up
+    return 'text-rose-400';                          // below and widening
+  };
 
   const emaDot = (state: boolean | null | undefined) => {
     if (state === null || state === undefined) return 'bg-slate-600';
@@ -763,6 +780,7 @@ export default function Consolidation1021() {
                     const pm = priorMoveOf(row);
                     const bvr = bvrRatioOf(row);
                     const bvrReady = row.bvrReady === true;
+                    const gap1021 = gap1021Of(row);
                     return (
                       <React.Fragment key={row.symbol}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -831,10 +849,9 @@ export default function Consolidation1021() {
                             <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: empty w-[7%] spacer under TICKER, then content
-                            cell — DIC·PM·BVR cluster starts flush-left in the
-                            same slot the setup label occupies on the other
-                            tables (shrink-0, pr-2, no left pad). */}
+                        {/* Sub-row: DIC · PM · BVR · 10/21% cluster | catalyst |
+                            RMV/RME, then STATE under STAGE, Coiled/Setting Up
+                            under SECTOR. */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="w-[7%]"></td>
                           <td colSpan={13} className="pb-1.5 pt-1 pr-3">
@@ -851,6 +868,10 @@ export default function Consolidation1021() {
                                 <span className="flex items-baseline gap-1" title={bvr != null ? `Breakout volume readiness — coil vol is ${bvr.toFixed(2)}× the prior window (below 0.70 = dried up = ready)` : 'Breakout volume readiness'}>
                                   <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">BVR</span>
                                   <span className={`text-[9px] font-bold ${bvrReady ? 'text-emerald-400' : 'text-slate-500'}`}>{bvr != null ? (bvrReady ? '✓' : '✗') : '—'}</span>
+                                </span>
+                                <span className="flex items-baseline gap-1" title="10/21 EMA gap as % of price. Negative = 10 below 21 (coiling up into the cross); near zero = at the cross; positive = ribbon opening.">
+                                  <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">10/21%</span>
+                                  <span className={`text-[9px] font-bold tabular-nums ${getGap1021Color(gap1021)}`}>{gap1021 != null ? `${gap1021 >= 0 ? '+' : ''}${gap1021.toFixed(1)}%` : '—'}</span>
                                 </span>
                               </span>
                               <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={headline || undefined}>
