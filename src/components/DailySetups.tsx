@@ -538,7 +538,7 @@ export default function DailySetups() {
   const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
   const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
   // DAY/SWING chip — off-white text (text-slate-200) so it reads clearly.
-  const typeChip = "inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border bg-zinc-800/50 text-slate-200 border-zinc-700/50";
+  const typeChip = "inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border bg-zinc-800/50 text-zinc-400 border-zinc-700/50";
 
   const activeFilterCount =
     (showStage2Only ? 1 : 0) +
