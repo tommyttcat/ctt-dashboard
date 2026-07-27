@@ -13,8 +13,10 @@
 //   40-50 mild distribution
 //   < 40  strong distribution — sellers taking the closes
 //
-// Ported from the VPCI 92 Pine (f_calc_flo / mf_score), same formula and the
-// same 150x scaling factor so the dashboard and the chart agree.
+// Ported from the VPCI 92 Pine (f_calc_flo / mf_score). NOTE: SCALE was
+// dropped from 150 to 100 to stop realistic CMF values (±0.4) from clamping
+// to the 0/100 rails and losing resolution at the extremes. If the Pine still
+// uses 150, update it to 100 as well so the chart and dashboard agree.
 
 export interface MfBar {
   h: number;
@@ -38,11 +40,13 @@ export interface MfOptions {
 
 /**
  * Scaling factor applied to raw CMF before centering on 50.
- * CMF runs -1..+1 in theory but rarely exceeds ±0.4 in practice, so 150
- * spreads the realistic range across most of the 0-100 scale. Matches the
- * Pine so both surfaces print the same number.
+ * CMF runs -1..+1 in theory but rarely exceeds ±0.4 in practice. At 100, a
+ * realistic extreme of ±0.4 maps to ~90 / ~10 — near the rails but not pinned
+ * to them, so the strongest accumulation/distribution names stay
+ * distinguishable instead of all clamping to exactly 0 or 100. (Was 150, which
+ * saturated everything past ±0.33 CMF.)
  */
-const SCALE = 150;
+const SCALE = 100;
 
 /**
  * Money Flow score, 0-100, centered on 50.

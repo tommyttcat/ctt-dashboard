@@ -44,6 +44,7 @@ interface MacroInsights {
   briefing: string;
   watching: WatchItem[];
   topCatalyst?: TopCatalyst | null;
+  topCatalysts?: TopCatalyst[];
 }
 
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
@@ -307,24 +308,35 @@ const build1021Para = (pool: any[]): string => {
   const badSlope = rows.filter(r => r.slope === 'falling' || r.slope === 'flat');
   const unstacked = rows.filter(r => r.stacked === false);
 
+  // Pre-cross: 10 still under the 21 but within ~1% of it and price holding —
+  // the earliest entry, coiling into the cross before it fires.
+  const precross = rows.filter(r =>
+    r.stacked === false && r.d10 != null && r.d21 != null &&
+    Math.abs((r.d10 as number) - (r.d21 as number)) <= 1.5 && (r.d21 as number) > -3
+  );
+
   const lines: string[] = [];
 
   if (aligned.length) {
-    lines.push(`${aligned.length} of ${rows.length} hold above both the 10 and 21 EMA — trend-aligned, pullbacks are the entry.`);
+    lines.push(`Trend-aligned (holding above both the 10 and 21 EMA): ${aligned.map(r => r.ticker).slice(0, 6).join(', ')} — buy the pullback, these have the cleanest structure.`);
   } else {
     lines.push(`Nothing in the scan holds above both the 10 and 21 EMA — no clean trend-aligned entries on the board.`);
   }
 
   if (pullback.length) {
-    lines.push(`In the 10/21 pullback zone (under the 10, still over the 21): ${pullback.map(r => r.ticker).slice(0, 6).join(', ')} — first-touch buys live here.`);
+    lines.push(`Pullback zone (under the 10, still over the 21): ${pullback.map(r => r.ticker).slice(0, 6).join(', ')} — first-touch buys live here.`);
+  }
+
+  if (precross.length) {
+    lines.push(`Pre-cross (10 coiling up into the 21, about to flip): ${precross.map(r => r.ticker).slice(0, 6).join(', ')} — earliest entry, size small until the cross confirms.`);
   }
 
   if (broken.length) {
     const avgBroken = broken.reduce((a, r) => a + (r.d21 as number), 0) / broken.length;
-    lines.push(`Below the 21 EMA and in repair: ${broken.map(r => r.ticker).slice(0, 6).join(', ')} (avg ${avgBroken.toFixed(1)}% under the line).`);
+    lines.push(`Below the 21 EMA and in repair: ${broken.map(r => r.ticker).slice(0, 6).join(', ')} (avg ${avgBroken.toFixed(1)}% under the line) — no-touch until reclaimed.`);
   }
 
-  if (unstacked.length) {
+  if (unstacked.length && !precross.length) {
     lines.push(`${unstacked.length} show the 10 under the 21 — short-term trend is still inverted, wait for the cross.`);
   } else if (badSlope.length) {
     lines.push(`${badSlope.length} sit under a flat or declining 21 EMA — no slope to lean on yet.`);
@@ -340,18 +352,149 @@ const build1021Para = (pool: any[]): string => {
   return `10/21 Thesis: ${lines.join('\n')}`;
 };
 
-const buildLocalInsights = (scan: any): MacroInsights | null => {
+/* ---- EP9M readers — the ep9m payload uses its own field names ---- */
+const ep9mVs60dOf = (s: any): number | null => numOrNull(s?.volVs60dMax);
+const ep9mUnprec = (s: any): boolean => s?.unprecedented === true;
+const ep9mTurnOf = (s: any): number | null => numOrNull(s?.floatTurnover);
+const ep9mSilent = (s: any): boolean => !hasRealCatalyst(s);
+
+/* ---- Blended idea score — ranks watchlist candidates by more than raw CNF.
+   CNF is the base; RVOL and a real catalyst add weight so a volume-confirmed
+   name with news outranks a high-CNF name that is quiet. ---- */
+const blendedScore = (s: any): number => {
+  let v = scoreOf(s);
+  const rv = rvolOf(s);
+  if (rv != null) {
+    if (rv >= 2) v += 12;
+    else if (rv >= 1.5) v += 7;
+    else if (rv < 1 && rv > 0) v -= 6; // price without volume — demote
+  }
+  if (hasRealCatalyst(s)) v += 8;
+  if (ep9mUnprec(s)) v += 6;
+  const d21 = pctFrom21(s);
+  const d10 = pctFrom10(s);
+  if (d21 != null && d21 > 0 && d10 != null && d10 <= 0) v += 5; // pullback-zone entry
+  return v;
+};
+
+/* ---- Regime line — one-verdict market posture from breadth + ETF flow ---- */
+const buildRegimePara = (flowNames: any[], etfs: { chg: number; dVol: number }[]): string => {
+  const totalD = flowNames.reduce((a, s) => a + dVolOf(s), 0);
+  if (totalD <= 0) return '';
+  const advD = flowNames.filter(s => chgOf(s) > 0).reduce((a, s) => a + dVolOf(s), 0);
+  const advShare = Math.round((advD / totalD) * 100);
+
+  const etfUp = etfs.filter(e => e.chg > 0).reduce((a, e) => a + e.dVol, 0);
+  const etfTot = etfs.reduce((a, e) => a + e.dVol, 0);
+  const etfShare = etfTot > 0 ? Math.round((etfUp / etfTot) * 100) : null;
+
+  let verdict: string;
+  let action: string;
+  if (advShare >= 60 && (etfShare == null || etfShare >= 55)) {
+    verdict = 'Risk-On';
+    action = 'buy leaders on strength, breakouts have follow-through behind them.';
+  } else if (advShare <= 40 && (etfShare == null || etfShare <= 45)) {
+    verdict = 'Defensive';
+    action = 'tighten up — most dollars are on the sell side, fade rips rather than chase.';
+  } else {
+    verdict = 'Mixed';
+    action = 'stock-picker\'s tape — no broad wind, stay in the highest-conviction names only.';
+  }
+
+  const bits = [`${advShare}% of tracked dollars on the advancing side`];
+  if (etfShare != null) bits.push(`ETF flow ${etfShare}% green`);
+  return `Regime: ${verdict} — ${bits.join(', ')}. ${action}`;
+};
+
+/* ---- Top Movers — the actual biggest movers, RVOL-confirmed, as a trade list ---- */
+const buildMoversPara = (movers: any): string => {
+  const gainers: any[] = Array.isArray(movers?.['Gainers']) ? movers['Gainers'] : [];
+  const losers: any[] = Array.isArray(movers?.['Losers']) ? movers['Losers'] : [];
+  if (gainers.length === 0 && losers.length === 0) return '';
+
+  const fmtMover = (s: any): string => {
+    const bits = [`${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`];
+    const rv = rvolOf(s);
+    if (rv != null && rv > 0) bits.push(`RVOL ${rv.toFixed(2)}`);
+    return `${s.ticker} (${bits.join(', ')})`;
+  };
+
+  const topG = gainers
+    .slice()
+    .sort((a, b) => chgOf(b) - chgOf(a))
+    .slice(0, 4);
+  const topL = losers
+    .slice()
+    .sort((a, b) => chgOf(a) - chgOf(b))
+    .slice(0, 3);
+
+  const lines: string[] = [];
+  if (topG.length) {
+    const confirmed = topG.filter(s => (rvolOf(s) ?? 0) >= 1.5);
+    lines.push(`Leading the tape: ${topG.map(fmtMover).join(', ')}.`);
+    if (confirmed.length) {
+      lines.push(`Volume-confirmed of those: ${confirmed.map(s => s.ticker).join(', ')} — RVOL over 1.5 means the move has real participation, not just a thin gap.`);
+    } else {
+      lines.push('None of the top gainers carry RVOL over 1.5 — moves are thin, treat as fade candidates rather than momentum longs.');
+    }
+  }
+  if (topL.length) {
+    lines.push(`Heaviest red: ${topL.map(fmtMover).join(', ')} — weakness leaders for short setups or names to avoid on the long side.`);
+  }
+  return `Top Movers: ${lines.join('\n')}`;
+};
+
+/* ---- EP9M Thesis — abnormal-volume institutional footprints ---- */
+const buildEp9mPara = (ep9m: any[]): string => {
+  const rows = ep9m.filter(s => s?.ticker);
+  if (rows.length < 1) return '';
+
+  const fmtEp = (s: any): string => {
+    const bits: string[] = [];
+    const vs = ep9mVs60dOf(s);
+    if (vs != null) bits.push(`${vs.toFixed(2)}× 60d high`);
+    const rv = rvolOf(s);
+    if (rv != null && rv > 0) bits.push(`RVOL ${rv.toFixed(2)}`);
+    const turn = ep9mTurnOf(s);
+    if (turn != null && turn >= 0.25) bits.push(`${turn.toFixed(2)}× float`);
+    return `${s.ticker}${bits.length ? ` (${bits.join(', ')})` : ''}`;
+  };
+
+  const unprec = rows.filter(ep9mUnprec).sort((a, b) => (ep9mVs60dOf(b) ?? 0) - (ep9mVs60dOf(a) ?? 0));
+  const silent = rows.filter(ep9mSilent).sort((a, b) => (rvolOf(b) ?? 0) - (rvolOf(a) ?? 0));
+  const news = rows.filter(hasRealCatalyst).sort((a, b) => scoreOf(b) - scoreOf(a));
+
+  const lines: string[] = [];
+  if (unprec.length) {
+    lines.push(`Unprecedented volume (today beats their own 60-day record): ${unprec.slice(0, 5).map(fmtEp).join(', ')} — institutions are accumulating ahead of the story.`);
+  }
+  if (silent.length) {
+    lines.push(`Silent — heavy volume, no headline yet: ${silent.slice(0, 5).map(s => s.ticker).join(', ')}. The footprint is visible before the news; these are the research-now names.`);
+  }
+  if (news.length) {
+    lines.push(`With a catalyst already out: ${news.slice(0, 4).map(s => s.ticker).join(', ')}.`);
+  }
+  if (!lines.length) {
+    lines.push(`${rows.length} name${rows.length !== 1 ? 's' : ''} trading abnormal size — ${rows.slice(0, 6).map(fmtEp).join(', ')}.`);
+  }
+  return `EP9M Thesis: ${lines.join('\n')}`;
+};
+
+const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | null => {
   const sips: any[] = Array.isArray(scan?.stocksInPlay) ? scan.stocksInPlay : [];
   const daily: any[] = Array.isArray(scan?.dailySetups) ? scan.dailySetups : [];
+  const ep9m: any[] = Array.isArray(ep9mList) ? ep9mList.filter(s => s?.ticker) : [];
   const movers = scan?.topMovers || {};
-  if (sips.length === 0 && daily.length === 0) return null;
+  if (sips.length === 0 && daily.length === 0 && ep9m.length === 0) return null;
 
-  /* ---- Watchlist: top 6 by CNF across SIPs + Daily, deduped ---- */
-  const pool = [...sips, ...daily].filter(s => s?.ticker);
+  /* ---- Watchlist: top 6 by BLENDED score across SIPs + Daily + EP9M, deduped.
+     Blended score weights CNF with RVOL confirmation and catalyst presence so
+     the six names shown are the best ideas, not merely the highest raw score. ---- */
+  const pool = [...sips, ...daily, ...ep9m].filter(s => s?.ticker);
   const seen = new Set<string>();
   const ranked = pool
     .slice()
-    .sort((a, b) => scoreOf(b) - scoreOf(a))
+    .sort((a, b) => blendedScore(b) - blendedScore(a))
     .filter(s => {
       if (seen.has(s.ticker)) return false;
       seen.add(s.ticker);
@@ -367,10 +510,12 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
     catalystUrl: s?.catalystUrl || null,
   }));
 
-  /* ---- Top themed catalyst: highest-CNF name with a real headline ---- */
+  /* ---- Top catalysts: up to 3 highest-conviction names with real headlines ---- */
   const withNews = pool
     .filter(hasRealCatalyst)
-    .sort((a, b) => scoreOf(b) - scoreOf(a));
+    .slice()
+    .sort((a, b) => scoreOf(b) - scoreOf(a))
+    .filter((s, i, arr) => arr.findIndex(x => x.ticker === s.ticker) === i);
   const topCatalyst: TopCatalyst | null = withNews.length
     ? {
         ticker: withNews[0].ticker,
@@ -380,10 +525,16 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
         brief: buildCatalystBrief(withNews[0]),
       }
     : null;
+  const topCatalysts: TopCatalyst[] = withNews.slice(0, 3).map(s => ({
+    ticker: s.ticker,
+    headline: String(s.catalyst || s.thesis).replace(/\.$/, ''),
+    url: s.catalystUrl || null,
+    brief: buildCatalystBrief(s),
+  }));
 
   /* ---- Flow universe: all scanned stocks, deduped by ticker ---- */
   const stockLists = [
-    ...sips, ...daily,
+    ...sips, ...daily, ...ep9m,
     ...(movers['Gainers'] || []), ...(movers['Losers'] || []), ...(movers['Mega Caps'] || []),
   ];
   const flowSeen = new Set<string>();
@@ -542,11 +693,41 @@ const buildLocalInsights = (scan: any): MacroInsights | null => {
     moneyPara = `Money Flow: ${moneyLines.join('\n')}`;
   }
 
+  /* ---- New sections: Regime (verdict), Top Movers, EP9M ---- */
+  const regimePara = buildRegimePara(flowNames, etfs);
+  const moversPara = buildMoversPara(movers);
+  const ep9mPara = buildEp9mPara(ep9m);
+
+  /* ---- Assemble in reading order: verdict first, then ideas, then flow.
+     Empty sections drop out; if a whole section is quiet we still surface a
+     short note (below) rather than letting it vanish silently. ---- */
+  // Quiet-section notes: if a core idea section produced nothing but the scan
+  // clearly ran, surface a one-line "quiet" note so it reads as "nothing here
+  // today" rather than a broken/absent section.
+  const sipsFinal = sipsPara || (sips.length === 0 && (daily.length || ep9m.length) ? 'SIPs Thesis: No stocks in play in the current scan.' : '');
+  const dailyFinal = dailyPara || (daily.length === 0 && (sips.length || ep9m.length) ? 'Daily Setups Thesis: No daily setups on the board right now.' : '');
+  const ep9mFinal = ep9mPara || (ep9m.length === 0 && (sips.length || daily.length) ? 'EP9M Thesis: No names trading abnormal 9M+ size yet — this fills in as session volume builds.' : '');
+
+  const orderedParas = [
+    regimePara,
+    moversPara,
+    sipsFinal,
+    dailyFinal,
+    ema1021Para,
+    ep9mFinal,
+    heatPara,
+    etfPara,
+    moneyPara,
+  ];
+
+  const briefing = orderedParas.filter(Boolean).join('\n\n');
+
   return {
     theme,
-    briefing: [sipsPara, dailyPara, ema1021Para, heatPara, etfPara, moneyPara].filter(Boolean).join('\n\n'),
+    briefing,
     watching,
     topCatalyst,
+    topCatalysts,
   };
 };
 
@@ -661,9 +842,12 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
    ============================================================ */
 
 const BRIEFING_SECTIONS: { label: string; color: string }[] = [
+  { label: 'Regime', color: 'violet' },
+  { label: 'Top Movers', color: 'emerald' },
   { label: 'SIPs Thesis', color: 'cyan' },
   { label: 'Daily Setups Thesis', color: 'emerald' },
   { label: '10/21 Thesis', color: 'violet' },
+  { label: 'EP9M Thesis', color: 'rose' },
   { label: 'Industry Heat', color: 'amber' },
   { label: 'ETF Flow', color: 'indigo' },
   { label: 'Money Flow', color: 'rose' },
@@ -698,51 +882,52 @@ export default function MarketSummary() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
 
-  const isWeekend = isWeekendNow();
+  useEffect(() => {
+    setSession(getMarketSession());
+    const sessionTimer = setInterval(() => setSession(getMarketSession()), 60000);
+    return () => clearInterval(sessionTimer);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
-    if (!data && !macroInsights) setStatus('Loading');
 
-    const fetchMarketData = async () => {
-      if (isMounted) setSession(getMarketSession());
-
+    const fetchData = async () => {
+      // 1. Load the stored session summary (morning/midday/closing blocks)
       try {
-        // 1. Fetch Narrative Data (Session Updates)
-        const narrativeRes = await fetch('/api/market-summary', { cache: 'no-store' });
-
-        if (!narrativeRes.ok) {
-          if (narrativeRes.status === 404 && isMounted) {
-            setData({ morning: null, midday: null, closing: null, actionableEvents: [] });
-          } else {
-            throw new Error(`Narrative API returned status: ${narrativeRes.status}`);
-          }
-        } else {
-          const payload: SummaryData = await narrativeRes.json();
-          if (isMounted) {
-            const estTime = getCurrentEstDecimal();
-            const gatedData: SummaryData = {
-              morning: (estTime >= 4.0 || isWeekend) ? (payload.morning || null) : null,
-              midday: (estTime >= 11.5 || isWeekend) ? (payload.midday || null) : null,
-              closing: (estTime >= 15.5 || isWeekend) ? (payload.closing || null) : null,
-              actionableEvents: payload.actionableEvents || [] 
-            };
-            setData(gatedData);
+        const res = await fetch('/api/market-summary/latest', { cache: 'no-store' });
+        if (res.ok) {
+          const json = await res.json();
+          if (isMounted && json?.success && json.data) {
+            setData(json.data);
           }
         }
       } catch (error) {
-        console.error("Narrative Sync Error:", error);
+        console.error("Summary Sync Error:", error);
       }
 
-      // 2. Build Market Briefing deterministically from scanner data (no AI)
+      // 2. Build Market Briefing deterministically from scanner data (no AI).
+      //    EP9M lives on its own endpoint, so fetch both in parallel. The
+      //    ep9m call is defensive: if it fails or is empty, the briefing still
+      //    builds from the scanner payload alone.
       try {
-        const scannerRes = await fetch('/api/scanner/latest', { cache: 'no-store' });
+        const [scannerRes, ep9mRes] = await Promise.all([
+          fetch('/api/scanner/latest', { cache: 'no-store' }),
+          fetch(`/api/ep9m/latest?t=${Date.now()}`, { cache: 'no-store' }).catch(() => null),
+        ]);
         if (!scannerRes.ok) throw new Error(`Scanner API returned status: ${scannerRes.status}`);
-        
+
         const scannerData = await scannerRes.json();
-        
+
+        let ep9mList: any[] = [];
+        try {
+          if (ep9mRes && ep9mRes.ok) {
+            const ep9mData = await ep9mRes.json();
+            if (ep9mData && Array.isArray(ep9mData.candidates)) ep9mList = ep9mData.candidates;
+          }
+        } catch { /* ep9m is optional — ignore parse errors */ }
+
         if (isMounted) {
-          const local = buildLocalInsights(scannerData);
+          const local = buildLocalInsights(scannerData, ep9mList);
           if (local) {
             setMacroInsights(local);
           } else if (scannerData.macroInsights) {
@@ -761,33 +946,38 @@ export default function MarketSummary() {
       }
     };
 
-    fetchMarketData();
-    const interval = setInterval(fetchMarketData, 60000); 
-    return () => { isMounted = false; clearInterval(interval); };
-  }, [isWeekend]); 
+    fetchData();
+    const dataTimer = setInterval(fetchData, 60000);
+    return () => { isMounted = false; clearInterval(dataTimer); };
+  }, []);
 
   const getThemeStyles = (theme: string) => {
     switch (theme) {
-      case 'cyan': return { border: 'border-cyan-500/20', bg: 'bg-cyan-500/5', text: 'text-cyan-400', boxBg: 'bg-cyan-500/10', boxBorder: 'border-cyan-500', boxText: 'text-cyan-100/90' };
-      case 'emerald': return { border: 'border-emerald-500/20', bg: 'bg-emerald-500/5', text: 'text-emerald-400', boxBg: 'bg-emerald-500/10', boxBorder: 'border-emerald-500', boxText: 'text-emerald-100/90' };
-      case 'rose': return { border: 'border-rose-500/20', bg: 'bg-rose-500/5', text: 'text-rose-400', boxBg: 'bg-rose-500/10', boxBorder: 'border-rose-500', boxText: 'text-rose-100/90' };
-      case 'amber': return { border: 'border-amber-500/20', bg: 'bg-amber-500/5', text: 'text-amber-400', boxBg: 'bg-amber-500/10', boxBorder: 'border-amber-500', boxText: 'text-amber-100/90' };
-      case 'indigo': default: return { border: 'border-indigo-500/30', bg: 'bg-indigo-500/5', text: 'text-indigo-400', boxBg: 'bg-indigo-500/10', boxBorder: 'border-indigo-500', boxText: 'text-indigo-100/90' };
+      case 'cyan': return { border: 'border-cyan-500/30', badge: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20', accent: 'text-cyan-400' };
+      case 'emerald': return { border: 'border-emerald-500/30', badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20', accent: 'text-emerald-400' };
+      case 'amber': return { border: 'border-amber-500/30', badge: 'bg-amber-500/10 text-amber-400 border-amber-500/20', accent: 'text-amber-400' };
+      case 'rose': return { border: 'border-rose-500/30', badge: 'bg-rose-500/10 text-rose-400 border-rose-500/20', accent: 'text-rose-400' };
+      case 'indigo': default: return { border: 'border-indigo-500/30', badge: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20', accent: 'text-indigo-400' };
     }
   };
 
-  const getSessionTextColor = () => {
-    if (session === 'Pre-Market') return 'text-amber-500';
-    if (session === 'Open') return 'text-[#00e676]';
-    if (session === 'Post-Market') return 'text-indigo-400';
-    return 'text-slate-500';
+  const getSessionColor = () => {
+    switch (session) {
+      case 'Pre-Market': return 'text-amber-500';
+      case 'Open': return 'text-[#00e676]';
+      case 'Post-Market': return 'text-indigo-400';
+      default: return 'text-slate-500';
+    }
   };
 
   const formatBriefing = (text: string) => {
     if (!text) return "";
     return text
+      .replace(/(Top Movers:)/gi, '\n\n$1')
+      .replace(/(SIPs Thesis:)/gi, '\n\n$1')
       .replace(/(Daily Setups Thesis:)/gi, '\n\n$1')
       .replace(/(10\/21 Thesis:)/gi, '\n\n$1')
+      .replace(/(EP9M Thesis:)/gi, '\n\n$1')
       .replace(/(Industry Heat:)/gi, '\n\n$1')
       .replace(/(ETF Flow:)/gi, '\n\n$1')
       .replace(/(Money Flow:)/gi, '\n\n$1')
@@ -800,234 +990,208 @@ export default function MarketSummary() {
 
     return (
       <div className="bg-[#161c2a]/60 border border-white/5 rounded-xl p-5 md:p-6 mt-3">
-        <div className="flex items-center gap-3 mb-4">
-          <div className={`w-2 h-2 rounded-full ${styles.bg} border border-current ${styles.text}`}></div>
-          <h4 className={`text-[11px] font-bold tracking-widest uppercase ${styles.text}`}>
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <span className={`text-[10px] font-bold tracking-widest uppercase px-2.5 py-1 rounded border ${styles.badge}`}>
             {block.phase}
-          </h4>
-          <span className="text-[9px] text-slate-500 font-medium tracking-wider px-2 py-0.5 bg-black/20 border border-white/5 rounded">
-            {block.timestamp}
           </span>
+          <span className="text-[11px] text-slate-500 font-medium tracking-wide">{block.timestamp}</span>
         </div>
-
-        <div className="space-y-3 mb-5">
-          {block.paragraphs.map((p, idx) => (
-            <p key={idx} className="text-[13px] text-slate-400 leading-relaxed border-l-[2px] border-slate-500/30 pl-3.5">
-              {renderBriefingText(p)}
-            </p>
-          ))}
-        </div>
-
-        <div className={`border-l-[4px] p-4 rounded-r-xl transition-colors duration-300 ${styles.boxBg} ${styles.boxBorder}`}>
-          <p className={`text-[13px] leading-relaxed ${styles.boxText}`}>
-            {block.takeaway}
+        {block.paragraphs.map((para, idx) => (
+          <p key={idx} className="text-[13px] text-slate-300 leading-relaxed mb-3 last:mb-0">
+            {renderBriefingText(para)}
           </p>
-        </div>
+        ))}
+        {block.takeaway && (
+          <div className={`mt-4 pt-4 border-t border-white/5`}>
+            <span className={`text-[10px] font-bold tracking-widest uppercase ${styles.accent}`}>{block.takeawayLabel}: </span>
+            <span className="text-[13px] text-slate-200 font-medium">{renderBriefingText(block.takeaway)}</span>
+          </div>
+        )}
       </div>
     );
   };
 
   return (
-    <div className="bg-[#101623] border border-white/10 rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-2xl w-full">
-      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-500 via-emerald-500 to-indigo-500 opacity-40"></div>
-      
-      <div 
+    <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-visible shadow-xl w-full max-w-[1280px] mx-auto">
+      {/* Header */}
+      <div
         onClick={() => setIsExpanded(!isExpanded)}
-        className={`flex justify-between items-start md:items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-8 border-b border-white/5 pb-4' : ''}`}
+        className={`flex justify-between items-center relative z-30 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}
       >
-        <div className="flex items-center gap-3">
-          <span className="text-xs md:text-sm font-bold border px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 transition-colors text-[#7c8bfa] bg-[#161c2a]/40 border-white/5 group-hover:bg-white/[0.02]">
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
-            LIVE SESSION NARRATIVE
+            Market Summary
           </span>
-        </div>
-
-        <div className="flex flex-col items-center gap-1.5 mt-3 md:mt-0">
-          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${status === 'Loading' ? 'text-amber-500' : status === 'Error' ? 'text-rose-400' : getSessionTextColor()}`}>
-              {status === 'Synced' ? session : status}
+          {macroInsights?.theme && (
+            <span className="hidden md:inline text-[11px] text-slate-400 font-medium tracking-wide">
+              {macroInsights.theme}
             </span>
+          )}
+        </div>
+        <div className="flex flex-col items-center gap-1.5">
+          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
+            <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionColor()}`}>{session}</span>
           </div>
           {lastUpdated && (
-             <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
-               Updated: {formatTime(lastUpdated)} EST
-             </span>
+            <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
+              Updated: {formatTime(lastUpdated)} EST
+            </span>
           )}
         </div>
       </div>
 
       {isExpanded && (
         <>
-          {/* 1. Market Briefing — deterministic, built from scanner data */}
-          {macroInsights && (
-            <div className="mb-8 bg-[#161c2a]/60 border border-cyan-500/20 rounded-xl p-5 md:p-6 relative overflow-hidden shadow-[0_0_15px_rgba(34,211,238,0.03)]">
-              <div className="absolute right-0 top-0 w-64 h-64 bg-cyan-500/10 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
+          {status === 'Loading' && (
+            <div className="py-12 text-center text-slate-500 text-sm font-medium">Building market briefing…</div>
+          )}
 
-              <div className="flex items-center gap-3 mb-3 relative z-10 flex-wrap">
-                <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-3 py-1 rounded tracking-widest uppercase flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-                  MARKET BRIEFING
-                </span>
-                <span className="text-sm md:text-base font-black text-white tracking-wide">{macroInsights.theme}</span>
-              </div>
-
-              {/* Top themed catalyst — highest-conviction name with real news + brief */}
-              {macroInsights.topCatalyst && (
-                <div className="mb-6 relative z-10 border-l-[3px] border-amber-500 bg-amber-500/[0.04] rounded-r-xl px-4 py-3">
-                  <div className="flex items-center gap-2.5 flex-wrap">
-                    <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded shrink-0">TOP CATALYST</span>
-                    <span className="text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider shrink-0">{macroInsights.topCatalyst.ticker}</span>
-                    {macroInsights.topCatalyst.url ? (
-                      <a href={macroInsights.topCatalyst.url} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-300 font-medium hover:text-cyan-300 transition-colors hover:underline">
-                        {macroInsights.topCatalyst.headline}
-                      </a>
-                    ) : (
-                      <span className="text-xs text-slate-300 font-medium">{macroInsights.topCatalyst.headline}</span>
-                    )}
-                  </div>
-                  {macroInsights.topCatalyst.brief && (
-                    <p className="text-[12px] text-slate-400 font-medium leading-relaxed mt-2">
-                      {renderBriefingText(macroInsights.topCatalyst.brief)}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Stacked layout — narrative first, watchlist beneath it */}
-              <div className="relative z-10 flex flex-col gap-8">
-                <div>
-                  <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-3">Narrative Breakdown</h3>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                    {formatBriefing(macroInsights.briefing).split('\n\n').filter(Boolean).map((para, idx) => {
-                      const { label, color, body } = splitBriefingSection(para.trim());
-                      const st = sectionStyles(color);
-                      return (
-                        <div key={idx} className={`border-l-[3px] rounded-r-xl px-4 py-3 ${st.border} ${st.bg}`}>
-                          {label && (
-                            <span className={`inline-block text-[9px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border mb-2 ${st.badge}`}>
-                              {label}
-                            </span>
-                          )}
-                          <div className="space-y-2">
-                            {body.split('\n').filter(Boolean).map((line, li) => (
-                              <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
-                                {renderBriefingText(line)}
-                              </p>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="border-t border-white/5 pt-6">
-                  <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-3">What To Watch &amp; Why</h3>
-                  <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                    {macroInsights.watching?.map((item, idx) => {
-                      const symbol = typeof item === 'string' ? item : item.symbol;
-                      const reason = typeof item === 'string' ? 'Momentum continuation and algorithmic confluence.' : item.reason;
-                      const catalyst = typeof item === 'string' ? null : item.catalyst;
-                      const catalystUrl = typeof item === 'string' ? null : item.catalystUrl;
-                      
-                      let parsedScore: number | undefined = undefined;
-                      if (typeof item === 'object' && item.score !== undefined && item.score !== null) {
-                        const num = Number(item.score.toString().replace(/\D/g, ''));
-                        if (!isNaN(num)) parsedScore = num;
-                      }
-
-                      return (
-                        <li key={idx} className="flex flex-col gap-2 bg-[#161c2a]/60 p-3.5 rounded-xl border border-white/5 hover:border-cyan-500/20 transition-colors">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider">
-                              {symbol}
-                            </span>
-                            {parsedScore !== undefined && (
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border tracking-wide ${
-                                parsedScore >= 70 
-                                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
-                                  : parsedScore >= 50 
-                                    ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400' 
-                                    : 'bg-slate-500/10 border-white/10 text-slate-400'
-                              }`}>
-                                {parsedScore}
-                              </span>
-                            )}
-                          </div>
-                          {(() => {
-                            // Split the reason on semicolons: first clause is the
-                            // lead line, the rest stack as their own lines below.
-                            const clauses = (reason || '').split(';').map((c) => c.trim()).filter(Boolean);
-                            if (clauses.length <= 1) {
-                              return (
-                                <p className="text-[13px] text-slate-300 font-medium leading-relaxed">
-                                  {renderBriefingText(reason)}
-                                </p>
-                              );
-                            }
-                            return (
-                              <div className="flex flex-col gap-1">
-                                <p className="text-[13px] text-slate-300 font-medium leading-relaxed">
-                                  {renderBriefingText(clauses[0])}
-                                </p>
-                                {clauses.slice(1).map((c, ci) => (
-                                  <p key={ci} className="text-[12px] text-slate-400 font-medium leading-relaxed">
-                                    {renderBriefingText(c)}
-                                  </p>
-                                ))}
-                              </div>
-                            );
-                          })()}
-
-                          {/* Current catalyst on the name, when there is real news */}
-                          {catalyst && (
-                            <div className="flex items-start gap-2 pt-2 mt-0.5 border-t border-white/5">
-                              <span className="text-[8px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded shrink-0 mt-[1px]">NEWS</span>
-                              {catalystUrl ? (
-                                <a href={catalystUrl} target="_blank" rel="noopener noreferrer" className="text-[12px] text-slate-400 font-medium leading-relaxed hover:text-cyan-300 hover:underline transition-colors">
-                                  {catalyst}
-                                </a>
-                              ) : (
-                                <span className="text-[12px] text-slate-400 font-medium leading-relaxed">{catalyst}</span>
-                              )}
-                            </div>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              </div>
+          {status !== 'Loading' && !macroInsights && !data && (
+            <div className="py-12 text-center text-slate-500 text-sm font-medium">
+              No briefing available — awaiting the next scheduled scan.
             </div>
           )}
 
-          {/* 2. Session Narrative Feed (Render sequentially) */}
-          <div className="border-t border-white/5 pt-6 mt-4">
-            <span className="inline-flex text-xs md:text-sm font-bold border px-4 py-1.5 rounded-lg tracking-widest uppercase items-center gap-2 text-[#7c8bfa] bg-[#161c2a]/40 border-white/5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
-              LIVE SESSION UPDATES
-            </span>
-            {status === 'Loading' && !data ? (
-              <div className="animate-pulse bg-[#161c2a]/40 border border-white/5 rounded-xl p-5 md:p-6 mt-3">
-                <div className="h-3 bg-white/5 rounded w-1/4 mb-4"></div>
-                <div className="h-3 bg-white/5 rounded w-full mb-2"></div>
-                <div className="h-3 bg-white/5 rounded w-11/12 mb-6"></div>
-                <div className="h-12 bg-white/5 border-l-[4px] border-white/10 rounded-r-xl w-full"></div>
-              </div>
-            ) : (
-              <div className="animate-in fade-in duration-500 flex flex-col gap-2">
-                {data?.morning && renderSingleUpdateBlock(data.morning)}
-                {data?.midday && renderSingleUpdateBlock(data.midday)}
-                {data?.closing && renderSingleUpdateBlock(data.closing)}
-                
-                {!data?.morning && !data?.midday && !data?.closing && (
-                  <div className="text-center py-8 text-slate-500 text-sm font-medium border border-dashed border-white/10 rounded-xl mt-3">
-                    Awaiting pre-market data ingestion...
+          {macroInsights && (
+            <>
+              {/* Top catalysts — up to 3 highest-conviction names with real news.
+                  Falls back to the single topCatalyst for older stored payloads. */}
+              {(() => {
+                const cats = (macroInsights.topCatalysts && macroInsights.topCatalysts.length)
+                  ? macroInsights.topCatalysts
+                  : (macroInsights.topCatalyst ? [macroInsights.topCatalyst] : []);
+                if (!cats.length) return null;
+                return (
+                  <div className="mb-6 relative z-10 flex flex-col gap-2">
+                    {cats.map((cat, ci) => (
+                      <div key={ci} className="border-l-[3px] border-amber-500 bg-amber-500/[0.04] rounded-r-xl px-4 py-3">
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded shrink-0">{ci === 0 ? 'TOP CATALYST' : 'CATALYST'}</span>
+                          <span className="text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider shrink-0">{cat.ticker}</span>
+                          {cat.url ? (
+                            <a href={cat.url} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-300 font-medium hover:text-cyan-300 transition-colors hover:underline">
+                              {cat.headline}
+                            </a>
+                          ) : (
+                            <span className="text-xs text-slate-300 font-medium">{cat.headline}</span>
+                          )}
+                        </div>
+                        {cat.brief && (
+                          <p className="text-[12px] text-slate-400 font-medium leading-relaxed mt-2">
+                            {renderBriefingText(cat.brief)}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {/* Stacked layout — narrative first, watchlist beneath it */}
+              <div className="relative z-10 flex flex-col gap-8">
+                {/* Briefing narrative */}
+                <div className="flex flex-col gap-3">
+                  {formatBriefing(macroInsights.briefing).split('\n\n').filter(Boolean).map((para, idx) => {
+                    const { label, color, body } = splitBriefingSection(para);
+                    const styles = sectionStyles(color);
+                    return (
+                      <div key={idx} className={`border-l-[3px] ${styles.border} ${styles.bg} rounded-r-xl px-4 py-3`}>
+                        {label && (
+                          <span className={`inline-block text-[9px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border mb-2 ${styles.badge}`}>
+                            {label}
+                          </span>
+                        )}
+                        <div className="flex flex-col gap-1.5">
+                          {body.split('\n').filter(Boolean).map((line, li) => (
+                            <p key={li} className="text-[13px] text-slate-300 leading-relaxed">
+                              {renderBriefingText(line)}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Watchlist */}
+                {macroInsights.watching && macroInsights.watching.length > 0 && (
+                  <div className="flex flex-col gap-3">
+                    <span className="text-[10px] font-bold tracking-widest uppercase text-slate-500">Watchlist</span>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {macroInsights.watching.map((item, idx) => (
+                        <div key={idx} className="bg-[#161c2a]/60 border border-white/5 rounded-xl px-4 py-3 flex flex-col gap-2">
+                          <div className="flex items-center gap-2.5 flex-wrap">
+                            <span className="text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider">{item.symbol}</span>
+                            {item.score != null && (
+                              <span className="text-[10px] font-bold text-slate-400 bg-white/[0.03] border border-white/5 px-2 py-0.5 rounded tracking-wider">CNF {item.score}</span>
+                            )}
+                            {item.catalyst && (
+                              item.catalystUrl ? (
+                                <a href={item.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold tracking-wider uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded hover:bg-amber-500/20 transition-colors">
+                                  News
+                                </a>
+                              ) : (
+                                <span className="text-[10px] font-bold tracking-wider uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">News</span>
+                              )
+                            )}
+                          </div>
+                          <p className="text-[12px] text-slate-400 leading-relaxed">{renderBriefingText(item.reason)}</p>
+                          {item.catalyst && (
+                            <p className="text-[11px] text-slate-500 leading-relaxed border-t border-white/5 pt-2">
+                              {item.catalystUrl ? (
+                                <a href={item.catalystUrl} target="_blank" rel="noopener noreferrer" className="hover:text-slate-300 hover:underline transition-colors">
+                                  {item.catalyst}
+                                </a>
+                              ) : (
+                                item.catalyst
+                              )}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
-            )}
-          </div>
+            </>
+          )}
+
+          {/* Stored session update blocks (morning / midday / closing) */}
+          {data && (data.morning || data.midday || data.closing) && (
+            <div className="relative z-10 mt-8 flex flex-col gap-3">
+              <span className="text-[10px] font-bold tracking-widest uppercase text-slate-500">Session Updates</span>
+              {renderSingleUpdateBlock(data.closing)}
+              {renderSingleUpdateBlock(data.midday)}
+              {renderSingleUpdateBlock(data.morning)}
+            </div>
+          )}
+
+          {/* Actionable events */}
+          {data?.actionableEvents && data.actionableEvents.length > 0 && (
+            <div className="relative z-10 mt-8 flex flex-col gap-3">
+              <span className="text-[10px] font-bold tracking-widest uppercase text-slate-500">On the Calendar</span>
+              <div className="flex flex-col gap-2">
+                {data.actionableEvents.map((event, idx) => {
+                  const impactColor =
+                    event.impact === 'High' ? 'text-rose-400 bg-rose-500/10 border-rose-500/20'
+                      : event.impact === 'Medium' ? 'text-amber-400 bg-amber-500/10 border-amber-500/20'
+                        : 'text-slate-400 bg-white/[0.03] border-white/5';
+                  return (
+                    <div key={idx} className="bg-[#161c2a]/60 border border-white/5 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <span className="text-[11px] text-slate-500 font-medium tabular-nums shrink-0">{event.time}</span>
+                        <span className="text-[13px] text-slate-300 font-medium">{event.event}</span>
+                      </div>
+                      <span className={`text-[9px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border shrink-0 ${impactColor}`}>
+                        {event.impact}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

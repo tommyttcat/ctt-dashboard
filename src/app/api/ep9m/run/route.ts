@@ -1,4 +1,4 @@
-// app/api/ep9m/run/route.ts — v1.3
+// app/api/ep9m/run/route.ts — v1.4
 //
 // EP9M — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee)
 //
@@ -20,6 +20,9 @@
 //       45 is 21 sessions of distribution, however good today's print looks.
 // v1.3: thresholds moved to lib/scanConfig and shipped in the payload, so the
 //       on-screen key renders the gates the scan ACTUALLY used.
+// v1.4: + Stochastic %K(10) emitted as stochK — the table's STOCH column and
+//       the MarketSummary EP9M section were reading a field that was never
+//       computed (rendered as a dash). Uses the daily bars already in scope.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -101,6 +104,7 @@ interface Ep9mCandidate {
   rmv: number | null;
   mf: number | null;
   mfTrend: number;
+  stochK: number | null;
   rme: number | null;
   aboveEma10: boolean | null;
   aboveEma21: boolean | null;
@@ -223,6 +227,20 @@ function adrPct(bars: Bar[], period = 20): number | null {
   }
   if (n === 0) return null;
   return ((sum / n) - 1) * 100;
+}
+
+// Stochastic %K(period) — where today's close sits within the period's
+// high/low range. Low readings near a rising 21 EMA are the Blue Dot
+// precondition. Returns null when the window is too short or flat.
+function stochasticK(bars: Bar[], period = 10): number | null {
+  if (bars.length < period) return null;
+  const window = bars.slice(-period);
+  const highestHigh = Math.max(...window.map(b => b.h));
+  const lowestLow = Math.min(...window.map(b => b.l));
+  const close = bars[bars.length - 1].c;
+  const range = highestHigh - lowestLow;
+  if (range <= 0) return null;
+  return Math.round(((close - lowestLow) / range) * 100 * 10) / 10;
 }
 
 function pctReturn(closes: number[], lookback: number): number | null {
@@ -644,6 +662,7 @@ export async function GET() {
       // distribution, however good today's single-day print looks.
       const mf = computeMoneyFlow(bars, { length: 21 });
       const mfTrend = moneyFlowTrend(bars, { length: 21, lookback: 5 });
+      const stochK = stochasticK(bars, 10);
 
       const e10 = ema(closes, 10);
       const e21 = ema(closes, 21);
@@ -701,6 +720,7 @@ export async function GET() {
           rmv,
           mf,
           mfTrend,
+          stochK,
           rme: rmeDetail.rme,
           aboveEma10: e10 != null ? price >= e10 : null,
           aboveEma21: e21 != null ? price >= e21 : null,
@@ -775,6 +795,7 @@ export async function GET() {
         rmv: raw.rmv,
         mf: raw.mf,
         mfTrend: raw.mfTrend,
+        stochK: raw.stochK,
         rme: raw.rme,
         aboveEma10: raw.aboveEma10,
         aboveEma21: raw.aboveEma21,
