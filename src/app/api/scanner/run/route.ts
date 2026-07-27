@@ -823,6 +823,73 @@ export async function GET(request: Request) {
       });
     } catch (e) { console.error('breadth persist failed', e); }
 
+    // --- ATHI/ATLO: new 52-week highs vs lows across the FULL viable universe.
+    // Uses grouped daily bars (one API call per trading day) to compute each
+    // ticker's 252-day high and low, then compares to today's price. This is
+    // the same pattern EP9M uses for its volume profile — efficient because a
+    // single call gives every ticker for one date.
+    let newHighs = 0, newLows = 0;
+    try {
+      const viableSet = new Set(viableSetups.map((t: any) => t.ticker));
+      const hi52Map = new Map<string, number>();
+      const lo52Map = new Map<string, number>();
+
+      // Fetch grouped daily for ~252 trading days in batches of 7
+      const hlDates: string[] = [];
+      for (let d = 365; d >= 1; d--) {
+        const dt = new Date(Date.now() - d * 86400000);
+        const day = dt.getUTCDay();
+        if (day === 0 || day === 6) continue;
+        hlDates.push(dt.toISOString().slice(0, 10));
+      }
+      const hlKept = hlDates.slice(-252);
+
+      const HL_BATCH = 7;
+      for (let i = 0; i < hlKept.length; i += HL_BATCH) {
+        const chunk = hlKept.slice(i, i + HL_BATCH);
+        const settled = await Promise.allSettled(chunk.map(async (date) => {
+          return fetchSafeJson(
+            `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${date}?adjusted=true&apiKey=${polygonApiKey}`,
+            { results: [] }, 15000
+          );
+        }));
+        for (const r of settled) {
+          if (r.status !== 'fulfilled' || !r.value?.results) continue;
+          for (const bar of r.value.results) {
+            const sym = bar.T;
+            if (!viableSet.has(sym)) continue;
+            const prevHi = hi52Map.get(sym);
+            if (!prevHi || bar.h > prevHi) hi52Map.set(sym, bar.h);
+            const prevLo = lo52Map.get(sym);
+            if (!prevLo || bar.l < prevLo) lo52Map.set(sym, bar.l);
+          }
+        }
+      }
+
+      // Compare today's price to the 52-week extremes
+      for (const t of viableSetups) {
+        const price = t._livePrice;
+        if (!price || price <= 0) continue;
+        const hi = hi52Map.get(t.ticker);
+        const lo = lo52Map.get(t.ticker);
+        if (hi && hi > 0) {
+          const pctOff = ((price - hi) / hi) * 100;
+          if (pctOff >= -1) newHighs++;
+        }
+        if (lo && lo > 0) {
+          const pctOff = ((price - lo) / lo) * 100;
+          if (pctOff <= 1) newLows++;
+        }
+      }
+
+      // Merge into the breadth KV payload
+      const prevBreadth = await kv.get<any>('market_breadth_v6');
+      if (prevBreadth) {
+        await kv.set('market_breadth_v6', { ...prevBreadth, newHighs, newLows });
+      }
+    } catch (e) { console.error('ATHI/ATLO failed (non-blocking):', e); }
+
+
     const dailyCandidates = [...viableSetups]
       .filter((t: any) => t._liveChg >= SCANNER.minChange)
       .sort((a: any, b: any) => (b._livePrice * b._liveVol) - (a._livePrice * a._liveVol))
@@ -1236,21 +1303,6 @@ export async function GET(request: Request) {
         await kv.set('scan_streaks_v6', { date: currentDate, counts: newStreaks });
       } catch (e) { console.error('streak persist failed', e); }
     }
-
-    // --- ATHI/ATLO: count new highs/lows from the ENRICHED universe ----------
-    // Must run after enrichment because pctOffHigh/pctOffLow are computed
-    // per-ticker during the enrich phase, not available on the raw snapshot.
-    let newHighs = 0, newLows = 0;
-    for (const t of enrichedList) {
-      if (t.pctOffHigh != null && t.pctOffHigh >= -1) newHighs++;
-      if (t.pctOffLow != null && t.pctOffLow <= 1) newLows++;
-    }
-    try {
-      const prevBreadth = await kv.get<any>('market_breadth_v6');
-      if (prevBreadth) {
-        await kv.set('market_breadth_v6', { ...prevBreadth, newHighs, newLows });
-      }
-    } catch (e) { console.error('ATHI/ATLO persist failed', e); }
     
     const finalSip = sipCandidates
       .map((t: any) => enrichedMap.get(t.ticker))
