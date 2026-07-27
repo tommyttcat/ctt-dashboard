@@ -208,12 +208,13 @@ const fmtDollar = (v: number): string => {
 };
 
 const fmtLeader = (s: any): string => {
-  const bits = [`${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`];
+  const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
+  const bits: string[] = [];
   const rv = rvolOf(s);
   if (rv != null && rv > 0) bits.push(`RVOL ${rv.toFixed(2)}`);
   const su = setupOf(s);
   if (su) bits.push(su);
-  return `${s.ticker} (${bits.join(', ')})`;
+  return `${s.ticker} ${chg}${bits.length ? ` · ${bits.join(' · ')}` : ''}`;
 };
 
 // Brief attached under a real news catalyst — why the headline matters mechanically.
@@ -413,10 +414,10 @@ const buildMoversPara = (movers: any): string => {
   if (gainers.length === 0 && losers.length === 0) return '';
 
   const fmtMover = (s: any): string => {
-    const bits = [`${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`];
+    const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
     const rv = rvolOf(s);
-    if (rv != null && rv > 0) bits.push(`RVOL ${rv.toFixed(2)}`);
-    return `${s.ticker} (${bits.join(', ')})`;
+    const rvolStr = rv != null && rv > 0 ? ` · RVOL ${rv.toFixed(2)}` : '';
+    return `${s.ticker} ${chg}${rvolStr}`;
   };
 
   const topG = gainers
@@ -461,7 +462,9 @@ const buildEp9mPara = (ep9m: any[]): string => {
     if (rv != null && rv > 0) bits.push(`RVOL ${rv.toFixed(2)}`);
     const turn = ep9mTurnOf(s);
     if (turn != null && turn >= 0.25) bits.push(`${turn.toFixed(2)}× float`);
-    return `${s.ticker}${bits.length ? ` (${bits.join(', ')})` : ''}`;
+    const chg = chgOf(s);
+    const chgStr = `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`;
+    return `${s.ticker} ${chgStr}${bits.length ? ` · ${bits.join(' · ')}` : ''}`;
   };
 
   const unprec = rows.filter(ep9mUnprec).sort((a, b) => (ep9mVs60dOf(b) ?? 0) - (ep9mVs60dOf(a) ?? 0));
@@ -580,13 +583,16 @@ const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | nu
   if (newsItems.length) {
     sipsLines.push(`News-driven:\n${newsItems.map(s => {
       const cat = catalystTextOf(s) || '';
-      return `${s.ticker} (${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%${rvolOf(s) != null ? `, RVOL ${(rvolOf(s) as number).toFixed(2)}` : ''}) — ${cat}`;
+      const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
+      const rv = rvolOf(s);
+      const rvolStr = rv != null ? ` · RVOL ${rv.toFixed(2)}` : '';
+      return `${s.ticker} ${chg}${rvolStr}${cat ? ` — ${cat}` : ''}`;
     }).join('\n')}`);
   }
   if (grinders.length) {
     const grinderStats = sips.filter(s => rvolOf(s) != null && (rvolOf(s) as number) < 1).slice(0, 7);
     sipsLines.push(`Sub-1.0 RVOL (price without volume, prone to fading):\n${grinderStats.map(s =>
-      `${s.ticker} (${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%, RVOL ${(rvolOf(s) ?? 0).toFixed(2)})`
+      `${s.ticker} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% · RVOL ${(rvolOf(s) ?? 0).toFixed(2)}`
     ).join('\n')}`);
   }
   // Side-by-side: volume-confirmed left, faders right
@@ -594,11 +600,14 @@ const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | nu
   // Build the two possible column contents
   const newsCol = newsItems.length ? `News-driven:\n${newsItems.map(s => {
     const cat = catalystTextOf(s) || '';
-    return `${s.ticker} (${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%${rvolOf(s) != null ? `, RVOL ${(rvolOf(s) as number).toFixed(2)}` : ''})${cat ? ` — ${cat}` : ''}`;
+    const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
+    const rv = rvolOf(s);
+    const rvolStr = rv != null ? ` · RVOL ${rv.toFixed(2)}` : '';
+    return `${s.ticker} ${chg}${rvolStr}${cat ? ` — ${cat}` : ''}`;
   }).join('\n')}` : '';
   const leadersCol = leaders.length ? `Volume-confirmed:\n${leaders.map(fmtLeader).join('\n')}` : '';
   const fadersCol = grinders.length ? `Sub-1.0 RVOL (faders):\n${sips.filter(s => rvolOf(s) != null && (rvolOf(s) as number) < 1).slice(0, 5).map(s =>
-    `${s.ticker} (${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%, RVOL ${(rvolOf(s) ?? 0).toFixed(2)})`
+    `${s.ticker} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% · RVOL ${(rvolOf(s) ?? 0).toFixed(2)}`
   ).join('\n')}` : '';
 
   // Pick best two columns for side-by-side
@@ -616,7 +625,8 @@ const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | nu
 
   /* ---- Paragraph 2: Daily Setups Thesis — listed with stats ---- */
   const fmtDaily = (s: any): string => {
-    const bits = [`${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`];
+    const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
+    const bits: string[] = [];
     const rv = rvolOf(s);
     if (rv != null && rv > 0) bits.push(`RVOL ${rv.toFixed(2)}`);
     const su = setupOf(s);
@@ -624,7 +634,7 @@ const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | nu
     const st = stageOf(s);
     if (st) bits.push(`Stage ${st}`);
     bits.push(`CNF ${scoreOf(s)}`);
-    return `${s.ticker} (${bits.join(', ')})`;
+    return `${s.ticker} ${chg}${bits.length ? ` · ${bits.join(' · ')}` : ''}`;
   };
 
   const swingNames = daily.filter(s => String(s?.tradeType || '').toLowerCase().startsWith('swing')).sort((a, b) => scoreOf(b) - scoreOf(a)).slice(0, 6);
@@ -885,17 +895,17 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
    (\n-separated sentences) render one sentence per line.
    ============================================================ */
 
-const BRIEFING_SECTIONS: { label: string; color: string }[] = [
-  { label: 'Regime', color: 'violet' },
-  { label: 'Top Movers', color: 'emerald' },
-  { label: 'SIPs Thesis', color: 'cyan' },
-  { label: 'Daily Setups Thesis', color: 'emerald' },
-  { label: '10/21 Thesis', color: 'violet' },
-  { label: 'EP9M Thesis', color: 'rose' },
-  { label: 'Industry Heat', color: 'amber' },
-  { label: 'ETF Flow', color: 'indigo' },
-  { label: 'Money Flow', color: 'rose' },
-  { label: 'Sector Flow', color: 'indigo' },
+const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
+  { label: 'Regime', color: 'violet', blurb: 'One-line market posture from dollar-flow breadth and ETF direction.' },
+  { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves on the tape right now — volume-confirmed vs. thin gaps.' },
+  { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move and who is grinding on air.' },
+  { label: 'Daily Setups Thesis', color: 'emerald', blurb: 'Structured setups from the daily scan — SWING holds vs. DAY-only momentum.' },
+  { label: '10/21 Thesis', color: 'violet', blurb: '10/21 EMA trend posture — where entries live and where to stay away.' },
+  { label: 'EP9M Thesis', color: 'rose', blurb: 'Abnormal 9M+ share volume — institutional footprints before the headline.' },
+  { label: 'Industry Heat', color: 'amber', blurb: 'Sector rotation — where money is flowing and where it is leaving.' },
+  { label: 'ETF Flow', color: 'indigo', blurb: 'Heaviest ETF dollar volume and the advancing/declining split.' },
+  { label: 'Money Flow', color: 'rose', blurb: 'Total tracked dollar volume — who is buying and where the dollars concentrate.' },
+  { label: 'Sector Flow', color: 'indigo', blurb: '' },
 ];
 
 const sectionStyles = (color: string) => {
@@ -909,13 +919,13 @@ const sectionStyles = (color: string) => {
   }
 };
 
-const splitBriefingSection = (para: string): { label: string | null; color: string; body: string } => {
+const splitBriefingSection = (para: string): { label: string | null; color: string; blurb: string; body: string } => {
   for (const sec of BRIEFING_SECTIONS) {
     if (para.startsWith(`${sec.label}:`)) {
-      return { label: sec.label, color: sec.color, body: para.slice(sec.label.length + 1).trim() };
+      return { label: sec.label, color: sec.color, blurb: sec.blurb, body: para.slice(sec.label.length + 1).trim() };
     }
   }
-  return { label: null, color: 'indigo', body: para };
+  return { label: null, color: 'indigo', blurb: '', body: para };
 };
 
 export default function MarketSummary() {
@@ -1155,14 +1165,19 @@ export default function MarketSummary() {
                   <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-3">Narrative Breakdown</h3>
                   <div className="flex flex-col gap-3">
                     {formatBriefing(macroInsights.briefing).split('\n\n').filter(Boolean).map((para, idx) => {
-                      const { label, color, body } = splitBriefingSection(para.trim());
+                      const { label, color, blurb, body } = splitBriefingSection(para.trim());
                       const st = sectionStyles(color);
                       return (
                         <div key={idx} className={`border-l-[3px] rounded-r-xl px-4 py-3 ${st.border} ${st.bg}`}>
                           {label && (
-                            <span className={`inline-block text-[9px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border mb-2 ${st.badge}`}>
-                              {label}
-                            </span>
+                            <div className="mb-2">
+                              <span className={`inline-block text-[9px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border ${st.badge}`}>
+                                {label}
+                              </span>
+                              {blurb && (
+                                <p className="text-[11px] text-slate-500 font-medium mt-1.5 leading-snug">{blurb}</p>
+                              )}
+                            </div>
                           )}
                           {body.includes('|||') ? (
                             /* Two-column layout: split on ||| marker */
