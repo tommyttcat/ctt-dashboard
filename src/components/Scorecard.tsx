@@ -349,6 +349,8 @@ export default function MacroScorecard() {
   // move clears 1%, so tiny jitter doesn't flip the arrow every minute.
   const [adTrend, setAdTrend] = useState<'up' | 'down' | 'flat'>('flat');
   const prevAdRatio = useRef<number | null>(null);
+  const [hlTrend, setHlTrend] = useState<'up' | 'down' | 'flat'>('flat');
+  const prevHlRatio = useRef<number | null>(null);
 
   const cryptoWs = useRef<WebSocket | null>(null);
 
@@ -405,6 +407,22 @@ export default function MacroScorecard() {
       // inside the dead-band: hold the previous arrow rather than flickering
     }
     prevAdRatio.current = ratio;
+  }, [breadth]);
+
+  // --- ATHI/ATLO DIRECTION: compare each new H/L ratio against the last one ---
+  useEffect(() => {
+    const nh = breadth?.newHighs ?? 0;
+    const nl = breadth?.newLows ?? 0;
+    if (nh === 0 && nl === 0) return;
+    const ratio = nl > 0 ? nh / nl : (nh > 0 ? 999 : 1);
+    const prev = prevHlRatio.current;
+
+    if (prev != null && prev > 0) {
+      const delta = (ratio - prev) / prev;
+      if (delta > 0.01) setHlTrend('up');
+      else if (delta < -0.01) setHlTrend('down');
+    }
+    prevHlRatio.current = ratio;
   }, [breadth]);
 
   // --- ENGINE 2: SERVER-CACHED MACRO QUOTES ---
@@ -754,6 +772,19 @@ export default function MacroScorecard() {
               <span className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 shrink-0">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
                 ATHI / ATLO
+              </span>
+
+              <span
+                className={`text-sm font-bold leading-none shrink-0 ${
+                  hlTrend === 'up' ? 'text-emerald-400' : hlTrend === 'down' ? 'text-rose-400' : 'text-slate-600'
+                }`}
+                title={
+                  hlTrend === 'up' ? 'H/L ratio improving since last refresh'
+                  : hlTrend === 'down' ? 'H/L ratio deteriorating since last refresh'
+                  : 'H/L ratio unchanged'
+                }
+              >
+                {hlTrend === 'up' ? '▲' : hlTrend === 'down' ? '▼' : '–'}
               </span>
 
               <div className="flex items-center gap-3 flex-1 min-w-0">
