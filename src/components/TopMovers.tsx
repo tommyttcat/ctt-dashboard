@@ -171,7 +171,7 @@ export default function TopMovers() {
 
       {isExpanded && (
         <>
-          <div className="flex flex-col gap-3 mb-6 relative z-10 pb-2">
+          <div className="flex flex-col gap-3 mb-6 relative z-0 pb-2">
             <div className="flex flex-wrap justify-center items-center gap-3 w-full">
               <div className="flex gap-3 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
                 {(['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'] as TabType[]).map((tab) => (
