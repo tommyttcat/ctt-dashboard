@@ -738,7 +738,7 @@ export async function GET() {
     const STRONG_TAGS = new Set(['Earnings', 'FDA / Data', 'M&A', 'Guidance', 'Contract']);
     const NEGATIVE_TAGS = new Set(['Offering', 'Legal / Risk']);
 
-    const candidates: Ep9mCandidate[] = enriched.map(({ ab, snap, raw }) => {
+    const candidates: Ep9mCandidate[] = enriched.map(({ ab, snap, raw }): Ep9mCandidate | null => {
       const wiim = wiimMap.get(ab.sym);
       let catalyst: string | null = null;
       let catalystUrl: string | null = null;
@@ -813,7 +813,7 @@ export async function GET() {
         thesis,
         scoreBreakdown: scored.breakdown,
       };
-    });
+    }).filter((c): c is Ep9mCandidate => c !== null);
 
     candidates.sort((a, b) => b.score - a.score);
     const finalList = candidates.slice(0, EP9M.finalSize);
