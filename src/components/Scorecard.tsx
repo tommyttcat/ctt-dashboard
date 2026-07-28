@@ -582,6 +582,9 @@ export default function MacroScorecard() {
   const hlTotal = breadth ? (breadth.newHighs ?? 0) + (breadth.newLows ?? 0) : 0;
   const highsPct = breadth && hlTotal > 0 ? ((breadth.newHighs ?? 0) / hlTotal) * 100 : 50;
 
+  const breadthPctColor = (v: number) => v >= 60 ? 'text-emerald-400' : v <= 40 ? 'text-rose-400' : 'text-amber-400';
+  const breadthPctBg = (v: number) => v >= 60 ? 'bg-emerald-500/10 border-emerald-500/20' : v <= 40 ? 'bg-rose-500/10 border-rose-500/20' : 'bg-amber-500/10 border-amber-500/20';
+
   const tVal = t2108?.value ?? null;
   const tStyle = t2108CardStyle(tVal);
 
@@ -682,7 +685,10 @@ export default function MacroScorecard() {
 
           {/* INTERNALS — advance/decline strip from the breadth feed */}
           {breadth && (
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border border-white/5 bg-[#161c2a]/40 rounded-xl px-4 py-3 relative z-10">
+            <div
+              className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border border-white/5 bg-[#161c2a]/40 rounded-xl px-4 py-3 relative z-10 cursor-help"
+              title={`Advance / Decline — ${breadth.advancers.toLocaleString()} advancing vs ${breadth.decliners.toLocaleString()} declining (${advPct.toFixed(0)}% advancing). Above 60% = buyers in control. Below 40% = sellers dominate. +4% movers: ${breadth.up4} up / ${breadth.down4} down. A/D ratio: ${breadth.decliners > 0 ? (breadth.advancers / breadth.decliners).toFixed(2) : 'n/a'}.`}
+            >
               <span className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 shrink-0">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
                 Internals
@@ -732,6 +738,9 @@ export default function MacroScorecard() {
                     {breadth.decliners > 0 ? (breadth.advancers / breadth.decliners).toFixed(2) : '—'}
                   </span>
                 </span>
+                <span className={`text-[10px] font-bold tabular-nums px-2 py-0.5 rounded border ${breadthPctBg(advPct)} ${breadthPctColor(advPct)}`}>
+                  {advPct.toFixed(0)}%
+                </span>
               </div>
             </div>
           )}
@@ -739,8 +748,8 @@ export default function MacroScorecard() {
           {/* ATHI/ATLO — new highs vs new lows from the scanned universe */}
           {breadth && ((breadth.newHighs ?? 0) > 0 || (breadth.newLows ?? 0) > 0) && (
             <div
-              className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border border-white/5 bg-[#161c2a]/40 rounded-xl px-4 py-3 relative z-10"
-              title={`ATHI / ATLO — stocks within 1% of their 52-week high vs 52-week low across the scanned universe.\n\nH/L above 2.0: strong structural tape, breakouts have wind behind them.\nH/L around 1.0: neutral, rally is index-level more than broad-based.\nH/L below 0.5: more names breaking down than up — defensive tape, favour reversals over breakouts.\n\nCurrently ${breadth.newHighs ?? 0} near highs, ${breadth.newLows ?? 0} near lows.`}
+              className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border border-white/5 bg-[#161c2a]/40 rounded-xl px-4 py-3 relative z-10 cursor-help"
+              title={`ATHI/ATLO — ${breadth.newHighs ?? 0} stocks within 1% of 52-week high vs ${breadth.newLows ?? 0} near 52-week low (${highsPct.toFixed(0)}% near highs). Above 60% = structural strength. Below 40% = defensive tape. H/L ratio: ${(breadth.newLows ?? 0) > 0 ? ((breadth.newHighs ?? 0) / (breadth.newLows ?? 0)).toFixed(2) : '∞'}.`}
             >
               <span className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 shrink-0">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
@@ -768,6 +777,9 @@ export default function MacroScorecard() {
                   <span className={`text-[11px] font-bold tabular-nums ${(breadth.newHighs ?? 0) >= (breadth.newLows ?? 0) ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {(breadth.newLows ?? 0) > 0 ? ((breadth.newHighs ?? 0) / (breadth.newLows ?? 0)).toFixed(2) : (breadth.newHighs ?? 0) > 0 ? '∞' : '—'}
                   </span>
+                </span>
+                <span className={`text-[10px] font-bold tabular-nums px-2 py-0.5 rounded border ${breadthPctBg(highsPct)} ${breadthPctColor(highsPct)}`}>
+                  {highsPct.toFixed(0)}%
                 </span>
               </div>
             </div>
