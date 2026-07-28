@@ -322,7 +322,7 @@ export default function SwingCandidates() {
   const [spyReturn, setSpyReturn] = useState<number | null>(null);
   const [scanMeta, setScanMeta] = useState<any>(null);
   const [sortConfig, setSortConfig] = useState<{ key: keyof SwingCandidate; direction: SortDirection } | null>(null);
-  const [isExpanded, setIsExpanded] = useState<boolean>(true);
+  const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [showReadyOnly, setShowReadyOnly] = useState<boolean>(false);
   const [showStage2Only, setShowStage2Only] = useState<boolean>(false);
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All');

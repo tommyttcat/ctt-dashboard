@@ -309,7 +309,7 @@ export default function Ep9m() {
   const [shortlisted, setShortlisted] = useState<number | null>(null);
   const [scanMeta, setScanMeta] = useState<any>(null);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Ep9mCandidate; direction: SortDirection } | null>(null);
-  const [isExpanded, setIsExpanded] = useState<boolean>(true);
+  const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [epFilter, setEpFilter] = useState<EpFilterType>('All');
   const [rvolFilter, setRvolFilter] = useState<RvolFilterType>('All');
   const [catalystFilter, setCatalystFilter] = useState<CatalystFilterType>('All');

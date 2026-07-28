@@ -59,7 +59,7 @@ export default function MarketFlow() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // --- COLLAPSE STATE ---
-  const [isExpanded, setIsExpanded] = useState<boolean>(true);
+  const [isExpanded, setIsExpanded] = useState<boolean>(false);
 
   // --- ENGINE: SERVER-CACHED SECTOR FLOW ---
   // Reads /api/sectors (KV-cached, ~6 FMP calls per 5 min for ALL clients)
