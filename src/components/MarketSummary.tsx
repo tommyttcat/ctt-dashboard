@@ -690,7 +690,7 @@ const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | nu
   let heatPara = '';
   if (heat.length >= 2) {
     const fmtHeat = (h: { sector: string; avgChg: number; count: number }) =>
-      `${h.sector} (${h.avgChg >= 0 ? '+' : ''}${h.avgChg.toFixed(1)}% avg, ${h.count} name${h.count !== 1 ? 's' : ''})`;
+      `${h.avgChg >= 0 ? '+' : ''}${h.avgChg.toFixed(1)}% · ${h.sector} (${h.count} name${h.count !== 1 ? 's' : ''})`;
     const hot = heat.filter(h => h.avgChg > 0).slice(0, 4);
     const cold = heat.filter(h => h.avgChg < 0).slice(-4).reverse();
     const heatLines: string[] = [];
@@ -855,7 +855,7 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
     let m = part.match(/^RVOL (\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
-      return <span key={i}>RVOL <span className={`${valNum} ${rvolColor(v)}`}>{m[1]}</span></span>;
+      return <span key={i} className="inline-block min-w-[90px]">RVOL <span className={`${valNum} ${rvolColor(v)}`}>{m[1]}</span></span>;
     }
 
     // Stage 2A etc — table stage colors
@@ -895,10 +895,10 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
 
     // Signed percent — green/red
     if (/^[+]\d+(?:\.\d+)?%$/.test(part)) {
-      return <span key={i} className={`${valNum} text-emerald-400`}>{part}</span>;
+      return <span key={i} className={`${valNum} text-emerald-400 inline-block min-w-[62px]`}>{part}</span>;
     }
     if (/^-\d+(?:\.\d+)?%$/.test(part)) {
-      return <span key={i} className={`${valNum} text-rose-400`}>{part}</span>;
+      return <span key={i} className={`${valNum} text-rose-400 inline-block min-w-[62px]`}>{part}</span>;
     }
 
     // Trade-type classifications — match the DailySetups pill colors
