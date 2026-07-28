@@ -767,6 +767,8 @@ export async function GET() {
         catalystTier: tier,
         priorTriggers,
       });
+      // Gate: exclude negative-change stocks — distribution, not accumulation.
+      if ((snap.changePct ?? 0) < 0) return null;
 
       return {
         ticker: ab.sym,
