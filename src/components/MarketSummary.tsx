@@ -398,6 +398,35 @@ const blendedScore = (s: any): number => {
   return v;
 };
 
+/* ---- Regime line — one-verdict market posture from breadth + ETF flow ---- */
+const buildRegimePara = (flowNames: any[], etfs: { chg: number; dVol: number }[]): string => {
+  const totalD = flowNames.reduce((a, s) => a + dVolOf(s), 0);
+  if (totalD <= 0) return '';
+  const advD = flowNames.filter(s => chgOf(s) > 0).reduce((a, s) => a + dVolOf(s), 0);
+  const advShare = Math.round((advD / totalD) * 100);
+
+  const etfUp = etfs.filter(e => e.chg > 0).reduce((a, e) => a + e.dVol, 0);
+  const etfTot = etfs.reduce((a, e) => a + e.dVol, 0);
+  const etfShare = etfTot > 0 ? Math.round((etfUp / etfTot) * 100) : null;
+
+  let verdict: string;
+  let action: string;
+  if (advShare >= 60 && (etfShare == null || etfShare >= 55)) {
+    verdict = 'Risk-On';
+    action = 'buy leaders on strength, breakouts have follow-through behind them.';
+  } else if (advShare <= 40 && (etfShare == null || etfShare <= 45)) {
+    verdict = 'Defensive';
+    action = 'tighten up — most dollars are on the sell side, fade rips rather than chase.';
+  } else {
+    verdict = 'Mixed';
+    action = 'stock-picker\'s tape — no broad wind, stay in the highest-conviction names only.';
+  }
+
+  const bits = [`${advShare}% of tracked dollars on the advancing side`];
+  if (etfShare != null) bits.push(`ETF flow ${etfShare}% green`);
+  return `Regime: ${verdict} — ${bits.join(', ')}. ${action}`;
+};
+
 /* ---- Top Movers — the actual biggest movers, RVOL-confirmed, as a trade list ---- */
 const buildMoversPara = (movers: any): string => {
   const gainers: any[] = Array.isArray(movers?.['Gainers']) ? movers['Gainers'] : [];
@@ -754,7 +783,6 @@ const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | nu
   const ep9mFinal = ep9mPara || (ep9m.length === 0 && (sips.length || daily.length) ? 'EP9M Thesis: No names trading abnormal 9M+ size yet — this fills in as session volume builds.' : '');
 
   const orderedParas = [
-    regimePara,
     moversPara,
     sipsFinal,
     dailyFinal,
@@ -893,7 +921,6 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
    ============================================================ */
 
 const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
-  { label: 'Regime', color: 'violet', blurb: 'Market posture from dollar-flow breadth and ETF direction — determines whether to buy strength or fade rips.' },
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves right now. Volume-confirmed names are tradeable; thin gaps are fade candidates.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, who has news, and who is grinding on air.' },
   { label: 'Daily Setups Thesis', color: 'emerald', blurb: 'Structured setups from the daily scan. SWING holds for days; DAY is intraday momentum only.' },
