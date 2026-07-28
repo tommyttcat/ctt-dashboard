@@ -151,6 +151,18 @@ const dVolOf = (s: any): number => {
   return p * v;
 };
 
+// Detects ETF-style sector strings: "ETF", "TICKER - ETF", or ETF_TARGET_MAP
+// values like "QQQ - Nasdaq", "SOXX - Semi's -3X". These are leveraged/sector
+// products, not industries — they belong in ETF Flow, not Industry Heat.
+const isEtfSector = (sec: string | null | undefined): boolean => {
+  if (!sec || sec === '—') return false;
+  const s = String(sec);
+  if (s === 'ETF' || s.includes('- ETF')) return true;
+  // ETF_TARGET_MAP format: "TICKER - description" (e.g. "QQQ - Nasdaq 3X")
+  if (/^[A-Z]{2,5}\s*-\s/.test(s)) return true;
+  return false;
+};
+
 /* ---- 10/21 EMA posture readers ------------------------------
    Tolerant: direct field → computed from price → parsed out of
    the thesis string. Returns null when nothing resolves so the
@@ -565,7 +577,7 @@ const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | nu
   /* ---- Theme: dominant sectors among ranked + A-grade count ---- */
   const sectorCounts: Record<string, number> = {};
   ranked.forEach(s => {
-    const sec = s?.sector && s.sector !== '—' && s.sector !== 'ETF' && !String(s.sector).includes('- ETF') ? String(s.sector) : null;
+    const sec = s?.sector && s.sector !== '—' && !isEtfSector(s.sector) ? String(s.sector) : null;
     if (sec) sectorCounts[sec] = (sectorCounts[sec] || 0) + 1;
   });
   const topSectors = Object.entries(sectorCounts)
@@ -665,7 +677,7 @@ const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | nu
   /* ---- Paragraph 4: Industry Heat — one sentence per line ---- */
   const heatAgg: Record<string, { sum: number; count: number }> = {};
   flowNames.forEach(s => {
-    const sec = s?.sector && s.sector !== '—' && s.sector !== 'Other' && s.sector !== 'ETF' && !String(s.sector).includes('- ETF') ? String(s.sector) : null;
+    const sec = s?.sector && s.sector !== '—' && s.sector !== 'Other' && !isEtfSector(s.sector) ? String(s.sector) : null;
     if (!sec) return;
     if (!heatAgg[sec]) heatAgg[sec] = { sum: 0, count: 0 };
     heatAgg[sec].sum += chgOf(s);
@@ -741,7 +753,7 @@ const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | nu
 
     const inflowAgg: Record<string, number> = {};
     flowNames.filter(s => chgOf(s) > 0).forEach(s => {
-      const sec = s?.sector && s.sector !== '—' && s.sector !== 'Other' && s.sector !== 'ETF' && !String(s.sector).includes('- ETF') ? String(s.sector) : null;
+      const sec = s?.sector && s.sector !== '—' && s.sector !== 'Other' && !isEtfSector(s.sector) ? String(s.sector) : null;
       if (sec) inflowAgg[sec] = (inflowAgg[sec] || 0) + dVolOf(s);
     });
     const topInflows = Object.entries(inflowAgg).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([sec]) => sec);
@@ -810,7 +822,7 @@ const TICKER_STOPWORDS = new Set([
 ]);
 
 // Inline chip — compact gray, matching the CNF badge look
-const tickerChipCls = "inline-block align-baseline text-[10px] font-bold text-slate-300 bg-slate-500/10 px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5";
+const tickerChipCls = "inline-block align-baseline text-[10px] font-bold text-slate-300 bg-slate-500/10 px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5 min-w-[48px] text-center";
 // Colored numeric values — slightly smaller than the 13px body
 const valNum = "text-[12px] tabular-nums";
 
