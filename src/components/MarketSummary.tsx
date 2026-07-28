@@ -724,7 +724,7 @@ const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | nu
   let etfPara = '';
   if (etfs.length) {
     const fmtE = (e: { ticker: string; dVol: number; chg: number }) =>
-      `${e.ticker} ${fmtDollar(e.dVol)} (${e.chg >= 0 ? '+' : ''}${e.chg.toFixed(2)}%)`;
+      `${e.ticker} ${fmtDollar(e.dVol)} ${e.chg >= 0 ? '+' : ''}${e.chg.toFixed(2)}%`;
     const top = etfs.slice(0, 4);
     const upD = etfs.filter(e => e.chg > 0).reduce((a, e) => a + e.dVol, 0);
     const totD = etfs.reduce((a, e) => a + e.dVol, 0);
@@ -749,7 +749,7 @@ const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | nu
       .slice()
       .sort((a, b) => dVolOf(b) - dVolOf(a))
       .slice(0, 3)
-      .map(s => `${s.ticker} ${fmtDollar(dVolOf(s))} (${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%)`);
+      .map(s => `${s.ticker} ${fmtDollar(dVolOf(s))} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`);
 
     const inflowAgg: Record<string, number> = {};
     flowNames.filter(s => chgOf(s) > 0).forEach(s => {
