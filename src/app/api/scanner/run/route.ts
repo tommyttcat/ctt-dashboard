@@ -1,4 +1,4 @@
-// app/api/scanner/run/route.ts — v6.6
+// app/api/scanner/run/route.ts — v6.7
 // v6.1: + RMV(15); thesis is news-headline-only (stats moved to t.readout)
 // v6.2: RMV/RME imported from lib/indicators; RME(21) replaces the binary
 //       `extended` penalty in CNF; + cnfBreakdown for the badge tooltip
@@ -8,6 +8,12 @@
 // v6.6: thresholds moved to lib/scanConfig and shipped in the payload, so the
 //       on-screen key renders the gates the scan ACTUALLY used rather than a
 //       hardcoded copy that can silently drift.
+// v6.7: GET is now a thin wrapper that answers in ~50ms and runs the scan in
+//       the background (waitUntil / after). cron-job.org no longer times out
+//       at 30s waiting for the ~2min scan, so jobs stop going red and stop
+//       getting auto-disabled. The scan body itself is UNCHANGED — it just
+//       moved into runScan(). Add ?wait=true to get the old blocking
+//       behaviour with the full JSON payload (for manual/browser runs).
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -616,7 +622,7 @@ const fetchEarningsProximity = async (apiKey: string): Promise<Set<string>> => {
   }
 };
 
-export async function GET(request: Request) {
+async function runScan(request: Request) {
   const { searchParams } = new URL(request.url);
   const forceRefresh = searchParams.get('force') === 'true' || searchParams.get('refresh') === 'true';
 
@@ -1437,4 +1443,79 @@ export async function GET(request: Request) {
     console.error("Scanner Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+}
+
+// ---------------------------------------------------------------------------
+// BACKGROUND WRAPPER (v6.7)
+// ---------------------------------------------------------------------------
+// DEFAULT BEHAVIOUR IS UNCHANGED from v6.6: a plain GET runs the scan and
+// returns the full payload, exactly as before. Nothing in the dashboard or in
+// any existing caller changes.
+//
+// Background mode is OPT-IN via ?bg=true — that is the URL you give
+// cron-job.org. It replies in ~50ms so the 30s caller timeout never fires,
+// while the scan keeps running via Next's after().
+//
+//   cron-job.org URL:  /api/scanner/run?bg=true
+//   browser / manual:  /api/scanner/run?force=true   (unchanged, full JSON)
+
+const bgHeaders = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+  'Pragma': 'no-cache',
+  'Expires': '0',
+};
+
+// Keeps the function alive after the response is sent. Uses Next's after(),
+// which needs no extra package. Returns false if this Next version lacks it.
+async function scheduleAfterResponse(work: () => Promise<any>): Promise<boolean> {
+  try {
+    const nx: any = await import('next/server');
+    const after = nx.after || nx.unstable_after;
+    if (typeof after === 'function') {
+      after(() => work());
+      return true;
+    }
+  } catch {
+    // fall through
+  }
+  return false;
+}
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const background = searchParams.get('bg') === 'true';
+
+  // Not a background call — behave exactly like v6.6.
+  if (!background) return runScan(request);
+
+  const work = async () => {
+    const started = Date.now();
+    try {
+      const res = await runScan(request);
+      console.log(`[scanner] background run finished ${res.status} in ${Date.now() - started}ms`);
+    } catch (err: any) {
+      console.error(`[scanner] background run failed after ${Date.now() - started}ms:`, err?.message || err);
+    }
+  };
+
+  const scheduled = await scheduleAfterResponse(work);
+
+  if (!scheduled) {
+    // after() unavailable on this runtime — replying now would freeze the
+    // function and kill the scan, so run it inline instead.
+    await work();
+    return NextResponse.json(
+      { success: true, mode: 'inline-fallback', startedAt: new Date().toISOString() },
+      { headers: bgHeaders }
+    );
+  }
+
+  return NextResponse.json(
+    { success: true, mode: 'background', startedAt: new Date().toISOString() },
+    { headers: bgHeaders }
+  );
+}
+
+export async function POST(request: Request) {
+  return GET(request);
 }
