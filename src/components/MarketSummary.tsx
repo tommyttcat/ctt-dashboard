@@ -21,7 +21,7 @@ interface SummaryData {
   morning: UpdateBlock | null;
   midday: UpdateBlock | null;
   closing: UpdateBlock | null;
-  actionableEvents?: ActionableEvent[]; 
+  actionableEvents?: ActionableEvent[];
 }
 
 interface WatchItem {
@@ -94,13 +94,13 @@ const getMarketSession = (): MarketSession => {
   if (timeStr >= 4 && timeStr < 9.5) return 'Pre-Market';
   if (timeStr >= 9.5 && timeStr < 16) return 'Open';
   if (timeStr >= 16 && timeStr < 20) return 'Post-Market';
-  return 'Closed'; 
+  return 'Closed';
 };
 
 const formatTime = (date: Date) => {
-  return date.toLocaleTimeString('en-US', { 
-    hour: 'numeric', 
-    minute: '2-digit', 
+  return date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
     second: '2-digit',
     timeZone: 'America/New_York'
   });
@@ -161,7 +161,7 @@ const catalystTextOf = (s: any): string | null =>
 const catalystLinked = (s: any): string => {
   const cat = catalystTextOf(s);
   if (!cat) return '';
-  const url = s?.catalystUrl || s?.catalystUrl || null;
+  const url = s?.catalystUrl || null;
   return url ? `[${cat}](${url})` : cat;
 };
 
@@ -476,22 +476,38 @@ const buildWatchReason = (s: any): string => {
    Two columns: what is at a buyable anchor on the left, what to leave
    alone on the right.
 
-   Two rules this section previously got wrong:
+   Three rules this section previously got wrong:
 
-   1. LEVERAGED AND INVERSE ETFs ARE EXCLUDED. A -3X semiconductor fund
+   1. DUPLICATES. The pool concatenates SIPs, Daily Setups, and EP9M. A
+      ticker appearing in more than one list was rendered once per list,
+      so the same name showed up two or three times with identical values.
+      Deduped by ticker before anything else runs.
+
+   2. LEVERAGED AND INVERSE ETFs ARE EXCLUDED. A -3X semiconductor fund
       sitting 35% above its 21 EMA was being listed as "trend-aligned, buy
       the pullback, cleanest structure." It is a decay instrument in a bear
-      tape, not a Dr. Wish setup, and its presence made the whole section
-      read as advice it was not.
+      tape, not a Dr. Wish setup.
 
-   2. EXTENSION IS CHECKED BEFORE ANYTHING IS CALLED BUYABLE. The old
+   3. EXTENSION IS CHECKED BEFORE ANYTHING IS CALLED BUYABLE. The old
       version put every name above both EMAs in the buy bucket, then closed
       with "group averages +13.4% — extended, size down," contradicting
       itself. Extension now moves a name to the avoid column instead.
-      ---------------------------------------------------------------- */
+
+   NOTE: the first-touch bucket depends on `distToEma10` being present on
+   the row. Scanner payloads before v6.10 only carried the `aboveEma10`
+   boolean, so pctFrom10() returned null and this bucket could never fill.
+   ---------------------------------------------------------------- */
 const build1021Para = (pool: any[]): string => {
+  // Dedupe first — a ticker present in more than one source list was being
+  // rendered once per list.
+  const seenTickers = new Set<string>();
   const rows = pool
-    .filter(s => s?.ticker && !isEtfSector(s.sector))
+    .filter(s => {
+      if (!s?.ticker || isEtfSector(s.sector)) return false;
+      if (seenTickers.has(s.ticker)) return false;
+      seenTickers.add(s.ticker);
+      return true;
+    })
     .map(s => {
       const d21 = pctFrom21(s);
       const d10 = pctFrom10(s);
@@ -558,8 +574,14 @@ const build1021Para = (pool: any[]): string => {
 
   // Closing read — describes the shape of the board, and no longer
   // contradicts the buckets above it.
+  const hasAnyD10 = rows.some(r => r.d10 != null);
   if (pullback.length) {
     lines.push(`${pullback.length} name${pullback.length === 1 ? ' sits' : 's sit'} in the pullback zone — under the 10, still over the 21. That is where a first-touch entry has a defined stop.`);
+  } else if (!hasAnyD10) {
+    // Scanner payload predates v6.10 and carries no 10 EMA distance, so the
+    // pullback bucket cannot be evaluated. Say that rather than implying
+    // nothing has pulled back.
+    lines.push('No 10 EMA distance in the current scan payload — first-touch pullbacks cannot be identified until the scanner runs again.');
   } else if (buyRows.length) {
     lines.push('Nothing has pulled back to the 10 yet — the buyable names are stacked but not at an entry.');
   } else {
@@ -1080,8 +1102,7 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
     }
 
     // Signed percent — green/red. No min-width: these appear mid-sentence as
-    // often as in lists, and a fixed width padded the prose with dead space
-    // ("-13.5%     under the line").
+    // often as in lists, and a fixed width padded the prose with dead space.
     if (/^[+]\d+(?:\.\d+)?%$/.test(part)) {
       return <span key={i} className={`${valNum} text-emerald-400`}>{part}</span>;
     }
@@ -1207,7 +1228,7 @@ export default function MarketSummary() {
               morning: (estTime >= 4.0 || isWeekend) ? (payload.morning || null) : null,
               midday: (estTime >= 11.5 || isWeekend) ? (payload.midday || null) : null,
               closing: (estTime >= 15.5 || isWeekend) ? (payload.closing || null) : null,
-              actionableEvents: payload.actionableEvents || [] 
+              actionableEvents: payload.actionableEvents || []
             };
             setData(gatedData);
           }
@@ -1270,9 +1291,9 @@ export default function MarketSummary() {
     };
 
     fetchMarketData();
-    const interval = setInterval(fetchMarketData, 60000); 
+    const interval = setInterval(fetchMarketData, 60000);
     return () => { isMounted = false; clearInterval(interval); };
-  }, [isWeekend]); 
+  }, [isWeekend]);
 
   const getThemeStyles = (theme: string) => {
     switch (theme) {
@@ -1342,8 +1363,8 @@ export default function MarketSummary() {
   return (
     <div className="bg-[#101623] border border-white/10 rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-2xl w-full">
       <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-500 via-emerald-500 to-indigo-500 opacity-40"></div>
-      
-      <div 
+
+      <div
         onClick={() => setIsExpanded(!isExpanded)}
         className={`flex justify-between items-start md:items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-8 border-b border-white/5 pb-4' : ''}`}
       >
@@ -1510,7 +1531,7 @@ export default function MarketSummary() {
                       const reason = typeof item === 'string' ? 'Momentum continuation and algorithmic confluence.' : item.reason;
                       const catalyst = typeof item === 'string' ? null : item.catalyst;
                       const catalystUrl = typeof item === 'string' ? null : item.catalystUrl;
-                      
+
                       let parsedScore: number | undefined = undefined;
                       if (typeof item === 'object' && item.score !== undefined && item.score !== null) {
                         const num = Number(item.score.toString().replace(/\D/g, ''));
@@ -1525,10 +1546,10 @@ export default function MarketSummary() {
                             </span>
                             {parsedScore !== undefined && (
                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded border tracking-wide ${
-                                parsedScore >= 70 
-                                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
-                                  : parsedScore >= 50 
-                                    ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400' 
+                                parsedScore >= 70
+                                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                                  : parsedScore >= 50
+                                    ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400'
                                     : 'bg-slate-500/10 border-white/10 text-slate-400'
                               }`}>
                                 {parsedScore}
@@ -1596,7 +1617,7 @@ export default function MarketSummary() {
                 {data?.morning && renderSingleUpdateBlock(data.morning)}
                 {data?.midday && renderSingleUpdateBlock(data.midday)}
                 {data?.closing && renderSingleUpdateBlock(data.closing)}
-                
+
                 {!data?.morning && !data?.midday && !data?.closing && (
                   <div className="text-center py-8 text-slate-500 text-sm font-medium border border-dashed border-white/10 rounded-xl mt-3">
                     Awaiting pre-market data ingestion...
