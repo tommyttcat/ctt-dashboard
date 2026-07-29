@@ -342,9 +342,6 @@ const buildKeyEventsPara = (econ: EconEvent[], earnings: EarningsEvent[]): strin
   const isPending = (e: any) => e.minutes != null && e.minutes > nowMinutes && e.actual == null;
 
   // --- LEFT COLUMN: today's economic releases ------------------------------
-  // Pending first with a marker, then what has already printed. Sorting by
-  // status rather than purely by clock puts the actionable rows at the top of
-  // the column where they get read first.
   const fmtEcon = (e: any): string => {
     const t = fmtClock(e.minutes);
     const marker = isPending(e) ? '▸ ' : '';
@@ -394,11 +391,8 @@ const buildKeyEventsPara = (econ: EconEvent[], earnings: EarningsEvent[]): strin
     earnCol = 'Earnings:\nNo mega-cap prints today or tomorrow.';
   }
 
-  // Always two columns — econ left, earnings right — so the section holds a
-  // stable shape as events move from pending to printed through the session.
   const lines: string[] = [`${econCol}|||${earnCol}`];
 
-  // One risk note under the grid when something high-impact is still ahead.
   const highPending = pending.filter(e => e.impact === 'High');
   if (highPending.length) {
     lines.push('Setups are on a clock until this prints — breakouts into a scheduled release carry event risk the scan cannot price.');
@@ -478,67 +472,99 @@ const buildWatchReason = (s: any): string => {
   return parts.join('; ') + '.';
 };
 
-/* ---- 10/21 Thesis paragraph builder ---- */
+/* ---- 10/21 Thesis paragraph builder -----------------------------------
+   Two columns: what is at a buyable anchor on the left, what to leave
+   alone on the right.
+
+   Two rules this section previously got wrong:
+
+   1. LEVERAGED AND INVERSE ETFs ARE EXCLUDED. A -3X semiconductor fund
+      sitting 35% above its 21 EMA was being listed as "trend-aligned, buy
+      the pullback, cleanest structure." It is a decay instrument in a bear
+      tape, not a Dr. Wish setup, and its presence made the whole section
+      read as advice it was not.
+
+   2. EXTENSION IS CHECKED BEFORE ANYTHING IS CALLED BUYABLE. The old
+      version put every name above both EMAs in the buy bucket, then closed
+      with "group averages +13.4% — extended, size down," contradicting
+      itself. Extension now moves a name to the avoid column instead.
+      ---------------------------------------------------------------- */
 const build1021Para = (pool: any[]): string => {
   const rows = pool
-    .filter(s => s?.ticker)
-    .map(s => ({
-      ticker: s.ticker,
-      d21: pctFrom21(s),
-      d10: pctFrom10(s),
-      stacked: stackedOf(s),
-      slope: slope21Of(s),
-    }))
+    .filter(s => s?.ticker && !isEtfSector(s.sector))
+    .map(s => {
+      const d21 = pctFrom21(s);
+      const d10 = pctFrom10(s);
+      const atrPct = numOrNull(s?.atrPct);
+      // Same rule the scanner uses for its `extended` flag: more than three
+      // ATRs above the anchor means there is no stop left to place. Falls
+      // back to a flat 12% when ATR is unavailable.
+      const extended = d21 != null && atrPct != null && atrPct > 0
+        ? d21 > 3 * atrPct
+        : (d21 != null && d21 > 12);
+      return {
+        ticker: s.ticker,
+        d21,
+        d10,
+        stacked: stackedOf(s),
+        slope: slope21Of(s),
+        extended,
+      };
+    })
     .filter(r => r.d21 != null);
 
   if (rows.length < 2) return '';
 
-  const aligned = rows.filter(r => (r.d21 as number) > 0 && (r.d10 == null || (r.d10 as number) > 0));
-  const pullback = rows.filter(r => (r.d21 as number) > 0 && r.d10 != null && (r.d10 as number) <= 0);
-  const broken = rows.filter(r => (r.d21 as number) <= 0);
-  const badSlope = rows.filter(r => r.slope === 'falling' || r.slope === 'flat');
-  const unstacked = rows.filter(r => r.stacked === false);
+  const pct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
+  const fmtRow = (r: any, tag: string): string => {
+    const bits = [`${pct(r.d21 as number)} vs 21`];
+    if (r.d10 != null) bits.push(`${pct(r.d10 as number)} vs 10`);
+    return `${r.ticker} ${bits.join(' · ')} — ${tag}`;
+  };
 
-  // Pre-cross: 10 still under the 21 but within ~1% of it and price holding —
-  // the earliest entry, coiling into the cross before it fires.
+  // --- LEFT: at a buyable anchor -----------------------------------------
+  // Pullback zone first — under the 10 but holding the 21 is the first-touch
+  // entry, and it is the highest-quality bucket on the board.
+  const pullback = rows.filter(r =>
+    (r.d21 as number) > 0 && r.d10 != null && (r.d10 as number) <= 0 && !r.extended);
+  const aligned = rows.filter(r =>
+    (r.d21 as number) > 0 && (r.d10 == null || (r.d10 as number) > 0) && !r.extended);
   const precross = rows.filter(r =>
-    r.stacked === false && r.d10 != null && r.d21 != null &&
-    Math.abs((r.d10 as number) - (r.d21 as number)) <= 1.5 && (r.d21 as number) > -3
-  );
+    r.stacked === false && r.d10 != null && r.d21 != null && !r.extended &&
+    Math.abs((r.d10 as number) - (r.d21 as number)) <= 1.5 && (r.d21 as number) > -3);
 
-  const lines: string[] = [];
+  const buyRows = [
+    ...pullback.slice(0, 4).map(r => fmtRow(r, 'first touch')),
+    ...aligned.slice(0, 4).map(r => fmtRow(r, `stacked${r.slope === 'rising' ? ', 21 rising' : ''}`)),
+    ...precross.slice(0, 3).map(r => fmtRow(r, 'pre-cross')),
+  ];
+  const buyCol = buyRows.length
+    ? `At the anchor — ${buyRows.length} name${buyRows.length === 1 ? '' : 's'}:\n${buyRows.join('\n')}`
+    : 'At the anchor:\nNothing sits at a buyable anchor right now.';
 
-  if (aligned.length) {
-    lines.push(`Trend-aligned (holding above both the 10 and 21 EMA): ${aligned.map(r => r.ticker).slice(0, 6).join(', ')} — buy the pullback, these have the cleanest structure.`);
-  } else {
-    lines.push(`Nothing in the scan holds above both the 10 and 21 EMA — no clean trend-aligned entries on the board.`);
-  }
+  // --- RIGHT: leave alone -------------------------------------------------
+  const extended = rows.filter(r => r.extended);
+  const broken = rows.filter(r => (r.d21 as number) <= 0 && !r.extended);
 
+  const avoidRows = [
+    ...extended.slice(0, 4).map(r => fmtRow(r, 'too extended')),
+    ...broken.slice(0, 4).map(r => fmtRow(r, 'below the 21')),
+  ];
+  const avoidCol = avoidRows.length
+    ? `No touch — ${avoidRows.length} name${avoidRows.length === 1 ? '' : 's'}:\n${avoidRows.join('\n')}`
+    : 'No touch:\nNothing broken or overextended in the scan.';
+
+  const lines: string[] = [`${buyCol}|||${avoidCol}`];
+
+  // Closing read — describes the shape of the board, and no longer
+  // contradicts the buckets above it.
   if (pullback.length) {
-    lines.push(`Pullback zone (under the 10, still over the 21): ${pullback.map(r => r.ticker).slice(0, 6).join(', ')} — first-touch buys live here.`);
+    lines.push(`${pullback.length} name${pullback.length === 1 ? ' sits' : 's sit'} in the pullback zone — under the 10, still over the 21. That is where a first-touch entry has a defined stop.`);
+  } else if (buyRows.length) {
+    lines.push('Nothing has pulled back to the 10 yet — the buyable names are stacked but not at an entry.');
+  } else {
+    lines.push('No equity in the scan is at a usable anchor — the board is either extended or below its own trend line.');
   }
-
-  if (precross.length) {
-    lines.push(`Pre-cross (10 coiling up into the 21, about to flip): ${precross.map(r => r.ticker).slice(0, 6).join(', ')} — earliest entry, size small until the cross confirms.`);
-  }
-
-  if (broken.length) {
-    const avgBroken = broken.reduce((a, r) => a + (r.d21 as number), 0) / broken.length;
-    lines.push(`Below the 21 EMA and in repair: ${broken.map(r => r.ticker).slice(0, 6).join(', ')} (avg ${avgBroken.toFixed(1)}% under the line) — no-touch until reclaimed.`);
-  }
-
-  if (unstacked.length && !precross.length) {
-    lines.push(`${unstacked.length} show the 10 under the 21 — short-term trend is still inverted, wait for the cross.`);
-  } else if (badSlope.length) {
-    lines.push(`${badSlope.length} sit under a flat or declining 21 EMA — no slope to lean on yet.`);
-  }
-
-  const avgAll = rows.reduce((a, r) => a + (r.d21 as number), 0) / rows.length;
-  lines.push(avgAll >= 10
-    ? `Group averages +${avgAll.toFixed(1)}% from the 21 EMA — extended, size down and let it come back to the line.`
-    : avgAll >= 0
-      ? `Group averages +${avgAll.toFixed(1)}% from the 21 EMA — healthy distance, not stretched.`
-      : `Group averages ${avgAll.toFixed(1)}% from the 21 EMA — the tape is below its own trend line.`);
 
   return `10/21 Thesis: ${lines.join('\n')}`;
 };
@@ -692,9 +718,7 @@ const buildLocalInsights = (
   const movers = scan?.topMovers || {};
   if (sips.length === 0 && daily.length === 0 && ep9m.length === 0) return null;
 
-  /* ---- Watchlist: top 6 by BLENDED score across SIPs + Daily + EP9M, deduped.
-     Blended score weights CNF with RVOL confirmation and catalyst presence so
-     the six names shown are the best ideas, not merely the highest raw score. ---- */
+  /* ---- Watchlist: top 6 by BLENDED score across SIPs + Daily + EP9M, deduped. ---- */
   const pool = [...sips, ...daily, ...ep9m].filter(s => s?.ticker);
   const seen = new Set<string>();
   const ranked = pool
@@ -724,7 +748,6 @@ const buildLocalInsights = (
   const topCatalyst: TopCatalyst | null = withNews.length
     ? {
         ticker: withNews[0].ticker,
-        // Prefer the actual news line; only fall back to the technical thesis.
         headline: String(withNews[0].catalyst || withNews[0].thesis).replace(/\.$/, ''),
         url: withNews[0].catalystUrl || null,
         brief: buildCatalystBrief(withNews[0]),
@@ -763,17 +786,15 @@ const buildLocalInsights = (
   const rawTheme = `${topSectors.length ? topSectors.join(' & ') : 'Broad Market'} In Focus — ${aCount > 0 ? `${aCount} A-Grade Setup${aCount > 1 ? 's' : ''}` : 'Momentum Watch'}`;
   const theme = titleCase(rawTheme);
 
-  /* ---- Paragraph 1: SIPs Thesis — one sentence per line, no count ---- */
+  /* ---- SIPs Thesis ---- */
   const sipsSorted = sips.slice().sort((a, b) => (rvolOf(b) ?? 0) - (rvolOf(a) ?? 0));
   const leaders = sipsSorted.filter(s => (rvolOf(s) ?? 0) >= 1.5).slice(0, 3);
   const grinders = sips.filter(s => rvolOf(s) != null && (rvolOf(s) as number) < 1).map(s => s.ticker).slice(0, 7);
-  const newsNames = sips.filter(hasRealCatalyst).map(s => s.ticker).slice(0, 4);
 
   const sipsLines: string[] = [];
   if (leaders.length) {
     sipsLines.push(`Volume-confirmed:\n${leaders.map(fmtLeader).join('\n')}`);
   }
-  // News-driven names with their actual headline
   const newsItems = sips.filter(hasRealCatalyst).slice(0, 4);
   if (newsItems.length) {
     sipsLines.push(`News-driven:\n${newsItems.map(s => {
@@ -790,9 +811,7 @@ const buildLocalInsights = (
       `${s.ticker} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% · RVOL ${(rvolOf(s) ?? 0).toFixed(2)}`
     ).join('\n')}`);
   }
-  // Side-by-side: volume-confirmed left, faders right
   let sipsPara = '';
-  // Build the two possible column contents
   const newsCol = newsItems.length ? `News-driven:\n${newsItems.map(s => {
     const cat = catalystLinked(s);
     const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
@@ -805,7 +824,6 @@ const buildLocalInsights = (
     `${s.ticker} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% · RVOL ${(rvolOf(s) ?? 0).toFixed(2)}`
   ).join('\n')}` : '';
 
-  // Pick best two columns for side-by-side
   const leftCol = leadersCol || newsCol;
   const rightCol = leadersCol ? (fadersCol || newsCol) : fadersCol;
 
@@ -818,7 +836,7 @@ const buildLocalInsights = (
     sipsPara = 'SIPs Thesis: No volume-confirmed leaders yet.';
   }
 
-  /* ---- Paragraph 2: Daily Setups Thesis — listed with stats ---- */
+  /* ---- Daily Setups Thesis ---- */
   const fmtDaily = (s: any): string => {
     const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
     const bits: string[] = [];
@@ -846,10 +864,10 @@ const buildLocalInsights = (
     }
   }
 
-  /* ---- Paragraph 3: 10/21 Thesis — trend posture across the scan ---- */
+  /* ---- 10/21 Thesis ---- */
   const ema1021Para = build1021Para(pool);
 
-  /* ---- Paragraph 4: Industry Heat — one sentence per line ---- */
+  /* ---- Industry Heat ---- */
   const heatAgg: Record<string, { sum: number; count: number }> = {};
   flowNames.forEach(s => {
     const sec = s?.sector && s.sector !== '—' && s.sector !== 'Other' && !isEtfSector(s.sector) ? String(s.sector) : null;
@@ -883,7 +901,7 @@ const buildLocalInsights = (
     if (heatLines.length) heatPara = `Industry Heat: ${heatLines.join('\n')}`;
   }
 
-  /* ---- Paragraph 5: ETF Flow — one sentence per line ---- */
+  /* ---- ETF Flow ---- */
   const etfAll = [...(movers['ETF Gainers'] || []), ...(movers['ETF Losers'] || [])];
   const etfSeen = new Set<string>();
   const etfs = etfAll
@@ -914,7 +932,7 @@ const buildLocalInsights = (
     etfPara = `ETF Flow: ${etfLines.join('\n')}`;
   }
 
-  /* ---- Paragraph 6: Money Flow — one sentence per line ---- */
+  /* ---- Money Flow ---- */
   let moneyPara = '';
   const totalD = flowNames.reduce((a, s) => a + dVolOf(s), 0);
   if (totalD > 0) {
@@ -942,20 +960,13 @@ const buildLocalInsights = (
     moneyPara = `Money Flow: ${moneyLines.join('\n')}`;
   }
 
-  /* ---- Paragraph 7: Key Events — the only forward-looking section ---- */
+  /* ---- Key Events — the only forward-looking section ---- */
   const keyEventsPara = buildKeyEventsPara(econList, earningsList);
 
-  /* ---- New sections: Regime (verdict), Top Movers, EP9M ---- */
   const regimePara = buildRegimePara(flowNames, etfs);
   const moversPara = buildMoversPara(movers);
   const ep9mPara = buildEp9mPara(ep9m);
 
-  /* ---- Assemble in reading order: verdict first, then ideas, then flow.
-     Empty sections drop out; if a whole section is quiet we still surface a
-     short note (below) rather than letting it vanish silently. ---- */
-  // Quiet-section notes: if a core idea section produced nothing but the scan
-  // clearly ran, surface a one-line "quiet" note so it reads as "nothing here
-  // today" rather than a broken/absent section.
   const sipsFinal = sipsPara || (sips.length === 0 && (daily.length || ep9m.length) ? 'SIPs Thesis: No stocks in play in the current scan.' : '');
   const dailyFinal = dailyPara || (daily.length === 0 && (sips.length || ep9m.length) ? 'Daily Setups Thesis: No daily setups on the board right now.' : '');
   const ep9mFinal = ep9mPara || (ep9m.length === 0 && (sips.length || daily.length) ? 'EP9M Thesis: No names trading abnormal 9M+ size yet — this fills in as session volume builds.' : '');
@@ -984,12 +995,9 @@ const buildLocalInsights = (
 };
 
 /* ============================================================
-   Briefing/session text renderer — badges tickers + index names,
-   colors percents, metrics, and dollar values. Values render
-   regular weight and one size smaller than the body text.
+   Briefing/session text renderer
    ============================================================ */
 
-// Label/acronym tokens that must NOT be badged as tickers
 const TICKER_STOPWORDS = new Set([
   'RVOL', 'CNF', 'SMB', 'DAY', 'SWING', 'BD', 'REV', 'EP', 'BB', 'SQZ',
   'GLB', 'VCP', 'PB', 'GO', 'GC', 'EMA', 'SMA', 'MACD', 'ATR', 'RS', 'R2G',
@@ -1001,9 +1009,7 @@ const TICKER_STOPWORDS = new Set([
   'ET', 'FOMC', 'CPI', 'PPI', 'GDP', 'NFP', 'PCE', 'ISM', 'FED', 'MOM', 'YOY', 'U6',
 ]);
 
-// Inline chip — compact gray, matching the CNF badge look
 const tickerChipCls = "inline-block align-baseline text-[10px] font-bold text-slate-300 bg-slate-500/10 px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5 min-w-[48px] text-center";
-// Colored numeric values — slightly smaller than the 13px body
 const valNum = "text-[12px] tabular-nums";
 
 const rvolColor = (v: number) => (v >= 2 ? 'text-amber-400' : v >= 1.5 ? 'text-emerald-400' : 'text-slate-400');
@@ -1018,9 +1024,6 @@ const stochColor = (k: number) => (k <= 20 ? 'text-purple-400' : k <= 30 ? 'text
 const rsColor = (rs: number) => (rs >= 20 ? 'text-purple-400' : rs >= 10 ? 'text-emerald-400' : rs >= 0 ? 'text-slate-300' : 'text-rose-400');
 
 const renderBriefingText = (text: string): React.ReactNode[] => {
-  // Capture: the pending marker, markdown links [text](url), clock times,
-  // metric phrases, index/asset names, dollar values, signed percents, and
-  // uppercase ticker-like tokens.
   const rx = /(▸|\[[^\]]+\]\([^)]+\)|\d{1,2}:\d{2} (?:AM|PM)|RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
   const parts = text.split(rx);
 
@@ -1032,72 +1035,63 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
       return <span key={i} className="text-rose-400 font-bold">▸</span>;
     }
 
-    // Markdown link [text](url) → clickable anchor
     const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (linkMatch) {
       return <a key={i} href={linkMatch[2]} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-cyan-300 hover:underline transition-colors">{linkMatch[1]}</a>;
     }
 
-    // Clock time (Key Events) — amber, monospaced alignment
     if (/^\d{1,2}:\d{2} (?:AM|PM)$/.test(part)) {
       return <span key={i} className={`${valNum} text-amber-400 font-bold`}>{part}</span>;
     }
 
-    // RVOL n.nn — table thresholds: amber >=2, emerald >=1.5
     let m = part.match(/^RVOL (\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
-      return <span key={i} className="inline-block min-w-[90px]">RVOL <span className={`${valNum} ${rvolColor(v)}`}>{m[1]}</span></span>;
+      return <span key={i}>RVOL <span className={`${valNum} ${rvolColor(v)}`}>{m[1]}</span></span>;
     }
 
-    // Stage 2A etc — table stage colors
     m = part.match(/^Stage (\d[AB]?)$/);
     if (m) {
       return <span key={i}>Stage <span className={`${valNum} ${stageColor(m[1])}`}>{m[1]}</span></span>;
     }
 
-    // stoch nn — purple deep oversold, emerald oversold
     m = part.match(/^stoch (\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
       return <span key={i}>stoch <span className={`${valNum} ${stochColor(v)}`}>{m[1]}</span></span>;
     }
 
-    // RS +nn — purple elite, emerald strong
     m = part.match(/^RS (\+?\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
       return <span key={i}>RS <span className={`${valNum} ${rsColor(v)}`}>{m[1]}</span></span>;
     }
 
-    // 10/21 pair label — violet, matches the section rule
     if (part === '10/21') {
       return <span key={i} className={`${valNum} text-violet-400 font-bold`}>10/21</span>;
     }
 
-    // Index/asset names — gray badge
     if (part === 'S&P' || part === 'Nasdaq' || part === 'Dow' || part === 'Bitcoin') {
       return <span key={i} className={tickerChipCls}>{part}</span>;
     }
 
-    // Dollar values ($4.2B / $850M) — neutral, slightly brighter
     if (/^\$\d+(?:\.\d+)?[BMK]$/.test(part)) {
       return <span key={i} className={`${valNum} text-slate-200`}>{part}</span>;
     }
 
-    // Signed percent — green/red
+    // Signed percent — green/red. No min-width: these appear mid-sentence as
+    // often as in lists, and a fixed width padded the prose with dead space
+    // ("-13.5%     under the line").
     if (/^[+]\d+(?:\.\d+)?%$/.test(part)) {
-      return <span key={i} className={`${valNum} text-emerald-400 inline-block min-w-[62px]`}>{part}</span>;
+      return <span key={i} className={`${valNum} text-emerald-400`}>{part}</span>;
     }
     if (/^-\d+(?:\.\d+)?%$/.test(part)) {
-      return <span key={i} className={`${valNum} text-rose-400 inline-block min-w-[62px]`}>{part}</span>;
+      return <span key={i} className={`${valNum} text-rose-400`}>{part}</span>;
     }
 
-    // Trade-type classifications — match the DailySetups pill colors
     if (part === 'DAY') return <span key={i} className="text-amber-400">DAY</span>;
     if (part === 'SWING') return <span key={i} className="text-cyan-400">SWING</span>;
 
-    // Ticker — compact gray chip, unless it's a known label/acronym
     if (/^[A-Z]{2,5}$/.test(part) && !TICKER_STOPWORDS.has(part)) {
       return <span key={i} className={tickerChipCls}>{part}</span>;
     }
@@ -1107,16 +1101,14 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
 };
 
 /* ============================================================
-   Briefing paragraph blocks — label lifted into a colored badge,
-   body in a bubble with a colored left rule. Multi-line bodies
-   (\n-separated sentences) render one sentence per line.
+   Briefing paragraph blocks
    ============================================================ */
 
 const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves right now. Volume-confirmed names are tradeable; thin gaps are fade candidates.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, who has news, and who is grinding on air.' },
   { label: 'Daily Setups Thesis', color: 'emerald', blurb: 'Structured setups from the daily scan. SWING holds for days; DAY is intraday momentum only.' },
-  { label: '10/21 Thesis', color: 'violet', blurb: 'Dr. Wish 10/21 EMA trend posture — pullback-zone entries, pre-cross coils, and broken names to avoid.' },
+  { label: '10/21 Thesis', color: 'violet', blurb: 'Dr. Wish 10/21 EMA posture across the equities in the scan. Leveraged and inverse ETFs are excluded, and anything more than 3 ATRs above its anchor is treated as no-touch rather than buyable.' },
   { label: 'EP9M Thesis', color: 'rose', blurb: 'Abnormal 9M+ share volume — institutional footprints. Unprecedented = beat their own 60-day record.' },
   { label: 'Industry Heat', color: 'amber', blurb: 'Sector rotation — where money is flowing in and where it is leaving. Wide dispersion = stock-picker tape.' },
   { label: 'ETF Flow', color: 'indigo', blurb: 'Heaviest ETF dollar volume and the advancing/declining split — shows where leveraged money is betting.' },
@@ -1145,8 +1137,6 @@ const splitBriefingSection = (para: string): { label: string | null; color: stri
   return { label: null, color: 'indigo', blurb: '', body: para };
 };
 
-// Small copy button for section cards — copies extracted tickers as a
-// comma-separated list for pasting into TradingView or a screener.
 function SectionCopyButton({ tickers }: { tickers: string[] }) {
   const [copied, setCopied] = React.useState(false);
   const handleCopy = async (e: React.MouseEvent) => {
@@ -1201,7 +1191,6 @@ export default function MarketSummary() {
       if (isMounted) setSession(getMarketSession());
 
       try {
-        // 1. Fetch Narrative Data (Session Updates)
         const narrativeRes = await fetch('/api/market-summary', { cache: 'no-store' });
 
         if (!narrativeRes.ok) {
@@ -1227,11 +1216,6 @@ export default function MarketSummary() {
         console.error("Narrative Sync Error:", error);
       }
 
-      // 2. Build Market Briefing deterministically from scanner data (no AI).
-      //    EP9M, econ, and earnings live on their own endpoints, so fetch all
-      //    in parallel. Every secondary call is defensive: if one fails or is
-      //    empty, the briefing still builds from whatever did resolve and the
-      //    corresponding section simply does not render.
       try {
         const [scannerRes, ep9mRes, econRes, earningsRes] = await Promise.all([
           fetch('/api/scanner/latest', { cache: 'no-store' }),
@@ -1249,7 +1233,7 @@ export default function MarketSummary() {
             const ep9mData = await ep9mRes.json();
             if (ep9mData && Array.isArray(ep9mData.candidates)) ep9mList = ep9mData.candidates;
           }
-        } catch { /* ep9m is optional — ignore parse errors */ }
+        } catch { /* ep9m is optional */ }
 
         let econList: EconEvent[] = [];
         try {
@@ -1272,7 +1256,6 @@ export default function MarketSummary() {
           if (local) {
             setMacroInsights(local);
           } else if (scannerData.macroInsights) {
-            // Fallback to stored payload if scan data is empty
             setMacroInsights(scannerData.macroInsights);
           }
         }
@@ -1280,7 +1263,6 @@ export default function MarketSummary() {
         console.error("Scanner Macro Sync Error:", error);
       }
 
-      // Finish Sync
       if (isMounted) {
         setStatus('Synced');
         setLastUpdated(new Date());
@@ -1388,7 +1370,6 @@ export default function MarketSummary() {
 
       {isExpanded && (
         <>
-          {/* 1. Market Briefing — deterministic, built from scanner data */}
           {macroInsights && (
             <div className="mb-8 bg-[#161c2a]/60 border border-cyan-500/20 rounded-xl p-5 md:p-6 relative overflow-hidden shadow-[0_0_15px_rgba(34,211,238,0.03)]">
               <div className="absolute right-0 top-0 w-64 h-64 bg-cyan-500/10 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
@@ -1401,8 +1382,6 @@ export default function MarketSummary() {
                 <span className="text-sm md:text-base font-black text-white tracking-wide">{macroInsights.theme}</span>
               </div>
 
-              {/* Top catalysts — up to 3 highest-conviction names with real news.
-                  Falls back to the single topCatalyst for older stored payloads. */}
               {(() => {
                 const cats = (macroInsights.topCatalysts && macroInsights.topCatalysts.length)
                   ? macroInsights.topCatalysts
@@ -1434,7 +1413,6 @@ export default function MarketSummary() {
                 );
               })()}
 
-              {/* Stacked layout — narrative first, watchlist beneath it */}
               <div className="relative z-10 flex flex-col gap-8">
                 <div>
                   <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-3">Narrative Breakdown</h3>
@@ -1442,7 +1420,6 @@ export default function MarketSummary() {
                     {formatBriefing(macroInsights.briefing).split('\n\n').filter(Boolean).map((para, idx) => {
                       const { label, color, blurb, body } = splitBriefingSection(para.trim());
                       const st = sectionStyles(color);
-                      // Extract tickers from the body for the copy button
                       const bodyTickers = Array.from(new Set(
                         (body.match(/\b[A-Z]{2,5}\b/g) || []).filter(t => !TICKER_STOPWORDS.has(t))
                       ));
@@ -1464,9 +1441,6 @@ export default function MarketSummary() {
                             </div>
                           )}
                           {body.includes('|||') ? (
-                            /* Two-column layout: split on ||| marker. The first
-                               line of each column is its heading, so it renders
-                               dimmer and tighter than the rows beneath it. */
                             (() => {
                               const parts = body.split('|||');
                               const afterCols = parts.length > 2 ? parts.slice(2).join('') : '';
@@ -1562,8 +1536,6 @@ export default function MarketSummary() {
                             )}
                           </div>
                           {(() => {
-                            // Split the reason on semicolons: first clause is the
-                            // lead line, the rest stack as their own lines below.
                             const clauses = (reason || '').split(';').map((c) => c.trim()).filter(Boolean);
                             if (clauses.length <= 1) {
                               return (
@@ -1586,7 +1558,6 @@ export default function MarketSummary() {
                             );
                           })()}
 
-                          {/* Current catalyst on the name, when there is real news */}
                           {catalyst && (
                             <div className="flex items-start gap-2 pt-2 mt-0.5 border-t border-white/5">
                               <span className="text-[8px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded shrink-0 mt-[1px]">NEWS</span>
@@ -1608,7 +1579,6 @@ export default function MarketSummary() {
             </div>
           )}
 
-          {/* 2. Session Narrative Feed (Render sequentially) */}
           <div className="border-t border-white/5 pt-6 mt-4">
             <span className="inline-flex text-xs md:text-sm font-bold border px-4 py-1.5 rounded-lg tracking-widest uppercase items-center gap-2 text-[#7c8bfa] bg-[#161c2a]/40 border-white/5">
               <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
