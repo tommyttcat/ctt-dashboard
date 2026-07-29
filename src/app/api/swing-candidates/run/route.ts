@@ -1,10 +1,19 @@
-// app/api/swing-candidates/run/route.ts — v1.5
+// src/app/api/swing-candidates/run/route.ts — v1.6
 // v1.1: + RMV(15) on Swing and 10/21; + batched Benzinga WIIM catalysts
 // v1.2: RMV imported from lib/indicators/rmv
 // v1.3: Weinstein sub-stages via lib/indicators/stage
 // v1.4: + Money Flow (21); + T2108 market breadth from the grouped series
-// v1.5: thresholds moved to lib/scanConfig and shipped in the payload, so the
-//       on-screen key renders the gates the scan ACTUALLY used.
+// v1.5: thresholds moved to lib/scanConfig and shipped in the payload
+// v1.6: TIMEOUT FIXES
+//       (a) maxDuration 60 -> 300. This was the real bug: Vercel was killing
+//           the function at 60s while the scan needs ~2min (120 symbols x 3
+//           calls, plus up to 80 consolidation extras, plus ~45 grouped-daily
+//           calls). Every run was being truncated regardless of the caller.
+//       (b) + ?bg=true background wrapper, same pattern as scanner v6.7, so
+//           cron-job.org's 30s ceiling never fires. A plain GET is unchanged
+//           and still returns the full payload for manual/browser runs.
+//       (c) The scan body moved into runSwingScan() untouched — no logic,
+//           gate, or scoring changes.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -15,7 +24,7 @@ import { SWING, CONSOL, SWING_META, CONSOL_META } from '@/lib/scanConfig';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
 const BENZINGA_KEY = process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '';
@@ -467,6 +476,9 @@ async function getEarningsBlackout(): Promise<Set<string>> {
 
 const WIIM_MAX_AGE_DAYS = 4;
 const WIIM_MAX_BREADTH = 12;
+// Matches scanner v6.8. At pageSize=100 a 50-ticker batch truncates — the
+// first few tickers consume the item budget and the rest come back empty.
+const WIIM_BATCH_SIZE = 15;
 
 function classifyWiim(title: string): string {
   const s = (title || '').toLowerCase();
@@ -490,9 +502,8 @@ async function fetchBenzingaWiims(
   if (!BENZINGA_KEY || tickers.length === 0) return out;
 
   const now = Date.now();
-  const BATCH = 50;
-  for (let i = 0; i < tickers.length; i += BATCH) {
-    const batch = tickers.slice(i, i + BATCH);
+  for (let i = 0; i < tickers.length; i += WIIM_BATCH_SIZE) {
+    const batch = tickers.slice(i, i + WIIM_BATCH_SIZE);
     const url =
       `https://api.benzinga.com/api/v2/news?token=${BENZINGA_KEY}` +
       `&tickers=${encodeURIComponent(batch.join(','))}` +
@@ -841,11 +852,18 @@ function analyzeConsolidation(
   };
 }
 
-export async function GET() {
+// ---------------------------------------------------------------------------
+// SCAN BODY
+// ---------------------------------------------------------------------------
+// Unchanged from v1.5 apart from being lifted out of GET() so the background
+// wrapper below can invoke it. Same gates, same scoring, same KV keys.
+async function runSwingScan() {
   try {
     if (!POLYGON_KEY) {
       return NextResponse.json({ success: false, error: 'Missing Polygon API Key' }, { status: 500 });
     }
+
+    const startedAt = Date.now();
 
     const spyBars = await getDailyBars("SPY");
     const spyReturn = pctReturn(spyBars.map(b => b.c), SWING.rsLookback);
@@ -955,6 +973,7 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       lastScanTime: scanTime,
+      elapsedMs: scanTime - startedAt,
       count: candidates.length,
       consolCount: consols.length,
       consolShortlisted: consolShortlist.length,
@@ -971,4 +990,77 @@ export async function GET() {
     console.error("SWING_RUN_ERROR:", error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
+}
+
+// ---------------------------------------------------------------------------
+// BACKGROUND WRAPPER (v1.6)
+// ---------------------------------------------------------------------------
+// Mirrors scanner v6.7. A plain GET is unchanged — it runs the scan and
+// returns the full payload, so the dashboard and manual browser runs behave
+// exactly as before.
+//
+// ?bg=true replies in ~50ms and lets the scan continue via Next's after(),
+// so cron-job.org's 30s ceiling never fires.
+//
+//   cron-job.org URL:  /api/swing-candidates/run?bg=true
+//   browser / manual:  /api/swing-candidates/run
+
+const bgHeaders = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+  'Pragma': 'no-cache',
+  'Expires': '0',
+};
+
+// Keeps the function alive after the response is sent. Uses Next's after(),
+// which needs no extra package. Returns false if this Next version lacks it.
+async function scheduleAfterResponse(work: () => Promise<any>): Promise<boolean> {
+  try {
+    const nx: any = await import('next/server');
+    const after = nx.after || nx.unstable_after;
+    if (typeof after === 'function') {
+      after(() => work());
+      return true;
+    }
+  } catch {
+    // fall through
+  }
+  return false;
+}
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const background = searchParams.get('bg') === 'true';
+
+  if (!background) return runSwingScan();
+
+  const work = async () => {
+    const started = Date.now();
+    try {
+      const res = await runSwingScan();
+      console.log(`[swing] background run finished ${res.status} in ${Date.now() - started}ms`);
+    } catch (err: any) {
+      console.error(`[swing] background run failed after ${Date.now() - started}ms:`, err?.message || err);
+    }
+  };
+
+  const scheduled = await scheduleAfterResponse(work);
+
+  if (!scheduled) {
+    // after() unavailable on this runtime — replying now would freeze the
+    // function and kill the scan, so run it inline instead.
+    await work();
+    return NextResponse.json(
+      { success: true, mode: 'inline-fallback', startedAt: new Date().toISOString() },
+      { headers: bgHeaders }
+    );
+  }
+
+  return NextResponse.json(
+    { success: true, mode: 'background', startedAt: new Date().toISOString() },
+    { headers: bgHeaders }
+  );
+}
+
+export async function POST(request: Request) {
+  return GET(request);
 }
