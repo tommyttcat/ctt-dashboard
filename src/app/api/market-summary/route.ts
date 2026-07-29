@@ -1,3 +1,18 @@
+// ---------------------------------------------------------------------------
+// Market Summary — session narrative + actionable catalysts
+// v2.0
+//
+// CHANGE FROM v1.x: breadth is no longer computed here. It now reads the
+// canonical `market_breadth_v6` key written by the scanner — the same key the
+// macro card reads — so the two cards can never disagree. The old full-market
+// Polygon snapshot call (every US ticker, on every cache miss) is gone.
+//
+// Fallback order for breadth:
+//   1. market_breadth_v6 from KV, if its ET date matches targetDate
+//   2. grouped daily bars, recomputed locally (weekend / scanner-down path)
+//   3. null — narrative simply omits the breadth sentence
+// ---------------------------------------------------------------------------
+
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 
@@ -48,6 +63,43 @@ const INDEX_NAMES: Record<string, string> = {
 };
 
 const TAPE_TICKERS = ['SPY', 'QQQ', 'DIA', 'IWM', 'NVDA', 'AAPL', 'MSFT', 'AMZN', 'TSLA'];
+
+// YYYY-MM-DD in Eastern time. en-CA is the locale that formats that way.
+const etDateString = (d: Date): string =>
+  d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+
+// ---------------------------------------------------------------
+// Canonical breadth — single source of truth, written by the scanner.
+//
+// Rejected if: missing, malformed, too thin to be meaningful, or stamped
+// with a different ET trading date than the one being rendered. That last
+// check is what stops a Friday number leaking into Monday's card.
+// ---------------------------------------------------------------
+async function getSharedBreadth(targetDate: string): Promise<Breadth | null> {
+  try {
+    const raw: any = await kv.get('market_breadth_v6');
+    if (!raw || typeof raw !== 'object') return null;
+
+    const advancers = Number(raw.advancers);
+    const decliners = Number(raw.decliners);
+    if (!Number.isFinite(advancers) || !Number.isFinite(decliners)) return null;
+    if (advancers + decliners < 100) return null;
+
+    if (raw.updatedAt) {
+      const stamp = new Date(raw.updatedAt);
+      if (!Number.isNaN(stamp.getTime()) && etDateString(stamp) !== targetDate) return null;
+    }
+
+    return {
+      advancers,
+      decliners,
+      up4: Number(raw.up4) || 0,
+      down4: Number(raw.down4) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
 
 // ---------------------------------------------------------------
 // Deterministic catalyst classification (no AI) — keyword-tiered,
@@ -333,40 +385,18 @@ export async function GET(request: Request) {
       }
     }
 
-    // 2. Breadth — live full snapshot on weekdays
-    let breadth: Breadth | null = null;
-    if (!isWeekend && snapshotUsable) {
-      try {
-        const fullUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${polygonKey}`;
-        const fullRes = await fetch(fullUrl, { cache: 'no-store' });
-        const fullData = await fullRes.json();
-        const tickers = fullData?.tickers || [];
-        if (tickers.length > 0) {
-          let advancers = 0, decliners = 0, up4 = 0, down4 = 0;
-          for (const t of tickers) {
-            const sym: string = t.ticker ?? '';
-            if (!/^[A-Z]{1,5}$/.test(sym)) continue;
-            const prev = t.prevDay;
-            if (!prev || !prev.c || !prev.v) continue;
-            if (prev.c < 5 || prev.c * prev.v < 5_000_000) continue;
-            const chg = typeof t.todaysChangePerc === 'number' ? t.todaysChangePerc : 0;
-            if (chg > 0) advancers++;
-            else if (chg < 0) decliners++;
-            if (chg >= 4) up4++;
-            else if (chg <= -4) down4++;
-          }
-          if (advancers + decliners > 100) breadth = { advancers, decliners, up4, down4 };
-        }
-      } catch (e) {
-        console.error('Breadth snapshot failed:', e);
-      }
-    }
+    // 2. Breadth — canonical value from the scanner, shared with the macro card.
+    // No full-market snapshot call here anymore.
+    let breadth: Breadth | null = await getSharedBreadth(targetDate);
+    let breadthSource: 'scanner_kv' | 'grouped_bars' | 'none' = breadth ? 'scanner_kv' : 'none';
 
-    // 3. WEEKEND / DEAD-SNAPSHOT FALLBACK — rebuild tape + breadth from the
-    // grouped daily bars of targetDate vs the prior trading day (2 calls).
-    // This is how the weekend view shows Friday's real closing numbers instead
-    // of the zeroed snapshot.
-    if (isWeekend || !snapshotUsable || !breadth) {
+    // 3. FALLBACK — rebuild tape and/or breadth from grouped daily bars.
+    // Fires on weekends, when the live snapshot is dead, or when the scanner
+    // hasn't written a breadth value for targetDate yet.
+    const needTapeRebuild = isWeekend || !snapshotUsable;
+    const needBreadthRebuild = !breadth;
+
+    if (needTapeRebuild || needBreadthRebuild) {
       const dayBars = await getGroupedCloses(targetDate);
       if (dayBars) {
         // Walk back to the previous trading day with data (skips holidays).
@@ -375,28 +405,37 @@ export async function GET(request: Request) {
           prevBars = await getGroupedCloses(dateOffset(targetDate, -back));
         }
         if (prevBars) {
-          // Tape tickers from real closes
-          for (const sym of TAPE_TICKERS) {
-            const now = dayBars.get(sym);
-            const prev = prevBars.get(sym);
-            if (now && prev && prev.c > 0) {
-              quotes[sym] = { ticker: sym, pct: ((now.c - prev.c) / prev.c) * 100, price: now.c };
+          // Tape tickers from real closes — only when live quotes are unusable,
+          // so a healthy intraday snapshot is never overwritten with closes.
+          if (needTapeRebuild) {
+            for (const sym of TAPE_TICKERS) {
+              const now = dayBars.get(sym);
+              const prev = prevBars.get(sym);
+              if (now && prev && prev.c > 0) {
+                quotes[sym] = { ticker: sym, pct: ((now.c - prev.c) / prev.c) * 100, price: now.c };
+              }
             }
           }
-          // Breadth from real closes
-          let advancers = 0, decliners = 0, up4 = 0, down4 = 0;
-          for (const [sym, now] of Array.from(dayBars.entries())) {
-            if (!/^[A-Z]{1,5}$/.test(sym)) continue;
-            const prev = prevBars.get(sym);
-            if (!prev || prev.c <= 0) continue;
-            if (prev.c < 5 || prev.c * prev.v < 5_000_000) continue;
-            const chg = ((now.c - prev.c) / prev.c) * 100;
-            if (chg > 0) advancers++;
-            else if (chg < 0) decliners++;
-            if (chg >= 4) up4++;
-            else if (chg <= -4) down4++;
+
+          // Breadth from real closes — only if the canonical value was missing.
+          if (needBreadthRebuild) {
+            let advancers = 0, decliners = 0, up4 = 0, down4 = 0;
+            for (const [sym, now] of Array.from(dayBars.entries())) {
+              if (!/^[A-Z]{1,5}$/.test(sym)) continue;
+              const prev = prevBars.get(sym);
+              if (!prev || prev.c <= 0) continue;
+              if (prev.c < 5 || prev.c * prev.v < 5_000_000) continue;
+              const chg = ((now.c - prev.c) / prev.c) * 100;
+              if (chg > 0) advancers++;
+              else if (chg < 0) decliners++;
+              if (chg >= 4) up4++;
+              else if (chg <= -4) down4++;
+            }
+            if (advancers + decliners > 100) {
+              breadth = { advancers, decliners, up4, down4 };
+              breadthSource = 'grouped_bars';
+            }
           }
-          if (advancers + decliners > 100) breadth = { advancers, decliners, up4, down4 };
         }
       }
     }
@@ -419,7 +458,17 @@ export async function GET(request: Request) {
     // 5. Deterministic session blocks from the assembled data
     const { morning, midday, closing } = buildBlocks(quotes, breadth, actionableEvents, currentHourDecimal, isWeekend);
 
-    const generatedSummary = { actionableEvents, morning, midday, closing };
+    // breadth + breadthSource are exposed so the exact numbers behind the
+    // narrative text are inspectable without re-deriving them.
+    const generatedSummary = {
+      actionableEvents,
+      morning,
+      midday,
+      closing,
+      breadth,
+      breadthSource,
+      generatedAt: new Date().toISOString(),
+    };
 
     const isMarketActive = getIsMarketActive();
     const MARKET_CACHE_SEC = 900;    // 15 min during market hours
@@ -434,7 +483,7 @@ export async function GET(request: Request) {
   } catch (error: any) {
     // FAILURE THROTTLE — unchanged pattern: serve last good, cool down 10 min.
     console.error('MARKET_SUMMARY_ERROR:', error);
-    let payload: any = { actionableEvents: [], morning: null, midday: null, closing: null };
+    let payload: any = { actionableEvents: [], morning: null, midday: null, closing: null, breadth: null, breadthSource: 'none' };
     try {
       const lastGood = await kv.get(`market_narrative_lastgood_${targetDate}`);
       if (lastGood) payload = lastGood;
