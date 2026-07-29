@@ -1,19 +1,22 @@
-// src/app/api/swing-candidates/run/route.ts — v1.6
+// src/app/api/swing-candidates/run/route.ts — v1.7
 // v1.1: + RMV(15) on Swing and 10/21; + batched Benzinga WIIM catalysts
 // v1.2: RMV imported from lib/indicators/rmv
 // v1.3: Weinstein sub-stages via lib/indicators/stage
 // v1.4: + Money Flow (21); + T2108 market breadth from the grouped series
 // v1.5: thresholds moved to lib/scanConfig and shipped in the payload
-// v1.6: TIMEOUT FIXES
-//       (a) maxDuration 60 -> 300. This was the real bug: Vercel was killing
-//           the function at 60s while the scan needs ~2min (120 symbols x 3
-//           calls, plus up to 80 consolidation extras, plus ~45 grouped-daily
-//           calls). Every run was being truncated regardless of the caller.
-//       (b) + ?bg=true background wrapper, same pattern as scanner v6.7, so
-//           cron-job.org's 30s ceiling never fires. A plain GET is unchanged
-//           and still returns the full payload for manual/browser runs.
-//       (c) The scan body moved into runSwingScan() untouched — no logic,
-//           gate, or scoring changes.
+// v1.6: maxDuration 60 -> 300 (the real timeout cause); + ?bg=true background
+//       wrapper matching scanner v6.7; WIIM batch 50 -> 15
+// v1.7: WRITE-GUARD SYMMETRY.
+//       The swing keys were guarded by `hasRealData` (universe non-empty AND
+//       candidates non-empty), but the consolidation keys wrote on
+//       `universe.length > 0` alone. A run that found zero consolidation
+//       names would therefore PRESERVE the stale swing snapshot while
+//       OVERWRITING consolidation with an empty array — two different
+//       definitions of "this run produced something".
+//
+//       Each table now guards on its own results, so an empty result set
+//       never destroys a good previous snapshot on either side. Both write
+//       decisions are reported back in `dataPersisted` for verification.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -855,8 +858,7 @@ function analyzeConsolidation(
 // ---------------------------------------------------------------------------
 // SCAN BODY
 // ---------------------------------------------------------------------------
-// Unchanged from v1.5 apart from being lifted out of GET() so the background
-// wrapper below can invoke it. Same gates, same scoring, same KV keys.
+// Unchanged from v1.6 apart from the write guards at the end.
 async function runSwingScan() {
   try {
     if (!POLYGON_KEY) {
@@ -875,14 +877,19 @@ async function runSwingScan() {
 
     // T2108 — market-wide breadth from the same grouped data. Persisted
     // independently so the Scorecard can read it without touching the
-    // swing payload.
+    // swing payload. Guarded: a null value means the sample was too thin to
+    // mean anything, so keep the previous reading rather than blanking it.
     const t2108 = computeT2108(groupedSeries);
-    try {
-      await kv.set('t2108_v1', {
-        ...t2108,
-        updatedAt: new Date().toISOString(),
-      });
-    } catch (e) { console.error('t2108 persist failed', e); }
+    if (t2108.value != null) {
+      try {
+        await kv.set('t2108_v1', {
+          ...t2108,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (e) { console.error('t2108 persist failed', e); }
+    } else {
+      console.warn(`T2108 sample too thin (${t2108.total} names); preserving previous reading.`);
+    }
 
     const consolShortlist = shortlistConsolidation(groupedSeries)
       .filter(sym => !earningsBlackout.has(sym));
@@ -944,9 +951,21 @@ async function runSwingScan() {
     consolKeep.forEach(attachCatalyst);
 
     const scanTime = Date.now();
-    const hasRealData = universe.length > 0 && candidates.length > 0;
 
-    if (hasRealData) {
+    // --- WRITE GUARDS (v1.7) -------------------------------------------------
+    // Each table is gated on ITS OWN results. Previously the swing keys used
+    // `universe.length > 0 && candidates.length > 0` while consolidation used
+    // only `universe.length > 0`, so a run with zero coils would preserve
+    // stale swing data and simultaneously wipe a perfectly good consolidation
+    // list. Symmetric now: an empty result never destroys a good snapshot.
+    //
+    // A truly empty market IS possible on both tables — the swing scan
+    // returned 2 of 120 names on 2026-07-29 — so preserving beats blanking.
+    const universeOk = universe.length > 0;
+    const swingPersisted = universeOk && candidates.length > 0;
+    const consolPersisted = universeOk && consolKeep.length > 0;
+
+    if (swingPersisted) {
       await kv.set('swing_candidates_v1', candidates);
       await kv.set('swing_meta_v1', {
         spyReturn3M: spyReturn != null ? +spyReturn.toFixed(1) : null,
@@ -961,13 +980,15 @@ async function runSwingScan() {
       console.warn('Swing scan produced no candidates; preserving previous KV snapshot.');
     }
 
-    if (universe.length > 0) {
+    if (consolPersisted) {
       await kv.set('consol_1021_v1', consolKeep);
       await kv.set('consol_1021_meta_v1', {
         count: consols.length,
         scanMeta: CONSOL_META,
       });
       await kv.set('consol_1021_last_scan_v1', scanTime);
+    } else {
+      console.warn('Consolidation scan produced no candidates; preserving previous KV snapshot.');
     }
 
     return NextResponse.json({
@@ -984,7 +1005,13 @@ async function runSwingScan() {
       t2108Zone: t2108.zone,
       t2108Sample: t2108.total,
       scanMeta: { swing: SWING_META, consol: CONSOL_META },
-      dataPersisted: hasRealData,
+      // Per-table write outcome. `false` means the previous snapshot was kept
+      // because this run found nothing — not that the run failed.
+      dataPersisted: {
+        swing: swingPersisted,
+        consolidation: consolPersisted,
+        t2108: t2108.value != null,
+      },
     });
   } catch (error: any) {
     console.error("SWING_RUN_ERROR:", error);
@@ -993,7 +1020,7 @@ async function runSwingScan() {
 }
 
 // ---------------------------------------------------------------------------
-// BACKGROUND WRAPPER (v1.6)
+// BACKGROUND WRAPPER
 // ---------------------------------------------------------------------------
 // Mirrors scanner v6.7. A plain GET is unchanged — it runs the scan and
 // returns the full payload, so the dashboard and manual browser runs behave
