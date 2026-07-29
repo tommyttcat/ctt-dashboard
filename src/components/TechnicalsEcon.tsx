@@ -4,28 +4,22 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 // ---------------------------------------------------------------------------
-// Economic Calendar — v1.1
+// Economic Calendar — v1.2
 //
 // v1.1 FIXES:
 //   (a) TIMEZONE. The old formatEventDate did `new Date("2026-07-29T14:00:00")`
 //       which JS parses in the BROWSER's timezone, then rendered it with
 //       timeZone:'America/New_York' — double-converting. From Arizona (UTC-7)
-//       a 2:00 PM ET release displayed as 5:00 PM ET. Every time on the table
-//       was shifted by the viewer's UTC offset.
-//
-//       The feed already sends ET wall-clock strings with no zone marker, so
-//       there is nothing to convert. Parse the components and format them
-//       directly. Note the old `isPast` check was already doing this correctly
-//       via string comparison, so the dimming was right while the printed time
-//       was wrong.
-//
-//   (b) The day label used toLocaleDateString with NO timeZone while the time
-//       used ET — so near midnight they could disagree about the day.
-//
-//   (c) Stable row ids. `${event}-${index}` changes whenever sort order does,
-//       which makes React remount rows on every sort.
-//
+//       a 2:00 PM ET release displayed as 5:00 PM ET.
+//   (b) Day label and time label now agree near midnight.
+//   (c) Stable row ids so re-sorting does not remount rows.
 //   (d) An empty response no longer leaves stale events on screen.
+//
+// v1.2: Low-impact events dropped entirely. The feed carries CFTC positioning,
+//       Baker Hughes rig counts, and similar — data points, not decisions, and
+//       none of them move a session. Filtered at ingest so they never reach
+//       state, which also means the tab counts reflect what is actually
+//       tradeable.
 // ---------------------------------------------------------------------------
 
 // --- INTERFACES ---
@@ -42,7 +36,7 @@ interface EconEvent {
   rawDateString: string; 
 }
 
-type TabType = 'High' | 'Medium' | 'Low';
+type TabType = 'High' | 'Medium';
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
 type SortDirection = 'asc' | 'desc';
 
@@ -191,7 +185,12 @@ export default function EconomicCalendar() {
             const eventDateStr = e.date ? e.date.substring(0, 10) : '';
             const isWithinWindow = eventDateStr >= fromStr && eventDateStr <= toStrCutoff;
 
-            return isUS && isWithinWindow;
+            // v1.2: Low impact never enters state. CFTC positioning, rig
+            // counts, and the like are reference data, not session events.
+            const impact = e.impact || 'Low';
+            const isTradeable = impact === 'High' || impact === 'Medium';
+
+            return isUS && isWithinWindow && isTradeable;
           })
           .map((e: any) => ({
             // Keyed on the event's own identity, not array position, so
@@ -241,7 +240,6 @@ export default function EconomicCalendar() {
     return {
       High: events.filter(e => e.impact === 'High').length,
       Medium: events.filter(e => e.impact === 'Medium').length,
-      Low: events.filter(e => e.impact === 'Low').length,
     };
   }, [events]);
 
@@ -331,7 +329,7 @@ export default function EconomicCalendar() {
         <>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 relative z-10 pb-2">
             <div className="flex gap-3 overflow-x-auto custom-scrollbar w-full md:w-auto" style={{ scrollbarWidth: 'none' }}>
-              {(['High', 'Medium', 'Low'] as TabType[]).map((tab) => (
+              {(['High', 'Medium'] as TabType[]).map((tab) => (
                 <button
                   key={tab}
                   onClick={(e) => { e.stopPropagation(); setActiveTab(tab); }}
@@ -348,6 +346,9 @@ export default function EconomicCalendar() {
                 </button>
               ))}
             </div>
+            <span className="text-[10px] text-slate-500 font-medium tracking-wide">
+              Low-impact releases hidden
+            </span>
           </div>
           
           <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
