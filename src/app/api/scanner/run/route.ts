@@ -1,4 +1,4 @@
-// src/app/api/scanner/run/route.ts — v6.8
+// src/app/api/scanner/run/route.ts — v6.9
 // v6.1: + RMV(15); thesis is news-headline-only (stats moved to t.readout)
 // v6.2: RMV/RME imported from lib/indicators; RME(21) replaces the binary
 //       `extended` penalty in CNF; + cnfBreakdown for the badge tooltip
@@ -7,23 +7,24 @@
 // v6.5: + daysToCover (short interest / avg volume) — replaces SHT%
 // v6.6: thresholds moved to lib/scanConfig and shipped in the payload
 // v6.7: GET is a thin wrapper; ?bg=true runs the scan in the background
-// v6.8: CATALYST + STALE-BRIEFING FIXES
-//       (a) macro_insights_v6 is gated on a freshness stamp. Nothing writes
-//           that key anymore (it was the removed Gemini route), so a stale
-//           payload was being republished on every scan. Now returns null
-//           unless something has written it TODAY with a generatedAt stamp.
-//       (b) WIIM batch cut 50 -> 15 tickers. At pageSize=100 a 50-ticker
-//           batch truncates: the first few tickers eat the item budget and
-//           the rest silently come back empty.
-//       (c) Polygon news limit 10 -> 50. The spam filter strips law-firm
-//           blasts, which ARE the top results on an earnings blowup, so a
-//           10-item window left nothing and fell through to months-old news.
-//       (d) News selection now takes the NEWEST valid article rather than the
-//           first preferred-publisher match, which could be older.
-//       (e) Benzinga earnings calendar widened to yesterday..+2d and promoted
-//           to a catalyst SOURCE. A name that reported in the last session is
-//           tagged 'Earnings' (tier: strong) even with no WIIM — this is what
-//           stops a -40% earnings gap reading "Technical Momentum".
+// v6.8: macro_insights_v6 gated on freshness; WIIM batch 50 -> 15; Polygon
+//       news limit 10 -> 50; newest-article selection; earnings calendar
+//       promoted to a catalyst source
+// v6.9: DETERMINISTIC MACRO BRIEFING.
+//       v6.8 correctly stopped republishing the stale Gemini briefing, which
+//       left the card empty because nothing writes that key anymore. This
+//       restores it with a fully deterministic builder — every clause traces
+//       to a number already computed in this run, so it can be checked
+//       against the tables below it.
+//
+//       Four sentences: regime, leadership, scan yield, posture. Plus a
+//       short derived `theme` label.
+//
+//       `watching` is deliberately dropped. It duplicated the tables directly
+//       below it, and it was where the stale version did its real damage — a
+//       ranked list with prose reasons reads as conviction, but CNF is a tape
+//       score, not a thesis. The field is still emitted as an empty array so
+//       any component mapping over it doesn't throw.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -191,6 +192,18 @@ const isNegativeHeadline = (title: string | null | undefined): boolean => {
   return /offering|dilut|reverse split|reverse stock split|going concern|delist|bankrupt|chapter 11|at-the-market|atm program|warrant exercise|registered direct|shelf registration/.test(s);
 };
 
+// Inverse / bear / long-volatility instruments. Detected from the fund NAME
+// rather than the sector map, because single-stock inverse ETFs (NVD, NVDQ)
+// map to the same sector string as their long counterparts.
+//
+// "Ultra VIX Short-Term Futures" matches on 'short' — that's the futures term,
+// not direction, but UVXY is a long-vol instrument so counting it as bearish
+// is correct regardless.
+const isBearishInstrument = (name: string | null | undefined): boolean => {
+  if (!name) return false;
+  return /\bbear\b|\bshort\b|\binverse\b|ultrashort|\-1x\b/i.test(name);
+};
+
 const resolveEtfSector = (sym: string, apiSector: string | undefined, apiName: string | undefined): string => {
   if (ETF_TARGET_MAP[sym]) return ETF_TARGET_MAP[sym];
   if (SECTOR_MAP[sym]) return SECTOR_MAP[sym]; 
@@ -260,8 +273,8 @@ const deriveTradeType = (setupName: string | null | undefined): string => {
   return 'Swing';
 };
 
-// Setup family classification — used by both the regime gate and the RME
-// penalty, so a name is treated consistently by each.
+// Setup family classification — used by the regime gate, the RME penalty, and
+// the briefing's leadership read, so a name is treated consistently by each.
 const isReversalSetupName = (setupName: string | null | undefined): boolean =>
   /blue dot|ema pb|sqz building|inside day/.test((setupName || '').toLowerCase());
 
@@ -390,6 +403,156 @@ const buildReadout = (t: any): string | null => {
   if (t.goldenCross != null) parts.push(t.goldenCross ? '50>200 intact' : '50<200');
   if (parts.length === 0) return null;
   return parts.join(', ') + '.';
+};
+
+// ---------------------------------------------------------------------------
+// DETERMINISTIC MACRO BRIEFING (v6.9)
+// ---------------------------------------------------------------------------
+// Replaces the removed Gemini briefing. Four sentences, each traceable to a
+// number computed earlier in this same run:
+//
+//   1. REGIME     — breadth signal and its inputs, SPY vs 21 EMA, NH/NL
+//   2. LEADERSHIP — hot sectors, and whether the movers are long or inverse
+//   3. YIELD      — how many names cleared each table, grade mix, setup mix
+//   4. POSTURE    — what the combination of regime and yield supports
+//
+// Deliberately plain. No claim here should be uncheckable against the tables
+// rendered directly below the card.
+interface BriefingInput {
+  breadthSignal: string;
+  breadthScore: number;
+  advancers: number;
+  decliners: number;
+  up4: number;
+  down4: number;
+  pctAdv: number;
+  newHighs: number;
+  newLows: number;
+  spyAbove21: boolean | null;
+  spyChgToday: number;
+  hotSectors: string[];
+  surfaced: any[];      // finalSip + finalDaily, deduped
+  topMovers: Record<string, any[]>;
+}
+
+const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string; watching: any[] } => {
+  const pct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+  const sentences: string[] = [];
+
+  // --- 1. REGIME -----------------------------------------------------------
+  const adRatio = i.decliners > 0 ? i.advancers / i.decliners : null;
+  const regimeWord =
+    i.breadthSignal === 'GREEN' ? 'Risk-on' :
+    i.breadthSignal === 'RED' ? 'Risk-off' : 'Mixed';
+
+  const regimeBits: string[] = [
+    `Breadth is ${i.breadthSignal} (${i.breadthScore}/6) on ${i.advancers.toLocaleString()} advancers vs ${i.decliners.toLocaleString()} decliners${adRatio != null ? ` (A/D ${adRatio.toFixed(2)})` : ''}`,
+  ];
+  if (i.up4 + i.down4 > 0) {
+    regimeBits.push(`${i.up4} names up 4%+ against ${i.down4} down 4%+`);
+  }
+  if (i.newHighs + i.newLows > 0) {
+    regimeBits.push(`${i.newHighs} new highs vs ${i.newLows} new lows`);
+  }
+  if (i.spyAbove21 != null) {
+    regimeBits.push(`SPY ${pct(i.spyChgToday)} and ${i.spyAbove21 ? 'above' : 'below'} its 21 EMA`);
+  }
+  sentences.push(`${regimeBits.join(', ')}.`);
+
+  // --- 2. LEADERSHIP -------------------------------------------------------
+  // Bear-instrument share of the combined mover tape. When most of what's
+  // moving is inverse or long-vol, there is no long momentum theme to trade,
+  // regardless of what the index prints say.
+  const moverPool = [
+    ...(i.topMovers['Gainers'] || []),
+    ...(i.topMovers['ETF Gainers'] || []),
+  ].filter(Boolean);
+  const bearCount = moverPool.filter((t: any) => isBearishInstrument(t?.name)).length;
+  const bearShare = moverPool.length > 0 ? bearCount / moverPool.length : 0;
+
+  const leadBits: string[] = [];
+  if (i.hotSectors.length > 0) {
+    leadBits.push(`Money is concentrated in ${i.hotSectors.join(' and ')}`);
+  } else {
+    leadBits.push('No sector is showing coordinated strength');
+  }
+  if (moverPool.length >= 5) {
+    if (bearShare >= 0.5) {
+      leadBits.push(`${bearCount} of the top ${moverPool.length} gainers are inverse or long-volatility instruments — the leaderboard itself is bearish, so there is no long momentum theme on offer`);
+    } else if (bearShare >= 0.25) {
+      leadBits.push(`${bearCount} of the top ${moverPool.length} gainers are inverse or long-volatility instruments, so leadership is split`);
+    } else {
+      leadBits.push(`long instruments hold the leaderboard (${moverPool.length - bearCount} of ${moverPool.length})`);
+    }
+  }
+  sentences.push(`${leadBits.join('; ')}.`);
+
+  // --- 3. SCAN YIELD -------------------------------------------------------
+  // "Trade less, make more money" is a thesis about yield, so the yield goes
+  // on screen. A day with 30 C-grade names is a different day from one with
+  // 4 A-grades, even when the index print is identical.
+  const gradeA = i.surfaced.filter((t: any) => t.cnfGrade === 'A').length;
+  const gradeB = i.surfaced.filter((t: any) => t.cnfGrade === 'B').length;
+  const breakouts = i.surfaced.filter((t: any) => isBreakoutSetupName(t.setupName)).length;
+  const reversals = i.surfaced.filter((t: any) => isReversalSetupName(t.setupName)).length;
+  const ready = i.surfaced.filter((t: any) => t.status === 'Ready').length;
+  const extended = i.surfaced.filter((t: any) => t.extended).length;
+
+  const yieldBits: string[] = [
+    `${i.surfaced.length} name${i.surfaced.length === 1 ? '' : 's'} cleared the setup gates`,
+  ];
+  if (i.surfaced.length > 0) {
+    yieldBits.push(`${gradeA} grade A and ${gradeB} grade B`);
+    if (breakouts + reversals > 0) {
+      yieldBits.push(`${breakouts} breakout-family vs ${reversals} reversal-family`);
+    }
+    if (extended > 0) {
+      yieldBits.push(`${extended} already extended`);
+    }
+    yieldBits.push(`${ready} flagged Ready`);
+  }
+  sentences.push(`${yieldBits.join(', ')}.`);
+
+  // --- 4. POSTURE ----------------------------------------------------------
+  // Describes what the numbers support. Not a recommendation.
+  let posture: string;
+  const thinYield = gradeA + gradeB <= 2;
+
+  if (i.breadthSignal === 'RED' && thinYield) {
+    posture = 'Weak breadth with almost nothing scoring well is the combination that argues for sitting out — breakouts carry a scoring penalty in this regime and the reversal candidates have not confirmed.';
+  } else if (i.breadthSignal === 'RED' && reversals > breakouts) {
+    posture = 'Breadth is weak but the surfaced names skew reversal-family, which is the setup type that historically works in this regime — the pullback entries are the ones with a defined stop.';
+  } else if (i.breadthSignal === 'RED') {
+    posture = 'Breadth is weak while the surfaced names skew breakout-family, which is the pairing that fails most often — treat these as day trades rather than swing entries.';
+  } else if (i.breadthSignal === 'GREEN' && i.spyAbove21 !== false && breakouts > 0) {
+    posture = 'Breadth and trend both confirm, so breakout entries have the regime behind them — this is the tape to press when a name clears its level on volume.';
+  } else if (i.breadthSignal === 'GREEN') {
+    posture = 'Breadth confirms but the surfaced names are pullback-oriented, so the edge is in entries at the anchor rather than chasing strength.';
+  } else if (thinYield) {
+    posture = 'A mixed tape with thin scoring is a day to demand A-grade confluence or stay flat.';
+  } else {
+    posture = 'Mixed breadth means neither side has control — trade smaller and require the setup to prove itself before adding.';
+  }
+  sentences.push(posture);
+
+  // --- THEME ---------------------------------------------------------------
+  const leadDesc =
+    bearShare >= 0.5 ? 'bear instruments leading' :
+    i.hotSectors.length > 0 ? `${i.hotSectors[0]} leading` :
+    'no clear leadership';
+  const yieldDesc =
+    gradeA + gradeB === 0 ? 'nothing scoring' :
+    gradeA > 0 ? `${gradeA} A-grade` :
+    `${gradeB} B-grade`;
+  const theme = `${regimeWord} — ${leadDesc}, ${yieldDesc}`;
+
+  return {
+    theme,
+    briefing: sentences.join(' '),
+    // Dropped in v6.9 — duplicated the tables below and dressed a tape score
+    // up as a thesis. Emitted empty so existing components don't throw.
+    watching: [],
+  };
 };
 
 const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, vwap: number, rvol: number | null): { name: string | null, stage: string } => {
@@ -669,13 +832,11 @@ const fetchEarningsCalendar = async (apiKey: string): Promise<Map<string, Earnin
 };
 
 // --- macroInsights freshness gate --------------------------------------------
-// v6.8: `macro_insights_v6` has no writer in the current codebase — it was
-// produced by the Gemini route that was removed. With no TTL it sat in KV
-// forever and got republished on every scan, so the card was showing a
-// briefing about tickers that hadn't traded in months.
+// v6.8 added this because `macro_insights_v6` had no writer — it was produced
+// by a removed Gemini route, had no TTL, and got republished forever.
 //
-// Only serve it if something wrote it TODAY with a recognisable timestamp.
-// If nothing does, this correctly returns null and the card renders empty.
+// v6.9 restores a writer (buildMacroBriefing), so this gate now does its
+// intended job: serve today's briefing, suppress anything older.
 const readFreshMacroInsights = async (): Promise<any | null> => {
   try {
     const raw: any = await kv.get('macro_insights_v6');
@@ -1359,14 +1520,13 @@ async function runScan(request: Request) {
       sectorHeatAgg[sec].sum += (t.changePct || 0);
       sectorHeatAgg[sec].count += 1;
     });
-    const hotSectors = new Set(
-      Object.entries(sectorHeatAgg)
-        .map(([sec, v]) => ({ sec, avg: v.sum / v.count, count: v.count }))
-        .filter(h => h.count >= 2 && h.avg > 0)
-        .sort((a, b) => b.avg - a.avg)
-        .slice(0, 2)
-        .map(h => h.sec)
-    );
+    const hotSectorList = Object.entries(sectorHeatAgg)
+      .map(([sec, v]) => ({ sec, avg: v.sum / v.count, count: v.count }))
+      .filter(h => h.count >= 2 && h.avg > 0)
+      .sort((a, b) => b.avg - a.avg)
+      .slice(0, 2)
+      .map(h => h.sec);
+    const hotSectors = new Set(hotSectorList);
 
     // --- PASS 2: CNF scoring with full market context -------------------------
     enrichedList.forEach((t: any) => {
@@ -1517,7 +1677,43 @@ async function runScan(request: Request) {
 
     if (benchmark) await kv.set('benchmark_v6', benchmark);
 
-    const macroInsights = await readFreshMacroInsights();
+    // --- MACRO BRIEFING (v6.9) ------------------------------------------------
+    // Built from this run's own numbers and written with the generatedAt stamp
+    // the freshness gate looks for. Same write guard as everything else: a run
+    // that surfaced nothing preserves the previous briefing rather than
+    // replacing it with a description of an empty scan.
+    let macroInsights: any = null;
+    if (hasRealData) {
+      const surfaced = Array.from(
+        new Map([...finalSip, ...finalDaily].map((t: any) => [t.ticker, t])).values()
+      );
+      const built = buildMacroBriefing({
+        breadthSignal,
+        breadthScore,
+        advancers,
+        decliners,
+        up4,
+        down4,
+        pctAdv,
+        newHighs,
+        newLows,
+        spyAbove21,
+        spyChgToday,
+        hotSectors: hotSectorList,
+        surfaced,
+        topMovers: finalTopMovers,
+      });
+      macroInsights = {
+        ...built,
+        generatedAt: new Date().toISOString(),
+        phase: currentPhase,
+      };
+      try {
+        await kv.set('macro_insights_v6', macroInsights);
+      } catch (e) { console.error('macro insights persist failed', e); }
+    } else {
+      macroInsights = await readFreshMacroInsights();
+    }
 
     return NextResponse.json({ 
       success: true, 
@@ -1552,9 +1748,8 @@ async function runScan(request: Request) {
 // ---------------------------------------------------------------------------
 // BACKGROUND WRAPPER (v6.7)
 // ---------------------------------------------------------------------------
-// DEFAULT BEHAVIOUR IS UNCHANGED from v6.6: a plain GET runs the scan and
-// returns the full payload, exactly as before. Nothing in the dashboard or in
-// any existing caller changes.
+// DEFAULT BEHAVIOUR IS UNCHANGED: a plain GET runs the scan and returns the
+// full payload. Nothing in the dashboard or in any existing caller changes.
 //
 // Background mode is OPT-IN via ?bg=true — that is the URL you give
 // cron-job.org. It replies in ~50ms so the 30s caller timeout never fires,
@@ -1589,7 +1784,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const background = searchParams.get('bg') === 'true';
 
-  // Not a background call — behave exactly like v6.6.
+  // Not a background call — behave exactly as before.
   if (!background) return runScan(request);
 
   const work = async () => {
