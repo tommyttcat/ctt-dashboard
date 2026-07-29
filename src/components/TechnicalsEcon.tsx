@@ -3,6 +3,31 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 
+// ---------------------------------------------------------------------------
+// Economic Calendar — v1.1
+//
+// v1.1 FIXES:
+//   (a) TIMEZONE. The old formatEventDate did `new Date("2026-07-29T14:00:00")`
+//       which JS parses in the BROWSER's timezone, then rendered it with
+//       timeZone:'America/New_York' — double-converting. From Arizona (UTC-7)
+//       a 2:00 PM ET release displayed as 5:00 PM ET. Every time on the table
+//       was shifted by the viewer's UTC offset.
+//
+//       The feed already sends ET wall-clock strings with no zone marker, so
+//       there is nothing to convert. Parse the components and format them
+//       directly. Note the old `isPast` check was already doing this correctly
+//       via string comparison, so the dimming was right while the printed time
+//       was wrong.
+//
+//   (b) The day label used toLocaleDateString with NO timeZone while the time
+//       used ET — so near midnight they could disagree about the day.
+//
+//   (c) Stable row ids. `${event}-${index}` changes whenever sort order does,
+//       which makes React remount rows on every sort.
+//
+//   (d) An empty response no longer leaves stale events on screen.
+// ---------------------------------------------------------------------------
+
 // --- INTERFACES ---
 interface EconEvent {
   id: string;
@@ -38,7 +63,7 @@ const formatTime = (date: Date) => {
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
 };
 
-// Formats JS Date to strict YYYY-MM-DD for FMP API
+// Formats JS Date to strict YYYY-MM-DD for the API
 const getIsoDateString = (d: Date) => {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -46,18 +71,35 @@ const getIsoDateString = (d: Date) => {
   return `${y}-${m}-${day}`;
 };
 
-// Safe date formatter that handles FMP's string format (YYYY-MM-DD HH:mm:ss)
-const formatEventDate = (dateStr: string) => {
-  if (!dateStr) return '-';
-  try {
-    const safeStr = dateStr.replace(' ', 'T');
-    const d = new Date(safeStr);
-    const dayStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-    const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
-    return `${dayStr} • ${timeStr}`;
-  } catch (e) {
-    return dateStr;
-  }
+const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// The feed sends ET wall-clock strings ("2026-07-29 14:00:00") with no zone
+// marker. They are ALREADY Eastern — there is nothing to convert. Parsing
+// through Date() would apply the viewer's local zone and shift every time by
+// their UTC offset, so pull the components out with a regex instead.
+//
+// Date.UTC is used purely to derive the weekday from the calendar date; no
+// timezone conversion happens because we only read UTC fields back out.
+const formatEventDate = (dateStr: string): string => {
+  const m = String(dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+  if (!m) return dateStr || '-';
+
+  const year = parseInt(m[1], 10);
+  const monthIdx = parseInt(m[2], 10) - 1;
+  const dayNum = parseInt(m[3], 10);
+
+  const weekday = WEEKDAY_NAMES[new Date(Date.UTC(year, monthIdx, dayNum)).getUTCDay()];
+  const dayLabel = `${weekday}, ${MONTH_NAMES[monthIdx]} ${dayNum}`;
+
+  if (m[4] == null) return dayLabel;
+
+  const h24 = parseInt(m[4], 10);
+  const mm = m[5];
+  const ampm = h24 >= 12 ? 'PM' : 'AM';
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+
+  return `${dayLabel} • ${h12}:${mm} ${ampm}`;
 };
 
 const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
@@ -130,7 +172,12 @@ export default function EconomicCalendar() {
         }
 
         if (rawEvents.length === 0) {
-          if (isMounted) setStatus('No Valid Data Found');
+          // Clear the table too — leaving stale rows next to a "no data"
+          // status is worse than showing nothing.
+          if (isMounted) {
+            setEvents([]);
+            setStatus('No Valid Data Found');
+          }
           return;
         }
 
@@ -146,8 +193,10 @@ export default function EconomicCalendar() {
 
             return isUS && isWithinWindow;
           })
-          .map((e: any, index: number) => ({
-            id: `${e.event}-${index}`,
+          .map((e: any) => ({
+            // Keyed on the event's own identity, not array position, so
+            // re-sorting does not remount every row.
+            id: `${e.date}|${e.event}`,
             event: e.event,
             date: e.date,
             country: e.country || '',
@@ -185,6 +234,16 @@ export default function EconomicCalendar() {
   const filteredEvents = useMemo(() => {
     return events.filter(e => e.impact === activeTab);
   }, [events, activeTab]);
+
+  // Per-tab counts for the tab buttons — an empty High tab should look empty
+  // before you click it, not after.
+  const tabCounts = useMemo(() => {
+    return {
+      High: events.filter(e => e.impact === 'High').length,
+      Medium: events.filter(e => e.impact === 'Medium').length,
+      Low: events.filter(e => e.impact === 'Low').length,
+    };
+  }, [events]);
 
   // 2. Sort the filtered data
   const sortedEvents = useMemo(() => {
@@ -224,6 +283,14 @@ export default function EconomicCalendar() {
     return 'text-slate-500';
   };
 
+  // ET "now" as a comparable wall-clock string. The feed's dates are ET wall
+  // clock, so a plain lexicographic compare is exact — no Date parsing needed.
+  const nowIsoStr = useMemo(() => {
+    const nowEst = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${nowEst.getFullYear()}-${pad(nowEst.getMonth() + 1)}-${pad(nowEst.getDate())} ${pad(nowEst.getHours())}:${pad(nowEst.getMinutes())}:${pad(nowEst.getSeconds())}`;
+  }, [lastUpdated]);
+
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-5 md:p-8 relative overflow-hidden shadow-xl w-full">
       <div className="absolute right-0 top-0 w-64 h-64 bg-cyan-500/5 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
@@ -238,6 +305,11 @@ export default function EconomicCalendar() {
             <span className={`w-1.5 h-1.5 rounded-full ${isHistorical ? 'bg-amber-400' : 'bg-[#7c8bfa]'}`}></span>
             ECONOMIC CALENDAR
           </span>
+          {!isExpanded && tabCounts.High > 0 && (
+            <span className="text-[10px] font-bold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded tracking-wider">
+              {tabCounts.High} HIGH
+            </span>
+          )}
         </div>
 
         <div className="flex flex-col items-center gap-1.5">
@@ -270,6 +342,9 @@ export default function EconomicCalendar() {
                   }`}
                 >
                   {tab}
+                  <span className={`ml-2 text-[10px] font-bold ${activeTab === tab ? 'text-cyan-300/70' : 'text-slate-600'}`}>
+                    {tabCounts[tab]}
+                  </span>
                 </button>
               ))}
             </div>
@@ -315,16 +390,18 @@ export default function EconomicCalendar() {
                   </tr>
                 ) : (
                   sortedEvents.map((row) => {
-                    const nowEst = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-                    const pad = (n: number) => String(n).padStart(2, '0');
-                    const nowIsoStr = `${nowEst.getFullYear()}-${pad(nowEst.getMonth()+1)}-${pad(nowEst.getDate())} ${pad(nowEst.getHours())}:${pad(nowEst.getMinutes())}:${pad(nowEst.getSeconds())}`;
-                    
                     const isPast = row.rawDateString < nowIsoStr;
                     const isSelectedDay = row.rawDateString.startsWith(selectedDate);
+                    // Still ahead today — the rows that actually carry risk.
+                    const isPending = isSelectedDay && !isPast && row.actual === null;
 
-                    const rowBgClass = isSelectedDay ? 'bg-cyan-500/[0.06]' : 'hover:bg-white/[0.02]';
+                    const rowBgClass = isPending
+                      ? 'bg-rose-500/[0.06]'
+                      : isSelectedDay ? 'bg-cyan-500/[0.06]' : 'hover:bg-white/[0.02]';
                     const opacityClass = isPast && !isSelectedDay ? 'opacity-40' : 'opacity-100';
-                    const dateTextColor = isSelectedDay ? 'text-cyan-400 font-bold' : 'text-slate-300 font-bold';
+                    const dateTextColor = isPending
+                      ? 'text-rose-300 font-bold'
+                      : isSelectedDay ? 'text-cyan-400 font-bold' : 'text-slate-300 font-bold';
                     const eventTextColor = isSelectedDay ? 'text-white font-bold' : 'text-slate-200 font-medium';
 
                     return (
@@ -338,6 +415,11 @@ export default function EconomicCalendar() {
                         
                         <td className={`py-3.5 text-xs whitespace-nowrap truncate max-w-[300px] ${eventTextColor}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>
                           {row.event}
+                          {isPending && (
+                            <span className="ml-2 text-[8px] font-bold tracking-widest uppercase text-rose-400 bg-rose-500/10 border border-rose-500/20 px-1.5 py-0.5 rounded">
+                              AHEAD
+                            </span>
+                          )}
                         </td>
 
                         <td className="py-3.5" style={{ textAlign: 'left', paddingLeft: '12px' }}>

@@ -264,12 +264,16 @@ const fmtLeader = (s: any): string => {
 
 /* ============================================================
    Key Events helpers — scheduled catalysts.
-   
+
    Every other section here is REACTIVE: it reads what the tape
    and the news feed have already done. A 2:00 PM rate decision
    produces nothing at 8:30 AM, so a session frozen ahead of one
    looks — to every other section — like weak breadth with no
    leadership. This section is the only forward-looking one.
+
+   Econ is TODAY ONLY: what can still move the tape while you
+   hold a position. Earnings run today + tomorrow, because an
+   after-close print is tomorrow's gap and you size for it today.
    ============================================================ */
 
 // Benzinga sends ET wall-clock strings with no timezone marker. Parsing with
@@ -314,17 +318,18 @@ const buildKeyEventsPara = (econ: EconEvent[], earnings: EarningsEvent[]): strin
   const now = getEstDateInfo();
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
 
-  // Drop Low impact — the feed carries CFTC positioning and rig counts, which
-  // are data points, not decisions.
+  // TODAY ONLY. Low impact dropped — the feed carries CFTC positioning and
+  // rig counts, which are data points, not decisions.
   const econRows = econ
     .map(e => {
       const { dayKey, minutes } = parseEtDateTime(e.date);
       return { ...e, dayKey, minutes };
     })
-    .filter(e => (e.dayKey === today || e.dayKey === tomorrow) && e.impact !== 'Low')
-    .sort((a, b) => (a.dayKey !== b.dayKey ? a.dayKey.localeCompare(b.dayKey) : (a.minutes ?? 0) - (b.minutes ?? 0)));
+    .filter(e => e.dayKey === today && e.impact !== 'Low')
+    .sort((a, b) => (a.minutes ?? 0) - (b.minutes ?? 0));
 
-  // Importance 5 only — mega caps that move the index, not every small cap.
+  // Earnings keep the two-day window: an after-close print tonight is
+  // tomorrow's gap, and position sizing for it happens today.
   const earnRows = earnings
     .filter(e => {
       const { dayKey } = parseEtDateTime(e.date);
@@ -335,12 +340,11 @@ const buildKeyEventsPara = (econ: EconEvent[], earnings: EarningsEvent[]): strin
   if (econRows.length === 0 && earnRows.length === 0) return '';
 
   const pendingToday = econRows.filter(
-    e => e.dayKey === today && e.minutes != null && e.minutes > nowMinutes && e.actual == null
+    e => e.minutes != null && e.minutes > nowMinutes && e.actual == null
   );
   const releasedToday = econRows.filter(
-    e => e.dayKey === today && (e.actual != null || (e.minutes != null && e.minutes <= nowMinutes))
+    e => e.actual != null || (e.minutes != null && e.minutes <= nowMinutes)
   );
-  const tomorrowEcon = econRows.filter(e => e.dayKey === tomorrow);
 
   const fmtEcon = (e: any): string => {
     const t = fmtClock(e.minutes);
@@ -373,28 +377,19 @@ const buildKeyEventsPara = (econ: EconEvent[], earnings: EarningsEvent[]): strin
     }
   }
 
-  const leftCol = pendingToday.length
-    ? ''
-    : (releasedToday.length ? `Already printed:\n${releasedToday.map(fmtEcon).join('\n')}` : '');
+  const releasedCol = releasedToday.length ? `Already printed:\n${releasedToday.map(fmtEcon).join('\n')}` : '';
   const earnCol = earnRows.length ? `Mega-cap earnings:\n${earnRows.map(fmtEarn).join('\n')}` : '';
 
-  // Two columns when there is something for both sides.
-  if (leftCol && earnCol) {
-    lines.push(`${leftCol}|||${earnCol}`);
+  // Two columns only when nothing is pending — otherwise the pending block
+  // above already owns the top of the section and columns would bury it.
+  if (!pendingToday.length && releasedCol && earnCol) {
+    lines.push(`${releasedCol}|||${earnCol}`);
   } else {
-    if (releasedToday.length && pendingToday.length) {
-      lines.push(`Already printed:\n${releasedToday.map(fmtEcon).join('\n')}`);
-    } else if (leftCol) {
-      lines.push(leftCol);
-    }
+    if (releasedCol) lines.push(releasedCol);
     if (earnCol) lines.push(earnCol);
   }
 
-  if (tomorrowEcon.length) {
-    lines.push(`Tomorrow:\n${tomorrowEcon.map(fmtEcon).join('\n')}`);
-  }
-
-  if (!pendingToday.length && !tomorrowEcon.length && earnRows.every(e => e.epsActual != null)) {
+  if (!pendingToday.length && econRows.length > 0) {
     lines.push('Nothing scheduled left today — the tape is trading on its own from here.');
   }
 
@@ -1110,7 +1105,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Industry Heat', color: 'amber', blurb: 'Sector rotation — where money is flowing in and where it is leaving. Wide dispersion = stock-picker tape.' },
   { label: 'ETF Flow', color: 'indigo', blurb: 'Heaviest ETF dollar volume and the advancing/declining split — shows where leveraged money is betting.' },
   { label: 'Money Flow', color: 'rose', blurb: 'Total tracked dollar volume across the scanned universe — who is buying, where dollars concentrate, and the advancing share.' },
-  { label: 'Key Events', color: 'amber', blurb: 'Scheduled catalysts on the clock. Every other section reads what already happened — this is the only one looking forward.' },
+  { label: 'Key Events', color: 'amber', blurb: 'Today\'s scheduled releases plus mega-cap earnings through tomorrow. Every other section reads what already happened — this is the only one looking forward.' },
   { label: 'Sector Flow', color: 'indigo', blurb: '' },
 ];
 
