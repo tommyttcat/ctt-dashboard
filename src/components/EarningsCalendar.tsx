@@ -2,6 +2,33 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 
+// ---------------------------------------------------------------------------
+// Earnings Calendar — v2.0
+//
+// v2.0 REMOVES THE MARKET-CAP ENRICHMENT ENTIRELY.
+//
+//   The old version called `https://api.massive.com/v3/reference/tickers/...`
+//   with NEXT_PUBLIC_POLYGON_API_KEY. That host is not a market data provider —
+//   it appears to be the result of a find-and-replace on "polygon" that caught
+//   the URL string. Every call failed silently into the fetchSafeJson fallback,
+//   so mktCap was ALWAYS null, which meant:
+//
+//     - the SMALL/MID/MEGA tier filter rejected every non-thematic row
+//       (they all need a cap to pass any gate), so the table only ever showed
+//       tickers hardcoded in SECTOR_MAP with a thematic sector
+//     - an API key was being sent from the browser to a third-party domain
+//     - up to N sequential round trips ran on every load, for nothing
+//
+//   Rather than proxy Polygon server-side for a column that mostly duplicates
+//   what `importance` already tells us, the tier filter is replaced with an
+//   importance filter using data the /api/earnings payload already carries.
+//   No external calls, no key on the client, and the filter actually works.
+//
+//   Also fixed: formatEventDate parsed "YYYY-MM-DD" through Date() with a
+//   UTC noon anchor, then formatted with no timeZone — which rendered in the
+//   viewer's local zone. Now parsed by component, same as EconomicCalendar.
+// ---------------------------------------------------------------------------
+
 // --- INTERFACES ---
 interface EarningEvent {
   id: string;
@@ -9,7 +36,7 @@ interface EarningEvent {
   ticker: string;
   name: string;
   sector: string;
-  mktCap: number | null;
+  importance: number;
   epsEst: number | null;
   revEst: number | null;
   epsActual: number | null;
@@ -21,7 +48,9 @@ interface EarningEvent {
 
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
 type SortDirection = 'asc' | 'desc';
-type CapTier = 'SMALL' | 'MID' | 'MEGA';
+// Replaces the cap tiers. Benzinga importance runs 0–5; 5 is the mega-cap
+// name that moves the index, 3–4 is a real but second-tier print.
+type RelevanceTier = 'ALL' | 'NOTABLE' | 'MAJOR';
 
 // --- CONSTANTS & MAPS ---
 const SECTOR_MAP: Record<string, string> = {
@@ -43,6 +72,11 @@ const SECTOR_MAP: Record<string, string> = {
   'META': 'Comm Serv', 'GOOGL': 'Comm Serv', 'NFLX': 'Comm Serv', 
   'GHM': 'Industrials'
 };
+
+const THEMATIC_SECTORS = ['AI', 'Nuclear', 'Quantum', "Semi's", 'Cyber', 'Aerospace'];
+
+const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // --- HELPERS ---
 const getMarketSession = (): MarketSession => {
@@ -67,22 +101,17 @@ const getIsoDateString = (d: Date) => {
   return `${y}-${m}-${day}`;
 };
 
-const formatEventDate = (dateStr: string) => {
-  if (!dateStr) return '-';
-  try {
-    const d = new Date(`${dateStr}T12:00:00Z`); 
-    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  } catch (e) {
-    return dateStr;
-  }
-};
-
-const formatNumber = (num: number | null) => {
-  if (num === null || num === 0 || isNaN(num)) return '-';
-  if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
-  if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
-  if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
-  return num.toLocaleString();
+// Calendar dates are plain "YYYY-MM-DD" with no zone. Parse by component so
+// the label never shifts with the viewer's timezone. Date.UTC is used only to
+// derive the weekday; no conversion happens since we read UTC fields back out.
+const formatEventDate = (dateStr: string): string => {
+  const m = String(dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return dateStr || '-';
+  const year = parseInt(m[1], 10);
+  const monthIdx = parseInt(m[2], 10) - 1;
+  const dayNum = parseInt(m[3], 10);
+  const weekday = WEEKDAY_NAMES[new Date(Date.UTC(year, monthIdx, dayNum)).getUTCDay()];
+  return `${weekday}, ${MONTH_NAMES[monthIdx]} ${dayNum}`;
 };
 
 const formatCurrency = (num: number | null) => {
@@ -97,6 +126,13 @@ const getResultBadge = (result: string | null) => {
   if (result === 'MISS') return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
   if (result === 'INLINE') return 'bg-slate-500/10 text-slate-300 border-white/10';
   return '';
+};
+
+// Importance badge — the replacement for the market cap column.
+const getImportanceBadge = (importance: number) => {
+  if (importance >= 5) return { label: 'MAJOR', cls: 'text-rose-400 bg-rose-500/10 border-rose-500/20' };
+  if (importance >= 3) return { label: 'NOTABLE', cls: 'text-amber-400 bg-amber-500/10 border-amber-500/20' };
+  return { label: 'MINOR', cls: 'text-slate-400 bg-slate-500/10 border-white/10' };
 };
 
 const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 15000) => {
@@ -120,12 +156,10 @@ export default function EarningsCalendar() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: keyof EarningEvent; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
-  
-  const [tier, setTier] = useState<CapTier>('SMALL');
 
-  // Earnings calendar now comes from Benzinga via /api/earnings (server-cached).
-  // Market-cap enrichment still uses Massive (unlimited, not FMP), unchanged.
-  const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || '';
+  // Defaults to MAJOR — the prints that actually move an index. ALL is there
+  // when you want the full board.
+  const [tier, setTier] = useState<RelevanceTier>('MAJOR');
 
   useEffect(() => {
     let isMounted = true;
@@ -156,7 +190,10 @@ export default function EarningsCalendar() {
         const rawEarnings = await fetchSafeJson(calendarUrl, []);
 
         if (!Array.isArray(rawEarnings) || rawEarnings.length === 0) {
-          if (isMounted) setStatus('No Events Scheduled');
+          if (isMounted) {
+            setEvents([]);
+            setStatus('No Events Scheduled');
+          }
           return;
         }
 
@@ -168,47 +205,19 @@ export default function EarningsCalendar() {
         });
 
         if (usEarnings.length === 0) {
-            if (isMounted) setStatus('No US Events Scheduled');
+            if (isMounted) {
+              setEvents([]);
+              setStatus('No US Events Scheduled');
+            }
             return;
         }
 
-        const uniqueTickers = Array.from(new Set(usEarnings.map((e: any) => e.symbol)));
-
-        if (isMounted) setStatus('Enriching Market Caps...');
-
-        const massiveDataMap = new Map();
-        if (polygonApiKey) {
-            const chunkSize = 15; 
-            for (let i = 0; i < uniqueTickers.length; i += chunkSize) {
-                const chunk = uniqueTickers.slice(i, i + chunkSize);
-                const chunkPromises = chunk.map(async (sym) => {
-                    let res = null;
-                    try {
-                      res = await fetchSafeJson(`https://api.massive.com/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {});
-                    } catch (error) {
-                      console.warn(`Massive API skipped ticker ${sym} in Earnings`);
-                    }
-                    return { sym, details: res?.results || res || null };
-                });
-                
-                const chunkResults = await Promise.all(chunkPromises);
-                chunkResults.forEach(({ sym, details }) => {
-                    if (details) massiveDataMap.set(sym, details);
-                });
-                
-                await new Promise(r => setTimeout(r, 100));
-            }
-        }
-
-        const processedEvents: EarningEvent[] = usEarnings.reduce((acc: EarningEvent[], e: any, index: number) => {
+        // Straight map — no enrichment pass, no external calls. Everything
+        // rendered below comes from the /api/earnings payload directly.
+        const processedEvents: EarningEvent[] = usEarnings.map((e: any) => {
             const sym = e.symbol;
-            const massiveInfo = massiveDataMap.get(sym);
-            
-            const mktCap = massiveInfo?.market_cap || null;
-            const companyName = massiveInfo?.name || e.name || sym;
-            
-            let mappedSector = SECTOR_MAP[sym] || massiveInfo?.sector || 'General';
-            const isThematic = ['AI', 'Nuclear', 'Quantum', "Semi's", 'Cyber', 'Aerospace'].includes(mappedSector);
+            const mappedSector = SECTOR_MAP[sym] || 'General';
+            const isThematic = THEMATIC_SECTORS.includes(mappedSector);
 
             const epsEst = (e.epsEstimated !== null && e.epsEstimated !== undefined) ? e.epsEstimated : null;
             const revEst = (e.revenueEstimated !== null && e.revenueEstimated !== undefined) ? e.revenueEstimated : null;
@@ -224,24 +233,23 @@ export default function EarningsCalendar() {
               result = epsSurprisePct > 0 ? 'BEAT' : epsSurprisePct < 0 ? 'MISS' : 'INLINE';
             }
 
-            acc.push({
-                id: `${sym}-${e.date}-${index}`,
+            return {
+                // Keyed on identity, not array index, so sorting does not remount rows.
+                id: `${sym}|${e.date}`,
                 date: formatEventDate(e.date),
                 rawDateString: e.date,
                 ticker: sym,
-                name: companyName,
+                name: e.name || sym,
                 sector: mappedSector,
-                mktCap: mktCap,
-                epsEst: epsEst,
-                revEst: revEst,
-                epsActual: epsActual,
-                epsSurprisePct: epsSurprisePct,
-                result: result,
-                isThematic: isThematic
-            });
-            
-            return acc;
-        }, []);
+                importance: Number(e.importance) || 0,
+                epsEst,
+                revEst,
+                epsActual,
+                epsSurprisePct,
+                result,
+                isThematic
+            };
+        });
 
         if (isMounted) {
           setEvents(processedEvents);
@@ -256,8 +264,8 @@ export default function EarningsCalendar() {
 
     fetchEarningsData();
     const interval = setInterval(fetchEarningsData, 43200000); 
-    return () => { isMounted = false; clearInterval(interval); };
-  }, [polygonApiKey]);
+    return () => { isMounted = false; };
+  }, []);
 
   const handleSort = (key: keyof EarningEvent) => {
     let direction: SortDirection = 'desc'; 
@@ -266,21 +274,32 @@ export default function EarningsCalendar() {
     setSortConfig({ key, direction });
   };
 
+  // Thematic names bypass the importance gate — a Quantum or Nuclear print
+  // matters to this dashboard even when Benzinga rates it a 2.
+  const passesTier = (e: EarningEvent, t: RelevanceTier): boolean => {
+    if (t === 'ALL') return true;
+    if (e.isThematic) return true;
+    if (t === 'MAJOR') return e.importance >= 5;
+    return e.importance >= 3;
+  };
+
+  const tierCounts = useMemo(() => ({
+    ALL: events.length,
+    NOTABLE: events.filter(e => passesTier(e, 'NOTABLE')).length,
+    MAJOR: events.filter(e => passesTier(e, 'MAJOR')).length,
+  }), [events]);
+
   const finalRenderedEvents = useMemo(() => {
-    let list = events.filter(e => {
-        if (e.isThematic) return true;
-        
-        const m = e.mktCap || 0;
-        
-        if (tier === 'SMALL') return m >= 100000000 && m < 2000000000;
-        if (tier === 'MID') return m >= 2000000000 && m < 10000000000;
-        if (tier === 'MEGA') return m >= 10000000000;
-        
-        return false;
-    });
+    const list = events.filter(e => passesTier(e, tier));
 
     if (!sortConfig) {
-      return list.sort((a, b) => a.rawDateString.localeCompare(b.rawDateString)).slice(0, 20);
+      // Chronological, then most important first within a day.
+      return list
+        .sort((a, b) =>
+          a.rawDateString.localeCompare(b.rawDateString) ||
+          b.importance - a.importance ||
+          a.ticker.localeCompare(b.ticker))
+        .slice(0, 25);
     }
     
     list.sort((a, b) => {
@@ -293,10 +312,10 @@ export default function EarningsCalendar() {
       return 0;
     });
 
-    return list.slice(0, 20);
+    return list.slice(0, 25);
   }, [events, sortConfig, tier]);
 
-  const isLoading = status.includes('Scouting') || status.includes('Enriching');
+  const isLoading = status.includes('Scouting');
   const getSortIcon = (columnKey: keyof EarningEvent) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
   const getSessionTextColor = () => {
@@ -305,6 +324,17 @@ export default function EarningsCalendar() {
     if (session === 'Post-Market') return 'text-indigo-400';
     return 'text-slate-500';
   };
+
+  const todayStr = useMemo(() => {
+    const nowEst = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${nowEst.getFullYear()}-${pad(nowEst.getMonth() + 1)}-${pad(nowEst.getDate())}`;
+  }, [lastUpdated]);
+
+  const todayCount = useMemo(
+    () => events.filter(e => e.rawDateString.startsWith(todayStr) && passesTier(e, 'MAJOR')).length,
+    [events, todayStr]
+  );
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-5 md:p-8 relative overflow-hidden shadow-xl w-full">
@@ -315,13 +345,16 @@ export default function EarningsCalendar() {
         onClick={() => setIsExpanded(!isExpanded)}
         className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-6 border-b border-white/5 pb-4' : ''}`}
       >
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3">
-            <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
-              EARNINGS
+        <div className="flex items-center gap-3">
+          <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
+            EARNINGS
+          </span>
+          {!isExpanded && todayCount > 0 && (
+            <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded tracking-wider">
+              {todayCount} TODAY
             </span>
-          </div>
+          )}
         </div>
 
         <div className="flex flex-col items-center gap-1.5">
@@ -344,7 +377,7 @@ export default function EarningsCalendar() {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 relative z-10 pb-2">
             <div className="flex gap-3 overflow-x-auto custom-scrollbar w-full md:w-auto" style={{ scrollbarWidth: 'none' }}>
               <div className="flex items-center gap-1 bg-[#161c2a] border border-white/5 rounded-lg p-1">
-                {(['SMALL', 'MID', 'MEGA'] as CapTier[]).map(t => (
+                {(['MAJOR', 'NOTABLE', 'ALL'] as RelevanceTier[]).map(t => (
                   <button
                     key={t}
                     onClick={(e) => { e.stopPropagation(); setTier(t); }}
@@ -355,24 +388,30 @@ export default function EarningsCalendar() {
                     }`}
                   >
                     {t}
+                    <span className={`ml-1.5 text-[9px] ${tier === t ? 'text-[#7c8bfa]/60' : 'text-slate-600'}`}>
+                      {tierCounts[t]}
+                    </span>
                   </button>
                 ))}
               </div>
             </div>
+            <span className="text-[10px] text-slate-500 font-medium tracking-wide">
+              Thematic sectors always shown
+            </span>
           </div>
 
           <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[980px] border-collapse">
+            <table className="w-full min-w-[920px] border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[9%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rawDateString')}>DATE{getSortIcon('rawDateString')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[11%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rawDateString')}>DATE{getSortIcon('rawDateString')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[20%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('name')}>COMPANY{getSortIcon('name')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[22%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('name')}>COMPANY{getSortIcon('name')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[9%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[11%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('importance')}>WEIGHT{getSortIcon('importance')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[9%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('epsEst')}>EST EPS{getSortIcon('epsEst')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[9%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('epsActual')}>ACTUAL{getSortIcon('epsActual')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[13%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('result')}>RESULT{getSortIcon('result')}</th>
+                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[107%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('result')}>RESULT{getSortIcon('result')}</th>
                   <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[11%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('revEst')}>EST REV{getSortIcon('revEst')}</th>
                 </tr>
               </thead>
@@ -381,29 +420,25 @@ export default function EarningsCalendar() {
                   <tr>
                     <td colSpan={9} className="py-12 text-center">
                       <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
-                      <span className="text-xs text-slate-500 font-medium">Scouting {tier} Market Caps...</span>
+                      <span className="text-xs text-slate-500 font-medium">Loading earnings calendar...</span>
                     </td>
                   </tr>
                 ) : finalRenderedEvents.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="py-12 text-center">
                       <div className="text-slate-400 text-sm font-medium mb-2">
-                        No matching earnings scheduled for the {tier} tier.
+                        No {tier.toLowerCase()} earnings in the next 45 days.
                       </div>
                       <div className="text-slate-500 text-xs">
-                        The engine scanned and filtered the raw earnings data.<br/>Toggle a different tier above to view more setups.
+                        Widen the filter above to see more of the calendar.
                       </div>
                     </td>
                   </tr>
                 ) : (
                   finalRenderedEvents.map((row) => {
-                    const nowEst = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-                    const pad = (n: number) => String(n).padStart(2, '0');
-                    const nowIsoStr = `${nowEst.getFullYear()}-${pad(nowEst.getMonth()+1)}-${pad(nowEst.getDate())} ${pad(nowEst.getHours())}:${pad(nowEst.getMinutes())}:${pad(nowEst.getSeconds())}`;
-                    const todayStr = `${nowEst.getFullYear()}-${pad(nowEst.getMonth()+1)}-${pad(nowEst.getDate())}`;
-
-                    const isPast = row.rawDateString < nowIsoStr;
+                    const isPast = row.rawDateString < todayStr;
                     const isToday = row.rawDateString.startsWith(todayStr);
+                    const imp = getImportanceBadge(row.importance);
                     
                     const rowBgClass = isToday ? 'bg-cyan-500/[0.06]' : 'hover:bg-white/[0.02]';
                     const opacityClass = isPast && !isToday ? 'opacity-40' : 'opacity-100';
@@ -426,10 +461,14 @@ export default function EarningsCalendar() {
                         <td className={`py-3.5 text-xs whitespace-nowrap truncate max-w-[220px] ${nameTextColor}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.name}</td>
 
                         <td className="py-3.5 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <div className="truncate bg-[#161c2a] px-1.5 py-0.5 rounded border border-white/5 inline-block" title={row.sector}>{row.sector}</div>
+                          <div className={`truncate px-1.5 py-0.5 rounded border inline-block ${row.isThematic ? 'bg-violet-500/10 text-violet-300 border-violet-500/20' : 'bg-[#161c2a] border-white/5'}`} title={row.sector}>{row.sector}</div>
                         </td>
 
-                        <td className={`py-3.5 text-xs font-bold whitespace-nowrap ${isToday ? 'text-slate-100' : 'text-slate-300'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{formatNumber(row.mktCap)}</td>
+                        <td className="py-3.5 whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                          <span className={`inline-block text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded border text-center min-w-[62px] ${imp.cls}`}>
+                            {imp.label}
+                          </span>
+                        </td>
 
                         <td className="py-3.5 text-xs font-medium whitespace-nowrap text-slate-400" style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.epsEst !== null ? `$${row.epsEst.toFixed(2)}` : '-'}</td>
 
