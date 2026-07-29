@@ -1,19 +1,29 @@
-// app/api/scanner/run/route.ts — v6.7
+// src/app/api/scanner/run/route.ts — v6.8
 // v6.1: + RMV(15); thesis is news-headline-only (stats moved to t.readout)
 // v6.2: RMV/RME imported from lib/indicators; RME(21) replaces the binary
 //       `extended` penalty in CNF; + cnfBreakdown for the badge tooltip
 // v6.3: Weinstein sub-stages (2A/2B/2C etc) via lib/indicators/stage
 // v6.4: + Money Flow (21) — accumulation vs distribution
 // v6.5: + daysToCover (short interest / avg volume) — replaces SHT%
-// v6.6: thresholds moved to lib/scanConfig and shipped in the payload, so the
-//       on-screen key renders the gates the scan ACTUALLY used rather than a
-//       hardcoded copy that can silently drift.
-// v6.7: GET is now a thin wrapper that answers in ~50ms and runs the scan in
-//       the background (waitUntil / after). cron-job.org no longer times out
-//       at 30s waiting for the ~2min scan, so jobs stop going red and stop
-//       getting auto-disabled. The scan body itself is UNCHANGED — it just
-//       moved into runScan(). Add ?wait=true to get the old blocking
-//       behaviour with the full JSON payload (for manual/browser runs).
+// v6.6: thresholds moved to lib/scanConfig and shipped in the payload
+// v6.7: GET is a thin wrapper; ?bg=true runs the scan in the background
+// v6.8: CATALYST + STALE-BRIEFING FIXES
+//       (a) macro_insights_v6 is gated on a freshness stamp. Nothing writes
+//           that key anymore (it was the removed Gemini route), so a stale
+//           payload was being republished on every scan. Now returns null
+//           unless something has written it TODAY with a generatedAt stamp.
+//       (b) WIIM batch cut 50 -> 15 tickers. At pageSize=100 a 50-ticker
+//           batch truncates: the first few tickers eat the item budget and
+//           the rest silently come back empty.
+//       (c) Polygon news limit 10 -> 50. The spam filter strips law-firm
+//           blasts, which ARE the top results on an earnings blowup, so a
+//           10-item window left nothing and fell through to months-old news.
+//       (d) News selection now takes the NEWEST valid article rather than the
+//           first preferred-publisher match, which could be older.
+//       (e) Benzinga earnings calendar widened to yesterday..+2d and promoted
+//           to a catalyst SOURCE. A name that reported in the last session is
+//           tagged 'Earnings' (tier: strong) even with no WIIM — this is what
+//           stops a -40% earnings gap reading "Technical Momentum".
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -157,6 +167,10 @@ const getUpdatePhase = (hour: number) => {
   if (hour >= 15 && hour < 20) return 'Closing';
   return 'Offline';
 };
+
+// YYYY-MM-DD in Eastern time.
+const etDateString = (d: Date): string =>
+  d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 
 const isSpamNews = (title: string) => {
   if (!title) return true;
@@ -538,6 +552,10 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 20000, head
 
 const WIIM_MAX_AGE_DAYS = 4;
 const WIIM_MAX_BREADTH = 12;
+// v6.8: was 50. At pageSize=100 a 50-ticker batch truncates badly — the first
+// handful of tickers consume the entire item budget and everything after them
+// comes back empty, which is why earnings-day names had no WIIM attached.
+const WIIM_BATCH_SIZE = 15;
 
 const classifyWiim = (title: string): string => {
   const s = (title || '').toLowerCase();
@@ -562,9 +580,8 @@ const fetchBenzingaWiims = async (
   if (!apiKey || tickers.length === 0) return out;
 
   const now = Date.now();
-  const BATCH = 50;
-  for (let i = 0; i < tickers.length; i += BATCH) {
-    const batch = tickers.slice(i, i + BATCH);
+  for (let i = 0; i < tickers.length; i += WIIM_BATCH_SIZE) {
+    const batch = tickers.slice(i, i + WIIM_BATCH_SIZE);
     const url =
       `https://api.benzinga.com/api/v2/news?token=${apiKey}` +
       `&tickers=${encodeURIComponent(batch.join(','))}` +
@@ -605,20 +622,76 @@ const fetchBenzingaWiims = async (
   return out;
 };
 
-// Earnings within the next ~2 days. Fails open.
-const fetchEarningsProximity = async (apiKey: string): Promise<Set<string>> => {
-  if (!apiKey) return new Set();
+// --- Earnings calendar -------------------------------------------------------
+// v6.8: window widened from [today, +2d] to [yesterday, +2d] and the return
+// type upgraded from Set to Map so we know WHICH side of the print we're on.
+//
+// `reported` = the print already happened (yesterday, or today pre-market).
+// That's a catalyst, and it's the fix for a -40% earnings gap showing up as
+// "Technical Momentum". `upcoming` = still ahead, which is the old +5 nudge.
+//
+// Fails open — no key or a bad response just means no earnings context.
+interface EarningsEntry { date: string; when: string; reported: boolean; }
+
+const fetchEarningsCalendar = async (apiKey: string): Promise<Map<string, EarningsEntry>> => {
+  const out = new Map<string, EarningsEntry>();
+  if (!apiKey) return out;
   try {
-    const from = new Date().toISOString().split('T')[0];
-    const to = new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0];
+    const today = etDateString(new Date());
+    const from = etDateString(new Date(Date.now() - 86400000));
+    const to = etDateString(new Date(Date.now() + 2 * 86400000));
     const url =
       `https://api.benzinga.com/api/v2.1/calendar/earnings?token=${apiKey}` +
       `&parameters[date_from]=${from}&parameters[date_to]=${to}&pagesize=1000`;
     const data = await fetchSafeJson(url, {}, 15000, { accept: 'application/json' });
     const rows = Array.isArray(data?.earnings) ? data.earnings : [];
-    return new Set(rows.map((r: any) => (r?.ticker || '').toUpperCase()).filter(Boolean));
+
+    for (const r of rows) {
+      const ticker = (r?.ticker || '').toUpperCase();
+      if (!ticker) continue;
+      const date: string = r?.date || '';
+      // Benzinga marks timing as BMO (before open), AMC (after close), or DMT.
+      const when: string = (r?.time_of_day || r?.time || '').toString().toUpperCase();
+
+      // Already printed if it was yesterday, or it's today and reported
+      // pre-market. Today's AMC names haven't happened yet at scan time.
+      const reported =
+        date < today || (date === today && !when.includes('AMC'));
+
+      const prev = out.get(ticker);
+      // Prefer the nearest date if a ticker somehow appears twice.
+      if (!prev || date < prev.date) out.set(ticker, { date, when, reported });
+    }
   } catch {
-    return new Set();
+    // fail open
+  }
+  return out;
+};
+
+// --- macroInsights freshness gate --------------------------------------------
+// v6.8: `macro_insights_v6` has no writer in the current codebase — it was
+// produced by the Gemini route that was removed. With no TTL it sat in KV
+// forever and got republished on every scan, so the card was showing a
+// briefing about tickers that hadn't traded in months.
+//
+// Only serve it if something wrote it TODAY with a recognisable timestamp.
+// If nothing does, this correctly returns null and the card renders empty.
+const readFreshMacroInsights = async (): Promise<any | null> => {
+  try {
+    const raw: any = await kv.get('macro_insights_v6');
+    if (!raw || typeof raw !== 'object') return null;
+
+    const stampRaw = raw.generatedAt || raw.updatedAt || raw.timestamp || null;
+    if (!stampRaw) return null;
+
+    const stamp = new Date(stampRaw);
+    if (Number.isNaN(stamp.getTime())) return null;
+
+    if (etDateString(stamp) !== etDateString(new Date())) return null;
+
+    return raw;
+  } catch {
+    return null;
   }
 };
 
@@ -656,7 +729,7 @@ async function runScan(request: Request) {
       kv.get<any[]>('daily_setups_v6'),
       kv.get<any[]>('stocks_in_play_v6'),
       kv.get<any>('top_movers_v6'),
-      kv.get<any>('macro_insights_v6'),
+      readFreshMacroInsights(),
       kv.get<any>('benchmark_v6'),
       kv.get<number>('last_scan_time_v6'),
     ]);
@@ -689,7 +762,7 @@ async function runScan(request: Request) {
         const [cachedDaily, cachedSip, cachedMacro, cachedBenchmark] = await Promise.all([
           kv.get<any[]>('daily_setups_v6'),
           kv.get<any[]>('stocks_in_play_v6'),
-          kv.get<any>('macro_insights_v6'),
+          readFreshMacroInsights(),
           kv.get<any>('benchmark_v6'),
         ]);
         return NextResponse.json({
@@ -959,7 +1032,10 @@ async function runScan(request: Request) {
       const [details, aggs, newsData, shortData] = await Promise.all([
         fetchSafeJson(`https://api.polygon.io/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {}),
         fetchSafeJson(`https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=desc&limit=350&apiKey=${polygonApiKey}`, { results: [] }),
-        fetchSafeJson(`https://api.polygon.io/v2/reference/news?ticker=${sym}&limit=10&apiKey=${polygonApiKey}`, { results: [] }),
+        // v6.8: limit 10 -> 50. The spam filter strips law-firm blasts, and on
+        // an earnings blowup those ARE the top results — a 10-item window left
+        // nothing behind and fell through to months-old news.
+        fetchSafeJson(`https://api.polygon.io/v2/reference/news?ticker=${sym}&limit=50&order=desc&sort=published_utc&apiKey=${polygonApiKey}`, { results: [] }),
         fetchSafeJson(`https://api.polygon.io/stocks/v1/short-interest?ticker=${sym}&apiKey=${polygonApiKey}`, { results: [] })
       ]);
 
@@ -1121,15 +1197,21 @@ async function runScan(request: Request) {
       const deepSector = resolveEtfSector(sym, apiSectorRaw, companyName); 
 
       const rawNewsList = newsData?.results || [];
-      const validNewsList = rawNewsList.filter((n: any) => !isSpamNews(n.title));
+      const validNewsList = rawNewsList.filter((n: any) => !isSpamNews(n.title) && n.published_utc);
 
       let finalCatalystUrl = null;
       let rawHeadline = null;
       let daysOld = 999;
 
       if (validNewsList.length > 0) {
-        const relatedNews = validNewsList.find((n: any) => ['benzinga', 'massive', 'yahoo', 'google', 'pr newswire', 'globe newswire'].some(p => (n.publisher?.name || '').toLowerCase().includes(p))) || validNewsList[0];
-        
+        // v6.8: take the NEWEST surviving article. The old code ran .find()
+        // for a preferred publisher, which could return an older story than
+        // validNewsList[0] and misreport how fresh the catalyst was.
+        const relatedNews = validNewsList
+          .slice()
+          .sort((a: any, b: any) =>
+            new Date(b.published_utc).getTime() - new Date(a.published_utc).getTime())[0];
+
         if (relatedNews && relatedNews.published_utc) {
           const pubDate = new Date(relatedNews.published_utc);
           const diffMs = todayDate.getTime() - pubDate.getTime();
@@ -1185,7 +1267,7 @@ async function runScan(request: Request) {
     const wiimTickers = enrichedList.map((t: any) => t.ticker).filter(Boolean);
     const wiimMap = await fetchBenzingaWiims(wiimTickers, benzingaApiKey);
 
-    const earningsSoonSet = await fetchEarningsProximity(benzingaApiKey);
+    const earningsMap = await fetchEarningsCalendar(benzingaApiKey);
 
     // --- Scan persistence: how many consecutive scans has each name held? ---
     let prevStreaks: Record<string, number> = {};
@@ -1205,6 +1287,8 @@ async function runScan(request: Request) {
 
     enrichedList.forEach((t: any) => { 
       const wiim = wiimMap.get(t.ticker);
+      const earn = earningsMap.get(t.ticker);
+      const reportedEarnings = !!earn?.reported;
       let catalystTag: string | null = null;
 
       if (wiim) {
@@ -1213,6 +1297,12 @@ async function runScan(request: Request) {
         if (wiim.daysOld >= 1.5) tag = `${tag} (Delayed)`;
         t.catalyst = tag;
         if (wiim.url) t.catalystUrl = wiim.url;
+      } else if (reportedEarnings) {
+        // v6.8: the calendar itself is the catalyst. Without this a name that
+        // gapped 40% on its print reads "Technical Momentum" whenever the WIIM
+        // feed misses it — which is most of the time on a heavy earnings day.
+        catalystTag = 'Earnings';
+        t.catalyst = 'Earnings';
       } else {
         if (t._rawHeadline && t._daysOld < 1.5) t.catalyst = "Recent News";
         else if (t._rawHeadline && t._daysOld >= 1.5 && t._daysOld <= 4) t.catalyst = "Delayed Reaction";
@@ -1225,6 +1315,11 @@ async function runScan(request: Request) {
         : (t._rawHeadline && t._daysOld <= 4 ? t._rawHeadline : null);
 
       t.readout = buildReadout(t);
+
+      // Earnings context, exposed for the row tooltip.
+      t.earningsDate = earn?.date || null;
+      t.earningsWhen = earn?.when || null;
+      t.earningsReported = reportedEarnings;
 
       if ((catalystTag && NEGATIVE_TAGS.has(catalystTag)) ||
           isNegativeHeadline(t._rawHeadline) ||
@@ -1275,7 +1370,12 @@ async function runScan(request: Request) {
 
     // --- PASS 2: CNF scoring with full market context -------------------------
     enrichedList.forEach((t: any) => {
-      const hasEarnings = earningsSoonSet.has(t.ticker);
+      // `hasEarnings` remains the FORWARD-looking flag (print still ahead) so
+      // the +5 nudge keeps its original meaning. A name that already reported
+      // gets its credit through the catalyst tier instead, not twice.
+      const earn = earningsMap.get(t.ticker);
+      const hasEarnings = !!earn && !earn.reported;
+
       const cnf = computeCnfScore(
         t.rvol,
         t.gapPct,
@@ -1417,10 +1517,7 @@ async function runScan(request: Request) {
 
     if (benchmark) await kv.set('benchmark_v6', benchmark);
 
-    let macroInsights = null;
-    try {
-      macroInsights = await kv.get('macro_insights_v6');
-    } catch(e) {}
+    const macroInsights = await readFreshMacroInsights();
 
     return NextResponse.json({ 
       success: true, 
@@ -1436,6 +1533,13 @@ async function runScan(request: Request) {
       dailySetups: finalDaily,
       scanMeta,
       dataPersisted: hasRealData,
+      // Diagnostics — how much of the universe actually got a real catalyst.
+      catalystCoverage: {
+        scanned: enrichedList.length,
+        wiimMatched: wiimMap.size,
+        earningsMatched: enrichedList.filter((t: any) => t.earningsReported).length,
+        technicalOnly: enrichedList.filter((t: any) => t.catalyst === 'Technical Momentum').length,
+      },
       fromCache: false
     }, { headers: noStoreHeaders });
 
