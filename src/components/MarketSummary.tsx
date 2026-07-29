@@ -339,58 +339,69 @@ const buildKeyEventsPara = (econ: EconEvent[], earnings: EarningsEvent[]): strin
 
   if (econRows.length === 0 && earnRows.length === 0) return '';
 
-  const pendingToday = econRows.filter(
-    e => e.minutes != null && e.minutes > nowMinutes && e.actual == null
-  );
-  const releasedToday = econRows.filter(
-    e => e.actual != null || (e.minutes != null && e.minutes <= nowMinutes)
-  );
+  const isPending = (e: any) => e.minutes != null && e.minutes > nowMinutes && e.actual == null;
 
+  // --- LEFT COLUMN: today's economic releases ------------------------------
+  // Pending first with a marker, then what has already printed. Sorting by
+  // status rather than purely by clock puts the actionable rows at the top of
+  // the column where they get read first.
   const fmtEcon = (e: any): string => {
     const t = fmtClock(e.minutes);
-    const label = `${t ? `${t} ` : ''}${e.event}`;
+    const marker = isPending(e) ? '▸ ' : '';
     const bits: string[] = [];
     if (e.actual != null) bits.push(`act ${fmtEconNum(e.actual)}`);
     if (e.estimate != null) bits.push(`est ${fmtEconNum(e.estimate)}`);
     if (e.previous != null) bits.push(`prev ${fmtEconNum(e.previous)}`);
-    return `${label}${bits.length ? ` · ${bits.join(' · ')}` : ''}`;
+    return `${marker}${t ? `${t} ` : ''}${e.event}${bits.length ? ` · ${bits.join(' · ')}` : ''}`;
   };
 
+  const pending = econRows.filter(isPending);
+  const released = econRows.filter(e => !isPending(e));
+
+  let econCol = '';
+  if (econRows.length) {
+    const econLines = [...pending.map(fmtEcon), ...released.map(fmtEcon)];
+    const heading = pending.length
+      ? `Economic — ${pending.length} still ahead:`
+      : 'Economic — all printed:';
+    econCol = `${heading}\n${econLines.join('\n')}`;
+  } else {
+    econCol = 'Economic:\nNothing scheduled today.';
+  }
+
+  // --- RIGHT COLUMN: mega-cap earnings -------------------------------------
   const fmtEarn = (e: EarningsEvent): string => {
     const { dayKey } = parseEtDateTime(e.date);
-    const when = dayKey === tomorrow ? ' (tmrw)' : '';
+    const when = dayKey === tomorrow ? '(tmrw) ' : '';
     if (e.epsActual != null) {
       const beat = e.epsEstimated != null && e.epsActual >= e.epsEstimated;
-      return `${e.symbol}${when} — ${beat ? 'beat' : 'miss'} ${e.epsActual} vs ${e.epsEstimated ?? '—'} est`;
+      return `${when}${e.symbol} — ${beat ? 'beat' : 'miss'} ${e.epsActual} vs ${e.epsEstimated ?? '—'} est`;
     }
-    return `${e.symbol}${when} — est ${e.epsEstimated ?? '—'} EPS`;
+    return `▸ ${when}${e.symbol} — est ${e.epsEstimated ?? '—'} EPS`;
   };
 
-  const lines: string[] = [];
+  const reported = earnRows.filter(e => e.epsActual != null);
+  const upcoming = earnRows.filter(e => e.epsActual == null);
 
-  // Lead with what is still ahead. That is the actionable half.
-  if (pendingToday.length) {
-    lines.push(`Still ahead today:\n${pendingToday.map(fmtEcon).join('\n')}`);
-    const highPending = pendingToday.filter(e => e.impact === 'High');
-    if (highPending.length) {
-      lines.push('Setups are on a clock until this prints — breakouts into a scheduled release carry event risk the scan cannot price.');
-    }
-  }
-
-  const releasedCol = releasedToday.length ? `Already printed:\n${releasedToday.map(fmtEcon).join('\n')}` : '';
-  const earnCol = earnRows.length ? `Mega-cap earnings:\n${earnRows.map(fmtEarn).join('\n')}` : '';
-
-  // Two columns only when nothing is pending — otherwise the pending block
-  // above already owns the top of the section and columns would bury it.
-  if (!pendingToday.length && releasedCol && earnCol) {
-    lines.push(`${releasedCol}|||${earnCol}`);
+  let earnCol = '';
+  if (earnRows.length) {
+    const earnLines = [...upcoming.map(fmtEarn), ...reported.map(fmtEarn)];
+    const heading = upcoming.length
+      ? `Earnings — ${upcoming.length} pending:`
+      : 'Earnings — all reported:';
+    earnCol = `${heading}\n${earnLines.join('\n')}`;
   } else {
-    if (releasedCol) lines.push(releasedCol);
-    if (earnCol) lines.push(earnCol);
+    earnCol = 'Earnings:\nNo mega-cap prints today or tomorrow.';
   }
 
-  if (!pendingToday.length && econRows.length > 0) {
-    lines.push('Nothing scheduled left today — the tape is trading on its own from here.');
+  // Always two columns — econ left, earnings right — so the section holds a
+  // stable shape as events move from pending to printed through the session.
+  const lines: string[] = [`${econCol}|||${earnCol}`];
+
+  // One risk note under the grid when something high-impact is still ahead.
+  const highPending = pending.filter(e => e.impact === 'High');
+  if (highPending.length) {
+    lines.push('Setups are on a clock until this prints — breakouts into a scheduled release carry event risk the scan cannot price.');
   }
 
   return `Key Events: ${lines.join('\n')}`;
@@ -1007,14 +1018,19 @@ const stochColor = (k: number) => (k <= 20 ? 'text-purple-400' : k <= 30 ? 'text
 const rsColor = (rs: number) => (rs >= 20 ? 'text-purple-400' : rs >= 10 ? 'text-emerald-400' : rs >= 0 ? 'text-slate-300' : 'text-rose-400');
 
 const renderBriefingText = (text: string): React.ReactNode[] => {
-  // Capture: markdown links [text](url), clock times, metric phrases,
-  // index/asset names, dollar values, signed percents, and uppercase
-  // ticker-like tokens.
-  const rx = /(\[[^\]]+\]\([^)]+\)|\d{1,2}:\d{2} (?:AM|PM)|RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
+  // Capture: the pending marker, markdown links [text](url), clock times,
+  // metric phrases, index/asset names, dollar values, signed percents, and
+  // uppercase ticker-like tokens.
+  const rx = /(▸|\[[^\]]+\]\([^)]+\)|\d{1,2}:\d{2} (?:AM|PM)|RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
   const parts = text.split(rx);
 
   return parts.map((part, i) => {
     if (!part) return null;
+
+    // Pending marker (Key Events) — rose, flags a row that has not printed
+    if (part === '▸') {
+      return <span key={i} className="text-rose-400 font-bold">▸</span>;
+    }
 
     // Markdown link [text](url) → clickable anchor
     const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
@@ -1105,7 +1121,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Industry Heat', color: 'amber', blurb: 'Sector rotation — where money is flowing in and where it is leaving. Wide dispersion = stock-picker tape.' },
   { label: 'ETF Flow', color: 'indigo', blurb: 'Heaviest ETF dollar volume and the advancing/declining split — shows where leveraged money is betting.' },
   { label: 'Money Flow', color: 'rose', blurb: 'Total tracked dollar volume across the scanned universe — who is buying, where dollars concentrate, and the advancing share.' },
-  { label: 'Key Events', color: 'amber', blurb: 'Today\'s scheduled releases plus mega-cap earnings through tomorrow. Every other section reads what already happened — this is the only one looking forward.' },
+  { label: 'Key Events', color: 'amber', blurb: 'Today\'s releases and mega-cap prints. ▸ marks what has not happened yet. The only forward-looking section here.' },
   { label: 'Sector Flow', color: 'indigo', blurb: '' },
 ];
 
@@ -1448,27 +1464,47 @@ export default function MarketSummary() {
                             </div>
                           )}
                           {body.includes('|||') ? (
-                            /* Two-column layout: split on ||| marker */
+                            /* Two-column layout: split on ||| marker. The first
+                               line of each column is its heading, so it renders
+                               dimmer and tighter than the rows beneath it. */
                             (() => {
                               const parts = body.split('|||');
                               const afterCols = parts.length > 2 ? parts.slice(2).join('') : '';
                               return (
                                 <>
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {parts.slice(0, 2).map((col, ci) => (
-                                      <div key={ci} className="space-y-1.5">
-                                        {col.trim().split('\n').filter(Boolean).map((line, li) => (
-                                          <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
-                                            {renderBriefingText(line)}
-                                          </p>
-                                        ))}
-                                      </div>
-                                    ))}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                                    {parts.slice(0, 2).map((col, ci) => {
+                                      const colLines = col.trim().split('\n').filter(Boolean);
+                                      const [heading, ...rows] = colLines;
+                                      const isHeading = heading && heading.trim().endsWith(':');
+                                      return (
+                                        <div key={ci} className="space-y-1.5">
+                                          {isHeading ? (
+                                            <>
+                                              <p className="text-[10px] font-bold tracking-wider uppercase text-slate-500 pb-0.5 border-b border-white/5">
+                                                {heading.replace(/:$/, '')}
+                                              </p>
+                                              {rows.map((line, li) => (
+                                                <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
+                                                  {renderBriefingText(line)}
+                                                </p>
+                                              ))}
+                                            </>
+                                          ) : (
+                                            colLines.map((line, li) => (
+                                              <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
+                                                {renderBriefingText(line)}
+                                              </p>
+                                            ))
+                                          )}
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                   {afterCols && (
-                                    <div className="space-y-1.5 mt-3">
+                                    <div className="space-y-1.5 mt-4 pt-3 border-t border-white/5">
                                       {afterCols.trim().split('\n').filter(Boolean).map((line, li) => (
-                                        <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
+                                        <p key={li} className="text-[12px] text-slate-400 leading-relaxed font-medium">
                                           {renderBriefingText(line)}
                                         </p>
                                       ))}
