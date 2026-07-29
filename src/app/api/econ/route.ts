@@ -1,9 +1,29 @@
-// Deploy to: app/api/econ/route.ts
+// ---------------------------------------------------------------------------
+// Economic calendar — Benzinga-backed
+// v1.1
 //
-// Benzinga-backed economic calendar (replaces the FMP economic-calendar call).
-// Server-side + KV-cached, and it returns rows shaped EXACTLY like the old FMP
-// payload (event/date/country/currency/actual/previous/estimate/impact), so the
-// EconomicCalendar component's existing mapper/filter works with almost no change.
+// Returns rows shaped EXACTLY like the old FMP payload
+// (event/date/country/currency/actual/previous/estimate/impact) so the
+// EconomicCalendar component's existing mapper/filter keeps working. The
+// response is still a bare array — contract unchanged.
+//
+// v1.1 FIXES:
+//   (a) + pagesize=1000. This was the bug. Benzinga's default page is small
+//       and the endpoint returns GLOBAL events, while the US filter runs
+//       client-side AFTER the fetch — so non-US rows consumed the entire page
+//       budget and only a single day's cluster survived. A 14-day window was
+//       returning 12 events, all from one date nine days out, with today's
+//       FOMC decision nowhere in it.
+//   (b) + pagination loop as a backstop, in case 1000 is still short on a
+//       heavy window.
+//   (c) Results sorted ascending by datetime. Benzinga's ordering isn't
+//       guaranteed, and an unsorted calendar renders in arbitrary order.
+//   (d) + dedupe. Paginated responses can repeat rows at page boundaries.
+//   (e) Impact cutoffs corrected: Benzinga importance runs 0–5, so `>= 3`
+//       was flagging mid-tier releases as High. Now 5 = High, 3–4 = Medium.
+//       Rate decisions and NFP carry 5, so the High tab becomes meaningful
+//       instead of containing half the calendar.
+// ---------------------------------------------------------------------------
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -14,14 +34,18 @@ export const maxDuration = 30;
 
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 min — matches the component's refresh
 
-// Benzinga importance is roughly 0–5 (5 = most market-moving). Map to the
-// High/Medium/Low buckets the component tabs on. Tune the cutoffs if you want
-// more/fewer events in the High tab.
+const PAGE_SIZE = 1000;
+const MAX_PAGES = 5;
+
+// Benzinga importance runs 0–5 (5 = most market-moving: rate decisions, CPI,
+// NFP). The old `>= 3` cutoff put mid-tier releases in the High tab alongside
+// them, which made the tab useless for spotting the events that actually stop
+// a session.
 const mapImpact = (importance: any): 'High' | 'Medium' | 'Low' => {
   const n = Number(importance);
-  if (!isNaN(n)) {
-    if (n >= 3) return 'High';
-    if (n === 2) return 'Medium';
+  if (!Number.isNaN(n)) {
+    if (n >= 5) return 'High';
+    if (n >= 3) return 'Medium';
     return 'Low';
   }
   return 'Low';
@@ -65,7 +89,9 @@ export async function GET(request: Request) {
   const from = searchParams.get('from') || iso(defFrom);
   const to = searchParams.get('to') || iso(defTo);
 
-  const cacheKey = `econ_bz_${from}_${to}`;
+  // Cache key bumped to v2 so the broken single-day payloads currently sitting
+  // in KV don't keep being served after this deploys.
+  const cacheKey = `econ_bz_v2_${from}_${to}`;
 
   // Serve fresh cache without hitting Benzinga.
   try {
@@ -77,14 +103,25 @@ export async function GET(request: Request) {
     // fall through
   }
 
-  // Benzinga needs the JSON accept header or it returns XML; auth via token query param.
-  const url = `https://api.benzinga.com/api/v2/calendar/economics?token=${token}&parameters[date_from]=${from}&parameters[date_to]=${to}`;
-  const data = await fetchSafeJson(url, { accept: 'application/json' }, {});
+  // Benzinga needs the JSON accept header or it returns XML; auth via token
+  // query param. pagesize is the fix — without it the default page is far too
+  // small for a two-week global calendar.
+  const raw: any[] = [];
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const url =
+      `https://api.benzinga.com/api/v2/calendar/economics?token=${token}` +
+      `&parameters[date_from]=${from}&parameters[date_to]=${to}` +
+      `&pagesize=${PAGE_SIZE}&page=${page}`;
 
-  const raw = Array.isArray(data?.economics) ? data.economics : [];
+    const data = await fetchSafeJson(url, { accept: 'application/json' }, {});
+    const batch = Array.isArray(data?.economics) ? data.economics : [];
+    if (batch.length === 0) break;
+    raw.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+  }
 
   // Map Benzinga -> the FMP-style row the component already understands.
-  const events = raw
+  const mapped = raw
     .filter((e: any) => isUS(e.country))
     .map((e: any) => {
       const dateStr = e.time ? `${e.date} ${e.time}` : `${e.date} 00:00:00`;
@@ -99,6 +136,17 @@ export async function GET(request: Request) {
         impact: mapImpact(e.importance),
       };
     });
+
+  // Dedupe on name+datetime — page boundaries can repeat rows.
+  const seen = new Set<string>();
+  const events = mapped
+    .filter((e) => {
+      const key = `${e.date}|${e.event}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
 
   // Only cache a non-empty result so a transient empty response doesn't stick.
   if (events.length > 0) {
