@@ -16,7 +16,7 @@ import MarketSummary from '../components/MarketSummary';
 import TopMovers from '../components/TopMovers';
 import SwingCandidates from '../components/SwingCandidates';
 import Ep9m from '../components/Ep9m'; 
-import KeyEvents from '@/components/KeyEvents';
+
 
 export default function DailySetupsPage() {
   return (
@@ -39,7 +39,6 @@ export default function DailySetupsPage() {
             <div className="px-4 md:px-10 py-6 space-y-6">
               <Scorecard />
               <MarketSummary />
-              <KeyEvents />
               <TopMovers />
               <StocksInPlay />
               <DailySetupsComponent />

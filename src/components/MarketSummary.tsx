@@ -47,6 +47,29 @@ interface MacroInsights {
   topCatalysts?: TopCatalyst[];
 }
 
+/* ---- Scheduled-event feeds (Key Events section) ---- */
+interface EconEvent {
+  event: string;
+  date: string;            // "YYYY-MM-DD HH:MM:SS"
+  country: string;
+  currency: string;
+  actual: number | null;
+  previous: number | null;
+  estimate: number | null;
+  impact: 'High' | 'Medium' | 'Low';
+}
+
+interface EarningsEvent {
+  symbol: string;
+  date: string;            // "YYYY-MM-DD"
+  name: string;
+  epsEstimated?: number | null;
+  revenueEstimated?: number | null;
+  epsActual?: number | null;
+  epsSurprisePct?: number | null;
+  importance?: number;
+}
+
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
 
 const getEstDateInfo = () => {
@@ -175,12 +198,12 @@ const ema21Of = (s: any): number | null => numOrNull(s?.ema21 ?? s?.ema21d ?? s?
 
 // Percent distance from the 21 EMA (negative = below the line)
 const pctFrom21 = (s: any): number | null => {
-  const direct = numOrNull(s?.pctFrom21 ?? s?.dist21 ?? s?.pct21 ?? s?.ema21Dist ?? s?.distFrom21);
+  const direct = numOrNull(s?.pctFrom21 ?? s?.dist21 ?? s?.pct21 ?? s?.ema21Dist ?? s?.distFrom21 ?? s?.distToEma21);
   if (direct != null) return direct;
   const p = priceOf(s);
   const e21 = ema21Of(s);
   if (p != null && e21 != null && e21 > 0) return ((p - e21) / e21) * 100;
-  const t = String(s?.thesis || '');
+  const t = String(s?.thesis || s?.readout || '');
   const m = t.match(/(\d+(?:\.\d+)?)%\s+(above|below)[^.]*?21\s*EMA/i);
   if (m) return parseFloat(m[1]) * (m[2].toLowerCase() === 'below' ? -1 : 1);
   return null;
@@ -188,12 +211,12 @@ const pctFrom21 = (s: any): number | null => {
 
 // Percent distance from the 10 EMA
 const pctFrom10 = (s: any): number | null => {
-  const direct = numOrNull(s?.pctFrom10 ?? s?.dist10 ?? s?.pct10 ?? s?.ema10Dist ?? s?.distFrom10);
+  const direct = numOrNull(s?.pctFrom10 ?? s?.dist10 ?? s?.pct10 ?? s?.ema10Dist ?? s?.distFrom10 ?? s?.distToEma10);
   if (direct != null) return direct;
   const p = priceOf(s);
   const e10 = ema10Of(s);
   if (p != null && e10 != null && e10 > 0) return ((p - e10) / e10) * 100;
-  const t = String(s?.thesis || '');
+  const t = String(s?.thesis || s?.readout || '');
   const m = t.match(/(\d+(?:\.\d+)?)%\s+(above|below)[^.]*?10\s*EMA/i);
   if (m) return parseFloat(m[1]) * (m[2].toLowerCase() === 'below' ? -1 : 1);
   return null;
@@ -201,9 +224,11 @@ const pctFrom10 = (s: any): number | null => {
 
 // 21 EMA slope posture
 const slope21Of = (s: any): 'rising' | 'flat' | 'falling' | null => {
+  if (s?.ema21Rising === true) return 'rising';
+  if (s?.ema21Rising === false) return 'falling';
   const raw = s?.ema21Slope ?? s?.slope21 ?? s?.ema21Trend ?? s?.trend21;
   if (typeof raw === 'number' && !isNaN(raw)) return raw > 0.05 ? 'rising' : raw < -0.05 ? 'falling' : 'flat';
-  const txt = (typeof raw === 'string' ? raw : String(s?.thesis || '')).toLowerCase();
+  const txt = (typeof raw === 'string' ? raw : String(s?.thesis || s?.readout || '')).toLowerCase();
   if (/declining|falling|rolling over|down-?slop/.test(txt)) return 'falling';
   if (/rising|up-?slop|advancing|uptrend/.test(txt)) return 'rising';
   if (/\bflat\b/.test(txt)) return 'flat';
@@ -235,6 +260,145 @@ const fmtLeader = (s: any): string => {
   const su = setupOf(s);
   if (su) bits.push(su);
   return `${s.ticker} ${chg}${bits.length ? ` · ${bits.join(' · ')}` : ''}`;
+};
+
+/* ============================================================
+   Key Events helpers — scheduled catalysts.
+   
+   Every other section here is REACTIVE: it reads what the tape
+   and the news feed have already done. A 2:00 PM rate decision
+   produces nothing at 8:30 AM, so a session frozen ahead of one
+   looks — to every other section — like weak breadth with no
+   leadership. This section is the only forward-looking one.
+   ============================================================ */
+
+// Benzinga sends ET wall-clock strings with no timezone marker. Parsing with
+// `new Date(str)` would apply the BROWSER's timezone, which is wrong for any
+// user not on Eastern. Parse the components manually and compare against an
+// ET clock instead.
+const parseEtDateTime = (s: string): { dayKey: string; minutes: number | null } => {
+  const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+  if (!m) return { dayKey: '', minutes: null };
+  const dayKey = `${m[1]}-${m[2]}-${m[3]}`;
+  if (m[4] == null) return { dayKey, minutes: null };
+  return { dayKey, minutes: parseInt(m[4], 10) * 60 + parseInt(m[5], 10) };
+};
+
+const etDayKey = (offsetDays = 0): string => {
+  const d = getEstDateInfo();
+  d.setDate(d.getDate() + offsetDays);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const fmtClock = (minutes: number | null): string => {
+  if (minutes == null) return '';
+  const h24 = Math.floor(minutes / 60);
+  const mm = minutes % 60;
+  const ampm = h24 >= 12 ? 'PM' : 'AM';
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}:${String(mm).padStart(2, '0')} ${ampm}`;
+};
+
+const fmtEconNum = (v: number | null | undefined): string => {
+  if (v == null) return '—';
+  const abs = Math.abs(v);
+  if (abs >= 1e9) return `${(v / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `${(v / 1e3).toFixed(0)}K`;
+  return String(v);
+};
+
+const buildKeyEventsPara = (econ: EconEvent[], earnings: EarningsEvent[]): string => {
+  const today = etDayKey(0);
+  const tomorrow = etDayKey(1);
+  const now = getEstDateInfo();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+  // Drop Low impact — the feed carries CFTC positioning and rig counts, which
+  // are data points, not decisions.
+  const econRows = econ
+    .map(e => {
+      const { dayKey, minutes } = parseEtDateTime(e.date);
+      return { ...e, dayKey, minutes };
+    })
+    .filter(e => (e.dayKey === today || e.dayKey === tomorrow) && e.impact !== 'Low')
+    .sort((a, b) => (a.dayKey !== b.dayKey ? a.dayKey.localeCompare(b.dayKey) : (a.minutes ?? 0) - (b.minutes ?? 0)));
+
+  // Importance 5 only — mega caps that move the index, not every small cap.
+  const earnRows = earnings
+    .filter(e => {
+      const { dayKey } = parseEtDateTime(e.date);
+      return (dayKey === today || dayKey === tomorrow) && (e.importance ?? 0) >= 5;
+    })
+    .sort((a, b) => a.date.localeCompare(b.date) || a.symbol.localeCompare(b.symbol));
+
+  if (econRows.length === 0 && earnRows.length === 0) return '';
+
+  const pendingToday = econRows.filter(
+    e => e.dayKey === today && e.minutes != null && e.minutes > nowMinutes && e.actual == null
+  );
+  const releasedToday = econRows.filter(
+    e => e.dayKey === today && (e.actual != null || (e.minutes != null && e.minutes <= nowMinutes))
+  );
+  const tomorrowEcon = econRows.filter(e => e.dayKey === tomorrow);
+
+  const fmtEcon = (e: any): string => {
+    const t = fmtClock(e.minutes);
+    const label = `${t ? `${t} ` : ''}${e.event}`;
+    const bits: string[] = [];
+    if (e.actual != null) bits.push(`act ${fmtEconNum(e.actual)}`);
+    if (e.estimate != null) bits.push(`est ${fmtEconNum(e.estimate)}`);
+    if (e.previous != null) bits.push(`prev ${fmtEconNum(e.previous)}`);
+    return `${label}${bits.length ? ` · ${bits.join(' · ')}` : ''}`;
+  };
+
+  const fmtEarn = (e: EarningsEvent): string => {
+    const { dayKey } = parseEtDateTime(e.date);
+    const when = dayKey === tomorrow ? ' (tmrw)' : '';
+    if (e.epsActual != null) {
+      const beat = e.epsEstimated != null && e.epsActual >= e.epsEstimated;
+      return `${e.symbol}${when} — ${beat ? 'beat' : 'miss'} ${e.epsActual} vs ${e.epsEstimated ?? '—'} est`;
+    }
+    return `${e.symbol}${when} — est ${e.epsEstimated ?? '—'} EPS`;
+  };
+
+  const lines: string[] = [];
+
+  // Lead with what is still ahead. That is the actionable half.
+  if (pendingToday.length) {
+    lines.push(`Still ahead today:\n${pendingToday.map(fmtEcon).join('\n')}`);
+    const highPending = pendingToday.filter(e => e.impact === 'High');
+    if (highPending.length) {
+      lines.push('Setups are on a clock until this prints — breakouts into a scheduled release carry event risk the scan cannot price.');
+    }
+  }
+
+  const leftCol = pendingToday.length
+    ? ''
+    : (releasedToday.length ? `Already printed:\n${releasedToday.map(fmtEcon).join('\n')}` : '');
+  const earnCol = earnRows.length ? `Mega-cap earnings:\n${earnRows.map(fmtEarn).join('\n')}` : '';
+
+  // Two columns when there is something for both sides.
+  if (leftCol && earnCol) {
+    lines.push(`${leftCol}|||${earnCol}`);
+  } else {
+    if (releasedToday.length && pendingToday.length) {
+      lines.push(`Already printed:\n${releasedToday.map(fmtEcon).join('\n')}`);
+    } else if (leftCol) {
+      lines.push(leftCol);
+    }
+    if (earnCol) lines.push(earnCol);
+  }
+
+  if (tomorrowEcon.length) {
+    lines.push(`Tomorrow:\n${tomorrowEcon.map(fmtEcon).join('\n')}`);
+  }
+
+  if (!pendingToday.length && !tomorrowEcon.length && earnRows.every(e => e.epsActual != null)) {
+    lines.push('Nothing scheduled left today — the tape is trading on its own from here.');
+  }
+
+  return `Key Events: ${lines.join('\n')}`;
 };
 
 // Brief attached under a real news catalyst — why the headline matters mechanically.
@@ -510,7 +674,12 @@ const buildEp9mPara = (ep9m: any[]): string => {
   return `EP9M Thesis: ${lines.join('\n')}`;
 };
 
-const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | null => {
+const buildLocalInsights = (
+  scan: any,
+  ep9mList: any[] = [],
+  econList: EconEvent[] = [],
+  earningsList: EarningsEvent[] = []
+): MacroInsights | null => {
   const sips: any[] = Array.isArray(scan?.stocksInPlay) ? scan.stocksInPlay : [];
   const daily: any[] = Array.isArray(scan?.dailySetups) ? scan.dailySetups : [];
   const ep9m: any[] = Array.isArray(ep9mList) ? ep9mList.filter(s => s?.ticker) : [];
@@ -767,6 +936,9 @@ const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | nu
     moneyPara = `Money Flow: ${moneyLines.join('\n')}`;
   }
 
+  /* ---- Paragraph 7: Key Events — the only forward-looking section ---- */
+  const keyEventsPara = buildKeyEventsPara(econList, earningsList);
+
   /* ---- New sections: Regime (verdict), Top Movers, EP9M ---- */
   const regimePara = buildRegimePara(flowNames, etfs);
   const moversPara = buildMoversPara(movers);
@@ -791,6 +963,7 @@ const buildLocalInsights = (scan: any, ep9mList: any[] = []): MacroInsights | nu
     heatPara,
     etfPara,
     moneyPara,
+    keyEventsPara,
   ];
 
   const briefing = orderedParas.filter(Boolean).join('\n\n');
@@ -818,6 +991,8 @@ const TICKER_STOPWORDS = new Set([
   'IN', 'OF', 'BY', 'VS', 'ON', 'TO', 'UP', 'AT', 'OR', 'IT', 'AI',
   'US', 'USA', 'FDA', 'SEC', 'IPO', 'CEO', 'EPS', 'FY', 'Q',
   'EST', 'PM', 'AM',
+  // Key Events vocabulary — economic releases, not tickers.
+  'ET', 'FOMC', 'CPI', 'PPI', 'GDP', 'NFP', 'PCE', 'ISM', 'FED', 'MOM', 'YOY', 'U6',
 ]);
 
 // Inline chip — compact gray, matching the CNF badge look
@@ -837,9 +1012,10 @@ const stochColor = (k: number) => (k <= 20 ? 'text-purple-400' : k <= 30 ? 'text
 const rsColor = (rs: number) => (rs >= 20 ? 'text-purple-400' : rs >= 10 ? 'text-emerald-400' : rs >= 0 ? 'text-slate-300' : 'text-rose-400');
 
 const renderBriefingText = (text: string): React.ReactNode[] => {
-  // Capture: markdown links [text](url), metric phrases, index/asset names,
-  // dollar values, signed percents, and uppercase ticker-like tokens.
-  const rx = /(\[[^\]]+\]\([^)]+\)|RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
+  // Capture: markdown links [text](url), clock times, metric phrases,
+  // index/asset names, dollar values, signed percents, and uppercase
+  // ticker-like tokens.
+  const rx = /(\[[^\]]+\]\([^)]+\)|\d{1,2}:\d{2} (?:AM|PM)|RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
   const parts = text.split(rx);
 
   return parts.map((part, i) => {
@@ -849,6 +1025,11 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
     const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (linkMatch) {
       return <a key={i} href={linkMatch[2]} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-cyan-300 hover:underline transition-colors">{linkMatch[1]}</a>;
+    }
+
+    // Clock time (Key Events) — amber, monospaced alignment
+    if (/^\d{1,2}:\d{2} (?:AM|PM)$/.test(part)) {
+      return <span key={i} className={`${valNum} text-amber-400 font-bold`}>{part}</span>;
     }
 
     // RVOL n.nn — table thresholds: amber >=2, emerald >=1.5
@@ -929,6 +1110,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Industry Heat', color: 'amber', blurb: 'Sector rotation — where money is flowing in and where it is leaving. Wide dispersion = stock-picker tape.' },
   { label: 'ETF Flow', color: 'indigo', blurb: 'Heaviest ETF dollar volume and the advancing/declining split — shows where leveraged money is betting.' },
   { label: 'Money Flow', color: 'rose', blurb: 'Total tracked dollar volume across the scanned universe — who is buying, where dollars concentrate, and the advancing share.' },
+  { label: 'Key Events', color: 'amber', blurb: 'Scheduled catalysts on the clock. Every other section reads what already happened — this is the only one looking forward.' },
   { label: 'Sector Flow', color: 'indigo', blurb: '' },
 ];
 
@@ -1035,13 +1217,16 @@ export default function MarketSummary() {
       }
 
       // 2. Build Market Briefing deterministically from scanner data (no AI).
-      //    EP9M lives on its own endpoint, so fetch both in parallel. The
-      //    ep9m call is defensive: if it fails or is empty, the briefing still
-      //    builds from the scanner payload alone.
+      //    EP9M, econ, and earnings live on their own endpoints, so fetch all
+      //    in parallel. Every secondary call is defensive: if one fails or is
+      //    empty, the briefing still builds from whatever did resolve and the
+      //    corresponding section simply does not render.
       try {
-        const [scannerRes, ep9mRes] = await Promise.all([
+        const [scannerRes, ep9mRes, econRes, earningsRes] = await Promise.all([
           fetch('/api/scanner/latest', { cache: 'no-store' }),
           fetch(`/api/ep9m/latest?t=${Date.now()}`, { cache: 'no-store' }).catch(() => null),
+          fetch('/api/econ', { cache: 'no-store' }).catch(() => null),
+          fetch('/api/earnings', { cache: 'no-store' }).catch(() => null),
         ]);
         if (!scannerRes.ok) throw new Error(`Scanner API returned status: ${scannerRes.status}`);
 
@@ -1055,8 +1240,24 @@ export default function MarketSummary() {
           }
         } catch { /* ep9m is optional — ignore parse errors */ }
 
+        let econList: EconEvent[] = [];
+        try {
+          if (econRes && econRes.ok) {
+            const d = await econRes.json();
+            if (Array.isArray(d)) econList = d;
+          }
+        } catch { /* econ is optional */ }
+
+        let earningsList: EarningsEvent[] = [];
+        try {
+          if (earningsRes && earningsRes.ok) {
+            const d = await earningsRes.json();
+            if (Array.isArray(d)) earningsList = d;
+          }
+        } catch { /* earnings is optional */ }
+
         if (isMounted) {
-          const local = buildLocalInsights(scannerData, ep9mList);
+          const local = buildLocalInsights(scannerData, ep9mList, econList, earningsList);
           if (local) {
             setMacroInsights(local);
           } else if (scannerData.macroInsights) {
@@ -1108,6 +1309,7 @@ export default function MarketSummary() {
       .replace(/(Industry Heat:)/gi, '\n\n$1')
       .replace(/(ETF Flow:)/gi, '\n\n$1')
       .replace(/(Money Flow:)/gi, '\n\n$1')
+      .replace(/(Key Events:)/gi, '\n\n$1')
       .replace(/(Sector Flow:)/gi, '\n\n$1');
   };
 
