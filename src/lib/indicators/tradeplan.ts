@@ -1,61 +1,56 @@
-// src/lib/indicators/tradeplan.ts — v1.1
+// src/lib/indicators/tradeplan.ts — v1.2
 //
 // Trigger / stop / target / R-multiple, computed from fields the scanner
 // already emits. No pivot extraction, no trendline fitting.
 //
-// WHY THIS EXISTS: the dashboard had five ways to rank a name (CNF, RDY,
-// posture, dots, ceilings) and no way to say where you get in, where you're
-// wrong, and what the trade pays if it works.
-//
-// THE STOP RULE: wider of 1.25× ADR or 2.5%.
+// THE STOP RULE: wider of 1.25x ADR or 2.5%.
 //
 //   ADR rather than ATR because ADR has no gap component. It measures the
 //   intraday room a typical session offers, which is what a stop actually
 //   has to survive. ATR includes overnight gaps and inflates the stop on
 //   gappy names in a way that does not reflect intraday noise.
 //
-//   1.25× because a stop inside one average day's range gets taken out by
-//   ordinary movement. Past ~1.5× the position size collapses.
+//   1.25x because a stop inside one average day's range gets taken out by
+//   ordinary movement. Past ~1.5x the position size collapses.
 //
-//   The 2.5% floor catches low-ADR names where 1.25× would put the stop
+//   The 2.5% floor catches low-ADR names where 1.25x would put the stop
 //   inside the spread.
 //
 // THE TARGET: fixed 2R. Deliberately NOT level-based — a column reading
-// 1.4R on one row and 4.2R on the next cannot be compared across rows. A
-// fixed 2R turns the column into one question: can this name travel two
-// stop-widths before something stops it?
+// 1.4R on one row and 4.2R on the next cannot be compared across rows.
 //
 // ---------------------------------------------------------------------------
 // v1.1 — THE CLEAR-RUNWAY BUG
 //
-// v1.0 shipped and immediately awarded its runway bonus to the worst names
-// on the board:
+// v1.0 awarded its runway bonus to the worst names on the board: NBIZ at
+// -53% and IREZ at -54% both came back "2R clear of overhead" and scored
+// 88-A and 83-A. The logic found no level within 2R and called it open air.
+// On a collapsed chart nothing IS within 2R — every average is far above.
+// "No resistance nearby" and "price has fallen away from every level it had"
+// produce the same measurement and mean opposite things.
 //
-//   NBIZ  −53.3%  clear: true  → CNF 88-A
-//   IREZ  −54.4%  clear: true  → CNF 83-A
-//   CAPR  −42.5%  clear: true, nearest level (10 EMA) at 17.8R
-//   CCB   −41.8%  clear: true
+// Fixed with a band: clear runway requires the nearest level to sit beyond
+// the 2R target but within MAX_HEALTHY_RESISTANCE_R. Past that the chart is
+// broken and gets `collapsed: true`.
 //
-// The logic was: find every level above the trigger, take the nearest, and
-// if it sits beyond 2R call the runway clear. On a name that has collapsed,
-// NOTHING is within 2R — every moving average is far overhead — so the
-// function reported open air and the score paid it +6.
+// ---------------------------------------------------------------------------
+// v1.2 — NULL DEREFERENCE INTRODUCED BY v1.1
 //
-// That reads the chart exactly backwards. CAPR's 10 EMA at 17.8R is not
-// clear runway; it is a stock that has fallen 72% away from its own fast
-// average. "No resistance nearby" and "price has collapsed away from every
-// level it had" produce the same measurement and mean opposite things.
+// v1.1 created a state v1.0 could not reach: clear === false WITH
+// resistanceR === null. It happens on short-history rows where no EMA
+// resolves, so `hadAnyLevel` is false and the "nothing overhead" branch
+// deliberately declines to claim clear runway.
 //
-// THE FIX is a ceiling, not a floor. Clear runway now requires the nearest
-// overhead level to sit in a BAND — beyond the 2R target (so the trade has
-// room) but within MAX_HEALTHY_RESISTANCE_R (so the chart is still intact).
-// Past that the name is in freefall and gets `collapsed: true`, which reads
-// as a negative rather than a positive downstream.
+// Three places then called `resistanceR!.toFixed(1)` on it. The `!` is a
+// compile-time assertion and does nothing at runtime, so the scan died with
+// "Cannot read properties of null (reading 'toFixed')" — and because it
+// threw inside enrichCandidate, it took the whole route down rather than
+// dropping one row.
 //
-// The band edge is 4R. At 1.25× ADR per R that is roughly five average days
-// of travel to the first level — already generous. A name whose nearest
-// overhead sits further than that has not left itself room to run, it has
-// left the neighbourhood.
+// Every read of resistanceR is now an explicit runtime check. The non-null
+// assertion operator is gone from this file entirely: if a value can be
+// null in any reachable branch, the code has to prove otherwise rather than
+// assert it.
 // ---------------------------------------------------------------------------
 
 export type SetupFamily = 'reversal' | 'coil' | 'first-touch' | 'breakout' | 'generic';
@@ -64,19 +59,15 @@ export interface TradePlanInput {
   price: number | null | undefined;
   adrPct?: number | null;
   atrPct?: number | null;
-  // Levels. Any that resolve are used for the trigger and the resistance
-  // scan; missing ones are skipped rather than estimated.
   ema10?: number | null;
   ema21?: number | null;
   ema50?: number | null;
   dayHigh?: number | null;
-  rangeHigh?: number | null;      // 10-day range high, consolidation rows
+  rangeHigh?: number | null;
   priorSwingHigh?: number | null;
   aboveEma10?: boolean | null;
   aboveEma21?: boolean | null;
   setupName?: string | null;
-  // v1.1: today's move. A name down 40% needs different treatment than one
-  // up 40%, and the level geometry alone cannot tell them apart.
   changePct?: number | null;
 }
 
@@ -85,18 +76,12 @@ export interface TradePlan {
   trigger: number | null;
   triggerLabel: string;
   stop: number | null;
-  stopPct: number | null;        // distance from trigger, as % of trigger
-  target: number | null;         // 2R above trigger
-  rMultiple: number;             // fixed at 2 when a plan resolves
-  // How far the nearest overhead level sits, in R. Null when nothing is
-  // overhead at all.
+  stopPct: number | null;
+  target: number | null;
+  rMultiple: number;
   resistanceR: number | null;
   resistanceLabel: string | null;
-  // True only when the runway is genuinely clear: target reachable AND the
-  // chart still has levels within reach. See the v1.1 note above.
   clear: boolean;
-  // True when price has fallen so far from its own moving averages that the
-  // absence of nearby resistance is damage, not opportunity.
   collapsed: boolean;
   tradeable: boolean;
   note: string;
@@ -109,9 +94,7 @@ const TARGET_R = 2;
 // Beyond this, "no resistance nearby" means the chart is broken.
 const MAX_HEALTHY_RESISTANCE_R = 4;
 
-// A name down more than this today is not a long setup regardless of what
-// the levels say. Belt to the resistance ceiling's braces — a stock can
-// collapse over a week without any single day breaching this.
+// A name down more than this today is not a long setup regardless of levels.
 const COLLAPSE_CHANGE_PCT = -15;
 
 const num = (v: any): number | null => {
@@ -119,6 +102,12 @@ const num = (v: any): number | null => {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 };
+
+// Every formatted number in this file goes through here. The v1.2 bug was a
+// direct .toFixed() on a value that a new code path made nullable, so the
+// formatting is centralised where the guard cannot be forgotten.
+const fx = (v: number | null | undefined, places: number): string =>
+  v == null || !Number.isFinite(v) ? '—' : v.toFixed(places);
 
 export const familyOf = (setupName: string | null | undefined): SetupFamily => {
   const s = (setupName || '').toLowerCase();
@@ -161,7 +150,7 @@ export function computeTradePlan(i: TradePlanInput): TradePlan {
   // technically true and practically useless.
   if (changePct != null && changePct <= COLLAPSE_CHANGE_PCT) {
     return {
-      ...empty(`down ${Math.abs(changePct).toFixed(1)}% today — no long plan`),
+      ...empty(`down ${fx(Math.abs(changePct), 1)}% today — no long plan`),
       family,
       collapsed: true,
     };
@@ -196,12 +185,17 @@ export function computeTradePlan(i: TradePlanInput): TradePlan {
     triggerIsPrice = true;
   }
 
+  // Bound to a local const so nothing downstream has to reason about whether
+  // the nullable `trigger` was assigned. The v1.2 class of bug starts with
+  // "this cannot be null here" reasoning that later stops holding.
+  const triggerPrice: number = trigger;
+
   // A trigger already far below price is not a trigger, it is history. The
   // entry has passed and chasing it is a different trade.
-  if (trigger < price * 0.97 && !triggerIsPrice) {
+  if (triggerPrice < price * 0.97 && !triggerIsPrice) {
     return {
       ...empty('trigger already passed'),
-      family, trigger, triggerLabel,
+      family, trigger: triggerPrice, triggerLabel,
     };
   }
 
@@ -212,22 +206,22 @@ export function computeTradePlan(i: TradePlanInput): TradePlan {
   // usually a short-history name, and some stop beats none.
   const rangeBasis = adrPct ?? atrPct;
   if (rangeBasis == null || rangeBasis <= 0) {
-    return { ...empty('no ADR/ATR to size a stop'), family, trigger, triggerLabel };
+    return { ...empty('no ADR/ATR to size a stop'), family, trigger: triggerPrice, triggerLabel };
   }
 
   const stopPct = Math.max(rangeBasis * STOP_ADR_MULT, STOP_PCT_FLOOR);
-  const stop = trigger * (1 - stopPct / 100);
-  const riskPerShare = trigger - stop;
+  const stop = triggerPrice * (1 - stopPct / 100);
+  const riskPerShare = triggerPrice - stop;
   if (riskPerShare <= 0) {
-    return { ...empty('stop resolved above trigger'), family, trigger, triggerLabel };
+    return { ...empty('stop resolved above trigger'), family, trigger: triggerPrice, triggerLabel };
   }
 
-  const target = trigger + riskPerShare * TARGET_R;
+  const target = triggerPrice + riskPerShare * TARGET_R;
 
   // --- RESISTANCE ---------------------------------------------------------
   const overhead: { level: number; label: string }[] = [];
   const pushIfAbove = (lvl: number | null, label: string) => {
-    if (lvl != null && lvl > trigger! * 1.001) overhead.push({ level: lvl, label });
+    if (lvl != null && lvl > triggerPrice * 1.001) overhead.push({ level: lvl, label });
   };
   pushIfAbove(ema10, '10 EMA');
   pushIfAbove(ema21, '21 EMA');
@@ -238,40 +232,30 @@ export function computeTradePlan(i: TradePlanInput): TradePlan {
   overhead.sort((a, b) => a.level - b.level);
   const nearest = overhead.length > 0 ? overhead[0] : null;
 
-  let resistanceR: number | null = null;
-  let resistanceLabel: string | null = null;
-  if (nearest) {
-    resistanceR = (nearest.level - trigger) / riskPerShare;
-    resistanceLabel = nearest.label;
-  }
+  const resistanceR: number | null =
+    nearest ? (nearest.level - triggerPrice) / riskPerShare : null;
+  const resistanceLabel: string | null = nearest ? nearest.label : null;
 
-  // --- CLEAR vs COLLAPSED (v1.1) ------------------------------------------
-  // The band. Clear runway means the nearest level is far enough away that
-  // 2R is reachable, AND close enough that the name still has a chart.
+  // --- CLEAR vs COLLAPSED -------------------------------------------------
+  // Clear runway means the nearest level is far enough away that 2R is
+  // reachable AND close enough that the name still has a chart.
   //
-  // The `resistanceR == null` case — nothing overhead at all — is treated as
-  // collapsed rather than clear whenever any EMA was actually available to
-  // compare against. If we HAD the levels and none of them sit above the
-  // trigger, the trigger is above everything, which for a beaten-down name
-  // means it has already run; for a leader it means new highs. The
-  // distinction is the drawdown check below.
+  // THREE distinct states produce resistanceR === null, and they mean
+  // different things:
+  //   - levels existed, price is above all of them  -> blue sky, clear
+  //   - no levels resolved at all (short history)   -> unknown, NOT clear
+  // The second is the state that broke v1.1: clear false, resistanceR null.
   const hadAnyLevel = ema10 != null || ema21 != null || ema50 != null;
 
   let clear: boolean;
   let collapsed = false;
 
   if (resistanceR == null) {
-    // Nothing overhead. Genuine blue sky IF we had levels to check and price
-    // is above them — that is a leader at highs, not a broken chart.
-    clear = true;
+    clear = hadAnyLevel;
     collapsed = false;
-    if (!hadAnyLevel) {
-      // No levels resolved at all — we cannot claim anything. Not clear.
-      clear = false;
-    }
   } else if (resistanceR > MAX_HEALTHY_RESISTANCE_R) {
-    // The tell. Levels exist, and the nearest is absurdly far above. Price
-    // has fallen away from its own averages.
+    // Levels exist and the nearest is absurdly far above — price has fallen
+    // away from its own averages.
     clear = false;
     collapsed = true;
   } else {
@@ -279,22 +263,28 @@ export function computeTradePlan(i: TradePlanInput): TradePlan {
     collapsed = false;
   }
 
+  // --- NOTE ---------------------------------------------------------------
+  // Ordered so that every branch reading resistanceR has already established
+  // it is non-null. The final fallback covers clear === false with no
+  // resistance reading, which is the combination that threw in v1.1.
   let note: string;
   if (triggerIsPrice) {
     note = 'no level resolved — trigger is last price';
-  } else if (collapsed) {
-    note = `nearest level (${resistanceLabel}) is ${resistanceR!.toFixed(1)}R away — price has fallen off its own averages, not clear runway`;
-  } else if (clear && resistanceR == null) {
-    note = 'no overhead level — price is above every average';
+  } else if (collapsed && resistanceR != null) {
+    note = `nearest level (${resistanceLabel}) is ${fx(resistanceR, 1)}R away — price has fallen off its own averages, not clear runway`;
+  } else if (resistanceR == null) {
+    note = hadAnyLevel
+      ? 'no overhead level — price is above every average'
+      : 'no moving averages resolved — runway unknown';
   } else if (clear) {
-    note = `${TARGET_R}R clear, ${resistanceLabel} at ${resistanceR!.toFixed(1)}R`;
+    note = `${fx(TARGET_R, 1)}R clear, ${resistanceLabel} at ${fx(resistanceR, 1)}R`;
   } else {
-    note = `${resistanceLabel} sits at ${resistanceR!.toFixed(1)}R — needs the level to break`;
+    note = `${resistanceLabel} sits at ${fx(resistanceR, 1)}R — needs the level to break`;
   }
 
   return {
     family,
-    trigger,
+    trigger: triggerPrice,
     triggerLabel,
     stop,
     stopPct,
@@ -313,27 +303,28 @@ export function computeTradePlan(i: TradePlanInput): TradePlan {
 export const tradePlanShort = (p: TradePlan): string => {
   if (!p.tradeable) return p.collapsed ? 'collapsed' : '—';
   if (p.collapsed) return 'broken';
-  if (p.clear) return `${p.rMultiple.toFixed(1)}R clear`;
-  return `${p.resistanceR!.toFixed(1)}R`;
+  if (p.clear) return `${fx(p.rMultiple, 1)}R clear`;
+  if (p.resistanceR == null) return '—';
+  return `${fx(p.resistanceR, 1)}R`;
 };
 
 // Multi-line detail for a title attribute.
 export const tradePlanTooltip = (p: TradePlan): string => {
   if (!p.tradeable) return `No plan — ${p.note}.`;
   const lines: string[] = [];
-  lines.push(`Trigger  ${p.trigger!.toFixed(2)}  (${p.triggerLabel})`);
-  lines.push(`Stop     ${p.stop!.toFixed(2)}  (−${p.stopPct!.toFixed(1)}%)`);
-  lines.push(`Target   ${p.target!.toFixed(2)}  (${p.rMultiple.toFixed(1)}R)`);
+  lines.push(`Trigger  ${fx(p.trigger, 2)}  (${p.triggerLabel})`);
+  lines.push(`Stop     ${fx(p.stop, 2)}  (-${fx(p.stopPct, 1)}%)`);
+  lines.push(`Target   ${fx(p.target, 2)}  (${fx(p.rMultiple, 1)}R)`);
   lines.push('');
   if (p.resistanceR != null) {
-    lines.push(`Nearest overhead: ${p.resistanceLabel} at ${p.resistanceR.toFixed(1)}R`);
+    lines.push(`Nearest overhead: ${p.resistanceLabel} at ${fx(p.resistanceR, 1)}R`);
   } else {
     lines.push('No overhead level between trigger and target.');
   }
   lines.push('');
   lines.push(p.note);
   lines.push('');
-  lines.push('Stop is the wider of 1.25× ADR or 2.5%. Target is fixed 2R.');
+  lines.push('Stop is the wider of 1.25x ADR or 2.5%. Target is fixed 2R.');
   lines.push(`Resistance beyond ${MAX_HEALTHY_RESISTANCE_R}R reads as a broken chart, not clear runway.`);
   return lines.join('\n');
 };
