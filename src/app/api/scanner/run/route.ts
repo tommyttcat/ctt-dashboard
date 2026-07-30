@@ -1,4 +1,4 @@
-// src/app/api/scanner/run/route.ts — v6.14
+// src/app/api/scanner/run/route.ts — v6.15
 // v6.1: + RMV(15); thesis is news-headline-only (stats moved to t.readout)
 // v6.2: RMV/RME imported from lib/indicators; RME(21) replaces the binary
 //       `extended` penalty in CNF; + cnfBreakdown for the badge tooltip
@@ -8,28 +8,35 @@
 // v6.6: thresholds moved to lib/scanConfig and shipped in the payload
 // v6.7: GET is a thin wrapper; ?bg=true runs the scan in the background
 // v6.8: macro_insights_v6 gated on freshness; WIIM batch 50 -> 15; Polygon
-//       news limit 10 -> 50; newest-article selection; earnings calendar
-//       promoted to a catalyst source
+//       news limit 10 -> 50; earnings calendar promoted to a catalyst source
 // v6.9: deterministic macro briefing (buildMacroBriefing)
 // v6.10: + distToEma10 on every enriched row
-// v6.11: spam filter rebuilt as regex; structural CNF ceiling on Stage 4 /
-//        dead cross / deep drawdown; detectPattern returns stageNum;
-//        currentDate via etDateString; minVolume on all topMovers buckets
+// v6.11: spam filter rebuilt as regex; structural CNF ceiling; detectPattern
+//        returns stageNum; currentDate via etDateString; minVolume on all
+//        topMovers buckets
 // v6.12: + blue/red dots via lib/indicators/dots; red-dot CNF ceiling with
 //        bear-instrument exemption
-// v6.13: + reversal patterns for names repairing from BELOW the 21 EMA.
-//        Every prior branch of detectPattern requires price ABOVE something
-//        — the 20 EMA, VWAP, yesterday's high, the prior ATH, the base high
-//        — so a board of semis up 13-27% underneath their anchors matched
-//        nothing and came back with an empty setup column.
-// v6.14: those two names collapsed into one. "Reclaim Attempt" and
-//        "Reversal Attempt" described the same thesis at two moments, and
-//        splitting them put a distinction in the setup NAME that belongs in
-//        the score. Both are now "Reversal"; whether price has reclaimed the
-//        10 EMA is carried as a CNF component (b.reclaim) instead, so a
-//        further-along reversal outranks an earlier one without needing its
-//        own label. The setup column reads one thing, and the number does
-//        the ranking.
+// v6.13: + reversal pattern for names repairing from BELOW the 21 EMA
+// v6.14: reversal collapsed to one name; 10 EMA reclaim carried as a CNF
+//        component rather than a second label
+// v6.15: + RAW PRICE LEVELS and a TRADE PLAN on every row.
+//
+//        The payload carried distToEma10 / distToEma21 / aboveEma10 —
+//        percentages and booleans — but never the EMA VALUES themselves.
+//        That was fine for ranking and useless for planning: you cannot
+//        say "trigger at the 10 EMA, stop 1.25 ADR below it" from a
+//        percentage. ema10/ema21/ema50 and dayHigh/dayLow are now emitted
+//        raw, and computeTradePlan turns them into trigger / stop / target
+//        / R-to-resistance.
+//
+//        This is the piece the dashboard was missing. Five scores said how
+//        good a name was; none said where to get in, where you are wrong,
+//        or what the trade pays. INTC could show a B grade on a 13% day
+//        while its nearest sane stop sat 11% away, and nothing on the row
+//        said so.
+//
+//        The 50 EMA is computed solely as a resistance level for the plan —
+//        it is not scored anywhere and is not displayed on its own.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -38,6 +45,7 @@ import { computeRMEDetail, rmeScoreAdjustment } from '@/lib/indicators/rme';
 import { computeStageDetail } from '@/lib/indicators/stage';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { computeDotDetail } from '@/lib/indicators/dots';
+import { computeTradePlan } from '@/lib/indicators/tradeplan';
 import { SCANNER, SCANNER_SIP_META, SCANNER_DAILY_META, TOPMOVERS_META } from '@/lib/scanConfig';
 
 export const dynamic = 'force-dynamic';
@@ -281,6 +289,7 @@ const computeCnfScore = (
     dotBarsSince: number | null;
     isBearInstrument: boolean;
     aboveEma10: boolean | null;
+    planClear: boolean | null;
   }
 ): { score: number; grade: string; breakdown: Record<string, number>; ceiling: number; ceilingReason: string | null } => {
   const b: Record<string, number> = {};
@@ -347,18 +356,17 @@ const computeCnfScore = (
   b.dot = 0;
   if (q.dotKind === 'blue') b.dot = q.dotBarsSince === 0 ? 10 : 6;
 
-  // --- Reclaim (v6.14) ----------------------------------------------------
-  // This carries the distinction that used to be a separate setup NAME.
-  // A reversal that has taken back the 10 EMA is materially further along
-  // than one still under both lines — the fast line has turned and there is
-  // a definable stop. Scoring it instead of naming it keeps the setup column
-  // to one word while preserving the ranking.
-  //
-  // Only applies to the reversal family. On a Trend Hold or a Gap & Go,
-  // being above the 10 is unremarkable — the other components already
-  // reward it, and adding points here would double-count.
   b.reclaim = 0;
   if (q.setupName === 'Reversal' && q.aboveEma10 === true) b.reclaim = 8;
+
+  // --- Runway (v6.15) -----------------------------------------------------
+  // Whether the 2R target is reachable before the nearest overhead level.
+  // This is the only component that asks what the trade PAYS rather than how
+  // good the name looks, and it is deliberately modest: a blocked runway is
+  // a reason to size down or wait for the level, not a disqualification.
+  b.runway = 0;
+  if (q.planClear === true) b.runway = 6;
+  else if (q.planClear === false) b.runway = -6;
 
   const raw = Object.values(b).reduce((s, v) => s + v, 0);
 
@@ -409,9 +417,6 @@ const buildReadout = (t: any): string | null => {
   } else if (t.dotKind === 'blue') {
     parts.push(`BLUE DOT${t.dotBarsSince === 0 ? ' today' : ` ${t.dotBarsSince}d ago`}`);
   }
-  // On a reversal, whether the 10 has been reclaimed is the single most
-  // useful qualifier — it is the difference between an entry with a stop
-  // and one without.
   if (t.setupName === 'Reversal') {
     parts.push(t.aboveEma10 === true ? '10 EMA reclaimed' : 'still under the 10');
   }
@@ -429,6 +434,11 @@ const buildReadout = (t: any): string | null => {
   if (t.atrPct != null) parts.push(`ATR ${t.atrPct.toFixed(1)}%`);
   if (t.adrPct != null) parts.push(`ADR ${t.adrPct.toFixed(1)}%`);
   if (t.goldenCross != null) parts.push(t.goldenCross ? '50>200 intact' : '50<200');
+  // The plan closes the readout because it is the only part that says what
+  // to actually do.
+  if (t.plan?.tradeable) {
+    parts.push(`trigger ${t.plan.trigger.toFixed(2)} (${t.plan.triggerLabel}), stop −${t.plan.stopPct.toFixed(1)}%, ${t.plan.clear ? '2R clear' : `${t.plan.resistanceLabel} at ${t.plan.resistanceR.toFixed(1)}R`}`);
+  }
   if (parts.length === 0) return null;
   return parts.join(', ') + '.';
 };
@@ -492,13 +502,14 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
   const gradeB = i.surfaced.filter((t: any) => t.cnfGrade === 'B').length;
   const breakouts = i.surfaced.filter((t: any) => isBreakoutSetupName(t.setupName)).length;
   const reversals = i.surfaced.filter((t: any) => isReversalSetupName(t.setupName)).length;
-  const reclaimed = i.surfaced.filter((t: any) => t.setupName === 'Reversal' && t.aboveEma10 === true).length;
   const unnamed = i.surfaced.filter((t: any) => !t.setupName).length;
   const ready = i.surfaced.filter((t: any) => t.status === 'Ready').length;
   const extended = i.surfaced.filter((t: any) => t.extended).length;
   const capped = i.surfaced.filter((t: any) => t.cnfCeiling != null && t.cnfCeiling < 100).length;
   const blueDots = i.surfaced.filter((t: any) => t.dotKind === 'blue').length;
   const redDots = i.surfaced.filter((t: any) => t.dotKind === 'red').length;
+  const planned = i.surfaced.filter((t: any) => t.plan?.tradeable).length;
+  const clearRunway = i.surfaced.filter((t: any) => t.plan?.tradeable && t.plan.clear).length;
 
   const yieldBits: string[] = [
     `${i.surfaced.length} name${i.surfaced.length === 1 ? '' : 's'} cleared the setup gates`,
@@ -507,8 +518,8 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
     yieldBits.push(`${gradeA} grade A and ${gradeB} grade B`);
     if (blueDots + redDots > 0) yieldBits.push(`${blueDots} blue dot${blueDots === 1 ? '' : 's'} vs ${redDots} red`);
     if (breakouts + reversals > 0) yieldBits.push(`${breakouts} breakout-family vs ${reversals} reversal-family`);
-    if (reversals > 0) yieldBits.push(`${reclaimed} of the reversals have reclaimed the 10 EMA`);
     if (unnamed > 0) yieldBits.push(`${unnamed} matched no pattern`);
+    yieldBits.push(`${planned} have a definable entry, ${clearRunway} of those with 2R clear of overhead`);
     if (extended > 0) yieldBits.push(`${extended} already extended`);
     if (capped > 0) yieldBits.push(`${capped} grade-capped`);
     yieldBits.push(`${ready} flagged Ready`);
@@ -518,7 +529,12 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
   let posture: string;
   const thinYield = gradeA + gradeB <= 2;
 
-  if (i.breadthSignal === 'RED' && thinYield) {
+  // The posture line now leads with the tradeable count when it is the
+  // binding constraint — a board full of A grades with nowhere to place a
+  // stop is a different problem than a board with nothing scoring.
+  if (i.surfaced.length >= 4 && clearRunway === 0) {
+    posture = 'Nothing on the board has two stop-widths of clear air above its trigger. Whatever the grades say, there is no room to be paid — wait for a level to break or for price to come back to an anchor.';
+  } else if (i.breadthSignal === 'RED' && thinYield) {
     posture = 'Weak breadth with almost nothing scoring well is the combination that argues for sitting out — breakouts carry a scoring penalty in this regime and the reversal candidates have not confirmed.';
   } else if (i.breadthSignal === 'RED' && reversals > breakouts) {
     posture = 'Breadth is weak but the surfaced names skew reversal-family, which is the setup type that historically works in this regime — the pullback entries are the ones with a defined stop.';
@@ -668,28 +684,6 @@ const detectPattern = (
     return { name: 'Trend Hold', stage, stageNum };
   }
 
-  // --- REVERSAL (v6.13, collapsed to one name in v6.14) -------------------
-  // Everything above requires price ABOVE some reference. A name repairing
-  // from underneath its trend pair matched nothing, which is how a board of
-  // semis up 13-27% came back with an empty setup column.
-  //
-  // Requires price UP ON THE DAY. Without that a name in free-fall below its
-  // averages would be labelled a reversal purely for being oversold.
-  //
-  // TWO PATHS IN, ONE NAME OUT. Either price has reclaimed the 10 EMA — the
-  // fast line has turned and there is a stop to place — or it is still under
-  // both lines but oversold, meaning there is a washout to reverse from.
-  // Whether the 10 is reclaimed is scored (b.reclaim) rather than named, so
-  // the setup column stays one word and the number carries the nuance.
-  //
-  // The 35 stochastic threshold is looser than the 25 the blue dot uses: a
-  // dot needs the extreme, this only needs the name to have been washed out
-  // recently.
-  //
-  // The 10 and 21 EMAs are recomputed here rather than passed in. They exist
-  // in enrichCandidate, but detectPattern is called BEFORE that block runs,
-  // and reordering the caller to thread them through would put a live-price
-  // dependency into a function that currently takes only bars.
   let ema10 = bars[warmUpBars].c;
   let ema21 = bars[warmUpBars].c;
   const k10 = 2 / (10 + 1);
@@ -1137,6 +1131,8 @@ async function runScan(request: Request) {
       const chgPct = t._liveChg;
       const vwap = t._liveVwap;
       const currentOpen = t.day?.o || t.prevDay?.o || price;
+      const dayHigh = t.day?.h ?? null;
+      const dayLow = t.day?.l ?? null;
 
       const [details, aggs, newsData, shortData] = await Promise.all([
         fetchSafeJson(`https://api.polygon.io/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {}),
@@ -1195,6 +1191,12 @@ async function runScan(request: Request) {
         stochK = (rawK(0) + rawK(1) + rawK(2) + rawK(3)) / 4;
       }
 
+      // v6.15: the EMA VALUES are kept, not just the derived booleans and
+      // percentages. The trade plan needs price levels — you cannot place a
+      // stop relative to "3.2% below the 21 EMA".
+      let ema10Val: number | null = null;
+      let ema21Val: number | null = null;
+      let ema50Val: number | null = null;
       let aboveEma10: boolean | null = null;
       let aboveEma21: boolean | null = null;
       let distToEma10: number | null = null;
@@ -1204,14 +1206,23 @@ async function runScan(request: Request) {
         const emaWarm = Math.min(100, dailyBars.length - 1);
         let e10 = dailyBars[emaWarm].c;
         let e21 = dailyBars[emaWarm].c;
+        let e50 = dailyBars[emaWarm].c;
         let e21FiveAgo: number | null = null;
         const k10 = 2 / (10 + 1);
         const k21e = 2 / (21 + 1);
+        const k50 = 2 / (50 + 1);
         for (let i = emaWarm - 1; i >= 0; i--) {
           e10 = (dailyBars[i].c * k10) + (e10 * (1 - k10));
           e21 = (dailyBars[i].c * k21e) + (e21 * (1 - k21e));
+          e50 = (dailyBars[i].c * k50) + (e50 * (1 - k50));
           if (i === 5) e21FiveAgo = e21;
         }
+        ema10Val = e10;
+        ema21Val = e21;
+        // The 50 EMA exists only as a resistance level for the plan. It is
+        // not scored and not displayed on its own, and it needs more history
+        // than the 10 or 21 to be meaningful.
+        ema50Val = dailyBars.length >= 60 ? e50 : null;
         aboveEma10 = price >= e10;
         aboveEma21 = price >= e21;
         if (e10 > 0) distToEma10 = ((price - e10) / e10) * 100;
@@ -1240,6 +1251,15 @@ async function runScan(request: Request) {
       }
       const atrPct = (atr > 0 && price > 0) ? (atr / price) * 100 : null;
 
+      // Prior swing high — the highest bar in the last 63 sessions EXCLUDING
+      // the last five. Excluding the recent window matters: on a name that
+      // just ran, today's own high would otherwise become its own resistance.
+      let priorSwingHigh: number | null = null;
+      if (dailyBars.length >= 20) {
+        const win = dailyBars.slice(5, Math.min(63, dailyBars.length));
+        if (win.length > 0) priorSwingHigh = Math.max(...win.map((b: any) => b.h));
+      }
+
       let rsVsSpy: number | null = null;
       if (spyReturn3M != null && dailyBars.length >= 64 && dailyBars[63].c > 0) {
         const ret3M = ((dailyBars[0].c - dailyBars[63].c) / dailyBars[63].c) * 100;
@@ -1261,6 +1281,22 @@ async function runScan(request: Request) {
       const rvol = (avgVol > 0 && vol > 0) ? (vol / avgVol) : null;
       const setupMatched = detectPattern(dailyBars, price, currentOpen, vwap, rvol, dot.kind, stochK);
       const companyName = details?.results?.name || sym;
+
+      // Trade plan. Runs after the pattern is named because the trigger rule
+      // is family-dependent.
+      const plan = computeTradePlan({
+        price,
+        adrPct,
+        atrPct,
+        ema10: ema10Val,
+        ema21: ema21Val,
+        ema50: ema50Val,
+        dayHigh: dayHigh ?? dailyBars[0]?.h ?? null,
+        priorSwingHigh,
+        aboveEma10,
+        aboveEma21,
+        setupName: setupMatched.name,
+      });
 
       let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
       if (vwap > 0 && price > 0) vwapStatus = price >= vwap ? 'above' : 'below';
@@ -1296,6 +1332,9 @@ async function runScan(request: Request) {
         }
       }
 
+      const round2 = (v: number | null): number | null =>
+        v == null ? null : parseFloat(v.toFixed(2));
+
       return {
         ticker: sym, name: companyName, sector: deepSector, price, vwapStatus, changePct: chgPct, vol, avgVol, atr, dVol: vol * vwap, rvol: rvol ? parseFloat(rvol.toFixed(2)) : null,
         float, shortPct,
@@ -1306,6 +1345,28 @@ async function runScan(request: Request) {
         dotStochK: dot.stochK,
         dotBarsSince: dot.barsSinceExtreme,
         aboveEma10, aboveEma21,
+        // Raw levels — new in v6.15.
+        ema10: round2(ema10Val),
+        ema21: round2(ema21Val),
+        ema50: round2(ema50Val),
+        dayHigh: round2(dayHigh ?? dailyBars[0]?.h ?? null),
+        dayLow: round2(dayLow ?? dailyBars[0]?.l ?? null),
+        priorSwingHigh: round2(priorSwingHigh),
+        // Plan, rounded for the wire.
+        plan: plan.tradeable ? {
+          family: plan.family,
+          trigger: round2(plan.trigger),
+          triggerLabel: plan.triggerLabel,
+          stop: round2(plan.stop),
+          stopPct: plan.stopPct != null ? parseFloat(plan.stopPct.toFixed(2)) : null,
+          target: round2(plan.target),
+          rMultiple: plan.rMultiple,
+          resistanceR: plan.resistanceR != null ? parseFloat(plan.resistanceR.toFixed(2)) : null,
+          resistanceLabel: plan.resistanceLabel,
+          clear: plan.clear,
+          tradeable: true,
+          note: plan.note,
+        } : { tradeable: false, note: plan.note, family: plan.family },
         distToEma10: distToEma10 != null ? parseFloat(distToEma10.toFixed(2)) : null,
         distToEma21: distToEma21 != null ? parseFloat(distToEma21.toFixed(2)) : null,
         ema21Rising,
@@ -1411,6 +1472,9 @@ async function runScan(request: Request) {
         ? 'Ready' : 'Forming';
       if (t.tradeType === 'Day Trade' && t.vwapStatus === 'below') t.status = 'Forming';
       if (t.dotKind === 'red' && !isBearishInstrument(t.name)) t.status = 'Forming';
+      // Ready means "take this now". A name with no definable entry cannot
+      // be taken now regardless of how the oscillators look.
+      if (!t.plan?.tradeable) t.status = 'Forming';
     });
 
     const sectorHeatAgg: Record<string, { sum: number; count: number }> = {};
@@ -1453,6 +1517,7 @@ async function runScan(request: Request) {
           dotBarsSince: t.dotBarsSince ?? null,
           isBearInstrument: isBearishInstrument(t.name),
           aboveEma10: t.aboveEma10 ?? null,
+          planClear: t.plan?.tradeable ? t.plan.clear : null,
         }
       );
       t.cnfScore = cnf.score;
@@ -1618,8 +1683,13 @@ async function runScan(request: Request) {
         redDots: enrichedList.filter((t: any) => t.dotKind === 'red').length,
         redDotCapped: enrichedList.filter((t: any) => t.dotKind === 'red' && !isBearishInstrument(t.name)).length,
         reversals: enrichedList.filter((t: any) => t.setupName === 'Reversal').length,
-        reversalsReclaimed: enrichedList.filter((t: any) => t.setupName === 'Reversal' && t.aboveEma10 === true).length,
         unnamed: enrichedList.filter((t: any) => !t.setupName).length,
+        // The plan diagnostics. `planned` vs `scanned` says how much of the
+        // board has a definable entry at all; `clearRunway` vs `planned` says
+        // how much of THAT has room to be paid.
+        planned: enrichedList.filter((t: any) => t.plan?.tradeable).length,
+        clearRunway: enrichedList.filter((t: any) => t.plan?.tradeable && t.plan.clear).length,
+        triggerPassed: enrichedList.filter((t: any) => t.plan?.note === 'trigger already passed').length,
       },
       fromCache: false
     }, { headers: noStoreHeaders });
