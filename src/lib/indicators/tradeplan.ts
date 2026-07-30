@@ -150,7 +150,7 @@ export const familyOf = (setupName: string | null | undefined): SetupFamily => {
   const s = (setupName || '').toLowerCase();
   if (!s) return 'generic';
   if (s.includes('reversal') || s.includes('blue dot')) return 'reversal';
-  if (s.includes('sqz building') || s.includes('vcp')) return 'coil';
+  if (s.includes('sqz building') || s.includes('vcp') || s.includes('coil')) return 'coil';
   if (s.includes('ema pb') || s.includes('inside day')) return 'first-touch';
   if (s.includes('gap & go') || s.includes('r2g') || s.includes('sqz fired') ||
       s.includes('episodic') || s.includes('glb')) return 'breakout';

@@ -1,28 +1,45 @@
-// src/app/api/swing-candidates/run/route.ts — v1.7
+// src/app/api/swing-candidates/run/route.ts — v1.8
 // v1.1: + RMV(15) on Swing and 10/21; + batched Benzinga WIIM catalysts
 // v1.2: RMV imported from lib/indicators/rmv
 // v1.3: Weinstein sub-stages via lib/indicators/stage
 // v1.4: + Money Flow (21); + T2108 market breadth from the grouped series
 // v1.5: thresholds moved to lib/scanConfig and shipped in the payload
-// v1.6: maxDuration 60 -> 300 (the real timeout cause); + ?bg=true background
-//       wrapper matching scanner v6.7; WIIM batch 50 -> 15
-// v1.7: WRITE-GUARD SYMMETRY.
-//       The swing keys were guarded by `hasRealData` (universe non-empty AND
-//       candidates non-empty), but the consolidation keys wrote on
-//       `universe.length > 0` alone. A run that found zero consolidation
-//       names would therefore PRESERVE the stale swing snapshot while
-//       OVERWRITING consolidation with an empty array — two different
-//       definitions of "this run produced something".
+// v1.6: maxDuration 60 -> 300; + ?bg=true background wrapper
+// v1.7: write-guard symmetry — each table gates on its own results so an
+//       empty run never destroys a good previous snapshot
+// v1.8: + TRADE PLAN on both tables, matching scanner v6.15.
 //
-//       Each table now guards on its own results, so an empty result set
-//       never destroys a good previous snapshot on either side. Both write
-//       decisions are reported back in `dataPersisted` for verification.
+//       Both analyzers already computed ema10, ema21, ATR and ADR and threw
+//       the EMA VALUES away, keeping only the percentage distances. Fine for
+//       ranking, useless for planning: you cannot place a stop relative to
+//       "3.2% below the 21 EMA". The raw levels are now retained and shipped.
+//
+//       TRIGGER DIFFERS BY TABLE, which is the whole point of passing
+//       setupName rather than letting the planner guess:
+//
+//       SWING is a pullback into a rising trend. Price has already come back
+//       to the 10/21 and the question is when it turns. Trigger is today's
+//       high — the first level that says the pullback is over. Tagged
+//       'EMA PB', which resolves to the first-touch family.
+//
+//       CONSOLIDATION is a coil. The actionable level is the top of the
+//       10-day range, not today's high, because a tight base can print
+//       several inside days before it resolves. Tagged 'Coil' and passed
+//       rangeHigh explicitly.
+//
+//       NOTE ON BLUE DOTS: a consolidation row with blueDot true is still
+//       tagged 'Coil', not 'Blue Dot Rev'. Tagging it as a reversal would
+//       route it to the reversal family, which triggers off the 10 or 21
+//       EMA — both of which sit BELOW price on a coil that is holding its
+//       averages, producing a trigger already passed. The dot is a signal
+//       about condition; the range high is still the entry.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { computeRMV } from '@/lib/indicators/rmv';
 import { computeStage } from '@/lib/indicators/stage';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
+import { computeTradePlan } from '@/lib/indicators/tradeplan';
 import { SWING, CONSOL, SWING_META, CONSOL_META } from '@/lib/scanConfig';
 
 export const dynamic = 'force-dynamic';
@@ -42,6 +59,12 @@ const GROUPED = {
   shortlistSize: 80,
 };
 
+// Prior swing high window. 63 sessions back, EXCLUDING the most recent five —
+// without that exclusion a name that just ran becomes its own resistance and
+// every fresh mover reports a trigger already blocked.
+const SWING_HIGH_LOOKBACK = 63;
+const SWING_HIGH_EXCLUDE_RECENT = 5;
+
 interface Bar { t: number; o: number; h: number; l: number; c: number; v: number; }
 
 interface SnapInfo {
@@ -49,6 +72,23 @@ interface SnapInfo {
   livePrice: number | null;
   changePct: number;
   vol: number;
+}
+
+interface TradePlanOut {
+  family?: string;
+  trigger?: number | null;
+  triggerLabel?: string;
+  stop?: number | null;
+  stopPct?: number | null;
+  target?: number | null;
+  rMultiple?: number;
+  resistanceR?: number | null;
+  resistanceLabel?: string | null;
+  clear?: boolean;
+  collapsed?: boolean;
+  overextended?: boolean;
+  tradeable: boolean;
+  note?: string;
 }
 
 interface Candidate {
@@ -94,6 +134,15 @@ interface Candidate {
   catalyst?: string | null;
   catalystUrl?: string | null;
   thesis?: string | null;
+  // v1.8 — raw levels and the plan built from them.
+  setupName?: string | null;
+  ema10?: number | null;
+  ema21?: number | null;
+  ema50?: number | null;
+  dayHigh?: number | null;
+  dayLow?: number | null;
+  priorSwingHigh?: number | null;
+  plan?: TradePlanOut | null;
 }
 
 async function polygon<T = any>(path: string): Promise<T> {
@@ -129,6 +178,51 @@ async function inBatches<T, R>(items: T[], size: number, fn: (item: T) => Promis
     }
   }
   return out;
+}
+
+const round2 = (v: number | null | undefined): number | null =>
+  v == null || !Number.isFinite(v) ? null : parseFloat(v.toFixed(2));
+
+// Serialises the planner output for the wire. Every numeric goes through
+// round2 so a NaN sneaking out of a degenerate bar series cannot reach the
+// component, where it would render as "NaN" in a price field.
+function serialisePlan(p: ReturnType<typeof computeTradePlan>): TradePlanOut {
+  if (!p.tradeable) {
+    return {
+      tradeable: false,
+      collapsed: p.collapsed,
+      overextended: p.overextended,
+      note: p.note,
+      family: p.family,
+    };
+  }
+  return {
+    family: p.family,
+    trigger: round2(p.trigger),
+    triggerLabel: p.triggerLabel,
+    stop: round2(p.stop),
+    stopPct: p.stopPct != null ? parseFloat(p.stopPct.toFixed(2)) : null,
+    target: round2(p.target),
+    rMultiple: p.rMultiple,
+    resistanceR: p.resistanceR != null ? parseFloat(p.resistanceR.toFixed(2)) : null,
+    resistanceLabel: p.resistanceLabel,
+    clear: p.clear,
+    collapsed: p.collapsed,
+    overextended: p.overextended,
+    tradeable: true,
+    note: p.note,
+  };
+}
+
+// Highest high in the lookback window, excluding the most recent few bars.
+function priorSwingHighOf(bars: Bar[]): number | null {
+  if (bars.length < 20) return null;
+  const end = bars.length - SWING_HIGH_EXCLUDE_RECENT;
+  const start = Math.max(0, bars.length - SWING_HIGH_LOOKBACK);
+  if (end <= start) return null;
+  const win = bars.slice(start, end);
+  if (win.length === 0) return null;
+  return Math.max(...win.map(b => b.h));
 }
 
 function cleanSectorDescription(sic: string | undefined, sector: string | undefined, industry: string | undefined): string {
@@ -203,7 +297,8 @@ function atr(bars: Bar[], period = 14): number | null {
 
 // Average Daily Range % — the Minervini definition: SMA(High/Low) - 1.
 // Distinct from ATR: no gap component, so it measures how much intraday
-// room the stock actually gives you on a typical session.
+// room the stock actually gives you on a typical session. This is also the
+// stop basis in the trade plan, for exactly that reason.
 function adrPct(bars: Bar[], period = 20): number | null {
   if (bars.length < period) return null;
   const recent = bars.slice(-period);
@@ -569,6 +664,7 @@ function analyze(
   const sma200 = sma(closes, 200);
   const ema10 = ema(closes, 10);
   const ema21 = ema(closes, 21);
+  const ema50 = ema(closes, 50);
   const ema21Prev = ema(closes.slice(0, -3), 21);
   const atr14 = atr(bars, 14);
   const kVal = stochK(bars, 10, 4);
@@ -639,6 +735,28 @@ function analyze(
   if (shortInterest && float) shortPct = +((shortInterest / float) * 100).toFixed(1);
   if (shortInterest && avgVol > 0) daysToCover = +(shortInterest / avgVol).toFixed(1);
 
+  // --- TRADE PLAN (v1.8) ---------------------------------------------------
+  // Tagged 'EMA PB', which resolves to the first-touch family and triggers
+  // off today's high. This is a pullback into a rising trend: price has
+  // already come back to the 10/21 and the entry is the level that says the
+  // pullback is finished, not a moving average it is already sitting on.
+  const lastBar = bars[bars.length - 1];
+  const setupName = 'EMA PB';
+  const plan = computeTradePlan({
+    price,
+    adrPct: adr,
+    atrPct: atrPctVal,
+    changePct,
+    ema10,
+    ema21,
+    ema50,
+    dayHigh: lastBar?.h ?? null,
+    priorSwingHigh: priorSwingHighOf(bars),
+    aboveEma10: price >= ema10,
+    aboveEma21: price >= ema21,
+    setupName,
+  });
+
   return {
     symbol,
     name,
@@ -670,6 +788,14 @@ function analyze(
     avgDollarVolM: Math.round(avgDollarVol / 1e6),
     goldenCross: sma50 > sma200,
     ema21Rising,
+    setupName,
+    ema10: round2(ema10),
+    ema21: round2(ema21),
+    ema50: round2(ema50),
+    dayHigh: round2(lastBar?.h ?? null),
+    dayLow: round2(lastBar?.l ?? null),
+    priorSwingHigh: round2(priorSwingHighOf(bars)),
+    plan: serialisePlan(plan),
   };
 }
 
@@ -690,6 +816,7 @@ function analyzeConsolidation(
   const sma200 = sma(closes, 200);
   const ema10 = ema(closes, 10);
   const ema21 = ema(closes, 21);
+  const ema50 = ema(closes, 50);
   const ema21Prev = ema(closes.slice(0, -3), 21);
   const atr14 = atr(bars, 14);
   const kVal = stochK(bars, 10, 4);
@@ -813,6 +940,35 @@ function analyzeConsolidation(
   if (shortInterest && float) shortPct = +((shortInterest / float) * 100).toFixed(1);
   if (shortInterest && avgVol > 0) daysToCover = +(shortInterest / avgVol).toFixed(1);
 
+  // --- TRADE PLAN (v1.8) ---------------------------------------------------
+  // Tagged 'Coil' and passed the 10-day range high, which is the level this
+  // base actually resolves through. Today's high would be an earlier and
+  // looser entry — a tight coil prints several inside days before it breaks,
+  // and buying each one is how you get chopped inside the base.
+  //
+  // Deliberately NOT tagged 'Blue Dot Rev' when blueDot fires. That would
+  // route to the reversal family, which triggers off the 10 or 21 EMA — both
+  // sitting below price on a coil that is holding its averages — and the
+  // planner would report the entry as already passed. The dot describes the
+  // condition; the range high is still where the trade begins.
+  const lastBar = bars[bars.length - 1];
+  const setupName = 'Coil';
+  const plan = computeTradePlan({
+    price,
+    adrPct: adr,
+    atrPct: atrPctVal,
+    changePct,
+    ema10,
+    ema21,
+    ema50,
+    dayHigh: lastBar?.h ?? null,
+    rangeHigh: hi10,
+    priorSwingHigh: priorSwingHighOf(bars),
+    aboveEma10: price >= ema10,
+    aboveEma21: price >= ema21,
+    setupName,
+  });
+
   return {
     symbol,
     name,
@@ -852,13 +1008,20 @@ function analyzeConsolidation(
     bvrRatio,
     bvrReady,
     ema1021GapPct,
+    setupName,
+    ema10: round2(ema10),
+    ema21: round2(ema21),
+    ema50: round2(ema50),
+    dayHigh: round2(lastBar?.h ?? null),
+    dayLow: round2(lastBar?.l ?? null),
+    priorSwingHigh: round2(priorSwingHighOf(bars)),
+    plan: serialisePlan(plan),
   };
 }
 
 // ---------------------------------------------------------------------------
 // SCAN BODY
 // ---------------------------------------------------------------------------
-// Unchanged from v1.6 apart from the write guards at the end.
 async function runSwingScan() {
   try {
     if (!POLYGON_KEY) {
@@ -991,6 +1154,15 @@ async function runSwingScan() {
       console.warn('Consolidation scan produced no candidates; preserving previous KV snapshot.');
     }
 
+    // Plan diagnostics. If `planned` sits far below the row count, the stop
+    // basis is failing — most likely ADR missing on short-history names.
+    const planStats = (list: Candidate[]) => ({
+      planned: list.filter(c => c.plan?.tradeable).length,
+      clear: list.filter(c => c.plan?.tradeable && c.plan.clear).length,
+      overextended: list.filter(c => c.plan?.overextended).length,
+      triggerPassed: list.filter(c => c.plan?.note === 'trigger already passed').length,
+    });
+
     return NextResponse.json({
       success: true,
       lastScanTime: scanTime,
@@ -1005,6 +1177,10 @@ async function runSwingScan() {
       t2108Zone: t2108.zone,
       t2108Sample: t2108.total,
       scanMeta: { swing: SWING_META, consol: CONSOL_META },
+      planCoverage: {
+        swing: planStats(candidates),
+        consolidation: planStats(consolKeep),
+      },
       // Per-table write outcome. `false` means the previous snapshot was kept
       // because this run found nothing — not that the run failed.
       dataPersisted: {
