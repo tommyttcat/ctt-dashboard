@@ -1,33 +1,35 @@
 'use client';
 
-// Consolidation1021 — v2.7
-// v2.4: cluster shifted left under TICKER (colSpan={14}); added a ? hover.
-// v2.5: dropped the ? badge — the cluster wrapper itself is now cursor-help
-//       with the combined STATS_KEY_TOOLTIP, and each stat keeps its own
-//       hover. Consistent with every other hover in the table.
-// v2.6: DIC / PM / BVR / 10/21% collapsed into a single RDY score.
+// Consolidation1021 — v2.8
+// v2.5: dropped the ? badge — the cluster wrapper is cursor-help with the
+//       combined tooltip, and each stat keeps its own hover.
+// v2.6: DIC / PM / BVR / 10/21% collapsed into a single RDY score. Four
+//       numbers meant weighing four things by eye on every row, and DNLI
+//       carried CNF 91 with BVR ✗ and the 10 below the 21 while PTGX — every
+//       condition confirming — scored 88.
+// v2.7: RMV/RME moved to the far left of the sub-row, into the slot the
+//       DIC/PM/BVR cluster vacated.
+// v2.8: parity with SIPs v3.0 / Daily v2.0 — RTR column and the trade plan
+//       on the sub-row.
 //
-//       Four independent numbers on the sub-row meant reading four things and
-//       weighing them by eye, every row, every scan. Worse, they were easy to
-//       skim past: DNLI carried a CNF of 91 with BVR ✗ and the 10 sitting
-//       BELOW the 21, while PTGX — blue dot, BVR ✓, +2.2% gap, 11-day coil —
-//       scored 88. The name with every confirming condition ranked lower than
-//       the one missing two of them, and nothing on the row made that obvious.
+//       RMV/RME MOVES BACK RIGHT. v2.7 put it left because it appeared to
+//       drift horizontally row to row; the real cause was the headline
+//       collapsing on rows with no catalyst, not the ordering. The headline
+//       is flex-1 with min-w-0, so it always claims the slack and anything
+//       after it pins right — the same arrangement SIPs has used throughout.
+//       Left-anchoring it now would push the trade levels away from the
+//       ticker, which is the pairing that matters more.
 //
-//       RDY does not replace CNF. CNF is the tape score and comes from the
-//       backend; RDY is the BASE-QUALITY score and is computed here from
-//       fields already on the row. Two numbers that answer different
-//       questions: is this moving, and is this base ready.
+//       COLSPAN BUG FIXED. The v2.7 sub-row spanned 15 + 1 + 1 = 17 cells
+//       against an 18-column header, so every cell after the first was
+//       shifted one column left: the STATE badge rendered under MCAP and the
+//       Coiled label under STAGE. With 19 columns the sub-row is now
+//       17 + 1 + 1 and lines up.
 //
-//       NOTE ON THE REAL FIX: CNF itself does not read bvrReady or
-//       ema1021GapPct at all. Until /api/consolidation/run folds them in,
-//       CNF will keep ranking DNLI above PTGX. RDY makes that visible on the
-//       row; it does not correct the sort. Sort by RDY to see base quality.
-// v2.7: RMV/RME moved to the far left of the sub-row — the slot the DIC/PM/
-//       BVR cluster vacated in v2.6. It had been pinned right, which put it
-//       at a different horizontal position on every row depending on how long
-//       the headline ran. Left-anchored it sits in a fixed column the eye can
-//       track down the table, and the headline takes the remaining width.
+//       TRIGGER IS THE RANGE HIGH, not today's high — set in the swing route
+//       by tagging these rows 'Coil'. A tight base prints several inside days
+//       before it resolves, and treating each one as an entry is how you get
+//       chopped inside the coil.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -38,7 +40,7 @@ import { CONSOL_META, COLUMN_NOTES } from '@/lib/scanConfig';
 import MetricsKey from './MetricsKey';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
-  TICKER: { what: 'Symbol. Hover shows the company name.' },
+  TICKER: { what: 'Symbol. Hover shows the company name. The blue dot marks an oversold stochastic reset firing on the daily.' },
   CNF: {
     what: 'Confluence score 0–100 — how many independent factors line up: RVOL, gap, range expansion, RS, catalyst quality, persistence, VWAP, regime, sector heat. Hover the badge for the per-row breakdown.',
     colour: 'Green 70+ (A) · amber 50+ (B) · grey below (C).',
@@ -46,6 +48,10 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   RDY: {
     what: 'Readiness 0–100 — base quality, not tape action. Combines breakout volume readiness (BVR), the 10/21 EMA gap, days in coil, and the prior move. CNF says whether it is moving; RDY says whether the base is ready. Hover a row badge for the breakdown.',
     colour: 'Purple 75+ · green 55+ · amber 35+ · grey below.',
+  },
+  RTR: {
+    what: 'Room to resistance. How far the nearest overhead level sits above the trigger, measured in stop-widths (R = trigger minus stop). On this table the trigger is the 10-day range high — the level the coil resolves through, not today\'s high. Trigger, stop and target prices are on the sub-row.',
+    colour: 'Green 2R+ (clear) · slate 1R+ · amber 0.5R+ · red under 0.5R · EXT extended · ✕ no plan.',
   },
   PRICE: {
     what: 'Last price. The dot beside it is VWAP position.',
@@ -70,11 +76,11 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Purple ≤2.5× (coiled) · green ≤4× (setting up) · grey looser.',
   },
   ADR: {
-    what: '20-day average daily range. The anti-chop gate — scan floor is 3%.',
+    what: '20-day average daily range. The anti-chop gate — scan floor is 3%. Also the basis for the stop: 1.25× ADR or 2.5%, whichever is wider.',
     colour: 'Purple 10%+ · green 5%+ · grey at the floor.',
   },
   MF: {
-    what: 'Money Flow (21) — volume-weighted accumulation vs distribution, 0–100. Arrow shows the bar-over-bar trend.',
+    what: 'Money Flow (21) — volume-weighted accumulation vs distribution, 0–100. A tight coil above 55 is accumulation inside the base; the same coil under 45 is quiet distribution. Arrow shows the bar-over-bar trend.',
     colour: 'Green high (accumulation) · red low (distribution).',
   },
   RS: {
@@ -102,6 +108,23 @@ const colTip = (key: string): string | undefined => {
   if (!n) return undefined;
   return n.colour ? `${n.what}\n\n${n.colour}` : n.what;
 };
+
+interface TradePlanRow {
+  family?: string;
+  trigger?: number | null;
+  triggerLabel?: string;
+  stop?: number | null;
+  stopPct?: number | null;
+  target?: number | null;
+  rMultiple?: number;
+  resistanceR?: number | null;
+  resistanceLabel?: string | null;
+  clear?: boolean;
+  collapsed?: boolean;
+  overextended?: boolean;
+  tradeable?: boolean;
+  note?: string;
+}
 
 interface ConsolidationCandidate {
   symbol: string;
@@ -148,10 +171,13 @@ interface ConsolidationCandidate {
   catalyst?: string | null;
   catalystUrl?: string | null;
   cnfBreakdown?: Record<string, number> | null;
+  cnfCeiling?: number | null;
+  cnfCeilingReason?: string | null;
   thesis?: string | null;
   news?: string | null;
   newsUrl?: string | null;
   headline?: string | null;
+  plan?: TradePlanRow | null;
 }
 
 type SortDirection = 'asc' | 'desc';
@@ -162,12 +188,14 @@ type VwapFilterType = 'All' | 'above' | 'below';
 type AdrFilterType = 'All' | '5' | '10';
 type StatFilterType = 'All' | 'Coiled' | 'Setting Up';
 type VolFilterType = 'All' | '20' | '50' | '100';
+type PlanFilterType = 'All' | '1R' | 'Clear';
 
 const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
 const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 const RDY_BUCKETS: RdyFilterType[] = ['55', '75'];
 const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
 const VOL_BUCKETS: VolFilterType[] = ['20', '50', '100'];
+const PLAN_BUCKETS: PlanFilterType[] = ['1R', 'Clear'];
 
 const COIL_COILED_MAX = 2.5;
 const COIL_SETTING_MAX = 4.0;
@@ -187,6 +215,8 @@ const CNF_LABELS: Record<string, string> = {
   moneyFlow: 'Money Flow',
   coil: 'Coil tightness',
   dot: 'Blue dot',
+  reclaim: '10 EMA reclaimed',
+  runway: 'Runway to target',
 };
 
 const formatTime = (timestamp: number | Date) => {
@@ -208,6 +238,16 @@ const formatCurrency = (num: number | null | undefined) => {
   if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
   if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
   return '$' + num.toLocaleString();
+};
+
+// Price levels drop the cents on anything three digits or more — at $886 the
+// pennies are noise, at $4.18 they are the whole trade.
+const formatLevel = (v: number | null | undefined): string => {
+  if (v == null || isNaN(Number(v))) return '—';
+  const n = Number(v);
+  if (n >= 100) return n.toFixed(0);
+  if (n >= 10) return n.toFixed(1);
+  return n.toFixed(2);
 };
 
 const formatRs = (rs: number | null | undefined): string => {
@@ -310,6 +350,12 @@ const gap1021Of = (c: ConsolidationCandidate): number | null => numField(c.ema10
    Every component degrades to 0 rather than throwing when its field is
    missing, and `sampled` reports how many of the four actually resolved so
    a score built on two inputs can be read as the weaker evidence it is.
+
+   RDY AND RTR ANSWER DIFFERENT QUESTIONS and both are worth a column here.
+   RDY is about the base: has volume dried up, is the ribbon set, has it
+   coiled long enough. RTR is about the trade: once it breaks, is there room
+   to be paid before something stops it. A perfect base into immediate
+   resistance is a real and common shape.
    ---------------------------------------------------------------------- */
 interface RdyDetail {
   score: number | null;
@@ -407,7 +453,7 @@ const rdyTooltip = (c: ConsolidationCandidate, d: RdyDetail): string => {
     lines.push(`RDY ${d.score} — ${band}`);
   }
   lines.push('');
-  lines.push('Base readiness, not tape action. CNF says whether it is moving.');
+  lines.push('Base readiness, not tape action. CNF says whether it is moving; RTR says whether there is room once it breaks.');
   lines.push('');
   for (const p of d.parts) {
     lines.push(`${String(p.value).padStart(2)}/${p.max}  ${p.label} — ${p.detail}`);
@@ -416,6 +462,82 @@ const rdyTooltip = (c: ConsolidationCandidate, d: RdyDetail): string => {
     lines.push('');
     lines.push(`Built from ${d.sampled} of 4 inputs — treat as weaker evidence.`);
   }
+  return lines.join('\n');
+};
+
+/* ---- Trade plan ---------------------------------------------------------
+   Reads the `plan` object the swing route ships. Nothing is recalculated
+   here, so the table cannot disagree with the score.
+
+   The trigger on this table is the 10-DAY RANGE HIGH, not today's high —
+   the route tags these rows 'Coil' so the planner uses rangeHigh. That is
+   the level the base actually resolves through.                          */
+const planOf = (c: ConsolidationCandidate): TradePlanRow | null => {
+  const p = c.plan;
+  return p && typeof p === 'object' ? p : null;
+};
+
+const PLAN_SORT_CLEAR = 99;
+const PLAN_SORT_NONE = -1;
+
+const planSortValue = (c: ConsolidationCandidate): number => {
+  const p = planOf(c);
+  if (!p || p.tradeable !== true) return PLAN_SORT_NONE;
+  if (p.collapsed) return PLAN_SORT_NONE;
+  if (p.overextended) return PLAN_SORT_NONE;
+  if (p.clear) return p.resistanceR != null ? p.resistanceR : PLAN_SORT_CLEAR;
+  return p.resistanceR != null ? p.resistanceR : PLAN_SORT_NONE;
+};
+
+const planShort = (c: ConsolidationCandidate): string => {
+  const p = planOf(c);
+  if (!p) return '—';
+  if (p.collapsed) return '✕';
+  if (p.tradeable !== true) return '—';
+  if (p.overextended) return 'EXT';
+  if (p.clear) return p.resistanceR != null ? `${p.resistanceR.toFixed(1)}R` : '2R+';
+  if (p.resistanceR == null) return '—';
+  return `${p.resistanceR.toFixed(1)}R`;
+};
+
+const planBadge = (c: ConsolidationCandidate): string => {
+  const p = planOf(c);
+  if (!p) return 'bg-white/[0.02] text-slate-600 border-white/5';
+  if (p.collapsed) return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+  if (p.tradeable !== true) return 'bg-white/[0.02] text-slate-600 border-white/5';
+  if (p.overextended) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+  if (p.clear) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+  const r = p.resistanceR;
+  if (r == null) return 'bg-white/[0.02] text-slate-600 border-white/5';
+  if (r >= 1.0) return 'bg-slate-500/10 text-slate-300 border-white/10';
+  if (r >= 0.5) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+  return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+};
+
+const planTooltip = (c: ConsolidationCandidate): string => {
+  const p = planOf(c);
+  if (!p) return 'No trade plan on this row — rerun the swing scan.';
+  if (p.tradeable !== true) return `No plan — ${p.note || 'not computable'}.`;
+
+  const lines: string[] = [];
+  lines.push(`Trigger  ${p.trigger != null ? p.trigger.toFixed(2) : '—'}  (${p.triggerLabel || '—'})`);
+  lines.push(`Stop     ${p.stop != null ? p.stop.toFixed(2) : '—'}  (${p.stopPct != null ? `−${p.stopPct.toFixed(1)}%` : '—'})`);
+  lines.push(`Target   ${p.target != null ? p.target.toFixed(2) : '—'}  (2R)`);
+  if (p.trigger != null && p.stop != null) {
+    lines.push(`Risk     ${(p.trigger - p.stop).toFixed(2)} per share`);
+  }
+  lines.push('');
+  if (p.resistanceR != null) {
+    lines.push(`Nearest overhead: ${p.resistanceLabel || 'level'} at ${p.resistanceR.toFixed(1)}R`);
+  } else {
+    lines.push('No overhead level between trigger and target.');
+  }
+  if (p.note) {
+    lines.push('');
+    lines.push(p.note);
+  }
+  lines.push('');
+  lines.push('Stop is the wider of 1.25× ADR or 2.5%. Target is a fixed 2R.');
   return lines.join('\n');
 };
 
@@ -458,6 +580,11 @@ const cnfTooltip = (c: ConsolidationCandidate): string => {
     }
   }
 
+  if (c.cnfCeiling != null && c.cnfCeiling < 100) {
+    lines.push('');
+    lines.push(`Capped at ${c.cnfCeiling}${c.cnfCeilingReason ? ` — ${c.cnfCeilingReason}` : ''}`);
+  }
+
   const rme = rmeOf(c);
   if (rme != null) {
     lines.push('');
@@ -494,6 +621,7 @@ export default function Consolidation1021() {
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [statFilter, setStatFilter] = useState<StatFilterType>('All');
   const [volFilter, setVolFilter] = useState<VolFilterType>('All');
+  const [planFilter, setPlanFilter] = useState<PlanFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
 
@@ -545,6 +673,7 @@ export default function Consolidation1021() {
   const handleRdyFilter = (val: RdyFilterType) => setRdyFilter(prev => prev === val ? 'All' : val);
   const handleStatFilter = (val: StatFilterType) => setStatFilter(prev => prev === val ? 'All' : val);
   const handleVolFilter = (val: VolFilterType) => setVolFilter(prev => prev === val ? 'All' : val);
+  const handlePlanFilter = (val: PlanFilterType) => setPlanFilter(prev => prev === val ? 'All' : val);
 
   const filteredAndSorted = useMemo(() => {
     let filtered = [...candidates];
@@ -596,21 +725,35 @@ export default function Consolidation1021() {
       const minVol = Number(volFilter) * 1e6;
       filtered = filtered.filter(c => (c.dVol ?? (c.avgDollarVolM ? c.avgDollarVolM * 1e6 : 0)) >= minVol);
     }
+    // Plan filter drops anything without a usable entry. "Clear" is the
+    // strictest read: a definable trigger AND two stop-widths of air above it.
+    if (planFilter !== 'All') {
+      filtered = filtered.filter(c => {
+        const p = planOf(c);
+        if (!p || p.tradeable !== true || p.collapsed || p.overextended) return false;
+        if (planFilter === 'Clear') return p.clear === true;
+        return p.clear === true || (p.resistanceR != null && p.resistanceR >= 1.0);
+      });
+    }
     if (!sortConfig) return filtered;
     return filtered.sort((a, b) => {
       const aVal = sortConfig.key === 'rdy'
         ? (rdyBySymbol.get(a.symbol)?.score ?? null)
-        : ((a as any)[sortConfig.key] as any);
+        : sortConfig.key === 'planR'
+          ? planSortValue(a)
+          : ((a as any)[sortConfig.key] as any);
       const bVal = sortConfig.key === 'rdy'
         ? (rdyBySymbol.get(b.symbol)?.score ?? null)
-        : ((b as any)[sortConfig.key] as any);
+        : sortConfig.key === 'planR'
+          ? planSortValue(b)
+          : ((b as any)[sortConfig.key] as any);
       if (aVal === null || aVal === undefined) return 1;
       if (bVal === null || bVal === undefined) return -1;
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, rdyBySymbol, sortConfig, showStage2Only, marketCapFilter, cnfFilter, rdyFilter, emaFilter, adrFilter, vwapFilter, statFilter, volFilter]);
+  }, [candidates, rdyBySymbol, sortConfig, showStage2Only, marketCapFilter, cnfFilter, rdyFilter, emaFilter, adrFilter, vwapFilter, statFilter, volFilter, planFilter]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -719,6 +862,7 @@ export default function Consolidation1021() {
     (marketCapFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
     (rdyFilter !== 'All' ? 1 : 0) +
+    (planFilter !== 'All' ? 1 : 0) +
     (emaFilter !== 'All' ? 1 : 0) +
     (adrFilter !== 'All' ? 1 : 0) +
     (vwapFilter !== 'All' ? 1 : 0) +
@@ -804,6 +948,23 @@ export default function Consolidation1021() {
                   </div>
                 </div>
                 <div className={pillWrap}>
+                  <span className={pillLabel}>PLAN</span>
+                  <div className="flex items-center gap-1">
+                    {PLAN_BUCKETS.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => handlePlanFilter(opt)}
+                        title={opt === 'Clear'
+                          ? 'Only coils with a definable trigger and 2R of clear air above the range high'
+                          : 'Only coils with at least one stop-width to the nearest overhead level'}
+                        className={`${pillBtn} ${planFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {opt === '1R' ? '1R+' : 'Clear'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
                   <span className={pillLabel}>STAT</span>
                   <div className="flex items-center gap-1">
                     {(['Coiled', 'Setting Up'] as StatFilterType[]).map((opt) => (
@@ -883,17 +1044,19 @@ export default function Consolidation1021() {
           </div>
 
           <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            <table className="w-full min-w-[880px] table-fixed border-collapse">
+            {/* 19 columns now — min-w 880 → 980. */}
+            <table className="w-full min-w-[980px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%]`} title={colTip('TICKER')} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('CNF')} onClick={() => handleSort('score')}>CNF{getSortIcon('score')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('RDY')} onClick={() => handleSort('rdy')}>RDY{getSortIcon('rdy')}</th>
-                  <th className={`${thBase} w-[7%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('RTR')} onClick={() => handleSort('planR')}>RTR{getSortIcon('planR')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('10/21')}>10/21</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('COIL')} onClick={() => handleSort('coilRatio')}>COIL{getSortIcon('coilRatio')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
@@ -909,7 +1072,7 @@ export default function Consolidation1021() {
 
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
-                  <tr><td colSpan={18} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No consolidations in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
+                  <tr><td colSpan={19} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No consolidations in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
                 ) : (
                   filteredAndSorted.map((row) => {
                     const isPositive = (row.changePct ?? 0) >= 0;
@@ -926,6 +1089,7 @@ export default function Consolidation1021() {
                     const range10 = range10Of(row);
                     const st = coilStat(row);
                     const rdy = rdyBySymbol.get(row.symbol) ?? computeRdy(row);
+                    const plan = planOf(row);
                     return (
                       <React.Fragment key={row.symbol}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -949,6 +1113,14 @@ export default function Consolidation1021() {
                               className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border cursor-help ${getRdyBadge(rdy.score)}`}
                             >
                               {rdy.score ?? '—'}
+                            </span>
+                          </td>
+                          <td className={tdBase}>
+                            <span
+                              title={planTooltip(row)}
+                              className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border cursor-help ${planBadge(row)}`}
+                            >
+                              {planShort(row)}
                             </span>
                           </td>
                           <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
@@ -1002,23 +1174,42 @@ export default function Consolidation1021() {
                             <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: RMV/RME now sits FIRST, in the slot the
-                            DIC/PM/BVR cluster used to hold. Pinned right it
-                            landed at a different x-position on every row —
-                            whatever was left after the headline truncated —
-                            so it could not be scanned vertically. Left-anchored
-                            and shrink-0 it holds one column down the table, and
-                            the headline flexes into what remains. */}
+                        {/* Sub-row: colSpan 17 covers TICKER..MCAP, then STAGE
+                            and SECTOR get their own cells — 19 total, matching
+                            the header. The v2.7 sub-row spanned 17 against an
+                            18-column header, which shifted the STATE badge
+                            under MCAP and the Coiled label under STAGE.
+
+                            Levels sit under the ticker where the setup name
+                            goes on the other tables. There is no setup name to
+                            show here — every row is a coil — so the trigger
+                            leads instead. */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td colSpan={15} className="pb-1.5 pt-1 pr-3">
+                          <td colSpan={17} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
-                              <span
-                                title={stateTooltip(rmv, rme)}
-                                className="shrink-0 flex items-baseline gap-1.5 pr-2.5 cursor-help whitespace-nowrap"
-                              >
-                                <span className="text-[8px] font-bold tracking-[0.1em] uppercase text-slate-600">RMV/RME</span>
-                                <span className="text-[9px] font-semibold text-slate-500 tabular-nums">{statePair(rmv, rme)}</span>
-                              </span>
+                              {plan?.tradeable && plan.trigger != null ? (
+                                <span
+                                  title={planTooltip(row)}
+                                  className="shrink-0 flex items-baseline gap-2 pl-1 pr-2.5 cursor-help whitespace-nowrap"
+                                >
+                                  <span className="flex items-baseline gap-1">
+                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">TRIG</span>
+                                    <span className="text-[9px] font-bold tabular-nums text-slate-200">{formatLevel(plan.trigger)}</span>
+                                  </span>
+                                  <span className="flex items-baseline gap-1">
+                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">STOP</span>
+                                    <span className="text-[9px] font-bold tabular-nums text-rose-400/90">{formatLevel(plan.stop)}</span>
+                                  </span>
+                                  <span className="flex items-baseline gap-1">
+                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">TGT</span>
+                                    <span className="text-[9px] font-bold tabular-nums text-emerald-400/90">{formatLevel(plan.target)}</span>
+                                  </span>
+                                </span>
+                              ) : (
+                                <span className="shrink-0 pl-1 pr-2.5 text-[9px] font-semibold text-slate-600 italic whitespace-nowrap">
+                                  {plan?.collapsed ? 'no long plan' : plan?.note === 'trigger already passed' ? 'entry passed' : 'no plan'}
+                                </span>
+                              )}
                               <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={headline || undefined}>
                                 {headline || tag ? (
                                   <>
@@ -1040,6 +1231,13 @@ export default function Consolidation1021() {
                                   <span className="text-slate-600 italic">No news catalyst — technical setup only.</span>
                                 )}
                               </p>
+                              <span
+                                title={stateTooltip(rmv, rme)}
+                                className="shrink-0 flex items-baseline gap-1.5 cursor-help whitespace-nowrap"
+                              >
+                                <span className="text-[8px] font-bold tracking-[0.1em] uppercase text-slate-600">RMV/RME</span>
+                                <span className="text-[9px] font-semibold text-slate-500 tabular-nums">{statePair(rmv, rme)}</span>
+                              </span>
                             </div>
                           </td>
                           <td className="pb-1.5 pt-1 pl-1.5 text-left align-middle border-l border-white/5">
