@@ -71,6 +71,7 @@ interface EarningsEvent {
 }
 
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
+type BlockKey = 'morning' | 'midday' | 'closing';
 
 const getEstDateInfo = () => {
   return new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
@@ -95,6 +96,63 @@ const getMarketSession = (): MarketSession => {
   if (timeStr >= 9.5 && timeStr < 16) return 'Open';
   if (timeStr >= 16 && timeStr < 20) return 'Post-Market';
   return 'Closed';
+};
+
+/* ---- Session-block staleness -------------------------------------------
+   Each narrative block owns a window. Once the NEXT window opens, the block
+   is describing a tape that has already moved on.
+
+   This matters more than it sounds. The 8:30 AM pre-market block says things
+   like "early tape is lower, defense first, wait for the opening range." If
+   the tape reverses hard on an earnings gap, that text is still sitting there
+   at 11 AM reading as live guidance while the market is up 2.6%. The block
+   is not wrong — it was true at 8:30 — it is just no longer current, and
+   nothing in the UI said so.
+
+   Blocks are marked, never hidden. The history is useful; the framing is what
+   needed fixing. When a block is stale and its successor has not arrived yet,
+   we say that explicitly rather than letting silence imply currency.
+   ------------------------------------------------------------------------ */
+const BLOCK_WINDOWS: Record<BlockKey, { opens: number; supersededAt: number; nextLabel: string }> = {
+  morning: { opens: 4.0, supersededAt: 11.5, nextLabel: 'midday' },
+  midday: { opens: 11.5, supersededAt: 15.5, nextLabel: 'closing' },
+  closing: { opens: 15.5, supersededAt: 24, nextLabel: '' },
+};
+
+const isBlockStale = (key: BlockKey, weekend: boolean): boolean => {
+  // On weekends there is no live tape to go stale against — the last written
+  // blocks are the whole story until Monday.
+  if (weekend) return false;
+  return getCurrentEstDecimal() >= BLOCK_WINDOWS[key].supersededAt;
+};
+
+/* ---- Actionable-catalyst noise filter -----------------------------------
+   The Benzinga high-impact feed is dominated by securities-litigation
+   solicitations. ROSEN alone blasts a dozen near-identical "investors urged
+   to secure counsel" releases in a session, every one of them tagged High.
+   They are marketing, they move nothing, and they crowd real catalysts off
+   a top-10 list.
+
+   Two-pass filter: known firm names, then the boilerplate phrasing, so a
+   firm we have not enumerated yet still gets caught by its own language.
+   ------------------------------------------------------------------------ */
+const LAW_FIRM_NOISE = /\b(rosen|block\s*&?\s*leviton|hagens\s*berman|halper\s*sadeh|pomerantz|bronstein[,\s]|glancy|levi\s*&?\s*korsinsky|kahn\s*swick|robbins\s*geller|schall\s*law|kessler\s*topaz|faruqi|bragar\s*eagel|monteverde|johnson\s*fistel|gross\s*law|wolf\s*haldenstein|berger\s*montague|scott\s*\+?\s*scott)\b/i;
+
+const LEGAL_BOILERPLATE = /(class\s*action|securities\s*fraud|investors?\s+(are\s+)?(urged|encouraged|reminded|notified)|secure\s+counsel|contact\s+the\s+firm|lead\s+plaintiff\s+deadline|investigat(ing|ion)\s+(whether|on\s+behalf|claims)|law\s*firm|deadline:)/i;
+
+// Regulatory-filing chatter that also carries a High tag but is procedural.
+const FILING_BOILERPLATE = /(Form\s*8\.5\s*\(EPT|Form\s*8\.3\s*\(|Resolutions\s+passed\s+by|Notification\s+of\s+(major\s+)?holdings|Total\s+Voting\s+Rights)/i;
+
+const isEventNoise = (headline: string): boolean => {
+  const h = String(headline || '');
+  return LAW_FIRM_NOISE.test(h) || LEGAL_BOILERPLATE.test(h) || FILING_BOILERPLATE.test(h);
+};
+
+// Pull the leading ticker off "TOPS: Top Ships Inc. Announces..." style rows.
+const splitEventTicker = (raw: string): { ticker: string | null; text: string } => {
+  const m = String(raw || '').match(/^([A-Z][A-Z.\-]{0,6}):\s*(.+)$/);
+  if (m) return { ticker: m[1], text: m[2] };
+  return { ticker: null, text: String(raw || '') };
 };
 
 const formatTime = (date: Date) => {
@@ -808,52 +866,39 @@ const buildLocalInsights = (
   const rawTheme = `${topSectors.length ? topSectors.join(' & ') : 'Broad Market'} In Focus — ${aCount > 0 ? `${aCount} A-Grade Setup${aCount > 1 ? 's' : ''}` : 'Momentum Watch'}`;
   const theme = titleCase(rawTheme);
 
-  /* ---- SIPs Thesis ---- */
+  /* ---- SIPs Thesis ----
+     Columns are built once here. An earlier version computed the same
+     leaders/news/faders lists twice — into `sipsLines` and again into the
+     column strings — and only the second copy was ever rendered. Collapsed
+     to a single pass so the two cannot drift apart. */
   const sipsSorted = sips.slice().sort((a, b) => (rvolOf(b) ?? 0) - (rvolOf(a) ?? 0));
   const leaders = sipsSorted.filter(s => (rvolOf(s) ?? 0) >= 1.5).slice(0, 3);
-  const grinders = sips.filter(s => rvolOf(s) != null && (rvolOf(s) as number) < 1).map(s => s.ticker).slice(0, 7);
-
-  const sipsLines: string[] = [];
-  if (leaders.length) {
-    sipsLines.push(`Volume-confirmed:\n${leaders.map(fmtLeader).join('\n')}`);
-  }
+  const faders = sips.filter(s => rvolOf(s) != null && (rvolOf(s) as number) < 1);
   const newsItems = sips.filter(hasRealCatalyst).slice(0, 4);
-  if (newsItems.length) {
-    sipsLines.push(`News-driven:\n${newsItems.map(s => {
-      const cat = catalystLinked(s);
-      const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
-      const rv = rvolOf(s);
-      const rvolStr = rv != null ? ` · RVOL ${rv.toFixed(2)}` : '';
-      return `${s.ticker} ${chg}${rvolStr}${cat ? ` — ${cat}` : ''}`;
-    }).join('\n')}`);
-  }
-  if (grinders.length) {
-    const grinderStats = sips.filter(s => rvolOf(s) != null && (rvolOf(s) as number) < 1).slice(0, 7);
-    sipsLines.push(`Sub-1.0 RVOL (price without volume, prone to fading):\n${grinderStats.map(s =>
-      `${s.ticker} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% · RVOL ${(rvolOf(s) ?? 0).toFixed(2)}`
-    ).join('\n')}`);
-  }
-  let sipsPara = '';
-  const newsCol = newsItems.length ? `News-driven:\n${newsItems.map(s => {
+
+  const fmtNewsRow = (s: any): string => {
     const cat = catalystLinked(s);
     const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
     const rv = rvolOf(s);
     const rvolStr = rv != null ? ` · RVOL ${rv.toFixed(2)}` : '';
     return `${s.ticker} ${chg}${rvolStr}${cat ? ` — ${cat}` : ''}`;
-  }).join('\n')}` : '';
+  };
+  const fmtFaderRow = (s: any): string =>
+    `${s.ticker} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% · RVOL ${(rvolOf(s) ?? 0).toFixed(2)}`;
+
   const leadersCol = leaders.length ? `Volume-confirmed:\n${leaders.map(fmtLeader).join('\n')}` : '';
-  const fadersCol = grinders.length ? `Sub-1.0 RVOL (faders):\n${sips.filter(s => rvolOf(s) != null && (rvolOf(s) as number) < 1).slice(0, 5).map(s =>
-    `${s.ticker} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% · RVOL ${(rvolOf(s) ?? 0).toFixed(2)}`
-  ).join('\n')}` : '';
+  const newsCol = newsItems.length ? `News-driven:\n${newsItems.map(fmtNewsRow).join('\n')}` : '';
+  const fadersCol = faders.length ? `Sub-1.0 RVOL (faders):\n${faders.slice(0, 5).map(fmtFaderRow).join('\n')}` : '';
 
   const leftCol = leadersCol || newsCol;
   const rightCol = leadersCol ? (fadersCol || newsCol) : fadersCol;
 
+  let sipsPara = '';
   if (leftCol && rightCol && leftCol !== rightCol) {
     const extra = (leadersCol && newsCol && fadersCol) ? `\n${newsCol}` : '';
     sipsPara = `SIPs Thesis: ${leftCol}|||${rightCol}${extra}`;
-  } else if (sipsLines.length) {
-    sipsPara = `SIPs Thesis: ${sipsLines.join('\n')}`;
+  } else if (leftCol || rightCol) {
+    sipsPara = `SIPs Thesis: ${leftCol || rightCol}`;
   } else if (sips.length) {
     sipsPara = 'SIPs Thesis: No volume-confirmed leaders yet.';
   }
@@ -1225,9 +1270,9 @@ export default function MarketSummary() {
           if (isMounted) {
             const estTime = getCurrentEstDecimal();
             const gatedData: SummaryData = {
-              morning: (estTime >= 4.0 || isWeekend) ? (payload.morning || null) : null,
-              midday: (estTime >= 11.5 || isWeekend) ? (payload.midday || null) : null,
-              closing: (estTime >= 15.5 || isWeekend) ? (payload.closing || null) : null,
+              morning: (estTime >= BLOCK_WINDOWS.morning.opens || isWeekend) ? (payload.morning || null) : null,
+              midday: (estTime >= BLOCK_WINDOWS.midday.opens || isWeekend) ? (payload.midday || null) : null,
+              closing: (estTime >= BLOCK_WINDOWS.closing.opens || isWeekend) ? (payload.closing || null) : null,
               actionableEvents: payload.actionableEvents || []
             };
             setData(gatedData);
@@ -1327,38 +1372,70 @@ export default function MarketSummary() {
       .replace(/(Sector Flow:)/gi, '\n\n$1');
   };
 
-  const renderSingleUpdateBlock = (block: UpdateBlock | null) => {
+  /* A stale block keeps its content but loses its authority: muted text, a
+     SUPERSEDED chip, and an explicit line saying the tape has moved past it.
+     Silence here was the bug — an 8:30 AM "defense first" read sitting
+     unmarked at 11 AM looks like live guidance. */
+  const renderSingleUpdateBlock = (block: UpdateBlock | null, key: BlockKey) => {
     if (!block) return null;
     const styles = getThemeStyles(block.colorTheme);
+    const stale = isBlockStale(key, isWeekend);
+    const nextLabel = BLOCK_WINDOWS[key].nextLabel;
 
     return (
-      <div className="bg-[#161c2a]/60 border border-white/5 rounded-xl p-5 md:p-6 mt-3">
-        <div className="flex items-center gap-3 mb-4">
-          <div className={`w-2 h-2 rounded-full ${styles.bg} border border-current ${styles.text}`}></div>
-          <h4 className={`text-[11px] font-bold tracking-widest uppercase ${styles.text}`}>
+      <div className={`bg-[#161c2a]/60 border rounded-xl p-5 md:p-6 mt-3 transition-opacity duration-300 ${
+        stale ? 'border-white/5 opacity-50 hover:opacity-90' : 'border-white/5'
+      }`}>
+        <div className="flex items-center gap-3 mb-4 flex-wrap">
+          <div className={`w-2 h-2 rounded-full ${stale ? 'bg-slate-500/10 border border-slate-500 text-slate-500' : `${styles.bg} border border-current ${styles.text}`}`}></div>
+          <h4 className={`text-[11px] font-bold tracking-widest uppercase ${stale ? 'text-slate-500' : styles.text}`}>
             {block.phase}
           </h4>
           <span className="text-[9px] text-slate-500 font-medium tracking-wider px-2 py-0.5 bg-black/20 border border-white/5 rounded">
             {block.timestamp}
           </span>
+          {stale && (
+            <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400/80 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
+              Superseded
+            </span>
+          )}
         </div>
 
         <div className="space-y-3 mb-5">
           {block.paragraphs.map((p, idx) => (
-            <p key={idx} className="text-[13px] text-slate-400 leading-relaxed border-l-[2px] border-slate-500/30 pl-3.5">
+            <p key={idx} className={`text-[13px] leading-relaxed border-l-[2px] pl-3.5 ${
+              stale ? 'text-slate-500 border-slate-600/30' : 'text-slate-400 border-slate-500/30'
+            }`}>
               {renderBriefingText(p)}
             </p>
           ))}
         </div>
 
-        <div className={`border-l-[4px] p-4 rounded-r-xl transition-colors duration-300 ${styles.boxBg} ${styles.boxBorder}`}>
-          <p className={`text-[13px] leading-relaxed ${styles.boxText}`}>
+        <div className={`border-l-[4px] p-4 rounded-r-xl transition-colors duration-300 ${
+          stale ? 'bg-slate-500/[0.06] border-slate-600' : `${styles.boxBg} ${styles.boxBorder}`
+        }`}>
+          <p className={`text-[13px] leading-relaxed ${stale ? 'text-slate-500' : styles.boxText}`}>
             {block.takeaway}
           </p>
         </div>
+
+        {stale && (
+          <p className="text-[11px] text-amber-400/70 font-medium mt-3 leading-snug">
+            Written for the {block.phase.toLowerCase()} window — the tape has moved past this read.
+            {nextLabel ? ` Treat it as history until the ${nextLabel} update posts.` : ''}
+          </p>
+        )}
       </div>
     );
   };
+
+  /* Actionable catalysts were fetched, gated, and stored — then never
+     rendered. Surfacing them here, minus the litigation-solicitation and
+     regulatory-filing noise that dominates the High-impact feed. */
+  const cleanEvents: ActionableEvent[] = (data?.actionableEvents || [])
+    .filter(e => e?.event && !isEventNoise(e.event))
+    .filter(e => e.impact !== 'Low');
+  const suppressedCount = (data?.actionableEvents || []).length - cleanEvents.length;
 
   return (
     <div className="bg-[#101623] border border-white/10 rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-2xl w-full">
@@ -1600,6 +1677,40 @@ export default function MarketSummary() {
             </div>
           )}
 
+          {cleanEvents.length > 0 && (
+            <div className="mb-8 bg-[#161c2a]/60 border border-white/5 rounded-xl p-5 md:p-6">
+              <div className="flex items-center gap-3 mb-4 flex-wrap">
+                <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded tracking-widest uppercase">
+                  ACTIONABLE CATALYSTS
+                </span>
+                <span className="text-[11px] text-slate-500 font-medium">
+                  {cleanEvents.length} live
+                  {suppressedCount > 0 && ` · ${suppressedCount} suppressed as litigation/filing noise`}
+                </span>
+              </div>
+              <ul className="flex flex-col gap-1.5">
+                {cleanEvents.slice(0, 10).map((e, idx) => {
+                  const { ticker, text } = splitEventTicker(e.event);
+                  return (
+                    <li key={idx} className="flex items-start gap-2.5 flex-wrap">
+                      <span className={`${valNum} font-bold shrink-0 ${e.impact === 'High' ? 'text-amber-400' : 'text-slate-500'}`}>
+                        {e.time}
+                      </span>
+                      {ticker && (
+                        <span className="text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider shrink-0">
+                          {ticker}
+                        </span>
+                      )}
+                      <span className="text-[13px] text-slate-300 font-medium leading-relaxed flex-1 min-w-[200px]">
+                        {text}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
           <div className="border-t border-white/5 pt-6 mt-4">
             <span className="inline-flex text-xs md:text-sm font-bold border px-4 py-1.5 rounded-lg tracking-widest uppercase items-center gap-2 text-[#7c8bfa] bg-[#161c2a]/40 border-white/5">
               <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
@@ -1614,9 +1725,9 @@ export default function MarketSummary() {
               </div>
             ) : (
               <div className="animate-in fade-in duration-500 flex flex-col gap-2">
-                {data?.morning && renderSingleUpdateBlock(data.morning)}
-                {data?.midday && renderSingleUpdateBlock(data.midday)}
-                {data?.closing && renderSingleUpdateBlock(data.closing)}
+                {data?.morning && renderSingleUpdateBlock(data.morning, 'morning')}
+                {data?.midday && renderSingleUpdateBlock(data.midday, 'midday')}
+                {data?.closing && renderSingleUpdateBlock(data.closing, 'closing')}
 
                 {!data?.morning && !data?.midday && !data?.closing && (
                   <div className="text-center py-8 text-slate-500 text-sm font-medium border border-dashed border-white/10 rounded-xl mt-3">

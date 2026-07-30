@@ -1,4 +1,4 @@
-// src/app/api/scanner/run/route.ts — v6.10
+// src/app/api/scanner/run/route.ts — v6.11
 // v6.1: + RMV(15); thesis is news-headline-only (stats moved to t.readout)
 // v6.2: RMV/RME imported from lib/indicators; RME(21) replaces the binary
 //       `extended` penalty in CNF; + cnfBreakdown for the badge tooltip
@@ -16,6 +16,21 @@
 //        left every downstream consumer unable to identify a first-touch
 //        pullback (under the 10, still holding the 21) — the highest-quality
 //        Dr. Wish entry. Emitting the number costs nothing.
+// v6.11: three fixes.
+//        (a) SPAM FILTER. Substring matching on 'rosen law' missed the actual
+//            wire format ("ROSEN, A TOP RANKED LAW FIRM, Encourages..."), and
+//            'investigation' missed "is Investigating". Rebuilt as two regexes
+//            — firm names and solicitation boilerplate — so a firm not on the
+//            list still gets caught by its own language. Also drops Form 8.3 /
+//            8.5 regulatory filings, which are procedural, not catalysts.
+//        (b) STRUCTURAL CEILING ON CNF. A name in Stage 4 with a dead 50/200
+//            could grade A on tape components alone — RVOL + gap + range
+//            expansion sum to 70 before any penalty, and the RME extension
+//            adjustment bottoms out at -12. A 37% gap in a name 79% off its
+//            highs is a dead-cat bounce, not an A setup. Grade is now capped
+//            by trend structure regardless of how loud the session is.
+//        (c) detectPattern returns stageNum alongside the label, so the
+//            ceiling can compare a number instead of parsing 'Stage 4B'.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -164,16 +179,36 @@ const getUpdatePhase = (hour: number) => {
 const etDateString = (d: Date): string =>
   d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 
-const isSpamNews = (title: string) => {
+// --- Promotional / procedural news suppression -------------------------------
+// v6.11. The old implementation was a substring list, and the wire format
+// beat it. Three headlines from the 7/30 feed, all tagged High impact, all of
+// which passed the old filter:
+//
+//   "ROSEN, A TOP RANKED LAW FIRM, Encourages Intuit Inc. Investors to
+//    Secure Counsel..."          -> list had 'rosen law', not present here
+//   "Halper Sadeh LLC is Investigating Whether FNWD and PSNL..."
+//                                -> list had 'investigation', text says
+//                                   'Investigating'
+//   "Alert: Capricor Therapeutics... Investors Urged to Contact Hagens..."
+//                                -> list had 'investors alerted' and
+//                                   'investors reminded', not 'urged'
+//
+// Two passes now. Firm names catch the known blasters; the boilerplate pass
+// catches the language itself, so a firm we have never enumerated is still
+// suppressed by how it writes. Stemmed where the old list was literal.
+const LAW_FIRM_NAMES = /\b(rosen|pomerantz|glancy|kaskela|bronstein|schall|johnson\s*fistel|bragar|eagel|squire|gross\s*law|faruqi|portnoy|block\s*&?\s*leviton|hagens\s*berman|halper\s*sadeh|levi\s*&?\s*korsinsky|robbins\s*geller|kessler\s*topaz|monteverde|wolf\s*haldenstein|berger\s*montague|scott\s*\+?\s*scott|kahn\s*swick|kirby\s*mcinerney|labaton|bernstein\s*liebhard|howard\s*g\.?\s*smith|kuehn\s*law|grabar|rigrodsky|weiss\s*law|ademi|federman|shall\s*law)\b/i;
+
+const LEGAL_BOILERPLATE = /(class\s*action|securities\s*fraud|shareholder\s*(alert|rights|investigation|deadline)|investors?\s+(are\s+)?(urged|encouraged|reminded|alerted|notified|advised|who\s+lost)|secure\s+counsel|contact\s+the\s+firm|lead\s+plaintiff|investigat(e|es|ed|ing|ion|ions)\s+(whether|on\s+behalf|claims|potential|possible)|important\s+deadline|deadline:|purchasers?\s+of\s+|law\s*firm|law\s*offices|is\s+investigating)/i;
+
+// Regulatory disclosure filings. High-impact by tag, procedural in substance —
+// a Form 8.5 position disclosure has never once been the reason a stock moved.
+const FILING_BOILERPLATE = /(form\s*8\.[35]\s*\(|notification\s+of\s+(major\s+)?holdings|total\s+voting\s+rights|resolutions?\s+passed\s+by|transaction\s+in\s+own\s+shares|block\s+listing\s+(six|interim)|director\/pdmr\s+shareholding)/i;
+
+const isSpamNews = (title: string): boolean => {
   if (!title) return true;
-  const lower = title.toLowerCase();
-  const spamTriggers = [
-    'lawsuit', 'class action', 'investigation', 'shareholder', 'investors alerted',
-    'pomerantz', 'rosen law', 'glancy', 'kaskela', 'bronstein', 'schall',
-    'johnson fistel', 'deadline', 'reminder', 'bragar', 'eagel', 'squire',
-    'gross law', 'faruqi', 'portnoy', 'investors reminded', 'purchasers of'
-  ];
-  return spamTriggers.some(w => lower.includes(w));
+  return LAW_FIRM_NAMES.test(title) ||
+         LEGAL_BOILERPLATE.test(title) ||
+         FILING_BOILERPLATE.test(title);
 };
 
 // Dilution / distress headlines — these gaps are traps, not catalysts.
@@ -276,6 +311,18 @@ const isBreakoutSetupName = (setupName: string | null | undefined): boolean =>
 // NOTE: Money Flow is deliberately NOT scored here. It's shipped as a column
 // so you can see it, but folding it into CNF would double-count against RVOL
 // and gap, which already reward the same volume event from a different angle.
+//
+// v6.11 adds a STRUCTURAL CEILING after the additive pass. The components
+// measure today — how loud, how fast, how much volume — and they sum to 70
+// before a single penalty applies (rvol 30 + gap 20 + rangeExpansion 20).
+// The only structural counterweight was the RME extension adjustment, which
+// bottoms out at -12. That is not enough to stop a violent bounce in a dead
+// name from grading A: a 37% gap on RVOL 2.7 scored 72 while sitting 79% off
+// its highs in Stage 4B with the 50 under the 200.
+//
+// The ceiling does not subtract points, it caps the grade. A loud day in a
+// broken structure is still worth SEEING — it is just not an A setup, and the
+// grade is what drives position sizing.
 const computeCnfScore = (
   rvol: number | null,
   gapPct: number | null,
@@ -292,8 +339,11 @@ const computeCnfScore = (
     breadthSignal: string;
     spyAbove21: boolean | null;
     inHotSector: boolean;
+    stageNum: number | null;
+    goldenCross: boolean | null;
+    pctOffHigh: number | null;
   }
-): { score: number; grade: string; breakdown: Record<string, number> } => {
+): { score: number; grade: string; breakdown: Record<string, number>; ceiling: number } => {
   const b: Record<string, number> = {};
 
   // --- Core tape components ---
@@ -364,9 +414,35 @@ const computeCnfScore = (
   b.sector = q.inHotSector ? 5 : 0;
 
   const raw = Object.values(b).reduce((s, v) => s + v, 0);
-  const score = Math.max(0, Math.min(100, Math.round(raw)));
+
+  // --- STRUCTURAL CEILING (v6.11) -----------------------------------------
+  // Applied after the sum, as a grade cap rather than a deduction, so the
+  // breakdown tooltip still shows honestly what the tape did today.
+  //
+  // Stage 4 with a dead 50/200 is a confirmed downtrend — a bounce inside it
+  // caps at B. Add 50%+ off the highs on top of that and it caps at C: the
+  // move would need to more than double just to reach the last swing high.
+  //
+  // Reversal-family setups get one step of relief on the first rule, because
+  // a Blue Dot in Stage 4 IS the setup being scanned for — but never on the
+  // second, since a 50% drawdown is structural damage no entry signal repairs.
+  let ceiling = 100;
+  const deepDrawdown = q.pctOffHigh != null && q.pctOffHigh <= -50;
+  const stage4 = q.stageNum === 4;
+  const deadCross = q.goldenCross === false;
+
+  if (stage4 && deadCross) {
+    ceiling = isReversal ? 79 : 69;
+  } else if (stage4 || deadCross) {
+    ceiling = Math.min(ceiling, 84);
+  }
+  if (deepDrawdown && (q.stageNum == null || q.stageNum >= 3)) {
+    ceiling = Math.min(ceiling, 59);
+  }
+
+  const score = Math.max(0, Math.min(ceiling, Math.round(raw)));
   const grade = score >= 70 ? 'A' : score >= 50 ? 'B' : 'C';
-  return { score, grade, breakdown: b };
+  return { score, grade, breakdown: b, ceiling };
 };
 
 // --- Deterministic setup readout ---------------------------------------------
@@ -473,6 +549,7 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
   const reversals = i.surfaced.filter((t: any) => isReversalSetupName(t.setupName)).length;
   const ready = i.surfaced.filter((t: any) => t.status === 'Ready').length;
   const extended = i.surfaced.filter((t: any) => t.extended).length;
+  const capped = i.surfaced.filter((t: any) => t.cnfCeiling != null && t.cnfCeiling < 100).length;
 
   const yieldBits: string[] = [
     `${i.surfaced.length} name${i.surfaced.length === 1 ? '' : 's'} cleared the setup gates`,
@@ -484,6 +561,9 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
     }
     if (extended > 0) {
       yieldBits.push(`${extended} already extended`);
+    }
+    if (capped > 0) {
+      yieldBits.push(`${capped} grade-capped on broken structure`);
     }
     yieldBits.push(`${ready} flagged Ready`);
   }
@@ -530,9 +610,18 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
   };
 };
 
-const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, vwap: number, rvol: number | null): { name: string | null, stage: string } => {
+// v6.11: returns stageNum alongside the label. The CNF ceiling needs to compare
+// a number, and parsing 'Stage 4B' back out of a display string downstream was
+// the kind of thing that breaks the first time a sub-stage letter changes.
+const detectPattern = (
+  bars: any[],
+  currentPrice: number,
+  currentOpen: number,
+  vwap: number,
+  rvol: number | null
+): { name: string | null, stage: string, stageNum: number | null } => {
   let stage = '-';
-  if (!bars || bars.length < 80) return { name: null, stage };
+  if (!bars || bars.length < 80) return { name: null, stage, stageNum: null };
 
   const yest = bars[1];
   const day3 = bars[2];
@@ -584,7 +673,7 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
   const wasSqueezingYest = checkSqueeze(1);
 
   if (wasSqueezingYest && !isSqueezingToday && currentPrice > ema20) {
-      return { name: 'BB SQZ Fired', stage };
+      return { name: 'BB SQZ Fired', stage, stageNum };
   }
 
   const fastStochK = (idx: number) => {
@@ -607,7 +696,7 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
   }
 
   if (oversoldLast3 && currentPrice > yest.c && (currentPrice > sma30 || currentPrice > ema21)) {
-    return { name: 'Blue Dot Rev', stage };
+    return { name: 'Blue Dot Rev', stage, stageNum };
   }
 
   const hasConvictionVol = rvol !== null && rvol >= 1.0;
@@ -632,46 +721,46 @@ const detectPattern = (bars: any[], currentPrice: number, currentOpen: number, v
     const tightFinalLeg = rNear < 0.15;
     const baseHigh = Math.max(...bars.slice(1, 37).map(b => b.h));
     if (contracting && volDrying && tightFinalLeg && currentPrice > baseHigh && hasConvictionVol) {
-      return { name: 'VCP', stage };
+      return { name: 'VCP', stage, stageNum };
     }
   }
 
   if (rvol !== null && rvol >= 2.0 && currentOpen >= yest.c * 1.04 && currentPrice >= currentOpen * 0.98) {
-    return { name: 'Episodic Pivot', stage };
+    return { name: 'Episodic Pivot', stage, stageNum };
   }
 
   const priorATH = Math.max(...bars.slice(1).map(b => b.h));
   const recentBaseHigh = Math.max(...bars.slice(1, 64).map(b => b.h));
   const baseOldEnough = recentBaseHigh < priorATH * 0.999;
   if (hasConvictionVol && currentPrice > priorATH && yest.c <= priorATH && baseOldEnough) {
-    return { name: 'GLB', stage };
+    return { name: 'GLB', stage, stageNum };
   }
 
   if (hasConvictionVol && currentOpen > (yest.h * 1.01) && currentPrice >= currentOpen) {
-    return { name: 'Gap & Go', stage };
+    return { name: 'Gap & Go', stage, stageNum };
   }
 
   if (hasConvictionVol && currentOpen <= yest.c && currentPrice > yest.c) {
-    return { name: 'R2G', stage };
+    return { name: 'R2G', stage, stageNum };
   }
 
   if (hasConvictionVol && yest.h < day3.h && yest.l > day3.l && currentPrice > yest.h) {
-    return { name: 'Inside Day BRK', stage };
+    return { name: 'Inside Day BRK', stage, stageNum };
   }
 
   if (currentPrice > ema20 && yest.l <= (ema20 * 1.02) && currentPrice > yest.h) {
-    return { name: '20 EMA PB', stage };
+    return { name: '20 EMA PB', stage, stageNum };
   }
 
   if (isSqueezingToday) {
-      return { name: 'BB SQZ Building', stage };
+      return { name: 'BB SQZ Building', stage, stageNum };
   }
 
   if (currentPrice > ema20 && currentPrice > vwap) {
-    return { name: 'Trend Hold', stage };
+    return { name: 'Trend Hold', stage, stageNum };
   }
 
-  return { name: null, stage };
+  return { name: null, stage, stageNum };
 };
 
 const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 20000, headers?: Record<string, string>) => {
@@ -736,6 +825,11 @@ const fetchBenzingaWiims = async (
 
       const title = (item?.title || '').trim();
       if (!title) continue;
+
+      // v6.11: WIIM is a curated channel, but litigation solicitations do
+      // occasionally carry the tag. Same filter as the Polygon path so a name
+      // cannot pick up a law-firm blast as its catalyst through this door.
+      if (isSpamNews(title)) continue;
 
       const stocks = Array.isArray(item?.stocks) ? item.stocks : [];
       if (stocks.length === 0 || stocks.length > WIIM_MAX_BREADTH) continue;
@@ -841,7 +935,12 @@ async function runScan(request: Request) {
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
   const currentPhase = getUpdatePhase(hour);
-  const currentDate = estNow.toISOString().split('T')[0];
+  // v6.11: was estNow.toISOString().split('T')[0]. That round-trips correctly
+  // only while the server clock is UTC — estNow already holds ET wall-clock
+  // values, so toISOString() applies a second shift on any other host TZ and
+  // the streak key silently rolls a day early or late. etDateString() derives
+  // the ET calendar date directly and does not care where this runs.
+  const currentDate = etDateString(new Date());
   const currentMarketStatus = getMarketStatus();
 
   const noStoreHeaders = {
@@ -1368,6 +1467,7 @@ async function runScan(request: Request) {
         float, shortPct,
         daysToCover: daysToCover != null ? parseFloat(daysToCover.toFixed(1)) : null,
         mktCap: marketCap, stage: setupMatched.stage, setupName: setupMatched.name, catalystUrl: finalCatalystUrl,
+        _stageNum: setupMatched.stageNum,
         aboveEma10, aboveEma21,
         distToEma10: distToEma10 != null ? parseFloat(distToEma10.toFixed(2)) : null,
         distToEma21: distToEma21 != null ? parseFloat(distToEma21.toFixed(2)) : null,
@@ -1531,14 +1631,22 @@ async function runScan(request: Request) {
           breadthSignal,
           spyAbove21,
           inHotSector: t.sector ? hotSectors.has(t.sector) : false,
+          stageNum: t._stageNum ?? null,
+          goldenCross: t.goldenCross ?? null,
+          pctOffHigh: t.pctOffHigh ?? null,
         }
       );
       t.cnfScore = cnf.score;
       t.cnfGrade = cnf.grade;
       t.cnfBreakdown = cnf.breakdown;
+      // Shipped so the UI can explain a score that looks lower than its
+      // components — "capped at 69 on Stage 4 + dead cross" is actionable,
+      // a silently reduced number is not.
+      t.cnfCeiling = cnf.ceiling;
       t.hasEarnings = hasEarnings;
       t.conviction = cnf.score;
       delete t._catalystTier;
+      delete t._stageNum;
 
       enrichedMap.set(t.ticker, t);
     });
@@ -1573,12 +1681,15 @@ async function runScan(request: Request) {
       )
       .slice(0, SCANNER.finalSize);
 
+    // v6.11: minVolume applied to every bucket. Gainers already had it; the
+    // other four did not, so an illiquid name could occupy a Losers or ETF row
+    // that a tradeable one was competing for.
     const finalTopMovers = {
       'Mega Caps': megaCapsRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10),
       'Gainers': gainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.vol >= SCANNER.minVolume).slice(0, 10),
-      'Losers': losersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10),
-      'ETF Gainers': etfGainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10),
-      'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10)
+      'Losers': losersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.vol >= SCANNER.minVolume).slice(0, 10),
+      'ETF Gainers': etfGainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.vol >= SCANNER.minVolume).slice(0, 10),
+      'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.vol >= SCANNER.minVolume).slice(0, 10)
     };
 
     // QQQ benchmark moving averages
@@ -1714,6 +1825,10 @@ async function runScan(request: Request) {
         wiimMatched: wiimMap.size,
         earningsMatched: enrichedList.filter((t: any) => t.earningsReported).length,
         technicalOnly: enrichedList.filter((t: any) => t.catalyst === 'Technical Momentum').length,
+        // v6.11: how often the structural ceiling bound. If this is near zero
+        // the thresholds are too loose; if it is most of the board, the scan
+        // is surfacing broken names and the upstream gates want a look.
+        gradeCapped: enrichedList.filter((t: any) => t.cnfCeiling != null && t.cnfCeiling < 100).length,
       },
       fromCache: false
     }, { headers: noStoreHeaders });
