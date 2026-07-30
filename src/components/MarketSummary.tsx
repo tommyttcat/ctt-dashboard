@@ -189,6 +189,14 @@ const numOrNull = (v: any): number | null => {
 const scoreOf = (s: any): number => num(s?.conviction ?? s?.cnfScore ?? s?.smbScore ?? s?.score);
 const chgOf = (s: any): number => num(s?.change ?? s?.changePct);
 
+/* The scanner and EP9M ship `ticker`; the swing and consolidation scans ship
+   `symbol`. Both feed the Trade Plan pool, so identity has to come from one
+   accessor rather than from whichever field a given route happened to use. */
+const tickerOf = (s: any): string | null => {
+  const t = s?.ticker ?? s?.symbol;
+  return t ? String(t) : null;
+};
+
 /* ---- RVOL, guarded ----
    A row showed RVOL 678.33 on the board. That is not participation, it is a
    near-zero denominator: avgVol on a recently-listed name with a handful of
@@ -247,7 +255,11 @@ const dVolOf = (s: any): number => {
 
 const dotOf = (s: any): 'blue' | 'red' | null => {
   const k = s?.dotKind;
-  return k === 'blue' || k === 'red' ? k : null;
+  if (k === 'blue' || k === 'red') return k;
+  // The swing and consolidation scans predate the dots indicator and ship a
+  // `blueDot` boolean instead.
+  if (s?.blueDot === true) return 'blue';
+  return null;
 };
 
 /* Detects ETF-style sector strings: "ETF", "TICKER - ETF", or ETF_TARGET_MAP
@@ -390,6 +402,160 @@ const fmtLeader = (s: any): string => {
   return `${s.ticker} ${chg}${bits.length ? ` · ${bits.join(' · ')}` : ''}`;
 };
 
+/* ---- TRADE PLAN ---------------------------------------------------------
+   The one section that answers "what can I actually do tomorrow".
+
+   Every other section ranks names on what they have already done — change,
+   volume, relative strength, sector heat. All of it backward-looking. The
+   scan routes now emit a trigger, a stop, a 2R target and a distance to the
+   nearest overhead level on every row, and none of that reached this
+   component until now.
+
+   TWO GATES, both necessary, neither sufficient alone.
+
+   REACH — how far the trigger sits above price, measured in average daily
+   ranges. This number exists nowhere else on the dashboard and it is the
+   one that separates a setup from a watch item. MU's trigger sat 0.6% above
+   price on a 7.4% ADR: 0.08 of an average day, so it can fire on the open.
+   SNDK's sat 5.4% above price with a 14% stop: reachable, but not tomorrow,
+   and sizing it is a different decision. The R column cannot tell those
+   apart because R measures the space ABOVE the trigger, not the distance TO
+   it. One ADR is the natural ceiling — beyond that, price has to do
+   something out of character just to reach the entry.
+
+   RTR — room to resistance, in stop-widths. Below 1R the first average
+   overhead arrives before you have covered the distance you are risking,
+   which is a trade that has to be right twice.
+
+   The intersection is the point. Sorting by RTR alone surfaces JPM and MA:
+   clear runway, CNF 26, nothing happening. Sorting by CNF alone surfaces
+   the semis at 0.2R with the 21 EMA directly overhead. Both columns are
+   shown because the user asked for both, but both are drawn from the same
+   already-gated pool, so neither can promote a name that is not actionable.
+
+   COLLAPSED AND OVEREXTENDED ROWS ARE EXCLUDED OUTRIGHT rather than ranked
+   last. A name that has fallen off its own averages has no entry, and a
+   name that has run three ATRs past its anchor has no stop — appearing in a
+   section titled Trade Plan would be a category error, not a low ranking. */
+const PLAN_MAX_REACH_ADR = 1.0;
+const PLAN_MIN_RTR = 1.0;
+// `clear` with no resistance level at all is the best case, not a missing
+// value — it needs a high sentinel so it sorts to the top rather than out.
+const RTR_CLEAR_SENTINEL = 99;
+
+const livePlanOf = (s: any): any | null => {
+  const p = s?.plan;
+  if (!p || typeof p !== 'object') return null;
+  if (p.tradeable !== true) return null;
+  if (p.collapsed === true || p.overextended === true) return null;
+  return p;
+};
+
+const reachInAdr = (s: any): number | null => {
+  const p = livePlanOf(s);
+  const price = priceOf(s);
+  const adr = numOrNull(s?.adrPct);
+  if (!p || p.trigger == null || price == null || price <= 0) return null;
+  if (adr == null || adr <= 0) return null;
+  const distPct = ((Number(p.trigger) - price) / price) * 100;
+  // Trigger at or below price means it is live now, not negative distance.
+  return distPct <= 0 ? 0 : distPct / adr;
+};
+
+const rtrValue = (s: any): number => {
+  const p = livePlanOf(s);
+  if (!p) return -1;
+  if (p.resistanceR != null) return Number(p.resistanceR);
+  if (p.clear === true) return RTR_CLEAR_SENTINEL;
+  return -1;
+};
+
+const rtrLabel = (s: any): string => {
+  const p = livePlanOf(s);
+  if (!p) return '—';
+  if (p.resistanceR != null) return `${Number(p.resistanceR).toFixed(1)}R`;
+  if (p.clear === true) return '2R+';
+  return '—';
+};
+
+const isSettingUp = (s: any): boolean => {
+  if (!livePlanOf(s)) return false;
+  const reach = reachInAdr(s);
+  if (reach == null || reach > PLAN_MAX_REACH_ADR) return false;
+  return rtrValue(s) >= PLAN_MIN_RTR;
+};
+
+const fmtPlanRow = (s: any): string => {
+  const p = livePlanOf(s);
+  const bits: string[] = [rtrLabel(s)];
+  const cnf = scoreOf(s);
+  if (cnf) bits.push(`CNF ${cnf}`);
+  if (p?.trigger != null) bits.push(`trig ${Number(p.trigger).toFixed(2)}`);
+  const reach = reachInAdr(s);
+  if (reach != null) bits.push(`${reach.toFixed(1)}x ADR`);
+  const dot = dotOf(s);
+  if (dot === 'red') bits.push('RED DOT');
+  else if (dot === 'blue') bits.push('BLUE DOT');
+  return `${tickerOf(s)} ${bits.join(' · ')}`;
+};
+
+const buildTradePlanPara = (pool: any[]): string => {
+  const seen = new Set<string>();
+  const deduped = pool.filter(s => {
+    const t = tickerOf(s);
+    if (!t || seen.has(t)) return false;
+    seen.add(t);
+    return true;
+  });
+
+  const planned = deduped.filter(s => livePlanOf(s));
+  const ready = deduped.filter(isSettingUp);
+
+  // The empty state is a DIAGNOSTIC, not an apology. "No setups" tells you
+  // nothing; the breakdown tells you whether the tape is offering entries
+  // without reward, reward without proximity, or neither — and whether the
+  // scan has even run since the plan fields were added.
+  if (ready.length === 0) {
+    if (deduped.length === 0) return '';
+    if (planned.length === 0) {
+      return 'Trade Plan: No row in the current scans carries a tradeable plan. Either the scans have not run since the plan fields were added, or every name is collapsed or too extended to size a stop.';
+    }
+    const nearTrigger = planned.filter(s => {
+      const r = reachInAdr(s);
+      return r != null && r <= PLAN_MAX_REACH_ADR;
+    }).length;
+    const roomy = planned.filter(s => rtrValue(s) >= PLAN_MIN_RTR).length;
+    return `Trade Plan: ${planned.length} name${planned.length === 1 ? '' : 's'} carry a live plan. ${nearTrigger} sit within one ADR of the trigger; ${roomy} have at least a stop-width of room before the first level overhead. None has both — every entry on offer is either out of reach or into resistance.`;
+  }
+
+  const byCnf = ready.slice().sort((a, b) => scoreOf(b) - scoreOf(a)).slice(0, 5);
+  const byRtr = ready.slice().sort((a, b) => rtrValue(b) - rtrValue(a)).slice(0, 5);
+
+  const cnfCol = `Best tape — ranked by CNF:\n${byCnf.map(fmtPlanRow).join('\n')}`;
+  const rtrCol = `Most room — ranked by RTR:\n${byRtr.map(fmtPlanRow).join('\n')}`;
+
+  const lines: string[] = [`${cnfCol}|||${rtrCol}`];
+
+  lines.push(`${ready.length} of ${planned.length} planned name${planned.length === 1 ? '' : 's'} sit within one ADR of a trigger with at least 1R of room. Trigger prices are alert levels; the stop and target are on the tables.`);
+
+  // A name in both columns is the intersection — the tape likes it AND there
+  // is somewhere for it to go. That pairing is rare enough to name.
+  const cnfSet = new Set(byCnf.map(tickerOf));
+  const both = byRtr.filter(s => cnfSet.has(tickerOf(s))).map(tickerOf).filter(Boolean) as string[];
+  if (both.length) {
+    lines.push(`${both.join(', ')} rank${both.length === 1 ? 's' : ''} in both columns — scoring well with room to be paid.`);
+  } else {
+    lines.push('No name ranks in both columns today — the best-scoring setups and the roomiest ones are different names.');
+  }
+
+  const reds = ready.filter(s => dotOf(s) === 'red');
+  if (reds.length) {
+    lines.push(`${reds.length} carr${reds.length === 1 ? 'ies' : 'y'} an active red dot — a defined entry does not cancel an overbought reversal.`);
+  }
+
+  return `Trade Plan: ${lines.join('\n')}`;
+};
+
 /* ---- Key Events — the only forward-looking section ----------------------
    Every other section is REACTIVE. A 2:00 PM rate decision produces nothing
    at 8:30 AM, so a session frozen ahead of one looks — to every other
@@ -523,6 +689,13 @@ const buildCatalystBrief = (s: any): string => {
   if (su) bits.push(`${su}${st ? ` in Stage ${st}` : ''}`);
   if (d21 != null) bits.push(`${d21 >= 0 ? '+' : ''}${d21.toFixed(1)}% vs the 21 EMA`);
   if (cnf) bits.push(`CNF ${cnf}`);
+
+  // If the name has a live plan, the entry belongs in the brief — a catalyst
+  // without a level is a story, not a trade.
+  const p = livePlanOf(s);
+  if (p?.trigger != null) {
+    bits.push(`trigger ${Number(p.trigger).toFixed(2)}, ${rtrLabel(s)} to the first level overhead`);
+  }
   return bits.join(' · ') + '.';
 };
 
@@ -567,6 +740,23 @@ const buildWatchReason = (s: any): string => {
     else if (b === 'pre-cross') parts.push(`pre-cross — ${d21.toFixed(1)}% vs the 21, lines converging`);
     else if (b === 'extended') parts.push(`+${d21.toFixed(1)}% over the 21 — too extended to place a stop`);
     else parts.push(`${d21.toFixed(1)}% under the 21 EMA — structure needs repair first`);
+  }
+
+  // The plan is the actionable half of the card. Reach matters more than the
+  // trigger price itself: a level two average days away is not a plan for
+  // tomorrow however good the setup reads.
+  const p = livePlanOf(s);
+  if (p?.trigger != null) {
+    const reach = reachInAdr(s);
+    const reachTxt = reach == null ? '' :
+      reach <= 0.05 ? ', live now' :
+      reach <= PLAN_MAX_REACH_ADR ? `, ${reach.toFixed(1)}x ADR away` :
+      `, ${reach.toFixed(1)}x ADR away — not reachable in a normal session`;
+    parts.push(`trigger ${Number(p.trigger).toFixed(2)}${reachTxt} with ${rtrLabel(s)} of room`);
+  } else if (s?.plan?.collapsed === true) {
+    parts.push('no long plan — price has collapsed away from its averages');
+  } else if (s?.plan?.overextended === true) {
+    parts.push('no usable plan — too far past the 21 EMA to size a stop');
   }
 
   if (s?.stochK != null && !isNaN(Number(s.stochK))) {
@@ -744,11 +934,11 @@ const buildEp9mPara = (ep9m: any[]): string => {
   const fmtEp = (s: any): string => {
     const bits: string[] = [];
     const vs = ep9mVs60dOf(s);
-    if (vs != null) bits.push(`${vs.toFixed(2)}× 60d high`);
+    if (vs != null) bits.push(`${vs.toFixed(2)}x 60d high`);
     const rv = rvolOf(s);
     if (rv != null) bits.push(`RVOL ${rv.toFixed(2)}`);
     const turn = ep9mTurnOf(s);
-    if (turn != null && turn >= 0.25) bits.push(`${turn.toFixed(2)}× float`);
+    if (turn != null && turn >= 0.25) bits.push(`${turn.toFixed(2)}x float`);
     const chg = chgOf(s);
     return `${s.ticker} ${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%${bits.length ? ` · ${bits.join(' · ')}` : ''}`;
   };
@@ -776,7 +966,9 @@ const buildLocalInsights = (
   scan: any,
   ep9mList: any[] = [],
   econList: EconEvent[] = [],
-  earningsList: EarningsEvent[] = []
+  earningsList: EarningsEvent[] = [],
+  swingList: any[] = [],
+  consolList: any[] = []
 ): MacroInsights | null => {
   const sips: any[] = Array.isArray(scan?.stocksInPlay) ? scan.stocksInPlay : [];
   const daily: any[] = Array.isArray(scan?.dailySetups) ? scan.dailySetups : [];
@@ -785,6 +977,21 @@ const buildLocalInsights = (
   if (sips.length === 0 && daily.length === 0 && ep9m.length === 0) return null;
 
   const pool = [...sips, ...daily, ...ep9m].filter(s => s?.ticker);
+
+  /* The Trade Plan pool is DELIBERATELY WIDER than `pool`. Swing pullbacks
+     and 10/21 coils carry plans and belong in a ranking of what is enterable
+     tomorrow — but they do not belong in the momentum watchlist, the 10/21
+     thesis, or the theme. A coil is by definition a name that has not moved,
+     and dropping those into a list ranked on RVOL and change would quietly
+     change what every other section means. Wider here, unchanged elsewhere. */
+  const planPool = [
+    ...sips, ...daily, ...ep9m,
+    ...(Array.isArray(swingList) ? swingList : []),
+    ...(Array.isArray(consolList) ? consolList : []),
+  ]
+    .map(s => ({ ...s, ticker: tickerOf(s) }))
+    .filter(s => s.ticker);
+
   const seen = new Set<string>();
   const ranked = pool
     .slice()
@@ -910,6 +1117,7 @@ const buildLocalInsights = (
   }
 
   const ema1021Para = build1021Para(pool);
+  const tradePlanPara = buildTradePlanPara(planPool);
 
   const heatAgg: Record<string, { sum: number; count: number }> = {};
   flowNames.forEach(s => {
@@ -1006,8 +1214,11 @@ const buildLocalInsights = (
   const dailyFinal = dailyPara || (daily.length === 0 && (sips.length || ep9m.length) ? 'Daily Setups Thesis: No daily setups on the board right now.' : '');
   const ep9mFinal = ep9mPara || (ep9m.length === 0 && (sips.length || daily.length) ? 'EP9M Thesis: No names trading abnormal 9M+ size yet — this fills in as session volume builds.' : '');
 
+  // Trade Plan leads, directly under the Top Catalyst block. It is the only
+  // forward-looking equity section — everything below it describes what has
+  // already happened.
   const orderedParas = [
-    moversPara, sipsFinal, dailyFinal, ema1021Para, ep9mFinal,
+    tradePlanPara, moversPara, sipsFinal, dailyFinal, ema1021Para, ep9mFinal,
     heatPara, etfPara, moneyPara, keyEventsPara,
   ];
 
@@ -1020,9 +1231,13 @@ const buildLocalInsights = (
   };
 };
 
+/* ADR, RTR and TRIG are label words, not tickers. Without them here the
+   renderer chips them like symbols and SectionCopyButton copies them into
+   a TradingView watchlist. */
 const TICKER_STOPWORDS = new Set([
   'RVOL', 'CNF', 'SMB', 'DAY', 'SWING', 'BD', 'REV', 'EP', 'BB', 'SQZ',
-  'GLB', 'VCP', 'PB', 'GO', 'GC', 'EMA', 'SMA', 'MACD', 'ATR', 'RS', 'R2G',
+  'GLB', 'VCP', 'PB', 'GO', 'GC', 'EMA', 'SMA', 'MACD', 'ATR', 'ADR', 'RS', 'R2G',
+  'RTR', 'TRIG', 'TGT', 'COIL', 'EXT',
   'ETF', 'ETFS', 'STAGE', 'A', 'I', 'AND', 'THE', 'IS', 'ARE',
   'IN', 'OF', 'BY', 'VS', 'ON', 'TO', 'UP', 'AT', 'OR', 'IT', 'AI',
   'US', 'USA', 'FDA', 'SEC', 'IPO', 'CEO', 'EPS', 'FY', 'Q',
@@ -1044,6 +1259,11 @@ const stageColor = (st: string) => {
 };
 const stochColor = (k: number) => (k <= 20 ? 'text-purple-400' : k <= 30 ? 'text-emerald-400' : 'text-slate-400');
 const rsColor = (rs: number) => (rs >= 20 ? 'text-purple-400' : rs >= 10 ? 'text-emerald-400' : rs >= 0 ? 'text-slate-300' : 'text-rose-400');
+// Matches the RTR badge thresholds on the tables so the summary and the
+// tables cannot disagree about what counts as room.
+const rtrColor = (v: number) => (v >= 2 ? 'text-emerald-400' : v >= 1 ? 'text-slate-300' : 'text-amber-400');
+// Reach: under half an average day is imminent, over one is out of range.
+const reachColor = (v: number) => (v <= 0.5 ? 'text-emerald-400' : v <= 1 ? 'text-slate-300' : 'text-amber-400');
 
 const postureChipCls = (tone: 'good' | 'warn' | 'bad'): string => {
   if (tone === 'good') return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
@@ -1052,7 +1272,7 @@ const postureChipCls = (tone: 'good' | 'warn' | 'bad'): string => {
 };
 
 const renderBriefingText = (text: string): React.ReactNode[] => {
-  const rx = /(▸|RED DOT|BLUE DOT|\[[^\]]+\]\([^)]+\)|\d{1,2}:\d{2} (?:AM|PM)|RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
+  const rx = /(▸|RED DOT|BLUE DOT|\[[^\]]+\]\([^)]+\)|\d{1,2}:\d{2} (?:AM|PM)|RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|trig \d+(?:\.\d+)?|\d+(?:\.\d+)?x ADR|\d+(?:\.\d+)?R\+?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
   const parts = text.split(rx);
 
   return parts.map((part, i) => {
@@ -1086,6 +1306,20 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
       const v = parseFloat(m[1]);
       return <span key={i}>RS <span className={`${valNum} ${rsColor(v)}`}>{m[1]}</span></span>;
     }
+    m = part.match(/^trig (\d+(?:\.\d+)?)$/);
+    if (m) {
+      return <span key={i}><span className="text-slate-500">trig</span> <span className={`${valNum} text-slate-200 font-bold`}>{m[1]}</span></span>;
+    }
+    m = part.match(/^(\d+(?:\.\d+)?)x ADR$/);
+    if (m) {
+      const v = parseFloat(m[1]);
+      return <span key={i}><span className={`${valNum} ${reachColor(v)}`}>{m[1]}×</span> <span className="text-slate-500">ADR</span></span>;
+    }
+    m = part.match(/^(\d+(?:\.\d+)?)R(\+?)$/);
+    if (m) {
+      const v = parseFloat(m[1]);
+      return <span key={i} className={`${valNum} font-bold ${rtrColor(v)}`}>{part}</span>;
+    }
     if (part === '10/21') return <span key={i} className={`${valNum} text-violet-400 font-bold`}>10/21</span>;
     if (part === 'S&P' || part === 'Nasdaq' || part === 'Dow' || part === 'Bitcoin') {
       return <span key={i} className={tickerChipCls}>{part}</span>;
@@ -1103,6 +1337,7 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
 };
 
 const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
+  { label: 'Trade Plan', color: 'teal', blurb: 'The only forward-looking equity section. Names with a defined entry that can realistically fire next session — trigger within one average daily range of price, and at least one stop-width of room before the first level overhead. RTR is room-to-resistance in stop-widths; trig is the alert price. Collapsed and over-extended names are excluded, not ranked last.' },
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves right now. Volume-confirmed names are tradeable; thin gaps are fade candidates.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, who has news, and who is grinding on air.' },
   { label: 'Daily Setups Thesis', color: 'emerald', blurb: 'Structured setups from the daily scan. SWING holds for days; DAY is intraday momentum only.' },
@@ -1117,6 +1352,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
 
 const sectionStyles = (color: string) => {
   switch (color) {
+    case 'teal': return { border: 'border-teal-500', badge: 'text-teal-400 bg-teal-500/10 border-teal-500/20', bg: 'bg-teal-500/[0.05]' };
     case 'cyan': return { border: 'border-cyan-500', badge: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20', bg: 'bg-cyan-500/[0.04]' };
     case 'emerald': return { border: 'border-emerald-500', badge: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20', bg: 'bg-emerald-500/[0.04]' };
     case 'amber': return { border: 'border-amber-500', badge: 'text-amber-400 bg-amber-500/10 border-amber-500/20', bg: 'bg-amber-500/[0.04]' };
@@ -1178,6 +1414,20 @@ export default function MarketSummary() {
   const [session, setSession] = useState<MarketSession>('Closed');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
+  /* Collapse state is keyed by section LABEL, not index. Sections appear and
+     disappear between scans — EP9M is empty before volume builds, Key Events
+     is empty on a quiet calendar — and an index-keyed set would silently
+     collapse whichever section slid into that slot. */
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+
+  const toggleSection = (key: string) => {
+    setCollapsedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const isWeekend = isWeekendNow();
 
@@ -1213,11 +1463,17 @@ export default function MarketSummary() {
       }
 
       try {
-        const [scannerRes, ep9mRes, econRes, earningsRes] = await Promise.all([
+        // Swing and consolidation join the fetch set for the Trade Plan
+        // section only — see the planPool note in buildLocalInsights. Both are
+        // optional in exactly the way ep9m already is: a failure degrades the
+        // one section rather than breaking the briefing.
+        const [scannerRes, ep9mRes, econRes, earningsRes, swingRes, consolRes] = await Promise.all([
           fetch('/api/scanner/latest', { cache: 'no-store' }),
           fetch(`/api/ep9m/latest?t=${Date.now()}`, { cache: 'no-store' }).catch(() => null),
           fetch('/api/econ', { cache: 'no-store' }).catch(() => null),
           fetch('/api/earnings', { cache: 'no-store' }).catch(() => null),
+          fetch(`/api/swing-candidates/latest?t=${Date.now()}`, { cache: 'no-store' }).catch(() => null),
+          fetch(`/api/consolidation/latest?t=${Date.now()}`, { cache: 'no-store' }).catch(() => null),
         ]);
         if (!scannerRes.ok) throw new Error(`Scanner API returned status: ${scannerRes.status}`);
 
@@ -1247,8 +1503,24 @@ export default function MarketSummary() {
           }
         } catch { /* earnings is optional */ }
 
+        let swingList: any[] = [];
+        try {
+          if (swingRes && swingRes.ok) {
+            const d = await swingRes.json();
+            if (d && Array.isArray(d.candidates)) swingList = d.candidates;
+          }
+        } catch { /* swing is optional */ }
+
+        let consolList: any[] = [];
+        try {
+          if (consolRes && consolRes.ok) {
+            const d = await consolRes.json();
+            if (d && Array.isArray(d.candidates)) consolList = d.candidates;
+          }
+        } catch { /* consolidation is optional */ }
+
         if (isMounted) {
-          const local = buildLocalInsights(scannerData, ep9mList, econList, earningsList);
+          const local = buildLocalInsights(scannerData, ep9mList, econList, earningsList, swingList, consolList);
           if (local) setMacroInsights(local);
           else if (scannerData.macroInsights) setMacroInsights(scannerData.macroInsights);
         }
@@ -1287,6 +1559,7 @@ export default function MarketSummary() {
   const formatBriefing = (text: string) => {
     if (!text) return '';
     return text
+      .replace(/(Trade Plan:)/gi, '\n\n$1')
       .replace(/(Top Movers:)/gi, '\n\n$1')
       .replace(/(SIPs Thesis:)/gi, '\n\n$1')
       .replace(/(Daily Setups Thesis:)/gi, '\n\n$1')
@@ -1426,89 +1699,128 @@ export default function MarketSummary() {
               })()}
 
               <div className="relative z-10 flex flex-col gap-8">
-                <div>
-                  <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-3">Narrative Breakdown</h3>
-                  <div className="flex flex-col gap-3">
-                    {formatBriefing(macroInsights.briefing).split('\n\n').filter(Boolean).map((para, idx) => {
-                      const { label, color, blurb, body } = splitBriefingSection(para.trim());
-                      const st = sectionStyles(color);
-                      const bodyTickers = Array.from(new Set(
-                        (body.match(/\b[A-Z]{2,5}\b/g) || []).filter(t => !TICKER_STOPWORDS.has(t))
-                      ));
-                      return (
-                        <div key={idx} className={`border-l-[3px] rounded-r-xl px-4 py-3 ${st.border} ${st.bg}`}>
-                          {label && (
-                            <div className="mb-2">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className={`inline-block text-[9px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border ${st.badge}`}>
-                                  {label}
-                                </span>
-                                {bodyTickers.length > 0 && <SectionCopyButton tickers={bodyTickers} />}
-                              </div>
-                              {blurb && <p className="text-[11px] text-slate-500 font-medium mt-1.5 leading-snug">{blurb}</p>}
-                            </div>
-                          )}
-                          {body.includes('|||') ? (
-                            (() => {
-                              const parts = body.split('|||');
-                              const afterCols = parts.length > 2 ? parts.slice(2).join('') : '';
-                              return (
-                                <>
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                                    {parts.slice(0, 2).map((col, ci) => {
-                                      const colLines = col.trim().split('\n').filter(Boolean);
-                                      const [heading, ...rows] = colLines;
-                                      const isHeading = heading && heading.trim().endsWith(':');
-                                      return (
-                                        <div key={ci} className="space-y-1.5">
-                                          {isHeading ? (
-                                            <>
-                                              <p className="text-[10px] font-bold tracking-wider uppercase text-slate-500 pb-0.5 border-b border-white/5">
-                                                {heading.replace(/:$/, '')}
-                                              </p>
-                                              {rows.map((line, li) => (
-                                                <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
-                                                  {renderBriefingText(line)}
-                                                </p>
-                                              ))}
-                                            </>
-                                          ) : (
-                                            colLines.map((line, li) => (
-                                              <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
+                {(() => {
+                  const paras = formatBriefing(macroInsights.briefing).split('\n\n').filter(Boolean);
+                  const sections = paras.map((p, i) => {
+                    const parsed = splitBriefingSection(p.trim());
+                    return { ...parsed, key: parsed.label || `sec-${i}` };
+                  });
+                  const collapsibleKeys = sections.filter(s => s.label).map(s => s.key);
+                  const everyCollapsed =
+                    collapsibleKeys.length > 0 && collapsibleKeys.every(k => collapsedSections.has(k));
+
+                  return (
+                    <div>
+                      <div className="flex items-center justify-between gap-3 mb-3">
+                        <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500">Narrative Breakdown</h3>
+                        {collapsibleKeys.length > 1 && (
+                          <button
+                            onClick={() => setCollapsedSections(everyCollapsed ? new Set() : new Set(collapsibleKeys))}
+                            className="text-[9px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border bg-[#161c2a] text-slate-500 border-white/5 hover:text-slate-300 hover:bg-white/[0.04] transition-all duration-200"
+                          >
+                            {everyCollapsed ? 'Expand all' : 'Collapse all'}
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-3">
+                        {sections.map((sec, idx) => {
+                          const { label, color, blurb, body, key } = sec;
+                          const st = sectionStyles(color);
+                          const bodyTickers = Array.from(new Set(
+                            (body.match(/\b[A-Z]{2,5}\b/g) || []).filter(t => !TICKER_STOPWORDS.has(t))
+                          ));
+                          const isOpen = !label || !collapsedSections.has(key);
+
+                          return (
+                            <div key={idx} className={`border-l-[3px] rounded-r-xl px-4 py-3 ${st.border} ${st.bg}`}>
+                              {label && (
+                                <div className={isOpen ? 'mb-2' : ''}>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <button
+                                      onClick={() => toggleSection(key)}
+                                      title={isOpen ? 'Collapse this section' : 'Expand this section'}
+                                      className="flex items-center gap-2 group/sec"
+                                    >
+                                      <span className={`text-[9px] text-slate-500 group-hover/sec:text-slate-300 transition-all duration-200 ${isOpen ? 'rotate-90' : ''}`}>▸</span>
+                                      <span className={`inline-block text-[9px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border ${st.badge}`}>
+                                        {label}
+                                      </span>
+                                    </button>
+                                    {isOpen && bodyTickers.length > 0 && <SectionCopyButton tickers={bodyTickers} />}
+                                    {!isOpen && bodyTickers.length > 0 && (
+                                      <span className="text-[10px] text-slate-600 font-medium">
+                                        {bodyTickers.length} name{bodyTickers.length === 1 ? '' : 's'}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {isOpen && blurb && <p className="text-[11px] text-slate-500 font-medium mt-1.5 leading-snug">{blurb}</p>}
+                                </div>
+                              )}
+                              {isOpen && (
+                                body.includes('|||') ? (
+                                  (() => {
+                                    const parts = body.split('|||');
+                                    const afterCols = parts.length > 2 ? parts.slice(2).join('') : '';
+                                    return (
+                                      <>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                                          {parts.slice(0, 2).map((col, ci) => {
+                                            const colLines = col.trim().split('\n').filter(Boolean);
+                                            const [heading, ...rows] = colLines;
+                                            const isHeading = heading && heading.trim().endsWith(':');
+                                            return (
+                                              <div key={ci} className="space-y-1.5">
+                                                {isHeading ? (
+                                                  <>
+                                                    <p className="text-[10px] font-bold tracking-wider uppercase text-slate-500 pb-0.5 border-b border-white/5">
+                                                      {heading.replace(/:$/, '')}
+                                                    </p>
+                                                    {rows.map((line, li) => (
+                                                      <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
+                                                        {renderBriefingText(line)}
+                                                      </p>
+                                                    ))}
+                                                  </>
+                                                ) : (
+                                                  colLines.map((line, li) => (
+                                                    <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
+                                                      {renderBriefingText(line)}
+                                                    </p>
+                                                  ))
+                                                )}
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                        {afterCols && (
+                                          <div className="space-y-1.5 mt-4 pt-3 border-t border-white/5">
+                                            {afterCols.trim().split('\n').filter(Boolean).map((line, li) => (
+                                              <p key={li} className="text-[12px] text-slate-400 leading-relaxed font-medium">
                                                 {renderBriefingText(line)}
                                               </p>
-                                            ))
-                                          )}
-                                        </div>
-                                      );
-                                    })}
+                                            ))}
+                                          </div>
+                                        )}
+                                      </>
+                                    );
+                                  })()
+                                ) : (
+                                  <div className="space-y-2">
+                                    {body.split('\n').filter(Boolean).map((line, li) => (
+                                      <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
+                                        {renderBriefingText(line)}
+                                      </p>
+                                    ))}
                                   </div>
-                                  {afterCols && (
-                                    <div className="space-y-1.5 mt-4 pt-3 border-t border-white/5">
-                                      {afterCols.trim().split('\n').filter(Boolean).map((line, li) => (
-                                        <p key={li} className="text-[12px] text-slate-400 leading-relaxed font-medium">
-                                          {renderBriefingText(line)}
-                                        </p>
-                                      ))}
-                                    </div>
-                                  )}
-                                </>
-                              );
-                            })()
-                          ) : (
-                            <div className="space-y-2">
-                              {body.split('\n').filter(Boolean).map((line, li) => (
-                                <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
-                                  {renderBriefingText(line)}
-                                </p>
-                              ))}
+                                )
+                              )}
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div className="border-t border-white/5 pt-6">
                   <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-3">What To Watch &amp; Why</h3>
