@@ -109,9 +109,13 @@ const getMarketSession = (): MarketSession => {
    is not wrong — it was true at 8:30 — it is just no longer current, and
    nothing in the UI said so.
 
-   Blocks are marked, never hidden. The history is useful; the framing is what
-   needed fixing. When a block is stale and its successor has not arrived yet,
-   we say that explicitly rather than letting silence imply currency.
+   Blocks are marked, never hidden, and never dimmed into illegibility. The
+   first pass at this used opacity-50 on top of text-slate-500, which stacked
+   two rounds of dimming and made stale blocks genuinely hard to read. The
+   signal now comes from COLOR, not contrast: a stale block drops its theme
+   accent and goes neutral slate, while the text itself stays at the same
+   weight a live block uses. The SUPERSEDED chip and the closing line carry
+   the actual message.
    ------------------------------------------------------------------------ */
 const BLOCK_WINDOWS: Record<BlockKey, { opens: number; supersededAt: number; nextLabel: string }> = {
   morning: { opens: 4.0, supersededAt: 11.5, nextLabel: 'midday' },
@@ -1372,10 +1376,15 @@ export default function MarketSummary() {
       .replace(/(Sector Flow:)/gi, '\n\n$1');
   };
 
-  /* A stale block keeps its content but loses its authority: muted text, a
-     SUPERSEDED chip, and an explicit line saying the tape has moved past it.
-     Silence here was the bug — an 8:30 AM "defense first" read sitting
-     unmarked at 11 AM looks like live guidance. */
+  /* A stale block keeps full text legibility. The first version of this used
+     opacity-50 over text-slate-500, which compounded into unreadable — the
+     paragraphs, the takeaway, and the heading were all being dimmed twice.
+
+     What changes when a block goes stale is COLOR, not contrast: the theme
+     accent (cyan/rose/etc) drops to neutral slate on the dot, heading, and
+     takeaway rail, so a live block still reads as the visually louder one.
+     Body copy sits at the same slate-400/300 a live block uses. The
+     SUPERSEDED chip and the closing line carry the message. */
   const renderSingleUpdateBlock = (block: UpdateBlock | null, key: BlockKey) => {
     if (!block) return null;
     const styles = getThemeStyles(block.colorTheme);
@@ -1383,19 +1392,19 @@ export default function MarketSummary() {
     const nextLabel = BLOCK_WINDOWS[key].nextLabel;
 
     return (
-      <div className={`bg-[#161c2a]/60 border rounded-xl p-5 md:p-6 mt-3 transition-opacity duration-300 ${
-        stale ? 'border-white/5 opacity-50 hover:opacity-90' : 'border-white/5'
-      }`}>
+      <div className="bg-[#161c2a]/60 border border-white/5 rounded-xl p-5 md:p-6 mt-3">
         <div className="flex items-center gap-3 mb-4 flex-wrap">
-          <div className={`w-2 h-2 rounded-full ${stale ? 'bg-slate-500/10 border border-slate-500 text-slate-500' : `${styles.bg} border border-current ${styles.text}`}`}></div>
-          <h4 className={`text-[11px] font-bold tracking-widest uppercase ${stale ? 'text-slate-500' : styles.text}`}>
+          <div className={`w-2 h-2 rounded-full border border-current ${
+            stale ? 'bg-slate-500/10 text-slate-500' : `${styles.bg} ${styles.text}`
+          }`}></div>
+          <h4 className={`text-[11px] font-bold tracking-widest uppercase ${stale ? 'text-slate-400' : styles.text}`}>
             {block.phase}
           </h4>
           <span className="text-[9px] text-slate-500 font-medium tracking-wider px-2 py-0.5 bg-black/20 border border-white/5 rounded">
             {block.timestamp}
           </span>
           {stale && (
-            <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400/80 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
+            <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
               Superseded
             </span>
           )}
@@ -1403,24 +1412,22 @@ export default function MarketSummary() {
 
         <div className="space-y-3 mb-5">
           {block.paragraphs.map((p, idx) => (
-            <p key={idx} className={`text-[13px] leading-relaxed border-l-[2px] pl-3.5 ${
-              stale ? 'text-slate-500 border-slate-600/30' : 'text-slate-400 border-slate-500/30'
-            }`}>
+            <p key={idx} className="text-[13px] text-slate-400 leading-relaxed border-l-[2px] border-slate-500/30 pl-3.5">
               {renderBriefingText(p)}
             </p>
           ))}
         </div>
 
         <div className={`border-l-[4px] p-4 rounded-r-xl transition-colors duration-300 ${
-          stale ? 'bg-slate-500/[0.06] border-slate-600' : `${styles.boxBg} ${styles.boxBorder}`
+          stale ? 'bg-slate-500/[0.07] border-slate-500' : `${styles.boxBg} ${styles.boxBorder}`
         }`}>
-          <p className={`text-[13px] leading-relaxed ${stale ? 'text-slate-500' : styles.boxText}`}>
+          <p className={`text-[13px] leading-relaxed ${stale ? 'text-slate-300' : styles.boxText}`}>
             {block.takeaway}
           </p>
         </div>
 
         {stale && (
-          <p className="text-[11px] text-amber-400/70 font-medium mt-3 leading-snug">
+          <p className="text-[11px] text-amber-400/90 font-medium mt-3 leading-snug">
             Written for the {block.phase.toLowerCase()} window — the tape has moved past this read.
             {nextLabel ? ` Treat it as history until the ${nextLabel} update posts.` : ''}
           </p>
