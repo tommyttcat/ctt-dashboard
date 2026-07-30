@@ -1,4 +1,4 @@
-// src/app/api/scanner/run/route.ts — v6.12
+// src/app/api/scanner/run/route.ts — v6.14
 // v6.1: + RMV(15); thesis is news-headline-only (stats moved to t.readout)
 // v6.2: RMV/RME imported from lib/indicators; RME(21) replaces the binary
 //       `extended` penalty in CNF; + cnfBreakdown for the badge tooltip
@@ -12,24 +12,24 @@
 //       promoted to a catalyst source
 // v6.9: deterministic macro briefing (buildMacroBriefing)
 // v6.10: + distToEma10 on every enriched row
-// v6.11: spam filter rebuilt as regex (the substring list missed the actual
-//        wire format); structural CNF ceiling on Stage 4 / dead cross / deep
-//        drawdown; detectPattern returns stageNum; currentDate via
-//        etDateString; minVolume applied to all five topMovers buckets
-// v6.13: + RED DOT ceiling. Blue-dot detection moved out of detectPattern's
-//        inline logic and into lib/indicators/dots, which now owns both
-//        directions. A red dot — overbought within the last 3 bars, closing
-//        down, and below BOTH the 30 SMA and 21 EMA — caps a long setup's
-//        grade rather than deleting the row: the name stays visible with the
-//        flag attached, same philosophy as the structural ceiling.
-//
-//        BEAR INSTRUMENTS ARE EXEMPT. A red dot on SOXS or UVXY is the setup,
-//        not a disqualifier, and isBearishInstrument() already identifies
-//        them by fund name. Without this carve-out the ceiling would suppress
-//        exactly the names that should rank in a risk-off tape.
-//
-//        The cap DECAYS with age: a dot printing today is stronger evidence
-//        than one from three bars back that price has since absorbed.
+// v6.11: spam filter rebuilt as regex; structural CNF ceiling on Stage 4 /
+//        dead cross / deep drawdown; detectPattern returns stageNum;
+//        currentDate via etDateString; minVolume on all topMovers buckets
+// v6.12: + blue/red dots via lib/indicators/dots; red-dot CNF ceiling with
+//        bear-instrument exemption
+// v6.13: + reversal patterns for names repairing from BELOW the 21 EMA.
+//        Every prior branch of detectPattern requires price ABOVE something
+//        — the 20 EMA, VWAP, yesterday's high, the prior ATH, the base high
+//        — so a board of semis up 13-27% underneath their anchors matched
+//        nothing and came back with an empty setup column.
+// v6.14: those two names collapsed into one. "Reclaim Attempt" and
+//        "Reversal Attempt" described the same thesis at two moments, and
+//        splitting them put a distinction in the setup NAME that belongs in
+//        the score. Both are now "Reversal"; whether price has reclaimed the
+//        10 EMA is carried as a CNF component (b.reclaim) instead, so a
+//        further-along reversal outranks an earlier one without needing its
+//        own label. The setup column reads one thing, and the number does
+//        the ranking.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -143,9 +143,7 @@ const ETF_TARGET_MAP: Record<string, string> = {
 
 const getMarketStatus = () => {
   const now = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const hours = now.getHours();
-  const minutes = now.getMinutes();
-  const time = hours + (minutes / 60);
+  const time = now.getHours() + (now.getMinutes() / 60);
   if (time >= 4 && time < 9.5) return 'Pre-Market';
   if (time >= 9.5 && time < 16) return 'Open';
   if (time >= 16 && time < 20) return 'Post-Market';
@@ -162,17 +160,15 @@ const getUpdatePhase = (hour: number) => {
 const etDateString = (d: Date): string =>
   d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 
-const LAW_FIRM_NAMES = /\b(rosen|pomerantz|glancy|kaskela|bronstein|schall|johnson\s*fistel|bragar|eagel|squire|gross\s*law|faruqi|portnoy|block\s*&?\s*leviton|hagens\s*berman|halper\s*sadeh|levi\s*&?\s*korsinsky|robbins\s*geller|kessler\s*topaz|monteverde|wolf\s*haldenstein|berger\s*montague|scott\s*\+?\s*scott|kahn\s*swick|kirby\s*mcinerney|labaton|bernstein\s*liebhard|howard\s*g\.?\s*smith|kuehn\s*law|grabar|rigrodsky|weiss\s*law|ademi|federman|shall\s*law)\b/i;
+const LAW_FIRM_NAMES = /\b(rosen|pomerantz|glancy|kaskela|bronstein|schall|johnson\s*fistel|bragar|eagel|squire|gross\s*law|faruqi|portnoy|block\s*&?\s*leviton|hagens\s*berman|halper\s*sadeh|levi\s*&?\s*korsinsky|robbins\s*geller|kessler\s*topaz|monteverde|wolf\s*haldenstein|berger\s*montague|scott\s*\+?\s*scott|kahn\s*swick|kirby\s*mcinerney|labaton|bernstein\s*liebhard|howard\s*g\.?\s*smith|kuehn\s*law|grabar|rigrodsky|weiss\s*law|ademi|federman|claimsfiler|brodsky\s*&?\s*smith)\b/i;
 
-const LEGAL_BOILERPLATE = /(class\s*action|securities\s*fraud|shareholder\s*(alert|rights|investigation|deadline)|investors?\s+(are\s+)?(urged|encouraged|reminded|alerted|notified|advised|who\s+lost)|secure\s+counsel|contact\s+the\s+firm|lead\s+plaintiff|investigat(e|es|ed|ing|ion|ions)\s+(whether|on\s+behalf|claims|potential|possible)|important\s+deadline|deadline:|purchasers?\s+of\s+|law\s*firm|law\s*offices|is\s+investigating)/i;
+const LEGAL_BOILERPLATE = /(class\s*action|securities\s*fraud|shareholder\s*(alert|rights|investigation|deadline|update)|investors?\s+(are\s+)?(urged|encouraged|reminded|alerted|notified|advised|who\s+lost|who\s+suffered)|suffered\s+losses|secure\s+counsel|contact\s+the\s+firm|lead\s+plaintiff|investigat(e|es|ed|ing|ion|ions)\s+(whether|on\s+behalf|claims|potential|possible)|important\s+deadline|deadline:|purchasers?\s+of\s+|law\s*firm|law\s*offices|is\s+investigating)/i;
 
 const FILING_BOILERPLATE = /(form\s*8\.[35]\s*\(|notification\s+of\s+(major\s+)?holdings|total\s+voting\s+rights|resolutions?\s+passed\s+by|transaction\s+in\s+own\s+shares|block\s+listing\s+(six|interim)|director\/pdmr\s+shareholding)/i;
 
 const isSpamNews = (title: string): boolean => {
   if (!title) return true;
-  return LAW_FIRM_NAMES.test(title) ||
-         LEGAL_BOILERPLATE.test(title) ||
-         FILING_BOILERPLATE.test(title);
+  return LAW_FIRM_NAMES.test(title) || LEGAL_BOILERPLATE.test(title) || FILING_BOILERPLATE.test(title);
 };
 
 const isNegativeHeadline = (title: string | null | undefined): boolean => {
@@ -181,9 +177,6 @@ const isNegativeHeadline = (title: string | null | undefined): boolean => {
   return /offering|dilut|reverse split|reverse stock split|going concern|delist|bankrupt|chapter 11|at-the-market|atm program|warrant exercise|registered direct|shelf registration/.test(s);
 };
 
-// Inverse / bear / long-volatility instruments. Detected from the fund NAME
-// rather than the sector map, because single-stock inverse ETFs (NVD, NVDQ)
-// map to the same sector string as their long counterparts.
 const isBearishInstrument = (name: string | null | undefined): boolean => {
   if (!name) return false;
   return /\bbear\b|\bshort\b|\binverse\b|ultrashort|\-1x\b/i.test(name);
@@ -254,28 +247,17 @@ const deriveTradeType = (setupName: string | null | undefined): string => {
   if (s === 'none' || s === '—') return '';
   if (s.includes('gap & go') || s.includes('r2g') || s.includes('sqz fired') || s.includes('episodic')) return 'Day Trade';
   if (s.includes('glb') || s.includes('vcp') || s.includes('ema pb') || s.includes('trend hold') ||
-      s.includes('inside day') || s.includes('blue dot') || s.includes('sqz building')) return 'Swing';
+      s.includes('inside day') || s.includes('blue dot') || s.includes('sqz building') ||
+      s.includes('reversal')) return 'Swing';
   return 'Swing';
 };
 
 const isReversalSetupName = (setupName: string | null | undefined): boolean =>
-  /blue dot|ema pb|sqz building|inside day/.test((setupName || '').toLowerCase());
+  /blue dot|ema pb|sqz building|inside day|reversal/.test((setupName || '').toLowerCase());
 
 const isBreakoutSetupName = (setupName: string | null | undefined): boolean =>
   /gap & go|r2g|sqz fired|episodic|glb/.test((setupName || '').toLowerCase());
 
-// --- CNF "Confluence" score ---------------------------------------------------
-// Fully deterministic — RVOL, gap, range expansion, relative strength,
-// extension, catalyst. No AI.
-//
-// TWO CEILINGS apply after the additive pass, both as GRADE CAPS rather than
-// deductions so the breakdown tooltip still shows honestly what the tape did.
-//
-//   STRUCTURAL (v6.11) — Stage 4 with a dead cross, or a deep drawdown.
-//   RED DOT (v6.13)    — an active overbought reversal on a long setup.
-//
-// The lower of the two wins. A Stage 4 name that also just printed a red dot
-// should not somehow score better than one that only did the former.
 const computeCnfScore = (
   rvol: number | null,
   gapPct: number | null,
@@ -298,6 +280,7 @@ const computeCnfScore = (
     dotKind: 'blue' | 'red' | null;
     dotBarsSince: number | null;
     isBearInstrument: boolean;
+    aboveEma10: boolean | null;
   }
 ): { score: number; grade: string; breakdown: Record<string, number>; ceiling: number; ceilingReason: string | null } => {
   const b: Record<string, number> = {};
@@ -361,17 +344,24 @@ const computeCnfScore = (
 
   b.sector = q.inHotSector ? 5 : 0;
 
-  // A confirmed blue dot is the setup being scanned for — credit it directly
-  // rather than only through the setupName string match, which misses cases
-  // where a stronger pattern (Gap & Go, GLB) claimed the name first.
   b.dot = 0;
-  if (q.dotKind === 'blue') {
-    b.dot = q.dotBarsSince === 0 ? 10 : 6;
-  }
+  if (q.dotKind === 'blue') b.dot = q.dotBarsSince === 0 ? 10 : 6;
+
+  // --- Reclaim (v6.14) ----------------------------------------------------
+  // This carries the distinction that used to be a separate setup NAME.
+  // A reversal that has taken back the 10 EMA is materially further along
+  // than one still under both lines — the fast line has turned and there is
+  // a definable stop. Scoring it instead of naming it keeps the setup column
+  // to one word while preserving the ranking.
+  //
+  // Only applies to the reversal family. On a Trend Hold or a Gap & Go,
+  // being above the 10 is unremarkable — the other components already
+  // reward it, and adding points here would double-count.
+  b.reclaim = 0;
+  if (q.setupName === 'Reversal' && q.aboveEma10 === true) b.reclaim = 8;
 
   const raw = Object.values(b).reduce((s, v) => s + v, 0);
 
-  // --- CEILING 1: structural (v6.11) --------------------------------------
   let structuralCeiling = 100;
   let structuralReason: string | null = null;
   const deepDrawdown = q.pctOffHigh != null && q.pctOffHigh <= -50;
@@ -392,17 +382,6 @@ const computeCnfScore = (
     }
   }
 
-  // --- CEILING 2: red dot (v6.13) -----------------------------------------
-  // Overbought, closing down, below both reference MAs. On a long setup that
-  // is a contradiction, not a nuance.
-  //
-  // Bear instruments are exempt: a red dot on the thing SOXS tracks is why
-  // SOXS is moving. Capping it would suppress the correct name in a risk-off
-  // tape, which is the exact failure this scanner has already had once.
-  //
-  // Decay by age. A dot printing on today's bar is live evidence; one from
-  // three bars back has had time to be absorbed and the cap loosens toward
-  // the B boundary rather than sitting hard at C.
   let dotCeiling = 100;
   let dotReason: string | null = null;
   if (q.dotKind === 'red' && !q.isBearInstrument) {
@@ -429,6 +408,12 @@ const buildReadout = (t: any): string | null => {
     parts.push(`RED DOT${t.dotBarsSince === 0 ? ' today' : ` ${t.dotBarsSince}d ago`}`);
   } else if (t.dotKind === 'blue') {
     parts.push(`BLUE DOT${t.dotBarsSince === 0 ? ' today' : ` ${t.dotBarsSince}d ago`}`);
+  }
+  // On a reversal, whether the 10 has been reclaimed is the single most
+  // useful qualifier — it is the difference between an entry with a stop
+  // and one without.
+  if (t.setupName === 'Reversal') {
+    parts.push(t.aboveEma10 === true ? '10 EMA reclaimed' : 'still under the 10');
   }
   if (t.distToEma21 != null) {
     const dir = t.distToEma21 >= 0 ? 'above' : 'below';
@@ -507,6 +492,8 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
   const gradeB = i.surfaced.filter((t: any) => t.cnfGrade === 'B').length;
   const breakouts = i.surfaced.filter((t: any) => isBreakoutSetupName(t.setupName)).length;
   const reversals = i.surfaced.filter((t: any) => isReversalSetupName(t.setupName)).length;
+  const reclaimed = i.surfaced.filter((t: any) => t.setupName === 'Reversal' && t.aboveEma10 === true).length;
+  const unnamed = i.surfaced.filter((t: any) => !t.setupName).length;
   const ready = i.surfaced.filter((t: any) => t.status === 'Ready').length;
   const extended = i.surfaced.filter((t: any) => t.extended).length;
   const capped = i.surfaced.filter((t: any) => t.cnfCeiling != null && t.cnfCeiling < 100).length;
@@ -520,6 +507,8 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
     yieldBits.push(`${gradeA} grade A and ${gradeB} grade B`);
     if (blueDots + redDots > 0) yieldBits.push(`${blueDots} blue dot${blueDots === 1 ? '' : 's'} vs ${redDots} red`);
     if (breakouts + reversals > 0) yieldBits.push(`${breakouts} breakout-family vs ${reversals} reversal-family`);
+    if (reversals > 0) yieldBits.push(`${reclaimed} of the reversals have reclaimed the 10 EMA`);
+    if (unnamed > 0) yieldBits.push(`${unnamed} matched no pattern`);
     if (extended > 0) yieldBits.push(`${extended} already extended`);
     if (capped > 0) yieldBits.push(`${capped} grade-capped`);
     yieldBits.push(`${ready} flagged Ready`);
@@ -559,16 +548,14 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
   return { theme, briefing: sentences.join(' '), watching: [] };
 };
 
-// detectPattern no longer computes blue-dot conditions inline — that logic
-// moved to lib/indicators/dots and is passed in, so pattern naming and the
-// scored dot signal can never disagree about the same bar.
 const detectPattern = (
   bars: any[],
   currentPrice: number,
   currentOpen: number,
   vwap: number,
   rvol: number | null,
-  dotKind: 'blue' | 'red' | null
+  dotKind: 'blue' | 'red' | null,
+  stochK: number | null
 ): { name: string | null, stage: string, stageNum: number | null } => {
   let stage = '-';
   if (!bars || bars.length < 80) return { name: null, stage, stageNum: null };
@@ -618,7 +605,6 @@ const detectPattern = (
     return { name: 'BB SQZ Fired', stage, stageNum };
   }
 
-  // Blue Dot now comes straight from the indicator.
   if (dotKind === 'blue') {
     return { name: 'Blue Dot Rev', stage, stageNum };
   }
@@ -680,6 +666,48 @@ const detectPattern = (
 
   if (currentPrice > ema20 && currentPrice > vwap) {
     return { name: 'Trend Hold', stage, stageNum };
+  }
+
+  // --- REVERSAL (v6.13, collapsed to one name in v6.14) -------------------
+  // Everything above requires price ABOVE some reference. A name repairing
+  // from underneath its trend pair matched nothing, which is how a board of
+  // semis up 13-27% came back with an empty setup column.
+  //
+  // Requires price UP ON THE DAY. Without that a name in free-fall below its
+  // averages would be labelled a reversal purely for being oversold.
+  //
+  // TWO PATHS IN, ONE NAME OUT. Either price has reclaimed the 10 EMA — the
+  // fast line has turned and there is a stop to place — or it is still under
+  // both lines but oversold, meaning there is a washout to reverse from.
+  // Whether the 10 is reclaimed is scored (b.reclaim) rather than named, so
+  // the setup column stays one word and the number carries the nuance.
+  //
+  // The 35 stochastic threshold is looser than the 25 the blue dot uses: a
+  // dot needs the extreme, this only needs the name to have been washed out
+  // recently.
+  //
+  // The 10 and 21 EMAs are recomputed here rather than passed in. They exist
+  // in enrichCandidate, but detectPattern is called BEFORE that block runs,
+  // and reordering the caller to thread them through would put a live-price
+  // dependency into a function that currently takes only bars.
+  let ema10 = bars[warmUpBars].c;
+  let ema21 = bars[warmUpBars].c;
+  const k10 = 2 / (10 + 1);
+  const k21 = 2 / (21 + 1);
+  for (let i = warmUpBars - 1; i >= 0; i--) {
+    ema10 = (bars[i].c * k10) + (ema10 * (1 - k10));
+    ema21 = (bars[i].c * k21) + (ema21 * (1 - k21));
+  }
+
+  const upToday = currentPrice > yest.c;
+  const underThe21 = currentPrice < ema21;
+
+  if (upToday && underThe21) {
+    const reclaimedTen = currentPrice > ema10;
+    const washedOut = stochK != null && stochK <= 35;
+    if (reclaimedTen || washedOut) {
+      return { name: 'Reversal', stage, stageNum };
+    }
   }
 
   return { name: null, stage, stageNum };
@@ -1154,9 +1182,18 @@ async function runScan(request: Request) {
       const mf = computeMoneyFlow(dailyBars, { order: 'desc', length: 21 });
       const mfTrend = moneyFlowTrend(dailyBars, { order: 'desc', length: 21, lookback: 5 });
 
-      // Dots computed BEFORE detectPattern so the pattern namer and the score
-      // read the same signal rather than each deciding independently.
       const dot = computeDotDetail(dailyBars, { order: 'desc', price });
+
+      let stochK: number | null = null;
+      if (dailyBars.length >= 14) {
+        const rawK = (idx: number) => {
+          const win = dailyBars.slice(idx, idx + 10);
+          const hi = Math.max(...win.map((b: any) => b.h));
+          const lo = Math.min(...win.map((b: any) => b.l));
+          return hi === lo ? 50 : ((dailyBars[idx].c - lo) / (hi - lo)) * 100;
+        };
+        stochK = (rawK(0) + rawK(1) + rawK(2) + rawK(3)) / 4;
+      }
 
       let aboveEma10: boolean | null = null;
       let aboveEma21: boolean | null = null;
@@ -1203,17 +1240,6 @@ async function runScan(request: Request) {
       }
       const atrPct = (atr > 0 && price > 0) ? (atr / price) * 100 : null;
 
-      let stochK: number | null = null;
-      if (dailyBars.length >= 14) {
-        const rawK = (idx: number) => {
-          const win = dailyBars.slice(idx, idx + 10);
-          const hi = Math.max(...win.map((b: any) => b.h));
-          const lo = Math.min(...win.map((b: any) => b.l));
-          return hi === lo ? 50 : ((dailyBars[idx].c - lo) / (hi - lo)) * 100;
-        };
-        stochK = (rawK(0) + rawK(1) + rawK(2) + rawK(3)) / 4;
-      }
-
       let rsVsSpy: number | null = null;
       if (spyReturn3M != null && dailyBars.length >= 64 && dailyBars[63].c > 0) {
         const ret3M = ((dailyBars[0].c - dailyBars[63].c) / dailyBars[63].c) * 100;
@@ -1233,7 +1259,7 @@ async function runScan(request: Request) {
       const rsVsMkt = chgPct - spyChgToday;
 
       const rvol = (avgVol > 0 && vol > 0) ? (vol / avgVol) : null;
-      const setupMatched = detectPattern(dailyBars, price, currentOpen, vwap, rvol, dot.kind);
+      const setupMatched = detectPattern(dailyBars, price, currentOpen, vwap, rvol, dot.kind, stochK);
       const companyName = details?.results?.name || sym;
 
       let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
@@ -1384,8 +1410,6 @@ async function runScan(request: Request) {
       t.status = (t.stochK != null && t.stochK <= 25 && t.distToEma21 != null && Math.abs(t.distToEma21) <= 2.5)
         ? 'Ready' : 'Forming';
       if (t.tradeType === 'Day Trade' && t.vwapStatus === 'below') t.status = 'Forming';
-      // A live red dot is never Ready on the long side, whatever the
-      // stochastic and EMA distance say.
       if (t.dotKind === 'red' && !isBearishInstrument(t.name)) t.status = 'Forming';
     });
 
@@ -1428,6 +1452,7 @@ async function runScan(request: Request) {
           dotKind: t.dotKind ?? null,
           dotBarsSince: t.dotBarsSince ?? null,
           isBearInstrument: isBearishInstrument(t.name),
+          aboveEma10: t.aboveEma10 ?? null,
         }
       );
       t.cnfScore = cnf.score;
@@ -1592,6 +1617,9 @@ async function runScan(request: Request) {
         blueDots: enrichedList.filter((t: any) => t.dotKind === 'blue').length,
         redDots: enrichedList.filter((t: any) => t.dotKind === 'red').length,
         redDotCapped: enrichedList.filter((t: any) => t.dotKind === 'red' && !isBearishInstrument(t.name)).length,
+        reversals: enrichedList.filter((t: any) => t.setupName === 'Reversal').length,
+        reversalsReclaimed: enrichedList.filter((t: any) => t.setupName === 'Reversal' && t.aboveEma10 === true).length,
+        unnamed: enrichedList.filter((t: any) => !t.setupName).length,
       },
       fromCache: false
     }, { headers: noStoreHeaders });
