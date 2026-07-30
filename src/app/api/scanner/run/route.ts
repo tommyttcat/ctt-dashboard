@@ -1,4 +1,4 @@
-// src/app/api/scanner/run/route.ts — v6.11
+// src/app/api/scanner/run/route.ts — v6.12
 // v6.1: + RMV(15); thesis is news-headline-only (stats moved to t.readout)
 // v6.2: RMV/RME imported from lib/indicators; RME(21) replaces the binary
 //       `extended` penalty in CNF; + cnfBreakdown for the badge tooltip
@@ -11,26 +11,25 @@
 //       news limit 10 -> 50; newest-article selection; earnings calendar
 //       promoted to a catalyst source
 // v6.9: deterministic macro briefing (buildMacroBriefing)
-// v6.10: + distToEma10 on every enriched row. The 10 EMA was already computed
-//        for the aboveEma10 boolean; the distance itself was discarded, which
-//        left every downstream consumer unable to identify a first-touch
-//        pullback (under the 10, still holding the 21) — the highest-quality
-//        Dr. Wish entry. Emitting the number costs nothing.
-// v6.11: three fixes.
-//        (a) SPAM FILTER. Substring matching on 'rosen law' missed the actual
-//            wire format ("ROSEN, A TOP RANKED LAW FIRM, Encourages..."), and
-//            'investigation' missed "is Investigating". Rebuilt as two regexes
-//            — firm names and solicitation boilerplate — so a firm not on the
-//            list still gets caught by its own language. Also drops Form 8.3 /
-//            8.5 regulatory filings, which are procedural, not catalysts.
-//        (b) STRUCTURAL CEILING ON CNF. A name in Stage 4 with a dead 50/200
-//            could grade A on tape components alone — RVOL + gap + range
-//            expansion sum to 70 before any penalty, and the RME extension
-//            adjustment bottoms out at -12. A 37% gap in a name 79% off its
-//            highs is a dead-cat bounce, not an A setup. Grade is now capped
-//            by trend structure regardless of how loud the session is.
-//        (c) detectPattern returns stageNum alongside the label, so the
-//            ceiling can compare a number instead of parsing 'Stage 4B'.
+// v6.10: + distToEma10 on every enriched row
+// v6.11: spam filter rebuilt as regex (the substring list missed the actual
+//        wire format); structural CNF ceiling on Stage 4 / dead cross / deep
+//        drawdown; detectPattern returns stageNum; currentDate via
+//        etDateString; minVolume applied to all five topMovers buckets
+// v6.13: + RED DOT ceiling. Blue-dot detection moved out of detectPattern's
+//        inline logic and into lib/indicators/dots, which now owns both
+//        directions. A red dot — overbought within the last 3 bars, closing
+//        down, and below BOTH the 30 SMA and 21 EMA — caps a long setup's
+//        grade rather than deleting the row: the name stays visible with the
+//        flag attached, same philosophy as the structural ceiling.
+//
+//        BEAR INSTRUMENTS ARE EXEMPT. A red dot on SOXS or UVXY is the setup,
+//        not a disqualifier, and isBearishInstrument() already identifies
+//        them by fund name. Without this carve-out the ceiling would suppress
+//        exactly the names that should rank in a risk-off tape.
+//
+//        The cap DECAYS with age: a dot printing today is stronger evidence
+//        than one from three bars back that price has since absorbed.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -38,6 +37,7 @@ import { computeRMV } from '@/lib/indicators/rmv';
 import { computeRMEDetail, rmeScoreAdjustment } from '@/lib/indicators/rme';
 import { computeStageDetail } from '@/lib/indicators/stage';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
+import { computeDotDetail } from '@/lib/indicators/dots';
 import { SCANNER, SCANNER_SIP_META, SCANNER_DAILY_META, TOPMOVERS_META } from '@/lib/scanConfig';
 
 export const dynamic = 'force-dynamic';
@@ -104,45 +104,31 @@ const ETF_TARGET_MAP: Record<string, string> = {
   'ZSL': 'SLV - Silver -2X', 'URAA': 'URA - Uranium 2X', 'GDXD': 'GDX - Gold Miners -3X',
   'QQQ': 'QQQ - Nasdaq', 'IWM': 'IWM - Small Cap', 'DIA': 'DIA - Dow Jones', 'VOO': 'VOO - S&P 500', 'VTI': 'VTI - Total Market',
 
-  // --- CORRECTIONS (previously mismapped) ---
   'SNXX': "SNDK - Semi's",
   'AXTX': "AXTI - Semi's",
   'CRDU': "CRDO - Semi's",
   'AAOX': "AAOI - Semi's",
-  // NOTE: 'CRWV' removed — CoreWeave is common stock, not an ETF
 
-  // --- ASTS leveraged family ---
   'ASTY': 'ASTS - Aerospace', 'ASUP': 'ASTS - Aerospace', 'ASTG': 'ASTS - Aerospace',
-  // --- SK Hynix leveraged family ---
   'HYNX': "SKHY - Semi's", 'SKUU': "SKHY - Semi's", 'SKHL': "SKHY - Semi's",
   'SK': "SKHY - Semi's", 'SKHU': "SKHY - Semi's", 'SKHX': "SKHY - Semi's",
-  // --- SanDisk (SNDK) ---
   'SNDU': "SNDK - Semi's", 'SNDG': "SNDK - Semi's", 'SNDC': "SNDK - Semi's",
-  // --- Seagate (STX) ---
   'STXL': "STX - Semi's", 'STXX': "STX - Semi's", 'STXU': "STX - Semi's",
-  // --- AXT Inc (AXTI) ---
   'AXTU': "AXTI - Semi's", 'AXTL': "AXTI - Semi's",
-  // --- Memory / DRAM theme ---
   'DRAM': 'DRAM - Memory ETF', 'RAM': 'DRAM - Memory 2X', 'DRAL': 'DRAM - Memory 2X', 'KMEM': 'KMEM - Memory ETF',
-  // --- Micron (MU) ---
   'MUU': "MU - Semi's", 'MULL': "MU - Semi's", 'MIC': "MU - Semi's",
-  // --- WDC / LITE / SMTC / COHR / AMAT / MRVL / ARM / FN / CLS / AAOI ---
   'WDCX': "WDC - Semi's", 'LITU': "LITE - Semi's", 'LITX': "LITE - Semi's",
   'SMTG': "SMTC - Semi's", 'COHX': "COHR - Semi's", 'COHH': "COHR - Semi's",
   'AMA': "AMAT - Semi's", 'MVLL': "MRVL - Semi's", 'MRVU': "MRVL - Semi's",
   'ARMG': "ARM - Semi's", 'ARMW': "ARM - Semi's", 'FNG': "FN - Semi's",
   'CSEX': 'CLS - IT', 'AAOG': "AAOI - Semi's",
-  // --- Nebius (NBIS) / CoreWeave (CRWV) leveraged ---
   'NEBX': 'NBIS - AI', 'NBIG': 'NBIS - AI', 'NBIL': 'NBIS - AI',
   'CWVX': 'CRWV - AI', 'CRWX': 'CRWV - AI',
-  // --- Energy / power / nuclear ---
   'BEX': 'BE - Energy', 'BEG': 'BE - Energy', 'EOSU': 'EOSE - Energy',
   'PLUL': 'PLUG - Energy', 'GEVG': 'GEV - Energy', 'GEVX': 'GEV - Energy',
   'LEUX': 'LEU - Nuclear', 'LACG': 'LAC - Lithium',
   'UCO': 'USO - Crude Oil 2X', 'UGA': 'UGA - Gasoline', 'WTIU': 'WTIU - Energy 3X',
-  // --- Aerospace / space / drones ---
   'PLU': 'PL - Aerospace', 'UMAL': 'UMAC - Aerospace', 'RDWU': 'RDW - Aerospace',
-  // --- Big-name single-stock leveraged ---
   'NFLW': 'NFLX - Comm Serv', 'CSCL': 'CSCO - IT', 'ORCX': 'ORCL - IT', 'ORCU': 'ORCL - IT',
   'PALU': 'PANW - Cyber', 'PANG': 'PANW - Cyber', 'NETG': 'NET - IT',
   'UNHG': 'UNH - Healthcare', 'CATG': 'CAT - Industrials', 'DUOG': 'DUOL - IT',
@@ -150,7 +136,6 @@ const ETF_TARGET_MAP: Record<string, string> = {
   'BMNG': 'BMNR - Fintech', 'LNOK': 'NOK - IT', 'QUBX': 'QUBT - IT',
   'ECHX': 'ECHO - IT', 'INFH': 'INFQ - IT', 'WYFL': 'WYFI - IT',
   'KEEX': 'KEEL - Industrials', 'VELL': 'VELO - Industrials',
-  // --- Sector / index / country ---
   'LABU': 'XBI - Biotech 3X', 'PILL': 'PILL - Pharma 2X',
   'EZJ': 'EWJ - Japan 2X', 'EWY': 'EWY - South Korea', 'FLKR': 'FLKR - South Korea',
   'FOTO': 'FOTO - Photonics ETF'
@@ -161,7 +146,6 @@ const getMarketStatus = () => {
   const hours = now.getHours();
   const minutes = now.getMinutes();
   const time = hours + (minutes / 60);
-
   if (time >= 4 && time < 9.5) return 'Pre-Market';
   if (time >= 9.5 && time < 16) return 'Open';
   if (time >= 16 && time < 20) return 'Post-Market';
@@ -175,33 +159,13 @@ const getUpdatePhase = (hour: number) => {
   return 'Offline';
 };
 
-// YYYY-MM-DD in Eastern time.
 const etDateString = (d: Date): string =>
   d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 
-// --- Promotional / procedural news suppression -------------------------------
-// v6.11. The old implementation was a substring list, and the wire format
-// beat it. Three headlines from the 7/30 feed, all tagged High impact, all of
-// which passed the old filter:
-//
-//   "ROSEN, A TOP RANKED LAW FIRM, Encourages Intuit Inc. Investors to
-//    Secure Counsel..."          -> list had 'rosen law', not present here
-//   "Halper Sadeh LLC is Investigating Whether FNWD and PSNL..."
-//                                -> list had 'investigation', text says
-//                                   'Investigating'
-//   "Alert: Capricor Therapeutics... Investors Urged to Contact Hagens..."
-//                                -> list had 'investors alerted' and
-//                                   'investors reminded', not 'urged'
-//
-// Two passes now. Firm names catch the known blasters; the boilerplate pass
-// catches the language itself, so a firm we have never enumerated is still
-// suppressed by how it writes. Stemmed where the old list was literal.
 const LAW_FIRM_NAMES = /\b(rosen|pomerantz|glancy|kaskela|bronstein|schall|johnson\s*fistel|bragar|eagel|squire|gross\s*law|faruqi|portnoy|block\s*&?\s*leviton|hagens\s*berman|halper\s*sadeh|levi\s*&?\s*korsinsky|robbins\s*geller|kessler\s*topaz|monteverde|wolf\s*haldenstein|berger\s*montague|scott\s*\+?\s*scott|kahn\s*swick|kirby\s*mcinerney|labaton|bernstein\s*liebhard|howard\s*g\.?\s*smith|kuehn\s*law|grabar|rigrodsky|weiss\s*law|ademi|federman|shall\s*law)\b/i;
 
 const LEGAL_BOILERPLATE = /(class\s*action|securities\s*fraud|shareholder\s*(alert|rights|investigation|deadline)|investors?\s+(are\s+)?(urged|encouraged|reminded|alerted|notified|advised|who\s+lost)|secure\s+counsel|contact\s+the\s+firm|lead\s+plaintiff|investigat(e|es|ed|ing|ion|ions)\s+(whether|on\s+behalf|claims|potential|possible)|important\s+deadline|deadline:|purchasers?\s+of\s+|law\s*firm|law\s*offices|is\s+investigating)/i;
 
-// Regulatory disclosure filings. High-impact by tag, procedural in substance —
-// a Form 8.5 position disclosure has never once been the reason a stock moved.
 const FILING_BOILERPLATE = /(form\s*8\.[35]\s*\(|notification\s+of\s+(major\s+)?holdings|total\s+voting\s+rights|resolutions?\s+passed\s+by|transaction\s+in\s+own\s+shares|block\s+listing\s+(six|interim)|director\/pdmr\s+shareholding)/i;
 
 const isSpamNews = (title: string): boolean => {
@@ -211,7 +175,6 @@ const isSpamNews = (title: string): boolean => {
          FILING_BOILERPLATE.test(title);
 };
 
-// Dilution / distress headlines — these gaps are traps, not catalysts.
 const isNegativeHeadline = (title: string | null | undefined): boolean => {
   if (!title) return false;
   const s = title.toLowerCase();
@@ -295,8 +258,6 @@ const deriveTradeType = (setupName: string | null | undefined): string => {
   return 'Swing';
 };
 
-// Setup family classification — used by the regime gate, the RME penalty, and
-// the briefing's leadership read, so a name is treated consistently by each.
 const isReversalSetupName = (setupName: string | null | undefined): boolean =>
   /blue dot|ema pb|sqz building|inside day/.test((setupName || '').toLowerCase());
 
@@ -304,25 +265,17 @@ const isBreakoutSetupName = (setupName: string | null | undefined): boolean =>
   /gap & go|r2g|sqz fired|episodic|glb/.test((setupName || '').toLowerCase());
 
 // --- CNF "Confluence" score ---------------------------------------------------
-// THE unified score for the dashboard (written into `conviction`).
-// Fully deterministic — built from RVOL, gap, range expansion, relative
-// strength, extension, and catalyst presence. No AI involved.
+// Fully deterministic — RVOL, gap, range expansion, relative strength,
+// extension, catalyst. No AI.
 //
-// NOTE: Money Flow is deliberately NOT scored here. It's shipped as a column
-// so you can see it, but folding it into CNF would double-count against RVOL
-// and gap, which already reward the same volume event from a different angle.
+// TWO CEILINGS apply after the additive pass, both as GRADE CAPS rather than
+// deductions so the breakdown tooltip still shows honestly what the tape did.
 //
-// v6.11 adds a STRUCTURAL CEILING after the additive pass. The components
-// measure today — how loud, how fast, how much volume — and they sum to 70
-// before a single penalty applies (rvol 30 + gap 20 + rangeExpansion 20).
-// The only structural counterweight was the RME extension adjustment, which
-// bottoms out at -12. That is not enough to stop a violent bounce in a dead
-// name from grading A: a 37% gap on RVOL 2.7 scored 72 while sitting 79% off
-// its highs in Stage 4B with the 50 under the 200.
+//   STRUCTURAL (v6.11) — Stage 4 with a dead cross, or a deep drawdown.
+//   RED DOT (v6.13)    — an active overbought reversal on a long setup.
 //
-// The ceiling does not subtract points, it caps the grade. A loud day in a
-// broken structure is still worth SEEING — it is just not an A setup, and the
-// grade is what drives position sizing.
+// The lower of the two wins. A Stage 4 name that also just printed a red dot
+// should not somehow score better than one that only did the former.
 const computeCnfScore = (
   rvol: number | null,
   gapPct: number | null,
@@ -342,11 +295,13 @@ const computeCnfScore = (
     stageNum: number | null;
     goldenCross: boolean | null;
     pctOffHigh: number | null;
+    dotKind: 'blue' | 'red' | null;
+    dotBarsSince: number | null;
+    isBearInstrument: boolean;
   }
-): { score: number; grade: string; breakdown: Record<string, number>; ceiling: number } => {
+): { score: number; grade: string; breakdown: Record<string, number>; ceiling: number; ceilingReason: string | null } => {
   const b: Record<string, number> = {};
 
-  // --- Core tape components ---
   b.rvol = 0;
   if (rvol != null) {
     if (rvol >= 3) b.rvol = 30;
@@ -377,7 +332,6 @@ const computeCnfScore = (
     else if (d >= 1.5) b.relStrength = 6;
   }
 
-  // --- Catalyst quality tier: earnings/FDA/M&A > vague PR; dilution is a trap ---
   b.catalyst = 0;
   if (q.catalystTier === 'strong') b.catalyst = 18;
   else if (q.catalystTier === 'neutral') b.catalyst = 10;
@@ -386,20 +340,15 @@ const computeCnfScore = (
 
   b.earnings = q.hasEarnings ? 5 : 0;
 
-  // --- Scan persistence: held its move across multiple 15-min scans = real ---
   b.persistence = 0;
   if (q.scanStreak >= 4) b.persistence = 10;
   else if (q.scanStreak >= 3) b.persistence = 8;
   else if (q.scanStreak === 2) b.persistence = 4;
 
-  // --- Extension (RME): where price sits vs its own 21 EMA extension history.
-  // Reversal setups aren't penalized for being deeply below — that's the setup.
   b.extension = rmeScoreAdjustment(q.rme, isReversalSetupName(q.setupName));
 
-  // --- VWAP: longs below VWAP fight the tape; near-disqualifying for DAY ---
   b.vwap = q.vwapStatus === 'below' ? -(q.tradeType === 'Day Trade' ? 12 : 4) : 0;
 
-  // --- Market regime gate: breakouts fail in weak breadth, reversals thrive ---
   b.regime = 0;
   const isBreakout = isBreakoutSetupName(q.setupName);
   const isReversal = isReversalSetupName(q.setupName);
@@ -410,46 +359,77 @@ const computeCnfScore = (
     if (isBreakout) b.regime += 4;
   }
 
-  // --- Sector confirmation: leader inside a hot group, not a lone wolf ---
   b.sector = q.inHotSector ? 5 : 0;
+
+  // A confirmed blue dot is the setup being scanned for — credit it directly
+  // rather than only through the setupName string match, which misses cases
+  // where a stronger pattern (Gap & Go, GLB) claimed the name first.
+  b.dot = 0;
+  if (q.dotKind === 'blue') {
+    b.dot = q.dotBarsSince === 0 ? 10 : 6;
+  }
 
   const raw = Object.values(b).reduce((s, v) => s + v, 0);
 
-  // --- STRUCTURAL CEILING (v6.11) -----------------------------------------
-  // Applied after the sum, as a grade cap rather than a deduction, so the
-  // breakdown tooltip still shows honestly what the tape did today.
-  //
-  // Stage 4 with a dead 50/200 is a confirmed downtrend — a bounce inside it
-  // caps at B. Add 50%+ off the highs on top of that and it caps at C: the
-  // move would need to more than double just to reach the last swing high.
-  //
-  // Reversal-family setups get one step of relief on the first rule, because
-  // a Blue Dot in Stage 4 IS the setup being scanned for — but never on the
-  // second, since a 50% drawdown is structural damage no entry signal repairs.
-  let ceiling = 100;
+  // --- CEILING 1: structural (v6.11) --------------------------------------
+  let structuralCeiling = 100;
+  let structuralReason: string | null = null;
   const deepDrawdown = q.pctOffHigh != null && q.pctOffHigh <= -50;
   const stage4 = q.stageNum === 4;
   const deadCross = q.goldenCross === false;
 
   if (stage4 && deadCross) {
-    ceiling = isReversal ? 79 : 69;
+    structuralCeiling = isReversal ? 79 : 69;
+    structuralReason = 'Stage 4 with 50<200';
   } else if (stage4 || deadCross) {
-    ceiling = Math.min(ceiling, 84);
+    structuralCeiling = 84;
+    structuralReason = stage4 ? 'Stage 4' : '50<200';
   }
   if (deepDrawdown && (q.stageNum == null || q.stageNum >= 3)) {
-    ceiling = Math.min(ceiling, 59);
+    if (59 < structuralCeiling) {
+      structuralCeiling = 59;
+      structuralReason = '50%+ off highs';
+    }
   }
+
+  // --- CEILING 2: red dot (v6.13) -----------------------------------------
+  // Overbought, closing down, below both reference MAs. On a long setup that
+  // is a contradiction, not a nuance.
+  //
+  // Bear instruments are exempt: a red dot on the thing SOXS tracks is why
+  // SOXS is moving. Capping it would suppress the correct name in a risk-off
+  // tape, which is the exact failure this scanner has already had once.
+  //
+  // Decay by age. A dot printing on today's bar is live evidence; one from
+  // three bars back has had time to be absorbed and the cap loosens toward
+  // the B boundary rather than sitting hard at C.
+  let dotCeiling = 100;
+  let dotReason: string | null = null;
+  if (q.dotKind === 'red' && !q.isBearInstrument) {
+    const since = q.dotBarsSince ?? 0;
+    if (since === 0) { dotCeiling = 44; dotReason = 'red dot today'; }
+    else if (since === 1) { dotCeiling = 49; dotReason = 'red dot 1 bar ago'; }
+    else { dotCeiling = 59; dotReason = `red dot ${since} bars ago`; }
+  }
+
+  const ceiling = Math.min(structuralCeiling, dotCeiling);
+  const ceilingReason =
+    ceiling === 100 ? null :
+    ceiling === dotCeiling && dotReason ? dotReason :
+    structuralReason;
 
   const score = Math.max(0, Math.min(ceiling, Math.round(raw)));
   const grade = score >= 70 ? 'A' : score >= 50 ? 'B' : 'C';
-  return { score, grade, breakdown: b, ceiling };
+  return { score, grade, breakdown: b, ceiling, ceilingReason };
 };
 
-// --- Deterministic setup readout ---------------------------------------------
-// The row's own numbers restated as a sentence. NO LONGER used as the thesis
-// (that line is news-only now) — parked on `readout` for tooltips.
 const buildReadout = (t: any): string | null => {
   const parts: string[] = [];
+  if (t.dotKind === 'red') {
+    parts.push(`RED DOT${t.dotBarsSince === 0 ? ' today' : ` ${t.dotBarsSince}d ago`}`);
+  } else if (t.dotKind === 'blue') {
+    parts.push(`BLUE DOT${t.dotBarsSince === 0 ? ' today' : ` ${t.dotBarsSince}d ago`}`);
+  }
   if (t.distToEma21 != null) {
     const dir = t.distToEma21 >= 0 ? 'above' : 'below';
     const slope = t.ema21Rising === true ? 'rising ' : t.ema21Rising === false ? 'flat/declining ' : '';
@@ -468,14 +448,6 @@ const buildReadout = (t: any): string | null => {
   return parts.join(', ') + '.';
 };
 
-// ---------------------------------------------------------------------------
-// DETERMINISTIC MACRO BRIEFING (v6.9)
-// ---------------------------------------------------------------------------
-// Four sentences, each traceable to a number computed earlier in this run:
-//   1. REGIME     — breadth signal and its inputs, SPY vs 21 EMA, NH/NL
-//   2. LEADERSHIP — hot sectors, and whether the movers are long or inverse
-//   3. YIELD      — how many names cleared each table, grade mix, setup mix
-//   4. POSTURE    — what the combination of regime and yield supports
 interface BriefingInput {
   breadthSignal: string;
   breadthScore: number;
@@ -489,7 +461,7 @@ interface BriefingInput {
   spyAbove21: boolean | null;
   spyChgToday: number;
   hotSectors: string[];
-  surfaced: any[];      // finalSip + finalDaily, deduped
+  surfaced: any[];
   topMovers: Record<string, any[]>;
 }
 
@@ -497,7 +469,6 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
   const pct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
   const sentences: string[] = [];
 
-  // --- 1. REGIME -----------------------------------------------------------
   const adRatio = i.decliners > 0 ? i.advancers / i.decliners : null;
   const regimeWord =
     i.breadthSignal === 'GREEN' ? 'Risk-on' :
@@ -506,18 +477,11 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
   const regimeBits: string[] = [
     `Breadth is ${i.breadthSignal} (${i.breadthScore}/6) on ${i.advancers.toLocaleString()} advancers vs ${i.decliners.toLocaleString()} decliners${adRatio != null ? ` (A/D ${adRatio.toFixed(2)})` : ''}`,
   ];
-  if (i.up4 + i.down4 > 0) {
-    regimeBits.push(`${i.up4} names up 4%+ against ${i.down4} down 4%+`);
-  }
-  if (i.newHighs + i.newLows > 0) {
-    regimeBits.push(`${i.newHighs} new highs vs ${i.newLows} new lows`);
-  }
-  if (i.spyAbove21 != null) {
-    regimeBits.push(`SPY ${pct(i.spyChgToday)} and ${i.spyAbove21 ? 'above' : 'below'} its 21 EMA`);
-  }
+  if (i.up4 + i.down4 > 0) regimeBits.push(`${i.up4} names up 4%+ against ${i.down4} down 4%+`);
+  if (i.newHighs + i.newLows > 0) regimeBits.push(`${i.newHighs} new highs vs ${i.newLows} new lows`);
+  if (i.spyAbove21 != null) regimeBits.push(`SPY ${pct(i.spyChgToday)} and ${i.spyAbove21 ? 'above' : 'below'} its 21 EMA`);
   sentences.push(`${regimeBits.join(', ')}.`);
 
-  // --- 2. LEADERSHIP -------------------------------------------------------
   const moverPool = [
     ...(i.topMovers['Gainers'] || []),
     ...(i.topMovers['ETF Gainers'] || []),
@@ -526,11 +490,8 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
   const bearShare = moverPool.length > 0 ? bearCount / moverPool.length : 0;
 
   const leadBits: string[] = [];
-  if (i.hotSectors.length > 0) {
-    leadBits.push(`Money is concentrated in ${i.hotSectors.join(' and ')}`);
-  } else {
-    leadBits.push('No sector is showing coordinated strength');
-  }
+  if (i.hotSectors.length > 0) leadBits.push(`Money is concentrated in ${i.hotSectors.join(' and ')}`);
+  else leadBits.push('No sector is showing coordinated strength');
   if (moverPool.length >= 5) {
     if (bearShare >= 0.5) {
       leadBits.push(`${bearCount} of the top ${moverPool.length} gainers are inverse or long-volatility instruments — the leaderboard itself is bearish, so there is no long momentum theme on offer`);
@@ -542,7 +503,6 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
   }
   sentences.push(`${leadBits.join('; ')}.`);
 
-  // --- 3. SCAN YIELD -------------------------------------------------------
   const gradeA = i.surfaced.filter((t: any) => t.cnfGrade === 'A').length;
   const gradeB = i.surfaced.filter((t: any) => t.cnfGrade === 'B').length;
   const breakouts = i.surfaced.filter((t: any) => isBreakoutSetupName(t.setupName)).length;
@@ -550,26 +510,22 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
   const ready = i.surfaced.filter((t: any) => t.status === 'Ready').length;
   const extended = i.surfaced.filter((t: any) => t.extended).length;
   const capped = i.surfaced.filter((t: any) => t.cnfCeiling != null && t.cnfCeiling < 100).length;
+  const blueDots = i.surfaced.filter((t: any) => t.dotKind === 'blue').length;
+  const redDots = i.surfaced.filter((t: any) => t.dotKind === 'red').length;
 
   const yieldBits: string[] = [
     `${i.surfaced.length} name${i.surfaced.length === 1 ? '' : 's'} cleared the setup gates`,
   ];
   if (i.surfaced.length > 0) {
     yieldBits.push(`${gradeA} grade A and ${gradeB} grade B`);
-    if (breakouts + reversals > 0) {
-      yieldBits.push(`${breakouts} breakout-family vs ${reversals} reversal-family`);
-    }
-    if (extended > 0) {
-      yieldBits.push(`${extended} already extended`);
-    }
-    if (capped > 0) {
-      yieldBits.push(`${capped} grade-capped on broken structure`);
-    }
+    if (blueDots + redDots > 0) yieldBits.push(`${blueDots} blue dot${blueDots === 1 ? '' : 's'} vs ${redDots} red`);
+    if (breakouts + reversals > 0) yieldBits.push(`${breakouts} breakout-family vs ${reversals} reversal-family`);
+    if (extended > 0) yieldBits.push(`${extended} already extended`);
+    if (capped > 0) yieldBits.push(`${capped} grade-capped`);
     yieldBits.push(`${ready} flagged Ready`);
   }
   sentences.push(`${yieldBits.join(', ')}.`);
 
-  // --- 4. POSTURE ----------------------------------------------------------
   let posture: string;
   const thinYield = gradeA + gradeB <= 2;
 
@@ -590,7 +546,6 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
   }
   sentences.push(posture);
 
-  // --- THEME ---------------------------------------------------------------
   const leadDesc =
     bearShare >= 0.5 ? 'bear instruments leading' :
     i.hotSectors.length > 0 ? `${i.hotSectors[0]} leading` :
@@ -601,24 +556,19 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
     `${gradeB} B-grade`;
   const theme = `${regimeWord} — ${leadDesc}, ${yieldDesc}`;
 
-  return {
-    theme,
-    briefing: sentences.join(' '),
-    // Dropped in v6.9 — duplicated the tables below and dressed a tape score
-    // up as a thesis. Emitted empty so existing components don't throw.
-    watching: [],
-  };
+  return { theme, briefing: sentences.join(' '), watching: [] };
 };
 
-// v6.11: returns stageNum alongside the label. The CNF ceiling needs to compare
-// a number, and parsing 'Stage 4B' back out of a display string downstream was
-// the kind of thing that breaks the first time a sub-stage letter changes.
+// detectPattern no longer computes blue-dot conditions inline — that logic
+// moved to lib/indicators/dots and is passed in, so pattern naming and the
+// scored dot signal can never disagree about the same bar.
 const detectPattern = (
   bars: any[],
   currentPrice: number,
   currentOpen: number,
   vwap: number,
-  rvol: number | null
+  rvol: number | null,
+  dotKind: 'blue' | 'red' | null
 ): { name: string | null, stage: string, stageNum: number | null } => {
   let stage = '-';
   if (!bars || bars.length < 80) return { name: null, stage, stageNum: null };
@@ -630,12 +580,9 @@ const detectPattern = (
   let ema20 = bars[warmUpBars].c;
   const k20 = 2 / (20 + 1);
   for (let i = warmUpBars - 1; i >= 0; i--) {
-      ema20 = (bars[i].c * k20) + (ema20 * (1 - k20));
+    ema20 = (bars[i].c * k20) + (ema20 * (1 - k20));
   }
 
-  // Weinstein stage + sub-stage. Bars here are DESC (newest first), and the
-  // live price is passed so the sub-stage reflects the intraday print rather
-  // than yesterday's close — the 30 and 50 SMAs sit close together.
   const stageDetail = computeStageDetail(bars, { order: 'desc', price: currentPrice });
   stage = stageDetail.label;
   const stageNum = stageDetail.stage;
@@ -644,16 +591,13 @@ const detectPattern = (
     let sum = 0;
     for(let i=offset; i<offset+20; i++) sum += bars[i].c;
     const sma = sum / 20;
-
     let variance = 0;
     for(let i=offset; i<offset+20; i++) variance += Math.pow(bars[i].c - sma, 2);
     const stdDev = Math.sqrt(variance / 20);
-
     const upperBB_25 = sma + (2.5 * stdDev);
     const lowerBB_25 = sma - (2.5 * stdDev);
     const upperBB_35 = sma + (3.5 * stdDev);
     const lowerBB_35 = sma - (3.5 * stdDev);
-
     let sumTR = 0;
     for(let i=offset; i<offset+20; i++) {
       const high = bars[i].h;
@@ -662,10 +606,8 @@ const detectPattern = (
       sumTR += Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
     }
     const avgTR = sumTR / 20;
-
     const upperKC = sma + (1.5 * avgTR);
     const lowerKC = sma - (1.5 * avgTR);
-
     return (upperBB_25 < upperKC && lowerBB_25 > lowerKC) || (upperBB_35 < upperKC && lowerBB_35 > lowerKC);
   };
 
@@ -673,29 +615,11 @@ const detectPattern = (
   const wasSqueezingYest = checkSqueeze(1);
 
   if (wasSqueezingYest && !isSqueezingToday && currentPrice > ema20) {
-      return { name: 'BB SQZ Fired', stage, stageNum };
+    return { name: 'BB SQZ Fired', stage, stageNum };
   }
 
-  const fastStochK = (idx: number) => {
-    const slice = bars.slice(idx, idx + 10);
-    const hi = Math.max(...slice.map(b => b.h));
-    const lo = Math.min(...slice.map(b => b.l));
-    if (hi === lo) return 50;
-    return ((bars[idx].c - lo) / (hi - lo)) * 100;
-  };
-  const oversoldLast3 = fastStochK(0) <= 25 || fastStochK(1) <= 25 || fastStochK(2) <= 25;
-
-  let sma30 = 0;
-  for (let i = 0; i < 30; i++) sma30 += bars[i].c;
-  sma30 /= 30;
-
-  let ema21 = bars[warmUpBars].c;
-  const k21 = 2 / (21 + 1);
-  for (let i = warmUpBars - 1; i >= 0; i--) {
-    ema21 = (bars[i].c * k21) + (ema21 * (1 - k21));
-  }
-
-  if (oversoldLast3 && currentPrice > yest.c && (currentPrice > sma30 || currentPrice > ema21)) {
+  // Blue Dot now comes straight from the indicator.
+  if (dotKind === 'blue') {
     return { name: 'Blue Dot Rev', stage, stageNum };
   }
 
@@ -711,8 +635,6 @@ const detectPattern = (
     const slice = bars.slice(start, start + len);
     return slice.reduce((s, b) => s + (b.v || 0), 0) / Math.max(slice.length, 1);
   };
-  // Compare the stage NUMBER — sub-stages mean 'Stage 2B' and 'Stage 2C' are
-  // also valid VCP contexts, and an exact-label match would exclude them.
   if ((stageNum === 2 || stageNum === 3) && bars.length >= 50) {
     const rNear = windowRange(1, 12), rMid = windowRange(13, 12), rFar = windowRange(25, 12);
     const vNear = windowVol(1, 12), vMid = windowVol(13, 12), vFar = windowVol(25, 12);
@@ -753,7 +675,7 @@ const detectPattern = (
   }
 
   if (isSqueezingToday) {
-      return { name: 'BB SQZ Building', stage, stageNum };
+    return { name: 'BB SQZ Building', stage, stageNum };
   }
 
   if (currentPrice > ema20 && currentPrice > vwap) {
@@ -779,9 +701,6 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 20000, head
 
 const WIIM_MAX_AGE_DAYS = 4;
 const WIIM_MAX_BREADTH = 12;
-// v6.8: was 50. At pageSize=100 a 50-ticker batch truncates badly — the first
-// handful of tickers consume the entire item budget and everything after them
-// comes back empty, which is why earnings-day names had no WIIM attached.
 const WIIM_BATCH_SIZE = 15;
 
 const classifyWiim = (title: string): string => {
@@ -825,10 +744,6 @@ const fetchBenzingaWiims = async (
 
       const title = (item?.title || '').trim();
       if (!title) continue;
-
-      // v6.11: WIIM is a curated channel, but litigation solicitations do
-      // occasionally carry the tag. Same filter as the Polygon path so a name
-      // cannot pick up a law-firm blast as its catalyst through this door.
       if (isSpamNews(title)) continue;
 
       const stocks = Array.isArray(item?.stocks) ? item.stocks : [];
@@ -845,24 +760,13 @@ const fetchBenzingaWiims = async (
         const sym = (s?.name || '').toUpperCase();
         if (!sym) continue;
         const prev = out.get(sym);
-        if (!prev || score < prev.score) {
-          out.set(sym, { title, url: link, daysOld, score });
-        }
+        if (!prev || score < prev.score) out.set(sym, { title, url: link, daysOld, score });
       }
     }
   }
   return out;
 };
 
-// --- Earnings calendar -------------------------------------------------------
-// v6.8: window widened from [today, +2d] to [yesterday, +2d] and the return
-// type upgraded from Set to Map so we know WHICH side of the print we're on.
-//
-// `reported` = the print already happened (yesterday, or today pre-market).
-// That's a catalyst, and it's the fix for a -40% earnings gap showing up as
-// "Technical Momentum". `upcoming` = still ahead, which is the old +5 nudge.
-//
-// Fails open — no key or a bad response just means no earnings context.
 interface EarningsEntry { date: string; when: string; reported: boolean; }
 
 const fetchEarningsCalendar = async (apiKey: string): Promise<Map<string, EarningsEntry>> => {
@@ -882,16 +786,9 @@ const fetchEarningsCalendar = async (apiKey: string): Promise<Map<string, Earnin
       const ticker = (r?.ticker || '').toUpperCase();
       if (!ticker) continue;
       const date: string = r?.date || '';
-      // Benzinga marks timing as BMO (before open), AMC (after close), or DMT.
       const when: string = (r?.time_of_day || r?.time || '').toString().toUpperCase();
-
-      // Already printed if it was yesterday, or it's today and reported
-      // pre-market. Today's AMC names haven't happened yet at scan time.
-      const reported =
-        date < today || (date === today && !when.includes('AMC'));
-
+      const reported = date < today || (date === today && !when.includes('AMC'));
       const prev = out.get(ticker);
-      // Prefer the nearest date if a ticker somehow appears twice.
       if (!prev || date < prev.date) out.set(ticker, { date, when, reported });
     }
   } catch {
@@ -900,25 +797,15 @@ const fetchEarningsCalendar = async (apiKey: string): Promise<Map<string, Earnin
   return out;
 };
 
-// --- macroInsights freshness gate --------------------------------------------
-// v6.8 added this because `macro_insights_v6` had no writer — it was produced
-// by a removed Gemini route, had no TTL, and got republished forever.
-//
-// v6.9 restores a writer (buildMacroBriefing), so this gate now does its
-// intended job: serve today's briefing, suppress anything older.
 const readFreshMacroInsights = async (): Promise<any | null> => {
   try {
     const raw: any = await kv.get('macro_insights_v6');
     if (!raw || typeof raw !== 'object') return null;
-
     const stampRaw = raw.generatedAt || raw.updatedAt || raw.timestamp || null;
     if (!stampRaw) return null;
-
     const stamp = new Date(stampRaw);
     if (Number.isNaN(stamp.getTime())) return null;
-
     if (etDateString(stamp) !== etDateString(new Date())) return null;
-
     return raw;
   } catch {
     return null;
@@ -935,11 +822,6 @@ async function runScan(request: Request) {
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
   const currentPhase = getUpdatePhase(hour);
-  // v6.11: was estNow.toISOString().split('T')[0]. That round-trips correctly
-  // only while the server clock is UTC — estNow already holds ET wall-clock
-  // values, so toISOString() applies a second shift on any other host TZ and
-  // the streak key silently rolls a day early or late. etDateString() derives
-  // the ET calendar date directly and does not care where this runs.
   const currentDate = etDateString(new Date());
   const currentMarketStatus = getMarketStatus();
 
@@ -949,16 +831,12 @@ async function runScan(request: Request) {
     'Expires': '0',
   };
 
-  // Scan-gate metadata for the on-screen key. Shipped with every response,
-  // including cached and weekend ones, so the "?" panel always has something
-  // to render regardless of which path served the data.
   const scanMeta = {
     sip: SCANNER_SIP_META,
     daily: SCANNER_DAILY_META,
     topMovers: TOPMOVERS_META,
   };
 
-  // --- WEEKEND GUARD ---------------------------------------------------------
   if (isWeekend && !forceRefresh) {
     const [wDaily, wSip, wTop, wMacro, wBench, wTime] = await Promise.all([
       kv.get<any[]>('daily_setups_v6'),
@@ -985,7 +863,6 @@ async function runScan(request: Request) {
     }, { headers: noStoreHeaders });
   }
 
-  // --- SHORT DEDUPE THROTTLE -------------------------------------------------
   if (!forceRefresh) {
     try {
       const lastScanTime = await kv.get<number>('last_scan_time_v6');
@@ -1038,7 +915,6 @@ async function runScan(request: Request) {
 
       const spyRes = await fetchSafeJson(`https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day/${fromStr}/${toStr}?adjusted=true&apiKey=${polygonApiKey}`, { results: [] });
       const spyBars = spyRes.results || [];
-
       if (spyBars.length < 2) {
         return NextResponse.json({ error: `Could not resolve valid market dates from benchmark. SPY bars returned: ${spyBars.length}` }, { status: 500 });
       }
@@ -1053,23 +929,17 @@ async function runScan(request: Request) {
 
       const rawResults = groupedRes.results || [];
       const prevResults = prevGroupedRes.results || [];
-
       if (rawResults.length === 0) return NextResponse.json({ error: `No historical data returned from Polygon for confirmed active date ${targetDate}` }, { status: 500 });
 
       const prevCloseMap = new Map();
-      prevResults.forEach((t: any) => {
-        prevCloseMap.set(t.T, t.c);
-      });
+      prevResults.forEach((t: any) => prevCloseMap.set(t.T, t.c));
 
       processedSnapshot = rawResults.map((t: any) => {
         const livePrice = t.c || 0;
         const vol = t.v || 0;
         const vwap = t.vw || livePrice;
-
         const prevClose = prevCloseMap.get(t.T) || t.o || livePrice;
-
         const liveChg = prevClose > 0 ? ((livePrice - prevClose) / prevClose) * 100 : 0;
-
         return {
           ticker: t.T,
           _livePrice: livePrice,
@@ -1101,16 +971,13 @@ async function runScan(request: Request) {
         t._liveChg = Number.isNaN(liveChg) ? 0 : liveChg;
         t._liveVol = vol;
         t._liveVwap = vwap;
-
         return t;
       });
     }
 
     const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= SCANNER.minPrice && t._liveVol >= SCANNER.minVolume);
-
     const spyChgToday = processedSnapshot.find((t: any) => t.ticker === 'SPY')?._liveChg ?? 0;
 
-    // --- Market breadth / GMI-style regime -----------------------------------
     let advancers = 0, decliners = 0, up4 = 0, down4 = 0;
     for (const t of viableSetups) {
       const chg = t._liveChg || 0;
@@ -1137,16 +1004,12 @@ async function runScan(request: Request) {
       });
     } catch (e) { console.error('breadth persist failed', e); }
 
-    // --- ATHI/ATLO: new 52-week highs vs lows across the FULL viable universe.
-    // Uses grouped daily bars (one API call per trading day) to compute each
-    // ticker's 252-day high and low, then compares to today's price.
     let newHighs = 0, newLows = 0;
     try {
       const viableSet = new Set(viableSetups.map((t: any) => t.ticker));
       const hi52Map = new Map<string, number>();
       const lo52Map = new Map<string, number>();
 
-      // Fetch grouped daily for ~252 trading days in batches of 7
       const hlDates: string[] = [];
       for (let d = 365; d >= 1; d--) {
         const dt = new Date(Date.now() - d * 86400000);
@@ -1159,12 +1022,12 @@ async function runScan(request: Request) {
       const HL_BATCH = 7;
       for (let i = 0; i < hlKept.length; i += HL_BATCH) {
         const chunk = hlKept.slice(i, i + HL_BATCH);
-        const settled = await Promise.allSettled(chunk.map(async (date) => {
-          return fetchSafeJson(
+        const settled = await Promise.allSettled(chunk.map(async (date) =>
+          fetchSafeJson(
             `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${date}?adjusted=true&apiKey=${polygonApiKey}`,
             { results: [] }, 15000
-          );
-        }));
+          )
+        ));
         for (const r of settled) {
           if (r.status !== 'fulfilled' || !r.value?.results) continue;
           for (const bar of r.value.results) {
@@ -1178,29 +1041,18 @@ async function runScan(request: Request) {
         }
       }
 
-      // Compare today's price to the 52-week extremes
       for (const t of viableSetups) {
         const price = t._livePrice;
         if (!price || price <= 0) continue;
         const hi = hi52Map.get(t.ticker);
         const lo = lo52Map.get(t.ticker);
-        if (hi && hi > 0) {
-          const pctOff = ((price - hi) / hi) * 100;
-          if (pctOff >= -1) newHighs++;
-        }
-        if (lo && lo > 0) {
-          const pctOff = ((price - lo) / lo) * 100;
-          if (pctOff <= 1) newLows++;
-        }
+        if (hi && hi > 0 && ((price - hi) / hi) * 100 >= -1) newHighs++;
+        if (lo && lo > 0 && ((price - lo) / lo) * 100 <= 1) newLows++;
       }
 
-      // Merge into the breadth KV payload
       const prevBreadth = await kv.get<any>('market_breadth_v6');
-      if (prevBreadth) {
-        await kv.set('market_breadth_v6', { ...prevBreadth, newHighs, newLows });
-      }
+      if (prevBreadth) await kv.set('market_breadth_v6', { ...prevBreadth, newHighs, newLows });
     } catch (e) { console.error('ATHI/ATLO failed (non-blocking):', e); }
-
 
     const dailyCandidates = [...viableSetups]
       .filter((t: any) => t._liveChg >= SCANNER.minChange)
@@ -1218,9 +1070,7 @@ async function runScan(request: Request) {
     const knownEtfsRaw = viableSetups.filter((t: any) => ETF_TARGET_MAP[t.ticker]);
     const etfGainersRaw = [...knownEtfsRaw].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
     const etfLosersRaw = [...knownEtfsRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 20);
-
     const regularStocksRaw = viableSetups.filter((t: any) => !ETF_TARGET_MAP[t.ticker] && !MEGA_CAP_TICKERS.has(t.ticker));
-
     const gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= SCANNER.minChange).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 40);
     const losersRaw = [...regularStocksRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 40);
 
@@ -1230,7 +1080,6 @@ async function runScan(request: Request) {
     const toStr = todayDate.toISOString().split('T')[0];
     const fromStr = lookbackDate.toISOString().split('T')[0];
 
-    // SPY 63-day (~3 month) return — benchmark for the RS column.
     const spyHistRes = await fetchSafeJson(
       `https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=desc&limit=350&apiKey=${polygonApiKey}`,
       { results: [] }
@@ -1241,7 +1090,6 @@ async function runScan(request: Request) {
       spyReturn3M = ((spyHistBars[0].c - spyHistBars[63].c) / spyHistBars[63].c) * 100;
     }
 
-    // SPY vs its own 21 EMA — trend confirmation for the regime gate.
     let spyAbove21: boolean | null = null;
     if (spyHistBars.length >= 30) {
       const spyWarm = Math.min(100, spyHistBars.length - 1);
@@ -1265,9 +1113,6 @@ async function runScan(request: Request) {
       const [details, aggs, newsData, shortData] = await Promise.all([
         fetchSafeJson(`https://api.polygon.io/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {}),
         fetchSafeJson(`https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=desc&limit=350&apiKey=${polygonApiKey}`, { results: [] }),
-        // v6.8: limit 10 -> 50. The spam filter strips law-firm blasts, and on
-        // an earnings blowup those ARE the top results — a 10-item window left
-        // nothing behind and fell through to months-old news.
         fetchSafeJson(`https://api.polygon.io/v2/reference/news?ticker=${sym}&limit=50&order=desc&sort=published_utc&apiKey=${polygonApiKey}`, { results: [] }),
         fetchSafeJson(`https://api.polygon.io/stocks/v1/short-interest?ticker=${sym}&apiKey=${polygonApiKey}`, { results: [] })
       ]);
@@ -1281,18 +1126,12 @@ async function runScan(request: Request) {
       let avgVol = 0;
       let atr = 0;
       if (dailyBars.length > 0) {
-        let sumVol = 0;
-        let barCount = 0;
-        let sumTR = 0;
-        let trCount = 0;
-
+        let sumVol = 0, barCount = 0, sumTR = 0, trCount = 0;
         dailyBars.slice(0, 20).forEach((bar: any, index: number) => {
           if (bar.v) { sumVol += bar.v; barCount++; }
           if (index < 14 && dailyBars[index+1]) {
-            const high = bar.h;
-            const low = bar.l;
             const prevClose = dailyBars[index+1].c;
-            sumTR += Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+            sumTR += Math.max(bar.h - bar.l, Math.abs(bar.h - prevClose), Math.abs(bar.l - prevClose));
             trCount++;
           }
         });
@@ -1300,13 +1139,9 @@ async function runScan(request: Request) {
         atr = trCount > 0 ? sumTR / trCount : 0;
       }
 
-      // Average Daily Range % (Minervini): SMA20(High/Low) - 1. Unlike ATR it
-      // has no gap component, so it measures the intraday room a typical
-      // session actually offers — the anti-chop metric.
       let adrPct: number | null = null;
       if (dailyBars.length >= 20) {
-        let ratioSum = 0;
-        let ratioCount = 0;
+        let ratioSum = 0, ratioCount = 0;
         for (let i = 0; i < 20; i++) {
           const b = dailyBars[i];
           if (b && b.h > 0 && b.l > 0) { ratioSum += b.h / b.l; ratioCount++; }
@@ -1319,7 +1154,10 @@ async function runScan(request: Request) {
       const mf = computeMoneyFlow(dailyBars, { order: 'desc', length: 21 });
       const mfTrend = moneyFlowTrend(dailyBars, { order: 'desc', length: 21, lookback: 5 });
 
-      // 10 & 21 EMA + trend-structure fields.
+      // Dots computed BEFORE detectPattern so the pattern namer and the score
+      // read the same signal rather than each deciding independently.
+      const dot = computeDotDetail(dailyBars, { order: 'desc', price });
+
       let aboveEma10: boolean | null = null;
       let aboveEma21: boolean | null = null;
       let distToEma10: number | null = null;
@@ -1339,16 +1177,11 @@ async function runScan(request: Request) {
         }
         aboveEma10 = price >= e10;
         aboveEma21 = price >= e21;
-        // v6.10: the 10 EMA distance was computed and thrown away — only the
-        // boolean was emitted. Without the number, nothing downstream can
-        // distinguish a first-touch pullback (under the 10, still over the
-        // 21) from a name stacked well above both lines.
         if (e10 > 0) distToEma10 = ((price - e10) / e10) * 100;
         if (e21 > 0) distToEma21 = ((price - e21) / e21) * 100;
         if (e21FiveAgo != null) ema21Rising = e21 > e21FiveAgo;
       }
 
-      // Golden cross: 50 SMA above 200 SMA
       let goldenCross: boolean | null = null;
       if (dailyBars.length >= 200) {
         let s50 = 0, s200 = 0;
@@ -1359,8 +1192,6 @@ async function runScan(request: Request) {
         goldenCross = (s50 / 50) > (s200 / 200);
       }
 
-      // % off 52-week high/low (~252 trading days, capped to available bars).
-      // Used for scanner display AND for the ATHI/ATLO breadth count.
       let pctOffHigh: number | null = null;
       let pctOffLow: number | null = null;
       if (dailyBars.length >= 20 && price > 0) {
@@ -1372,7 +1203,6 @@ async function runScan(request: Request) {
       }
       const atrPct = (atr > 0 && price > 0) ? (atr / price) * 100 : null;
 
-      // Smoothed stochastic %K (10, 4) — matches the Dr. Wish dots.
       let stochK: number | null = null;
       if (dailyBars.length >= 14) {
         const rawK = (idx: number) => {
@@ -1384,34 +1214,26 @@ async function runScan(request: Request) {
         stochK = (rawK(0) + rawK(1) + rawK(2) + rawK(3)) / 4;
       }
 
-      // 3-month RS vs SPY (63 trading days).
       let rsVsSpy: number | null = null;
       if (spyReturn3M != null && dailyBars.length >= 64 && dailyBars[63].c > 0) {
         const ret3M = ((dailyBars[0].c - dailyBars[63].c) / dailyBars[63].c) * 100;
         rsVsSpy = ret3M - spyReturn3M;
       }
 
-      // --- CNF raw components -------------------------------------------------
       let gapPct: number | null = null;
       let atrExpansion: number | null = null;
       let moveVsAtr: number | null = null;
       if (dailyBars.length >= 2) {
         const prevDailyClose = dailyBars[1]?.c;
-        if (prevDailyClose > 0 && currentOpen > 0) {
-          gapPct = ((currentOpen - prevDailyClose) / prevDailyClose) * 100;
-        }
+        if (prevDailyClose > 0 && currentOpen > 0) gapPct = ((currentOpen - prevDailyClose) / prevDailyClose) * 100;
         const todayBar = dailyBars[0];
-        if (atr > 0 && todayBar?.h != null && todayBar?.l != null) {
-          atrExpansion = (todayBar.h - todayBar.l) / atr;
-        }
-        if (atr > 0 && prevDailyClose > 0) {
-          moveVsAtr = (price - prevDailyClose) / atr;
-        }
+        if (atr > 0 && todayBar?.h != null && todayBar?.l != null) atrExpansion = (todayBar.h - todayBar.l) / atr;
+        if (atr > 0 && prevDailyClose > 0) moveVsAtr = (price - prevDailyClose) / atr;
       }
       const rsVsMkt = chgPct - spyChgToday;
 
       const rvol = (avgVol > 0 && vol > 0) ? (vol / avgVol) : null;
-      const setupMatched = detectPattern(dailyBars, price, currentOpen, vwap, rvol);
+      const setupMatched = detectPattern(dailyBars, price, currentOpen, vwap, rvol, dot.kind);
       const companyName = details?.results?.name || sym;
 
       let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
@@ -1421,15 +1243,8 @@ async function runScan(request: Request) {
       let shortPct = null;
       let daysToCover = null;
       const shortInterest = shortData?.results?.[0]?.short_interest;
-      if (shortInterest && float) {
-        shortPct = (shortInterest / float) * 100;
-      }
-      // Days to cover — the "5" in Bonde's MAGNA 53. Sessions of normal trade
-      // for shorts to exit; scales short interest against the liquidity to
-      // unwind it, which raw short percent does not.
-      if (shortInterest && avgVol > 0) {
-        daysToCover = shortInterest / avgVol;
-      }
+      if (shortInterest && float) shortPct = (shortInterest / float) * 100;
+      if (shortInterest && avgVol > 0) daysToCover = shortInterest / avgVol;
 
       const apiSectorRaw = cleanSectorDescription(details?.results?.sic_description, details?.results?.sector, details?.results?.industry);
       const deepSector = resolveEtfSector(sym, apiSectorRaw, companyName);
@@ -1442,19 +1257,12 @@ async function runScan(request: Request) {
       let daysOld = 999;
 
       if (validNewsList.length > 0) {
-        // v6.8: take the NEWEST surviving article. The old code ran .find()
-        // for a preferred publisher, which could return an older story than
-        // validNewsList[0] and misreport how fresh the catalyst was.
         const relatedNews = validNewsList
           .slice()
-          .sort((a: any, b: any) =>
-            new Date(b.published_utc).getTime() - new Date(a.published_utc).getTime())[0];
-
+          .sort((a: any, b: any) => new Date(b.published_utc).getTime() - new Date(a.published_utc).getTime())[0];
         if (relatedNews && relatedNews.published_utc) {
           const pubDate = new Date(relatedNews.published_utc);
-          const diffMs = todayDate.getTime() - pubDate.getTime();
-          daysOld = diffMs / (1000 * 60 * 60 * 24);
-
+          daysOld = (todayDate.getTime() - pubDate.getTime()) / (1000 * 60 * 60 * 24);
           if (daysOld <= 4) {
             rawHeadline = relatedNews.title;
             finalCatalystUrl = relatedNews.article_url || null;
@@ -1468,6 +1276,9 @@ async function runScan(request: Request) {
         daysToCover: daysToCover != null ? parseFloat(daysToCover.toFixed(1)) : null,
         mktCap: marketCap, stage: setupMatched.stage, setupName: setupMatched.name, catalystUrl: finalCatalystUrl,
         _stageNum: setupMatched.stageNum,
+        dotKind: dot.kind,
+        dotStochK: dot.stochK,
+        dotBarsSince: dot.barsSinceExtreme,
         aboveEma10, aboveEma21,
         distToEma10: distToEma10 != null ? parseFloat(distToEma10.toFixed(2)) : null,
         distToEma21: distToEma21 != null ? parseFloat(distToEma21.toFixed(2)) : null,
@@ -1477,9 +1288,7 @@ async function runScan(request: Request) {
         pctOffLow: pctOffLow != null ? parseFloat(pctOffLow.toFixed(1)) : null,
         atrPct: atrPct != null ? parseFloat(atrPct.toFixed(2)) : null,
         adrPct: adrPct != null ? parseFloat(adrPct.toFixed(2)) : null,
-        rmv,
-        mf,
-        mfTrend,
+        rmv, mf, mfTrend,
         rme: rmeDetail.rme,
         rmeExtPct: rmeDetail.extPct,
         rmeSampled: rmeDetail.sampled,
@@ -1499,17 +1308,13 @@ async function runScan(request: Request) {
       const chunk = uniqueCandidates.slice(i, i + chunkSize);
       const results = await Promise.all(chunk.map(enrichCandidate));
       enrichedList.push(...results.filter(item => item !== null && item !== undefined));
-      if (i + chunkSize < uniqueCandidates.length) {
-        await new Promise(resolve => setTimeout(resolve, 200));
-      }
+      if (i + chunkSize < uniqueCandidates.length) await new Promise(resolve => setTimeout(resolve, 200));
     }
 
     const wiimTickers = enrichedList.map((t: any) => t.ticker).filter(Boolean);
     const wiimMap = await fetchBenzingaWiims(wiimTickers, benzingaApiKey);
-
     const earningsMap = await fetchEarningsCalendar(benzingaApiKey);
 
-    // --- Scan persistence: how many consecutive scans has each name held? ---
     let prevStreaks: Record<string, number> = {};
     try {
       const storedStreaks = await kv.get<any>('scan_streaks_v6');
@@ -1521,7 +1326,6 @@ async function runScan(request: Request) {
 
     const enrichedMap = new Map();
 
-    // --- PASS 1: catalyst tier, tradeType, streaks, extension, status --------
     const NEGATIVE_TAGS = new Set(['Offering', 'Legal / Risk']);
     const STRONG_TAGS = new Set(['Earnings', 'FDA / Data', 'M&A', 'Guidance', 'Contract']);
 
@@ -1538,9 +1342,6 @@ async function runScan(request: Request) {
         t.catalyst = tag;
         if (wiim.url) t.catalystUrl = wiim.url;
       } else if (reportedEarnings) {
-        // v6.8: the calendar itself is the catalyst. Without this a name that
-        // gapped 40% on its print reads "Technical Momentum" whenever the WIIM
-        // feed misses it — which is most of the time on a heavy earnings day.
         catalystTag = 'Earnings';
         t.catalyst = 'Earnings';
       } else {
@@ -1549,14 +1350,9 @@ async function runScan(request: Request) {
         else t.catalyst = 'Technical Momentum';
       }
 
-      // THESIS = NEWS HEADLINE ONLY. Null when the move has no news behind it.
-      t.thesis = wiim
-        ? wiim.title
-        : (t._rawHeadline && t._daysOld <= 4 ? t._rawHeadline : null);
-
+      t.thesis = wiim ? wiim.title : (t._rawHeadline && t._daysOld <= 4 ? t._rawHeadline : null);
       t.readout = buildReadout(t);
 
-      // Earnings context, exposed for the row tooltip.
       t.earningsDate = earn?.date || null;
       t.earningsWhen = earn?.when || null;
       t.earningsReported = reportedEarnings;
@@ -1588,9 +1384,11 @@ async function runScan(request: Request) {
       t.status = (t.stochK != null && t.stochK <= 25 && t.distToEma21 != null && Math.abs(t.distToEma21) <= 2.5)
         ? 'Ready' : 'Forming';
       if (t.tradeType === 'Day Trade' && t.vwapStatus === 'below') t.status = 'Forming';
+      // A live red dot is never Ready on the long side, whatever the
+      // stochastic and EMA distance say.
+      if (t.dotKind === 'red' && !isBearishInstrument(t.name)) t.status = 'Forming';
     });
 
-    // --- Sector heat: avg % move per sector across the full scanned universe --
     const sectorHeatAgg: Record<string, { sum: number; count: number }> = {};
     enrichedList.forEach((t: any) => {
       const sec = t.sector && t.sector !== '—' && t.sector !== 'Other' ? String(t.sector) : null;
@@ -1607,19 +1405,12 @@ async function runScan(request: Request) {
       .map(h => h.sec);
     const hotSectors = new Set(hotSectorList);
 
-    // --- PASS 2: CNF scoring with full market context -------------------------
     enrichedList.forEach((t: any) => {
-      // `hasEarnings` remains the FORWARD-looking flag (print still ahead) so
-      // the +5 nudge keeps its original meaning. A name that already reported
-      // gets its credit through the catalyst tier instead, not twice.
       const earn = earningsMap.get(t.ticker);
       const hasEarnings = !!earn && !earn.reported;
 
       const cnf = computeCnfScore(
-        t.rvol,
-        t.gapPct,
-        t.atrExpansion,
-        t.rsVsMkt,
+        t.rvol, t.gapPct, t.atrExpansion, t.rsVsMkt,
         {
           catalystTier: t._catalystTier,
           hasEarnings,
@@ -1634,15 +1425,16 @@ async function runScan(request: Request) {
           stageNum: t._stageNum ?? null,
           goldenCross: t.goldenCross ?? null,
           pctOffHigh: t.pctOffHigh ?? null,
+          dotKind: t.dotKind ?? null,
+          dotBarsSince: t.dotBarsSince ?? null,
+          isBearInstrument: isBearishInstrument(t.name),
         }
       );
       t.cnfScore = cnf.score;
       t.cnfGrade = cnf.grade;
       t.cnfBreakdown = cnf.breakdown;
-      // Shipped so the UI can explain a score that looks lower than its
-      // components — "capped at 69 on Stage 4 + dead cross" is actionable,
-      // a silently reduced number is not.
       t.cnfCeiling = cnf.ceiling;
+      t.cnfCeilingReason = cnf.ceilingReason;
       t.hasEarnings = hasEarnings;
       t.conviction = cnf.score;
       delete t._catalystTier;
@@ -1681,9 +1473,6 @@ async function runScan(request: Request) {
       )
       .slice(0, SCANNER.finalSize);
 
-    // v6.11: minVolume applied to every bucket. Gainers already had it; the
-    // other four did not, so an illiquid name could occupy a Losers or ETF row
-    // that a tradeable one was competing for.
     const finalTopMovers = {
       'Mega Caps': megaCapsRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10),
       'Gainers': gainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.vol >= SCANNER.minVolume).slice(0, 10),
@@ -1692,11 +1481,9 @@ async function runScan(request: Request) {
       'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.vol >= SCANNER.minVolume).slice(0, 10)
     };
 
-    // QQQ benchmark moving averages
     let benchmark: any = null;
     try {
       const qqqTo = new Date().toISOString().split('T')[0];
-
       const dFromDate = new Date();
       dFromDate.setDate(dFromDate.getDate() - 420);
       const dailyRes = await fetchSafeJson(
@@ -1710,10 +1497,7 @@ async function runScan(request: Request) {
       const weeklyBars: { c: number }[] = [];
       for (const b of dailyBars) {
         const wi = weekIndex(b.t);
-        if (!seenWeeks.has(wi)) {
-          seenWeeks.add(wi);
-          weeklyBars.push({ c: b.c });
-        }
+        if (!seenWeeks.has(wi)) { seenWeeks.add(wi); weeklyBars.push({ c: b.c }); }
       }
 
       const smaOf = (bars: any[], n: number): number | null => {
@@ -1758,8 +1542,6 @@ async function runScan(request: Request) {
       await kv.set('stocks_in_play_v6', finalSip);
       await kv.set('top_movers_v6', finalTopMovers);
       await kv.set('last_scan_time_v6', finalScanTime);
-      // Persist the gate metadata too, so the `latest` endpoint can serve the
-      // key even on a cold read where no scan has run this session.
       await kv.set('scan_meta_v6', scanMeta);
     } else {
       console.warn('Scan produced no movers; preserving previous KV snapshot.');
@@ -1767,37 +1549,19 @@ async function runScan(request: Request) {
 
     if (benchmark) await kv.set('benchmark_v6', benchmark);
 
-    // --- MACRO BRIEFING (v6.9) ------------------------------------------------
-    // Built from this run's own numbers and written with the generatedAt stamp
-    // the freshness gate looks for. Same write guard as everything else: a run
-    // that surfaced nothing preserves the previous briefing rather than
-    // replacing it with a description of an empty scan.
     let macroInsights: any = null;
     if (hasRealData) {
       const surfaced = Array.from(
         new Map([...finalSip, ...finalDaily].map((t: any) => [t.ticker, t])).values()
       );
       const built = buildMacroBriefing({
-        breadthSignal,
-        breadthScore,
-        advancers,
-        decliners,
-        up4,
-        down4,
-        pctAdv,
-        newHighs,
-        newLows,
-        spyAbove21,
-        spyChgToday,
+        breadthSignal, breadthScore, advancers, decliners, up4, down4, pctAdv,
+        newHighs, newLows, spyAbove21, spyChgToday,
         hotSectors: hotSectorList,
         surfaced,
         topMovers: finalTopMovers,
       });
-      macroInsights = {
-        ...built,
-        generatedAt: new Date().toISOString(),
-        phase: currentPhase,
-      };
+      macroInsights = { ...built, generatedAt: new Date().toISOString(), phase: currentPhase };
       try {
         await kv.set('macro_insights_v6', macroInsights);
       } catch (e) { console.error('macro insights persist failed', e); }
@@ -1819,16 +1583,15 @@ async function runScan(request: Request) {
       dailySetups: finalDaily,
       scanMeta,
       dataPersisted: hasRealData,
-      // Diagnostics — how much of the universe actually got a real catalyst.
       catalystCoverage: {
         scanned: enrichedList.length,
         wiimMatched: wiimMap.size,
         earningsMatched: enrichedList.filter((t: any) => t.earningsReported).length,
         technicalOnly: enrichedList.filter((t: any) => t.catalyst === 'Technical Momentum').length,
-        // v6.11: how often the structural ceiling bound. If this is near zero
-        // the thresholds are too loose; if it is most of the board, the scan
-        // is surfacing broken names and the upstream gates want a look.
         gradeCapped: enrichedList.filter((t: any) => t.cnfCeiling != null && t.cnfCeiling < 100).length,
+        blueDots: enrichedList.filter((t: any) => t.dotKind === 'blue').length,
+        redDots: enrichedList.filter((t: any) => t.dotKind === 'red').length,
+        redDotCapped: enrichedList.filter((t: any) => t.dotKind === 'red' && !isBearishInstrument(t.name)).length,
       },
       fromCache: false
     }, { headers: noStoreHeaders });
@@ -1839,46 +1602,24 @@ async function runScan(request: Request) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// BACKGROUND WRAPPER (v6.7)
-// ---------------------------------------------------------------------------
-// DEFAULT BEHAVIOUR IS UNCHANGED: a plain GET runs the scan and returns the
-// full payload. Nothing in the dashboard or in any existing caller changes.
-//
-// Background mode is OPT-IN via ?bg=true — that is the URL you give
-// cron-job.org. It replies in ~50ms so the 30s caller timeout never fires,
-// while the scan keeps running via Next's after().
-//
-//   cron-job.org URL:  /api/scanner/run?bg=true
-//   browser / manual:  /api/scanner/run?force=true   (unchanged, full JSON)
-
 const bgHeaders = {
   'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
   'Pragma': 'no-cache',
   'Expires': '0',
 };
 
-// Keeps the function alive after the response is sent. Uses Next's after(),
-// which needs no extra package. Returns false if this Next version lacks it.
 async function scheduleAfterResponse(work: () => Promise<any>): Promise<boolean> {
   try {
     const nx: any = await import('next/server');
     const after = nx.after || nx.unstable_after;
-    if (typeof after === 'function') {
-      after(() => work());
-      return true;
-    }
-  } catch {
-    // fall through
-  }
+    if (typeof after === 'function') { after(() => work()); return true; }
+  } catch { /* fall through */ }
   return false;
 }
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const background = searchParams.get('bg') === 'true';
-
-  // Not a background call — behave exactly as before.
   if (!background) return runScan(request);
 
   const work = async () => {
@@ -1892,17 +1633,13 @@ export async function GET(request: Request) {
   };
 
   const scheduled = await scheduleAfterResponse(work);
-
   if (!scheduled) {
-    // after() unavailable on this runtime — replying now would freeze the
-    // function and kill the scan, so run it inline instead.
     await work();
     return NextResponse.json(
       { success: true, mode: 'inline-fallback', startedAt: new Date().toISOString() },
       { headers: bgHeaders }
     );
   }
-
   return NextResponse.json(
     { success: true, mode: 'background', startedAt: new Date().toISOString() },
     { headers: bgHeaders }
