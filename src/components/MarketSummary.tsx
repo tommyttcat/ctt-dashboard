@@ -2,6 +2,17 @@
 
 import React, { useState, useEffect } from 'react';
 
+/* ActionableEvent and the actionableEvents field are retained because
+   /api/market-summary returns them and the fetch assigns them. The SECTION
+   that rendered them is gone: the Benzinga high-impact feed is dominated by
+   litigation solicitations, and the filter was losing an arms race against
+   firms not on the list — ClaimsFiler, Brodsky & Smith, and Johnson all
+   walked through a regex that caught Rosen and Pomerantz. Four of eight rows
+   on a typical morning were shareholder-alert blasts.
+
+   The scanner's own isSpamNews() in /api/scanner/run is separate and stays —
+   that one prevents these headlines from becoming a ticker's catalyst, which
+   is where they would actually distort a score. */
 interface ActionableEvent {
   time: string;
   event: string;
@@ -24,6 +35,8 @@ interface SummaryData {
   actionableEvents?: ActionableEvent[];
 }
 
+type PostureBucket = 'first-touch' | 'stacked' | 'pre-cross' | 'extended' | 'below-21';
+
 interface WatchItem {
   symbol: string;
   score?: number | string;
@@ -31,6 +44,7 @@ interface WatchItem {
   catalyst?: string | null;
   catalystUrl?: string | null;
   posture?: PostureBucket | null;
+  dotKind?: 'blue' | 'red' | null;
 }
 
 interface TopCatalyst {
@@ -73,11 +87,9 @@ interface EarningsEvent {
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
 type BlockKey = 'morning' | 'midday' | 'closing';
 type Direction = 'up' | 'down' | 'neutral';
-type PostureBucket = 'first-touch' | 'stacked' | 'pre-cross' | 'extended' | 'below-21';
 
-const getEstDateInfo = () => {
-  return new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-};
+const getEstDateInfo = () =>
+  new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
 
 const getCurrentEstDecimal = () => {
   const est = getEstDateInfo();
@@ -92,18 +104,19 @@ const isWeekendNow = () => {
 const getMarketSession = (): MarketSession => {
   const est = getEstDateInfo();
   const day = est.getDay();
-  const timeStr = est.getHours() + est.getMinutes() / 60;
+  const t = est.getHours() + est.getMinutes() / 60;
   if (day === 0 || day === 6) return 'Closed';
-  if (timeStr >= 4 && timeStr < 9.5) return 'Pre-Market';
-  if (timeStr >= 9.5 && timeStr < 16) return 'Open';
-  if (timeStr >= 16 && timeStr < 20) return 'Post-Market';
+  if (t >= 4 && t < 9.5) return 'Pre-Market';
+  if (t >= 9.5 && t < 16) return 'Open';
+  if (t >= 16 && t < 20) return 'Post-Market';
   return 'Closed';
 };
 
 /* ---- Session-block staleness ----
    A block written for the 8:30 window is describing a tape that has moved on
    by 11 AM. Blocks are marked, never hidden and never dimmed into
-   illegibility — the signal is color, not contrast. */
+   illegibility — an earlier pass used opacity-50 over text-slate-500, which
+   compounded into unreadable. The signal is color, not contrast. */
 const BLOCK_WINDOWS: Record<BlockKey, { opens: number; supersededAt: number; nextLabel: string }> = {
   morning: { opens: 4.0, supersededAt: 11.5, nextLabel: 'midday' },
   midday: { opens: 11.5, supersededAt: 15.5, nextLabel: 'closing' },
@@ -117,9 +130,10 @@ const isBlockStale = (key: BlockKey, weekend: boolean): boolean => {
 
 /* ---- Directional accent ----
    Accent tracks the direction of the tape the block describes, read out of
-   the block's own prose. Index NAME followed by a signed percentage, so a
-   mega-cap gapping in the same sentence is not counted. Inside ±0.25% the
-   move is noise and the payload's colorTheme stands. */
+   the block's own prose — colorTheme on the payload is effectively a constant
+   and was decorating rather than informing. Index NAME followed by a signed
+   percentage, so a mega-cap gapping in the same sentence is not counted.
+   Inside ±0.25% the move is noise and colorTheme stands. */
 const INDEX_MOVE_RX = /\b(S&P|Nasdaq|Dow|Russell|SPX|NDX)\b[^.]{0,40}?([+-]\d+(?:\.\d+)?)%/gi;
 const DIRECTION_NEUTRAL_BAND = 0.25;
 
@@ -139,35 +153,18 @@ const deriveDirection = (block: UpdateBlock): Direction | null => {
   return avg > 0 ? 'up' : 'down';
 };
 
-/* ---- Actionable-catalyst noise filter ---- */
-const LAW_FIRM_NOISE = /\b(rosen|block\s*&?\s*leviton|hagens\s*berman|halper\s*sadeh|pomerantz|bronstein[,\s]|glancy|levi\s*&?\s*korsinsky|kahn\s*swick|robbins\s*geller|schall\s*law|kessler\s*topaz|faruqi|bragar\s*eagel|monteverde|johnson\s*fistel|gross\s*law|wolf\s*haldenstein|berger\s*montague|scott\s*\+?\s*scott)\b/i;
-const LEGAL_BOILERPLATE = /(class\s*action|securities\s*fraud|investors?\s+(are\s+)?(urged|encouraged|reminded|notified)|secure\s+counsel|contact\s+the\s+firm|lead\s+plaintiff\s+deadline|investigat(ing|ion)\s+(whether|on\s+behalf|claims)|law\s*firm|deadline:)/i;
-const FILING_BOILERPLATE = /(Form\s*8\.5\s*\(EPT|Form\s*8\.3\s*\(|Resolutions\s+passed\s+by|Notification\s+of\s+(major\s+)?holdings|Total\s+Voting\s+Rights)/i;
-
-const isEventNoise = (headline: string): boolean => {
-  const h = String(headline || '');
-  return LAW_FIRM_NOISE.test(h) || LEGAL_BOILERPLATE.test(h) || FILING_BOILERPLATE.test(h);
-};
-
-const splitEventTicker = (raw: string): { ticker: string | null; text: string } => {
-  const m = String(raw || '').match(/^([A-Z][A-Z.\-]{0,6}):\s*(.+)$/);
-  if (m) return { ticker: m[1], text: m[2] };
-  return { ticker: null, text: String(raw || '') };
-};
-
-const formatTime = (date: Date) => {
-  return date.toLocaleTimeString('en-US', {
+const formatTime = (date: Date) =>
+  date.toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     second: '2-digit',
-    timeZone: 'America/New_York'
+    timeZone: 'America/New_York',
   });
-};
 
 const KEEP_UPPER = new Set(['ETF', 'ETFS', 'QQQ', 'SPY', 'IWM', 'DIA', 'IT', 'AI', 'EV', 'REIT', 'REITS', 'IPO', 'SPAC', 'US', 'USA']);
 
-const titleCase = (input: string): string => {
-  return input
+const titleCase = (input: string): string =>
+  input
     .split(/(\s+|—|–|-|&|\/)/)
     .map(part => {
       const trimmed = part.trim();
@@ -177,7 +174,6 @@ const titleCase = (input: string): string => {
       return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
     })
     .join('');
-};
 
 const num = (v: any): number => {
   const n = Number(v);
@@ -195,17 +191,14 @@ const chgOf = (s: any): number => num(s?.change ?? s?.changePct);
 
 /* ---- RVOL, guarded ----
    A row showed RVOL 678.33 on the board. That is not participation, it is a
-   near-zero denominator: `avgVol` on a recently-listed name with only a
-   handful of daily bars. The scanner guards `avgVol > 0`, which is true at
-   500 shares, so the ratio explodes and the name floats to the top of every
-   volume-ranked list.
+   near-zero denominator: avgVol on a recently-listed name with a handful of
+   daily bars. The scanner guards avgVol > 0, which is true at 500 shares.
 
-   Two floors. An absolute one on avgVol, because a name that normally trades
+   Two floors. An absolute one on avgVol, because a name normally trading
    under 25k shares cannot produce a tradeable RVOL regardless of today. And
-   a sanity ceiling on the ratio itself — a genuine 40x volume day exists, a
-   genuine 600x day does not, and past that the denominator is the story.
-   Returning null means every consumer treats it as "no RVOL reading" rather
-   than as a very large one. */
+   a sanity ceiling on the ratio — a genuine 40x day exists, a 600x day does
+   not, and past that the denominator is the story. Null means every consumer
+   treats it as "no reading" rather than as a very large one. */
 const MIN_AVG_VOL_FOR_RVOL = 25_000;
 const MAX_PLAUSIBLE_RVOL = 40;
 
@@ -221,6 +214,7 @@ const rvolOf = (s: any): number | null => {
 };
 
 const stageOf = (s: any): string => (s?.stage ? String(s.stage).replace(/Stage\s*/i, '') : '');
+
 const setupOf = (s: any): string | null => {
   const n = s?.setupName;
   if (!n || n === '-' || n === '—') return null;
@@ -229,6 +223,7 @@ const setupOf = (s: any): string | null => {
   if (n === 'Episodic Pivot') return 'EP';
   return String(n);
 };
+
 const hasRealCatalyst = (s: any): boolean =>
   !!s?.catalyst && !String(s.catalyst).toLowerCase().startsWith('technical momentum');
 
@@ -250,6 +245,15 @@ const dVolOf = (s: any): number => {
   return p * v;
 };
 
+const dotOf = (s: any): 'blue' | 'red' | null => {
+  const k = s?.dotKind;
+  return k === 'blue' || k === 'red' ? k : null;
+};
+
+/* Detects ETF-style sector strings: "ETF", "TICKER - ETF", or ETF_TARGET_MAP
+   values like "QQQ - Nasdaq", "SOXX - Semi's -3X". Leveraged/sector products,
+   not industries — they belong in ETF Flow, not Industry Heat, and never in
+   the 10/21 thesis. */
 const isEtfSector = (sec: string | null | undefined): boolean => {
   if (!sec || sec === '—') return false;
   const s = String(sec);
@@ -319,21 +323,18 @@ const isExtendedOf = (s: any): boolean => {
 };
 
 /* ---- THE single source of structural truth ------------------------------
-   This function exists because the 10/21 section and the watchlist used to
-   compute structure independently, and they disagreed in public. CRWV, INTC,
-   and BHC each appeared in the "No touch" column AND in "What To Watch" in
-   the same render, because `build1021Para` bucketed on EMA position while
-   `blendedScore` ranked on CNF + RVOL + catalyst and knew nothing about
-   position at all.
+   This exists because the 10/21 section and the watchlist used to compute
+   structure independently and disagreed in public. CRWV, INTC, and BHC each
+   appeared in "No touch" AND in "What To Watch" in the same render:
+   build1021Para bucketed on EMA position while blendedScore ranked on
+   CNF + RVOL + catalyst and knew nothing about position at all.
 
-   Worse, the scoring asymmetry pushed exactly the wrong names up: there was
-   a +5 bonus for sitting in the pullback zone and no penalty whatsoever for
-   sitting below a declining 21. A name 9% under its anchor could out-rank a
-   name at its anchor purely on tape noise.
+   Worse, the asymmetry pushed exactly the wrong names up — a +5 bonus for
+   the pullback zone and no penalty whatsoever for sitting below a declining
+   21. A name 9% under its anchor could out-rank one at its anchor on tape
+   noise alone.
 
-   Every consumer now reads posture() and nothing else. Two sections cannot
-   contradict each other if they are reading the same value.
-   ------------------------------------------------------------------------ */
+   Every consumer now reads posture() and nothing else. */
 const POSTURE_META: Record<PostureBucket, { label: string; short: string; tone: 'good' | 'warn' | 'bad'; scoreAdj: number }> = {
   'first-touch': { label: 'first touch', short: 'FIRST TOUCH', tone: 'good', scoreAdj: 8 },
   'stacked': { label: 'stacked', short: 'STACKED', tone: 'good', scoreAdj: 4 },
@@ -346,23 +347,20 @@ const posture = (s: any): PostureBucket | null => {
   const d21 = pctFrom21(s);
   if (d21 == null) return null;
 
-  // Extension is checked FIRST. A name can be well above both EMAs and still
-  // be untouchable — that was the original bug in this section, where every
-  // name above the 21 landed in the buy bucket and the closing line then
-  // contradicted it.
+  // Extension checked FIRST — a name can be well above both EMAs and still be
+  // untouchable. That was the original bug here: everything above the 21 went
+  // in the buy bucket, then the closing line contradicted it.
   if (isExtendedOf(s)) return 'extended';
 
   const d10 = pctFrom10(s);
 
   if (d21 > 0) {
-    // Under the 10 but holding the 21 is the Dr. Wish first touch — the only
+    // Under the 10 but holding the 21 — the Dr. Wish first touch, the only
     // bucket where the stop is both defined and close.
     if (d10 != null && d10 <= 0) return 'first-touch';
     return 'stacked';
   }
 
-  // Below the 21, but the two lines are converging and price is within
-  // striking distance — worth naming separately from broken structure.
   if (stackedOf(s) === false && d10 != null &&
       Math.abs(d10 - d21) <= 1.5 && d21 > -3) {
     return 'pre-cross';
@@ -392,7 +390,14 @@ const fmtLeader = (s: any): string => {
   return `${s.ticker} ${chg}${bits.length ? ` · ${bits.join(' · ')}` : ''}`;
 };
 
-/* ---- Key Events — the only forward-looking section ---- */
+/* ---- Key Events — the only forward-looking section ----------------------
+   Every other section is REACTIVE. A 2:00 PM rate decision produces nothing
+   at 8:30 AM, so a session frozen ahead of one looks — to every other
+   section — like weak breadth with no leadership.
+
+   Econ is TODAY ONLY: what can still move the tape while you hold. Earnings
+   run today + tomorrow, because an after-close print is tomorrow's gap and
+   you size for it today. */
 const parseEtDateTime = (s: string): { dayKey: string; minutes: number | null } => {
   const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
   if (!m) return { dayKey: '', minutes: null };
@@ -466,10 +471,7 @@ const buildKeyEventsPara = (econ: EconEvent[], earnings: EarningsEvent[]): strin
   let econCol = '';
   if (econRows.length) {
     const econLines = [...pending.map(fmtEcon), ...released.map(fmtEcon)];
-    const heading = pending.length
-      ? `Economic — ${pending.length} still ahead:`
-      : 'Economic — all printed:';
-    econCol = `${heading}\n${econLines.join('\n')}`;
+    econCol = `${pending.length ? `Economic — ${pending.length} still ahead:` : 'Economic — all printed:'}\n${econLines.join('\n')}`;
   } else {
     econCol = 'Economic:\nNothing scheduled today.';
   }
@@ -490,17 +492,13 @@ const buildKeyEventsPara = (econ: EconEvent[], earnings: EarningsEvent[]): strin
   let earnCol = '';
   if (earnRows.length) {
     const earnLines = [...upcoming.map(fmtEarn), ...reported.map(fmtEarn)];
-    const heading = upcoming.length
-      ? `Earnings — ${upcoming.length} pending:`
-      : 'Earnings — all reported:';
-    earnCol = `${heading}\n${earnLines.join('\n')}`;
+    earnCol = `${upcoming.length ? `Earnings — ${upcoming.length} pending:` : 'Earnings — all reported:'}\n${earnLines.join('\n')}`;
   } else {
     earnCol = 'Earnings:\nNo mega-cap prints today or tomorrow.';
   }
 
   const lines: string[] = [`${econCol}|||${earnCol}`];
-  const highPending = pending.filter(e => e.impact === 'High');
-  if (highPending.length) {
+  if (pending.filter(e => e.impact === 'High').length) {
     lines.push('Setups are on a clock until this prints — breakouts into a scheduled release carry event risk the scan cannot price.');
   }
   return `Key Events: ${lines.join('\n')}`;
@@ -514,11 +512,14 @@ const buildCatalystBrief = (s: any): string => {
   const st = stageOf(s);
   const d21 = pctFrom21(s);
   const cnf = scoreOf(s);
+  const dot = dotOf(s);
 
   bits.push(`${chg >= 0 ? 'Up' : 'Down'} ${Math.abs(chg).toFixed(2)}%${rv != null ? ` on RVOL ${rv.toFixed(2)}` : ''}`);
   if (rv != null && rv >= 2) bits.push('heavy participation is validating the headline');
   else if (rv != null && rv >= 1.5) bits.push('volume is confirming');
   else if (rv != null && rv < 1) bits.push('headline pop without volume — fade risk');
+  if (dot === 'red') bits.push('RED DOT active — reversal against a long');
+  else if (dot === 'blue') bits.push('BLUE DOT');
   if (su) bits.push(`${su}${st ? ` in Stage ${st}` : ''}`);
   if (d21 != null) bits.push(`${d21 >= 0 ? '+' : ''}${d21.toFixed(1)}% vs the 21 EMA`);
   if (cnf) bits.push(`CNF ${cnf}`);
@@ -530,11 +531,23 @@ const buildWatchReason = (s: any): string => {
   const su = setupOf(s);
   const st = stageOf(s);
   const rv = rvolOf(s);
+  const dot = dotOf(s);
 
   let lead = su || 'Momentum move';
   if (st) lead += ` in Stage ${st}`;
   if (rv != null) lead += ` with RVOL ${rv.toFixed(2)}`;
   parts.push(lead);
+
+  // Dot leads the qualifiers — a red dot is the single most important thing
+  // to know about a name being considered long, and it should not be buried
+  // behind volume commentary.
+  if (dot === 'red') {
+    const since = numOrNull(s?.dotBarsSince);
+    parts.push(`RED DOT${since === 0 ? ' today' : since != null ? ` ${since} bars ago` : ''} — overbought reversal, grade capped`);
+  } else if (dot === 'blue') {
+    const since = numOrNull(s?.dotBarsSince);
+    parts.push(`BLUE DOT${since === 0 ? ' today' : since != null ? ` ${since} bars ago` : ''}`);
+  }
 
   if (rv != null) {
     if (rv >= 2) parts.push('heavy participation confirms the move');
@@ -543,24 +556,17 @@ const buildWatchReason = (s: any): string => {
   }
 
   const d21 = pctFrom21(s);
-  const d10 = pctFrom10(s);
   const slope = slope21Of(s);
   const b = posture(s);
 
-  // Posture phrasing comes from the shared bucket, so the sentence can never
+  // Posture phrasing comes from the shared bucket, so this sentence can never
   // describe a name differently than the 10/21 section does.
   if (d21 != null && b) {
-    if (b === 'first-touch') {
-      parts.push(`first touch — +${d21.toFixed(1)}% over the 21, back under the 10`);
-    } else if (b === 'stacked') {
-      parts.push(`stacked +${d21.toFixed(1)}% over a${slope === 'rising' ? ' rising' : slope === 'falling' ? ' declining' : ''} 21 EMA`);
-    } else if (b === 'pre-cross') {
-      parts.push(`pre-cross — ${d21.toFixed(1)}% vs the 21, lines converging`);
-    } else if (b === 'extended') {
-      parts.push(`+${d21.toFixed(1)}% over the 21 — too extended to place a stop`);
-    } else {
-      parts.push(`${d21.toFixed(1)}% under the 21 EMA — structure needs repair first`);
-    }
+    if (b === 'first-touch') parts.push(`first touch — +${d21.toFixed(1)}% over the 21, back under the 10`);
+    else if (b === 'stacked') parts.push(`stacked +${d21.toFixed(1)}% over a${slope === 'rising' ? ' rising' : slope === 'falling' ? ' declining' : ''} 21 EMA`);
+    else if (b === 'pre-cross') parts.push(`pre-cross — ${d21.toFixed(1)}% vs the 21, lines converging`);
+    else if (b === 'extended') parts.push(`+${d21.toFixed(1)}% over the 21 — too extended to place a stop`);
+    else parts.push(`${d21.toFixed(1)}% under the 21 EMA — structure needs repair first`);
   }
 
   if (s?.stochK != null && !isNaN(Number(s.stochK))) {
@@ -578,16 +584,18 @@ const buildWatchReason = (s: any): string => {
   return parts.join('; ') + '.';
 };
 
+const ep9mUnprec = (s: any): boolean => s?.unprecedented === true;
+
 /* ---- Blended idea score ----
    CNF is the base. RVOL and a real catalyst add weight so a volume-confirmed
    name with news outranks a quiet high-CNF name.
 
-   The posture term is now SYMMETRIC. It used to be a lone +5 for the pullback
-   zone with no downside, which is how names sitting under a declining 21 EMA
-   ended up at the top of the watchlist while the section above them called
-   the same names untouchable. */
-const ep9mUnprec = (s: any): boolean => s?.unprecedented === true;
+   The posture term is SYMMETRIC — it used to be a lone +5 for the pullback
+   zone with no downside, which is how names under a declining 21 ended up
+   topping the watchlist while the section above called them untouchable.
 
+   The dot term mirrors the scanner's own ceiling logic: a live red dot is a
+   contradiction on a long idea, not a nuance. */
 const blendedScore = (s: any): number => {
   let v = scoreOf(s);
   const rv = rvolOf(s);
@@ -599,21 +607,26 @@ const blendedScore = (s: any): number => {
   if (hasRealCatalyst(s)) v += 8;
   if (ep9mUnprec(s)) v += 6;
   v += postureScoreAdj(s);
+
+  const dot = dotOf(s);
+  const since = numOrNull(s?.dotBarsSince) ?? 0;
+  if (dot === 'blue') v += since === 0 ? 8 : 5;
+  else if (dot === 'red') v -= since === 0 ? 15 : 9;
+
   return v;
 };
 
 /* ---- 10/21 Thesis ------------------------------------------------------
    Restructured from "at the anchor vs no touch" into SWING/REVERSAL vs DAY,
-   ranked by the same blendedScore that drives the watchlist, with each row
+   ranked by the same blendedScore that drives the watchlist, each row
    carrying its posture tag.
 
    The old split answered "what is buyable" but sat next to a separately-
-   ranked watchlist that answered "what is interesting" — and the two lists
-   disagreed. This version consolidates: it IS the ranked pick list, cut by
-   holding period, with structure shown per row rather than as a bucket
-   heading. A name below its 21 still appears if it ranks, but it appears
-   labelled BELOW 21 rather than in a column implying otherwise.
-   ---------------------------------------------------------------------- */
+   ranked watchlist answering "what is interesting" — and the two disagreed.
+   This IS the ranked pick list, cut by holding period, with structure shown
+   per row rather than as a bucket heading. A name below its 21 still appears
+   if it ranks, but labelled BELOW 21 rather than in a column implying
+   otherwise. */
 const isDayName = (s: any): boolean =>
   String(s?.tradeType || '').toLowerCase().startsWith('day');
 
@@ -631,7 +644,7 @@ const build1021Para = (pool: any[]): string => {
       d21: pctFrom21(s),
       d10: pctFrom10(s),
       bucket: posture(s),
-      slope: slope21Of(s),
+      dot: dotOf(s),
       day: isDayName(s),
       score: blendedScore(s),
     }))
@@ -643,8 +656,10 @@ const build1021Para = (pool: any[]): string => {
   const fmtRow = (r: any): string => {
     const bits = [`${pct(r.d21 as number)} vs 21`];
     if (r.d10 != null) bits.push(`${pct(r.d10 as number)} vs 10`);
-    const meta = POSTURE_META[r.bucket as PostureBucket];
-    return `${r.ticker} ${bits.join(' · ')} — ${meta.label}`;
+    const tags: string[] = [POSTURE_META[r.bucket as PostureBucket].label];
+    if (r.dot === 'red') tags.push('RED DOT');
+    else if (r.dot === 'blue') tags.push('BD');
+    return `${r.ticker} ${bits.join(' · ')} — ${tags.join(', ')}`;
   };
 
   const byScore = (a: any, b: any) => b.score - a.score;
@@ -665,6 +680,7 @@ const build1021Para = (pool: any[]): string => {
   const anchored = rows.filter(r => r.bucket === 'first-touch');
   const stacked = rows.filter(r => r.bucket === 'stacked');
   const broken = rows.filter(r => r.bucket === 'below-21');
+  const reds = rows.filter(r => r.dot === 'red');
   const hasAnyD10 = rows.some(r => r.d10 != null);
 
   if (anchored.length) {
@@ -679,38 +695,16 @@ const build1021Para = (pool: any[]): string => {
     lines.push('No equity in the scan is at a usable anchor.');
   }
 
+  if (reds.length) {
+    lines.push(`${reds.length} carrying an active red dot — grade-capped on the long side regardless of tape.`);
+  }
+
   return `10/21 Thesis: ${lines.join('\n')}`;
 };
 
 const ep9mVs60dOf = (s: any): number | null => numOrNull(s?.volVs60dMax);
 const ep9mTurnOf = (s: any): number | null => numOrNull(s?.floatTurnover);
 const ep9mSilent = (s: any): boolean => !hasRealCatalyst(s);
-
-const buildRegimePara = (flowNames: any[], etfs: { chg: number; dVol: number }[]): string => {
-  const totalD = flowNames.reduce((a, s) => a + dVolOf(s), 0);
-  if (totalD <= 0) return '';
-  const advD = flowNames.filter(s => chgOf(s) > 0).reduce((a, s) => a + dVolOf(s), 0);
-  const advShare = Math.round((advD / totalD) * 100);
-  const etfUp = etfs.filter(e => e.chg > 0).reduce((a, e) => a + e.dVol, 0);
-  const etfTot = etfs.reduce((a, e) => a + e.dVol, 0);
-  const etfShare = etfTot > 0 ? Math.round((etfUp / etfTot) * 100) : null;
-
-  let verdict: string;
-  let action: string;
-  if (advShare >= 60 && (etfShare == null || etfShare >= 55)) {
-    verdict = 'Risk-On';
-    action = 'buy leaders on strength, breakouts have follow-through behind them.';
-  } else if (advShare <= 40 && (etfShare == null || etfShare <= 45)) {
-    verdict = 'Defensive';
-    action = 'tighten up — most dollars are on the sell side, fade rips rather than chase.';
-  } else {
-    verdict = 'Mixed';
-    action = 'stock-picker\'s tape — no broad wind, stay in the highest-conviction names only.';
-  }
-  const bits = [`${advShare}% of tracked dollars on the advancing side`];
-  if (etfShare != null) bits.push(`ETF flow ${etfShare}% green`);
-  return `Regime: ${verdict} — ${bits.join(', ')}. ${action}`;
-};
 
 const buildMoversPara = (movers: any): string => {
   const gainers: any[] = Array.isArray(movers?.['Gainers']) ? movers['Gainers'] : [];
@@ -720,8 +714,7 @@ const buildMoversPara = (movers: any): string => {
   const fmtMover = (s: any): string => {
     const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
     const rv = rvolOf(s);
-    const rvolStr = rv != null ? ` · RVOL ${rv.toFixed(2)}` : '';
-    return `${s.ticker} ${chg}${rvolStr}`;
+    return `${s.ticker} ${chg}${rv != null ? ` · RVOL ${rv.toFixed(2)}` : ''}`;
   };
 
   const topG = gainers.slice().sort((a, b) => chgOf(b) - chgOf(a)).slice(0, 4);
@@ -730,15 +723,13 @@ const buildMoversPara = (movers: any): string => {
   const lines: string[] = [];
   if (topG.length) {
     const confirmed = topG.filter(s => (rvolOf(s) ?? 0) >= 1.5);
-    const gLines = topG.map(fmtMover);
     const confirmNote = confirmed.length
       ? `Volume-confirmed: ${confirmed.map(s => s.ticker).join(', ')}`
       : 'No RVOL over 1.5 — moves are thin, fade candidates.';
     if (topL.length) {
-      const lLines = topL.map(fmtMover);
-      lines.push(`Leading the tape:\n${gLines.join('\n')}\n${confirmNote}|||Heaviest red:\n${lLines.join('\n')}\nWeakness leaders / names to avoid long.`);
+      lines.push(`Leading the tape:\n${topG.map(fmtMover).join('\n')}\n${confirmNote}|||Heaviest red:\n${topL.map(fmtMover).join('\n')}\nWeakness leaders / names to avoid long.`);
     } else {
-      lines.push(`Leading the tape:\n${gLines.join('\n')}\n${confirmNote}`);
+      lines.push(`Leading the tape:\n${topG.map(fmtMover).join('\n')}\n${confirmNote}`);
     }
   } else if (topL.length) {
     lines.push(`Heaviest red:\n${topL.map(fmtMover).join('\n')}\nWeakness leaders for short setups or names to avoid on the long side.`);
@@ -774,9 +765,7 @@ const buildEp9mPara = (ep9m: any[]): string => {
   } else if (silent.length) {
     lines.push(`Silent — heavy volume, no headline yet:\n${silent.slice(0, 5).map(fmtEp).join('\n')}`);
   }
-  if (news.length) {
-    lines.push(`With a catalyst already out:\n${news.slice(0, 4).map(fmtEp).join('\n')}`);
-  }
+  if (news.length) lines.push(`With a catalyst already out:\n${news.slice(0, 4).map(fmtEp).join('\n')}`);
   if (!lines.length) {
     lines.push(`${rows.length} name${rows.length !== 1 ? 's' : ''} trading abnormal size:\n${rows.slice(0, 6).map(fmtEp).join('\n')}`);
   }
@@ -807,7 +796,7 @@ const buildLocalInsights = (
     })
     .slice(0, 6);
 
-  // Posture rides along on the item so the card can chip it without
+  // Posture and dot ride along on the item so the card can chip them without
   // recomputing — and therefore without any chance of disagreeing.
   const watching: WatchItem[] = ranked.map(s => ({
     symbol: s.ticker,
@@ -816,6 +805,7 @@ const buildLocalInsights = (
     catalyst: catalystTextOf(s),
     catalystUrl: s?.catalystUrl || null,
     posture: posture(s),
+    dotKind: dotOf(s),
   }));
 
   const withNews = pool
@@ -854,13 +844,11 @@ const buildLocalInsights = (
     const sec = s?.sector && s.sector !== '—' && !isEtfSector(s.sector) ? String(s.sector) : null;
     if (sec) sectorCounts[sec] = (sectorCounts[sec] || 0) + 1;
   });
-  const topSectors = Object.entries(sectorCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 2)
-    .map(([sec]) => sec);
+  const topSectors = Object.entries(sectorCounts).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([sec]) => sec);
   const aCount = ranked.filter(s => scoreOf(s) >= 70).length;
-  const rawTheme = `${topSectors.length ? topSectors.join(' & ') : 'Broad Market'} In Focus — ${aCount > 0 ? `${aCount} A-Grade Setup${aCount > 1 ? 's' : ''}` : 'Momentum Watch'}`;
-  const theme = titleCase(rawTheme);
+  const theme = titleCase(
+    `${topSectors.length ? topSectors.join(' & ') : 'Broad Market'} In Focus — ${aCount > 0 ? `${aCount} A-Grade Setup${aCount > 1 ? 's' : ''}` : 'Momentum Watch'}`
+  );
 
   const sipsSorted = sips.slice().sort((a, b) => (rvolOf(b) ?? 0) - (rvolOf(a) ?? 0));
   const leaders = sipsSorted.filter(s => (rvolOf(s) ?? 0) >= 1.5).slice(0, 3);
@@ -871,8 +859,7 @@ const buildLocalInsights = (
     const cat = catalystLinked(s);
     const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
     const rv = rvolOf(s);
-    const rvolStr = rv != null ? ` · RVOL ${rv.toFixed(2)}` : '';
-    return `${s.ticker} ${chg}${rvolStr}${cat ? ` — ${cat}` : ''}`;
+    return `${s.ticker} ${chg}${rv != null ? ` · RVOL ${rv.toFixed(2)}` : ''}${cat ? ` — ${cat}` : ''}`;
   };
   const fmtFaderRow = (s: any): string =>
     `${s.ticker} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% · RVOL ${(rvolOf(s) ?? 0).toFixed(2)}`;
@@ -903,8 +890,11 @@ const buildLocalInsights = (
     if (su) bits.push(su);
     const st = stageOf(s);
     if (st) bits.push(`Stage ${st}`);
+    const dot = dotOf(s);
+    if (dot === 'red') bits.push('RED DOT');
+    else if (dot === 'blue') bits.push('BD');
     bits.push(`CNF ${scoreOf(s)}`);
-    return `${s.ticker} ${chg}${bits.length ? ` · ${bits.join(' · ')}` : ''}`;
+    return `${s.ticker} ${chg} · ${bits.join(' · ')}`;
   };
 
   const swingNames = daily.filter(s => !isDayName(s)).sort((a, b) => blendedScore(b) - blendedScore(a)).slice(0, 6);
@@ -942,8 +932,7 @@ const buildLocalInsights = (
     const heatLines: string[] = [];
     if (hot.length && cold.length) {
       heatLines.push(`Strongest:\n${hot.map(fmtHeat).join('\n')}|||Weakest:\n${cold.map(fmtHeat).join('\n')}`);
-      const spread = hot[0].avgChg - cold[0].avgChg;
-      heatLines.push(spread >= 8
+      heatLines.push(hot[0].avgChg - cold[0].avgChg >= 8
         ? 'Wide dispersion between groups — a stock-picker\'s tape, stay in the leaders.'
         : 'Group dispersion is narrow — moves are market-driven more than industry-driven.');
     } else if (hot.length) {
@@ -970,12 +959,10 @@ const buildLocalInsights = (
   if (etfs.length) {
     const fmtE = (e: { ticker: string; dVol: number; chg: number }) =>
       `${e.ticker} ${fmtDollar(e.dVol)} ${e.chg >= 0 ? '+' : ''}${e.chg.toFixed(2)}%`;
-    const top = etfs.slice(0, 4);
     const upD = etfs.filter(e => e.chg > 0).reduce((a, e) => a + e.dVol, 0);
     const totD = etfs.reduce((a, e) => a + e.dVol, 0);
     const upShare = totD > 0 ? Math.round((upD / totD) * 100) : 0;
-    const etfLines: string[] = [];
-    etfLines.push(`Heaviest dollar volume:\n${top.map(fmtE).join('\n')}`);
+    const etfLines: string[] = [`Heaviest dollar volume:\n${etfs.slice(0, 4).map(fmtE).join('\n')}`];
     etfLines.push(upShare >= 60
       ? `${upShare}% of ETF dollars are on the advancing side — money is chasing strength.`
       : upShare <= 40
@@ -1002,17 +989,16 @@ const buildLocalInsights = (
     });
     const topInflows = Object.entries(inflowAgg).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([sec]) => sec);
 
-    const moneyLines: string[] = [];
-    let firstLine = `${fmtDollar(totalD)} in tracked dollar volume, ${advShare}% riding the advancing side`;
-    firstLine += advShare >= 60 ? ' — buyers are paying up.' : advShare <= 40 ? ' — sellers control the tape\'s dollars.' : ' — a two-sided fight.';
-    moneyLines.push(firstLine);
+    const moneyLines: string[] = [
+      `${fmtDollar(totalD)} in tracked dollar volume, ${advShare}% riding the advancing side` +
+      (advShare >= 60 ? ' — buyers are paying up.' : advShare <= 40 ? ' — sellers control the tape\'s dollars.' : ' — a two-sided fight.'),
+    ];
     if (magnets.length) moneyLines.push(`Dollar magnets:\n${magnets.join('\n')}`);
     if (topInflows.length) moneyLines.push(`Inflows concentrate in ${topInflows.join(' & ')}.`);
     moneyPara = `Money Flow: ${moneyLines.join('\n')}`;
   }
 
   const keyEventsPara = buildKeyEventsPara(econList, earningsList);
-  const regimePara = buildRegimePara(flowNames, etfs);
   const moversPara = buildMoversPara(movers);
   const ep9mPara = buildEp9mPara(ep9m);
 
@@ -1021,15 +1007,8 @@ const buildLocalInsights = (
   const ep9mFinal = ep9mPara || (ep9m.length === 0 && (sips.length || daily.length) ? 'EP9M Thesis: No names trading abnormal 9M+ size yet — this fills in as session volume builds.' : '');
 
   const orderedParas = [
-    moversPara,
-    sipsFinal,
-    dailyFinal,
-    ema1021Para,
-    ep9mFinal,
-    heatPara,
-    etfPara,
-    moneyPara,
-    keyEventsPara,
+    moversPara, sipsFinal, dailyFinal, ema1021Para, ep9mFinal,
+    heatPara, etfPara, moneyPara, keyEventsPara,
   ];
 
   return {
@@ -1049,7 +1028,7 @@ const TICKER_STOPWORDS = new Set([
   'US', 'USA', 'FDA', 'SEC', 'IPO', 'CEO', 'EPS', 'FY', 'Q',
   'EST', 'PM', 'AM',
   'ET', 'FOMC', 'CPI', 'PPI', 'GDP', 'NFP', 'PCE', 'ISM', 'FED', 'MOM', 'YOY', 'U6',
-  'FIRST', 'TOUCH', 'BELOW', 'CROSS', 'PRE',
+  'FIRST', 'TOUCH', 'BELOW', 'CROSS', 'PRE', 'RED', 'DOT', 'BLUE',
 ]);
 
 const tickerChipCls = "inline-block align-baseline text-[10px] font-bold text-slate-300 bg-slate-500/10 px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5 min-w-[48px] text-center";
@@ -1073,12 +1052,14 @@ const postureChipCls = (tone: 'good' | 'warn' | 'bad'): string => {
 };
 
 const renderBriefingText = (text: string): React.ReactNode[] => {
-  const rx = /(▸|\[[^\]]+\]\([^)]+\)|\d{1,2}:\d{2} (?:AM|PM)|RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
+  const rx = /(▸|RED DOT|BLUE DOT|\[[^\]]+\]\([^)]+\)|\d{1,2}:\d{2} (?:AM|PM)|RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
   const parts = text.split(rx);
 
   return parts.map((part, i) => {
     if (!part) return null;
     if (part === '▸') return <span key={i} className="text-rose-400 font-bold">▸</span>;
+    if (part === 'RED DOT') return <span key={i} className="text-rose-400 font-bold tracking-wide">RED DOT</span>;
+    if (part === 'BLUE DOT') return <span key={i} className="text-cyan-400 font-bold tracking-wide">BLUE DOT</span>;
 
     const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (linkMatch) {
@@ -1125,7 +1106,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves right now. Volume-confirmed names are tradeable; thin gaps are fade candidates.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, who has news, and who is grinding on air.' },
   { label: 'Daily Setups Thesis', color: 'emerald', blurb: 'Structured setups from the daily scan. SWING holds for days; DAY is intraday momentum only.' },
-  { label: '10/21 Thesis', color: 'violet', blurb: 'Top-ranked names split by holding period, each tagged with its 10/21 EMA posture. Leveraged and inverse ETFs excluded. A name tagged BELOW 21 or EXTENDED ranks on tape action — it is not at an entry.' },
+  { label: '10/21 Thesis', color: 'violet', blurb: 'Top-ranked names split by holding period, each tagged with its 10/21 EMA posture. Leveraged and inverse ETFs excluded. A name tagged BELOW 21, EXTENDED, or RED DOT ranks on tape action — it is not at an entry.' },
   { label: 'EP9M Thesis', color: 'rose', blurb: 'Abnormal 9M+ share volume — institutional footprints. Unprecedented = beat their own 60-day record.' },
   { label: 'Industry Heat', color: 'amber', blurb: 'Sector rotation — where money is flowing in and where it is leaving. Wide dispersion = stock-picker tape.' },
   { label: 'ETF Flow', color: 'indigo', blurb: 'Heaviest ETF dollar volume and the advancing/declining split — shows where leveraged money is betting.' },
@@ -1223,12 +1204,12 @@ export default function MarketSummary() {
               morning: (estTime >= BLOCK_WINDOWS.morning.opens || isWeekend) ? (payload.morning || null) : null,
               midday: (estTime >= BLOCK_WINDOWS.midday.opens || isWeekend) ? (payload.midday || null) : null,
               closing: (estTime >= BLOCK_WINDOWS.closing.opens || isWeekend) ? (payload.closing || null) : null,
-              actionableEvents: payload.actionableEvents || []
+              actionableEvents: payload.actionableEvents || [],
             });
           }
         }
       } catch (error) {
-        console.error("Narrative Sync Error:", error);
+        console.error('Narrative Sync Error:', error);
       }
 
       try {
@@ -1272,7 +1253,7 @@ export default function MarketSummary() {
           else if (scannerData.macroInsights) setMacroInsights(scannerData.macroInsights);
         }
       } catch (error) {
-        console.error("Scanner Macro Sync Error:", error);
+        console.error('Scanner Macro Sync Error:', error);
       }
 
       if (isMounted) {
@@ -1304,7 +1285,7 @@ export default function MarketSummary() {
   };
 
   const formatBriefing = (text: string) => {
-    if (!text) return "";
+    if (!text) return '';
     return text
       .replace(/(Top Movers:)/gi, '\n\n$1')
       .replace(/(SIPs Thesis:)/gi, '\n\n$1')
@@ -1370,11 +1351,6 @@ export default function MarketSummary() {
     );
   };
 
-  const cleanEvents: ActionableEvent[] = (data?.actionableEvents || [])
-    .filter(e => e?.event && !isEventNoise(e.event))
-    .filter(e => e.impact !== 'Low');
-  const suppressedCount = (data?.actionableEvents || []).length - cleanEvents.length;
-
   return (
     <div className="bg-[#101623] border border-white/10 rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-2xl w-full">
       <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-500 via-emerald-500 to-indigo-500 opacity-40"></div>
@@ -1397,9 +1373,9 @@ export default function MarketSummary() {
             </span>
           </div>
           {lastUpdated && (
-             <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
-               Updated: {formatTime(lastUpdated)} EST
-             </span>
+            <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
+              Updated: {formatTime(lastUpdated)} EST
+            </span>
           )}
         </div>
       </div>
@@ -1544,6 +1520,7 @@ export default function MarketSummary() {
                       const catalystUrl = typeof item === 'string' ? null : item.catalystUrl;
                       const pb = typeof item === 'string' ? null : (item.posture || null);
                       const pMeta = pb ? POSTURE_META[pb] : null;
+                      const dk = typeof item === 'string' ? null : (item.dotKind || null);
 
                       let parsedScore: number | undefined = undefined;
                       if (typeof item === 'object' && item.score !== undefined && item.score !== null) {
@@ -1552,12 +1529,23 @@ export default function MarketSummary() {
                       }
 
                       return (
-                        <li key={idx} className="flex flex-col gap-2 bg-[#161c2a]/60 p-3.5 rounded-xl border border-white/5 hover:border-cyan-500/20 transition-colors">
+                        <li key={idx} className={`flex flex-col gap-2 bg-[#161c2a]/60 p-3.5 rounded-xl border transition-colors ${
+                          dk === 'red' ? 'border-rose-500/25 hover:border-rose-500/40' : 'border-white/5 hover:border-cyan-500/20'
+                        }`}>
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider">
                               {symbol}
                             </span>
                             <div className="flex items-center gap-1.5">
+                              {dk && (
+                                <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border tracking-wider uppercase ${
+                                  dk === 'red'
+                                    ? 'text-rose-400 bg-rose-500/10 border-rose-500/20'
+                                    : 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20'
+                                }`}>
+                                  {dk === 'red' ? 'RD' : 'BD'}
+                                </span>
+                              )}
                               {pMeta && (
                                 <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border tracking-wider uppercase ${postureChipCls(pMeta.tone)}`}>
                                   {pMeta.short}
@@ -1617,40 +1605,6 @@ export default function MarketSummary() {
                   </ul>
                 </div>
               </div>
-            </div>
-          )}
-
-          {cleanEvents.length > 0 && (
-            <div className="mb-8 bg-[#161c2a]/60 border border-white/5 rounded-xl p-5 md:p-6">
-              <div className="flex items-center gap-3 mb-4 flex-wrap">
-                <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded tracking-widest uppercase">
-                  ACTIONABLE CATALYSTS
-                </span>
-                <span className="text-[11px] text-slate-500 font-medium">
-                  {cleanEvents.length} live
-                  {suppressedCount > 0 && ` · ${suppressedCount} suppressed as litigation/filing noise`}
-                </span>
-              </div>
-              <ul className="flex flex-col gap-1.5">
-                {cleanEvents.slice(0, 10).map((e, idx) => {
-                  const { ticker, text } = splitEventTicker(e.event);
-                  return (
-                    <li key={idx} className="flex items-start gap-2.5 flex-wrap">
-                      <span className={`${valNum} font-bold shrink-0 ${e.impact === 'High' ? 'text-amber-400' : 'text-slate-500'}`}>
-                        {e.time}
-                      </span>
-                      {ticker && (
-                        <span className="text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider shrink-0">
-                          {ticker}
-                        </span>
-                      )}
-                      <span className="text-[13px] text-slate-300 font-medium leading-relaxed flex-1 min-w-[200px]">
-                        {text}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
             </div>
           )}
 
