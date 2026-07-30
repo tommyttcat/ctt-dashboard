@@ -1,6 +1,6 @@
 'use client';
 
-// Consolidation1021 — v2.6
+// Consolidation1021 — v2.7
 // v2.4: cluster shifted left under TICKER (colSpan={14}); added a ? hover.
 // v2.5: dropped the ? badge — the cluster wrapper itself is now cursor-help
 //       with the combined STATS_KEY_TOOLTIP, and each stat keeps its own
@@ -23,6 +23,11 @@
 //       ema1021GapPct at all. Until /api/consolidation/run folds them in,
 //       CNF will keep ranking DNLI above PTGX. RDY makes that visible on the
 //       row; it does not correct the sort. Sort by RDY to see base quality.
+// v2.7: RMV/RME moved to the far left of the sub-row — the slot the DIC/PM/
+//       BVR cluster vacated in v2.6. It had been pinned right, which put it
+//       at a different horizontal position on every row depending on how long
+//       the headline ran. Left-anchored it sits in a fixed column the eye can
+//       track down the table, and the headline takes the remaining width.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -518,8 +523,8 @@ export default function Consolidation1021() {
   }, []);
 
   // RDY is derived, not a payload field, so it is memoized per row and keyed
-  // by symbol — recomputing it inside the sort comparator would run it O(n log n)
-  // times per render.
+  // by symbol — recomputing it inside the sort comparator would run it
+  // O(n log n) times per render.
   const rdyBySymbol = useMemo(() => {
     const m = new Map<string, RdyDetail>();
     for (const c of candidates) m.set(c.symbol, computeRdy(c));
@@ -997,14 +1002,24 @@ export default function Consolidation1021() {
                             <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: the DIC / PM / BVR / 10/21% cluster is gone —
-                            it now lives in the RDY badge and its tooltip. What
-                            remains is the headline, which needs the width, plus
-                            RMV/RME and the coil state on the right. */}
+                        {/* Sub-row: RMV/RME now sits FIRST, in the slot the
+                            DIC/PM/BVR cluster used to hold. Pinned right it
+                            landed at a different x-position on every row —
+                            whatever was left after the headline truncated —
+                            so it could not be scanned vertically. Left-anchored
+                            and shrink-0 it holds one column down the table, and
+                            the headline flexes into what remains. */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td colSpan={15} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
-                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed pr-3 truncate" title={headline || undefined}>
+                              <span
+                                title={stateTooltip(rmv, rme)}
+                                className="shrink-0 flex items-baseline gap-1.5 pr-2.5 cursor-help whitespace-nowrap"
+                              >
+                                <span className="text-[8px] font-bold tracking-[0.1em] uppercase text-slate-600">RMV/RME</span>
+                                <span className="text-[9px] font-semibold text-slate-500 tabular-nums">{statePair(rmv, rme)}</span>
+                              </span>
+                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={headline || undefined}>
                                 {headline || tag ? (
                                   <>
                                     {tag && (
@@ -1025,13 +1040,6 @@ export default function Consolidation1021() {
                                   <span className="text-slate-600 italic">No news catalyst — technical setup only.</span>
                                 )}
                               </p>
-                              <span
-                                title={stateTooltip(rmv, rme)}
-                                className="shrink-0 flex items-baseline gap-1.5 cursor-help whitespace-nowrap"
-                              >
-                                <span className="text-[8px] font-bold tracking-[0.1em] uppercase text-slate-600">RMV/RME</span>
-                                <span className="text-[9px] font-semibold text-slate-500 tabular-nums">{statePair(rmv, rme)}</span>
-                              </span>
                             </div>
                           </td>
                           <td className="pb-1.5 pt-1 pl-1.5 text-left align-middle border-l border-white/5">
