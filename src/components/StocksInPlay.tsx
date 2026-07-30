@@ -38,7 +38,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     what: 'Confluence score 0–100 — how many independent factors line up: RVOL, gap, range expansion, RS, catalyst quality, persistence, VWAP, regime, sector heat, dots, runway. Hover the badge for the per-row breakdown and any grade ceiling.',
     colour: 'Green 70+ (A) · amber 50+ (B) · grey below (C).',
   },
-  R: {
+  RTR: {
     what: 'Reward-to-risk. How far the nearest overhead level sits above the trigger, measured in stop-widths. 2R+ means the target is reachable before anything blocks it. Trigger and stop prices are on the sub-row; hover this badge for the full plan.',
     colour: 'Green 2R+ (clear) · slate 1R+ · amber 0.5R+ · red under 0.5R · EXT extended · ✕ no plan.',
   },
@@ -863,7 +863,7 @@ export default function StocksInPlay() {
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%]`} title={colTip('TICKER')} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('CNF')} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('R')} onClick={() => handleSort('planR')}>R{getSortIcon('planR')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('RTR')} onClick={() => handleSort('planR')}>R{getSortIcon('planR')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('10/21')}>10/21</th>
