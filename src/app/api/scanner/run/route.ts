@@ -475,7 +475,12 @@ const buildReadout = (t: any): string | null => {
   if (t.adrPct != null) parts.push(`ADR ${t.adrPct.toFixed(1)}%`);
   if (t.goldenCross != null) parts.push(t.goldenCross ? '50>200 intact' : '50<200');
   if (t.plan?.tradeable) {
-    parts.push(`trigger ${t.plan.trigger.toFixed(2)} (${t.plan.triggerLabel}), stop −${t.plan.stopPct.toFixed(1)}%, ${t.plan.clear ? '2R clear' : `${t.plan.resistanceLabel} at ${t.plan.resistanceR.toFixed(1)}R`}`);
+    const bits: string[] = [];
+    if (t.plan.trigger != null) bits.push(`trigger ${t.plan.trigger.toFixed(2)} (${t.plan.triggerLabel})`);
+    if (t.plan.stopPct != null) bits.push(`stop −${t.plan.stopPct.toFixed(1)}%`);
+    if (t.plan.clear) bits.push('2R clear');
+    else if (t.plan.resistanceR != null) bits.push(`${t.plan.resistanceLabel} at ${t.plan.resistanceR.toFixed(1)}R`);
+    if (bits.length) parts.push(bits.join(', '));
   } else if (t.plan?.collapsed) {
     parts.push('no long plan — price has collapsed');
   }
