@@ -1,10 +1,28 @@
 'use client';
 
-// Consolidation1021 — v2.5
+// Consolidation1021 — v2.6
 // v2.4: cluster shifted left under TICKER (colSpan={14}); added a ? hover.
 // v2.5: dropped the ? badge — the cluster wrapper itself is now cursor-help
 //       with the combined STATS_KEY_TOOLTIP, and each stat keeps its own
 //       hover. Consistent with every other hover in the table.
+// v2.6: DIC / PM / BVR / 10/21% collapsed into a single RDY score.
+//
+//       Four independent numbers on the sub-row meant reading four things and
+//       weighing them by eye, every row, every scan. Worse, they were easy to
+//       skim past: DNLI carried a CNF of 91 with BVR ✗ and the 10 sitting
+//       BELOW the 21, while PTGX — blue dot, BVR ✓, +2.2% gap, 11-day coil —
+//       scored 88. The name with every confirming condition ranked lower than
+//       the one missing two of them, and nothing on the row made that obvious.
+//
+//       RDY does not replace CNF. CNF is the tape score and comes from the
+//       backend; RDY is the BASE-QUALITY score and is computed here from
+//       fields already on the row. Two numbers that answer different
+//       questions: is this moving, and is this base ready.
+//
+//       NOTE ON THE REAL FIX: CNF itself does not read bvrReady or
+//       ema1021GapPct at all. Until /api/consolidation/run folds them in,
+//       CNF will keep ranking DNLI above PTGX. RDY makes that visible on the
+//       row; it does not correct the sort. Sort by RDY to see base quality.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -20,6 +38,10 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     what: 'Confluence score 0–100 — how many independent factors line up: RVOL, gap, range expansion, RS, catalyst quality, persistence, VWAP, regime, sector heat. Hover the badge for the per-row breakdown.',
     colour: 'Green 70+ (A) · amber 50+ (B) · grey below (C).',
   },
+  RDY: {
+    what: 'Readiness 0–100 — base quality, not tape action. Combines breakout volume readiness (BVR), the 10/21 EMA gap, days in coil, and the prior move. CNF says whether it is moving; RDY says whether the base is ready. Hover a row badge for the breakdown.',
+    colour: 'Purple 75+ · green 55+ · amber 35+ · grey below.',
+  },
   PRICE: {
     what: 'Last price. The dot beside it is VWAP position.',
     colour: 'Green dot above VWAP · red dot below.',
@@ -29,7 +51,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Green up · red down.',
   },
   '10/21': {
-    what: 'Price vs the 10 and 21 EMAs — the Dr. Wish trend pair. The signed EMA gap (10/21%) is on the sub-row.',
+    what: 'Price vs the 10 and 21 EMAs — the Dr. Wish trend pair. The signed EMA gap feeds the RDY score.',
     colour: 'Green dot above that EMA · red below · grey no data.',
   },
   VOL: { what: 'Shares traded today.' },
@@ -75,16 +97,6 @@ const colTip = (key: string): string | undefined => {
   if (!n) return undefined;
   return n.colour ? `${n.what}\n\n${n.colour}` : n.what;
 };
-
-// Combined explainer for the sub-row stat cluster (shown on cluster hover).
-const STATS_KEY_TOOLTIP = [
-  'SUB-ROW STATS',
-  '',
-  'DIC — Days in coil. How long the base has held. Longer + tighter is the premium setup.',
-  'PM — Prior move %. The runup into the base; a tight coil after a strong advance is the continuation tell.',
-  'BVR — Breakout volume readiness. Coil-window avg volume vs the prior window. ✓ = dried up (below 0.70×), the pre-breakout signature.',
-  '10/21% — Signed 10/21 EMA gap as % of price. Negative = 10 below 21 (coiling up into the cross); near zero = at the cross; positive = ribbon opening.',
-].join('\n');
 
 interface ConsolidationCandidate {
   symbol: string;
@@ -139,6 +151,7 @@ interface ConsolidationCandidate {
 
 type SortDirection = 'asc' | 'desc';
 type CnfFilterType = 'All' | 'A' | 'B';
+type RdyFilterType = 'All' | '55' | '75';
 type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
 type AdrFilterType = 'All' | '5' | '10';
@@ -147,6 +160,7 @@ type VolFilterType = 'All' | '20' | '50' | '100';
 
 const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
 const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
+const RDY_BUCKETS: RdyFilterType[] = ['55', '75'];
 const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
 const VOL_BUCKETS: VolFilterType[] = ['20', '50', '100'];
 
@@ -167,6 +181,7 @@ const CNF_LABELS: Record<string, string> = {
   sector: 'Sector heat',
   moneyFlow: 'Money Flow',
   coil: 'Coil tightness',
+  dot: 'Blue dot',
 };
 
 const formatTime = (timestamp: number | Date) => {
@@ -211,12 +226,6 @@ const statePair = (rmv: number | null, rme: number | null): string => {
   return `${v}/${e}`;
 };
 
-const isBlueDotSetup = (name: string | null | undefined): boolean => {
-  if (!name) return false;
-  const n = String(name).toLowerCase();
-  return n === 'blue dot rev' || n.includes('blue dot') || n.includes('bd rev');
-};
-
 const BlueDot = ({ className = '' }: { className?: string }) => (
   <span
     title="Blue Dot — oversold stoch reset firing on the daily"
@@ -255,54 +264,154 @@ const headlineOf = (c: ConsolidationCandidate): string | null => {
 
 const catalystUrlOf = (c: ConsolidationCandidate): string | null => c.catalystUrl ?? c.newsUrl ?? null;
 
-const adrOf = (c: ConsolidationCandidate): number | null => {
-  if (c.adrPct == null || isNaN(Number(c.adrPct))) return null;
-  return Number(c.adrPct);
+const numField = (v: any): number | null => {
+  if (v == null || isNaN(Number(v))) return null;
+  return Number(v);
 };
 
-const mfOf = (c: ConsolidationCandidate): number | null => {
-  if (c.mf == null || isNaN(Number(c.mf))) return null;
-  return Number(c.mf);
+const adrOf = (c: ConsolidationCandidate): number | null => numField(c.adrPct);
+const mfOf = (c: ConsolidationCandidate): number | null => numField(c.mf);
+const rmeOf = (c: ConsolidationCandidate): number | null => numField(c.rme);
+const rmvOf = (c: ConsolidationCandidate): number | null => numField(c.rmv);
+const coilRatioOf = (c: ConsolidationCandidate): number | null => numField(c.coilRatio);
+const range10Of = (c: ConsolidationCandidate): number | null => numField(c.range10Pct);
+const coilDaysOf = (c: ConsolidationCandidate): number | null => numField(c.coilDays);
+const priorMoveOf = (c: ConsolidationCandidate): number | null => numField(c.priorMovePct);
+const bvrRatioOf = (c: ConsolidationCandidate): number | null => numField(c.bvrRatio);
+const gap1021Of = (c: ConsolidationCandidate): number | null => numField(c.ema1021GapPct);
+
+/* ---- RDY: base-readiness composite -------------------------------------
+   Replaces the DIC / PM / BVR / 10/21% cluster with one number.
+
+   WEIGHTS, and why:
+
+   BVR carries the most (35). Volume drying up inside the coil is the actual
+   pre-breakout signature — a tight base on undiminished volume is just a
+   pause, not accumulation finishing. It is also the field most likely to be
+   ✗ on a name that otherwise looks good, which is exactly why it needs the
+   heaviest weight rather than a small ✗ glyph at the end of a row.
+
+   The 10/21 gap is next (25). Sign matters more than magnitude: the 10 above
+   the 21 and opening is the ribbon confirming, at the cross is the moment of
+   resolution, and the 10 below the 21 means the trend pair has not turned
+   yet. A negative gap does not disqualify — a coil resolving upward crosses
+   from below — but it is earlier and therefore worth fewer points.
+
+   Days in coil (20) and prior move (20) split the rest. Both are context: a
+   long base is more meaningful than a three-day pause, and a coil after a
+   strong advance is a continuation setup while a coil after nothing is just
+   a quiet stock.
+
+   Every component degrades to 0 rather than throwing when its field is
+   missing, and `sampled` reports how many of the four actually resolved so
+   a score built on two inputs can be read as the weaker evidence it is.
+   ---------------------------------------------------------------------- */
+interface RdyDetail {
+  score: number | null;
+  parts: { label: string; value: number; max: number; detail: string }[];
+  sampled: number;
+}
+
+const RDY_MAX = { bvr: 35, gap: 25, dic: 20, pm: 20 };
+
+const computeRdy = (c: ConsolidationCandidate): RdyDetail => {
+  const parts: RdyDetail['parts'] = [];
+  let sampled = 0;
+
+  // --- BVR: coil-window volume vs the prior window. Lower is drier. -------
+  const bvr = bvrRatioOf(c);
+  if (bvr != null) {
+    sampled++;
+    let v: number;
+    let detail: string;
+    if (bvr <= 0.55) { v = 35; detail = `${bvr.toFixed(2)}× — volume fully dried up`; }
+    else if (bvr <= 0.70) { v = 28; detail = `${bvr.toFixed(2)}× — dried up, ready`; }
+    else if (bvr <= 0.85) { v = 16; detail = `${bvr.toFixed(2)}× — thinning but not there`; }
+    else if (bvr <= 1.0) { v = 6; detail = `${bvr.toFixed(2)}× — volume still full`; }
+    else { v = 0; detail = `${bvr.toFixed(2)}× — volume rising inside the base`; }
+    parts.push({ label: 'BVR', value: v, max: RDY_MAX.bvr, detail });
+  } else {
+    parts.push({ label: 'BVR', value: 0, max: RDY_MAX.bvr, detail: 'no data' });
+  }
+
+  // --- 10/21 gap: signed, as % of price ----------------------------------
+  const gap = gap1021Of(c);
+  if (gap != null) {
+    sampled++;
+    let v: number;
+    let detail: string;
+    const a = Math.abs(gap);
+    if (a <= 0.5) { v = 25; detail = `${gap >= 0 ? '+' : ''}${gap.toFixed(1)}% — at the cross`; }
+    else if (gap > 0.5 && gap <= 2.5) { v = 22; detail = `+${gap.toFixed(1)}% — 10 over 21, ribbon opening`; }
+    else if (gap > 2.5 && gap <= 5) { v = 12; detail = `+${gap.toFixed(1)}% — ribbon already wide`; }
+    else if (gap > 5) { v = 4; detail = `+${gap.toFixed(1)}% — extended off the pair`; }
+    else if (gap < -0.5 && gap >= -1.5) { v = 14; detail = `${gap.toFixed(1)}% — 10 under 21, coiling into the cross`; }
+    else { v = 5; detail = `${gap.toFixed(1)}% — 10 well under 21, pair has not turned`; }
+    parts.push({ label: '10/21', value: v, max: RDY_MAX.gap, detail });
+  } else {
+    parts.push({ label: '10/21', value: 0, max: RDY_MAX.gap, detail: 'no data' });
+  }
+
+  // --- Days in coil ------------------------------------------------------
+  const dic = coilDaysOf(c);
+  if (dic != null) {
+    sampled++;
+    let v: number;
+    if (dic >= 20) v = 20;
+    else if (dic >= 14) v = 17;
+    else if (dic >= 10) v = 13;
+    else if (dic >= 7) v = 8;
+    else v = 3;
+    parts.push({ label: 'DIC', value: v, max: RDY_MAX.dic, detail: `${dic} days in the base` });
+  } else {
+    parts.push({ label: 'DIC', value: 0, max: RDY_MAX.dic, detail: 'no data' });
+  }
+
+  // --- Prior move --------------------------------------------------------
+  const pm = priorMoveOf(c);
+  if (pm != null) {
+    sampled++;
+    let v: number;
+    let detail: string;
+    if (pm >= 50) { v = 20; detail = `+${pm.toFixed(0)}% runup — strong advance into the base`; }
+    else if (pm >= 30) { v = 17; detail = `+${pm.toFixed(0)}% runup`; }
+    else if (pm >= 15) { v = 11; detail = `+${pm.toFixed(0)}% runup — modest`; }
+    else if (pm >= 0) { v = 4; detail = `+${pm.toFixed(0)}% — little advance to continue`; }
+    else { v = 0; detail = `${pm.toFixed(0)}% — base formed after a decline`; }
+    parts.push({ label: 'PM', value: v, max: RDY_MAX.pm, detail });
+  } else {
+    parts.push({ label: 'PM', value: 0, max: RDY_MAX.pm, detail: 'no data' });
+  }
+
+  // Fewer than two resolved fields is not a score, it is a guess.
+  if (sampled < 2) return { score: null, parts, sampled };
+
+  const raw = parts.reduce((s, p) => s + p.value, 0);
+  return { score: Math.round(raw), parts, sampled };
 };
 
-const rmeOf = (c: ConsolidationCandidate): number | null => {
-  if (c.rme == null || isNaN(Number(c.rme))) return null;
-  return Number(c.rme);
-};
-
-const rmvOf = (c: ConsolidationCandidate): number | null => {
-  if (c.rmv == null || isNaN(Number(c.rmv))) return null;
-  return Number(c.rmv);
-};
-
-const coilRatioOf = (c: ConsolidationCandidate): number | null => {
-  if (c.coilRatio == null || isNaN(Number(c.coilRatio))) return null;
-  return Number(c.coilRatio);
-};
-
-const range10Of = (c: ConsolidationCandidate): number | null => {
-  if (c.range10Pct == null || isNaN(Number(c.range10Pct))) return null;
-  return Number(c.range10Pct);
-};
-
-const coilDaysOf = (c: ConsolidationCandidate): number | null => {
-  if (c.coilDays == null || isNaN(Number(c.coilDays))) return null;
-  return Number(c.coilDays);
-};
-
-const priorMoveOf = (c: ConsolidationCandidate): number | null => {
-  if (c.priorMovePct == null || isNaN(Number(c.priorMovePct))) return null;
-  return Number(c.priorMovePct);
-};
-
-const bvrRatioOf = (c: ConsolidationCandidate): number | null => {
-  if (c.bvrRatio == null || isNaN(Number(c.bvrRatio))) return null;
-  return Number(c.bvrRatio);
-};
-
-const gap1021Of = (c: ConsolidationCandidate): number | null => {
-  if (c.ema1021GapPct == null || isNaN(Number(c.ema1021GapPct))) return null;
-  return Number(c.ema1021GapPct);
+const rdyTooltip = (c: ConsolidationCandidate, d: RdyDetail): string => {
+  const lines: string[] = [];
+  if (d.score == null) {
+    lines.push('RDY — not enough data to score');
+  } else {
+    const band =
+      d.score >= 75 ? 'base is ready' :
+      d.score >= 55 ? 'setting up' :
+      d.score >= 35 ? 'early' : 'not there yet';
+    lines.push(`RDY ${d.score} — ${band}`);
+  }
+  lines.push('');
+  lines.push('Base readiness, not tape action. CNF says whether it is moving.');
+  lines.push('');
+  for (const p of d.parts) {
+    lines.push(`${String(p.value).padStart(2)}/${p.max}  ${p.label} — ${p.detail}`);
+  }
+  if (d.sampled < 4) {
+    lines.push('');
+    lines.push(`Built from ${d.sampled} of 4 inputs — treat as weaker evidence.`);
+  }
+  return lines.join('\n');
 };
 
 const coilStat = (c: ConsolidationCandidate): 'Coiled' | 'Setting Up' | null => {
@@ -353,6 +462,9 @@ const cnfTooltip = (c: ConsolidationCandidate): string => {
     }
   }
 
+  lines.push('');
+  lines.push('CNF does not read BVR or the 10/21 gap — see RDY for base quality.');
+
   return lines.join('\n');
 };
 
@@ -366,11 +478,12 @@ export default function Consolidation1021() {
   const [status, setStatus] = useState<string>('Syncing...');
   const [generatedAt, setGeneratedAt] = useState<number | null>(null);
   const [scanMeta, setScanMeta] = useState<any>(null);
-  const [sortConfig, setSortConfig] = useState<{ key: keyof ConsolidationCandidate; direction: SortDirection } | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [showStage2Only, setShowStage2Only] = useState<boolean>(false);
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
+  const [rdyFilter, setRdyFilter] = useState<RdyFilterType>('All');
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [adrFilter, setAdrFilter] = useState<AdrFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
@@ -404,7 +517,16 @@ export default function Consolidation1021() {
     return () => { isMounted = false; clearInterval(interval); };
   }, []);
 
-  const handleSort = (key: keyof ConsolidationCandidate) => {
+  // RDY is derived, not a payload field, so it is memoized per row and keyed
+  // by symbol — recomputing it inside the sort comparator would run it O(n log n)
+  // times per render.
+  const rdyBySymbol = useMemo(() => {
+    const m = new Map<string, RdyDetail>();
+    for (const c of candidates) m.set(c.symbol, computeRdy(c));
+    return m;
+  }, [candidates]);
+
+  const handleSort = (key: string) => {
     let direction: SortDirection = 'desc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
     else if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') { setSortConfig(null); return; }
@@ -415,6 +537,7 @@ export default function Consolidation1021() {
   const handleAdrFilter = (val: AdrFilterType) => setAdrFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
+  const handleRdyFilter = (val: RdyFilterType) => setRdyFilter(prev => prev === val ? 'All' : val);
   const handleStatFilter = (val: StatFilterType) => setStatFilter(prev => prev === val ? 'All' : val);
   const handleVolFilter = (val: VolFilterType) => setVolFilter(prev => prev === val ? 'All' : val);
 
@@ -433,6 +556,13 @@ export default function Consolidation1021() {
     if (cnfFilter !== 'All') {
       const minScore = CNF_MIN_SCORE[cnfFilter];
       filtered = filtered.filter(c => (c.score ?? -1) >= minScore);
+    }
+    if (rdyFilter !== 'All') {
+      const minRdy = Number(rdyFilter);
+      filtered = filtered.filter(c => {
+        const r = rdyBySymbol.get(c.symbol)?.score;
+        return r != null && r >= minRdy;
+      });
     }
     if (emaFilter !== 'All') {
       filtered = filtered.filter(c => {
@@ -463,15 +593,19 @@ export default function Consolidation1021() {
     }
     if (!sortConfig) return filtered;
     return filtered.sort((a, b) => {
-      const aVal = a[sortConfig.key] as any;
-      const bVal = b[sortConfig.key] as any;
+      const aVal = sortConfig.key === 'rdy'
+        ? (rdyBySymbol.get(a.symbol)?.score ?? null)
+        : ((a as any)[sortConfig.key] as any);
+      const bVal = sortConfig.key === 'rdy'
+        ? (rdyBySymbol.get(b.symbol)?.score ?? null)
+        : ((b as any)[sortConfig.key] as any);
       if (aVal === null || aVal === undefined) return 1;
       if (bVal === null || bVal === undefined) return -1;
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, showStage2Only, marketCapFilter, cnfFilter, emaFilter, adrFilter, vwapFilter, statFilter, volFilter]);
+  }, [candidates, rdyBySymbol, sortConfig, showStage2Only, marketCapFilter, cnfFilter, rdyFilter, emaFilter, adrFilter, vwapFilter, statFilter, volFilter]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -493,11 +627,18 @@ export default function Consolidation1021() {
     setTimeout(() => setCopied(false), 1800);
   };
 
-  const getSortIcon = (columnKey: keyof ConsolidationCandidate) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
+  const getSortIcon = (columnKey: string) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
   const getScoreBadge = (score: number) => {
     if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
     if (score >= 50) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+    return 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50';
+  };
+  const getRdyBadge = (score: number | null) => {
+    if (score == null) return 'bg-zinc-800/50 text-zinc-500 border-zinc-700/50';
+    if (score >= 75) return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
+    if (score >= 55) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+    if (score >= 35) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
     return 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50';
   };
   const getRvolColor = (rvol: number | null | undefined) => {
@@ -539,27 +680,6 @@ export default function Consolidation1021() {
     if (r <= COIL_SETTING_MAX) return 'text-emerald-400';
     return 'text-slate-400';
   };
-  const getDicColor = (d: number | null) => {
-    if (d == null) return 'text-slate-600';
-    if (d >= 20) return 'text-purple-400';
-    if (d >= 10) return 'text-slate-200';
-    return 'text-slate-400';
-  };
-  const getPmColor = (p: number | null) => {
-    if (p == null) return 'text-slate-600';
-    if (p >= 30) return 'text-emerald-400';
-    if (p >= 0) return 'text-slate-300';
-    return 'text-rose-400';
-  };
-  const getGap1021Color = (g: number | null) => {
-    if (g == null) return 'text-slate-600';
-    const a = Math.abs(g);
-    if (a <= 0.5) return 'text-purple-400';
-    if (g > 0 && g <= 2) return 'text-emerald-400';
-    if (g > 2) return 'text-slate-400';
-    if (g < 0 && g >= -1) return 'text-lime-400';
-    return 'text-rose-400';
-  };
 
   const emaDot = (state: boolean | null | undefined) => {
     if (state === null || state === undefined) return 'bg-slate-600';
@@ -593,6 +713,7 @@ export default function Consolidation1021() {
     (showStage2Only ? 1 : 0) +
     (marketCapFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
+    (rdyFilter !== 'All' ? 1 : 0) +
     (emaFilter !== 'All' ? 1 : 0) +
     (adrFilter !== 'All' ? 1 : 0) +
     (vwapFilter !== 'All' ? 1 : 0) +
@@ -660,6 +781,21 @@ export default function Consolidation1021() {
                     >
                       2
                     </button>
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>RDY</span>
+                  <div className="flex items-center gap-1">
+                    {RDY_BUCKETS.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => handleRdyFilter(opt)}
+                        title={opt === '75' ? 'Base ready — RDY 75 and above' : 'Setting up or better — RDY 55 and above'}
+                        className={`${pillBtn} ${rdyFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {opt}+
+                      </button>
+                    ))}
                   </div>
                 </div>
                 <div className={pillWrap}>
@@ -747,19 +883,20 @@ export default function Consolidation1021() {
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%]`} title={colTip('TICKER')} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('CNF')} onClick={() => handleSort('score')}>CNF{getSortIcon('score')}</th>
+                  <th className={`${thBase} w-[4%]`} title={colTip('RDY')} onClick={() => handleSort('rdy')}>RDY{getSortIcon('rdy')}</th>
                   <th className={`${thBase} w-[7%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('10/21')}>10/21</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[7%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('COIL')} onClick={() => handleSort('coilRatio')}>COIL{getSortIcon('coilRatio')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
+                  <th className={`${thBase} w-[4%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thStage} w-[5%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
                   <th className={`${thSector} w-[7%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
@@ -767,7 +904,7 @@ export default function Consolidation1021() {
 
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
-                  <tr><td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No consolidations in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
+                  <tr><td colSpan={18} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No consolidations in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
                 ) : (
                   filteredAndSorted.map((row) => {
                     const isPositive = (row.changePct ?? 0) >= 0;
@@ -783,11 +920,7 @@ export default function Consolidation1021() {
                     const coilR = coilRatioOf(row);
                     const range10 = range10Of(row);
                     const st = coilStat(row);
-                    const dic = coilDaysOf(row);
-                    const pm = priorMoveOf(row);
-                    const bvr = bvrRatioOf(row);
-                    const bvrReady = row.bvrReady === true;
-                    const gap1021 = gap1021Of(row);
+                    const rdy = rdyBySymbol.get(row.symbol) ?? computeRdy(row);
                     return (
                       <React.Fragment key={row.symbol}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -803,6 +936,14 @@ export default function Consolidation1021() {
                               className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border cursor-help ${getScoreBadge(row.score)}`}
                             >
                               {row.score}
+                            </span>
+                          </td>
+                          <td className={tdBase}>
+                            <span
+                              title={rdyTooltip(row, rdy)}
+                              className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border cursor-help ${getRdyBadge(rdy.score)}`}
+                            >
+                              {rdy.score ?? '—'}
                             </span>
                           </td>
                           <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
@@ -856,36 +997,14 @@ export default function Consolidation1021() {
                             <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: cluster spans from under TICKER (colSpan={14},
-                            no left pad); the cluster wrapper itself is cursor-help
-                            with the combined STATS_KEY_TOOLTIP, each stat keeps its
-                            own hover. STATE under STAGE, Coiled/Setting Up under
-                            SECTOR. */}
+                        {/* Sub-row: the DIC / PM / BVR / 10/21% cluster is gone —
+                            it now lives in the RDY badge and its tooltip. What
+                            remains is the headline, which needs the width, plus
+                            RMV/RME and the coil state on the right. */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td colSpan={14} className="pb-1.5 pt-1 pr-3">
+                          <td colSpan={15} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
-                              <span
-                                title={STATS_KEY_TOOLTIP}
-                                className="shrink-0 flex items-center gap-2.5 pr-2 leading-none whitespace-nowrap cursor-help"
-                              >
-                                <span className="flex items-baseline gap-1" title="Days in coil — how long the base has held">
-                                  <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">DIC</span>
-                                  <span className={`text-[9px] font-bold tabular-nums ${getDicColor(dic)}`}>{dic != null ? dic : '—'}</span>
-                                </span>
-                                <span className="flex items-baseline gap-1" title="Prior move % — the runup into the base">
-                                  <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">PM</span>
-                                  <span className={`text-[9px] font-bold tabular-nums ${getPmColor(pm)}`}>{pm != null ? `${pm >= 0 ? '+' : ''}${pm}%` : '—'}</span>
-                                </span>
-                                <span className="flex items-baseline gap-1" title={bvr != null ? `Breakout volume readiness — coil vol is ${bvr.toFixed(2)}× the prior window (below 0.70 = dried up = ready)` : 'Breakout volume readiness'}>
-                                  <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">BVR</span>
-                                  <span className={`text-[9px] font-bold ${bvrReady ? 'text-emerald-400' : 'text-slate-500'}`}>{bvr != null ? (bvrReady ? '✓' : '✗') : '—'}</span>
-                                </span>
-                                <span className="flex items-baseline gap-1" title="10/21 EMA gap as % of price. Negative = 10 below 21 (coiling up into the cross); near zero = at the cross; positive = ribbon opening.">
-                                  <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">10/21%</span>
-                                  <span className={`text-[9px] font-bold tabular-nums ${getGap1021Color(gap1021)}`}>{gap1021 != null ? `${gap1021 >= 0 ? '+' : ''}${gap1021.toFixed(1)}%` : '—'}</span>
-                                </span>
-                              </span>
-                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={headline || undefined}>
+                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed pr-3 truncate" title={headline || undefined}>
                                 {headline || tag ? (
                                   <>
                                     {tag && (
