@@ -1,9 +1,24 @@
 'use client';
 
-// DailySetups — v1.9
+// DailySetups — v2.0
 // v1.7: matched SIPs v2.8 — header z-30, SECTOR left-aligned, min-w 880.
 // v1.8: column widths copied 1:1 from SIPs v2.8 (FLOAT dropped).
 // v1.9: DAY/SWING chip text off-white — text-slate-300 → text-slate-200.
+// v2.0: brought in line with SIPs v3.0 — RTR column, trade plan on the
+//       sub-row, setup name under the ticker, DAY/SWING chip removed.
+//
+//       DROPPING THE CHIP is worth a note because it was carrying real
+//       information. tradeType is what deriveTradeType() decided from the
+//       setup name, and it drove the VWAP penalty in CNF. Removing the chip
+//       does not remove the field — it moves it into the plan tooltip, where
+//       holding period sits alongside the levels it applies to. A DAY trade
+//       and a SWING on the same trigger are different positions, and the
+//       tooltip is where you are already looking when you care.
+//
+//       The chip occupied the first sub-row cell, which is why "REVERSAL"
+//       previously appeared under CNF. With the chip gone the setup name
+//       moves left under the ticker, matching SIPs and putting symbol-then-
+//       setup in a single readable column.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -14,10 +29,14 @@ import { SCANNER_DAILY_META, COLUMN_NOTES } from '@/lib/scanConfig';
 import MetricsKey from './MetricsKey';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
-  TICKER: { what: 'Symbol. Hover shows the company name.' },
+  TICKER: { what: 'Symbol. Hover shows the company name. The setup name sits directly beneath it.' },
   CNF: {
-    what: 'Confluence score 0–100 — how many independent factors line up: RVOL, gap, range expansion, RS, catalyst quality, persistence, VWAP, regime, sector heat. Hover the badge for the per-row breakdown.',
+    what: 'Confluence score 0–100 — how many independent factors line up: RVOL, gap, range expansion, RS, catalyst quality, persistence, VWAP, regime, sector heat, dots, runway. Hover the badge for the per-row breakdown and any grade ceiling.',
     colour: 'Green 70+ (A) · amber 50+ (B) · grey below (C).',
+  },
+  RTR: {
+    what: 'Room to resistance. How far the nearest overhead level sits above the trigger, measured in stop-widths (R = trigger minus stop). 2R+ means the target is reachable before anything blocks it. Trigger, stop and target prices are on the sub-row; hover this badge for the full plan.',
+    colour: 'Green 2R+ (clear) · slate 1R+ · amber 0.5R+ · red under 0.5R · EXT extended · ✕ no plan.',
   },
   PRICE: {
     what: 'Last price. The dot beside it is VWAP position.',
@@ -38,7 +57,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Amber 2x+ · green 1.5x+ · grey below.',
   },
   ADR: {
-    what: '20-day average daily range. The anti-chop gate — scan floor is 3%.',
+    what: '20-day average daily range. The anti-chop gate — scan floor is 3%. Also the basis for the stop: 1.25× ADR or 2.5%, whichever is wider.',
     colour: 'Purple 10%+ · green 5%+ · grey at the floor.',
   },
   MF: {
@@ -70,6 +89,23 @@ const colTip = (key: string): string | undefined => {
   if (!n) return undefined;
   return n.colour ? `${n.what}\n\n${n.colour}` : n.what;
 };
+
+interface TradePlanRow {
+  family?: string;
+  trigger?: number | null;
+  triggerLabel?: string;
+  stop?: number | null;
+  stopPct?: number | null;
+  target?: number | null;
+  rMultiple?: number;
+  resistanceR?: number | null;
+  resistanceLabel?: string | null;
+  clear?: boolean;
+  collapsed?: boolean;
+  overextended?: boolean;
+  tradeable?: boolean;
+  note?: string;
+}
 
 interface SetupData {
   ticker: string;
@@ -104,9 +140,14 @@ interface SetupData {
   rme?: number | null;
   rmeExtPct?: number | null;
   cnfBreakdown?: Record<string, number> | null;
+  cnfCeiling?: number | null;
+  cnfCeilingReason?: string | null;
   goldenCross?: boolean | null;
   ema21Rising?: boolean | null;
   status?: string | null;
+  dotKind?: 'blue' | 'red' | null;
+  dotBarsSince?: number | null;
+  plan?: TradePlanRow | null;
 }
 
 type SortDirection = 'asc' | 'desc';
@@ -114,10 +155,12 @@ type CnfFilterType = 'All' | 'A' | 'B';
 type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
 type VwapFilterType = 'All' | 'above' | 'below';
 type AdrFilterType = 'All' | '5' | '10';
+type PlanFilterType = 'All' | '1R' | 'Clear';
 
 const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
 const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
+const PLAN_BUCKETS: PlanFilterType[] = ['1R', 'Clear'];
 
 const CNF_LABELS: Record<string, string> = {
   rvol: 'Relative volume',
@@ -132,6 +175,9 @@ const CNF_LABELS: Record<string, string> = {
   regime: 'Market regime',
   sector: 'Sector heat',
   moneyFlow: 'Money Flow',
+  dot: 'Blue dot',
+  reclaim: '10 EMA reclaimed',
+  runway: 'Runway to target',
 };
 
 const formatTime = (timestamp: number | Date) => {
@@ -153,6 +199,16 @@ const formatCurrency = (num: number | null) => {
   if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
   if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
   return '$' + num.toLocaleString();
+};
+
+// Price levels drop the cents on anything three digits or more — at $886 the
+// pennies are noise, at $4.18 they are the whole trade.
+const formatLevel = (v: number | null | undefined): string => {
+  if (v == null || isNaN(Number(v))) return '—';
+  const n = Number(v);
+  if (n >= 100) return n.toFixed(0);
+  if (n >= 10) return n.toFixed(1);
+  return n.toFixed(2);
 };
 
 const formatRs = (rs: number | null | undefined): string => {
@@ -194,6 +250,13 @@ const BlueDot = ({ className = '' }: { className?: string }) => (
   <span
     title="Blue Dot Reversal"
     className={`inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)] align-middle shrink-0 ${className}`}
+  />
+);
+
+const RedDot = ({ className = '' }: { className?: string }) => (
+  <span
+    title="Red Dot — overbought reversal against a long"
+    className={`inline-block w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_5px_rgba(244,63,94,0.6)] align-middle shrink-0 ${className}`}
   />
 );
 
@@ -258,6 +321,98 @@ const rmeLabel = (rme: number | null): string => {
   return 'at historical extension low';
 };
 
+const tradeTypeLabel = (tradeType: string | null | undefined): string | null => {
+  if (!tradeType) return null;
+  const t = tradeType.toLowerCase();
+  if (t.startsWith('day')) return 'DAY';
+  if (t.startsWith('swing')) return 'SWING';
+  return tradeType.toUpperCase();
+};
+
+/* ---- Trade plan ---------------------------------------------------------
+   The scanner computes trigger / stop / 2R target / distance-to-resistance
+   and ships them on every row. These read that object; nothing is
+   recalculated here, so the table cannot disagree with the score.
+
+   SORT VALUE needs care. A name with no plan must sort to the bottom rather
+   than the top, and `clear` rows have no resistanceR at all when price is
+   above every average — those are the BEST rows, so they need a high
+   sentinel rather than a null.                                           */
+const planOf = (row: SetupData): TradePlanRow | null => {
+  const p = row.plan;
+  return p && typeof p === 'object' ? p : null;
+};
+
+const PLAN_SORT_CLEAR = 99;
+const PLAN_SORT_NONE = -1;
+
+const planSortValue = (row: SetupData): number => {
+  const p = planOf(row);
+  if (!p || p.tradeable !== true) return PLAN_SORT_NONE;
+  if (p.collapsed) return PLAN_SORT_NONE;
+  if (p.overextended) return PLAN_SORT_NONE;
+  if (p.clear) return p.resistanceR != null ? p.resistanceR : PLAN_SORT_CLEAR;
+  return p.resistanceR != null ? p.resistanceR : PLAN_SORT_NONE;
+};
+
+const planShort = (row: SetupData): string => {
+  const p = planOf(row);
+  if (!p) return '—';
+  if (p.collapsed) return '✕';
+  if (p.tradeable !== true) return '—';
+  if (p.overextended) return 'EXT';
+  if (p.clear) return p.resistanceR != null ? `${p.resistanceR.toFixed(1)}R` : '2R+';
+  if (p.resistanceR == null) return '—';
+  return `${p.resistanceR.toFixed(1)}R`;
+};
+
+const planBadge = (row: SetupData): string => {
+  const p = planOf(row);
+  if (!p) return 'bg-white/[0.02] text-slate-600 border-white/5';
+  if (p.collapsed) return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+  if (p.tradeable !== true) return 'bg-white/[0.02] text-slate-600 border-white/5';
+  if (p.overextended) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+  if (p.clear) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+  const r = p.resistanceR;
+  if (r == null) return 'bg-white/[0.02] text-slate-600 border-white/5';
+  if (r >= 1.0) return 'bg-slate-500/10 text-slate-300 border-white/10';
+  if (r >= 0.5) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+  return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+};
+
+// Holding period lives here now that the DAY/SWING chip is gone. It belongs
+// with the levels: the same trigger means a different position depending on
+// whether you intend to be out by the close.
+const planTooltip = (row: SetupData): string => {
+  const p = planOf(row);
+  const tt = tradeTypeLabel(row.tradeType);
+  if (!p) return 'No trade plan on this row — rerun the scan.';
+  if (p.tradeable !== true) return `No plan — ${p.note || 'not computable'}.`;
+
+  const lines: string[] = [];
+  if (tt) lines.push(`${tt}${tt === 'DAY' ? ' — intraday only' : ' — multi-day hold viable'}`);
+  if (tt) lines.push('');
+  lines.push(`Trigger  ${p.trigger != null ? p.trigger.toFixed(2) : '—'}  (${p.triggerLabel || '—'})`);
+  lines.push(`Stop     ${p.stop != null ? p.stop.toFixed(2) : '—'}  (${p.stopPct != null ? `−${p.stopPct.toFixed(1)}%` : '—'})`);
+  lines.push(`Target   ${p.target != null ? p.target.toFixed(2) : '—'}  (2R)`);
+  if (p.trigger != null && p.stop != null) {
+    lines.push(`Risk     ${(p.trigger - p.stop).toFixed(2)} per share`);
+  }
+  lines.push('');
+  if (p.resistanceR != null) {
+    lines.push(`Nearest overhead: ${p.resistanceLabel || 'level'} at ${p.resistanceR.toFixed(1)}R`);
+  } else {
+    lines.push('No overhead level between trigger and target.');
+  }
+  if (p.note) {
+    lines.push('');
+    lines.push(p.note);
+  }
+  lines.push('');
+  lines.push('Stop is the wider of 1.25× ADR or 2.5%. Target is a fixed 2R.');
+  return lines.join('\n');
+};
+
 const cnfTooltip = (row: SetupData): string => {
   const score = row.conviction;
   const lines: string[] = [
@@ -277,6 +432,13 @@ const cnfTooltip = (row: SetupData): string => {
     }
   }
 
+  // A capped score is a different claim than a low one — the tape may have
+  // scored well and been overruled. Say which.
+  if (row.cnfCeiling != null && row.cnfCeiling < 100) {
+    lines.push('');
+    lines.push(`Capped at ${row.cnfCeiling}${row.cnfCeilingReason ? ` — ${row.cnfCeilingReason}` : ''}`);
+  }
+
   const rme = rmeOf(row);
   if (rme != null) {
     lines.push('');
@@ -287,14 +449,6 @@ const cnfTooltip = (row: SetupData): string => {
   }
 
   return lines.join('\n');
-};
-
-const tradeTypeLabel = (tradeType: string | null | undefined): string | null => {
-  if (!tradeType) return null;
-  const t = tradeType.toLowerCase();
-  if (t.startsWith('day')) return 'DAY';
-  if (t.startsWith('swing')) return 'SWING';
-  return tradeType.toUpperCase();
 };
 
 const rowStatus = (row: SetupData): 'Ready' | 'Forming' | null => {
@@ -312,7 +466,7 @@ export default function DailySetups() {
   const [status, setStatus] = useState<string>('Syncing DB...');
   const [lastScanTime, setLastScanTime] = useState<number | null>(null);
   const [scanMeta, setScanMeta] = useState<any>(null);
-  const [sortConfig, setSortConfig] = useState<{ key: keyof SetupData; direction: SortDirection } | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [showStage2Only, setShowStage2Only] = useState<boolean>(false);
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
@@ -320,6 +474,7 @@ export default function DailySetups() {
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [adrFilter, setAdrFilter] = useState<AdrFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
+  const [planFilter, setPlanFilter] = useState<PlanFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
 
@@ -367,9 +522,14 @@ export default function DailySetups() {
               rme: item.rme ?? null,
               rmeExtPct: item.rmeExtPct ?? null,
               cnfBreakdown: item.cnfBreakdown ?? null,
+              cnfCeiling: item.cnfCeiling ?? null,
+              cnfCeilingReason: item.cnfCeilingReason ?? null,
               goldenCross: item.goldenCross ?? null,
               ema21Rising: item.ema21Rising ?? null,
               status: item.status ?? null,
+              dotKind: item.dotKind ?? null,
+              dotBarsSince: item.dotBarsSince ?? null,
+              plan: item.plan ?? null,
             };
           });
 
@@ -388,7 +548,7 @@ export default function DailySetups() {
     return () => { isMounted = false; clearInterval(interval); };
   }, []);
 
-  const handleSort = (key: keyof SetupData) => {
+  const handleSort = (key: string) => {
     let direction: SortDirection = 'desc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
     else if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') { setSortConfig(null); return; }
@@ -399,6 +559,7 @@ export default function DailySetups() {
   const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
   const handleAdrFilter = (val: AdrFilterType) => setAdrFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
+  const handlePlanFilter = (val: PlanFilterType) => setPlanFilter(prev => prev === val ? 'All' : val);
 
   const filteredAndSortedSetups = useMemo(() => {
     let filtered = setups.filter(s => s.changePct >= 4.0 && s.vol >= 500000 && s.mktCap !== null && s.mktCap >= 20000000);
@@ -434,17 +595,28 @@ export default function DailySetups() {
     if (vwapFilter !== 'All') {
       filtered = filtered.filter(s => s.vwapStatus === vwapFilter);
     }
+    // Plan filter drops anything without a usable entry. "Clear" is the
+    // strictest read on the board: a definable trigger AND two stop-widths
+    // of air above it.
+    if (planFilter !== 'All') {
+      filtered = filtered.filter(s => {
+        const p = planOf(s);
+        if (!p || p.tradeable !== true || p.collapsed || p.overextended) return false;
+        if (planFilter === 'Clear') return p.clear === true;
+        return p.clear === true || (p.resistanceR != null && p.resistanceR >= 1.0);
+      });
+    }
     if (!sortConfig) return filtered;
     return [...filtered].sort((a, b) => {
-      const aVal = a[sortConfig.key] as any;
-      const bVal = b[sortConfig.key] as any;
+      const aVal = sortConfig.key === 'planR' ? planSortValue(a) : (a as any)[sortConfig.key];
+      const bVal = sortConfig.key === 'planR' ? planSortValue(b) : (b as any)[sortConfig.key];
       if (aVal === null || aVal === undefined) return 1;
       if (bVal === null || bVal === undefined) return -1;
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [setups, sortConfig, showStage2Only, marketCapFilter, cnfFilter, emaFilter, adrFilter, vwapFilter]);
+  }, [setups, sortConfig, showStage2Only, marketCapFilter, cnfFilter, emaFilter, adrFilter, vwapFilter, planFilter]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -466,7 +638,7 @@ export default function DailySetups() {
     setTimeout(() => setCopied(false), 1800);
   };
 
-  const getSortIcon = (columnKey: keyof SetupData) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
+  const getSortIcon = (columnKey: string) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
   const getRvolColor = (rvol: number | null) => {
     if (!rvol) return 'text-slate-500';
@@ -537,8 +709,6 @@ export default function DailySetups() {
   const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
   const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
   const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
-  // DAY/SWING chip — off-white text (text-slate-200) so it reads clearly.
-  const typeChip = "inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border bg-zinc-800/50 text-zinc-400 border-zinc-700/50";
 
   const activeFilterCount =
     (showStage2Only ? 1 : 0) +
@@ -546,7 +716,8 @@ export default function DailySetups() {
     (cnfFilter !== 'All' ? 1 : 0) +
     (emaFilter !== 'All' ? 1 : 0) +
     (adrFilter !== 'All' ? 1 : 0) +
-    (vwapFilter !== 'All' ? 1 : 0);
+    (vwapFilter !== 'All' ? 1 : 0) +
+    (planFilter !== 'All' ? 1 : 0);
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-visible shadow-xl w-full max-w-[1280px] mx-auto">
@@ -616,6 +787,23 @@ export default function DailySetups() {
                   </div>
                 </div>
                 <div className={pillWrap}>
+                  <span className={pillLabel}>PLAN</span>
+                  <div className="flex items-center gap-1">
+                    {PLAN_BUCKETS.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => handlePlanFilter(opt)}
+                        title={opt === 'Clear'
+                          ? 'Only names with a definable trigger and 2R of clear air above it'
+                          : 'Only names with at least one stop-width to the nearest overhead level'}
+                        className={`${pillBtn} ${planFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {opt === '1R' ? '1R+' : 'Clear'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
                   <span className={pillLabel}>MKT CAP</span>
                   <div className="flex items-center gap-1">
                     {['All', 'Small', 'Large'].map((cap) => (
@@ -679,25 +867,25 @@ export default function DailySetups() {
           </div>
 
           <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            {/* min-w 880; column widths copied 1:1 from SIPs v2.8 (FLOAT dropped)
-                so spacing is visually identical to SIPs. Sum 91, slack pools right. */}
-            <table className="w-full min-w-[880px] table-fixed border-collapse">
+            {/* min-w 940 to fit RTR; widths match SIPs v3.0 minus FLOAT. */}
+            <table className="w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%]`} title={colTip('TICKER')} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('CNF')} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
-                  <th className={`${thBase} w-[7%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('RTR')} onClick={() => handleSort('planR')}>RTR{getSortIcon('planR')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('10/21')}>10/21</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[7%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thStage} w-[5%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
                   <th className={`${thSector} w-[7%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
@@ -705,13 +893,12 @@ export default function DailySetups() {
 
               <tbody className="divide-y divide-white/5">
                 {status.includes('Syncing') && setups.length === 0 ? (
-                  <tr><td colSpan={16} className="py-12 text-center border-b border-white/5"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
+                  <tr><td colSpan={17} className="py-12 text-center border-b border-white/5"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
                 ) : filteredAndSortedSetups.length === 0 ? (
-                  <tr><td colSpan={16} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">{setups.length > 0 ? 'No names match the current filters.' : 'No active tracking items currently matching momentum criteria.'}</td></tr>
+                  <tr><td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">{setups.length > 0 ? 'No names match the current filters.' : 'No active tracking items currently matching momentum criteria.'}</td></tr>
                 ) : (
                   filteredAndSortedSetups.map((row, i) => {
                     const isPositive = row.changePct >= 0;
-                    const tt = tradeTypeLabel(row.tradeType);
                     const st = rowStatus(row);
                     const tag = catalystTagOf(row);
                     const headline = headlineOf(row);
@@ -722,11 +909,16 @@ export default function DailySetups() {
                     const rmv = rmvOf(row);
                     const rme = rmeOf(row);
                     const stateRes = stateOf(rmv, rme);
+                    const plan = planOf(row);
                     return (
                       <React.Fragment key={i}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
                           <td className={tdBase}>
-                            <span title={row.name || row.ticker} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
+                            <div className="flex items-center justify-center gap-1.5">
+                              <span title={row.name || row.ticker} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
+                              {row.dotKind === 'blue' && <BlueDot />}
+                              {row.dotKind === 'red' && <RedDot />}
+                            </div>
                           </td>
                           <td className={tdBase}>
                             <span
@@ -734,6 +926,14 @@ export default function DailySetups() {
                               className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border cursor-help ${getScoreBadge(row.conviction)}`}
                             >
                               {row.conviction != null ? row.conviction : '--'}
+                            </span>
+                          </td>
+                          <td className={tdBase}>
+                            <span
+                              title={planTooltip(row)}
+                              className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border cursor-help ${planBadge(row)}`}
+                            >
+                              {planShort(row)}
                             </span>
                           </td>
                           <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
@@ -781,17 +981,40 @@ export default function DailySetups() {
                             <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: DAY/SWING chip | setup + catalyst | RMV/RME,
-                            then STATE left under STAGE, readiness left under SECTOR. */}
+                        {/* Sub-row starts at column 1 so the setup name sits
+                            directly under the ticker. Order down the left edge:
+                            symbol, then what it is. Then the three levels you
+                            would actually place, then the headline, then
+                            RMV/RME. DAY/SWING moved into the plan tooltip. */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td className="w-[7%] text-center align-middle">
-                            {tt && (<span className={typeChip}>{tt}</span>)}
-                          </td>
-                          <td colSpan={13} className="pb-1.5 pt-1 pr-3">
+                          <td colSpan={15} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
-                              <span className="shrink-0 w-[76px] pr-2 text-[#7c8bfa]/90 font-bold text-[9px] tracking-[0.06em] uppercase leading-none truncate">
+                              <span className="shrink-0 w-[64px] px-0.5 text-center text-[#7c8bfa]/90 font-bold text-[9px] tracking-[0.04em] uppercase leading-none truncate">
                                 {bdRev ? <BlueDot /> : (formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—')}
                               </span>
+                              {plan?.tradeable && plan.trigger != null ? (
+                                <span
+                                  title={planTooltip(row)}
+                                  className="shrink-0 flex items-baseline gap-2 pl-2 pr-2.5 cursor-help whitespace-nowrap"
+                                >
+                                  <span className="flex items-baseline gap-1">
+                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">TRIG</span>
+                                    <span className="text-[9px] font-bold tabular-nums text-slate-200">{formatLevel(plan.trigger)}</span>
+                                  </span>
+                                  <span className="flex items-baseline gap-1">
+                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">STOP</span>
+                                    <span className="text-[9px] font-bold tabular-nums text-rose-400/90">{formatLevel(plan.stop)}</span>
+                                  </span>
+                                  <span className="flex items-baseline gap-1">
+                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">TGT</span>
+                                    <span className="text-[9px] font-bold tabular-nums text-emerald-400/90">{formatLevel(plan.target)}</span>
+                                  </span>
+                                </span>
+                              ) : (
+                                <span className="shrink-0 pl-2 pr-2.5 text-[9px] font-semibold text-slate-600 italic whitespace-nowrap">
+                                  {plan?.collapsed ? 'no long plan' : plan?.note === 'trigger already passed' ? 'entry passed' : 'no plan'}
+                                </span>
+                              )}
                               <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={headline || undefined}>
                                 {headline || tag ? (
                                   <>
