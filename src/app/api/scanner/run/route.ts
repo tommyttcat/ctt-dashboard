@@ -1,46 +1,47 @@
-// src/app/api/scanner/run/route.ts — v6.16
-// v6.1: + RMV(15); thesis is news-headline-only (stats moved to t.readout)
-// v6.2: RMV/RME imported from lib/indicators; RME(21) replaces the binary
-//       `extended` penalty in CNF; + cnfBreakdown for the badge tooltip
-// v6.3: Weinstein sub-stages (2A/2B/2C etc) via lib/indicators/stage
-// v6.4: + Money Flow (21) — accumulation vs distribution
-// v6.5: + daysToCover (short interest / avg volume) — replaces SHT%
-// v6.6: thresholds moved to lib/scanConfig and shipped in the payload
-// v6.7: GET is a thin wrapper; ?bg=true runs the scan in the background
-// v6.8: macro_insights_v6 gated on freshness; WIIM batch 50 -> 15; Polygon
-//       news limit 10 -> 50; earnings calendar promoted to a catalyst source
-// v6.9: deterministic macro briefing (buildMacroBriefing)
-// v6.10: + distToEma10 on every enriched row
-// v6.11: spam filter rebuilt as regex; structural CNF ceiling; detectPattern
-//        returns stageNum; currentDate via etDateString
+// src/app/api/scanner/run/route.ts — v6.17
+// v6.1–v6.10: RMV/RME/stage/money-flow/daysToCover indicators; scanConfig
+//   thresholds; background scan mode; deterministic macro briefing;
+//   distToEma10 on every row
+// v6.11: spam filter rebuilt as regex; structural CNF ceiling on Stage 4 /
+//   dead cross / deep drawdown; detectPattern returns stageNum
 // v6.12: + blue/red dots; red-dot CNF ceiling with bear-instrument exemption
 // v6.13: + reversal pattern for names repairing from BELOW the 21 EMA
 // v6.14: reversal collapsed to one name; 10 EMA reclaim carried as a CNF
-//        component rather than a second label
+//   component rather than a second label
 // v6.15: + raw EMA levels and a trade plan on every row
-// v6.16: two fixes to the plan, both found by reading the first live payload.
+// v6.16: changePct passed to the planner; runway component graded rather
+//   than binary; collapsed charts capped at 44
+// v6.17: + ABSOLUTE EXTENSION CEILING.
 //
-//        (a) changePct is now PASSED to computeTradePlan. Without it the
-//            planner could not tell a name that gapped up 20% from one that
-//            collapsed 50%, and it happily produced long plans for names in
-//            freefall — NBIZ at −53% and IREZ at −54% both came back with
-//            "2R clear of overhead" and collected the runway bonus, scoring
-//            88-A and 83-A. They were the two worst charts on the board.
+//   PN closed 198% above its 21 EMA and graded 84-A. DFNS closed 262% above
+//   and graded 66-B. Fixing the runway bonus in tradeplan v1.4 took roughly
+//   eight points off each, which was not the real problem.
 //
-//        (b) THE RUNWAY COMPONENT IS NOW GRADED. It was ±6 on a binary
-//            `clear` flag, and on the first live run it returned −6 for
-//            roughly nine rows in ten — every semi had its 21 EMA directly
-//            overhead because they all broke down together. A component
-//            that reads the same on 90% of rows is not scoring anything, it
-//            is subtracting a constant.
+//   The real problem is that RME is a PERCENTILE. It answers "how extended
+//   is this name relative to its own history" and saturates at 100, so
+//   rmeScoreAdjustment bottoms out at -12 for MA at 7% above its anchor,
+//   MSFT at 14%, CMCO at 35%, and PN at 198%. All four look identical to the
+//   score. A relative measure cannot distinguish a normal post-earnings gap
+//   from a vertical move, because both are at the top of their own range.
 //
-//            Graded by how far the nearest level actually sits, so MU with
-//            resistance at 0.18R is now separated from SOXL at 0.94R rather
-//            than both landing on −6.
+//   So this adds an ABSOLUTE ceiling on top of the relative penalty, keyed to
+//   ATRs above the 21 EMA — the same basis the scanner already uses for its
+//   `extended` flag and the same one tradeplan v1.4 uses for `overextended`.
+//   Three thresholds, one rule: the further past your anchor you are, the
+//   lower the grade you can reach, no matter how good the tape looks.
 //
-//        Note the two interact: a collapsed chart returns clear:false from
-//        v1.1 of the planner, so it can no longer earn the bonus even
-//        before the grading applies.
+//     > 3 ATRs above the 21  -> cap 69 (B max)
+//     > 6 ATRs above the 21  -> cap 49 (C max)
+//
+//   This deliberately catches MSFT too. MSFT gapped 12% on earnings, sits 4
+//   ATRs above its anchor, and the scanner already flags it `extended: true`
+//   — it is a superb move and an un-enterable one, and an A grade on it is
+//   the dashboard telling you to chase. Capping at B is the honest read.
+//
+//   Consistent with the three ceilings already here: structural (Stage 4 /
+//   dead cross / deep drawdown), red dot, and collapse. All four answer the
+//   same question — is there any tape reading good enough to make this
+//   tradeable — and all four answer no.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -270,6 +271,22 @@ const isReversalSetupName = (setupName: string | null | undefined): boolean =>
 const isBreakoutSetupName = (setupName: string | null | undefined): boolean =>
   /gap & go|r2g|sqz fired|episodic|glb/.test((setupName || '').toLowerCase());
 
+// --- Absolute extension thresholds (v6.17) ---------------------------------
+// In ATRs above the 21 EMA. EXT_HARD reuses the same 3x the scanner's own
+// `extended` flag and tradeplan's `overextended` use — one number, one
+// meaning, three consumers.
+const EXT_HARD_ATRS = 3;
+const EXT_PARABOLIC_ATRS = 6;
+// Fallbacks in raw percent when ATR is unavailable.
+const EXT_HARD_PCT_NO_ATR = 25;
+const EXT_PARABOLIC_PCT_NO_ATR = 60;
+
+const atrsAboveAnchor = (distToEma21: number | null, atrPct: number | null): number | null => {
+  if (distToEma21 == null || distToEma21 <= 0) return null;
+  if (atrPct != null && atrPct > 0) return distToEma21 / atrPct;
+  return null;
+};
+
 const computeCnfScore = (
   rvol: number | null,
   gapPct: number | null,
@@ -297,6 +314,8 @@ const computeCnfScore = (
     planResistanceR: number | null;
     planClear: boolean;
     planCollapsed: boolean;
+    distToEma21: number | null;
+    atrPct: number | null;
   }
 ): { score: number; grade: string; breakdown: Record<string, number>; ceiling: number; ceilingReason: string | null } => {
   const b: Record<string, number> = {};
@@ -344,6 +363,9 @@ const computeCnfScore = (
   else if (q.scanStreak >= 3) b.persistence = 8;
   else if (q.scanStreak === 2) b.persistence = 4;
 
+  // RME is a PERCENTILE and saturates. It cannot tell 7% above the anchor
+  // from 198% above — both read 100. The absolute ceiling below is what
+  // separates them.
   b.extension = rmeScoreAdjustment(q.rme, isReversalSetupName(q.setupName));
 
   b.vwap = q.vwapStatus === 'below' ? -(q.tradeType === 'Day Trade' ? 12 : 4) : 0;
@@ -366,27 +388,10 @@ const computeCnfScore = (
   b.reclaim = 0;
   if (q.setupName === 'Reversal' && q.aboveEma10 === true) b.reclaim = 8;
 
-  // --- Runway, GRADED (v6.16) ---------------------------------------------
-  // v6.15 made this ±6 on a binary `clear` flag and it came back −6 on
-  // roughly nine rows in ten. Every semiconductor name had its 21 EMA
-  // directly overhead — they all broke down together — so the component
-  // separated nothing and simply moved the whole board down six points.
-  //
-  // Graded on the actual distance to the nearest level, so 0.18R (MU, the
-  // 50 EMA basically on top of the trigger) is distinguished from 0.94R
-  // (SOXL, most of a stop-width of air). Both were −6 before.
-  //
-  // The bands:
-  //   clear (>= 2R)   +8   nothing between here and the target
-  //   1.0 – 2.0R      -2   target needs a level to break, but there is room
-  //   0.5 – 1.0R      -6   the level is close enough to cap most of the move
-  //   < 0.5R         -10   trigger and resistance are effectively the same
-  //   collapsed      -10   price has fallen off its own averages
-  //
-  // A name with no plan at all scores 0 rather than a penalty — the absence
-  // of a computable entry is already reflected in `status` never reaching
-  // Ready, and double-counting it here would punish short-history rows for
-  // a data gap.
+  // Runway, graded on distance to the nearest overhead level. A tradeable
+  // plan with no resistance reading scores 0 rather than a penalty — that is
+  // the overextended case from tradeplan v1.4, and the ceiling below handles
+  // it properly.
   b.runway = 0;
   if (q.planCollapsed) {
     b.runway = -10;
@@ -400,6 +405,7 @@ const computeCnfScore = (
 
   const raw = Object.values(b).reduce((s, v) => s + v, 0);
 
+  // --- CEILING 1: structural ----------------------------------------------
   let structuralCeiling = 100;
   let structuralReason: string | null = null;
   const deepDrawdown = q.pctOffHigh != null && q.pctOffHigh <= -50;
@@ -420,6 +426,7 @@ const computeCnfScore = (
     }
   }
 
+  // --- CEILING 2: red dot -------------------------------------------------
   let dotCeiling = 100;
   let dotReason: string | null = null;
   if (q.dotKind === 'red' && !q.isBearInstrument) {
@@ -429,8 +436,7 @@ const computeCnfScore = (
     else { dotCeiling = 59; dotReason = `red dot ${since} bars ago`; }
   }
 
-  // A collapsed chart caps at C outright. NBIZ scored 88-A on the first live
-  // run purely because a 53% decline left nothing overhead within 2R.
+  // --- CEILING 3: collapse ------------------------------------------------
   let collapseCeiling = 100;
   let collapseReason: string | null = null;
   if (q.planCollapsed) {
@@ -438,11 +444,44 @@ const computeCnfScore = (
     collapseReason = 'price collapsed away from its own averages';
   }
 
-  const ceiling = Math.min(structuralCeiling, dotCeiling, collapseCeiling);
+  // --- CEILING 4: absolute extension (v6.17) ------------------------------
+  // The one RME could not express. PN at 198% above its 21 EMA and MA at 7%
+  // both scored extension -12 because the percentile saturates; this is the
+  // measure that separates them.
+  //
+  // No bear-instrument exemption here, unlike the red-dot ceiling. An inverse
+  // ETF 20 ATRs above its own anchor is exactly as un-enterable as a long
+  // one — the direction of the underlying does not make a vertical move
+  // buyable.
+  let extCeiling = 100;
+  let extReason: string | null = null;
+  const atrsAbove = atrsAboveAnchor(q.distToEma21, q.atrPct);
+
+  if (atrsAbove != null) {
+    if (atrsAbove > EXT_PARABOLIC_ATRS) {
+      extCeiling = 49;
+      extReason = `${atrsAbove.toFixed(1)} ATRs above the 21 EMA — parabolic`;
+    } else if (atrsAbove > EXT_HARD_ATRS) {
+      extCeiling = 69;
+      extReason = `${atrsAbove.toFixed(1)} ATRs above the 21 EMA — extended`;
+    }
+  } else if (q.distToEma21 != null && q.distToEma21 > 0) {
+    // No ATR to normalise against. Fall back to raw percent, bluntly.
+    if (q.distToEma21 > EXT_PARABOLIC_PCT_NO_ATR) {
+      extCeiling = 49;
+      extReason = `${q.distToEma21.toFixed(0)}% above the 21 EMA — parabolic`;
+    } else if (q.distToEma21 > EXT_HARD_PCT_NO_ATR) {
+      extCeiling = 69;
+      extReason = `${q.distToEma21.toFixed(0)}% above the 21 EMA — extended`;
+    }
+  }
+
+  const ceiling = Math.min(structuralCeiling, dotCeiling, collapseCeiling, extCeiling);
   const ceilingReason =
     ceiling === 100 ? null :
     ceiling === collapseCeiling && collapseReason ? collapseReason :
     ceiling === dotCeiling && dotReason ? dotReason :
+    ceiling === extCeiling && extReason ? extReason :
     structuralReason;
 
   const score = Math.max(0, Math.min(ceiling, Math.round(raw)));
@@ -474,16 +513,19 @@ const buildReadout = (t: any): string | null => {
   if (t.atrPct != null) parts.push(`ATR ${t.atrPct.toFixed(1)}%`);
   if (t.adrPct != null) parts.push(`ADR ${t.adrPct.toFixed(1)}%`);
   if (t.goldenCross != null) parts.push(t.goldenCross ? '50>200 intact' : '50<200');
+
   if (t.plan?.tradeable) {
     const bits: string[] = [];
     if (t.plan.trigger != null) bits.push(`trigger ${t.plan.trigger.toFixed(2)} (${t.plan.triggerLabel})`);
     if (t.plan.stopPct != null) bits.push(`stop −${t.plan.stopPct.toFixed(1)}%`);
-    if (t.plan.clear) bits.push('2R clear');
+    if (t.plan.overextended) bits.push('extended — no usable runway read');
+    else if (t.plan.clear) bits.push('2R clear');
     else if (t.plan.resistanceR != null) bits.push(`${t.plan.resistanceLabel} at ${t.plan.resistanceR.toFixed(1)}R`);
     if (bits.length) parts.push(bits.join(', '));
   } else if (t.plan?.collapsed) {
     parts.push('no long plan — price has collapsed');
   }
+
   if (parts.length === 0) return null;
   return parts.join(', ') + '.';
 };
@@ -1319,9 +1361,6 @@ async function runScan(request: Request) {
       const setupMatched = detectPattern(dailyBars, price, currentOpen, vwap, rvol, dot.kind, stochK);
       const companyName = details?.results?.name || sym;
 
-      // v6.16: changePct is now passed. Without it the planner produced long
-      // plans for names down 50% and reported "2R clear of overhead" — true,
-      // because every level was far above, and exactly backwards.
       const plan = computeTradePlan({
         price,
         adrPct,
@@ -1402,9 +1441,10 @@ async function runScan(request: Request) {
           resistanceLabel: plan.resistanceLabel,
           clear: plan.clear,
           collapsed: plan.collapsed,
+          overextended: plan.overextended,
           tradeable: true,
           note: plan.note,
-        } : { tradeable: false, collapsed: plan.collapsed, note: plan.note, family: plan.family },
+        } : { tradeable: false, collapsed: plan.collapsed, overextended: plan.overextended, note: plan.note, family: plan.family },
         distToEma10: distToEma10 != null ? parseFloat(distToEma10.toFixed(2)) : null,
         distToEma21: distToEma21 != null ? parseFloat(distToEma21.toFixed(2)) : null,
         ema21Rising,
@@ -1504,13 +1544,14 @@ async function runScan(request: Request) {
       newStreaks[t.ticker] = t.scanStreak;
 
       t.extended = (t.moveVsAtr != null && t.moveVsAtr >= 3.5) ||
-        (t.distToEma21 != null && t.atrPct != null && t.atrPct > 0 && t.distToEma21 > 3 * t.atrPct);
+        (t.distToEma21 != null && t.atrPct != null && t.atrPct > 0 && t.distToEma21 > EXT_HARD_ATRS * t.atrPct);
 
       t.status = (t.stochK != null && t.stochK <= 25 && t.distToEma21 != null && Math.abs(t.distToEma21) <= 2.5)
         ? 'Ready' : 'Forming';
       if (t.tradeType === 'Day Trade' && t.vwapStatus === 'below') t.status = 'Forming';
       if (t.dotKind === 'red' && !isBearishInstrument(t.name)) t.status = 'Forming';
       if (!t.plan?.tradeable) t.status = 'Forming';
+      if (t.plan?.overextended) t.status = 'Forming';
     });
 
     const sectorHeatAgg: Record<string, { sum: number; count: number }> = {};
@@ -1557,6 +1598,8 @@ async function runScan(request: Request) {
           planResistanceR: t.plan?.resistanceR ?? null,
           planClear: t.plan?.clear === true,
           planCollapsed: t.plan?.collapsed === true,
+          distToEma21: t.distToEma21 ?? null,
+          atrPct: t.atrPct ?? null,
         }
       );
       t.cnfScore = cnf.score;
@@ -1698,9 +1741,6 @@ async function runScan(request: Request) {
       macroInsights = await readFreshMacroInsights();
     }
 
-    // Plan-distribution diagnostics. If `runwayNear` dominates the way it did
-    // on the v6.15 run, the grading has not helped and the component needs a
-    // different basis than distance-to-nearest-level.
     const rBucket = (t: any, lo: number, hi: number) =>
       t.plan?.tradeable && !t.plan.clear && t.plan.resistanceR != null &&
       t.plan.resistanceR >= lo && t.plan.resistanceR < hi;
@@ -1731,6 +1771,8 @@ async function runScan(request: Request) {
         unnamed: enrichedList.filter((t: any) => !t.setupName).length,
         planned: enrichedList.filter((t: any) => t.plan?.tradeable).length,
         collapsed: enrichedList.filter((t: any) => t.plan?.collapsed).length,
+        overextended: enrichedList.filter((t: any) => t.plan?.overextended).length,
+        extCapped: enrichedList.filter((t: any) => t.cnfCeilingReason?.includes('above the 21 EMA')).length,
         triggerPassed: enrichedList.filter((t: any) => t.plan?.note === 'trigger already passed').length,
         runwayClear: enrichedList.filter((t: any) => t.plan?.tradeable && t.plan.clear).length,
         runwayMid: enrichedList.filter((t: any) => rBucket(t, 1.0, 2.0)).length,
