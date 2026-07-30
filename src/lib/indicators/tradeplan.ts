@@ -1,4 +1,4 @@
-// src/lib/indicators/tradeplan.ts — v1.3
+// src/lib/indicators/tradeplan.ts — v1.4
 //
 // Trigger / stop / target / R-multiple, computed from fields the scanner
 // already emits. No pivot extraction, no trendline fitting.
@@ -27,42 +27,56 @@
 // 88-A and 83-A. The logic found no level within 2R and called it open air.
 // On a collapsed chart nothing IS within 2R — every average is far above.
 //
-// Fixed with a band: clear runway requires the nearest level to sit beyond
-// the 2R target but within MAX_HEALTHY_RESISTANCE_R.
-//
 // ---------------------------------------------------------------------------
 // v1.2 — NULL DEREFERENCE INTRODUCED BY v1.1
 //
 // v1.1 created a state v1.0 could not reach: clear === false WITH
-// resistanceR === null, on short-history rows where no EMA resolves. Three
-// call sites did `resistanceR!.toFixed(1)`, the assertion did nothing at
-// runtime, and the whole scan route died. All formatting now goes through
-// fx() and the non-null assertion operator is gone from this file.
+// resistanceR === null. Three call sites did `resistanceR!.toFixed(1)`, the
+// assertion did nothing at runtime, and the whole scan route died. All
+// formatting now goes through fx(); the non-null assertion operator is gone.
 //
 // ---------------------------------------------------------------------------
 // v1.3 — THE COLLAPSE CEILING FIRED ON A HEALTHY NAME
 //
-// v1.2 shipped and AVGO came back `collapsed: true`, capped at 44-C, scoring
-// 22. AVGO was up 4.2%, sitting ABOVE its 10, 21 and 50 EMAs, tagged Trend
-// Hold. Nothing about it was collapsed.
+// AVGO came back collapsed and capped at 44-C while up 4.2% and sitting
+// above its 10, 21 and 50 EMAs. Its only overhead was a prior high 6R up,
+// which tripped the 4R ceiling. Collapse now also requires price to be under
+// the 21 EMA — below it, distant resistance means price fell away from its
+// averages; above it, price cleared them and the distance is runway.
 //
-// The cause: its only overhead level was the prior swing high at 495, which
-// sat 6.03R above the trigger. Past the 4R ceiling, so the code called it a
-// broken chart.
+// ---------------------------------------------------------------------------
+// v1.4 — THE SAME BUG, MIRRORED: PARABOLIC NAMES SCORED AS CLEAR RUNWAY
 //
-// The ceiling was written to catch one specific shape — price has fallen so
-// far that its own moving averages are miles overhead — and it cannot
-// distinguish that from the opposite shape, where price has CLEARED all its
-// averages and the next resistance is simply a long way up. Both produce
-// "nearest overhead is very far above the trigger."
+// v1.3 fixed the healthy-name false positive and immediately exposed its
+// opposite. PN closed 198% above its 21 EMA and scored 84-A. DFNS closed
+// 262% above and scored 66-B. Both collected the full runway bonus on the
+// note "no overhead level — price is above every average."
 //
-// The discriminator is position relative to the 21 EMA. A name trading above
-// its 21 has not fallen away from its averages; it is above them. Distant
-// resistance on such a name is runway, which is what the +8 exists for.
+// Which is true, and useless. There is no resistance overhead because the
+// stock has gone vertical and left every reference behind. The measurement
+// that means "clear path to the target" on a normal chart means "nothing
+// left to mark the way down" on a parabolic one.
 //
-// So collapse now requires BOTH a far-off nearest level AND price under the
-// 21 EMA. AVGO returns to clear/+8; NBIZ, IREZ and the rest are unaffected
-// because they are all far below their 21s.
+// This is structurally identical to the v1.3 bug — one geometric fact,
+// "nearest overhead is far away or absent," carrying opposite meaning
+// depending on context. v1.3 keyed on being under the 21. v1.4 keys on being
+// absurdly far ABOVE it.
+//
+// The threshold reuses the scanner's own extension rule: more than three
+// ATRs above the 21 EMA. That is already the line at which the scanner says
+// a stop cannot be sensibly placed, so it is the same judgment applied to
+// the same question rather than a new number invented for this file.
+//
+// An overextended name returns clear:false with resistanceR untouched. In
+// the route that lands on `planResistanceR == null -> runway 0` — no bonus,
+// no penalty. Neutral is right: the runway is genuinely unknown, and the
+// extension component already scores the extension itself.
+//
+// NOTE ON WHAT THIS DOES NOT FIX: PN will still grade near 76-A after this
+// change. The remaining points come from RVOL 30 + gap 20 + range expansion
+// 20 against an extension penalty that bottoms out at -12. A name 198% above
+// its anchor arguably should not clear 70 on any input, but that is the
+// extension cap's problem, not the runway term's.
 // ---------------------------------------------------------------------------
 
 export type SetupFamily = 'reversal' | 'coil' | 'first-touch' | 'breakout' | 'generic';
@@ -95,6 +109,9 @@ export interface TradePlan {
   resistanceLabel: string | null;
   clear: boolean;
   collapsed: boolean;
+  // v1.4: price is so far above its 21 EMA that the absence of overhead
+  // resistance is altitude, not runway.
+  overextended: boolean;
   tradeable: boolean;
   note: string;
 }
@@ -109,6 +126,13 @@ const MAX_HEALTHY_RESISTANCE_R = 4;
 
 // A name down more than this today is not a long setup regardless of levels.
 const COLLAPSE_CHANGE_PCT = -15;
+
+// Extension ceiling, in ATRs above the 21 EMA. Same rule the scanner uses
+// for its own `extended` flag — reused deliberately rather than reinvented.
+const MAX_ATRS_ABOVE_21 = 3;
+// Fallback when ATR is missing. Blunt, but a name 25% above its 21 EMA is
+// extended on any reasonable reading.
+const MAX_PCT_ABOVE_21_NO_ATR = 25;
 
 const num = (v: any): number | null => {
   if (v == null || isNaN(Number(v))) return null;
@@ -140,7 +164,8 @@ export function computeTradePlan(i: TradePlanInput): TradePlan {
     stop: null, stopPct: null, target: null,
     rMultiple: TARGET_R,
     resistanceR: null, resistanceLabel: null,
-    clear: false, collapsed: false, tradeable: false, note,
+    clear: false, collapsed: false, overextended: false,
+    tradeable: false, note,
   });
 
   const price = num(i.price);
@@ -155,16 +180,28 @@ export function computeTradePlan(i: TradePlanInput): TradePlan {
   const rangeHigh = num(i.rangeHigh);
   const priorSwingHigh = num(i.priorSwingHigh);
   const changePct = num(i.changePct);
+  const atrPct = num(i.atrPct);
 
-  // Position relative to the 21 EMA. Prefer the caller's boolean, fall back
-  // to comparing price against the level. Null when neither resolves — and
-  // null must NOT be treated as "below", or short-history rows would start
-  // getting flagged as collapsed for missing data.
+  // --- POSITION RELATIVE TO THE 21 EMA ------------------------------------
+  // One computation feeding two opposite tests. Below the 21, distant
+  // resistance means collapse (v1.3). Far above it, distant resistance means
+  // parabolic (v1.4). Between those, it means runway.
+  const extPctFrom21: number | null =
+    ema21 != null && ema21 > 0 ? ((price - ema21) / ema21) * 100 : null;
+
   const isBelow21: boolean | null =
     i.aboveEma21 === true ? false :
     i.aboveEma21 === false ? true :
-    ema21 != null ? price < ema21 :
+    extPctFrom21 != null ? extPctFrom21 < 0 :
     null;
+
+  // Null when we cannot tell — a missing 21 EMA is not evidence of
+  // extension, and treating it as such would penalise short-history rows.
+  const overextended: boolean =
+    extPctFrom21 == null ? false :
+    atrPct != null && atrPct > 0
+      ? extPctFrom21 > MAX_ATRS_ABOVE_21 * atrPct
+      : extPctFrom21 > MAX_PCT_ABOVE_21_NO_ATR;
 
   // --- HARD REJECT: today's collapse -------------------------------------
   // A name down 15%+ on the session has no long plan worth computing. The
@@ -213,30 +250,34 @@ export function computeTradePlan(i: TradePlanInput): TradePlan {
   // "this cannot be null here" reasoning that later stops holding.
   const triggerPrice: number = trigger;
 
-  // A trigger already far below price is not a trigger, it is history. The
-  // entry has passed and chasing it is a different trade.
+  // A trigger already far below price is not a trigger, it is history.
   if (triggerPrice < price * 0.97 && !triggerIsPrice) {
     return {
       ...empty('trigger already passed'),
-      family, trigger: triggerPrice, triggerLabel,
+      family, trigger: triggerPrice, triggerLabel, overextended,
     };
   }
 
   // --- STOP ---------------------------------------------------------------
   const adrPct = num(i.adrPct);
-  const atrPct = num(i.atrPct);
   // ADR preferred. ATR is the fallback only because a row missing ADR is
   // usually a short-history name, and some stop beats none.
   const rangeBasis = adrPct ?? atrPct;
   if (rangeBasis == null || rangeBasis <= 0) {
-    return { ...empty('no ADR/ATR to size a stop'), family, trigger: triggerPrice, triggerLabel };
+    return {
+      ...empty('no ADR/ATR to size a stop'),
+      family, trigger: triggerPrice, triggerLabel, overextended,
+    };
   }
 
   const stopPct = Math.max(rangeBasis * STOP_ADR_MULT, STOP_PCT_FLOOR);
   const stop = triggerPrice * (1 - stopPct / 100);
   const riskPerShare = triggerPrice - stop;
   if (riskPerShare <= 0) {
-    return { ...empty('stop resolved above trigger'), family, trigger: triggerPrice, triggerLabel };
+    return {
+      ...empty('stop resolved above trigger'),
+      family, trigger: triggerPrice, triggerLabel, overextended,
+    };
   }
 
   const target = triggerPrice + riskPerShare * TARGET_R;
@@ -259,35 +300,28 @@ export function computeTradePlan(i: TradePlanInput): TradePlan {
     nearest ? (nearest.level - triggerPrice) / riskPerShare : null;
   const resistanceLabel: string | null = nearest ? nearest.label : null;
 
-  // --- CLEAR vs COLLAPSED -------------------------------------------------
-  // Clear runway means the nearest level is far enough away that 2R is
-  // reachable AND the chart is still intact.
-  //
-  // TWO distinct states produce resistanceR === null:
-  //   - levels existed, price is above all of them  -> blue sky, clear
-  //   - no levels resolved at all (short history)   -> unknown, NOT clear
-  //
-  // And v1.3's distinction: a far-off nearest level means opposite things
-  // depending on which side of the 21 EMA price sits. Below it, price has
-  // fallen away from its averages. Above it, price has cleared them and the
-  // distance is runway. AVGO was the case that proved this — above all three
-  // EMAs with its prior high 6R up, and v1.2 called it broken.
+  // --- CLEAR vs COLLAPSED vs OVEREXTENDED ---------------------------------
+  // Three ways to read the same geometry, ordered by which claim is
+  // strongest. Overextension is checked FIRST because it can coexist with
+  // "no overhead at all" — PN had no level above it precisely because it had
+  // run 198% past its anchor, and the old ordering paid that a bonus.
   const hadAnyLevel = ema10 != null || ema21 != null || ema50 != null;
 
   let clear: boolean;
   let collapsed = false;
 
-  if (resistanceR == null) {
+  if (overextended) {
+    // Nothing overhead, but only because price left every reference behind.
+    // Not clear, not collapsed — unknown, which scores as neutral upstream.
+    clear = false;
+    collapsed = false;
+  } else if (resistanceR == null) {
     clear = hadAnyLevel;
     collapsed = false;
   } else if (resistanceR > MAX_HEALTHY_RESISTANCE_R && isBelow21 === true) {
-    // The genuine collapse shape: levels exist, the nearest is absurdly far
-    // above, AND price is under its 21. Price has fallen off its averages.
     clear = false;
     collapsed = true;
   } else if (resistanceR > MAX_HEALTHY_RESISTANCE_R) {
-    // Same geometry, opposite meaning — price is at or above the 21 and the
-    // next level is a long way up. That is runway, not damage.
     clear = true;
     collapsed = false;
   } else {
@@ -301,6 +335,8 @@ export function computeTradePlan(i: TradePlanInput): TradePlan {
   let note: string;
   if (triggerIsPrice) {
     note = 'no level resolved — trigger is last price';
+  } else if (overextended) {
+    note = `${fx(extPctFrom21, 0)}% above the 21 EMA — nothing overhead because price has left its averages behind, not because the path is clear`;
   } else if (collapsed && resistanceR != null) {
     note = `nearest level (${resistanceLabel}) is ${fx(resistanceR, 1)}R away and price is under its 21 EMA — fallen off its own averages, not clear runway`;
   } else if (resistanceR == null) {
@@ -327,6 +363,7 @@ export function computeTradePlan(i: TradePlanInput): TradePlan {
     resistanceLabel,
     clear,
     collapsed,
+    overextended,
     tradeable: true,
     note,
   };
@@ -336,6 +373,7 @@ export function computeTradePlan(i: TradePlanInput): TradePlan {
 export const tradePlanShort = (p: TradePlan): string => {
   if (!p.tradeable) return p.collapsed ? 'collapsed' : '—';
   if (p.collapsed) return 'broken';
+  if (p.overextended) return 'extended';
   if (p.clear) return `${fx(p.rMultiple, 1)}R clear`;
   if (p.resistanceR == null) return '—';
   return `${fx(p.resistanceR, 1)}R`;
@@ -359,5 +397,6 @@ export const tradePlanTooltip = (p: TradePlan): string => {
   lines.push('');
   lines.push('Stop is the wider of 1.25x ADR or 2.5%. Target is fixed 2R.');
   lines.push(`Resistance beyond ${MAX_HEALTHY_RESISTANCE_R}R reads as a broken chart only when price is under its 21 EMA.`);
+  lines.push(`More than ${MAX_ATRS_ABOVE_21} ATRs above the 21 EMA reads as extended — absent resistance is altitude, not runway.`);
   return lines.join('\n');
 };
