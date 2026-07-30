@@ -1,35 +1,28 @@
 'use client';
 
-// StocksInPlay — v2.9
+// StocksInPlay — v3.0
 // v2.6: FILTERS bleed-through fixed (header z-30); min-w 960 → 880
 // v2.7: 1% shifted STAGE 4→5 / SECTOR 8→7 — didn't help, SECTOR was still
 //       right-aligned so its text kept sliding to the card edge.
 // v2.8: SECTOR switched right-aligned → LEFT-aligned. That was the whole
 //       problem: pinned text-right, SECTOR hugged the card edge no matter its
-//       width, reopening the gap to STAGE every time. Left-aligned, it starts
-//       right after STAGE and the two sit adjacent.
-// v2.9: + R COLUMN and the trade plan on the sub-row.
+//       width, reopening the gap to STAGE every time.
+// v2.9: + R column and the trade plan on the sub-row. The scanner had been
+//       emitting trigger / stop / 2R target / distance-to-resistance on every
+//       row and nothing displayed it.
+// v3.0: two corrections from first look at the live table.
 //
-//       The scanner has been emitting a full plan per row — trigger, stop,
-//       2R target, and distance to the nearest overhead level — and nothing
-//       displayed it. Every other column answers "how good is this name."
-//       None answered "where do I get in, where am I wrong, and what does it
-//       pay." That gap is why a name could show a B grade while its nearest
-//       sane stop sat 11% away with the 21 EMA directly overhead.
+//       STOP shows the PRICE, not the percentage. A stop is an order you
+//       place, and −8.6% is not something you can type into a broker. The
+//       percentage was the wrong half of the pair to surface: it describes
+//       the risk, but the price is the instruction. Percentage stays in the
+//       hover, where sizing math wants it.
 //
-//       Split across two places on purpose:
-//
-//       R goes in the MAIN table because it is the number you sort on. "Show
-//       me setups with two stop-widths of clear air" is a real question and
-//       it needs a sortable column.
-//
-//       TRIGGER and STOP go on the SUB-ROW because they are reference values
-//       — you read them once, after the name has already earned attention.
-//       Putting price levels in the main grid would cost width that VOL and
-//       $VOL are using for something you scan constantly.
-//
-//       Widths rebalanced to fit: PRICE, $VOL, ADR, STOCH and MCAP each give
-//       up 1% for the new 5% R column. min-w 880 → 940.
+//       SETUP NAME moved under TICKER. The sub-row previously opened with an
+//       empty cell spanning the ticker column, which pushed "REVERSAL" under
+//       CNF and R — so the label naming the setup sat under two numbers that
+//       score it. Reading down the ticker column now gives symbol then setup,
+//       which is the order they mean anything in.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -40,13 +33,13 @@ import { SCANNER_SIP_META, COLUMN_NOTES } from '@/lib/scanConfig';
 import MetricsKey from './MetricsKey';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
-  TICKER: { what: 'Symbol. Hover shows the company name.' },
+  TICKER: { what: 'Symbol. Hover shows the company name. The setup name sits directly beneath it.' },
   CNF: {
     what: 'Confluence score 0–100 — how many independent factors line up: RVOL, gap, range expansion, RS, catalyst quality, persistence, VWAP, regime, sector heat, dots, runway. Hover the badge for the per-row breakdown and any grade ceiling.',
     colour: 'Green 70+ (A) · amber 50+ (B) · grey below (C).',
   },
   R: {
-    what: 'Reward-to-risk. How far the nearest overhead level sits above the trigger, measured in stop-widths. 2R+ means the target is reachable before anything blocks it. Trigger and stop are on the sub-row; hover this badge for the full plan.',
+    what: 'Reward-to-risk. How far the nearest overhead level sits above the trigger, measured in stop-widths. 2R+ means the target is reachable before anything blocks it. Trigger and stop prices are on the sub-row; hover this badge for the full plan.',
     colour: 'Green 2R+ (clear) · slate 1R+ · amber 0.5R+ · red under 0.5R · EXT extended · ✕ no plan.',
   },
   PRICE: {
@@ -215,6 +208,16 @@ const formatCurrency = (num: number | null) => {
   return '$' + num.toLocaleString();
 };
 
+// Price levels drop the cents on anything three digits or more — at $886 the
+// pennies are noise, at $4.18 they are the whole trade.
+const formatLevel = (v: number | null | undefined): string => {
+  if (v == null || isNaN(Number(v))) return '—';
+  const n = Number(v);
+  if (n >= 100) return n.toFixed(0);
+  if (n >= 10) return n.toFixed(1);
+  return n.toFixed(2);
+};
+
 const formatRs = (rs: number | null | undefined): string => {
   if (rs == null || isNaN(Number(rs))) return '—';
   const v = Number(rs);
@@ -330,9 +333,9 @@ const rmeLabel = (rme: number | null): string => {
    recalculated here, so the table cannot disagree with the score.
 
    SORT VALUE is the piece that needs care. A name with no plan must sort to
-   the bottom rather than to the top, and `clear` rows have no resistanceR at
-   all when price is above every average — those are the BEST rows, so they
-   need a high sentinel rather than a null.                                */
+   the bottom rather than the top, and `clear` rows have no resistanceR at all
+   when price is above every average — those are the BEST rows, so they need
+   a high sentinel rather than a null.                                     */
 const planOf = (row: StockInPlay): TradePlanRow | null => {
   const p = row.plan;
   return p && typeof p === 'object' ? p : null;
@@ -384,6 +387,9 @@ const planTooltip = (row: StockInPlay): string => {
   lines.push(`Trigger  ${p.trigger != null ? p.trigger.toFixed(2) : '—'}  (${p.triggerLabel || '—'})`);
   lines.push(`Stop     ${p.stop != null ? p.stop.toFixed(2) : '—'}  (${p.stopPct != null ? `−${p.stopPct.toFixed(1)}%` : '—'})`);
   lines.push(`Target   ${p.target != null ? p.target.toFixed(2) : '—'}  (2R)`);
+  if (p.trigger != null && p.stop != null) {
+    lines.push(`Risk     ${(p.trigger - p.stop).toFixed(2)} per share`);
+  }
   lines.push('');
   if (p.resistanceR != null) {
     lines.push(`Nearest overhead: ${p.resistanceLabel || 'level'} at ${p.resistanceR.toFixed(1)}R`);
@@ -965,36 +971,37 @@ export default function StocksInPlay() {
                             <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: setup name, then the actual price levels, then
-                            the headline, then RMV/RME. Trigger and stop sit here
-                            rather than in the grid because they are read once
-                            after a name has earned attention — unlike R, which is
-                            scanned across every row. */}
+                        {/* Sub-row starts at column 1 so the setup name sits
+                            directly under the ticker rather than under CNF and
+                            R. Order down the left edge: symbol, then what it is.
+                            Then the two levels you would actually place, then
+                            the headline, then RMV/RME. */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td className="w-[7%]"></td>
-                          <td colSpan={15} className="pb-1.5 pt-1 pr-3">
+                          <td colSpan={16} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
-                              <span className="shrink-0 w-[76px] pr-2 text-[#7c8bfa]/90 font-bold text-[9px] tracking-[0.06em] uppercase leading-none truncate">
+                              <span className="shrink-0 w-[64px] px-0.5 text-center text-[#7c8bfa]/90 font-bold text-[9px] tracking-[0.04em] uppercase leading-none truncate">
                                 {bdRev ? <BlueDot /> : (formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—')}
                               </span>
                               {plan?.tradeable && plan.trigger != null ? (
                                 <span
                                   title={planTooltip(row)}
-                                  className="shrink-0 flex items-baseline gap-2 pr-2.5 cursor-help whitespace-nowrap"
+                                  className="shrink-0 flex items-baseline gap-2 pl-2 pr-2.5 cursor-help whitespace-nowrap"
                                 >
                                   <span className="flex items-baseline gap-1">
                                     <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">TRIG</span>
-                                    <span className="text-[9px] font-bold tabular-nums text-slate-300">{plan.trigger.toFixed(2)}</span>
+                                    <span className="text-[9px] font-bold tabular-nums text-slate-200">{formatLevel(plan.trigger)}</span>
                                   </span>
                                   <span className="flex items-baseline gap-1">
                                     <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">STOP</span>
-                                    <span className="text-[9px] font-bold tabular-nums text-rose-400/90">
-                                      {plan.stopPct != null ? `−${plan.stopPct.toFixed(1)}%` : '—'}
-                                    </span>
+                                    <span className="text-[9px] font-bold tabular-nums text-rose-400/90">{formatLevel(plan.stop)}</span>
+                                  </span>
+                                  <span className="flex items-baseline gap-1">
+                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">TGT</span>
+                                    <span className="text-[9px] font-bold tabular-nums text-emerald-400/90">{formatLevel(plan.target)}</span>
                                   </span>
                                 </span>
                               ) : (
-                                <span className="shrink-0 pr-2.5 text-[9px] font-semibold text-slate-600 italic whitespace-nowrap">
+                                <span className="shrink-0 pl-2 pr-2.5 text-[9px] font-semibold text-slate-600 italic whitespace-nowrap">
                                   {plan?.collapsed ? 'no long plan' : plan?.note === 'trigger already passed' ? 'entry passed' : 'no plan'}
                                 </span>
                               )}
