@@ -1,6 +1,6 @@
 'use client';
 
-// Ep9m — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee) — v2.2
+// Ep9m — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee) — v2.3
 //
 // Fewer than ~2% of US listings trade 9M+ shares in a session. When a stock
 // that normally trades 800k suddenly does 12M, institutions are accumulating
@@ -10,14 +10,40 @@
 //
 // v2.0: parity pass — MetricsKey ?, STATE chip, VS60D, GC/21↑ & CLS removed.
 // v2.1: sub-row cluster shifted flush-left under TICKER; cluster group hover.
-// v2.2: full column parity with the other tables — ADDED 10/21 dot column
-//       (after CHG%) and STOCH column; renamed D2C → DTC and RS/SPY → RS;
-//       REMOVED the standalone RMV main column (RMV/RME now live only in the
-//       sub-row STATE pair, like every other table). Standard column order:
-//       TICKER EP PRICE CHG% 10/21 VOL $VOL RVOL TURN ADR MF RS STOCH DTC MCAP
-//       STAGE SECTOR. EP-specifics kept: EP score, TURN, VOL-with-avg subline,
-//       Unprec/Sugar Baby marks, STORY/FLAGS filters, VS60D sub-row stat,
-//       Unprec/Silent status under SECTOR, funnel note.
+// v2.2: full column parity — added 10/21 dots and STOCH; D2C→DTC, RS/SPY→RS;
+//       standalone RMV column removed (RMV/RME live in the sub-row pair).
+// v2.3: RTR column and the trade plan on the sub-row, matching SIPs v3.0,
+//       Daily v2.0, Swing v2.0 and Consolidation v2.8.
+//
+//       THE PLAN MATTERS MORE HERE THAN ANYWHERE ELSE. Every other table
+//       gates on trend: SIPs and Daily need +4% and volume, Swing needs price
+//       above the 50 and 200, Consolidation needs a rising 21. This one gates
+//       on volume alone. A name can print 12M shares while sitting in Stage
+//       4B, 60% off its highs, with every moving average overhead — and it
+//       belongs on this table, because that volume is real information.
+//
+//       What the volume does not tell you is whether there is a trade. The
+//       plan does: `collapsed` on the names that gapped down into the
+//       abnormal volume, `EXT` on the ones that already ran, an R figure on
+//       the rest. Sorting by RTR turns a list of unusual volume into a list
+//       of unusual volume you can actually act on.
+//
+//       COLSPAN BUG FIXED. The v2.2 sub-row spanned 14 + 1 + 1 = 16 cells
+//       against a 17-column header, so the STATE badge rendered under MCAP
+//       instead of STAGE and the Unprec/Silent label under STAGE instead of
+//       SECTOR — every trailing cell one column left of its header. With RTR
+//       the header is 18 and the sub-row is 16 + 1 + 1, which lines up.
+//
+//       THE "EP 9M" SUB-ROW LABEL IS GONE. It named the table on every row
+//       of the table. The levels take that slot instead, same as the setup
+//       name does on SIPs and Daily.
+//
+//       RTR READS "—" UNTIL /api/ep9m/run EMITS A PLAN. This component reads
+//       /api/ep9m/latest, which is a third scan route — separate from both
+//       /api/scanner and /api/swing-candidates. The wiring here is complete;
+//       the route needs the same change the swing route got: keep the raw
+//       ema10/ema21/ema50 values, add dayHigh and priorSwingHigh, then call
+//       computeTradePlan.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -32,6 +58,10 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   EP: {
     what: 'Episodic Pivot score 0–100 — volume abnormality, vs-60-day-high, float turnover, catalyst, close strength, Money Flow, days-to-cover, and repeat-trigger history. Hover the badge for the per-row breakdown.',
     colour: 'Green 70+ (A) · amber 50+ (B) · grey below (C).',
+  },
+  RTR: {
+    what: 'Room to resistance. How far the nearest overhead level sits above the trigger, measured in stop-widths (R = trigger minus stop). This scan has no trend gate, so RTR is the column that separates abnormal volume you can trade from abnormal volume you cannot. Trigger, stop and target prices are on the sub-row.',
+    colour: 'Green 2R+ (clear) · slate 1R+ · amber 0.5R+ · red under 0.5R · EXT extended · ✕ collapsed.',
   },
   PRICE: {
     what: 'Last price. The dot beside it is VWAP position.',
@@ -58,7 +88,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Fuchsia 1.0x+ · purple 0.5x+ · green 0.25x+ · lime 0.1x+.',
   },
   ADR: {
-    what: '20-day average daily range. The anti-chop measure.',
+    what: '20-day average daily range. The anti-chop measure, and the basis for the stop: 1.25× ADR or 2.5%, whichever is wider.',
     colour: 'Purple 10%+ · green 5%+ · grey at the floor.',
   },
   MF: {
@@ -91,11 +121,22 @@ const colTip = (key: string): string | undefined => {
   return n.colour ? `${n.what}\n\n${n.colour}` : n.what;
 };
 
-const STATS_KEY_TOOLTIP = [
-  'SUB-ROW STATS',
-  '',
-  "VS60D — Today's volume as a multiple of this stock's own 60-day volume high. Above 1.0× is unprecedented for this name — the purest expression of the EP9M signal.",
-].join('\n');
+interface TradePlanRow {
+  family?: string;
+  trigger?: number | null;
+  triggerLabel?: string;
+  stop?: number | null;
+  stopPct?: number | null;
+  target?: number | null;
+  rMultiple?: number;
+  resistanceR?: number | null;
+  resistanceLabel?: string | null;
+  clear?: boolean;
+  collapsed?: boolean;
+  overextended?: boolean;
+  tradeable?: boolean;
+  note?: string;
+}
 
 interface Ep9mCandidate {
   ticker: string;
@@ -143,6 +184,7 @@ interface Ep9mCandidate {
   catalystUrl?: string | null;
   thesis?: string | null;
   scoreBreakdown?: Record<string, number>;
+  plan?: TradePlanRow | null;
 }
 
 type SortDirection = 'asc' | 'desc';
@@ -150,11 +192,13 @@ type EpFilterType = 'All' | 'A' | 'B';
 type RvolFilterType = 'All' | '5' | '10';
 type CatalystFilterType = 'All' | 'News' | 'Silent';
 type VwapFilterType = 'All' | 'above' | 'below';
+type PlanFilterType = 'All' | '1R' | 'Clear';
 
 const EP_BUCKETS: EpFilterType[] = ['A', 'B'];
 const EP_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 
 const RVOL_BUCKETS: RvolFilterType[] = ['5', '10'];
+const PLAN_BUCKETS: PlanFilterType[] = ['1R', 'Clear'];
 
 const EP_LABELS: Record<string, string> = {
   rvol: 'Volume abnormality',
@@ -186,6 +230,16 @@ const formatCurrency = (num: number | null | undefined) => {
   if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
   if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
   return '$' + num.toLocaleString();
+};
+
+// Price levels drop the cents on anything three digits or more — at $886 the
+// pennies are noise, at $4.18 they are the whole trade.
+const formatLevel = (v: number | null | undefined): string => {
+  if (v == null || isNaN(Number(v))) return '—';
+  const n = Number(v);
+  if (n >= 100) return n.toFixed(0);
+  if (n >= 10) return n.toFixed(1);
+  return n.toFixed(2);
 };
 
 const formatRs = (rs: number | null | undefined): string => {
@@ -254,6 +308,87 @@ const mfOf = (c: Ep9mCandidate): number | null =>
 const vs60dOf = (c: Ep9mCandidate): number | null =>
   c.volVs60dMax == null || isNaN(Number(c.volVs60dMax)) ? null : Number(c.volVs60dMax);
 
+/* ---- Trade plan ---------------------------------------------------------
+   Reads the `plan` object the scan ships. Nothing is recalculated here, so
+   the table cannot disagree with the score.
+
+   SORT VALUE needs care. A name with no plan must sort to the bottom rather
+   than the top, and `clear` rows have no resistanceR at all when price is
+   above every average — those are the BEST rows, so they need a high
+   sentinel rather than a null.
+
+   NOT YET POPULATED — see the v2.3 header note. Every helper degrades to "—"
+   rather than throwing or inventing a value, so the column is honest about
+   the gap until /api/ep9m/run emits a plan.                               */
+const planOf = (c: Ep9mCandidate): TradePlanRow | null => {
+  const p = c.plan;
+  return p && typeof p === 'object' ? p : null;
+};
+
+const PLAN_SORT_CLEAR = 99;
+const PLAN_SORT_NONE = -1;
+
+const planSortValue = (c: Ep9mCandidate): number => {
+  const p = planOf(c);
+  if (!p || p.tradeable !== true) return PLAN_SORT_NONE;
+  if (p.collapsed) return PLAN_SORT_NONE;
+  if (p.overextended) return PLAN_SORT_NONE;
+  if (p.clear) return p.resistanceR != null ? p.resistanceR : PLAN_SORT_CLEAR;
+  return p.resistanceR != null ? p.resistanceR : PLAN_SORT_NONE;
+};
+
+const planShort = (c: Ep9mCandidate): string => {
+  const p = planOf(c);
+  if (!p) return '—';
+  if (p.collapsed) return '✕';
+  if (p.tradeable !== true) return '—';
+  if (p.overextended) return 'EXT';
+  if (p.clear) return p.resistanceR != null ? `${p.resistanceR.toFixed(1)}R` : '2R+';
+  if (p.resistanceR == null) return '—';
+  return `${p.resistanceR.toFixed(1)}R`;
+};
+
+const planBadge = (c: Ep9mCandidate): string => {
+  const p = planOf(c);
+  if (!p) return 'bg-white/[0.02] text-slate-600 border-white/5';
+  if (p.collapsed) return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+  if (p.tradeable !== true) return 'bg-white/[0.02] text-slate-600 border-white/5';
+  if (p.overextended) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+  if (p.clear) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+  const r = p.resistanceR;
+  if (r == null) return 'bg-white/[0.02] text-slate-600 border-white/5';
+  if (r >= 1.0) return 'bg-slate-500/10 text-slate-300 border-white/10';
+  if (r >= 0.5) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+  return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+};
+
+const planTooltip = (c: Ep9mCandidate): string => {
+  const p = planOf(c);
+  if (!p) return 'No trade plan on this row — the EP9M scan does not yet compute one.';
+  if (p.tradeable !== true) return `No plan — ${p.note || 'not computable'}.`;
+
+  const lines: string[] = [];
+  lines.push(`Trigger  ${p.trigger != null ? p.trigger.toFixed(2) : '—'}  (${p.triggerLabel || '—'})`);
+  lines.push(`Stop     ${p.stop != null ? p.stop.toFixed(2) : '—'}  (${p.stopPct != null ? `−${p.stopPct.toFixed(1)}%` : '—'})`);
+  lines.push(`Target   ${p.target != null ? p.target.toFixed(2) : '—'}  (2R)`);
+  if (p.trigger != null && p.stop != null) {
+    lines.push(`Risk     ${(p.trigger - p.stop).toFixed(2)} per share`);
+  }
+  lines.push('');
+  if (p.resistanceR != null) {
+    lines.push(`Nearest overhead: ${p.resistanceLabel || 'level'} at ${p.resistanceR.toFixed(1)}R`);
+  } else {
+    lines.push('No overhead level between trigger and target.');
+  }
+  if (p.note) {
+    lines.push('');
+    lines.push(p.note);
+  }
+  lines.push('');
+  lines.push('Stop is the wider of 1.25× ADR or 2.5%. Target is a fixed 2R.');
+  return lines.join('\n');
+};
+
 const epTooltip = (c: Ep9mCandidate): string => {
   const lines: string[] = [
     `EP ${c.score} — ${c.score >= 70 ? 'A' : c.score >= 50 ? 'B' : 'C'}`,
@@ -276,6 +411,11 @@ const epTooltip = (c: Ep9mCandidate): string => {
     lines.push('');
     lines.push(`${c.priorTriggers} prior trigger${c.priorTriggers !== 1 ? 's' : ''} in the last 90 days`);
   }
+
+  // EP scores volume, not tradeability. Saying so here keeps a 90 from
+  // reading as a recommendation on a name with nowhere to put a stop.
+  lines.push('');
+  lines.push('EP scores the volume event. See RTR for whether there is a trade.');
 
   return lines.join('\n');
 };
@@ -308,11 +448,12 @@ export default function Ep9m() {
   const [raw9m, setRaw9m] = useState<number | null>(null);
   const [shortlisted, setShortlisted] = useState<number | null>(null);
   const [scanMeta, setScanMeta] = useState<any>(null);
-  const [sortConfig, setSortConfig] = useState<{ key: keyof Ep9mCandidate; direction: SortDirection } | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [epFilter, setEpFilter] = useState<EpFilterType>('All');
   const [rvolFilter, setRvolFilter] = useState<RvolFilterType>('All');
   const [catalystFilter, setCatalystFilter] = useState<CatalystFilterType>('All');
+  const [planFilter, setPlanFilter] = useState<PlanFilterType>('All');
   const [showUnprecedentedOnly, setShowUnprecedentedOnly] = useState<boolean>(false);
   const [showSugarBabyOnly, setShowSugarBabyOnly] = useState<boolean>(false);
   const [showStage2Only, setShowStage2Only] = useState<boolean>(false);
@@ -348,7 +489,7 @@ export default function Ep9m() {
     return () => { isMounted = false; clearInterval(interval); };
   }, []);
 
-  const handleSort = (key: keyof Ep9mCandidate) => {
+  const handleSort = (key: string) => {
     let direction: SortDirection = 'desc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
     else if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') { setSortConfig(null); return; }
@@ -359,6 +500,7 @@ export default function Ep9m() {
   const handleRvolFilter = (val: RvolFilterType) => setRvolFilter(prev => prev === val ? 'All' : val);
   const handleCatalystFilter = (val: CatalystFilterType) => setCatalystFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
+  const handlePlanFilter = (val: PlanFilterType) => setPlanFilter(prev => prev === val ? 'All' : val);
 
   const filteredAndSorted = useMemo(() => {
     let list = [...candidates];
@@ -373,6 +515,17 @@ export default function Ep9m() {
     }
     if (catalystFilter !== 'All') {
       list = list.filter(c => catalystFilter === 'News' ? hasCatalyst(c) : !hasCatalyst(c));
+    }
+    // Plan filter drops anything without a usable entry. On this table that
+    // is the sharpest cut available — it strips the collapsed and the
+    // already-run and leaves only volume events you could act on.
+    if (planFilter !== 'All') {
+      list = list.filter(c => {
+        const p = planOf(c);
+        if (!p || p.tradeable !== true || p.collapsed || p.overextended) return false;
+        if (planFilter === 'Clear') return p.clear === true;
+        return p.clear === true || (p.resistanceR != null && p.resistanceR >= 1.0);
+      });
     }
     if (showUnprecedentedOnly) list = list.filter(c => c.unprecedented === true);
     if (showSugarBabyOnly) list = list.filter(c => c.sugarBaby === true);
@@ -392,15 +545,15 @@ export default function Ep9m() {
 
     if (!sortConfig) return list;
     return list.sort((a, b) => {
-      const aVal = a[sortConfig.key] as any;
-      const bVal = b[sortConfig.key] as any;
+      const aVal = sortConfig.key === 'planR' ? planSortValue(a) : (a as any)[sortConfig.key];
+      const bVal = sortConfig.key === 'planR' ? planSortValue(b) : (b as any)[sortConfig.key];
       if (aVal === null || aVal === undefined) return 1;
       if (bVal === null || bVal === undefined) return -1;
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, epFilter, rvolFilter, catalystFilter, showUnprecedentedOnly, showSugarBabyOnly, showStage2Only, marketCapFilter, vwapFilter]);
+  }, [candidates, sortConfig, epFilter, rvolFilter, catalystFilter, planFilter, showUnprecedentedOnly, showSugarBabyOnly, showStage2Only, marketCapFilter, vwapFilter]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -425,7 +578,7 @@ export default function Ep9m() {
   const silentCount = useMemo(() => candidates.filter(c => !hasCatalyst(c)).length, [candidates]);
   const unprecedentedCount = useMemo(() => candidates.filter(c => c.unprecedented).length, [candidates]);
 
-  const getSortIcon = (columnKey: keyof Ep9mCandidate) =>
+  const getSortIcon = (columnKey: string) =>
     sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
   const getScoreBadge = (score: number) => {
@@ -519,6 +672,7 @@ export default function Ep9m() {
     (epFilter !== 'All' ? 1 : 0) +
     (rvolFilter !== 'All' ? 1 : 0) +
     (catalystFilter !== 'All' ? 1 : 0) +
+    (planFilter !== 'All' ? 1 : 0) +
     (showUnprecedentedOnly ? 1 : 0) +
     (showSugarBabyOnly ? 1 : 0) +
     (showStage2Only ? 1 : 0) +
@@ -600,6 +754,23 @@ export default function Ep9m() {
                         className={`${pillBtn} ${epFilter === g ? filterBtnActive : filterBtnIdle}`}
                       >
                         {g}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>PLAN</span>
+                  <div className="flex items-center gap-1">
+                    {PLAN_BUCKETS.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => handlePlanFilter(opt)}
+                        title={opt === 'Clear'
+                          ? 'Only names with a definable trigger and 2R of clear air above it'
+                          : 'Only names with at least one stop-width to the nearest overhead level'}
+                        className={`${pillBtn} ${planFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {opt === '1R' ? '1R+' : 'Clear'}
                       </button>
                     ))}
                   </div>
@@ -693,27 +864,28 @@ export default function Ep9m() {
           </div>
 
           <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            {/* Standard column order matching the other tables. EP replaces CNF;
-                10/21 dot column and STOCH added; D2C→DTC, RS/SPY→RS; RMV moved
-                to the sub-row. TURN kept as an EP-specific. Widths sum ~92. */}
-            <table className="w-full min-w-[880px] table-fixed border-collapse">
+            {/* 18 columns. RTR sits after EP, matching every other table.
+                PRICE, VOL, $VOL, TURN and MCAP each gave up 1% to fit it;
+                min-w 880 → 960. Widths sum ~99. */}
+            <table className="w-full min-w-[960px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%]`} title={colTip('TICKER')} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('EP')} onClick={() => handleSort('score')}>EP{getSortIcon('score')}</th>
-                  <th className={`${thBase} w-[7%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('RTR')} onClick={() => handleSort('planR')}>RTR{getSortIcon('planR')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('10/21')}>10/21</th>
-                  <th className={`${thBase} w-[7%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[7%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('TURN')} onClick={() => handleSort('floatTurnover')}>TURN{getSortIcon('floatTurnover')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('TURN')} onClick={() => handleSort('floatTurnover')}>TURN{getSortIcon('floatTurnover')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thStage} w-[5%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
                   <th className={`${thSector} w-[7%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
@@ -722,7 +894,7 @@ export default function Ep9m() {
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
                   <tr>
-                    <td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium">
+                    <td colSpan={18} className="py-12 text-center text-slate-500 text-sm font-medium">
                       {status === 'Live'
                         ? (candidates.length > 0
                             ? 'No names match the current filters.'
@@ -743,6 +915,7 @@ export default function Ep9m() {
                     const mf = mfOf(row);
                     const vs60d = vs60dOf(row);
                     const stateRes = stateOf(rmv, rme);
+                    const plan = planOf(row);
                     return (
                       <React.Fragment key={row.ticker}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -759,6 +932,14 @@ export default function Ep9m() {
                               className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border cursor-help ${getScoreBadge(row.score)}`}
                             >
                               {row.score}
+                            </span>
+                          </td>
+                          <td className={tdBase}>
+                            <span
+                              title={planTooltip(row)}
+                              className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border cursor-help ${planBadge(row)}`}
+                            >
+                              {planShort(row)}
                             </span>
                           </td>
                           <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
@@ -793,7 +974,7 @@ export default function Ep9m() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getTurnColor(row.floatTurnover)}`} title="Float turnover — share of the tradeable float that changed hands today. Above 1.0x the entire float traded.">
                             {row.floatTurnover != null ? `${row.floatTurnover.toFixed(2)}x` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`} title="20-day average daily range (high/low) — the anti-chop measure">
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`} title="20-day average daily range (high/low) — the anti-chop measure, and the stop basis">
                             {adr != null ? `${adr.toFixed(1)}%` : '—'}
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={`Money Flow (21) — ${mfLabel(mf)}. Heavy volume with MF under 45 is distribution, however strong today's close. Arrow shows the 5-day direction.`}>
@@ -819,22 +1000,48 @@ export default function Ep9m() {
                             <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: EP 9M · VS60D cluster flush-left under TICKER
-                            (colSpan={14}, no left pad, group hover) | catalyst |
-                            RMV/RME, then STATE under STAGE, Unprec/Silent under
-                            SECTOR. */}
+                        {/* Sub-row: colSpan 16 covers TICKER..MCAP, then STAGE
+                            and SECTOR get their own cells — 18 total, matching
+                            the header. The v2.2 sub-row spanned 14 + 1 + 1 = 16
+                            against 17 columns, which put the STATE badge under
+                            MCAP and Unprec/Silent under STAGE.
+
+                            The "EP 9M" label is gone — it named the table on
+                            every row of the table. Levels lead instead, same
+                            slot the setup name occupies on SIPs and Daily, then
+                            VS60D, which is the signal this scan exists for. */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td colSpan={14} className="pb-1.5 pt-1 pr-3">
+                          <td colSpan={16} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
-                              <span
-                                title={STATS_KEY_TOOLTIP}
-                                className="shrink-0 flex items-center gap-2.5 pr-2 leading-none whitespace-nowrap cursor-help"
-                              >
-                                <span className="text-[#7c8bfa] font-bold text-[9px] tracking-[0.08em] uppercase">EP 9M</span>
-                                <span className="flex items-baseline gap-1" title="Today's volume as a multiple of this stock's own 60-day volume high. Above 1.0× is unprecedented.">
-                                  <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">VS60D</span>
-                                  <span className={`text-[9px] font-bold tabular-nums ${getVs60dColor(vs60d)}`}>{vs60d != null ? `${vs60d.toFixed(2)}×` : '—'}</span>
+                              {plan?.tradeable && plan.trigger != null ? (
+                                <span
+                                  title={planTooltip(row)}
+                                  className="shrink-0 flex items-baseline gap-2 pl-1 pr-2.5 cursor-help whitespace-nowrap"
+                                >
+                                  <span className="flex items-baseline gap-1">
+                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">TRIG</span>
+                                    <span className="text-[9px] font-bold tabular-nums text-slate-200">{formatLevel(plan.trigger)}</span>
+                                  </span>
+                                  <span className="flex items-baseline gap-1">
+                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">STOP</span>
+                                    <span className="text-[9px] font-bold tabular-nums text-rose-400/90">{formatLevel(plan.stop)}</span>
+                                  </span>
+                                  <span className="flex items-baseline gap-1">
+                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">TGT</span>
+                                    <span className="text-[9px] font-bold tabular-nums text-emerald-400/90">{formatLevel(plan.target)}</span>
+                                  </span>
                                 </span>
+                              ) : (
+                                <span className="shrink-0 pl-1 pr-2.5 text-[9px] font-semibold text-slate-600 italic whitespace-nowrap">
+                                  {plan?.collapsed ? 'no long plan' : plan?.note === 'trigger already passed' ? 'entry passed' : 'no plan'}
+                                </span>
+                              )}
+                              <span
+                                className="shrink-0 flex items-baseline gap-1 pr-2.5 cursor-help whitespace-nowrap"
+                                title="Today's volume as a multiple of this stock's own 60-day volume high. Above 1.0× is unprecedented for this name — the purest expression of the EP9M signal."
+                              >
+                                <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">VS60D</span>
+                                <span className={`text-[9px] font-bold tabular-nums ${getVs60dColor(vs60d)}`}>{vs60d != null ? `${vs60d.toFixed(2)}×` : '—'}</span>
                               </span>
                               <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={headline || undefined}>
                                 {headline || tag ? (
