@@ -1,4 +1,4 @@
-// app/api/ep9m/run/route.ts — v1.4
+// app/api/ep9m/run/route.ts — v1.5
 //
 // EP9M — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee)
 //
@@ -12,17 +12,56 @@
 // 9M shares AND that volume is abnormal FOR THIS STOCK. RVOL is the real gate;
 // 9M is the floor beneath it that keeps illiquid junk out.
 //
-// Deliberately does NOT gate on % change. A non-gapping stock quietly trading
-// 10x its normal volume is the highest-value case this scan exists to find.
-//
 // v1.1: Weinstein sub-stages via lib/indicators/stage.
 // v1.2: + Money Flow (21), also scored — heavy abnormal volume with MF under
 //       45 is 21 sessions of distribution, however good today's print looks.
-// v1.3: thresholds moved to lib/scanConfig and shipped in the payload, so the
-//       on-screen key renders the gates the scan ACTUALLY used.
-// v1.4: + Stochastic %K(10) emitted as stochK — the table's STOCH column and
-//       the MarketSummary EP9M section were reading a field that was never
-//       computed (rendered as a dash). Uses the daily bars already in scope.
+// v1.3: thresholds moved to lib/scanConfig and shipped in the payload.
+// v1.4: + Stochastic %K(10) emitted as stochK.
+// v1.5: + TRADE PLAN, matching scanner v6.15 and swing v1.8.
+//
+//       This route already computed ema10 and ema21 and kept only the
+//       percentage distances. Fine for ranking, useless for planning: you
+//       cannot place a stop relative to "3.2% below the 21 EMA". The raw
+//       levels are retained now, ema50 is added as a resistance reference,
+//       and priorSwingHigh gives the planner something above the averages to
+//       measure against.
+//
+//       SETUP NAME IS DELIBERATELY LEFT NULL, which resolves to the generic
+//       family and triggers off the day high. That is the honest read here:
+//       an EP9M name has no pattern by construction — the scan gates on
+//       volume abnormality, not on shape — so there is no 10 EMA reclaim or
+//       range high to key off. The day high is the level that says the
+//       volume produced follow-through rather than just churn.
+//
+//       WHAT THE PLAN WILL AND WILL NOT SHOW HERE. The `collapsed` flag can
+//       never fire on this table, because the negative-change gate below
+//       (see the NOTE ON THE CHANGE GATE) removes every down name before
+//       scoring. `trigger already passed` also cannot fire, since the day
+//       high is by definition at or above price. So the two live signals are
+//       `overextended` — the name already ran too far past its 21 EMA to
+//       place a sane stop — and the R figure itself, which measures how much
+//       room there is before the first average overhead.
+//
+// ---------------------------------------------------------------------------
+// NOTE ON THE CHANGE GATE — a contradiction that predates this version.
+//
+// The original header claimed this scan "deliberately does NOT gate on %
+// change", on the reasoning that a non-gapping stock quietly trading 10x its
+// normal volume is the highest-value case the scan exists to find. That line
+// has been removed from the header because it is not what the code does:
+//
+//     if ((snap.changePct ?? 0) < 0) return null;
+//
+// A stock down 0.4% on 11x volume — precisely the quiet accumulation the
+// premise describes — is discarded. Only exactly-flat or positive names
+// survive. The gate is defensible on its own terms (a down day on heavy
+// volume is often distribution, and MF already scores that), but it is a
+// real filter and the header should not have claimed otherwise.
+//
+// Left in place: changing scan semantics is a separate decision from adding
+// a trade plan, and reversing it would alter what appears on the table.
+// Flagged here so the choice is visible rather than buried.
+// ---------------------------------------------------------------------------
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -30,6 +69,7 @@ import { computeRMV } from '@/lib/indicators/rmv';
 import { computeRMEDetail } from '@/lib/indicators/rme';
 import { computeStage } from '@/lib/indicators/stage';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
+import { computeTradePlan } from '@/lib/indicators/tradeplan';
 import { EP9M, EP9M_META } from '@/lib/scanConfig';
 
 export const dynamic = 'force-dynamic';
@@ -48,6 +88,13 @@ const WINDOW = {
   maxCalendarDays: 90,
   concurrency: 8,
 };
+
+// Prior swing high window. 63 sessions back, EXCLUDING the most recent five —
+// without that exclusion a name that just ran becomes its own resistance and
+// every fresh mover reports a trigger already blocked. Matters more here than
+// anywhere else: an EP9M name IS a fresh mover by definition.
+const SWING_HIGH_LOOKBACK = 63;
+const SWING_HIGH_EXCLUDE_RECENT = 5;
 
 // ETFs that clear 9M shares on any ordinary day. Most would fail the RVOL gate
 // anyway, but leveraged products spike hard enough to sneak through, and they
@@ -75,6 +122,23 @@ interface SnapInfo {
   dayHigh: number | null;
   dayLow: number | null;
   dayOpen: number | null;
+}
+
+interface TradePlanOut {
+  family?: string;
+  trigger?: number | null;
+  triggerLabel?: string;
+  stop?: number | null;
+  stopPct?: number | null;
+  target?: number | null;
+  rMultiple?: number;
+  resistanceR?: number | null;
+  resistanceLabel?: string | null;
+  clear?: boolean;
+  collapsed?: boolean;
+  overextended?: boolean;
+  tradeable: boolean;
+  note?: string;
 }
 
 interface Ep9mCandidate {
@@ -109,6 +173,7 @@ interface Ep9mCandidate {
   aboveEma10: boolean | null;
   aboveEma21: boolean | null;
   distToEma21: number | null;
+  distToEma10: number | null;
   ema21Rising: boolean | null;
   goldenCross: boolean | null;
   pctOffHigh: number | null;
@@ -119,6 +184,14 @@ interface Ep9mCandidate {
   catalystUrl: string | null;
   thesis: string | null;
   scoreBreakdown: Record<string, number>;
+  // v1.5 — raw levels and the plan built from them.
+  ema10: number | null;
+  ema21: number | null;
+  ema50: number | null;
+  dayHigh: number | null;
+  dayLow: number | null;
+  priorSwingHigh: number | null;
+  plan: TradePlanOut | null;
 }
 
 async function polygon<T = any>(path: string): Promise<T> {
@@ -145,6 +218,52 @@ async function inBatches<T, R>(items: T[], size: number, fn: (item: T) => Promis
     }
   }
   return out;
+}
+
+const round2 = (v: number | null | undefined): number | null =>
+  v == null || !Number.isFinite(v) ? null : parseFloat(v.toFixed(2));
+
+// Serialises the planner output for the wire. Every numeric goes through
+// round2 so a NaN escaping a degenerate bar series cannot reach the component,
+// where it would render as "NaN" in a price field.
+function serialisePlan(p: ReturnType<typeof computeTradePlan>): TradePlanOut {
+  if (!p.tradeable) {
+    return {
+      tradeable: false,
+      collapsed: p.collapsed,
+      overextended: p.overextended,
+      note: p.note,
+      family: p.family,
+    };
+  }
+  return {
+    family: p.family,
+    trigger: round2(p.trigger),
+    triggerLabel: p.triggerLabel,
+    stop: round2(p.stop),
+    stopPct: p.stopPct != null ? parseFloat(p.stopPct.toFixed(2)) : null,
+    target: round2(p.target),
+    rMultiple: p.rMultiple,
+    resistanceR: p.resistanceR != null ? parseFloat(p.resistanceR.toFixed(2)) : null,
+    resistanceLabel: p.resistanceLabel,
+    clear: p.clear,
+    collapsed: p.collapsed,
+    overextended: p.overextended,
+    tradeable: true,
+    note: p.note,
+  };
+}
+
+// Highest high in the lookback window, excluding the most recent few bars.
+// Bars arrive sorted ascending, so the recent end is the tail.
+function priorSwingHighOf(bars: Bar[]): number | null {
+  if (bars.length < 20) return null;
+  const end = bars.length - SWING_HIGH_EXCLUDE_RECENT;
+  const start = Math.max(0, bars.length - SWING_HIGH_LOOKBACK);
+  if (end <= start) return null;
+  const win = bars.slice(start, end);
+  if (win.length === 0) return null;
+  return Math.max(...win.map(b => b.h));
 }
 
 function cleanSectorDescription(sic: string | undefined, sector: string | undefined, industry: string | undefined): string {
@@ -217,6 +336,9 @@ function atr(bars: Bar[], period = 14): number | null {
   return a;
 }
 
+// Average Daily Range % — no gap component, so it measures the intraday room
+// a typical session offers. This is the stop basis in the trade plan, for
+// exactly that reason.
 function adrPct(bars: Bar[], period = 20): number | null {
   if (bars.length < period) return null;
   const recent = bars.slice(-period);
@@ -490,6 +612,10 @@ async function fetchBenzingaWiims(
 // Money Flow is a modifier. Close strength is one day; MF is 21. A name can
 // close strong on the trigger day while the prior month was steady
 // distribution — that combination is a trap, and only MF sees it.
+//
+// NOTE: this score says nothing about whether the name is enterable. That is
+// the trade plan's job, and the two are deliberately kept apart — a 90 here
+// means the volume event is exceptional, not that there is room to be paid.
 // ---------------------------------------------------------------
 function scoreEp9m(q: {
   rvol: number;
@@ -666,6 +792,9 @@ export async function GET() {
 
       const e10 = ema(closes, 10);
       const e21 = ema(closes, 21);
+      // v1.5: the 50 exists purely as a resistance reference for the plan —
+      // nothing else on this table reads it.
+      const e50 = ema(closes, 50);
       const e21Prev = ema(closes.slice(0, -3), 21);
       const sma50 = sma(closes, 50);
       const sma200 = sma(closes, 200);
@@ -702,6 +831,30 @@ export async function GET() {
         details?.results?.industry
       );
 
+      // --- TRADE PLAN (v1.5) -----------------------------------------------
+      // setupName left null on purpose — see the header note. The generic
+      // family triggers off the day high, which is the only defensible entry
+      // on a scan that gates on volume rather than shape.
+      //
+      // Snapshot dayHigh preferred over the daily bar: during a live session
+      // the snapshot is minutes old while the aggregate bar can lag.
+      const dayHigh = snap.dayHigh ?? bars[bars.length - 1]?.h ?? null;
+      const priorSwingHigh = priorSwingHighOf(bars);
+      const plan = computeTradePlan({
+        price,
+        adrPct: adr,
+        atrPct: atrPctVal,
+        changePct: snap.changePct,
+        ema10: e10,
+        ema21: e21,
+        ema50: e50,
+        dayHigh,
+        priorSwingHigh,
+        aboveEma10: e10 != null ? price >= e10 : null,
+        aboveEma21: e21 != null ? price >= e21 : null,
+        setupName: null,
+      });
+
       return {
         ab,
         snap,
@@ -724,12 +877,20 @@ export async function GET() {
           rme: rmeDetail.rme,
           aboveEma10: e10 != null ? price >= e10 : null,
           aboveEma21: e21 != null ? price >= e21 : null,
+          distToEma10: e10 && e10 > 0 ? ((price - e10) / e10) * 100 : null,
           distToEma21: e21 && e21 > 0 ? ((price - e21) / e21) * 100 : null,
           ema21Rising: e21 != null && e21Prev != null ? e21 > e21Prev : null,
           goldenCross: sma50 != null && sma200 != null ? sma50 > sma200 : null,
           pctOffHigh,
           rsVsSpy,
           stage: computeStage(closes, { price }),
+          ema10: e10,
+          ema21: e21,
+          ema50: e50,
+          dayHigh,
+          dayLow: snap.dayLow ?? bars[bars.length - 1]?.l ?? null,
+          priorSwingHigh,
+          plan: serialisePlan(plan),
         },
       };
     });
@@ -767,7 +928,10 @@ export async function GET() {
         catalystTier: tier,
         priorTriggers,
       });
+
       // Gate: exclude negative-change stocks — distribution, not accumulation.
+      // See the NOTE ON THE CHANGE GATE in the header: this is a real filter
+      // and it is why plan.collapsed can never fire on this table.
       if ((snap.changePct ?? 0) < 0) return null;
 
       return {
@@ -802,6 +966,7 @@ export async function GET() {
         aboveEma10: raw.aboveEma10,
         aboveEma21: raw.aboveEma21,
         distToEma21: raw.distToEma21 != null ? +raw.distToEma21.toFixed(2) : null,
+        distToEma10: raw.distToEma10 != null ? +raw.distToEma10.toFixed(2) : null,
         ema21Rising: raw.ema21Rising,
         goldenCross: raw.goldenCross,
         pctOffHigh: raw.pctOffHigh != null ? +raw.pctOffHigh.toFixed(1) : null,
@@ -812,6 +977,13 @@ export async function GET() {
         catalystUrl,
         thesis,
         scoreBreakdown: scored.breakdown,
+        ema10: round2(raw.ema10),
+        ema21: round2(raw.ema21),
+        ema50: round2(raw.ema50),
+        dayHigh: round2(raw.dayHigh),
+        dayLow: round2(raw.dayLow),
+        priorSwingHigh: round2(raw.priorSwingHigh),
+        plan: raw.plan,
       };
     }).filter((c): c is Ep9mCandidate => c !== null);
 
@@ -850,6 +1022,15 @@ export async function GET() {
     });
     await kv.set('ep9m_registry_v1', nextRegistry);
 
+    // Plan diagnostics. If `planned` sits far below `count`, the stop basis
+    // is failing — most likely ADR missing on short-history names.
+    const planCoverage = {
+      planned: finalList.filter(c => c.plan?.tradeable).length,
+      clear: finalList.filter(c => c.plan?.tradeable && c.plan.clear).length,
+      overextended: finalList.filter(c => c.plan?.overextended).length,
+      noStopBasis: finalList.filter(c => c.plan?.note === 'no ADR/ATR to size a stop').length,
+    };
+
     return NextResponse.json({
       success: true,
       lastScanTime: scanTime,
@@ -859,6 +1040,7 @@ export async function GET() {
       registrySize: nextRegistry.length,
       catalystsFound: wiimMap.size,
       scanMeta: EP9M_META,
+      planCoverage,
     });
   } catch (error: any) {
     console.error('EP9M_RUN_ERROR:', error);
