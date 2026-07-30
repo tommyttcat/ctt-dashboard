@@ -72,6 +72,7 @@ interface EarningsEvent {
 
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
 type BlockKey = 'morning' | 'midday' | 'closing';
+type Direction = 'up' | 'down' | 'neutral';
 
 const getEstDateInfo = () => {
   return new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
@@ -109,13 +110,10 @@ const getMarketSession = (): MarketSession => {
    is not wrong — it was true at 8:30 — it is just no longer current, and
    nothing in the UI said so.
 
-   Blocks are marked, never hidden, and never dimmed into illegibility. The
-   first pass at this used opacity-50 on top of text-slate-500, which stacked
-   two rounds of dimming and made stale blocks genuinely hard to read. The
-   signal now comes from COLOR, not contrast: a stale block drops its theme
-   accent and goes neutral slate, while the text itself stays at the same
-   weight a live block uses. The SUPERSEDED chip and the closing line carry
-   the actual message.
+   Blocks are marked, never hidden, and never dimmed into illegibility. An
+   earlier pass used opacity-50 on top of text-slate-500, which stacked two
+   rounds of dimming and made stale blocks genuinely hard to read. The signal
+   comes from COLOR, not contrast.
    ------------------------------------------------------------------------ */
 const BLOCK_WINDOWS: Record<BlockKey, { opens: number; supersededAt: number; nextLabel: string }> = {
   morning: { opens: 4.0, supersededAt: 11.5, nextLabel: 'midday' },
@@ -128,6 +126,49 @@ const isBlockStale = (key: BlockKey, weekend: boolean): boolean => {
   // blocks are the whole story until Monday.
   if (weekend) return false;
   return getCurrentEstDecimal() >= BLOCK_WINDOWS[key].supersededAt;
+};
+
+/* ---- Directional accent -------------------------------------------------
+   The accent color on a session block now tracks the DIRECTION OF THE TAPE
+   that block describes, rather than the `colorTheme` string the writer
+   stamped on the payload. That field is effectively a constant — a morning
+   block ships 'rose' whether the tape is down 1.5% or up 2.6% — so it was
+   decorating rather than informing.
+
+   Direction is read out of the block's own prose, because that is the only
+   place in this component where the index moves exist. The first paragraph
+   reliably reads like "Early tape is lower — S&P -1.54%, Nasdaq -1.39%".
+   We match an index NAME followed by a signed percentage, which is what
+   keeps MSFT +8.10% in the same sentence from being counted: a single
+   mega-cap gapping on earnings is not the market's direction.
+
+   Averaged across whichever indices appear, then banded. Inside ±0.25% the
+   move is not a direction, it is noise, and the block keeps whatever theme
+   the payload specified. Same fallback if no index move parses at all —
+   better to render the existing look than to guess a color.
+   ------------------------------------------------------------------------ */
+const INDEX_MOVE_RX = /\b(S&P|Nasdaq|Dow|Russell|SPX|NDX)\b[^.]{0,40}?([+-]\d+(?:\.\d+)?)%/gi;
+
+// Below this the tape has no direction worth coloring.
+const DIRECTION_NEUTRAL_BAND = 0.25;
+
+const deriveDirection = (block: UpdateBlock): Direction | null => {
+  const text = (block.paragraphs || []).join(' ');
+  if (!text) return null;
+
+  const moves: number[] = [];
+  // Reset lastIndex — the regex is module-scoped and carries state with /g.
+  INDEX_MOVE_RX.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = INDEX_MOVE_RX.exec(text)) !== null) {
+    const v = parseFloat(m[2]);
+    if (!Number.isNaN(v)) moves.push(v);
+  }
+
+  if (moves.length === 0) return null;
+  const avg = moves.reduce((a, b) => a + b, 0) / moves.length;
+  if (Math.abs(avg) < DIRECTION_NEUTRAL_BAND) return 'neutral';
+  return avg > 0 ? 'up' : 'down';
 };
 
 /* ---- Actionable-catalyst noise filter -----------------------------------
@@ -1376,19 +1417,29 @@ export default function MarketSummary() {
       .replace(/(Sector Flow:)/gi, '\n\n$1');
   };
 
-  /* A stale block keeps full text legibility. The first version of this used
-     opacity-50 over text-slate-500, which compounded into unreadable — the
-     paragraphs, the takeaway, and the heading were all being dimmed twice.
+  /* Accent resolution, in priority order:
 
-     What changes when a block goes stale is COLOR, not contrast: the theme
-     accent (cyan/rose/etc) drops to neutral slate on the dot, heading, and
-     takeaway rail, so a live block still reads as the visually louder one.
-     Body copy sits at the same slate-400/300 a live block uses. The
-     SUPERSEDED chip and the closing line carry the message. */
+     1. STALE beats everything. A superseded block goes neutral slate no
+        matter which way the tape was running when it was written — a bright
+        green rail on an 8:30 read would still be arguing for a tape that
+        no longer exists.
+     2. DIRECTION, when the block's prose contains index moves outside the
+        neutral band: emerald up, rose down.
+     3. Otherwise the payload's own colorTheme, unchanged.
+
+     Text contrast is identical in all three cases. Only the accent moves. */
   const renderSingleUpdateBlock = (block: UpdateBlock | null, key: BlockKey) => {
     if (!block) return null;
-    const styles = getThemeStyles(block.colorTheme);
+
     const stale = isBlockStale(key, isWeekend);
+    const direction = stale ? null : deriveDirection(block);
+
+    const themeKey =
+      direction === 'up' ? 'emerald' :
+      direction === 'down' ? 'rose' :
+      block.colorTheme;
+
+    const styles = getThemeStyles(themeKey);
     const nextLabel = BLOCK_WINDOWS[key].nextLabel;
 
     return (
