@@ -1,4 +1,4 @@
-// src/app/api/scanner/run/route.ts — v6.15
+// src/app/api/scanner/run/route.ts — v6.16
 // v6.1: + RMV(15); thesis is news-headline-only (stats moved to t.readout)
 // v6.2: RMV/RME imported from lib/indicators; RME(21) replaces the binary
 //       `extended` penalty in CNF; + cnfBreakdown for the badge tooltip
@@ -12,31 +12,35 @@
 // v6.9: deterministic macro briefing (buildMacroBriefing)
 // v6.10: + distToEma10 on every enriched row
 // v6.11: spam filter rebuilt as regex; structural CNF ceiling; detectPattern
-//        returns stageNum; currentDate via etDateString; minVolume on all
-//        topMovers buckets
-// v6.12: + blue/red dots via lib/indicators/dots; red-dot CNF ceiling with
-//        bear-instrument exemption
+//        returns stageNum; currentDate via etDateString
+// v6.12: + blue/red dots; red-dot CNF ceiling with bear-instrument exemption
 // v6.13: + reversal pattern for names repairing from BELOW the 21 EMA
 // v6.14: reversal collapsed to one name; 10 EMA reclaim carried as a CNF
 //        component rather than a second label
-// v6.15: + RAW PRICE LEVELS and a TRADE PLAN on every row.
+// v6.15: + raw EMA levels and a trade plan on every row
+// v6.16: two fixes to the plan, both found by reading the first live payload.
 //
-//        The payload carried distToEma10 / distToEma21 / aboveEma10 —
-//        percentages and booleans — but never the EMA VALUES themselves.
-//        That was fine for ranking and useless for planning: you cannot
-//        say "trigger at the 10 EMA, stop 1.25 ADR below it" from a
-//        percentage. ema10/ema21/ema50 and dayHigh/dayLow are now emitted
-//        raw, and computeTradePlan turns them into trigger / stop / target
-//        / R-to-resistance.
+//        (a) changePct is now PASSED to computeTradePlan. Without it the
+//            planner could not tell a name that gapped up 20% from one that
+//            collapsed 50%, and it happily produced long plans for names in
+//            freefall — NBIZ at −53% and IREZ at −54% both came back with
+//            "2R clear of overhead" and collected the runway bonus, scoring
+//            88-A and 83-A. They were the two worst charts on the board.
 //
-//        This is the piece the dashboard was missing. Five scores said how
-//        good a name was; none said where to get in, where you are wrong,
-//        or what the trade pays. INTC could show a B grade on a 13% day
-//        while its nearest sane stop sat 11% away, and nothing on the row
-//        said so.
+//        (b) THE RUNWAY COMPONENT IS NOW GRADED. It was ±6 on a binary
+//            `clear` flag, and on the first live run it returned −6 for
+//            roughly nine rows in ten — every semi had its 21 EMA directly
+//            overhead because they all broke down together. A component
+//            that reads the same on 90% of rows is not scoring anything, it
+//            is subtracting a constant.
 //
-//        The 50 EMA is computed solely as a resistance level for the plan —
-//        it is not scored anywhere and is not displayed on its own.
+//            Graded by how far the nearest level actually sits, so MU with
+//            resistance at 0.18R is now separated from SOXL at 0.94R rather
+//            than both landing on −6.
+//
+//        Note the two interact: a collapsed chart returns clear:false from
+//        v1.1 of the planner, so it can no longer earn the bonus even
+//        before the grading applies.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -168,9 +172,9 @@ const getUpdatePhase = (hour: number) => {
 const etDateString = (d: Date): string =>
   d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 
-const LAW_FIRM_NAMES = /\b(rosen|pomerantz|glancy|kaskela|bronstein|schall|johnson\s*fistel|bragar|eagel|squire|gross\s*law|faruqi|portnoy|block\s*&?\s*leviton|hagens\s*berman|halper\s*sadeh|levi\s*&?\s*korsinsky|robbins\s*geller|kessler\s*topaz|monteverde|wolf\s*haldenstein|berger\s*montague|scott\s*\+?\s*scott|kahn\s*swick|kirby\s*mcinerney|labaton|bernstein\s*liebhard|howard\s*g\.?\s*smith|kuehn\s*law|grabar|rigrodsky|weiss\s*law|ademi|federman|claimsfiler|brodsky\s*&?\s*smith)\b/i;
+const LAW_FIRM_NAMES = /\b(rosen|pomerantz|glancy|kaskela|bronstein|schall|johnson\s*fistel|bragar|eagel|squire|gross\s*law|faruqi|portnoy|block\s*&?\s*leviton|hagens\s*berman|halper\s*sadeh|levi\s*&?\s*korsinsky|robbins\s*geller|kessler\s*topaz|monteverde|wolf\s*haldenstein|berger\s*montague|scott\s*\+?\s*scott|kahn\s*swick|kirby\s*mcinerney|labaton|bernstein\s*liebhard|howard\s*g\.?\s*smith|kuehn\s*law|grabar|rigrodsky|weiss\s*law|ademi|federman|claimsfiler|brodsky\s*&?\s*smith|holzer\s*&?\s*holzer)\b/i;
 
-const LEGAL_BOILERPLATE = /(class\s*action|securities\s*fraud|shareholder\s*(alert|rights|investigation|deadline|update)|investors?\s+(are\s+)?(urged|encouraged|reminded|alerted|notified|advised|who\s+lost|who\s+suffered)|suffered\s+losses|secure\s+counsel|contact\s+the\s+firm|lead\s+plaintiff|investigat(e|es|ed|ing|ion|ions)\s+(whether|on\s+behalf|claims|potential|possible)|important\s+deadline|deadline:|purchasers?\s+of\s+|law\s*firm|law\s*offices|is\s+investigating)/i;
+const LEGAL_BOILERPLATE = /(class\s*action|securities\s*fraud|shareholder\s*(alert|rights|investigation|deadline|update)|investors?\s+(are\s+)?(urged|encouraged|reminded|alerted|notified|advised|who\s+lost|who\s+suffered)|suffered\s+losses|secure\s+counsel|contact\s+the\s+firm|lead\s+plaintiff|investigat(e|es|ed|ing|ion|ions)\s+(whether|on\s+behalf|claims|potential|possible|into)|investor\s*alert|important\s+deadline|deadline:|purchasers?\s+of\s+|law\s*firm|law\s*offices|is\s+investigating)/i;
 
 const FILING_BOILERPLATE = /(form\s*8\.[35]\s*\(|notification\s+of\s+(major\s+)?holdings|total\s+voting\s+rights|resolutions?\s+passed\s+by|transaction\s+in\s+own\s+shares|block\s+listing\s+(six|interim)|director\/pdmr\s+shareholding)/i;
 
@@ -289,7 +293,10 @@ const computeCnfScore = (
     dotBarsSince: number | null;
     isBearInstrument: boolean;
     aboveEma10: boolean | null;
-    planClear: boolean | null;
+    planTradeable: boolean;
+    planResistanceR: number | null;
+    planClear: boolean;
+    planCollapsed: boolean;
   }
 ): { score: number; grade: string; breakdown: Record<string, number>; ceiling: number; ceilingReason: string | null } => {
   const b: Record<string, number> = {};
@@ -359,14 +366,37 @@ const computeCnfScore = (
   b.reclaim = 0;
   if (q.setupName === 'Reversal' && q.aboveEma10 === true) b.reclaim = 8;
 
-  // --- Runway (v6.15) -----------------------------------------------------
-  // Whether the 2R target is reachable before the nearest overhead level.
-  // This is the only component that asks what the trade PAYS rather than how
-  // good the name looks, and it is deliberately modest: a blocked runway is
-  // a reason to size down or wait for the level, not a disqualification.
+  // --- Runway, GRADED (v6.16) ---------------------------------------------
+  // v6.15 made this ±6 on a binary `clear` flag and it came back −6 on
+  // roughly nine rows in ten. Every semiconductor name had its 21 EMA
+  // directly overhead — they all broke down together — so the component
+  // separated nothing and simply moved the whole board down six points.
+  //
+  // Graded on the actual distance to the nearest level, so 0.18R (MU, the
+  // 50 EMA basically on top of the trigger) is distinguished from 0.94R
+  // (SOXL, most of a stop-width of air). Both were −6 before.
+  //
+  // The bands:
+  //   clear (>= 2R)   +8   nothing between here and the target
+  //   1.0 – 2.0R      -2   target needs a level to break, but there is room
+  //   0.5 – 1.0R      -6   the level is close enough to cap most of the move
+  //   < 0.5R         -10   trigger and resistance are effectively the same
+  //   collapsed      -10   price has fallen off its own averages
+  //
+  // A name with no plan at all scores 0 rather than a penalty — the absence
+  // of a computable entry is already reflected in `status` never reaching
+  // Ready, and double-counting it here would punish short-history rows for
+  // a data gap.
   b.runway = 0;
-  if (q.planClear === true) b.runway = 6;
-  else if (q.planClear === false) b.runway = -6;
+  if (q.planCollapsed) {
+    b.runway = -10;
+  } else if (q.planTradeable) {
+    if (q.planClear) b.runway = 8;
+    else if (q.planResistanceR == null) b.runway = 0;
+    else if (q.planResistanceR >= 1.0) b.runway = -2;
+    else if (q.planResistanceR >= 0.5) b.runway = -6;
+    else b.runway = -10;
+  }
 
   const raw = Object.values(b).reduce((s, v) => s + v, 0);
 
@@ -399,9 +429,19 @@ const computeCnfScore = (
     else { dotCeiling = 59; dotReason = `red dot ${since} bars ago`; }
   }
 
-  const ceiling = Math.min(structuralCeiling, dotCeiling);
+  // A collapsed chart caps at C outright. NBIZ scored 88-A on the first live
+  // run purely because a 53% decline left nothing overhead within 2R.
+  let collapseCeiling = 100;
+  let collapseReason: string | null = null;
+  if (q.planCollapsed) {
+    collapseCeiling = 44;
+    collapseReason = 'price collapsed away from its own averages';
+  }
+
+  const ceiling = Math.min(structuralCeiling, dotCeiling, collapseCeiling);
   const ceilingReason =
     ceiling === 100 ? null :
+    ceiling === collapseCeiling && collapseReason ? collapseReason :
     ceiling === dotCeiling && dotReason ? dotReason :
     structuralReason;
 
@@ -434,10 +474,10 @@ const buildReadout = (t: any): string | null => {
   if (t.atrPct != null) parts.push(`ATR ${t.atrPct.toFixed(1)}%`);
   if (t.adrPct != null) parts.push(`ADR ${t.adrPct.toFixed(1)}%`);
   if (t.goldenCross != null) parts.push(t.goldenCross ? '50>200 intact' : '50<200');
-  // The plan closes the readout because it is the only part that says what
-  // to actually do.
   if (t.plan?.tradeable) {
     parts.push(`trigger ${t.plan.trigger.toFixed(2)} (${t.plan.triggerLabel}), stop −${t.plan.stopPct.toFixed(1)}%, ${t.plan.clear ? '2R clear' : `${t.plan.resistanceLabel} at ${t.plan.resistanceR.toFixed(1)}R`}`);
+  } else if (t.plan?.collapsed) {
+    parts.push('no long plan — price has collapsed');
   }
   if (parts.length === 0) return null;
   return parts.join(', ') + '.';
@@ -510,6 +550,7 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
   const redDots = i.surfaced.filter((t: any) => t.dotKind === 'red').length;
   const planned = i.surfaced.filter((t: any) => t.plan?.tradeable).length;
   const clearRunway = i.surfaced.filter((t: any) => t.plan?.tradeable && t.plan.clear).length;
+  const collapsed = i.surfaced.filter((t: any) => t.plan?.collapsed).length;
 
   const yieldBits: string[] = [
     `${i.surfaced.length} name${i.surfaced.length === 1 ? '' : 's'} cleared the setup gates`,
@@ -519,7 +560,8 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
     if (blueDots + redDots > 0) yieldBits.push(`${blueDots} blue dot${blueDots === 1 ? '' : 's'} vs ${redDots} red`);
     if (breakouts + reversals > 0) yieldBits.push(`${breakouts} breakout-family vs ${reversals} reversal-family`);
     if (unnamed > 0) yieldBits.push(`${unnamed} matched no pattern`);
-    yieldBits.push(`${planned} have a definable entry, ${clearRunway} of those with 2R clear of overhead`);
+    yieldBits.push(`${planned} have a definable entry, ${clearRunway} with 2R clear of overhead`);
+    if (collapsed > 0) yieldBits.push(`${collapsed} have fallen off their own averages`);
     if (extended > 0) yieldBits.push(`${extended} already extended`);
     if (capped > 0) yieldBits.push(`${capped} grade-capped`);
     yieldBits.push(`${ready} flagged Ready`);
@@ -529,9 +571,6 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
   let posture: string;
   const thinYield = gradeA + gradeB <= 2;
 
-  // The posture line now leads with the tradeable count when it is the
-  // binding constraint — a board full of A grades with nowhere to place a
-  // stop is a different problem than a board with nothing scoring.
   if (i.surfaced.length >= 4 && clearRunway === 0) {
     posture = 'Nothing on the board has two stop-widths of clear air above its trigger. Whatever the grades say, there is no room to be paid — wait for a level to break or for price to come back to an anchor.';
   } else if (i.breadthSignal === 'RED' && thinYield) {
@@ -1191,9 +1230,6 @@ async function runScan(request: Request) {
         stochK = (rawK(0) + rawK(1) + rawK(2) + rawK(3)) / 4;
       }
 
-      // v6.15: the EMA VALUES are kept, not just the derived booleans and
-      // percentages. The trade plan needs price levels — you cannot place a
-      // stop relative to "3.2% below the 21 EMA".
       let ema10Val: number | null = null;
       let ema21Val: number | null = null;
       let ema50Val: number | null = null;
@@ -1219,9 +1255,6 @@ async function runScan(request: Request) {
         }
         ema10Val = e10;
         ema21Val = e21;
-        // The 50 EMA exists only as a resistance level for the plan. It is
-        // not scored and not displayed on its own, and it needs more history
-        // than the 10 or 21 to be meaningful.
         ema50Val = dailyBars.length >= 60 ? e50 : null;
         aboveEma10 = price >= e10;
         aboveEma21 = price >= e21;
@@ -1251,9 +1284,8 @@ async function runScan(request: Request) {
       }
       const atrPct = (atr > 0 && price > 0) ? (atr / price) * 100 : null;
 
-      // Prior swing high — the highest bar in the last 63 sessions EXCLUDING
-      // the last five. Excluding the recent window matters: on a name that
-      // just ran, today's own high would otherwise become its own resistance.
+      // Prior swing high — highest bar in the last 63 sessions EXCLUDING the
+      // last five, so a name that just ran does not become its own resistance.
       let priorSwingHigh: number | null = null;
       if (dailyBars.length >= 20) {
         const win = dailyBars.slice(5, Math.min(63, dailyBars.length));
@@ -1282,12 +1314,14 @@ async function runScan(request: Request) {
       const setupMatched = detectPattern(dailyBars, price, currentOpen, vwap, rvol, dot.kind, stochK);
       const companyName = details?.results?.name || sym;
 
-      // Trade plan. Runs after the pattern is named because the trigger rule
-      // is family-dependent.
+      // v6.16: changePct is now passed. Without it the planner produced long
+      // plans for names down 50% and reported "2R clear of overhead" — true,
+      // because every level was far above, and exactly backwards.
       const plan = computeTradePlan({
         price,
         adrPct,
         atrPct,
+        changePct: chgPct,
         ema10: ema10Val,
         ema21: ema21Val,
         ema50: ema50Val,
@@ -1345,14 +1379,12 @@ async function runScan(request: Request) {
         dotStochK: dot.stochK,
         dotBarsSince: dot.barsSinceExtreme,
         aboveEma10, aboveEma21,
-        // Raw levels — new in v6.15.
         ema10: round2(ema10Val),
         ema21: round2(ema21Val),
         ema50: round2(ema50Val),
         dayHigh: round2(dayHigh ?? dailyBars[0]?.h ?? null),
         dayLow: round2(dayLow ?? dailyBars[0]?.l ?? null),
         priorSwingHigh: round2(priorSwingHigh),
-        // Plan, rounded for the wire.
         plan: plan.tradeable ? {
           family: plan.family,
           trigger: round2(plan.trigger),
@@ -1364,9 +1396,10 @@ async function runScan(request: Request) {
           resistanceR: plan.resistanceR != null ? parseFloat(plan.resistanceR.toFixed(2)) : null,
           resistanceLabel: plan.resistanceLabel,
           clear: plan.clear,
+          collapsed: plan.collapsed,
           tradeable: true,
           note: plan.note,
-        } : { tradeable: false, note: plan.note, family: plan.family },
+        } : { tradeable: false, collapsed: plan.collapsed, note: plan.note, family: plan.family },
         distToEma10: distToEma10 != null ? parseFloat(distToEma10.toFixed(2)) : null,
         distToEma21: distToEma21 != null ? parseFloat(distToEma21.toFixed(2)) : null,
         ema21Rising,
@@ -1472,8 +1505,6 @@ async function runScan(request: Request) {
         ? 'Ready' : 'Forming';
       if (t.tradeType === 'Day Trade' && t.vwapStatus === 'below') t.status = 'Forming';
       if (t.dotKind === 'red' && !isBearishInstrument(t.name)) t.status = 'Forming';
-      // Ready means "take this now". A name with no definable entry cannot
-      // be taken now regardless of how the oscillators look.
       if (!t.plan?.tradeable) t.status = 'Forming';
     });
 
@@ -1517,7 +1548,10 @@ async function runScan(request: Request) {
           dotBarsSince: t.dotBarsSince ?? null,
           isBearInstrument: isBearishInstrument(t.name),
           aboveEma10: t.aboveEma10 ?? null,
-          planClear: t.plan?.tradeable ? t.plan.clear : null,
+          planTradeable: t.plan?.tradeable === true,
+          planResistanceR: t.plan?.resistanceR ?? null,
+          planClear: t.plan?.clear === true,
+          planCollapsed: t.plan?.collapsed === true,
         }
       );
       t.cnfScore = cnf.score;
@@ -1659,6 +1693,13 @@ async function runScan(request: Request) {
       macroInsights = await readFreshMacroInsights();
     }
 
+    // Plan-distribution diagnostics. If `runwayNear` dominates the way it did
+    // on the v6.15 run, the grading has not helped and the component needs a
+    // different basis than distance-to-nearest-level.
+    const rBucket = (t: any, lo: number, hi: number) =>
+      t.plan?.tradeable && !t.plan.clear && t.plan.resistanceR != null &&
+      t.plan.resistanceR >= lo && t.plan.resistanceR < hi;
+
     return NextResponse.json({
       success: true,
       marketStatus: currentMarketStatus,
@@ -1681,15 +1722,15 @@ async function runScan(request: Request) {
         gradeCapped: enrichedList.filter((t: any) => t.cnfCeiling != null && t.cnfCeiling < 100).length,
         blueDots: enrichedList.filter((t: any) => t.dotKind === 'blue').length,
         redDots: enrichedList.filter((t: any) => t.dotKind === 'red').length,
-        redDotCapped: enrichedList.filter((t: any) => t.dotKind === 'red' && !isBearishInstrument(t.name)).length,
         reversals: enrichedList.filter((t: any) => t.setupName === 'Reversal').length,
         unnamed: enrichedList.filter((t: any) => !t.setupName).length,
-        // The plan diagnostics. `planned` vs `scanned` says how much of the
-        // board has a definable entry at all; `clearRunway` vs `planned` says
-        // how much of THAT has room to be paid.
         planned: enrichedList.filter((t: any) => t.plan?.tradeable).length,
-        clearRunway: enrichedList.filter((t: any) => t.plan?.tradeable && t.plan.clear).length,
+        collapsed: enrichedList.filter((t: any) => t.plan?.collapsed).length,
         triggerPassed: enrichedList.filter((t: any) => t.plan?.note === 'trigger already passed').length,
+        runwayClear: enrichedList.filter((t: any) => t.plan?.tradeable && t.plan.clear).length,
+        runwayMid: enrichedList.filter((t: any) => rBucket(t, 1.0, 2.0)).length,
+        runwayNear: enrichedList.filter((t: any) => rBucket(t, 0.5, 1.0)).length,
+        runwayTight: enrichedList.filter((t: any) => rBucket(t, 0, 0.5)).length,
       },
       fromCache: false
     }, { headers: noStoreHeaders });
