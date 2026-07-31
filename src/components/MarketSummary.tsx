@@ -898,12 +898,7 @@ const blendedScore = (s: any): number => {
 /* ---- 10/21 Thesis ------------------------------------------------------
    Restructured from "at the anchor vs no touch" into SWING/REVERSAL vs DAY,
    ranked by the same blendedScore that drives the watchlist, each row
-   carrying its posture tag.
-
-   The old split answered "what is buyable" but sat next to a separately-
-   ranked watchlist answering "what is interesting" — and the two disagreed.
-   This IS the ranked pick list, cut by holding period, with structure shown
-   per row rather than as a bucket heading. */
+   carrying its posture tag. */
 const isDayName = (s: any): boolean =>
   String(s?.tradeType || '').toLowerCase().startsWith('day');
 
@@ -1022,9 +1017,7 @@ const buildMoversPara = (movers: any): string => {
    volume-vs-60-day-high and float turnover — both real EP9M measures and
    both unreadable without the definition in front of you. What made them
    worse than useless is that the COLUMN ALREADY SAYS IT: a name in the
-   Unprecedented column beat its own 60-day record by definition, so the
-   number restated the heading. Float turnover is genuinely interesting and
-   genuinely needs a sentence to explain, which a row cannot carry.
+   Unprecedented column beat its own 60-day record by definition.
 
    vs-60d still RANKS the Unprecedented column. Ranking without display is
    normal here — reach does the same in Trade Plan. */
@@ -1347,8 +1340,29 @@ const TICKER_STOPWORDS = new Set([
    as a ticker. */
 const CATALYST_TAGS = 'Earnings|FDA|Analyst|M&A|Offering|Contract|Guidance|Legal|Volatility|Sector';
 
-const tickerChipCls = "inline-block align-baseline text-[10px] font-bold text-slate-300 bg-slate-500/10 px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5 min-w-[48px] text-center";
-const valNum = "text-[12px] tabular-nums";
+/* ---- TYPE SCALE ---------------------------------------------------------
+   Stepped down roughly 8% from the previous pass, which buys about one extra
+   field per line before a row wraps on a phone.
+
+       row text     13 → 12px
+       valNum       12 → 11px
+       badges       10 →  9px, padding px-1.5 → px-1
+       ticker chip  10 →  9px, min-w 48 → 44px
+       tiny labels   9 →  8px  (TR/ST/TG)
+       RVOL label   10 →  9px
+       blurbs       11 → 10px
+       footers      12 → 11px
+
+   The fixed column widths came down with it — they are measured in pixels
+   against a font that is now smaller, so leaving them would have opened gaps
+   rather than closing them.
+
+   12px is roughly the floor for this. Below it the tabular figures start
+   losing the distinction between 6, 8 and 0 at a glance, which for a column
+   of price levels is the whole point of having them. */
+const tickerChipCls = "inline-block align-baseline text-[9px] font-bold text-slate-300 bg-slate-500/10 px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5 min-w-[44px] text-center";
+const valNum = "text-[11px] tabular-nums";
+const rowText = "text-[12px]";
 
 const rvolColor = (v: number) => (v >= 2 ? 'text-amber-400' : v >= 1.5 ? 'text-emerald-400' : 'text-slate-400');
 const stageColor = (st: string) => {
@@ -1392,8 +1406,7 @@ const ALIGNED_SECTIONS = new Set([
 /* A ROW starts with a ticker (all-caps, 1-5 chars, then a space) or with a
    signed percentage (Industry Heat has no ticker). Prose never does, so
    "$57.7B in tracked dollar volume..." keeps its natural spacing while the
-   dollar magnets below it get aligned columns. Without this test the fixed
-   widths opened gaps mid-sentence. */
+   dollar magnets below it get aligned columns. */
 const isRowLine = (line: string): boolean => {
   const t = line.trim();
   return /^[A-Z]{1,5}\s/.test(t) || /^[+-]\d/.test(t);
@@ -1410,32 +1423,32 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
   );
   const parts = text.split(rx);
 
-  const chgW = align ? 'inline-block min-w-[60px] text-right' : '';
-  const cnfW = align ? 'min-w-[30px] text-center' : '';
-  const rtrW = align ? 'min-w-[42px] text-center' : '';
-  const rvolW = align ? 'inline-block min-w-[34px] text-right' : '';
-  const lvlValW = align ? 'inline-block min-w-[40px] text-right' : '';
-  const dvolW = align ? 'inline-block min-w-[54px] text-right ml-1' : '';
+  const chgW = align ? 'inline-block min-w-[54px] text-right' : '';
+  const cnfW = align ? 'min-w-[26px] text-center' : '';
+  const rtrW = align ? 'min-w-[38px] text-center' : '';
+  const rvolW = align ? 'inline-block min-w-[30px] text-right' : '';
+  const lvlValW = align ? 'inline-block min-w-[36px] text-right' : '';
+  const dvolW = align ? 'inline-block min-w-[48px] text-right ml-1' : '';
 
   return parts.map((part, i) => {
     if (!part) return null;
     if (part === '▸') return <span key={i} className="text-rose-400 font-bold">▸</span>;
     if (part === BLUE_DOT_GLYPH) {
       return (
-        <span key={i} title="Blue Dot reversal — oversold stochastic reset fired on the daily" className="text-sky-400 text-[13px] align-baseline">
+        <span key={i} title="Blue Dot reversal — oversold stochastic reset fired on the daily" className="text-sky-400 text-[12px] align-baseline">
           {BLUE_DOT_GLYPH}
         </span>
       );
     }
     if (part === 'REV') {
       return (
-        <span key={i} title="Reversal by structure — up today, under the 21, no blue dot behind it" className="text-sky-400 font-bold tracking-wide text-[11px]">
+        <span key={i} title="Reversal by structure — up today, under the 21, no blue dot behind it" className="text-sky-400 font-bold tracking-wide text-[10px]">
           REV
         </span>
       );
     }
-    if (part === 'RED DOT') return <span key={i} className="text-rose-400 font-bold tracking-wide text-[11px]">RED DOT</span>;
-    if (part === 'BLUE DOT') return <span key={i} className="text-cyan-400 font-bold tracking-wide">BLUE DOT</span>;
+    if (part === 'RED DOT') return <span key={i} className="text-rose-400 font-bold tracking-wide text-[10px]">RED DOT</span>;
+    if (part === 'BLUE DOT') return <span key={i} className="text-cyan-400 font-bold tracking-wide text-[11px]">BLUE DOT</span>;
 
     const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (linkMatch) {
@@ -1451,7 +1464,7 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
       const v = isDash ? 0 : parseFloat(m[1]);
       return (
         <span key={i} className={align ? 'ml-1.5' : ''}>
-          <span className="text-slate-500 text-[10px]">RVOL</span>{' '}
+          <span className="text-slate-500 text-[9px]">RVOL</span>{' '}
           <span className={`${valNum} ${isDash ? 'text-slate-600' : rvolColor(v)} ${rvolW}`}>{m[1]}</span>
         </span>
       );
@@ -1462,7 +1475,7 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
       return (
         <span
           key={i}
-          className={`inline-block align-baseline text-[10px] font-bold tabular-nums px-1.5 py-[1px] rounded border mx-0.5 ${cnfW} ${cnfBadgeCls(v)}`}
+          className={`inline-block align-baseline text-[9px] font-bold tabular-nums px-1 py-[1px] rounded border mx-0.5 ${cnfW} ${cnfBadgeCls(v)}`}
         >
           {m[1]}
         </span>
@@ -1490,7 +1503,7 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
       const tone = m[1] === 'ST' ? 'text-rose-400' : m[1] === 'TG' ? 'text-emerald-400' : 'text-slate-200';
       return (
         <span key={i} className={align ? 'inline-block ml-2' : ''}>
-          <span className="text-slate-500 text-[9px] tracking-tight">{m[1]}</span>
+          <span className="text-slate-500 text-[8px] tracking-tight">{m[1]}</span>
           <span className={`${valNum} ${tone} ${lvlValW}`}>{m[2]}</span>
         </span>
       );
@@ -1498,7 +1511,7 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
     m = part.match(/^(\d+(?:\.\d+)?)x ADR$/);
     if (m) {
       const v = parseFloat(m[1]);
-      return <span key={i}><span className={`${valNum} ${reachColor(v)}`}>{m[1]}×</span> <span className="text-slate-500">ADR</span></span>;
+      return <span key={i}><span className={`${valNum} ${reachColor(v)}`}>{m[1]}×</span> <span className="text-slate-500 text-[9px]">ADR</span></span>;
     }
     m = part.match(/^(\d+(?:\.\d+)?)R(\+?)$/);
     if (m) {
@@ -1506,7 +1519,7 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
       return (
         <span
           key={i}
-          className={`inline-block align-baseline text-[10px] font-bold tabular-nums px-1.5 py-[1px] rounded border mx-0.5 ${rtrW} ${rtrBadgeCls(v)}`}
+          className={`inline-block align-baseline text-[9px] font-bold tabular-nums px-1 py-[1px] rounded border mx-0.5 ${rtrW} ${rtrBadgeCls(v)}`}
         >
           {part}
         </span>
@@ -1514,7 +1527,7 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
     }
     if (new RegExp(`^(?:${CATALYST_TAGS})$`).test(part)) {
       return (
-        <span key={i} className={`text-[10px] font-bold tracking-wider uppercase text-amber-400/80 ${align ? 'ml-1' : ''}`}>
+        <span key={i} className={`text-[9px] font-bold tracking-wider uppercase text-amber-400/80 ${align ? 'ml-1' : ''}`}>
           {part}
         </span>
       );
@@ -1595,7 +1608,7 @@ function SectionCopyButton({ tickers }: { tickers: string[] }) {
     <button
       onClick={handleCopy}
       title={`Copy ${tickers.length} ticker${tickers.length !== 1 ? 's' : ''}: ${tickers.join(', ')}`}
-      className={`text-[9px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border transition-all duration-200 ${
+      className={`text-[8px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border transition-all duration-200 ${
         copied
           ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
           : 'bg-[#161c2a] text-slate-500 border-white/5 hover:text-slate-300 hover:bg-white/[0.04]'
@@ -1782,14 +1795,14 @@ export default function MarketSummary() {
       <div className="bg-[#161c2a]/60 border border-white/5 rounded-xl p-5 md:p-6 mt-3">
         <div className="flex items-center gap-3 mb-4 flex-wrap">
           <div className={`w-2 h-2 rounded-full border border-current ${stale ? 'bg-slate-500/10 text-slate-500' : `${styles.bg} ${styles.text}`}`}></div>
-          <h4 className={`text-[11px] font-bold tracking-widest uppercase ${stale ? 'text-slate-400' : styles.text}`}>
+          <h4 className={`text-[10px] font-bold tracking-widest uppercase ${stale ? 'text-slate-400' : styles.text}`}>
             {block.phase}
           </h4>
-          <span className="text-[9px] text-slate-500 font-medium tracking-wider px-2 py-0.5 bg-black/20 border border-white/5 rounded">
+          <span className="text-[8px] text-slate-500 font-medium tracking-wider px-2 py-0.5 bg-black/20 border border-white/5 rounded">
             {block.timestamp}
           </span>
           {stale && (
-            <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
+            <span className="text-[8px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
               Superseded
             </span>
           )}
@@ -1797,20 +1810,20 @@ export default function MarketSummary() {
 
         <div className="space-y-3 mb-5">
           {block.paragraphs.map((p, idx) => (
-            <p key={idx} className="text-[13px] text-slate-400 leading-relaxed border-l-[2px] border-slate-500/30 pl-3.5">
+            <p key={idx} className={`${rowText} text-slate-400 leading-relaxed border-l-[2px] border-slate-500/30 pl-3.5`}>
               {renderBriefingText(p)}
             </p>
           ))}
         </div>
 
         <div className={`border-l-[4px] p-4 rounded-r-xl transition-colors duration-300 ${stale ? 'bg-slate-500/[0.07] border-slate-500' : `${styles.boxBg} ${styles.boxBorder}`}`}>
-          <p className={`text-[13px] leading-relaxed ${stale ? 'text-slate-300' : styles.boxText}`}>
+          <p className={`${rowText} leading-relaxed ${stale ? 'text-slate-300' : styles.boxText}`}>
             {block.takeaway}
           </p>
         </div>
 
         {stale && (
-          <p className="text-[11px] text-amber-400/90 font-medium mt-3 leading-snug">
+          <p className="text-[10px] text-amber-400/90 font-medium mt-3 leading-snug">
             Written for the {block.phase.toLowerCase()} window — the tape has moved past this read.
             {nextLabel ? ` Treat it as history until the ${nextLabel} update posts.` : ''}
           </p>
@@ -1841,7 +1854,7 @@ export default function MarketSummary() {
             </span>
           </div>
           {lastUpdated && (
-            <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
+            <span className="text-[10px] text-slate-400/80 font-medium px-1 tracking-wide">
               Updated: {formatTime(lastUpdated)} EST
             </span>
           )}
@@ -1855,7 +1868,7 @@ export default function MarketSummary() {
               <div className="absolute right-0 top-0 w-64 h-64 bg-cyan-500/10 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
 
               <div className="flex items-center gap-3 mb-3 relative z-10 flex-wrap">
-                <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-3 py-1 rounded tracking-widest uppercase flex items-center gap-2">
+                <span className="text-[9px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-3 py-1 rounded tracking-widest uppercase flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
                   MARKET BRIEFING
                 </span>
@@ -1872,18 +1885,18 @@ export default function MarketSummary() {
                     {cats.map((cat, ci) => (
                       <div key={ci} className="border-l-[3px] border-amber-500 bg-amber-500/[0.04] rounded-r-xl px-4 py-3">
                         <div className="flex items-center gap-2.5 flex-wrap">
-                          <span className="text-[9px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded shrink-0">{ci === 0 ? 'TOP CATALYST' : 'CATALYST'}</span>
-                          <span className="text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider shrink-0">{cat.ticker}</span>
+                          <span className="text-[8px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded shrink-0">{ci === 0 ? 'TOP CATALYST' : 'CATALYST'}</span>
+                          <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider shrink-0">{cat.ticker}</span>
                           {cat.url ? (
-                            <a href={cat.url} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-300 font-medium hover:text-cyan-300 transition-colors hover:underline">
+                            <a href={cat.url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-slate-300 font-medium hover:text-cyan-300 transition-colors hover:underline">
                               {cat.headline}
                             </a>
                           ) : (
-                            <span className="text-xs text-slate-300 font-medium">{cat.headline}</span>
+                            <span className="text-[11px] text-slate-300 font-medium">{cat.headline}</span>
                           )}
                         </div>
                         {cat.brief && (
-                          <p className="text-[12px] text-slate-400 font-medium leading-relaxed mt-2">
+                          <p className="text-[11px] text-slate-400 font-medium leading-relaxed mt-2">
                             {renderBriefingText(cat.brief)}
                           </p>
                         )}
@@ -1907,11 +1920,11 @@ export default function MarketSummary() {
                   return (
                     <div>
                       <div className="flex items-center justify-between gap-3 mb-3">
-                        <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500">Narrative Breakdown</h3>
+                        <h3 className="text-[8px] font-bold tracking-widest uppercase text-slate-500">Narrative Breakdown</h3>
                         {collapsibleKeys.length > 1 && (
                           <button
                             onClick={() => setCollapsedSections(everyCollapsed ? new Set() : new Set(collapsibleKeys))}
-                            className="text-[9px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border bg-[#161c2a] text-slate-500 border-white/5 hover:text-slate-300 hover:bg-white/[0.04] transition-all duration-200"
+                            className="text-[8px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border bg-[#161c2a] text-slate-500 border-white/5 hover:text-slate-300 hover:bg-white/[0.04] transition-all duration-200"
                           >
                             {everyCollapsed ? 'Expand all' : 'Collapse all'}
                           </button>
@@ -1937,19 +1950,19 @@ export default function MarketSummary() {
                                       title={isOpen ? 'Collapse this section' : 'Expand this section'}
                                       className="flex items-center gap-2 group/sec"
                                     >
-                                      <span className={`text-[9px] text-slate-500 group-hover/sec:text-slate-300 transition-all duration-200 ${isOpen ? 'rotate-90' : ''}`}>▸</span>
-                                      <span className={`inline-block text-[9px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border ${st.badge}`}>
+                                      <span className={`text-[8px] text-slate-500 group-hover/sec:text-slate-300 transition-all duration-200 ${isOpen ? 'rotate-90' : ''}`}>▸</span>
+                                      <span className={`inline-block text-[8px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border ${st.badge}`}>
                                         {label}
                                       </span>
                                     </button>
                                     {isOpen && bodyTickers.length > 0 && <SectionCopyButton tickers={bodyTickers} />}
                                     {!isOpen && bodyTickers.length > 0 && (
-                                      <span className="text-[10px] text-slate-600 font-medium">
+                                      <span className="text-[9px] text-slate-600 font-medium">
                                         {bodyTickers.length} name{bodyTickers.length === 1 ? '' : 's'}
                                       </span>
                                     )}
                                   </div>
-                                  {isOpen && blurb && <p className="text-[11px] text-slate-500 font-medium mt-1.5 leading-snug">{blurb}</p>}
+                                  {isOpen && blurb && <p className="text-[10px] text-slate-500 font-medium mt-1.5 leading-snug">{blurb}</p>}
                                 </div>
                               )}
                               {isOpen && (
@@ -1967,7 +1980,7 @@ export default function MarketSummary() {
                                             const render = (line: string, li: number) => {
                                               const a = sectionAligns && isRowLine(line);
                                               return (
-                                                <p key={li} className={`text-[13px] text-slate-300 leading-relaxed font-medium ${a ? 'whitespace-nowrap' : ''}`}>
+                                                <p key={li} className={`${rowText} text-slate-300 leading-relaxed font-medium ${a ? 'whitespace-nowrap' : ''}`}>
                                                   {renderBriefingText(line, a)}
                                                 </p>
                                               );
@@ -1976,7 +1989,7 @@ export default function MarketSummary() {
                                               <div key={ci} className="space-y-1.5">
                                                 {isHeading ? (
                                                   <>
-                                                    <p className="text-[10px] font-bold tracking-wider uppercase text-slate-500 pb-0.5 border-b border-white/5">
+                                                    <p className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5 border-b border-white/5">
                                                       {heading.replace(/:$/, '')}
                                                     </p>
                                                     {rows.map(render)}
@@ -1991,7 +2004,7 @@ export default function MarketSummary() {
                                         {afterCols && (
                                           <div className="space-y-1.5 mt-4 pt-3 border-t border-white/5">
                                             {afterCols.trim().split('\n').filter(Boolean).map((line, li) => (
-                                              <p key={li} className="text-[12px] text-slate-400 leading-relaxed font-medium">
+                                              <p key={li} className="text-[11px] text-slate-400 leading-relaxed font-medium">
                                                 {renderBriefingText(line)}
                                               </p>
                                             ))}
@@ -2005,7 +2018,7 @@ export default function MarketSummary() {
                                     {body.split('\n').filter(Boolean).map((line, li) => {
                                       const a = sectionAligns && isRowLine(line);
                                       return (
-                                        <p key={li} className={`text-[13px] text-slate-300 leading-relaxed font-medium ${a ? 'whitespace-nowrap' : ''}`}>
+                                        <p key={li} className={`${rowText} text-slate-300 leading-relaxed font-medium ${a ? 'whitespace-nowrap' : ''}`}>
                                           {renderBriefingText(line, a)}
                                         </p>
                                       );
@@ -2022,7 +2035,7 @@ export default function MarketSummary() {
                 })()}
 
                 <div className="border-t border-white/5 pt-6">
-                  <h3 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-3">What To Watch &amp; Why</h3>
+                  <h3 className="text-[8px] font-bold tracking-widest uppercase text-slate-500 mb-3">What To Watch &amp; Why</h3>
                   <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                     {macroInsights.watching?.map((item, idx) => {
                       const symbol = typeof item === 'string' ? item : item.symbol;
@@ -2044,27 +2057,27 @@ export default function MarketSummary() {
                           dk === 'red' ? 'border-rose-500/25 hover:border-rose-500/40' : 'border-white/5 hover:border-cyan-500/20'
                         }`}>
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider">
+                            <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider">
                               {symbol}
                             </span>
                             <div className="flex items-center gap-1.5">
                               {dk === 'red' && (
-                                <span className="text-[8px] font-bold px-1.5 py-0.5 rounded border tracking-wider uppercase text-rose-400 bg-rose-500/10 border-rose-500/20">
+                                <span className="text-[8px] font-bold px-1 py-0.5 rounded border tracking-wider uppercase text-rose-400 bg-rose-500/10 border-rose-500/20">
                                   RD
                                 </span>
                               )}
                               {dk === 'blue' && (
-                                <span className="text-sky-400 text-[13px] leading-none" title="Blue Dot reversal">
+                                <span className="text-sky-400 text-[12px] leading-none" title="Blue Dot reversal">
                                   {BLUE_DOT_GLYPH}
                                 </span>
                               )}
                               {pMeta && (
-                                <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border tracking-wider uppercase ${postureChipCls(pMeta.tone)}`}>
+                                <span className={`text-[8px] font-bold px-1 py-0.5 rounded border tracking-wider uppercase ${postureChipCls(pMeta.tone)}`}>
                                   {pMeta.short}
                                 </span>
                               )}
                               {parsedScore !== undefined && (
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded border tracking-wide ${cnfBadgeCls(parsedScore)}`}>
+                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border tracking-wide ${cnfBadgeCls(parsedScore)}`}>
                                   {parsedScore}
                                 </span>
                               )}
@@ -2074,18 +2087,18 @@ export default function MarketSummary() {
                             const clauses = (reason || '').split(';').map((c) => c.trim()).filter(Boolean);
                             if (clauses.length <= 1) {
                               return (
-                                <p className="text-[13px] text-slate-300 font-medium leading-relaxed">
+                                <p className={`${rowText} text-slate-300 font-medium leading-relaxed`}>
                                   {renderBriefingText(reason)}
                                 </p>
                               );
                             }
                             return (
                               <div className="flex flex-col gap-1">
-                                <p className="text-[13px] text-slate-300 font-medium leading-relaxed">
+                                <p className={`${rowText} text-slate-300 font-medium leading-relaxed`}>
                                   {renderBriefingText(clauses[0])}
                                 </p>
                                 {clauses.slice(1).map((c, ci) => (
-                                  <p key={ci} className="text-[12px] text-slate-400 font-medium leading-relaxed">
+                                  <p key={ci} className="text-[11px] text-slate-400 font-medium leading-relaxed">
                                     {renderBriefingText(c)}
                                   </p>
                                 ))}
@@ -2097,11 +2110,11 @@ export default function MarketSummary() {
                             <div className="flex items-start gap-2 pt-2 mt-0.5 border-t border-white/5">
                               <span className="text-[8px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded shrink-0 mt-[1px]">NEWS</span>
                               {catalystUrl ? (
-                                <a href={catalystUrl} target="_blank" rel="noopener noreferrer" className="text-[12px] text-slate-400 font-medium leading-relaxed hover:text-cyan-300 hover:underline transition-colors">
+                                <a href={catalystUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-slate-400 font-medium leading-relaxed hover:text-cyan-300 hover:underline transition-colors">
                                   {catalyst}
                                 </a>
                               ) : (
-                                <span className="text-[12px] text-slate-400 font-medium leading-relaxed">{catalyst}</span>
+                                <span className="text-[11px] text-slate-400 font-medium leading-relaxed">{catalyst}</span>
                               )}
                             </div>
                           )}
