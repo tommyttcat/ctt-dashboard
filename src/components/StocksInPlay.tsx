@@ -1,28 +1,40 @@
 'use client';
 
-// StocksInPlay — v3.0
+// StocksInPlay — v3.1
 // v2.6: FILTERS bleed-through fixed (header z-30); min-w 960 → 880
 // v2.7: 1% shifted STAGE 4→5 / SECTOR 8→7 — didn't help, SECTOR was still
 //       right-aligned so its text kept sliding to the card edge.
-// v2.8: SECTOR switched right-aligned → LEFT-aligned. That was the whole
-//       problem: pinned text-right, SECTOR hugged the card edge no matter its
-//       width, reopening the gap to STAGE every time.
-// v2.9: + R column and the trade plan on the sub-row. The scanner had been
-//       emitting trigger / stop / 2R target / distance-to-resistance on every
-//       row and nothing displayed it.
-// v3.0: two corrections from first look at the live table.
+// v2.8: SECTOR switched right-aligned → LEFT-aligned.
+// v2.9: + R column and the trade plan on the sub-row.
+// v3.0: STOP shows the PRICE, not the percentage. SETUP NAME moved under
+//       TICKER.
+// v3.1: FILTER CONSOLIDATION — 7 groups / 15 buttons down to 6 / 12.
 //
-//       STOP shows the PRICE, not the percentage. A stop is an order you
-//       place, and −8.6% is not something you can type into a broker. The
-//       percentage was the wrong half of the pair to surface: it describes
-//       the risk, but the price is the instruction. Percentage stays in the
-//       hover, where sizing math wants it.
+//       STAGE 2 and 10/21 both collapse into POSTURE. They were two controls
+//       reading one dimension: Weinstein Stage 2 means price above a rising
+//       long MA, and a daily name above its 21 EMA is Stage 2 nearly always.
+//       Worse, TOGETHER THEY LET THROUGH THE THING YOU MOST WANT OUT — a name
+//       four ATRs past its anchor passes both "Stage 2" and ">21" cleanly,
+//       because neither control knows what extension is. Posture checks
+//       extension FIRST, so EXTENDED becomes a bucket you can see and exclude
+//       rather than a trap inside the pass set.
 //
-//       SETUP NAME moved under TICKER. The sub-row previously opened with an
-//       empty cell spanning the ticker column, which pushed "REVERSAL" under
-//       CNF and R — so the label naming the setup sat under two numbers that
-//       score it. Reading down the ticker column now gives symbol then setup,
-//       which is the order they mean anything in.
+//       PLAN CLEAR → 2R+. Clear was `p.clear === true`, and 1R+ was
+//       `p.clear === true || resistanceR >= 1` — so every Clear row already
+//       passed 1R+ and the pair was a threshold plus its own subset. 2R+ is a
+//       second real level: clear air, or two measured stop-widths of it.
+//
+//       MKT CAP ALL removed. Nothing selected already means all; the button
+//       existed to un-press the other two, which a second click now does —
+//       matching how every other group on this bar behaves.
+//
+//       VWAP BELOW removed. On a table gated at +4% with a long-side trade
+//       plan on every row, below-VWAP is a short-side question, and the one
+//       legitimate use (hunting a reclaim) is better served by the price-cell
+//       dot than by dropping every other row.
+//
+//       Nothing computed is lost: stage, EMA dots and VWAP all still render
+//       in their columns. Only the redundant FILTERS are gone.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -51,7 +63,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Green up · red down.',
   },
   '10/21': {
-    what: 'Price vs the 10 and 21 EMAs — the Dr. Wish trend pair.',
+    what: 'Price vs the 10 and 21 EMAs — the Dr. Wish trend pair. This pair drives the POSTURE filter: above 21 and below 10 is a first touch, above both is stacked, below 21 is broken.',
     colour: 'Green dot above that EMA · red below · grey no data.',
   },
   VOL: { what: 'Shares traded today. Scan floor is 500K.' },
@@ -65,7 +77,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Purple ≤20M · green ≤50M · grey above.',
   },
   ADR: {
-    what: '20-day average daily range. The anti-chop gate — scan floor is 3%. Also the basis for the stop: 1.25× ADR or 2.5%, whichever is wider.',
+    what: '20-day average daily range. The anti-chop gate — scan floor is 3%. Also the basis for the stop: 1.25× ADR or 2.5%, whichever is wider, and for the extension test behind the EXTENDED posture.',
     colour: 'Purple 10%+ · green 5%+ · grey at the floor.',
   },
   MF: {
@@ -159,15 +171,18 @@ interface StockInPlay {
 
 type SortDirection = 'asc' | 'desc';
 type CnfFilterType = 'All' | 'A' | 'B';
-type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
-type VwapFilterType = 'All' | 'above' | 'below';
+type VwapFilterType = 'All' | 'above';
 type AdrFilterType = 'All' | '5' | '10';
-type PlanFilterType = 'All' | '1R' | 'Clear';
+type PlanFilterType = 'All' | '1R' | '2R';
+type CapFilterType = 'All' | 'Small' | 'Large';
+type PostureFilterType = 'All' | 'first-touch' | 'stacked' | 'extended';
 
 const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
 const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
-const PLAN_BUCKETS: PlanFilterType[] = ['1R', 'Clear'];
+const PLAN_BUCKETS: PlanFilterType[] = ['1R', '2R'];
+const CAP_BUCKETS: CapFilterType[] = ['Small', 'Large'];
+const POSTURE_BUCKETS: PostureFilterType[] = ['first-touch', 'stacked', 'extended'];
 
 const CNF_LABELS: Record<string, string> = {
   rvol: 'Relative volume',
@@ -405,6 +420,71 @@ const planTooltip = (row: StockInPlay): string => {
   return lines.join('\n');
 };
 
+/* ---- POSTURE ------------------------------------------------------------
+   One structural read, replacing the old STAGE 2 and 10/21 controls.
+
+   Those two were reading the same dimension from different angles — Stage 2
+   means price above a rising long MA, and a daily name above its 21 EMA is
+   Stage 2 the overwhelming majority of the time. Running both narrowed the
+   set without adding a question.
+
+   THE ORDER OF THESE CHECKS IS THE WHOLE POINT. Extension is tested FIRST,
+   because a name can be above both EMAs, pass "Stage 2", pass ">21", and
+   still be four ATRs past its anchor with nowhere to put a stop. Under the
+   old pair that row sailed through every filter. Here it lands in EXTENDED,
+   where you can see it and exclude it.
+
+   Everything needed is already on the row — `aboveEma10` / `aboveEma21` as
+   booleans, plus `distToEma21` and `adrPct` for the extension test. No
+   scanner change, and `distToEma10` is not required because the first-touch
+   test only asks which side of the 10 price sits on, not how far.
+
+   The plan object's own `overextended` flag is honoured too, so this can
+   never disagree with the EXT badge in the R column.                      */
+type PostureBucket = 'first-touch' | 'stacked' | 'extended' | 'below-21';
+
+const EXTENSION_ATR_MULTIPLE = 3;
+const EXTENSION_FALLBACK_PCT = 12;
+
+const postureOf = (row: StockInPlay): PostureBucket | null => {
+  const above21 = row.aboveEma21;
+  if (above21 == null) return null;
+
+  // Extension first — see the note above. The scanner's own verdict wins if
+  // it has one, since that is what the R column is already showing.
+  const p = planOf(row);
+  if (p?.overextended === true) return 'extended';
+
+  const d21 = row.distToEma21;
+  const adr = adrOf(row);
+  if (above21 === true && d21 != null) {
+    const ceiling = adr != null && adr > 0 ? EXTENSION_ATR_MULTIPLE * adr : EXTENSION_FALLBACK_PCT;
+    if (d21 > ceiling) return 'extended';
+  }
+
+  if (above21 === false) return 'below-21';
+  // Holding the 21 but back under the 10 — the Dr. Wish first touch, the one
+  // bucket where the stop is both defined and close.
+  if (row.aboveEma10 === false) return 'first-touch';
+  return 'stacked';
+};
+
+const POSTURE_META: Record<PostureFilterType, { label: string; title: string }> = {
+  'All': { label: 'ALL', title: '' },
+  'first-touch': {
+    label: 'FIRST TOUCH',
+    title: 'Holding the 21 EMA but pulled back under the 10 — the Dr. Wish first touch, where the stop is defined and close.',
+  },
+  'stacked': {
+    label: 'STACKED',
+    title: 'Above both the 10 and the 21, and not extended past the anchor. Trend intact, entry on strength.',
+  },
+  'extended': {
+    label: 'EXTENDED',
+    title: 'More than three ATRs above the 21 EMA — no room to place a stop. Select to inspect these; leave off to exclude them.',
+  },
+};
+
 const cnfTooltip = (row: StockInPlay): string => {
   const score = row.conviction;
   const lines: string[] = [
@@ -459,10 +539,9 @@ export default function StocksInPlay() {
   const [scanMeta, setScanMeta] = useState<any>(null);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
-  const [showStage2Only, setShowStage2Only] = useState<boolean>(false);
-  const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
+  const [postureFilter, setPostureFilter] = useState<PostureFilterType>('All');
+  const [marketCapFilter, setMarketCapFilter] = useState<CapFilterType>('All');
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
-  const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [adrFilter, setAdrFilter] = useState<AdrFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [planFilter, setPlanFilter] = useState<PlanFilterType>('All');
@@ -543,15 +622,22 @@ export default function StocksInPlay() {
     setSortConfig({ key, direction });
   };
 
+  // Every group is now a toggle: pressing the active option clears it. That
+  // is what removed the need for a MKT CAP "All" button — nothing selected
+  // already means all, and a second click gets you there.
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
-  const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
   const handleAdrFilter = (val: AdrFilterType) => setAdrFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
   const handlePlanFilter = (val: PlanFilterType) => setPlanFilter(prev => prev === val ? 'All' : val);
+  const handleCapFilter = (val: CapFilterType) => setMarketCapFilter(prev => prev === val ? 'All' : val);
+  const handlePostureFilter = (val: PostureFilterType) => setPostureFilter(prev => prev === val ? 'All' : val);
 
   const filteredAndSortedStocks = useMemo(() => {
     let filtered = stocks.filter(s => s.changePct >= 4.0 && s.vol >= 500000 && s.mktCap !== null && s.mktCap >= 20000000);
-    if (showStage2Only) filtered = filtered.filter(s => stageShort(s.stage).startsWith('2'));
+
+    if (postureFilter !== 'All') {
+      filtered = filtered.filter(s => postureOf(s) === postureFilter);
+    }
     if (marketCapFilter !== 'All') {
       filtered = filtered.filter(s => {
         const mc = s.mktCap;
@@ -565,14 +651,6 @@ export default function StocksInPlay() {
       const minScore = CNF_MIN_SCORE[cnfFilter];
       filtered = filtered.filter(s => (s.conviction ?? -1) >= minScore);
     }
-    if (emaFilter !== 'All') {
-      filtered = filtered.filter(s => {
-        if (emaFilter === '>10') return s.aboveEma10 === true;
-        if (emaFilter === '>21') return s.aboveEma21 === true;
-        if (emaFilter === 'Both') return s.aboveEma10 === true && s.aboveEma21 === true;
-        return true;
-      });
-    }
     if (adrFilter !== 'All') {
       const minAdr = Number(adrFilter);
       filtered = filtered.filter(s => {
@@ -583,15 +661,20 @@ export default function StocksInPlay() {
     if (vwapFilter !== 'All') {
       filtered = filtered.filter(s => s.vwapStatus === vwapFilter);
     }
-    // Plan filter drops anything without a usable entry. "Clear" is the
-    // strictest read on the board: a definable trigger AND two stop-widths
-    // of air above it.
+    /* Plan filter drops anything without a usable entry, then applies a
+       threshold in stop-widths.
+
+       `clear` rows carry no resistanceR at all — there is nothing overhead to
+       measure — so they satisfy BOTH levels rather than falling out of the
+       stricter one. That is the correction v3.1 makes: the old pair had
+       "Clear" as a subset of "1R+" and called them two options. */
     if (planFilter !== 'All') {
+      const minR = planFilter === '2R' ? 2.0 : 1.0;
       filtered = filtered.filter(s => {
         const p = planOf(s);
         if (!p || p.tradeable !== true || p.collapsed || p.overextended) return false;
-        if (planFilter === 'Clear') return p.clear === true;
-        return p.clear === true || (p.resistanceR != null && p.resistanceR >= 1.0);
+        if (p.clear === true) return true;
+        return p.resistanceR != null && p.resistanceR >= minR;
       });
     }
     if (!sortConfig) return filtered;
@@ -604,7 +687,7 @@ export default function StocksInPlay() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [stocks, sortConfig, showStage2Only, marketCapFilter, cnfFilter, emaFilter, adrFilter, vwapFilter, planFilter]);
+  }, [stocks, sortConfig, postureFilter, marketCapFilter, cnfFilter, adrFilter, vwapFilter, planFilter]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -706,10 +789,9 @@ export default function StocksInPlay() {
   const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
 
   const activeFilterCount =
-    (showStage2Only ? 1 : 0) +
+    (postureFilter !== 'All' ? 1 : 0) +
     (marketCapFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
-    (emaFilter !== 'All' ? 1 : 0) +
     (adrFilter !== 'All' ? 1 : 0) +
     (vwapFilter !== 'All' ? 1 : 0) +
     (planFilter !== 'All' ? 1 : 0);
@@ -765,16 +847,22 @@ export default function StocksInPlay() {
             </div>
             {showFilters && (
               <div className="flex flex-wrap justify-center items-center gap-3 w-full">
+                {/* POSTURE leads the bar because it is the only group that
+                    answers "is this at an entry" rather than "is this big
+                    enough / liquid enough / scored well enough". */}
                 <div className={pillWrap}>
-                  <span className={pillLabel}>STAGE</span>
+                  <span className={pillLabel}>POSTURE</span>
                   <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setShowStage2Only(!showStage2Only)}
-                      title="Stage 2 only — includes 2A, 2B and 2C"
-                      className={`${pillBtn} ${showStage2Only ? filterBtnActive : filterBtnIdle}`}
-                    >
-                      2
-                    </button>
+                    {POSTURE_BUCKETS.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => handlePostureFilter(opt)}
+                        title={POSTURE_META[opt].title}
+                        className={`${pillBtn} ${postureFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {POSTURE_META[opt].label}
+                      </button>
+                    ))}
                   </div>
                 </div>
                 <div className={pillWrap}>
@@ -784,35 +872,12 @@ export default function StocksInPlay() {
                       <button
                         key={opt}
                         onClick={() => handlePlanFilter(opt)}
-                        title={opt === 'Clear'
-                          ? 'Only names with a definable trigger and 2R of clear air above it'
-                          : 'Only names with at least one stop-width to the nearest overhead level'}
+                        title={opt === '2R'
+                          ? 'At least two stop-widths to the nearest overhead level, or clear air above the trigger'
+                          : 'At least one stop-width to the nearest overhead level'}
                         className={`${pillBtn} ${planFilter === opt ? filterBtnActive : filterBtnIdle}`}
                       >
-                        {opt === '1R' ? '1R+' : 'Clear'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>MKT CAP</span>
-                  <div className="flex items-center gap-1">
-                    {['All', 'Small', 'Large'].map((cap) => (
-                      <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>{cap}</button>
-                    ))}
-                  </div>
-                </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>ADR</span>
-                  <div className="flex items-center gap-1">
-                    {ADR_BUCKETS.map((opt) => (
-                      <button
-                        key={opt}
-                        onClick={() => handleAdrFilter(opt)}
-                        title={`20-day average daily range of ${opt}% and above — scan floor is 3%`}
-                        className={`${pillBtn} ${adrFilter === opt ? filterBtnActive : filterBtnIdle}`}
-                      >
-                        {opt}%+
+                        {opt === '1R' ? '1R+' : '2R+'}
                       </button>
                     ))}
                   </div>
@@ -833,11 +898,31 @@ export default function StocksInPlay() {
                   </div>
                 </div>
                 <div className={pillWrap}>
-                  <span className={pillLabel}>10/21</span>
+                  <span className={pillLabel}>ADR</span>
                   <div className="flex items-center gap-1">
-                    {(['>10', '>21', 'Both'] as EmaFilterType[]).map((opt) => (
-                      <button key={opt} onClick={() => handleEmaFilter(opt)} className={`${pillBtn} ${emaFilter === opt ? filterBtnActive : filterBtnIdle}`}>
-                        {opt}
+                    {ADR_BUCKETS.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => handleAdrFilter(opt)}
+                        title={`20-day average daily range of ${opt}% and above — scan floor is 3%`}
+                        className={`${pillBtn} ${adrFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {opt}%+
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>CAP</span>
+                  <div className="flex items-center gap-1">
+                    {CAP_BUCKETS.map((cap) => (
+                      <button
+                        key={cap}
+                        onClick={() => handleCapFilter(cap)}
+                        title={cap === 'Large' ? 'Market cap $2B and above' : 'Market cap under $2B'}
+                        className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {cap}
                       </button>
                     ))}
                   </div>
@@ -845,11 +930,12 @@ export default function StocksInPlay() {
                 <div className={pillWrap}>
                   <span className={pillLabel}>VWAP</span>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
+                    <button
+                      onClick={() => handleVwapFilter('above')}
+                      title="Only names trading above VWAP. Below-VWAP names still show their red dot in the price cell."
+                      className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}
+                    >
                       <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
-                    </button>
-                    <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
-                      <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Below
                     </button>
                   </div>
                 </div>
@@ -899,6 +985,7 @@ export default function StocksInPlay() {
                     const rme = rmeOf(row);
                     const stateRes = stateOf(rmv, rme);
                     const plan = planOf(row);
+                    const posture = postureOf(row);
                     return (
                       <React.Fragment key={i}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -929,8 +1016,15 @@ export default function StocksInPlay() {
                             <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div>
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
+                          {/* The 10/21 dots ARE the posture read — above 21
+                              and below 10 is a first touch, both green is
+                              stacked. Hover states the bucket so the filter
+                              and the column can never be read apart. */}
                           <td className={`${tdBase} whitespace-nowrap`}>
-                            <div className="flex items-center justify-center gap-1">
+                            <div
+                              className="flex items-center justify-center gap-1"
+                              title={posture ? `Posture: ${POSTURE_META[posture as PostureFilterType]?.label ?? 'BELOW 21'}` : undefined}
+                            >
                               <div className="flex items-center gap-px">
                                 <span className="text-[8px] font-bold text-slate-500">10</span>
                                 <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} title={`10 EMA: ${row.aboveEma10 == null ? 'n/a' : row.aboveEma10 ? 'above' : 'below'}`}></div>
