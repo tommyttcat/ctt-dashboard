@@ -1,0 +1,839 @@
+// app/api/vcp/run/route.ts — v1.0
+//
+// VCP — Volatility Contraction Pattern (Mark Minervini)
+//
+// Finds stocks BUILDING a base, not stocks that have already broken out of
+// one. That distinction is the reason this scan exists separately from
+// /api/scanner/run, whose detectPattern() names a VCP only when
+// `currentPrice > baseHigh` — i.e. on the day the pivot is already behind
+// you. A base is worth watching for the two to six weeks BEFORE that.
+//
+// ---------------------------------------------------------------------------
+// THE PIPELINE, and why it is shaped this way.
+//
+// The expensive thing in any market-wide structural scan is per-ticker daily
+// bars. At ~3,000 names that is 3,000 calls, which is slow even with
+// unlimited quota. So the work is staged cheapest-first:
+//
+//   1. UNIVERSE (1 call)
+//      Full-market snapshot. Price, volume and instrument-type floors.
+//
+//   2. RECENT WINDOW (~126 calls, whole market)
+//      Grouped daily aggregates, one call per trading date. Gives OHLCV for
+//      EVERY stock across the base window in ~126 requests rather than 3,000.
+//      This is the same trick /api/ep9m/run uses for its volume profile.
+//
+//   3. RS ANCHORS (~15 calls, whole market)
+//      Three far-back grouped dates for the 126/189/252-day legs of the RS
+//      formula. The 63-day leg comes free from the window in step 2.
+//
+//   4. PREFILTER (no calls)
+//      Structural screen on the window data — two or more contractions, final
+//      leg tight, legs shallowing. Deliberately LOOSER than the real test
+//      because 90 bars cannot measure the prior advance properly; see the
+//      note on prefilterVcp().
+//
+//   5. CONFIRM (one call per survivor, typically 30-80)
+//      Full history per shortlisted name. This is the AUTHORITATIVE pass:
+//      analyzeVcp with enough bars behind the base to measure the prior
+//      advance, plus the 200-day Trend Template, which needs 200 bars and
+//      therefore cannot be done in step 4 at any price.
+//
+// Net: roughly 150 market-wide calls plus a few dozen per-ticker, instead of
+// 3,000 per-ticker.
+// ---------------------------------------------------------------------------
+//
+// RS RATING IS A PERCENTILE, which is the whole point of computing it here
+// rather than reusing rsVsSpy from the other scans. "+18 points versus SPY
+// over three months" does not say whether that is top-decile leadership or
+// the middle of a strong tape — and in a strong tape it is usually the
+// middle. Minervini gates at 70 and prefers 80-90+; those numbers only mean
+// anything against a ranked universe.
+//
+// The ranking universe is EVERY stock that clears the liquidity floors, not
+// just the VCP candidates. Ranking the candidates against each other would
+// produce a rating that says "strongest of the stocks already selected for
+// being strong", which is not information.
+
+import { NextResponse } from 'next/server';
+import { kv } from '@vercel/kv';
+import {
+  analyzeVcp,
+  evaluateTrendTemplate,
+  scoreVcp,
+  atrPercent,
+  findPivots,
+  extractContractions,
+  rawRsScore,
+  percentileRank,
+  PIVOT_ATR_MULTIPLE,
+  VCP_MIN_CONTRACTIONS,
+  VCP_MAX_CONTRACTIONS,
+  VCP_MAX_FINAL_DEPTH,
+  VCP_SHALLOWING_TOLERANCE,
+  type VcpBar,
+  type VcpResult,
+  type TrendTemplate,
+} from '@/lib/indicators/vcp';
+import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
+import { computeStage } from '@/lib/indicators/stage';
+
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
+export const maxDuration = 300;
+
+const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
+const BENZINGA_KEY = process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '';
+const BASE = 'https://api.polygon.io';
+
+/* ---- Gates --------------------------------------------------------------
+   Minervini avoids low-priced and thin stocks on principle — the pattern
+   depends on institutional accumulation, and institutions cannot accumulate
+   what does not trade. $10 and 200k shares are his rough working floors. */
+export const VCP_GATES = {
+  minPrice: 10,
+  maxPrice: 10000,
+  minAvgVolume: 200_000,
+  minDollarVol: 5_000_000,
+
+  /* RS floor. 70 is Minervini's stated minimum; he prefers 80+ and is most
+     interested above 90. Gating at 70 rather than 80 is deliberate — the
+     score penalises 70-79 heavily, so those names appear at the bottom of
+     the table rather than vanishing, and you can see how thin the top of
+     the list is on a given day. A hard 80 gate would hide that. */
+  minRsRating: 70,
+
+  windowTradingDays: 90,
+  shortlistCap: 150,
+  finalSize: 40,
+};
+
+const ENRICH_CONCURRENCY = 8;
+
+/* Trading days back for each RS leg. The 63-day leg is read out of the
+   recent window; the rest need their own grouped fetches. */
+const RS_ANCHORS_TRADING = [126, 189, 252];
+
+/* Trading days to calendar days, roughly. 252 trading days is a year, so the
+   ratio is about 1.45. Used only to guess where to start looking — each
+   anchor then walks back day by day until a date returns data. */
+const TRADING_TO_CALENDAR = 1.45;
+const ANCHOR_MAX_ATTEMPTS = 6;
+
+// ETFs that clear the liquidity floors. Most would fail the structural test
+// anyway, but leveraged products can produce textbook-looking contractions
+// that mean nothing — there is no company being accumulated. Backstopped by
+// a ticker `type` check at confirmation.
+const EXCLUDED_ETFS = new Set([
+  'SPY', 'QQQ', 'IWM', 'DIA', 'VOO', 'VTI', 'EEM', 'EFA', 'XLF', 'XLE', 'XLK',
+  'XLI', 'XLV', 'XLU', 'XLP', 'XLY', 'XLB', 'XLRE', 'XLC', 'SMH', 'SOXX',
+  'TQQQ', 'SQQQ', 'QLD', 'QID', 'SOXL', 'SOXS', 'TECL', 'TECS', 'SPXL', 'SPXS',
+  'SPXU', 'UPRO', 'SDS', 'SSO', 'TNA', 'TZA', 'FAS', 'FAZ', 'LABU', 'LABD',
+  'UVXY', 'UVIX', 'SVIX', 'VIXY', 'VXX', 'FNGU', 'FNGD', 'GLD', 'SLV', 'GDX',
+  'GDXJ', 'USO', 'UNG', 'TLT', 'HYG', 'LQD', 'ARKK', 'IBIT', 'BITO', 'BITX',
+  'NUGT', 'DUST', 'JNUG', 'ERX', 'ERY', 'BOIL', 'KOLD', 'NAIL', 'URAA',
+  'MSTX', 'MSTU', 'CONL', 'NVDL', 'TSLL', 'AAPU', 'MSFU', 'AMZU',
+]);
+
+interface SnapInfo {
+  price: number;
+  prevClose: number;
+  changePct: number;
+  vol: number;
+  vwap: number | null;
+  dayHigh: number | null;
+  dayLow: number | null;
+}
+
+interface VcpCandidate {
+  symbol: string;
+  name: string;
+  sector: string;
+  price: number;
+  changePct: number;
+  vol: number;
+  dVol: number;
+  avgVol: number;
+  rvol: number | null;
+  mktCap: number | null;
+  float: number | null;
+
+  score: number;
+  grade: string;
+  scoreBreakdown: Record<string, number>;
+
+  rsRating: number | null;
+  rsRaw: number | null;
+
+  // VCP shape
+  contractionCount: number;
+  depths: number[];
+  firstDepthPct: number | null;
+  finalDepthPct: number | null;
+  pivot: number | null;
+  pctToPivot: number | null;
+  baseLengthBars: number | null;
+  baseHigh: number | null;
+  baseLow: number | null;
+  priorMovePct: number | null;
+  volumeDryingRatio: number | null;
+  finalLegVolumeRatio: number | null;
+  status: string;
+  atrPct: number | null;
+
+  // Trend template
+  templatePassed: number | null;
+  templateTotal: number | null;
+  templateFailures: string[];
+  pctAbove52wLow: number | null;
+  pctBelow52wHigh: number | null;
+
+  // Context
+  stage: string;
+  mf: number | null;
+  mfTrend: number;
+  vwapStatus: 'above' | 'below' | 'neutral';
+  catalyst: string | null;
+  catalystUrl: string | null;
+  thesis: string | null;
+
+  // Levels for the trade
+  trigger: number | null;
+  stop: number | null;
+  stopPct: number | null;
+  target: number | null;
+}
+
+async function polygon<T = any>(path: string): Promise<T> {
+  const sep = path.includes('?') ? '&' : '?';
+  const res = await fetch(`${BASE}${path}${sep}apiKey=${POLYGON_KEY}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`Polygon ${res.status}: ${path.split('?')[0]}`);
+  return res.json() as Promise<T>;
+}
+
+async function polygonSafe<T = any>(path: string, fallback: T): Promise<T> {
+  try { return await polygon<T>(path); } catch { return fallback; }
+}
+
+const ymd = (d: Date): string => d.toISOString().slice(0, 10);
+
+const dateDaysAgo = (n: number): Date => new Date(Date.now() - n * 86400000);
+
+async function inBatches<T, R>(items: T[], size: number, fn: (item: T) => Promise<R | null>): Promise<R[]> {
+  const out: R[] = [];
+  for (let i = 0; i < items.length; i += size) {
+    const results = await Promise.allSettled(items.slice(i, i + size).map(fn));
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value) out.push(r.value);
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------
+// Stage 1: universe
+// ---------------------------------------------------------------
+async function getUniverse(): Promise<{ symbols: Set<string>; snapMap: Map<string, SnapInfo> }> {
+  const data = await polygon<{ tickers?: any[] }>('/v2/snapshot/locale/us/markets/stocks/tickers');
+  const tickers = data.tickers ?? [];
+
+  const snapMap = new Map<string, SnapInfo>();
+  const symbols = new Set<string>();
+
+  for (const t of tickers) {
+    const sym: string = t.ticker ?? '';
+    if (!/^[A-Z]{1,5}$/.test(sym)) continue;
+    if (EXCLUDED_ETFS.has(sym)) continue;
+
+    const price = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || 0;
+    if (price < VCP_GATES.minPrice || price > VCP_GATES.maxPrice) continue;
+
+    const vol = t.day?.v || t.prevDay?.v || 0;
+    const prevClose = t.prevDay?.c || 0;
+
+    let changePct = 0;
+    if (t.todaysChangePerc != null && t.todaysChangePerc !== 0) {
+      changePct = t.todaysChangePerc;
+    } else if (prevClose > 0 && price > 0) {
+      changePct = ((price - prevClose) / prevClose) * 100;
+    }
+
+    snapMap.set(sym, {
+      price,
+      prevClose,
+      changePct: Number.isNaN(changePct) ? 0 : changePct,
+      vol,
+      vwap: t.day?.vw ?? null,
+      dayHigh: t.day?.h ?? null,
+      dayLow: t.day?.l ?? null,
+    });
+    symbols.add(sym);
+  }
+
+  return { symbols, snapMap };
+}
+
+// ---------------------------------------------------------------
+// Stage 2: recent window from grouped aggregates
+//
+// One call per trading date returns every stock's bar for that date. ~126
+// calls covers the base window for the whole market — the alternative is one
+// call per ticker, which is twenty times as many.
+// ---------------------------------------------------------------
+async function fetchRecentWindow(
+  universe: Set<string>,
+  tradingDays: number
+): Promise<{ series: Map<string, VcpBar[]>; datesUsed: string[] }> {
+  const calendarDays = Math.ceil(tradingDays * TRADING_TO_CALENDAR) + 10;
+
+  const dates: string[] = [];
+  for (let d = calendarDays; d >= 1; d--) {
+    const dt = dateDaysAgo(d);
+    const day = dt.getUTCDay();
+    if (day === 0 || day === 6) continue;
+    dates.push(ymd(dt));
+  }
+
+  const dayResults: { date: string; results: any[] }[] = [];
+  const BATCH = 7;
+  for (let i = 0; i < dates.length; i += BATCH) {
+    const chunk = dates.slice(i, i + BATCH);
+    const settled = await Promise.allSettled(chunk.map(async (date) => {
+      const d = await polygonSafe<{ results?: any[] }>(
+        `/v2/aggs/grouped/locale/us/market/stocks/${date}?adjusted=true`,
+        { results: [] }
+      );
+      return { date, results: d.results ?? [] };
+    }));
+    for (const r of settled) {
+      if (r.status === 'fulfilled' && r.value.results.length > 0) dayResults.push(r.value);
+    }
+  }
+
+  dayResults.sort((a, b) => a.date.localeCompare(b.date));
+  const kept = dayResults.slice(-tradingDays);
+
+  // Series are built OLDEST FIRST, which is what the vcp lib requires. The
+  // sort above is what guarantees it; without it the pivot walk would run
+  // backwards and return a plausible number computed from the wrong end.
+  const series = new Map<string, VcpBar[]>();
+  for (const day of kept) {
+    const t = new Date(day.date).getTime();
+    for (const bar of day.results) {
+      const sym = bar.T;
+      if (!universe.has(sym)) continue;
+      let arr = series.get(sym);
+      if (!arr) { arr = []; series.set(sym, arr); }
+      arr.push({ t, o: bar.o, h: bar.h, l: bar.l, c: bar.c, v: bar.v });
+    }
+  }
+
+  return { series, datesUsed: kept.map(d => d.date) };
+}
+
+// ---------------------------------------------------------------
+// Stage 3: RS anchors
+//
+// Three far-back grouped dates. Each walks back day by day until one returns
+// results, so holidays and weekends resolve themselves.
+// ---------------------------------------------------------------
+async function fetchRsAnchors(
+  universe: Set<string>
+): Promise<{ anchors: Map<number, Map<string, number>>; datesUsed: Record<number, string | null> }> {
+  const anchors = new Map<number, Map<string, number>>();
+  const datesUsed: Record<number, string | null> = {};
+
+  for (const tradingBack of RS_ANCHORS_TRADING) {
+    const startCalendar = Math.round(tradingBack * TRADING_TO_CALENDAR);
+    let found: { date: string; results: any[] } | null = null;
+
+    for (let attempt = 0; attempt < ANCHOR_MAX_ATTEMPTS && !found; attempt++) {
+      const dt = dateDaysAgo(startCalendar + attempt);
+      const day = dt.getUTCDay();
+      if (day === 0 || day === 6) continue;
+      const date = ymd(dt);
+      const d = await polygonSafe<{ results?: any[] }>(
+        `/v2/aggs/grouped/locale/us/market/stocks/${date}?adjusted=true`,
+        { results: [] }
+      );
+      if ((d.results ?? []).length > 0) found = { date, results: d.results ?? [] };
+    }
+
+    const m = new Map<string, number>();
+    if (found) {
+      for (const bar of found.results) {
+        if (!universe.has(bar.T)) continue;
+        if (typeof bar.c === 'number' && bar.c > 0) m.set(bar.T, bar.c);
+      }
+    }
+    anchors.set(tradingBack, m);
+    datesUsed[tradingBack] = found?.date ?? null;
+  }
+
+  return { anchors, datesUsed };
+}
+
+// ---------------------------------------------------------------
+// Stage 4a: RS ratings for the whole universe
+//
+// THE RANKING POPULATION IS EVERY LIQUID STOCK, not the VCP candidates.
+// Ranking candidates against each other would produce a number that says
+// "strongest among stocks already chosen for strength", which carries no
+// information at all.
+// ---------------------------------------------------------------
+function computeRsRatings(
+  series: Map<string, VcpBar[]>,
+  anchors: Map<number, Map<string, number>>,
+  snapMap: Map<string, SnapInfo>
+): { ratings: Map<string, number>; raws: Map<string, number>; scored: number } {
+  const raws = new Map<string, number>();
+
+  series.forEach((bars, sym) => {
+    const snap = snapMap.get(sym);
+    if (!snap || snap.price <= 0) return;
+    if (bars.length < 64) return;
+
+    // 63 trading days back, out of the window already in hand.
+    const p63 = bars[bars.length - 64]?.c ?? null;
+
+    const raw = rawRsScore({
+      p0: snap.price,
+      p63,
+      p126: anchors.get(126)?.get(sym) ?? null,
+      p189: anchors.get(189)?.get(sym) ?? null,
+      p252: anchors.get(252)?.get(sym) ?? null,
+    });
+
+    if (raw != null && Number.isFinite(raw)) raws.set(sym, raw);
+  });
+
+  const sorted = Array.from(raws.values()).sort((a, b) => a - b);
+  const ratings = new Map<string, number>();
+  raws.forEach((raw, sym) => {
+    ratings.set(sym, percentileRank(raw, sorted));
+  });
+
+  return { ratings, raws, scored: raws.size };
+}
+
+/* ---- Stage 4b: structural prefilter -------------------------------------
+   DELIBERATELY LOOSER THAN THE REAL TEST, for a reason that matters.
+
+   analyzeVcp() gates on the prior advance — at least 25% up into the base,
+   because without an advance there is no supply overhang to absorb and the
+   "base" is just a quiet stock. Measuring that needs bars from BEFORE the
+   base began, and a 90-bar window whose base occupies the last 40 leaves
+   only 50 bars of prior history. On a base that formed after a long run,
+   that truncation understates the advance and would reject the name.
+
+   So this pass checks only what 90 bars can answer honestly — are there two
+   or more contractions, is the final one tight, are they shallowing — and
+   defers every judgement that needs deeper history to the confirmation pass,
+   which fetches 400 bars per survivor.
+
+   A prefilter that is stricter than the real test silently loses candidates
+   and no downstream count will ever reveal it. Looser is the safe direction:
+   the cost is a few extra per-ticker fetches. */
+function prefilterVcp(bars: VcpBar[]): boolean {
+  if (bars.length < 60) return false;
+
+  const atrP = atrPercent(bars, 14);
+  if (atrP == null || atrP <= 0) return false;
+
+  const threshold = Math.max(1.5, Math.min(12, atrP * PIVOT_ATR_MULTIPLE));
+  const pivots = findPivots(bars, threshold);
+  const all = extractContractions(bars, pivots);
+  if (all.length < VCP_MIN_CONTRACTIONS) return false;
+
+  const cons = all.slice(-VCP_MAX_CONTRACTIONS);
+  const depths = cons.map(c => c.depthPct);
+
+  if (depths[depths.length - 1] > VCP_MAX_FINAL_DEPTH) return false;
+
+  for (let i = 1; i < depths.length; i++) {
+    if (depths[i] > depths[i - 1] * VCP_SHALLOWING_TOLERANCE) return false;
+  }
+
+  return true;
+}
+
+// ---------------------------------------------------------------
+// Catalyst (optional, best-effort)
+// ---------------------------------------------------------------
+const WIIM_MAX_AGE_DAYS = 5;
+const WIIM_MAX_BREADTH = 12;
+
+function classifyWiim(title: string): string {
+  const s = (title || '').toLowerCase();
+  if (/\b(earnings|eps|revenue|beat|miss|quarter|q[1-4]\b)/.test(s)) return 'Earnings';
+  if (/\b(fda|approval|phase\s*[123]|trial|clinical|topline|drug|therap)/.test(s)) return 'FDA / Data';
+  if (/\b(upgrade|downgrade|price target|initiat|analyst|rating|overweight|outperform)/.test(s)) return 'Analyst';
+  if (/\b(merger|acquir|acquisition|buyout|takeover|stake)/.test(s)) return 'M&A';
+  if (/\b(offering|dilut|secondary|registered direct|atm |capital raise)/.test(s)) return 'Offering';
+  if (/\b(contract|partnership|collaborat|agreement|awarded|wins )/.test(s)) return 'Contract';
+  if (/\b(guidance|raises|lowers|reaffirm|outlook|forecast)/.test(s)) return 'Guidance';
+  if (/\b(lawsuit|sec |investigat|probe|fraud|settle|recall|halt)/.test(s)) return 'Legal / Risk';
+  return 'News';
+}
+
+async function fetchWiims(
+  tickers: string[]
+): Promise<Map<string, { title: string; url: string | null; tag: string }>> {
+  const out = new Map<string, { title: string; url: string | null; tag: string }>();
+  if (!BENZINGA_KEY || tickers.length === 0) return out;
+
+  const now = Date.now();
+  const BATCH = 50;
+  for (let i = 0; i < tickers.length; i += BATCH) {
+    const batch = tickers.slice(i, i + BATCH);
+    try {
+      const res = await fetch(
+        `https://api.benzinga.com/api/v2/news?token=${BENZINGA_KEY}` +
+        `&tickers=${encodeURIComponent(batch.join(','))}` +
+        `&channels=WIIM&displayOutput=full&pageSize=100`,
+        { headers: { accept: 'application/json' }, cache: 'no-store' }
+      );
+      if (!res.ok) continue;
+      const items = await res.json();
+      if (!Array.isArray(items)) continue;
+
+      for (const item of items) {
+        const isWiim = Array.isArray(item?.channels) &&
+          item.channels.some((c: any) => (c?.name || '').toUpperCase() === 'WIIM');
+        if (!isWiim) continue;
+
+        const title = (item?.title || '').trim();
+        if (!title) continue;
+
+        const stocks = Array.isArray(item?.stocks) ? item.stocks : [];
+        if (stocks.length === 0 || stocks.length > WIIM_MAX_BREADTH) continue;
+
+        const created = item?.created ? new Date(item.created).getTime() : 0;
+        const daysOld = created > 0 ? (now - created) / 86400000 : 999;
+        if (daysOld > WIIM_MAX_AGE_DAYS) continue;
+
+        for (const s of stocks) {
+          const sym = (s?.name || '').toUpperCase();
+          if (!sym || out.has(sym)) continue;
+          out.set(sym, { title, url: item?.url || null, tag: classifyWiim(title) });
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+  return out;
+}
+
+function cleanSector(sic: string | undefined, sector: string | undefined, industry: string | undefined): string {
+  const blob = `${(industry || '').toLowerCase()} ${(sic || '').toLowerCase()}`;
+  if (/nuclear|uranium/.test(blob)) return 'Nuclear';
+  if (/solar|photovoltaic/.test(blob)) return 'Solar';
+  if (/electric vehicle|motor vehicle/.test(blob)) return 'EV';
+  if (/biotechnolog|biological product|in vitro/.test(blob)) return 'Biotech';
+  if (/semiconductor/.test(blob)) return "Semi's";
+  if (/artificial intelligence/.test(blob)) return 'AI';
+  if (/cybersecurity|security software/.test(blob)) return 'Cyber';
+  if (/aerospace|\bdefense\b|aircraft|space vehicle/.test(blob)) return 'Aerospace';
+
+  const s = (sic || '').toLowerCase();
+  if (/software|prepackaged|data processing|computer/.test(s)) return 'IT';
+  if (/pharmaceutical|drug|medical|health|surgical/.test(s)) return 'Healthcare';
+  if (/petroleum|natural gas|drilling|\boil\b|energy/.test(s)) return 'Energy';
+  if (/\bbank\b|insurance|investment|securities broker/.test(s)) return 'Financials';
+  if (/real estate/.test(s)) return 'Real Estate';
+  if (/electric services|water supply/.test(s)) return 'Utilities';
+  if (/telephone|broadcast|publishing|entertainment/.test(s)) return 'Comm Serv';
+  if (/retail|restaurant|apparel|hotel/.test(s)) return 'Con Disc';
+  if (/beverage|\bfood\b|tobacco|household/.test(s)) return 'Con Staples';
+  if (/mining|steel|chemical|paper mill/.test(s)) return 'Materials';
+  if (/machinery|industrial|construction|transportation/.test(s)) return 'Industrials';
+
+  const sec = (sector || '').toLowerCase();
+  if (sec.includes('technology')) return 'IT';
+  if (sec.includes('health')) return 'Healthcare';
+  if (sec.includes('financial')) return 'Financials';
+  if (sec.includes('energy')) return 'Energy';
+  return 'Other';
+}
+
+const round2 = (v: number | null | undefined): number | null =>
+  v == null || !Number.isFinite(v) ? null : parseFloat(v.toFixed(2));
+
+/* ---- The trade ----------------------------------------------------------
+   Trigger is the PIVOT — the high of the final contraction — not the day
+   high and not the base high. Minervini's buy point is the point at which
+   the last supply that defended the base gives way.
+
+   Stop is the low of the final contraction, which is what invalidates the
+   pattern: price back through the bottom of the tightest leg means the
+   absorption read was wrong. That is usually a tighter stop than an ATR
+   rule would produce, which is the reason to trade a VCP at all — the
+   pattern defines its own risk. A floor is applied so a freakishly tight
+   final leg does not produce a stop inside normal daily noise. */
+const MIN_STOP_PCT = 2.0;
+
+function buildLevels(vcp: VcpResult, price: number): {
+  trigger: number | null;
+  stop: number | null;
+  stopPct: number | null;
+  target: number | null;
+} {
+  if (!vcp.valid || vcp.pivot == null || vcp.contractions.length === 0) {
+    return { trigger: null, stop: null, stopPct: null, target: null };
+  }
+
+  const finalLeg = vcp.contractions[vcp.contractions.length - 1];
+  const trigger = vcp.pivot;
+
+  let stop = finalLeg.low;
+  let stopPct = ((trigger - stop) / trigger) * 100;
+
+  if (stopPct < MIN_STOP_PCT) {
+    stopPct = MIN_STOP_PCT;
+    stop = trigger * (1 - MIN_STOP_PCT / 100);
+  }
+
+  const risk = trigger - stop;
+  const target = trigger + risk * 2;
+
+  return { trigger, stop, stopPct, target };
+}
+
+export async function GET(request: Request) {
+  const started = Date.now();
+
+  try {
+    if (!POLYGON_KEY) {
+      return NextResponse.json({ success: false, error: 'Missing Polygon API Key' }, { status: 500 });
+    }
+
+    // --- 1. Universe ---
+    const { symbols, snapMap } = await getUniverse();
+    if (symbols.size === 0) {
+      return NextResponse.json({ success: false, error: 'Empty universe from snapshot' }, { status: 502 });
+    }
+
+    // --- 2 & 3. Market-wide history, in parallel ---
+    const [{ series, datesUsed }, { anchors, datesUsed: anchorDates }] = await Promise.all([
+      fetchRecentWindow(symbols, VCP_GATES.windowTradingDays),
+      fetchRsAnchors(symbols),
+    ]);
+
+    // --- 4a. RS ratings across the whole liquid universe ---
+    const { ratings, raws, scored: rsScored } = computeRsRatings(series, anchors, snapMap);
+
+    // --- 4b. Structural prefilter ---
+    const prefiltered: { sym: string; rs: number }[] = [];
+    let liquidityRejects = 0;
+    let rsRejects = 0;
+    let structureRejects = 0;
+
+    series.forEach((bars, sym) => {
+      const snap = snapMap.get(sym);
+      if (!snap) return;
+
+      const avgVol = bars.length >= 20
+        ? bars.slice(-20).reduce((s, b) => s + (b.v || 0), 0) / 20
+        : 0;
+      if (avgVol < VCP_GATES.minAvgVolume) { liquidityRejects++; return; }
+      if (avgVol * snap.price < VCP_GATES.minDollarVol) { liquidityRejects++; return; }
+
+      const rs = ratings.get(sym);
+      if (rs == null || rs < VCP_GATES.minRsRating) { rsRejects++; return; }
+
+      if (!prefilterVcp(bars)) { structureRejects++; return; }
+
+      prefiltered.push({ sym, rs });
+    });
+
+    // Strongest first, so the shortlist cap cuts the weakest rather than an
+    // arbitrary alphabetical tail.
+    prefiltered.sort((a, b) => b.rs - a.rs);
+    const shortlist = prefiltered.slice(0, VCP_GATES.shortlistCap);
+
+    // --- 5. Confirmation pass ---
+    const to = ymd(new Date());
+    const from = ymd(dateDaysAgo(500));
+
+    const confirmed = await inBatches(shortlist, ENRICH_CONCURRENCY, async ({ sym, rs }) => {
+      const snap = snapMap.get(sym);
+      if (!snap) return null;
+
+      const [barsRes, details] = await Promise.all([
+        polygonSafe<{ results?: any[] }>(
+          `/v2/aggs/ticker/${encodeURIComponent(sym)}/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=5000`,
+          { results: [] }
+        ),
+        polygonSafe<any>(`/v3/reference/tickers/${sym}`, {}),
+      ]);
+
+      // Backstop for funds that slipped past the static exclusion list.
+      const tickerType = (details?.results?.type || '').toUpperCase();
+      if (tickerType && tickerType !== 'CS' && tickerType !== 'ADRC') return null;
+
+      const raw = barsRes.results ?? [];
+      if (raw.length < 200) return null;
+
+      // sort=asc above, so these are already oldest-first — which is what
+      // the vcp lib requires. analyzeVcp has a guard, but the order is the
+      // caller's responsibility.
+      const bars: VcpBar[] = raw
+        .filter((b: any) => b && typeof b.h === 'number' && typeof b.l === 'number' && typeof b.c === 'number')
+        .map((b: any) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
+
+      const vcp = analyzeVcp(bars, { lookback: VCP_GATES.windowTradingDays });
+      if (!vcp.valid) return null;
+
+      const template = evaluateTrendTemplate(bars);
+      const scored = scoreVcp({ vcp, rsRating: rs, template });
+
+      const avgVol = bars.length >= 20
+        ? bars.slice(-20).reduce((s, b) => s + (b.v || 0), 0) / 20
+        : 0;
+      const rvol = avgVol > 0 && snap.vol > 0 ? snap.vol / avgVol : null;
+
+      const mf = computeMoneyFlow(bars, { length: 21 });
+      const mfTrend = moneyFlowTrend(bars, { length: 21, lookback: 5 });
+      const stage = computeStage(bars.map(b => b.c), { price: snap.price });
+
+      const levels = buildLevels(vcp, snap.price);
+
+      const mktCap = details?.results?.market_cap || null;
+      const float = details?.results?.share_class_shares_outstanding
+        || (mktCap && snap.price ? mktCap / snap.price : null);
+
+      let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
+      if (snap.vwap && snap.vwap > 0) vwapStatus = snap.price >= snap.vwap ? 'above' : 'below';
+
+      const out: VcpCandidate = {
+        symbol: sym,
+        name: details?.results?.name || sym,
+        sector: cleanSector(
+          details?.results?.sic_description,
+          details?.results?.sector,
+          details?.results?.industry
+        ),
+        price: +snap.price.toFixed(2),
+        changePct: +snap.changePct.toFixed(2),
+        vol: snap.vol,
+        dVol: Math.round(snap.price * snap.vol),
+        avgVol: Math.round(avgVol),
+        rvol: rvol != null ? +rvol.toFixed(2) : null,
+        mktCap,
+        float,
+
+        score: scored.score,
+        grade: scored.grade,
+        scoreBreakdown: scored.breakdown,
+
+        rsRating: rs,
+        rsRaw: raws.get(sym) != null ? +raws.get(sym)!.toFixed(3) : null,
+
+        contractionCount: vcp.contractionCount,
+        depths: vcp.depths.map(d => +d.toFixed(1)),
+        firstDepthPct: vcp.firstDepthPct != null ? +vcp.firstDepthPct.toFixed(1) : null,
+        finalDepthPct: vcp.finalDepthPct != null ? +vcp.finalDepthPct.toFixed(1) : null,
+        pivot: round2(vcp.pivot),
+        pctToPivot: vcp.pctToPivot != null ? +vcp.pctToPivot.toFixed(2) : null,
+        baseLengthBars: vcp.baseLengthBars,
+        baseHigh: round2(vcp.baseHigh),
+        baseLow: round2(vcp.baseLow),
+        priorMovePct: vcp.priorMovePct != null ? +vcp.priorMovePct.toFixed(1) : null,
+        volumeDryingRatio: vcp.volumeDryingRatio != null ? +vcp.volumeDryingRatio.toFixed(2) : null,
+        finalLegVolumeRatio: vcp.finalLegVolumeRatio != null ? +vcp.finalLegVolumeRatio.toFixed(2) : null,
+        status: vcp.status,
+        atrPct: vcp.atrPct != null ? +vcp.atrPct.toFixed(2) : null,
+
+        templatePassed: template?.passed ?? null,
+        templateTotal: template?.total ?? null,
+        templateFailures: template?.failures ?? [],
+        pctAbove52wLow: template?.pctAbove52wLow != null ? +template.pctAbove52wLow.toFixed(1) : null,
+        pctBelow52wHigh: template?.pctBelow52wHigh != null ? +template.pctBelow52wHigh.toFixed(1) : null,
+
+        stage,
+        mf,
+        mfTrend,
+        vwapStatus,
+        catalyst: null,
+        catalystUrl: null,
+        thesis: null,
+
+        trigger: round2(levels.trigger),
+        stop: round2(levels.stop),
+        stopPct: levels.stopPct != null ? +levels.stopPct.toFixed(2) : null,
+        target: round2(levels.target),
+      };
+
+      return out;
+    });
+
+    // --- Catalysts, best-effort ---
+    const wiims = await fetchWiims(confirmed.map(c => c.symbol));
+    for (const c of confirmed) {
+      const w = wiims.get(c.symbol);
+      if (w) {
+        c.catalyst = w.tag;
+        c.catalystUrl = w.url;
+        c.thesis = w.title;
+      }
+    }
+
+    confirmed.sort((a, b) => b.score - a.score);
+    const finalList = confirmed.slice(0, VCP_GATES.finalSize);
+
+    const scanTime = Date.now();
+    const meta = {
+      gates: VCP_GATES,
+      rsAnchorDates: anchorDates,
+      windowStart: datesUsed[0] ?? null,
+      windowEnd: datesUsed[datesUsed.length - 1] ?? null,
+      windowBars: datesUsed.length,
+    };
+
+    await kv.set('vcp_v1', finalList);
+    await kv.set('vcp_last_scan_v1', scanTime);
+    await kv.set('vcp_meta_v1', {
+      ...meta,
+      universe: symbols.size,
+      rsScored,
+      prefiltered: prefiltered.length,
+      confirmed: confirmed.length,
+      count: finalList.length,
+    });
+
+    /* The funnel is the diagnostic that matters on a structural scan. If
+       `prefiltered` is large and `confirmed` is tiny, the confirmation pass
+       is rejecting on prior-move or trend-template and the shortlist cap may
+       be cutting real candidates before they are tested. If `prefiltered` is
+       near zero, the market has no bases — which on a trending tape is
+       itself the finding. */
+    return NextResponse.json({
+      success: true,
+      lastScanTime: scanTime,
+      elapsedMs: scanTime - started,
+      count: finalList.length,
+      funnel: {
+        universe: symbols.size,
+        withHistory: series.size,
+        rsScored,
+        liquidityRejects,
+        rsRejects,
+        structureRejects,
+        prefiltered: prefiltered.length,
+        shortlisted: shortlist.length,
+        confirmed: confirmed.length,
+      },
+      statusCounts: {
+        forming: finalList.filter(c => c.status === 'forming').length,
+        pivotReady: finalList.filter(c => c.status === 'pivot-ready').length,
+        breakingOut: finalList.filter(c => c.status === 'breaking-out').length,
+      },
+      scanMeta: meta,
+    });
+  } catch (error: any) {
+    console.error('VCP_RUN_ERROR:', error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  }
+}
