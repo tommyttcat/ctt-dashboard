@@ -208,6 +208,19 @@ const fmtLevel = (v: any): string => {
   return n.toFixed(2);
 };
 
+/* ---- Two-column bodies ---------------------------------------------------
+   The renderer splits a section body on ||| and treats parts[0] and parts[1]
+   as the two columns. ANYTHING APPENDED TO parts[1] RENDERS INSIDE THE SECOND
+   COLUMN — which is how the Trade Plan footer ended up hanging under the
+   right-hand list while the left column stopped five rows earlier. The two
+   lists stopped reading as a pair.
+
+   Trailing prose therefore has to arrive as its OWN part. Every section that
+   builds columns now goes through this, so a footer is always full-width and
+   the columns are always the same shape. */
+const twoCol = (left: string, right: string, footer: string[] = []): string =>
+  footer.length ? `${left}|||${right}|||${footer.join('\n')}` : `${left}|||${right}`;
+
 /* ---- RVOL, guarded ----
    A row showed RVOL 678.33 on the board. That is not participation, it is a
    near-zero denominator: avgVol on a recently-listed name with a handful of
@@ -448,16 +461,15 @@ const fmtLeader = (s: any): string => {
    nearest overhead level on every row, and none of that reached this
    component until now.
 
-   THE ROW IS SIX FIELDS, space-separated: change, CNF, R, TR, ST, TG.
-   Interpuncts came out because with three badges already breaking the line
-   visually, the dots were adding a fourth kind of separator to a row that
-   only needed one. TR/ST/TG over trig/stop/tgt for the same reason — two
-   characters carry the meaning once you know the row, and the colour does
-   the rest (stop red, target green).
+   THE ROW IS SIX FIELDS, space-separated: change, CNF, R, TR, ST, TG. The
+   renderer gives each a fixed minimum width when the section is Trade Plan,
+   so the badges line up as columns down both lists rather than drifting with
+   the width of the change figure — +12.05% is three characters wider than
+   -0.15% and that was enough to stagger every badge after it.
 
-   An earlier pass also carried risk-percent and trigger-reach here and it
+   An earlier pass carried risk-percent and trigger-reach here too and it
    read as a wall. Both survive as GATES rather than as columns: reach still
-   decides what qualifies, it just is not printed. Risk is trigger minus stop.
+   decides what qualifies, it just is not printed. Risk is TR minus ST.
 
    TWO GATES, both necessary, neither sufficient alone.
 
@@ -532,8 +544,8 @@ const isSettingUp = (s: any): boolean => {
   return rtrValue(s) >= PLAN_MIN_RTR;
 };
 
-// Six fields, space-separated. The badges and the label colours provide the
-// visual breaks that the interpuncts used to.
+// Six fields, space-separated. Column alignment is the renderer's job — see
+// the fixed widths under `alignRows` in renderBriefingText.
 const fmtPlanRow = (s: any): string => {
   const p = livePlanOf(s);
   if (!p) return `${tickerOf(s)} —`;
@@ -587,30 +599,30 @@ const buildTradePlanPara = (pool: any[]): string => {
   const cnfCol = `Best tape — ranked by CNF:\n${byCnf.map(fmtPlanRow).join('\n')}`;
   const rtrCol = `Most room — ranked by RTR:\n${byRtr.map(fmtPlanRow).join('\n')}`;
 
-  const lines: string[] = [`${cnfCol}|||${rtrCol}`];
+  /* Footer is deliberately thin. The count of qualifying names and the
+     TR/ST/TG legend both moved out — the legend lives in the section blurb
+     where it belongs, and the count was a number you read once and never
+     acted on. What survives is the two things that change the read: which
+     name cleared both rankings, and which carry a live red dot. */
+  const footer: string[] = [];
 
-  lines.push(`${ready.length} of ${planned.length} planned name${planned.length === 1 ? '' : 's'} sit within one ADR of a trigger with at least 1R of room. TR is the alert, ST is the exit, TG is a fixed 2R.`);
-
-  // A name in both columns is the intersection — the tape likes it AND there
-  // is somewhere for it to go. That pairing is rare enough to name.
   const cnfSet = new Set(byCnf.map(tickerOf));
   const both = byRtr.filter(s => cnfSet.has(tickerOf(s))).map(tickerOf).filter(Boolean) as string[];
   if (both.length) {
-    lines.push(`${both.join(', ')} rank${both.length === 1 ? 's' : ''} in both columns — scoring well with room to be paid.`);
+    footer.push(`${both.join(', ')} rank${both.length === 1 ? 's' : ''} in both columns — scoring well with room to be paid.`);
   } else {
-    lines.push('No name ranks in both columns today — the best-scoring setups and the roomiest ones are different names.');
+    footer.push('No name ranks in both columns today — the best-scoring setups and the roomiest ones are different names.');
   }
 
   // Red dots are NAMED here rather than shown on the row. Trimming the row to
   // six fields dropped the dot marker, and a bare count would tell you a
-  // reversal exists without telling you which name carries it — worse than
-  // either showing it or omitting it entirely.
+  // reversal exists without telling you which name carries it.
   const reds = ready.filter(s => dotOf(s) === 'red').map(tickerOf).filter(Boolean) as string[];
   if (reds.length) {
-    lines.push(`${reds.join(', ')} carr${reds.length === 1 ? 'ies' : 'y'} an active red dot — a defined entry does not cancel an overbought reversal.`);
+    footer.push(`${reds.join(', ')} carr${reds.length === 1 ? 'ies' : 'y'} an active red dot — a defined entry does not cancel an overbought reversal.`);
   }
 
-  return `Trade Plan: ${lines.join('\n')}`;
+  return `Trade Plan: ${twoCol(cnfCol, rtrCol, footer)}`;
 };
 
 /* ---- Key Events — the only forward-looking macro section ----------------
@@ -720,11 +732,11 @@ const buildKeyEventsPara = (econ: EconEvent[], earnings: EarningsEvent[]): strin
     earnCol = 'Earnings:\nNo mega-cap prints today or tomorrow.';
   }
 
-  const lines: string[] = [`${econCol}|||${earnCol}`];
+  const footer: string[] = [];
   if (pending.filter(e => e.impact === 'High').length) {
-    lines.push('Setups are on a clock until this prints — breakouts into a scheduled release carry event risk the scan cannot price.');
+    footer.push('Setups are on a clock until this prints — breakouts into a scheduled release carry event risk the scan cannot price.');
   }
-  return `Key Events: ${lines.join('\n')}`;
+  return `Key Events: ${twoCol(econCol, earnCol, footer)}`;
 };
 
 const buildCatalystBrief = (s: any): string => {
@@ -927,7 +939,7 @@ const build1021Para = (pool: any[]): string => {
     ? `Day — ${day.length}:\n${day.map(fmtRow).join('\n')}`
     : 'Day:\nNo intraday-only names classified.';
 
-  const lines: string[] = [`${swingCol}|||${dayCol}`];
+  const footer: string[] = [];
 
   // Closing read counts the buckets that actually matter, so it can no longer
   // claim "the buyable names are stacked" while listing six broken ones.
@@ -938,22 +950,22 @@ const build1021Para = (pool: any[]): string => {
   const hasAnyD10 = rows.some(r => r.d10 != null);
 
   if (anchored.length) {
-    lines.push(`${anchored.length} name${anchored.length === 1 ? ' sits' : 's sit'} at a first touch — under the 10, still over the 21. That is where the stop is defined and close.`);
+    footer.push(`${anchored.length} name${anchored.length === 1 ? ' sits' : 's sit'} at a first touch — under the 10, still over the 21. That is where the stop is defined and close.`);
   } else if (!hasAnyD10) {
-    lines.push('No 10 EMA distance in the current scan payload — first-touch pullbacks cannot be identified until the scanner runs again.');
+    footer.push('No 10 EMA distance in the current scan payload — first-touch pullbacks cannot be identified until the scanner runs again.');
   } else if (stacked.length) {
-    lines.push(`No first touches. ${stacked.length} name${stacked.length === 1 ? ' is' : 's are'} stacked over the 21 but none has pulled back to the 10 — trend intact, entry not offered.`);
+    footer.push(`No first touches. ${stacked.length} name${stacked.length === 1 ? ' is' : 's are'} stacked over the 21 but none has pulled back to the 10 — trend intact, entry not offered.`);
   } else if (broken.length) {
-    lines.push(`${broken.length} of ${rows.length} names sit below their 21 EMA. Nothing here is at an anchor — these rank on tape action, not structure.`);
+    footer.push(`${broken.length} of ${rows.length} names sit below their 21 EMA. Nothing here is at an anchor — these rank on tape action, not structure.`);
   } else {
-    lines.push('No equity in the scan is at a usable anchor.');
+    footer.push('No equity in the scan is at a usable anchor.');
   }
 
   if (reds.length) {
-    lines.push(`${reds.length} carrying an active red dot — grade-capped on the long side regardless of tape.`);
+    footer.push(`${reds.length} carrying an active red dot — grade-capped on the long side regardless of tape.`);
   }
 
-  return `10/21 Thesis: ${lines.join('\n')}`;
+  return `10/21 Thesis: ${twoCol(swingCol, dayCol, footer)}`;
 };
 
 const ep9mVs60dOf = (s: any): number | null => numOrNull(s?.volVs60dMax);
@@ -974,21 +986,23 @@ const buildMoversPara = (movers: any): string => {
   const topG = gainers.slice().sort((a, b) => chgOf(b) - chgOf(a)).slice(0, 4);
   const topL = losers.slice().sort((a, b) => chgOf(a) - chgOf(b)).slice(0, 3);
 
-  const lines: string[] = [];
   if (topG.length) {
     const confirmed = topG.filter(s => (rvolOf(s) ?? 0) >= 1.5);
     const confirmNote = confirmed.length
       ? `Volume-confirmed: ${confirmed.map(s => s.ticker).join(', ')}`
       : 'No RVOL over 1.5 — moves are thin, fade candidates.';
     if (topL.length) {
-      lines.push(`Leading the tape:\n${topG.map(fmtMover).join('\n')}\n${confirmNote}|||Heaviest red:\n${topL.map(fmtMover).join('\n')}\nWeakness leaders / names to avoid long.`);
-    } else {
-      lines.push(`Leading the tape:\n${topG.map(fmtMover).join('\n')}\n${confirmNote}`);
+      return `Top Movers: ${twoCol(
+        `Leading the tape:\n${topG.map(fmtMover).join('\n')}\n${confirmNote}`,
+        `Heaviest red:\n${topL.map(fmtMover).join('\n')}\nWeakness leaders / names to avoid long.`
+      )}`;
     }
-  } else if (topL.length) {
-    lines.push(`Heaviest red:\n${topL.map(fmtMover).join('\n')}\nWeakness leaders for short setups or names to avoid on the long side.`);
+    return `Top Movers: Leading the tape:\n${topG.map(fmtMover).join('\n')}\n${confirmNote}`;
   }
-  return `Top Movers: ${lines.join('\n')}`;
+  if (topL.length) {
+    return `Top Movers: Heaviest red:\n${topL.map(fmtMover).join('\n')}\nWeakness leaders for short setups or names to avoid on the long side.`;
+  }
+  return '';
 };
 
 const buildEp9mPara = (ep9m: any[]): string => {
@@ -1011,19 +1025,23 @@ const buildEp9mPara = (ep9m: any[]): string => {
   const silent = rows.filter(ep9mSilent).sort((a, b) => (rvolOf(b) ?? 0) - (rvolOf(a) ?? 0));
   const news = rows.filter(hasRealCatalyst).sort((a, b) => scoreOf(b) - scoreOf(a));
 
-  const lines: string[] = [];
+  const footer: string[] = [];
+  if (news.length) footer.push(`With a catalyst already out: ${news.slice(0, 4).map(s => s.ticker).join(', ')}.`);
+
   if (unprec.length && silent.length) {
-    lines.push(`Unprecedented (beat 60d vol high):\n${unprec.slice(0, 5).map(fmtEp).join('\n')}|||Silent (no headline yet):\n${silent.slice(0, 5).map(fmtEp).join('\n')}`);
-  } else if (unprec.length) {
-    lines.push(`Unprecedented volume (today beats their own 60-day record):\n${unprec.slice(0, 5).map(fmtEp).join('\n')}`);
-  } else if (silent.length) {
-    lines.push(`Silent — heavy volume, no headline yet:\n${silent.slice(0, 5).map(fmtEp).join('\n')}`);
+    return `EP9M Thesis: ${twoCol(
+      `Unprecedented (beat 60d vol high):\n${unprec.slice(0, 5).map(fmtEp).join('\n')}`,
+      `Silent (no headline yet):\n${silent.slice(0, 5).map(fmtEp).join('\n')}`,
+      footer
+    )}`;
   }
-  if (news.length) lines.push(`With a catalyst already out:\n${news.slice(0, 4).map(fmtEp).join('\n')}`);
-  if (!lines.length) {
-    lines.push(`${rows.length} name${rows.length !== 1 ? 's' : ''} trading abnormal size:\n${rows.slice(0, 6).map(fmtEp).join('\n')}`);
+  if (unprec.length) {
+    return `EP9M Thesis: Unprecedented volume (today beats their own 60-day record):\n${unprec.slice(0, 5).map(fmtEp).join('\n')}${footer.length ? `\n${footer.join('\n')}` : ''}`;
   }
-  return `EP9M Thesis: ${lines.join('\n')}`;
+  if (silent.length) {
+    return `EP9M Thesis: Silent — heavy volume, no headline yet:\n${silent.slice(0, 5).map(fmtEp).join('\n')}${footer.length ? `\n${footer.join('\n')}` : ''}`;
+  }
+  return `EP9M Thesis: ${rows.length} name${rows.length !== 1 ? 's' : ''} trading abnormal size:\n${rows.slice(0, 6).map(fmtEp).join('\n')}`;
 };
 
 const buildLocalInsights = (
@@ -1144,8 +1162,10 @@ const buildLocalInsights = (
 
   let sipsPara = '';
   if (leftCol && rightCol && leftCol !== rightCol) {
-    const extra = (leadersCol && newsCol && fadersCol) ? `\n${newsCol}` : '';
-    sipsPara = `SIPs Thesis: ${leftCol}|||${rightCol}${extra}`;
+    // The third block, when all three exist, is a FOOTER — appending it to
+    // the right column made the two lists different lengths for no reason.
+    const footer = (leadersCol && newsCol && fadersCol) ? [newsCol] : [];
+    sipsPara = `SIPs Thesis: ${twoCol(leftCol, rightCol, footer)}`;
   } else if (leftCol || rightCol) {
     sipsPara = `SIPs Thesis: ${leftCol || rightCol}`;
   } else if (sips.length) {
@@ -1185,7 +1205,7 @@ const buildLocalInsights = (
     const swingCol = swingNames.length ? `SWING (multi-day hold):\n${swingNames.map(fmtDaily).join('\n')}` : '';
     const dayCol = dayNames.length ? `DAY (intraday only):\n${dayNames.map(fmtDaily).join('\n')}` : '';
     dailyPara = swingCol && dayCol
-      ? `Daily Setups Thesis: ${swingCol}|||${dayCol}`
+      ? `Daily Setups Thesis: ${twoCol(swingCol, dayCol)}`
       : `Daily Setups Thesis: ${swingCol || dayCol}`;
   }
 
@@ -1210,18 +1230,20 @@ const buildLocalInsights = (
       `${h.avgChg >= 0 ? '+' : ''}${h.avgChg.toFixed(1)}% · ${h.sector} (${h.count} name${h.count !== 1 ? 's' : ''})`;
     const hot = heat.filter(h => h.avgChg > 0).slice(0, 4);
     const cold = heat.filter(h => h.avgChg < 0).slice(-4).reverse();
-    const heatLines: string[] = [];
     if (hot.length && cold.length) {
-      heatLines.push(`Strongest:\n${hot.map(fmtHeat).join('\n')}|||Weakest:\n${cold.map(fmtHeat).join('\n')}`);
-      heatLines.push(hot[0].avgChg - cold[0].avgChg >= 8
+      const footer = [hot[0].avgChg - cold[0].avgChg >= 8
         ? 'Wide dispersion between groups — a stock-picker\'s tape, stay in the leaders.'
-        : 'Group dispersion is narrow — moves are market-driven more than industry-driven.');
+        : 'Group dispersion is narrow — moves are market-driven more than industry-driven.'];
+      heatPara = `Industry Heat: ${twoCol(
+        `Strongest:\n${hot.map(fmtHeat).join('\n')}`,
+        `Weakest:\n${cold.map(fmtHeat).join('\n')}`,
+        footer
+      )}`;
     } else if (hot.length) {
-      heatLines.push(`All tracked groups lean green:\n${hot.map(fmtHeat).join('\n')}\nBroad industry participation.`);
+      heatPara = `Industry Heat: All tracked groups lean green:\n${hot.map(fmtHeat).join('\n')}\nBroad industry participation.`;
     } else if (cold.length) {
-      heatLines.push(`All tracked groups lean red:\n${cold.map(fmtHeat).join('\n')}\nNo industry shelter today.`);
+      heatPara = `Industry Heat: All tracked groups lean red:\n${cold.map(fmtHeat).join('\n')}\nNo industry shelter today.`;
     }
-    if (heatLines.length) heatPara = `Industry Heat: ${heatLines.join('\n')}`;
   }
 
   const etfAll = [...(movers['ETF Gainers'] || []), ...(movers['ETF Losers'] || [])];
@@ -1361,9 +1383,25 @@ const postureChipCls = (tone: 'good' | 'warn' | 'bad'): string => {
   return 'text-rose-400 bg-rose-500/10 border-rose-500/20';
 };
 
-const renderBriefingText = (text: string): React.ReactNode[] => {
+/* ---- renderBriefingText -------------------------------------------------
+   `align` turns on fixed field widths. It is passed ONLY for Trade Plan
+   rows, because those are a table pretending to be prose — five rows of the
+   same six fields, where the eye wants to scan down a column. Everywhere
+   else the same tokens appear mid-sentence and a fixed width would open
+   gaps in running text.
+
+   The widths are minimums, not caps: a four-digit level or a three-digit CNF
+   still renders, it just pushes that row's later fields right rather than
+   truncating. */
+const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
   const rx = /(▸|●|REV|RED DOT|BLUE DOT|\[[^\]]+\]\([^)]+\)|\d{1,2}:\d{2} (?:AM|PM)|RVOL \d+(?:\.\d+)?|CNF \d+|Stage \d[ABC]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|(?:TR|ST|TG) \d+(?:\.\d+)?|\d+(?:\.\d+)?x ADR|\d+(?:\.\d+)?R\+?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
   const parts = text.split(rx);
+
+  const chgW = align ? 'inline-block min-w-[66px] text-right' : '';
+  const cnfW = align ? 'min-w-[34px] text-center' : '';
+  const rtrW = align ? 'min-w-[46px] text-center' : '';
+  const lvlLabelW = align ? 'inline-block min-w-[20px]' : '';
+  const lvlValW = align ? 'inline-block min-w-[44px] text-right' : '';
 
   return parts.map((part, i) => {
     if (!part) return null;
@@ -1404,7 +1442,7 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
       return (
         <span
           key={i}
-          className={`inline-block align-baseline text-[10px] font-bold tabular-nums px-1.5 py-[1px] rounded border mx-0.5 ${cnfBadgeCls(v)}`}
+          className={`inline-block align-baseline text-[10px] font-bold tabular-nums px-1.5 py-[1px] rounded border mx-0.5 ${cnfW} ${cnfBadgeCls(v)}`}
         >
           {m[1]}
         </span>
@@ -1426,15 +1464,15 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
       return <span key={i}>RS <span className={`${valNum} ${rsColor(v)}`}>{m[1]}</span></span>;
     }
     // The three order levels. Stop red, target green, trigger neutral —
-    // matching the tables. The label carries a left margin because the row
-    // no longer has interpuncts to separate fields.
+    // matching the tables. Regular weight: three bold numbers per row against
+    // three badges was more emphasis than any one field could carry.
     m = part.match(/^(TR|ST|TG) (\d+(?:\.\d+)?)$/);
     if (m) {
       const tone = m[1] === 'ST' ? 'text-rose-400' : m[1] === 'TG' ? 'text-emerald-400' : 'text-slate-200';
       return (
-        <span key={i}>
-          <span className="text-slate-500 text-[10px] font-bold ml-1">{m[1]}</span>{' '}
-          <span className={`${valNum} ${tone} font-bold`}>{m[2]}</span>
+        <span key={i} className={align ? 'ml-1' : ''}>
+          <span className={`text-slate-500 text-[10px] ${lvlLabelW}`}>{m[1]}</span>{' '}
+          <span className={`${valNum} ${tone} ${lvlValW}`}>{m[2]}</span>
         </span>
       );
     }
@@ -1449,7 +1487,7 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
       return (
         <span
           key={i}
-          className={`inline-block align-baseline text-[10px] font-bold tabular-nums px-1.5 py-[1px] rounded border mx-0.5 ${rtrBadgeCls(v)}`}
+          className={`inline-block align-baseline text-[10px] font-bold tabular-nums px-1.5 py-[1px] rounded border mx-0.5 ${rtrW} ${rtrBadgeCls(v)}`}
         >
           {part}
         </span>
@@ -1460,8 +1498,8 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
       return <span key={i} className={tickerChipCls}>{part}</span>;
     }
     if (/^\$\d+(?:\.\d+)?[BMK]$/.test(part)) return <span key={i} className={`${valNum} text-slate-200`}>{part}</span>;
-    if (/^[+]\d+(?:\.\d+)?%$/.test(part)) return <span key={i} className={`${valNum} text-emerald-400`}>{part}</span>;
-    if (/^-\d+(?:\.\d+)?%$/.test(part)) return <span key={i} className={`${valNum} text-rose-400`}>{part}</span>;
+    if (/^[+]\d+(?:\.\d+)?%$/.test(part)) return <span key={i} className={`${valNum} text-emerald-400 ${chgW}`}>{part}</span>;
+    if (/^-\d+(?:\.\d+)?%$/.test(part)) return <span key={i} className={`${valNum} text-rose-400 ${chgW}`}>{part}</span>;
     if (part === 'DAY') return <span key={i} className="text-amber-400">DAY</span>;
     if (part === 'SWING') return <span key={i} className="text-cyan-400">SWING</span>;
     if (/^[A-Z]{2,5}$/.test(part) && !TICKER_STOPWORDS.has(part)) {
@@ -1472,7 +1510,7 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
 };
 
 const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
-  { label: 'Trade Plan', color: 'teal', blurb: 'The only forward-looking equity section. Names with a defined entry that can realistically fire next session — trigger within one average daily range of price, and at least one stop-width of room before the first level overhead. TR is the alert, ST the exit, TG a fixed 2R. The R badge is room-to-resistance in stop-widths, coloured as on the tables. Collapsed and over-extended names are excluded, not ranked last.' },
+  { label: 'Trade Plan', color: 'teal', blurb: 'Names with a defined entry that can realistically fire next session — trigger within one average daily range of price, and at least one stop-width of room before the first level overhead. TR is the alert, ST the exit, TG a fixed 2R. The R badge is room-to-resistance in stop-widths, coloured as on the tables. Collapsed and over-extended names are excluded, not ranked last.' },
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves right now. Volume-confirmed names are tradeable; thin gaps are fade candidates.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, who has news, and who is grinding on air.' },
   { label: 'Daily Setups Thesis', color: 'emerald', blurb: 'Structured setups from the daily scan. SWING holds for days; DAY is intraday momentum only. REV is a reversal setup by pattern; ● is a live blue dot — an oversold stochastic reset that fired today. A row can carry both.' },
@@ -1865,6 +1903,10 @@ export default function MarketSummary() {
                             (body.match(/\b[A-Z]{2,5}\b/g) || []).filter(t => !TICKER_STOPWORDS.has(t))
                           ));
                           const isOpen = !label || !collapsedSections.has(key);
+                          // Column alignment is for the Trade Plan rows only —
+                          // everywhere else these tokens sit mid-sentence and a
+                          // fixed width would open gaps in running text.
+                          const alignRows = label === 'Trade Plan';
 
                           return (
                             <div key={idx} className={`border-l-[3px] rounded-r-xl px-4 py-3 ${st.border} ${st.bg}`}>
@@ -1895,7 +1937,7 @@ export default function MarketSummary() {
                                 body.includes('|||') ? (
                                   (() => {
                                     const parts = body.split('|||');
-                                    const afterCols = parts.length > 2 ? parts.slice(2).join('') : '';
+                                    const afterCols = parts.length > 2 ? parts.slice(2).join('\n') : '';
                                     return (
                                       <>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
@@ -1911,15 +1953,15 @@ export default function MarketSummary() {
                                                       {heading.replace(/:$/, '')}
                                                     </p>
                                                     {rows.map((line, li) => (
-                                                      <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
-                                                        {renderBriefingText(line)}
+                                                      <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium whitespace-nowrap">
+                                                        {renderBriefingText(line, alignRows)}
                                                       </p>
                                                     ))}
                                                   </>
                                                 ) : (
                                                   colLines.map((line, li) => (
                                                     <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
-                                                      {renderBriefingText(line)}
+                                                      {renderBriefingText(line, alignRows)}
                                                     </p>
                                                   ))
                                                 )}
