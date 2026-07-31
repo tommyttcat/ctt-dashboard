@@ -1,6 +1,6 @@
 'use client';
 
-// Ep9m — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee) — v2.3
+// Ep9m — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee) — v2.5
 //
 // Fewer than ~2% of US listings trade 9M+ shares in a session. When a stock
 // that normally trades 800k suddenly does 12M, institutions are accumulating
@@ -10,57 +10,57 @@
 //
 // v2.0: parity pass — MetricsKey ?, STATE chip, VS60D, GC/21↑ & CLS removed.
 // v2.1: sub-row cluster shifted flush-left under TICKER; cluster group hover.
-// v2.2: full column parity — added 10/21 dots and STOCH; D2C→DTC, RS/SPY→RS;
-//       standalone RMV column removed (RMV/RME live in the sub-row pair).
-// v2.3: RTR column and the trade plan on the sub-row, matching SIPs v3.0,
-//       Daily v2.0, Swing v2.0 and Consolidation v2.8.
+// v2.2: full column parity — added 10/21 dots and STOCH; D2C→DTC, RS/SPY→RS.
+// v2.3: RTR column and the trade plan on the sub-row.
+// v2.4: filter consolidation — RVOL and FLAGS merged into VOL, 10x dropped,
+//       PLAN Clear → 2R+, MKT CAP All and VWAP Below removed.
+// v2.5: + CHOPPINESS INDEX (chop14), from ep9m route v1.6.
 //
-//       THE PLAN MATTERS MORE HERE THAN ANYWHERE ELSE. Every other table
-//       gates on trend: SIPs and Daily need +4% and volume, Swing needs price
-//       above the 50 and 200, Consolidation needs a rising 21. This one gates
-//       on volume alone. A name can print 12M shares while sitting in Stage
-//       4B, 60% off its highs, with every moving average overhead — and it
-//       belongs on this table, because that volume is real information.
+//       CHOP MATTERS MORE ON THIS TABLE THAN ANY OTHER, and for the same
+//       reason RTR does: this scan has NO TREND GATE and NO ADR FLOOR. Every
+//       other table filters on structure somewhere. This one gates on volume
+//       abnormality alone, so a name can print 12M shares while oscillating
+//       inside the range it has held for a month, and it belongs here —
+//       that volume is real information about institutional activity.
 //
-//       What the volume does not tell you is whether there is a trade. The
-//       plan does: `collapsed` on the names that gapped down into the
-//       abnormal volume, `EXT` on the ones that already ran, an R figure on
-//       the rest. Sorting by RTR turns a list of unusual volume into a list
-//       of unusual volume you can actually act on.
+//       What the volume does not say is whether the range will resolve.
+//       CHOP does. An EP9M name at CHOP 75 has size moving inside a range
+//       that keeps rejecting both edges: worth researching, not worth a
+//       breakout entry today.
 //
-//       COLSPAN BUG FIXED. The v2.2 sub-row spanned 14 + 1 + 1 = 16 cells
-//       against a 17-column header, so the STATE badge rendered under MCAP
-//       instead of STAGE and the Unprec/Silent label under STAGE instead of
-//       SECTOR — every trailing cell one column left of its header. With RTR
-//       the header is 18 and the sub-row is 16 + 1 + 1, which lines up.
+//       THE PAIRING TO WATCH IS UNPRECEDENTED × CHOP. A name whose volume
+//       beat its own 60-day record, landing in tape that cannot express it,
+//       is the most interesting row this table produces and the easiest one
+//       to misread — the fuchsia dot says "exceptional" and the chart says
+//       "nothing happened". The dot's tooltip now says both.
 //
-//       THE "EP 9M" SUB-ROW LABEL IS GONE. It named the table on every row
-//       of the table. The levels take that slot instead, same as the setup
-//       name does on SIPs and Daily.
-//
-//       RTR READS "—" UNTIL /api/ep9m/run EMITS A PLAN. This component reads
-//       /api/ep9m/latest, which is a third scan route — separate from both
-//       /api/scanner and /api/swing-candidates. The wiring here is complete;
-//       the route needs the same change the swing route got: keep the raw
-//       ema10/ema21/ema50 values, add dayHigh and priorSwingHigh, then call
-//       computeTradePlan.
+//       CHOP SHARES THE ADR CELL, matching SIPs v3.2 and Daily v2.2. ADR
+//       says the name MOVES; CHOP says it moves SOMEWHERE. Adjacent columns
+//       would let the eye take one without the other.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { stateOf, stateTooltip, stateLegend } from '@/lib/indicators/state';
+import {
+  chopColor,
+  chopTooltip,
+  chopLabel,
+  CHOP_TREND_MAX,
+  CHOP_CHOP_MIN,
+} from '@/lib/indicators/chop';
 import { EP9M_META, COLUMN_NOTES } from '@/lib/scanConfig';
 import MetricsKey from './MetricsKey';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
-  TICKER: { what: "Symbol. Hover shows the company name. Fuchsia dot = unprecedented (today's volume beat its own 60-day high); ★ = repeat EP9M offender." },
+  TICKER: { what: "Symbol. Hover shows the company name. Fuchsia dot = unprecedented (today's volume beat its own 60-day high); ★ = repeat EP9M offender. Hover the fuchsia dot on a choppy name — record volume inside a range that will not resolve is the most misread row on this table." },
   EP: {
     what: 'Episodic Pivot score 0–100 — volume abnormality, vs-60-day-high, float turnover, catalyst, close strength, Money Flow, days-to-cover, and repeat-trigger history. Hover the badge for the per-row breakdown.',
     colour: 'Green 70+ (A) · amber 50+ (B) · grey below (C).',
   },
   RTR: {
-    what: 'Room to resistance. How far the nearest overhead level sits above the trigger, measured in stop-widths (R = trigger minus stop). This scan has no trend gate, so RTR is the column that separates abnormal volume you can trade from abnormal volume you cannot. Trigger, stop and target prices are on the sub-row.',
+    what: 'Room to resistance. How far the nearest overhead level sits above the trigger, measured in stop-widths (R = trigger minus stop). This scan has no trend gate, so RTR is the column that separates abnormal volume you can trade from abnormal volume you cannot — and it is where over-extension shows up, since there is no posture filter on this table.',
     colour: 'Green 2R+ (clear) · slate 1R+ · amber 0.5R+ · red under 0.5R · EXT extended · ✕ collapsed.',
   },
   PRICE: {
@@ -72,7 +72,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Green up · red down.',
   },
   '10/21': {
-    what: 'Price vs the 10 and 21 EMAs — the Dr. Wish trend pair.',
+    what: 'Price vs the 10 and 21 EMAs — the Dr. Wish trend pair. Shown for context; there is no filter on it here, because the extension case it would catch is already reported by RTR as EXT.',
     colour: 'Green dot above that EMA · red below · grey no data.',
   },
   VOL: {
@@ -80,7 +80,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   },
   '$VOL': { what: 'Dollar volume — price × volume.' },
   RVOL: {
-    what: "Today's volume vs its own 20-day average. Scan floors at 3x — the headline metric here, so the scale runs hotter than other tables.",
+    what: "Today's volume vs its own 20-day average. Scan floors at 3x — the headline metric here, so the scale runs hotter than other tables. For the extreme end, filter on UNPREC rather than a high RVOL: the 20-day average is inflated by prior spikes, while the 60-day high is not.",
     colour: 'Fuchsia 10x+ · purple 7x+ · green 5x+ · lime above the floor.',
   },
   TURN: {
@@ -88,8 +88,8 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Fuchsia 1.0x+ · purple 0.5x+ · green 0.25x+ · lime 0.1x+.',
   },
   ADR: {
-    what: '20-day average daily range. The anti-chop measure, and the basis for the stop: 1.25× ADR or 2.5%, whichever is wider.',
-    colour: 'Purple 10%+ · green 5%+ · grey at the floor.',
+    what: 'Two readings, stacked, because neither means much alone.\n\nTOP — ADR: 20-day average daily range. The anti-chop measure, and the stop basis: 1.25× ADR or 2.5%, whichever is wider.\n\nBOTTOM — CHOP: 14-day Choppiness Index. Distance travelled over ground covered. This scan has no trend gate, so CHOP is the only reading that says whether the range the volume landed in can resolve. Above 61.8 the name churns; below 38.2 it trends.',
+    colour: 'ADR: purple 10%+ · green 5%+ · grey at the floor.\nCHOP: teal/green trending · slate mixed · amber choppy · red dead chop.',
   },
   MF: {
     what: 'Money Flow (21) — accumulation vs distribution over the prior month. Heavy volume with MF under 45 is distribution however strong today looks. Arrow shows the 5-day direction.',
@@ -109,7 +109,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   },
   MCAP: { what: 'Market cap.' },
   STAGE: {
-    what: 'Weinstein stage with sub-stage. This scan has no trend gate, so STAGE is the main way to separate accumulation in an uptrend from capitulation in a downtrend.',
+    what: 'Weinstein stage with sub-stage. This scan has no trend gate, so STAGE is the main way to separate accumulation in an uptrend from capitulation in a downtrend — which is why it keeps its own filter here while the other tables folded theirs into POSTURE.',
     colour: 'Green healthy Stage 2 · amber sagging · red Stage 4.',
   },
   SECTOR: { what: 'Sector, cleaned of ticker prefixes.' },
@@ -162,6 +162,8 @@ interface Ep9mCandidate {
   vwapStatus?: 'above' | 'below' | 'neutral';
   atrPct?: number | null;
   adrPct?: number | null;
+  chop14?: number | null;
+  chopTrap?: boolean | null;
   rmv?: number | null;
   mf?: number | null;
   mfTrend?: number;
@@ -189,16 +191,35 @@ interface Ep9mCandidate {
 
 type SortDirection = 'asc' | 'desc';
 type EpFilterType = 'All' | 'A' | 'B';
-type RvolFilterType = 'All' | '5' | '10';
+type RvolFilterType = 'All' | '5';
 type CatalystFilterType = 'All' | 'News' | 'Silent';
-type VwapFilterType = 'All' | 'above' | 'below';
-type PlanFilterType = 'All' | '1R' | 'Clear';
+type VwapFilterType = 'All' | 'above';
+type PlanFilterType = 'All' | '1R' | '2R';
+type CapFilterType = 'All' | 'Small' | 'Large';
+type ChopFilterType = 'All' | 'trend' | 'nochop';
 
 const EP_BUCKETS: EpFilterType[] = ['A', 'B'];
 const EP_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 
-const RVOL_BUCKETS: RvolFilterType[] = ['5', '10'];
-const PLAN_BUCKETS: PlanFilterType[] = ['1R', 'Clear'];
+/* One entry. 10x came out in v2.4 — UNPREC is the better test for the
+   extreme end, because RVOL's denominator is a 20-day average that prior
+   spikes have already inflated. */
+const RVOL_BUCKETS: RvolFilterType[] = ['5'];
+const PLAN_BUCKETS: PlanFilterType[] = ['1R', '2R'];
+const CAP_BUCKETS: CapFilterType[] = ['Small', 'Large'];
+const CHOP_BUCKETS: ChopFilterType[] = ['trend', 'nochop'];
+
+const CHOP_META: Record<ChopFilterType, { label: string; title: string }> = {
+  'All': { label: 'ALL', title: '' },
+  'trend': {
+    label: 'TREND',
+    title: `Choppiness ${CHOP_TREND_MAX} or below — the volume landed in tape that is actually going somewhere. The narrow cut; on a scan with no trend gate at all, expect it to remove most of the list.`,
+  },
+  'nochop': {
+    label: 'NO CHOP',
+    title: `Choppiness under ${CHOP_CHOP_MIN} — excludes only the churners. This scan has no trend filter of any kind, so this is the closest thing it has to one: it removes names whose range keeps rejecting both edges regardless of what today's volume did.`,
+  },
+};
 
 const EP_LABELS: Record<string, string> = {
   rvol: 'Volume abnormality',
@@ -296,6 +317,9 @@ const hasCatalyst = (c: Ep9mCandidate): boolean => catalystTagOf(c) != null || h
 const adrOf = (c: Ep9mCandidate): number | null =>
   c.adrPct == null || isNaN(Number(c.adrPct)) ? null : Number(c.adrPct);
 
+const chopOf = (c: Ep9mCandidate): number | null =>
+  c.chop14 == null || isNaN(Number(c.chop14)) ? null : Number(c.chop14);
+
 const rmvOf = (c: Ep9mCandidate): number | null =>
   c.rmv == null || isNaN(Number(c.rmv)) ? null : Number(c.rmv);
 
@@ -315,11 +339,7 @@ const vs60dOf = (c: Ep9mCandidate): number | null =>
    SORT VALUE needs care. A name with no plan must sort to the bottom rather
    than the top, and `clear` rows have no resistanceR at all when price is
    above every average — those are the BEST rows, so they need a high
-   sentinel rather than a null.
-
-   NOT YET POPULATED — see the v2.3 header note. Every helper degrades to "—"
-   rather than throwing or inventing a value, so the column is honest about
-   the gap until /api/ep9m/run emits a plan.                               */
+   sentinel rather than a null.                                            */
 const planOf = (c: Ep9mCandidate): TradePlanRow | null => {
   const p = c.plan;
   return p && typeof p === 'object' ? p : null;
@@ -384,6 +404,17 @@ const planTooltip = (c: Ep9mCandidate): string => {
     lines.push('');
     lines.push(p.note);
   }
+
+  /* The trigger on this table is the DAY HIGH, because an EP9M name has no
+     pattern by construction. That makes chop unusually corrosive here: a day
+     high inside a churning range is the level the range has been rejecting,
+     so the plan is keyed to precisely the price most likely to fail. */
+  const chop = chopOf(c);
+  if (chop != null && chop >= CHOP_CHOP_MIN) {
+    lines.push('');
+    lines.push(`CHOP ${chop.toFixed(0)} — the trigger is the day high, and in a churning range that is the level being rejected. Sound levels, poor odds.`);
+  }
+
   lines.push('');
   lines.push('Stop is the wider of 1.25× ADR or 2.5%. Target is a fixed 2R.');
   return lines.join('\n');
@@ -417,13 +448,35 @@ const epTooltip = (c: Ep9mCandidate): string => {
   lines.push('');
   lines.push('EP scores the volume event. See RTR for whether there is a trade.');
 
+  // And chop is a third question again — the regime the volume landed in.
+  const chop = chopOf(c);
+  if (chop != null && chop >= CHOP_CHOP_MIN) {
+    lines.push(`CHOP ${chop.toFixed(0)} — not scored into EP either. The volume event is real; the range it landed in is not resolving.`);
+  }
+
   return lines.join('\n');
 };
 
-const UnprecedentedMark = () => (
+/* The fuchsia dot means today's volume beat this name's own 60-day record.
+   On a trending name that is the purest form of the signal. On a churning
+   one it is the most misread row the table produces — "exceptional" by every
+   volume measure, and the chart shows a month of nothing. Say both. */
+const unprecTooltip = (chop: number | null): string => {
+  const base = "Unprecedented — today's volume exceeds this stock's own 60-day high.";
+  if (chop == null) return base;
+  if (chop >= CHOP_CHOP_MIN) {
+    return `${base}\n\nBut CHOP ${chop.toFixed(0)} (${chopLabel(chop).toLowerCase()}) — record size is moving inside a range that keeps rejecting both edges. Research it; do not chase the break.`;
+  }
+  if (chop <= CHOP_TREND_MAX) {
+    return `${base}\n\nCHOP ${chop.toFixed(0)} (${chopLabel(chop).toLowerCase()}) — and the tape is trending, so the volume has somewhere to go. This is the combination the scan exists to find.`;
+  }
+  return `${base}\n\nCHOP ${chop.toFixed(0)} — mixed regime, no strong read either way.`;
+};
+
+const UnprecedentedMark = ({ chop }: { chop: number | null }) => (
   <span
-    title="Unprecedented — today's volume exceeds this stock's own 60-day high"
-    className="inline-block w-2 h-2 rounded-full bg-fuchsia-400 shadow-[0_0_6px_rgba(232,121,249,0.7)] align-middle shrink-0"
+    title={unprecTooltip(chop)}
+    className="inline-block w-2 h-2 rounded-full bg-fuchsia-400 shadow-[0_0_6px_rgba(232,121,249,0.7)] align-middle shrink-0 cursor-help"
   />
 );
 
@@ -454,10 +507,11 @@ export default function Ep9m() {
   const [rvolFilter, setRvolFilter] = useState<RvolFilterType>('All');
   const [catalystFilter, setCatalystFilter] = useState<CatalystFilterType>('All');
   const [planFilter, setPlanFilter] = useState<PlanFilterType>('All');
+  const [chopFilter, setChopFilter] = useState<ChopFilterType>('All');
   const [showUnprecedentedOnly, setShowUnprecedentedOnly] = useState<boolean>(false);
   const [showSugarBabyOnly, setShowSugarBabyOnly] = useState<boolean>(false);
   const [showStage2Only, setShowStage2Only] = useState<boolean>(false);
-  const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
+  const [marketCapFilter, setMarketCapFilter] = useState<CapFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
@@ -496,11 +550,29 @@ export default function Ep9m() {
     setSortConfig({ key, direction });
   };
 
+  // Every group is a toggle: pressing the active option clears it. That is
+  // what removed the need for a MKT CAP "All" button — nothing selected
+  // already means all, and a second click gets you there.
   const handleEpFilter = (val: EpFilterType) => setEpFilter(prev => prev === val ? 'All' : val);
   const handleRvolFilter = (val: RvolFilterType) => setRvolFilter(prev => prev === val ? 'All' : val);
   const handleCatalystFilter = (val: CatalystFilterType) => setCatalystFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
   const handlePlanFilter = (val: PlanFilterType) => setPlanFilter(prev => prev === val ? 'All' : val);
+  const handleCapFilter = (val: CapFilterType) => setMarketCapFilter(prev => prev === val ? 'All' : val);
+  const handleChopFilter = (val: ChopFilterType) => setChopFilter(prev => prev === val ? 'All' : val);
+
+  /* Does ANY row carry a chop reading? Drives whether the CHOP group renders
+     at all. Until /api/ep9m/run has executed since v1.6 the field is absent
+     on every row, and a filter that empties the table rather than narrowing
+     it is worse than no filter. Flips to true on its own once the scan runs. */
+  const anyChop = useMemo(() => candidates.some(c => chopOf(c) != null), [candidates]);
+
+  // A hidden group must not keep filtering. Without this, selecting NO CHOP
+  // and then losing chop data on the next poll would leave an invisible
+  // filter holding the table empty with no control to clear it.
+  useEffect(() => {
+    if (!anyChop && chopFilter !== 'All') setChopFilter('All');
+  }, [anyChop, chopFilter]);
 
   const filteredAndSorted = useMemo(() => {
     let list = [...candidates];
@@ -516,15 +588,29 @@ export default function Ep9m() {
     if (catalystFilter !== 'All') {
       list = list.filter(c => catalystFilter === 'News' ? hasCatalyst(c) : !hasCatalyst(c));
     }
-    // Plan filter drops anything without a usable entry. On this table that
-    // is the sharpest cut available — it strips the collapsed and the
-    // already-run and leaves only volume events you could act on.
+    /* CHOP. Rows with no reading fall OUT of either selection rather than
+       passing — a name with too few daily bars to score is not evidence of a
+       trend, and on this scan thin history is common: an EP9M trigger on a
+       recent listing is exactly the case where the reading is missing and
+       the churn risk is highest. */
+    if (chopFilter !== 'All') {
+      list = list.filter(c => {
+        const v = chopOf(c);
+        if (v == null) return false;
+        return chopFilter === 'trend' ? v <= CHOP_TREND_MAX : v < CHOP_CHOP_MIN;
+      });
+    }
+    /* Plan filter drops anything without a usable entry, then applies a
+       threshold in stop-widths. On this table that is the sharpest cut
+       available — it strips the collapsed and the already-run and leaves only
+       volume events you could act on. */
     if (planFilter !== 'All') {
+      const minR = planFilter === '2R' ? 2.0 : 1.0;
       list = list.filter(c => {
         const p = planOf(c);
         if (!p || p.tradeable !== true || p.collapsed || p.overextended) return false;
-        if (planFilter === 'Clear') return p.clear === true;
-        return p.clear === true || (p.resistanceR != null && p.resistanceR >= 1.0);
+        if (p.clear === true) return true;
+        return p.resistanceR != null && p.resistanceR >= minR;
       });
     }
     if (showUnprecedentedOnly) list = list.filter(c => c.unprecedented === true);
@@ -553,7 +639,7 @@ export default function Ep9m() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, epFilter, rvolFilter, catalystFilter, planFilter, showUnprecedentedOnly, showSugarBabyOnly, showStage2Only, marketCapFilter, vwapFilter]);
+  }, [candidates, sortConfig, epFilter, rvolFilter, catalystFilter, planFilter, chopFilter, showUnprecedentedOnly, showSugarBabyOnly, showStage2Only, marketCapFilter, vwapFilter]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -577,6 +663,18 @@ export default function Ep9m() {
 
   const silentCount = useMemo(() => candidates.filter(c => !hasCatalyst(c)).length, [candidates]);
   const unprecedentedCount = useMemo(() => candidates.filter(c => c.unprecedented).length, [candidates]);
+
+  /* Record volume landing in tape that cannot express it. Surfaced in the
+     header because it is the most interesting thing this scan finds and the
+     easiest to misread from the row alone. Only rendered when non-zero —
+     a header chip reading "0 In Chop" every quiet day is noise. */
+  const unprecInChopCount = useMemo(
+    () => candidates.filter(c => {
+      const v = chopOf(c);
+      return c.unprecedented && v != null && v >= CHOP_CHOP_MIN;
+    }).length,
+    [candidates]
+  );
 
   const getSortIcon = (columnKey: string) =>
     sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
@@ -670,11 +768,12 @@ export default function Ep9m() {
 
   const activeFilterCount =
     (epFilter !== 'All' ? 1 : 0) +
-    (rvolFilter !== 'All' ? 1 : 0) +
-    (catalystFilter !== 'All' ? 1 : 0) +
     (planFilter !== 'All' ? 1 : 0) +
+    (chopFilter !== 'All' ? 1 : 0) +
+    (rvolFilter !== 'All' ? 1 : 0) +
     (showUnprecedentedOnly ? 1 : 0) +
     (showSugarBabyOnly ? 1 : 0) +
+    (catalystFilter !== 'All' ? 1 : 0) +
     (showStage2Only ? 1 : 0) +
     (marketCapFilter !== 'All' ? 1 : 0) +
     (vwapFilter !== 'All' ? 1 : 0);
@@ -695,6 +794,16 @@ export default function Ep9m() {
             <span className="hidden md:flex items-center gap-2">
               <span className="text-[10px] font-bold tracking-wider uppercase text-fuchsia-400 bg-fuchsia-500/10 border border-fuchsia-500/20 px-2 py-0.5 rounded">{unprecedentedCount} Unprecedented</span>
               <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400 bg-white/[0.03] border border-white/5 px-2 py-0.5 rounded">{silentCount} Silent</span>
+              {/* Only when non-zero — a chip reading "0 In Chop" every quiet
+                  day is noise, and this one is meant to be noticed. */}
+              {unprecInChopCount > 0 && (
+                <span
+                  className="text-[10px] font-bold tracking-wider uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded cursor-help"
+                  title={`${unprecInChopCount} name${unprecInChopCount === 1 ? '' : 's'} printed record volume INSIDE a chop regime — the volume event is real and the range is not resolving it. Research these; do not chase the break.`}
+                >
+                  {unprecInChopCount} In Chop
+                </span>
+              )}
             </span>
           )}
           {filteredAndSorted.length > 0 && (
@@ -765,40 +874,65 @@ export default function Ep9m() {
                       <button
                         key={opt}
                         onClick={() => handlePlanFilter(opt)}
-                        title={opt === 'Clear'
-                          ? 'Only names with a definable trigger and 2R of clear air above it'
-                          : 'Only names with at least one stop-width to the nearest overhead level'}
+                        title={opt === '2R'
+                          ? 'At least two stop-widths to the nearest overhead level, or clear air above the trigger'
+                          : 'At least one stop-width to the nearest overhead level — also strips the collapsed and the already-run'}
                         className={`${pillBtn} ${planFilter === opt ? filterBtnActive : filterBtnIdle}`}
                       >
-                        {opt === '1R' ? '1R+' : 'Clear'}
+                        {opt === '1R' ? '1R+' : '2R+'}
                       </button>
                     ))}
                   </div>
                 </div>
+                {/* CHOP sits high on this bar because this scan has no trend
+                    gate of any kind — it is the closest thing the table has
+                    to one. */}
+                {anyChop && (
+                  <div className={pillWrap}>
+                    <span className={pillLabel}>CHOP</span>
+                    <div className="flex items-center gap-1">
+                      {CHOP_BUCKETS.map((opt) => (
+                        <button
+                          key={opt}
+                          onClick={() => handleChopFilter(opt)}
+                          title={CHOP_META[opt].title}
+                          className={`${pillBtn} ${chopFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                        >
+                          {CHOP_META[opt].label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* One group for every read of this name's volume behaviour:
+                    5x+ is today elevated, UNPREC is today a record, ★ is does
+                    this often. */}
                 <div className={pillWrap}>
-                  <span className={pillLabel}>RVOL</span>
+                  <span className={pillLabel}>VOL</span>
                   <div className="flex items-center gap-1">
                     {RVOL_BUCKETS.map((opt) => (
                       <button
                         key={opt}
                         onClick={() => handleRvolFilter(opt)}
-                        title={`Relative volume of ${opt}x and above — scan floor is 3x`}
+                        title={`Relative volume of ${opt}x and above — scan floor is 3x. For the extreme end use UNPREC, which measures against the 60-day high rather than an average prior spikes have inflated.`}
                         className={`${pillBtn} ${rvolFilter === opt ? filterBtnActive : filterBtnIdle}`}
                       >
                         {opt}x+
                       </button>
                     ))}
-                  </div>
-                </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>STAGE</span>
-                  <div className="flex items-center gap-1">
                     <button
-                      onClick={() => setShowStage2Only(!showStage2Only)}
-                      title="Stage 2 only — separates accumulation in an uptrend from capitulation in a downtrend"
-                      className={`${pillBtn} ${showStage2Only ? filterBtnActive : filterBtnIdle}`}
+                      onClick={() => setShowUnprecedentedOnly(!showUnprecedentedOnly)}
+                      title="Today's volume exceeds this stock's own 60-day record — the purest expression of the signal. Pair with the CHOP filter: record volume inside a churning range is real activity with nowhere to go."
+                      className={`${pillBtn} ${showUnprecedentedOnly ? filterBtnActive : filterBtnIdle}`}
                     >
-                      2
+                      Unprec
+                    </button>
+                    <button
+                      onClick={() => setShowSugarBabyOnly(!showSugarBabyOnly)}
+                      title="Repeat EP9M offender — has triggered multiple times in the last 90 days"
+                      className={`${pillBtn} ${showSugarBabyOnly ? filterBtnActive : filterBtnIdle}`}
+                    >
+                      ★
                     </button>
                   </div>
                 </div>
@@ -821,41 +955,46 @@ export default function Ep9m() {
                     </button>
                   </div>
                 </div>
+                {/* STAGE keeps its own group here, unlike the other tables
+                    where it folded into POSTURE. With no trend gate, STAGE and
+                    CHOP are the two structural controls this table has —
+                    STAGE for the 200-day picture, CHOP for the last fortnight. */}
                 <div className={pillWrap}>
-                  <span className={pillLabel}>FLAGS</span>
+                  <span className={pillLabel}>STAGE</span>
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={() => setShowUnprecedentedOnly(!showUnprecedentedOnly)}
-                      title="Today's volume exceeds this stock's own 60-day record"
-                      className={`${pillBtn} ${showUnprecedentedOnly ? filterBtnActive : filterBtnIdle}`}
+                      onClick={() => setShowStage2Only(!showStage2Only)}
+                      title="Stage 2 only — separates accumulation in an uptrend from capitulation in a downtrend. The long-horizon partner to the CHOP filter."
+                      className={`${pillBtn} ${showStage2Only ? filterBtnActive : filterBtnIdle}`}
                     >
-                      Unprec
-                    </button>
-                    <button
-                      onClick={() => setShowSugarBabyOnly(!showSugarBabyOnly)}
-                      title="Repeat EP9M offender in the last 90 days"
-                      className={`${pillBtn} ${showSugarBabyOnly ? filterBtnActive : filterBtnIdle}`}
-                    >
-                      ★ Repeat
+                      2
                     </button>
                   </div>
                 </div>
                 <div className={pillWrap}>
-                  <span className={pillLabel}>MKT CAP</span>
+                  <span className={pillLabel}>CAP</span>
                   <div className="flex items-center gap-1">
-                    {['All', 'Small', 'Large'].map((cap) => (
-                      <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>{cap}</button>
+                    {CAP_BUCKETS.map((cap) => (
+                      <button
+                        key={cap}
+                        onClick={() => handleCapFilter(cap)}
+                        title={cap === 'Large' ? 'Market cap $2B and above' : 'Market cap under $2B'}
+                        className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {cap}
+                      </button>
                     ))}
                   </div>
                 </div>
                 <div className={pillWrap}>
                   <span className={pillLabel}>VWAP</span>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
+                    <button
+                      onClick={() => handleVwapFilter('above')}
+                      title="Only names holding above VWAP — on a heavy-volume day, whether the session is being bought or sold. Below-VWAP names still show their red dot in the price cell."
+                      className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}
+                    >
                       <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
-                    </button>
-                    <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
-                      <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Below
                     </button>
                   </div>
                 </div>
@@ -865,8 +1004,7 @@ export default function Ep9m() {
 
           <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
             {/* 18 columns. RTR sits after EP, matching every other table.
-                PRICE, VOL, $VOL, TURN and MCAP each gave up 1% to fit it;
-                min-w 880 → 960. Widths sum ~99. */}
+                min-w 960; widths sum ~99. */}
             <table className="w-full min-w-[960px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
@@ -880,6 +1018,9 @@ export default function Ep9m() {
                   <th className={`${thBase} w-[6%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('TURN')} onClick={() => handleSort('floatTurnover')}>TURN{getSortIcon('floatTurnover')}</th>
+                  {/* One header, two stacked readings. Clicking sorts by ADR;
+                      CHOP is filtered rather than sorted, since a single
+                      header cannot carry two sort keys. */}
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
@@ -910,6 +1051,7 @@ export default function Ep9m() {
                     const headline = headlineOf(row);
                     const sectorText = cleanSector(row.sector, row.ticker);
                     const adr = adrOf(row);
+                    const chop = chopOf(row);
                     const rmv = rmvOf(row);
                     const rme = rmeOf(row);
                     const mf = mfOf(row);
@@ -922,7 +1064,7 @@ export default function Ep9m() {
                           <td className={tdBase}>
                             <div className="flex items-center justify-center gap-1.5">
                               <span title={row.name || row.ticker} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
-                              {row.unprecedented && <UnprecedentedMark />}
+                              {row.unprecedented && <UnprecedentedMark chop={chop} />}
                               {row.sugarBaby && <SugarBabyMark />}
                             </div>
                           </td>
@@ -974,8 +1116,22 @@ export default function Ep9m() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getTurnColor(row.floatTurnover)}`} title="Float turnover — share of the tradeable float that changed hands today. Above 1.0x the entire float traded.">
                             {row.floatTurnover != null ? `${row.floatTurnover.toFixed(2)}x` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`} title="20-day average daily range (high/low) — the anti-chop measure, and the stop basis">
-                            {adr != null ? `${adr.toFixed(1)}%` : '—'}
+                          {/* ADR over CHOP, one cell. On this table CHOP is
+                              the only reading that says whether the range the
+                              volume landed in can resolve — there is no trend
+                              gate anywhere in this scan. */}
+                          <td
+                            className={`${tdBase} whitespace-nowrap tabular-nums cursor-help`}
+                            title={chopTooltip(chop, adr)}
+                          >
+                            <div className="flex flex-col leading-tight">
+                              <span className={`text-xs font-bold ${getAdrColor(adr)}`}>
+                                {adr != null ? `${adr.toFixed(1)}%` : '—'}
+                              </span>
+                              <span className={`text-[8px] font-semibold tracking-tight ${chopColor(chop)}`}>
+                                {chop != null ? `CHOP ${chop.toFixed(0)}` : ''}
+                              </span>
+                            </div>
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={`Money Flow (21) — ${mfLabel(mf)}. Heavy volume with MF under 45 is distribution, however strong today's close. Arrow shows the 5-day direction.`}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
@@ -1002,14 +1158,11 @@ export default function Ep9m() {
                         </tr>
                         {/* Sub-row: colSpan 16 covers TICKER..MCAP, then STAGE
                             and SECTOR get their own cells — 18 total, matching
-                            the header. The v2.2 sub-row spanned 14 + 1 + 1 = 16
-                            against 17 columns, which put the STATE badge under
-                            MCAP and Unprec/Silent under STAGE.
+                            the header.
 
-                            The "EP 9M" label is gone — it named the table on
-                            every row of the table. Levels lead instead, same
-                            slot the setup name occupies on SIPs and Daily, then
-                            VS60D, which is the signal this scan exists for. */}
+                            Levels lead, same slot the setup name occupies on
+                            SIPs and Daily, then VS60D, which is the signal this
+                            scan exists for. */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td colSpan={16} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
@@ -1038,7 +1191,7 @@ export default function Ep9m() {
                               )}
                               <span
                                 className="shrink-0 flex items-baseline gap-1 pr-2.5 cursor-help whitespace-nowrap"
-                                title="Today's volume as a multiple of this stock's own 60-day volume high. Above 1.0× is unprecedented for this name — the purest expression of the EP9M signal."
+                                title="Today's volume as a multiple of this stock's own 60-day volume high. Above 1.0× is unprecedented for this name — the purest expression of the EP9M signal, and what the UNPREC filter reads."
                               >
                                 <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">VS60D</span>
                                 <span className={`text-[9px] font-bold tabular-nums ${getVs60dColor(vs60d)}`}>{vs60d != null ? `${vs60d.toFixed(2)}×` : '—'}</span>
