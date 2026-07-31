@@ -211,13 +211,12 @@ const fmtLevel = (v: any): string => {
 /* ---- Two-column bodies ---------------------------------------------------
    The renderer splits a section body on ||| and treats parts[0] and parts[1]
    as the two columns. ANYTHING APPENDED TO parts[1] RENDERS INSIDE THE SECOND
-   COLUMN — which is how the Trade Plan footer ended up hanging under the
-   right-hand list while the left column stopped five rows earlier. The two
-   lists stopped reading as a pair.
+   COLUMN — which is how footers ended up hanging under the right-hand list
+   while the left column stopped several rows earlier.
 
    Trailing prose therefore has to arrive as its OWN part. Every section that
-   builds columns now goes through this, so a footer is always full-width and
-   the columns are always the same shape. */
+   builds columns goes through this, so a footer is always full-width and the
+   columns are always the same shape. */
 const twoCol = (left: string, right: string, footer: string[] = []): string =>
   footer.length ? `${left}|||${right}|||${footer.join('\n')}` : `${left}|||${right}`;
 
@@ -247,19 +246,26 @@ const rvolOf = (s: any): number | null => {
 
 const stageOf = (s: any): string => (s?.stage ? String(s.stage).replace(/Stage\s*/i, '') : '');
 
-/* ---- REV vs ● : two different claims -----------------------------------
-   REV is the SETUP — the pattern detector named this a blue-dot reversal.
-   ● is the INDICATOR — computeDotDetail saw an oversold stochastic reset
-   close up above an anchor TODAY.
+/* ---- ● and REV are MUTUALLY EXCLUSIVE, and here is why -------------------
+   The last pass printed both on the same row and every REV row also carried
+   a ●. That was not a rendering bug — it is what the scanner does.
 
-   These are not the same thing and an earlier pass printed one glyph for
-   both. A 20 EMA pullback or a trend hold can carry a live dot without being
-   a reversal at all, so a ● on those rows meant "has a dot" while a ● that
-   had replaced the setup name meant "is a reversal". Same mark, two
-   meanings, no way to tell which from the row.
+   detectPattern() in /api/scanner/run short-circuits:
 
-   Separated now. A row can carry both — a reversal setup with a live dot,
-   which is the strongest version of the signal — or either alone. */
+       if (dotKind === 'blue') return { name: 'Blue Dot Rev', ... }
+
+   So a blue dot ALWAYS becomes the "Blue Dot Rev" setup name. The setup and
+   the indicator are the same fact arriving twice, and showing both said one
+   thing in two glyphs.
+
+   What is NOT redundant is the OTHER reversal. v6.13 added a plain
+   "Reversal" pattern — up today, under the 21, either reclaiming the 10 or
+   washed out on stochastics — and that one fires WITHOUT a dot. So:
+
+       ●    the oversold reset fired; this is a Blue Dot reversal
+       REV  reversal by structure, no dot behind it
+
+   One mark per row, and the mark tells you which kind. */
 const BLUE_DOT_GLYPH = '●';
 
 const setupOf = (s: any): string | null => {
@@ -274,9 +280,16 @@ const setupOf = (s: any): string | null => {
 
 const setupRowLabel = (s: any): string | null => {
   const n = s?.setupName;
-  if (!n || n === '-' || n === '—') return null;
-  const str = String(n);
-  if (/blue dot|bd rev|reversal/i.test(str)) return 'REV';
+  const str = n && n !== '-' && n !== '—' ? String(n) : '';
+
+  // Dot-backed reversal — from the setup name or straight from the indicator,
+  // since the swing and consolidation scans ship `blueDot` without renaming
+  // the setup.
+  if (/blue dot|bd rev/i.test(str) || dotOf(s) === 'blue') return BLUE_DOT_GLYPH;
+  // Structural reversal with no dot behind it.
+  if (/reversal/i.test(str)) return 'REV';
+
+  if (!str) return null;
   if (str.includes('BB SQZ')) return 'BB SQZ';
   if (str === 'Episodic Pivot') return 'EP';
   return str;
@@ -442,14 +455,17 @@ const fmtDollar = (v: number): string => {
   return `$${Math.round(v / 1e3)}K`;
 };
 
+/* Every list row in this file is space-separated. Interpuncts were doing the
+   job the fixed column widths now do, and on a phone they cost a character
+   of width per field on rows that were already wrapping. */
 const fmtLeader = (s: any): string => {
   const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
-  const bits: string[] = [];
+  const bits: string[] = [chg];
   const rv = rvolOf(s);
   if (rv != null) bits.push(`RVOL ${rv.toFixed(2)}`);
   const su = setupRowLabel(s);
   if (su) bits.push(su);
-  return `${s.ticker} ${chg}${bits.length ? ` · ${bits.join(' · ')}` : ''}`;
+  return `${s.ticker} ${bits.join(' ')}`;
 };
 
 /* ---- TRADE PLAN ---------------------------------------------------------
@@ -461,11 +477,10 @@ const fmtLeader = (s: any): string => {
    nearest overhead level on every row, and none of that reached this
    component until now.
 
-   THE ROW IS SIX FIELDS, space-separated: change, CNF, R, TR, ST, TG. The
-   renderer gives each a fixed minimum width when the section is Trade Plan,
-   so the badges line up as columns down both lists rather than drifting with
-   the width of the change figure — +12.05% is three characters wider than
-   -0.15% and that was enough to stagger every badge after it.
+   THE ROW IS SIX FIELDS: change, CNF, R, TR, ST, TG. The renderer gives each
+   a fixed minimum width, so the badges line up as columns down both lists
+   rather than drifting with the width of the change figure — +12.05% is three
+   characters wider than -0.15%, enough to stagger every badge after it.
 
    An earlier pass carried risk-percent and trigger-reach here too and it
    read as a wall. Both survive as GATES rather than as columns: reach still
@@ -544,8 +559,6 @@ const isSettingUp = (s: any): boolean => {
   return rtrValue(s) >= PLAN_MIN_RTR;
 };
 
-// Six fields, space-separated. Column alignment is the renderer's job — see
-// the fixed widths under `alignRows` in renderBriefingText.
 const fmtPlanRow = (s: any): string => {
   const p = livePlanOf(s);
   if (!p) return `${tickerOf(s)} —`;
@@ -599,11 +612,10 @@ const buildTradePlanPara = (pool: any[]): string => {
   const cnfCol = `Best tape — ranked by CNF:\n${byCnf.map(fmtPlanRow).join('\n')}`;
   const rtrCol = `Most room — ranked by RTR:\n${byRtr.map(fmtPlanRow).join('\n')}`;
 
-  /* Footer is deliberately thin. The count of qualifying names and the
-     TR/ST/TG legend both moved out — the legend lives in the section blurb
-     where it belongs, and the count was a number you read once and never
-     acted on. What survives is the two things that change the read: which
-     name cleared both rankings, and which carry a live red dot. */
+  /* Footer is deliberately thin. What survives is the two things that change
+     the read: which name cleared both rankings, and which carry a live red
+     dot. The count line and the TR/ST/TG legend both moved out — the legend
+     lives in the section blurb, and the count was a number you read once. */
   const footer: string[] = [];
 
   const cnfSet = new Set(byCnf.map(tickerOf));
@@ -614,9 +626,6 @@ const buildTradePlanPara = (pool: any[]): string => {
     footer.push('No name ranks in both columns today — the best-scoring setups and the roomiest ones are different names.');
   }
 
-  // Red dots are NAMED here rather than shown on the row. Trimming the row to
-  // six fields dropped the dot marker, and a bare count would tell you a
-  // reversal exists without telling you which name carries it.
   const reds = ready.filter(s => dotOf(s) === 'red').map(tickerOf).filter(Boolean) as string[];
   if (reds.length) {
     footer.push(`${reds.join(', ')} carr${reds.length === 1 ? 'ies' : 'y'} an active red dot — a defined entry does not cancel an overbought reversal.`);
@@ -697,7 +706,7 @@ const buildKeyEventsPara = (econ: EconEvent[], earnings: EarningsEvent[]): strin
     if (e.actual != null) bits.push(`act ${fmtEconNum(e.actual)}`);
     if (e.estimate != null) bits.push(`est ${fmtEconNum(e.estimate)}`);
     if (e.previous != null) bits.push(`prev ${fmtEconNum(e.previous)}`);
-    return `${marker}${t ? `${t} ` : ''}${e.event}${bits.length ? ` · ${bits.join(' · ')}` : ''}`;
+    return `${marker}${t ? `${t} ` : ''}${e.event}${bits.length ? `  ${bits.join('  ')}` : ''}`;
   };
 
   const pending = econRows.filter(isPending);
@@ -754,7 +763,6 @@ const buildCatalystBrief = (s: any): string => {
   else if (rv != null && rv >= 1.5) bits.push('volume is confirming');
   else if (rv != null && rv < 1) bits.push('headline pop without volume — fade risk');
   if (dot === 'red') bits.push('RED DOT active — reversal against a long');
-  else if (dot === 'blue') bits.push('BLUE DOT');
   // "Stage" is still emitted so the renderer has an unambiguous token to
   // match on — it strips the word and prints only the coloured number.
   if (su) bits.push(`${su}${st ? ` in Stage ${st}` : ''}`);
@@ -786,13 +794,11 @@ const buildWatchReason = (s: any): string => {
 
   // Dot leads the qualifiers — a red dot is the single most important thing
   // to know about a name being considered long, and it should not be buried
-  // behind volume commentary.
+  // behind volume commentary. The blue dot is already in the setup name, so
+  // it is not repeated here.
   if (dot === 'red') {
     const since = numOrNull(s?.dotBarsSince);
     parts.push(`RED DOT${since === 0 ? ' today' : since != null ? ` ${since} bars ago` : ''} — overbought reversal, grade capped`);
-  } else if (dot === 'blue') {
-    const since = numOrNull(s?.dotBarsSince);
-    parts.push(`BLUE DOT${since === 0 ? ' today' : since != null ? ` ${since} bars ago` : ''}`);
   }
 
   if (rv != null) {
@@ -916,16 +922,17 @@ const build1021Para = (pool: any[]): string => {
 
   if (rows.length < 2) return '';
 
+  /* Both distances are emitted as bare signed percentages so the renderer
+     can give them the same fixed width, and the EMA they refer to follows as
+     a plain "21" / "10". "vs 21" spelled out cost eight characters per field
+     on a row that has to fit a phone. */
   const pct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
   const fmtRow = (r: any): string => {
-    const bits = [`${pct(r.d21 as number)} vs 21`];
-    if (r.d10 != null) bits.push(`${pct(r.d10 as number)} vs 10`);
-    const tags: string[] = [POSTURE_META[r.bucket as PostureBucket].label];
-    // The glyph here is the INDICATOR dot, not a setup name — this section
-    // has no setup column, so there is nothing to confuse it with.
-    if (r.dot === 'red') tags.push('RED DOT');
-    else if (r.dot === 'blue') tags.push(BLUE_DOT_GLYPH);
-    return `${r.ticker} ${bits.join(' · ')} — ${tags.join(', ')}`;
+    const bits = [`${pct(r.d21 as number)} 21`];
+    if (r.d10 != null) bits.push(`${pct(r.d10 as number)} 10`);
+    bits.push(POSTURE_META[r.bucket as PostureBucket].label);
+    if (r.dot === 'red') bits.push('RED DOT');
+    return `${r.ticker} ${bits.join(' ')}`;
   };
 
   const byScore = (a: any, b: any) => b.score - a.score;
@@ -980,7 +987,7 @@ const buildMoversPara = (movers: any): string => {
   const fmtMover = (s: any): string => {
     const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
     const rv = rvolOf(s);
-    return `${s.ticker} ${chg}${rv != null ? ` · RVOL ${rv.toFixed(2)}` : ''}`;
+    return `${s.ticker} ${chg}${rv != null ? ` RVOL ${rv.toFixed(2)}` : ''}`;
   };
 
   const topG = gainers.slice().sort((a, b) => chgOf(b) - chgOf(a)).slice(0, 4);
@@ -988,16 +995,19 @@ const buildMoversPara = (movers: any): string => {
 
   if (topG.length) {
     const confirmed = topG.filter(s => (rvolOf(s) ?? 0) >= 1.5);
-    const confirmNote = confirmed.length
-      ? `Volume-confirmed: ${confirmed.map(s => s.ticker).join(', ')}`
-      : 'No RVOL over 1.5 — moves are thin, fade candidates.';
+    const footer = [
+      confirmed.length
+        ? `Volume-confirmed: ${confirmed.map(s => s.ticker).join(', ')}.`
+        : 'No RVOL over 1.5 — moves are thin, fade candidates.',
+    ];
     if (topL.length) {
       return `Top Movers: ${twoCol(
-        `Leading the tape:\n${topG.map(fmtMover).join('\n')}\n${confirmNote}`,
-        `Heaviest red:\n${topL.map(fmtMover).join('\n')}\nWeakness leaders / names to avoid long.`
+        `Leading the tape:\n${topG.map(fmtMover).join('\n')}`,
+        `Heaviest red:\n${topL.map(fmtMover).join('\n')}`,
+        footer
       )}`;
     }
-    return `Top Movers: Leading the tape:\n${topG.map(fmtMover).join('\n')}\n${confirmNote}`;
+    return `Top Movers: Leading the tape:\n${topG.map(fmtMover).join('\n')}\n${footer.join('\n')}`;
   }
   if (topL.length) {
     return `Top Movers: Heaviest red:\n${topL.map(fmtMover).join('\n')}\nWeakness leaders for short setups or names to avoid on the long side.`;
@@ -1010,15 +1020,15 @@ const buildEp9mPara = (ep9m: any[]): string => {
   if (rows.length < 1) return '';
 
   const fmtEp = (s: any): string => {
-    const bits: string[] = [];
-    const vs = ep9mVs60dOf(s);
-    if (vs != null) bits.push(`${vs.toFixed(2)}x 60d high`);
+    const chg = chgOf(s);
+    const bits: string[] = [`${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`];
     const rv = rvolOf(s);
     if (rv != null) bits.push(`RVOL ${rv.toFixed(2)}`);
+    const vs = ep9mVs60dOf(s);
+    if (vs != null) bits.push(`${vs.toFixed(2)}x 60d`);
     const turn = ep9mTurnOf(s);
     if (turn != null && turn >= 0.25) bits.push(`${turn.toFixed(2)}x float`);
-    const chg = chgOf(s);
-    return `${s.ticker} ${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%${bits.length ? ` · ${bits.join(' · ')}` : ''}`;
+    return `${s.ticker} ${bits.join(' ')}`;
   };
 
   const unprec = rows.filter(ep9mUnprec).sort((a, b) => (ep9mVs60dOf(b) ?? 0) - (ep9mVs60dOf(a) ?? 0));
@@ -1148,10 +1158,10 @@ const buildLocalInsights = (
     const cat = catalystLinked(s);
     const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
     const rv = rvolOf(s);
-    return `${s.ticker} ${chg}${rv != null ? ` · RVOL ${rv.toFixed(2)}` : ''}${cat ? ` — ${cat}` : ''}`;
+    return `${s.ticker} ${chg}${rv != null ? ` RVOL ${rv.toFixed(2)}` : ''}${cat ? ` — ${cat}` : ''}`;
   };
   const fmtFaderRow = (s: any): string =>
-    `${s.ticker} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% · RVOL ${(rvolOf(s) ?? 0).toFixed(2)}`;
+    `${s.ticker} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% RVOL ${(rvolOf(s) ?? 0).toFixed(2)}`;
 
   const leadersCol = leaders.length ? `Volume-confirmed:\n${leaders.map(fmtLeader).join('\n')}` : '';
   const newsCol = newsItems.length ? `News-driven:\n${newsItems.map(fmtNewsRow).join('\n')}` : '';
@@ -1172,29 +1182,21 @@ const buildLocalInsights = (
     sipsPara = 'SIPs Thesis: No volume-confirmed leaders yet.';
   }
 
-  /* Four fields, down from six. STAGE went because the row already ranks by
-     blendedScore, which reads posture — a stage code sitting between RVOL and
-     CNF was a number you had to interpret rather than one you could act on.
-
-     REV and ● can both appear and that is deliberate: REV says the pattern
-     detector called this a reversal, ● says the stochastic reset fired today.
-     A reversal setup with a live dot is the strongest version of the signal
-     and it should look different from either half alone. */
+  /* CNF moved ahead of the setup name so the badge aligns down the column —
+     "20 EMA PB" is six characters wider than "●" and was pushing the badge
+     out of line on every other row. Variable-width fields belong last. */
   const fmtDaily = (s: any): string => {
     const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
-    const bits: string[] = [];
+    const bits: string[] = [chg, `CNF ${scoreOf(s)}`];
+
     const rv = rvolOf(s);
     if (rv != null) bits.push(`RVOL ${rv.toFixed(2)}`);
 
     const su = setupRowLabel(s);
     if (su) bits.push(su);
+    if (dotOf(s) === 'red') bits.push('RED DOT');
 
-    const dot = dotOf(s);
-    if (dot === 'blue') bits.push(BLUE_DOT_GLYPH);
-    else if (dot === 'red') bits.push('RED DOT');
-
-    bits.push(`CNF ${scoreOf(s)}`);
-    return `${s.ticker} ${chg} · ${bits.join(' · ')}`;
+    return `${s.ticker} ${bits.join(' ')}`;
   };
 
   const swingNames = daily.filter(s => !isDayName(s)).sort((a, b) => blendedScore(b) - blendedScore(a)).slice(0, 6);
@@ -1227,7 +1229,7 @@ const buildLocalInsights = (
   let heatPara = '';
   if (heat.length >= 2) {
     const fmtHeat = (h: { sector: string; avgChg: number; count: number }) =>
-      `${h.avgChg >= 0 ? '+' : ''}${h.avgChg.toFixed(1)}% · ${h.sector} (${h.count} name${h.count !== 1 ? 's' : ''})`;
+      `${h.avgChg >= 0 ? '+' : ''}${h.avgChg.toFixed(1)}% ${h.sector} (${h.count})`;
     const hot = heat.filter(h => h.avgChg > 0).slice(0, 4);
     const cold = heat.filter(h => h.avgChg < 0).slice(-4).reverse();
     if (hot.length && cold.length) {
@@ -1261,7 +1263,7 @@ const buildLocalInsights = (
   let etfPara = '';
   if (etfs.length) {
     const fmtE = (e: { ticker: string; dVol: number; chg: number }) =>
-      `${e.ticker} ${fmtDollar(e.dVol)} ${e.chg >= 0 ? '+' : ''}${e.chg.toFixed(2)}%`;
+      `${e.ticker} ${e.chg >= 0 ? '+' : ''}${e.chg.toFixed(2)}% ${fmtDollar(e.dVol)}`;
     const upD = etfs.filter(e => e.chg > 0).reduce((a, e) => a + e.dVol, 0);
     const totD = etfs.reduce((a, e) => a + e.dVol, 0);
     const upShare = totD > 0 ? Math.round((upD / totD) * 100) : 0;
@@ -1283,7 +1285,7 @@ const buildLocalInsights = (
       .slice()
       .sort((a, b) => dVolOf(b) - dVolOf(a))
       .slice(0, 3)
-      .map(s => `${s.ticker} ${fmtDollar(dVolOf(s))} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`);
+      .map(s => `${s.ticker} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% ${fmtDollar(dVolOf(s))}`);
 
     const inflowAgg: Record<string, number> = {};
     flowNames.filter(s => chgOf(s) > 0).forEach(s => {
@@ -1329,8 +1331,8 @@ const buildLocalInsights = (
 /* TR, ST, TG, REV and the rest are label words, not tickers. Without them
    here the renderer chips them like symbols and SectionCopyButton copies
    them into a TradingView watchlist. ST and TR are real tickers (Sensata,
-   Tootsie Roll) — an acceptable trade, since neither has ever appeared on
-   this board and the level pattern matches first anyway. */
+   Tootsie Roll) — an acceptable trade, since neither has appeared on this
+   board and the level pattern matches first anyway. */
 const TICKER_STOPWORDS = new Set([
   'RVOL', 'CNF', 'SMB', 'DAY', 'SWING', 'BD', 'REV', 'EP', 'BB', 'SQZ',
   'GLB', 'VCP', 'PB', 'GO', 'GC', 'EMA', 'SMA', 'MACD', 'ATR', 'ADR', 'RS', 'R2G',
@@ -1361,9 +1363,7 @@ const rsColor = (rs: number) => (rs >= 20 ? 'text-purple-400' : rs >= 10 ? 'text
 const reachColor = (v: number) => (v <= 0.5 ? 'text-emerald-400' : v <= 1 ? 'text-slate-300' : 'text-amber-400');
 
 /* Both badges use exactly the thresholds and palette the tables use, so a
-   score or an R reads the same here as it does in its column. Rendered as
-   pills rather than coloured text because these are the two fields the eye
-   jumps to first. */
+   score or an R reads the same here as it does in its column. */
 const rtrBadgeCls = (v: number): string => {
   if (v >= 2) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
   if (v >= 1) return 'bg-slate-500/10 text-slate-300 border-white/10';
@@ -1383,44 +1383,46 @@ const postureChipCls = (tone: 'good' | 'warn' | 'bad'): string => {
   return 'text-rose-400 bg-rose-500/10 border-rose-500/20';
 };
 
-/* ---- renderBriefingText -------------------------------------------------
-   `align` turns on fixed field widths. It is passed ONLY for Trade Plan
-   rows, because those are a table pretending to be prose — five rows of the
-   same six fields, where the eye wants to scan down a column. Everywhere
-   else the same tokens appear mid-sentence and a fixed width would open
-   gaps in running text.
+/* Sections whose bodies are LISTS OF ROWS rather than prose. These get fixed
+   field widths so values stack into columns; everywhere else the same tokens
+   appear mid-sentence and a fixed width would open gaps in running text. */
+const ALIGNED_SECTIONS = new Set([
+  'Trade Plan', 'Top Movers', 'SIPs Thesis', 'Daily Setups Thesis',
+  '10/21 Thesis', 'EP9M Thesis', 'Industry Heat',
+]);
 
-   The widths are minimums, not caps: a four-digit level or a three-digit CNF
+/* ---- renderBriefingText -------------------------------------------------
+   The widths are MINIMUMS, not caps: a four-digit level or a three-digit CNF
    still renders, it just pushes that row's later fields right rather than
-   truncating. */
+   truncating. Tuned narrow enough that a five-field row fits a phone. */
 const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
   const rx = /(▸|●|REV|RED DOT|BLUE DOT|\[[^\]]+\]\([^)]+\)|\d{1,2}:\d{2} (?:AM|PM)|RVOL \d+(?:\.\d+)?|CNF \d+|Stage \d[ABC]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|(?:TR|ST|TG) \d+(?:\.\d+)?|\d+(?:\.\d+)?x ADR|\d+(?:\.\d+)?R\+?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
   const parts = text.split(rx);
 
-  const chgW = align ? 'inline-block min-w-[66px] text-right' : '';
-  const cnfW = align ? 'min-w-[34px] text-center' : '';
-  const rtrW = align ? 'min-w-[46px] text-center' : '';
-  const lvlLabelW = align ? 'inline-block min-w-[20px]' : '';
-  const lvlValW = align ? 'inline-block min-w-[44px] text-right' : '';
+  const chgW = align ? 'inline-block min-w-[60px] text-right' : '';
+  const cnfW = align ? 'min-w-[30px] text-center' : '';
+  const rtrW = align ? 'min-w-[42px] text-center' : '';
+  const rvolW = align ? 'inline-block min-w-[34px] text-right' : '';
+  const lvlValW = align ? 'inline-block min-w-[40px] text-right' : '';
 
   return parts.map((part, i) => {
     if (!part) return null;
     if (part === '▸') return <span key={i} className="text-rose-400 font-bold">▸</span>;
     if (part === BLUE_DOT_GLYPH) {
       return (
-        <span key={i} title="Blue Dot — oversold stochastic reset fired on the daily" className="text-sky-400 text-[13px] align-baseline">
+        <span key={i} title="Blue Dot reversal — oversold stochastic reset fired on the daily" className="text-sky-400 text-[13px] align-baseline">
           {BLUE_DOT_GLYPH}
         </span>
       );
     }
     if (part === 'REV') {
       return (
-        <span key={i} title="Reversal setup — the pattern detector named this a blue-dot reversal" className="text-sky-400 font-bold tracking-wide text-[11px]">
+        <span key={i} title="Reversal by structure — up today, under the 21, no blue dot behind it" className="text-sky-400 font-bold tracking-wide text-[11px]">
           REV
         </span>
       );
     }
-    if (part === 'RED DOT') return <span key={i} className="text-rose-400 font-bold tracking-wide">RED DOT</span>;
+    if (part === 'RED DOT') return <span key={i} className="text-rose-400 font-bold tracking-wide text-[11px]">RED DOT</span>;
     if (part === 'BLUE DOT') return <span key={i} className="text-cyan-400 font-bold tracking-wide">BLUE DOT</span>;
 
     const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
@@ -1434,7 +1436,12 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
     let m = part.match(/^RVOL (\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
-      return <span key={i}>RVOL <span className={`${valNum} ${rvolColor(v)}`}>{m[1]}</span></span>;
+      return (
+        <span key={i} className={align ? 'ml-1.5' : ''}>
+          <span className="text-slate-500 text-[10px]">RVOL</span>{' '}
+          <span className={`${valNum} ${rvolColor(v)} ${rvolW}`}>{m[1]}</span>
+        </span>
+      );
     }
     m = part.match(/^CNF (\d+)$/);
     if (m) {
@@ -1463,15 +1470,15 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
       const v = parseFloat(m[1]);
       return <span key={i}>RS <span className={`${valNum} ${rsColor(v)}`}>{m[1]}</span></span>;
     }
-    // The three order levels. Stop red, target green, trigger neutral —
-    // matching the tables. Regular weight: three bold numbers per row against
-    // three badges was more emphasis than any one field could carry.
+    // The three order levels, set tight — label and value are one unit, so
+    // no space between them. Stop red, target green, trigger neutral,
+    // matching the tables.
     m = part.match(/^(TR|ST|TG) (\d+(?:\.\d+)?)$/);
     if (m) {
       const tone = m[1] === 'ST' ? 'text-rose-400' : m[1] === 'TG' ? 'text-emerald-400' : 'text-slate-200';
       return (
-        <span key={i} className={align ? 'ml-1' : ''}>
-          <span className={`text-slate-500 text-[10px] ${lvlLabelW}`}>{m[1]}</span>{' '}
+        <span key={i} className={align ? 'inline-block ml-2' : ''}>
+          <span className="text-slate-500 text-[9px] tracking-tight">{m[1]}</span>
           <span className={`${valNum} ${tone} ${lvlValW}`}>{m[2]}</span>
         </span>
       );
@@ -1513,8 +1520,8 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Trade Plan', color: 'teal', blurb: 'Names with a defined entry that can realistically fire next session — trigger within one average daily range of price, and at least one stop-width of room before the first level overhead. TR is the alert, ST the exit, TG a fixed 2R. The R badge is room-to-resistance in stop-widths, coloured as on the tables. Collapsed and over-extended names are excluded, not ranked last.' },
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves right now. Volume-confirmed names are tradeable; thin gaps are fade candidates.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, who has news, and who is grinding on air.' },
-  { label: 'Daily Setups Thesis', color: 'emerald', blurb: 'Structured setups from the daily scan. SWING holds for days; DAY is intraday momentum only. REV is a reversal setup by pattern; ● is a live blue dot — an oversold stochastic reset that fired today. A row can carry both.' },
-  { label: '10/21 Thesis', color: 'violet', blurb: 'Top-ranked names split by holding period, each tagged with its 10/21 EMA posture. Leveraged and inverse ETFs excluded. A name tagged BELOW 21, EXTENDED, or RED DOT ranks on tape action — it is not at an entry.' },
+  { label: 'Daily Setups Thesis', color: 'emerald', blurb: 'Structured setups from the daily scan. SWING holds for days; DAY is intraday momentum only. ● is a Blue Dot reversal — the oversold stochastic reset fired; REV is a reversal by structure with no dot behind it.' },
+  { label: '10/21 Thesis', color: 'violet', blurb: 'Top-ranked names split by holding period. The two percentages are distance from the 21 and the 10 EMA, followed by the posture read. Leveraged and inverse ETFs excluded. A name tagged BELOW 21, EXTENDED, or RED DOT ranks on tape action — it is not at an entry.' },
   { label: 'EP9M Thesis', color: 'rose', blurb: 'Abnormal 9M+ share volume — institutional footprints. Unprecedented = beat their own 60-day record.' },
   { label: 'Industry Heat', color: 'amber', blurb: 'Sector rotation — where money is flowing in and where it is leaving. Wide dispersion = stock-picker tape.' },
   { label: 'ETF Flow', color: 'indigo', blurb: 'Heaviest ETF dollar volume and the advancing/declining split — shows where leveraged money is betting.' },
@@ -1903,10 +1910,7 @@ export default function MarketSummary() {
                             (body.match(/\b[A-Z]{2,5}\b/g) || []).filter(t => !TICKER_STOPWORDS.has(t))
                           ));
                           const isOpen = !label || !collapsedSections.has(key);
-                          // Column alignment is for the Trade Plan rows only —
-                          // everywhere else these tokens sit mid-sentence and a
-                          // fixed width would open gaps in running text.
-                          const alignRows = label === 'Trade Plan';
+                          const alignRows = !!label && ALIGNED_SECTIONS.has(label);
 
                           return (
                             <div key={idx} className={`border-l-[3px] rounded-r-xl px-4 py-3 ${st.border} ${st.bg}`}>
@@ -1953,7 +1957,7 @@ export default function MarketSummary() {
                                                       {heading.replace(/:$/, '')}
                                                     </p>
                                                     {rows.map((line, li) => (
-                                                      <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium whitespace-nowrap">
+                                                      <p key={li} className={`text-[13px] text-slate-300 leading-relaxed font-medium ${alignRows ? 'whitespace-nowrap' : ''}`}>
                                                         {renderBriefingText(line, alignRows)}
                                                       </p>
                                                     ))}
@@ -1985,7 +1989,7 @@ export default function MarketSummary() {
                                   <div className="space-y-2">
                                     {body.split('\n').filter(Boolean).map((line, li) => (
                                       <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
-                                        {renderBriefingText(line)}
+                                        {renderBriefingText(line, alignRows)}
                                       </p>
                                     ))}
                                   </div>
@@ -2026,13 +2030,14 @@ export default function MarketSummary() {
                               {symbol}
                             </span>
                             <div className="flex items-center gap-1.5">
-                              {dk && (
-                                <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border tracking-wider uppercase ${
-                                  dk === 'red'
-                                    ? 'text-rose-400 bg-rose-500/10 border-rose-500/20'
-                                    : 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20'
-                                }`}>
-                                  {dk === 'red' ? 'RD' : 'BD'}
+                              {dk === 'red' && (
+                                <span className="text-[8px] font-bold px-1.5 py-0.5 rounded border tracking-wider uppercase text-rose-400 bg-rose-500/10 border-rose-500/20">
+                                  RD
+                                </span>
+                              )}
+                              {dk === 'blue' && (
+                                <span className="text-sky-400 text-[13px] leading-none" title="Blue Dot reversal">
+                                  {BLUE_DOT_GLYPH}
                                 </span>
                               )}
                               {pMeta && (
