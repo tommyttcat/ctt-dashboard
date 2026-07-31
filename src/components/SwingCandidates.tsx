@@ -1,16 +1,15 @@
 'use client';
 
-// SwingCandidates — v2.1
+// SwingCandidates — v2.2
 // v1.5: full parity with DailySetups v1.9 + DAY/SWING chip.
 // v1.6: build fix — scanConfig exports the swing meta as SWING_META.
 // v2.0: parity with SIPs v3.0 / Daily v2.0 — RTR column, trade plan on the
 //       sub-row, setup name under the ticker, DAY/SWING chip dropped.
 //
-//       THE RTR COLUMN WILL READ "—" UNTIL THE BACKEND CATCHES UP. This
-//       component reads /api/swing-candidates/latest, which is a different
-//       scan from /api/scanner/latest and does not emit `plan`, raw EMA
-//       values, dayHigh or priorSwingHigh. The wiring here is complete and
-//       correct; it is waiting on the route.
+//       (The v2.0 header warned that RTR would read "—" until the backend
+//       caught up. Swing route v1.8 emits `plan`, so that note is retired.
+//       If RTR still reads "—", the KV payload is stale rather than the
+//       route being behind — rerun the scan.)
 //
 // v2.1: filter consolidation, matching SIPs v3.1 / Daily v2.1 — with three
 //       deliberate divergences, because this scan is not those scans.
@@ -33,17 +32,54 @@
 //       there. Here tradeTypeLabel() defaults to 'swing' when the field is
 //       absent, so every row reads SWING and the control would be a no-op.
 //
-//       PLAN RENDERS ONLY WHEN A ROW CARRIES ONE. See the v2.0 note: the
-//       swing route does not emit `plan`. A filter that empties the table
-//       rather than narrowing it is worse than no filter, so the group is
-//       hidden until at least one row has a plan object — at which point it
-//       reappears on its own with no code change.
+//       PLAN RENDERS ONLY WHEN A ROW CARRIES ONE — the `anyPlan` guard. Kept
+//       even though the route now emits plans, because it costs nothing and
+//       protects against a stale payload.
+//
+// v2.2: + CHOPPINESS INDEX (chop14), from swing route v1.9.
+//
+//       THIS IS THE MOST USEFUL TABLE FOR CHOP, and the reason is specific
+//       rather than general.
+//
+//       A pullback into a trending name and a pullback inside a trading range
+//       ARE INDISTINGUISHABLE ON EVERYTHING ELSE THIS TABLE MEASURES. Same
+//       distance to the 10. Same distance to the 21. Same stochastic. Same
+//       posture bucket — both read FIRST TOUCH. Same Ready flag. The scan
+//       admits both because its gates are structural and both satisfy them.
+//
+//       They behave nothing alike. The first resumes the trend; the second
+//       reverses at a range edge it has already reversed at four times this
+//       month, and the "first touch" was price arriving at the bottom of a
+//       box rather than at support in an advance.
+//
+//       CHOP is the only reading here that separates them. POSTURE says where
+//       price sits; CHOP says whether the structure it sits in resolves.
+//
+//       CONSOLIDATION1021 DELIBERATELY DOES NOT GET THIS, even though the
+//       same route now emits the field for it. On a coil table chop is
+//       algebraically redundant with coilRatio: for a consolidating name
+//       sum(TR,14) ≈ 14 × ATR and the 14-day range ≈ 1.15 × coilRatio × ATR,
+//       so chop reduces to a log transform of coilRatio — around 60 at a
+//       coilRatio of 2.5, 42 at 4.0, 27 at 6.0. Monotonic across the whole
+//       band that scan admits. A CHOP filter there would print the same
+//       measurement twice in worse units and reject every good base.
+//
+//       CHOP SHARES THE ADR CELL rather than taking a column. ADR says the
+//       name MOVES; CHOP says it moves SOMEWHERE. Separate columns would let
+//       the eye take one without the other, which is the failure the field
+//       exists to prevent.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { stateOf, stateTooltip, stateLegend, readinessTooltip } from '@/lib/indicators/state';
+import {
+  chopColor,
+  chopTooltip,
+  CHOP_TREND_MAX,
+  CHOP_CHOP_MIN,
+} from '@/lib/indicators/chop';
 import { SWING_META, COLUMN_NOTES } from '@/lib/scanConfig';
 import MetricsKey from './MetricsKey';
 
@@ -66,7 +102,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Green up · red down.',
   },
   '10/21': {
-    what: 'Price vs the 10 and 21 EMAs — the Dr. Wish trend pair. This pair drives the POSTURE filter: above 21 and below 10 is a first touch, which on a pullback scan is the expected shape.',
+    what: 'Price vs the 10 and 21 EMAs — the Dr. Wish trend pair. This pair drives the POSTURE filter: above 21 and below 10 is a first touch, which on a pullback scan is the expected shape. Note that it cannot tell a pullback in a trend from a pullback in a range — that is what CHOP is for.',
     colour: 'Green dot above that EMA · red below · grey no data.',
   },
   VOL: { what: 'Shares traded today.' },
@@ -76,8 +112,8 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Amber 2x+ · green 1.5x+ · grey below.',
   },
   ADR: {
-    what: '20-day average daily range. The anti-chop gate — scan floor is 3%. Also the basis for the stop: 1.25× ADR or 2.5%, whichever is wider, and for the extension test behind the EXTENDED posture.',
-    colour: 'Purple 10%+ · green 5%+ · grey at the floor.',
+    what: 'Two readings, stacked, because neither means much alone.\n\nTOP — ADR: 20-day average daily range. The scan floor is 3%. Also the stop basis (1.25× ADR or 2.5%, whichever is wider) and the extension test behind the EXTENDED posture.\n\nBOTTOM — CHOP: 14-day Choppiness Index. Distance travelled over ground covered. ADR was long described here as the anti-chop gate, and it is not one — it says the name MOVES, not that it moves SOMEWHERE. CHOP is the actual anti-chop reading, and on this table it is the only thing separating a pullback into a trend from a pullback inside a range.',
+    colour: 'ADR: purple 10%+ · green 5%+ · grey at the floor.\nCHOP: teal/green trending · slate mixed · amber choppy · red dead chop.',
   },
   MF: {
     what: 'Money Flow (21) — volume-weighted accumulation vs distribution, 0–100. On a pullback, above 55 is orderly profit-taking; below 45 is distribution. Arrow shows the bar-over-bar trend.',
@@ -144,6 +180,8 @@ interface SwingCandidate {
   vwapStatus?: 'above' | 'below' | 'neutral';
   atrPct: number;
   adrPct?: number | null;
+  chop14?: number | null;
+  chopTrap?: boolean | null;
   rmv?: number | null;
   mf?: number | null;
   mfTrend?: number;
@@ -183,6 +221,7 @@ type AdrFilterType = 'All' | '5' | '10';
 type PlanFilterType = 'All' | '1R' | '2R';
 type CapFilterType = 'All' | 'Small' | 'Large';
 type PostureFilterType = 'All' | 'first-touch' | 'stacked' | 'extended';
+type ChopFilterType = 'All' | 'trend' | 'nochop';
 
 const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
 const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
@@ -190,6 +229,19 @@ const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
 const PLAN_BUCKETS: PlanFilterType[] = ['1R', '2R'];
 const CAP_BUCKETS: CapFilterType[] = ['Small', 'Large'];
 const POSTURE_BUCKETS: PostureFilterType[] = ['first-touch', 'stacked', 'extended'];
+const CHOP_BUCKETS: ChopFilterType[] = ['trend', 'nochop'];
+
+const CHOP_META: Record<ChopFilterType, { label: string; title: string }> = {
+  'All': { label: 'ALL', title: '' },
+  'trend': {
+    label: 'TREND',
+    title: `Choppiness ${CHOP_TREND_MAX} or below — the pullback is into a genuine advance, not into the bottom of a box. The narrow cut, and the one that matches what this scan is supposed to be finding.`,
+  },
+  'nochop': {
+    label: 'NO CHOP',
+    title: `Choppiness under ${CHOP_CHOP_MIN} — excludes the range-bound names. Every row here reads FIRST TOUCH whether the structure is a trend or a box; this is what tells the two apart.`,
+  },
+};
 
 const CNF_LABELS: Record<string, string> = {
   rvol: 'Relative volume',
@@ -333,6 +385,11 @@ const adrOf = (c: SwingCandidate): number | null => {
   return Number(c.adrPct);
 };
 
+const chopOf = (c: SwingCandidate): number | null => {
+  if (c.chop14 == null || isNaN(Number(c.chop14))) return null;
+  return Number(c.chop14);
+};
+
 const mfOf = (c: SwingCandidate): number | null => {
   if (c.mf == null || isNaN(Number(c.mf))) return null;
   return Number(c.mf);
@@ -371,9 +428,8 @@ const tradeTypeLabel = (tradeType: string | null | undefined): string | null => 
    Reads the `plan` object the scanner ships. Nothing is recalculated here,
    so the table cannot disagree with the score.
 
-   NOT YET POPULATED ON THIS TABLE — see the v2.0 header note. Every helper
-   below degrades to "—" rather than throwing or inventing a value, so the
-   column is honest about the gap until the swing route emits a plan.      */
+   Route v1.8 emits these. Every helper still degrades to "—" rather than
+   throwing, so a stale payload renders honestly instead of breaking.     */
 const planOf = (c: SwingCandidate): TradePlanRow | null => {
   const p = c.plan;
   return p && typeof p === 'object' ? p : null;
@@ -422,7 +478,7 @@ const planBadge = (c: SwingCandidate): string => {
 const planTooltip = (c: SwingCandidate): string => {
   const p = planOf(c);
   const tt = tradeTypeLabel(c.tradeType);
-  if (!p) return 'No trade plan on this row — the swing scan does not yet compute one.';
+  if (!p) return 'No trade plan on this row — rerun the swing scan.';
   if (p.tradeable !== true) return `No plan — ${p.note || 'not computable'}.`;
 
   const lines: string[] = [];
@@ -444,6 +500,19 @@ const planTooltip = (c: SwingCandidate): string => {
     lines.push('');
     lines.push(p.note);
   }
+
+  /* The swing trigger is TODAY'S HIGH — the level that says the pullback is
+     over. Inside a range that level is nothing of the sort: it is one more
+     bounce off the bottom of a box, and the box top is the real resistance
+     the plan has not measured. The levels are arithmetically correct and the
+     premise underneath them is wrong, which is the failure mode chop exists
+     to catch on this table. */
+  const chop = chopOf(c);
+  if (chop != null && chop >= CHOP_CHOP_MIN) {
+    lines.push('');
+    lines.push(`CHOP ${chop.toFixed(0)} — the trigger assumes a pullback that resumes. In a range this is a bounce off the low, not the end of a pullback.`);
+  }
+
   lines.push('');
   lines.push('Stop is the wider of 1.25× ADR or 2.5%. Target is a fixed 2R.');
   return lines.join('\n');
@@ -484,6 +553,14 @@ const cnfTooltip = (c: SwingCandidate): string => {
     }
   }
 
+  // CNF does not read chop — the route emits it unscored on purpose. Say so
+  // rather than letting a high score imply the structure was considered.
+  const chop = chopOf(c);
+  if (chop != null && chop >= CHOP_CHOP_MIN) {
+    lines.push('');
+    lines.push(`CHOP ${chop.toFixed(0)} — not scored into CNF. This grade rates the pullback, not whether it is a pullback in a trend or in a range.`);
+  }
+
   return lines.join('\n');
 };
 
@@ -509,7 +586,14 @@ const above10 = (c: SwingCandidate) => c.aboveEma10 ?? (c.distToEma10 != null ? 
    stacked name. That returns null rather than guessing — the row falls out of
    every posture filter and shows no posture on hover, which is the honest
    outcome. Guessing 'stacked' would silently mislabel exactly the setup this
-   scan exists to find. */
+   scan exists to find.
+
+   POSTURE CANNOT SEE STRUCTURE. Every bucket here is computed from where
+   price sits relative to two moving averages, which is identical for a
+   pullback in an advance and a pullback to the bottom of a range. CHOP is
+   the companion read, and on this table the two are meant to be used
+   together — FIRST TOUCH plus TREND is the setup; FIRST TOUCH alone is a
+   shape.                                                                  */
 type PostureBucket = 'first-touch' | 'stacked' | 'extended' | 'below-21';
 
 const EXTENSION_ATR_MULTIPLE = 3;
@@ -545,7 +629,7 @@ const POSTURE_META: Record<PostureFilterType, { label: string; title: string }> 
   'All': { label: 'ALL', title: '' },
   'first-touch': {
     label: 'FIRST TOUCH',
-    title: 'Holding the 21 EMA but pulled back under the 10 — the Dr. Wish first touch, where the stop is defined and close. On this scan it should be the common case.',
+    title: 'Holding the 21 EMA but pulled back under the 10 — the Dr. Wish first touch, where the stop is defined and close. On this scan it should be the common case. Pair with CHOP: this bucket cannot tell a pullback in a trend from a bounce off the bottom of a range.',
   },
   'stacked': {
     label: 'STACKED',
@@ -572,6 +656,7 @@ export default function SwingCandidates() {
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [showReadyOnly, setShowReadyOnly] = useState<boolean>(false);
   const [postureFilter, setPostureFilter] = useState<PostureFilterType>('All');
+  const [chopFilter, setChopFilter] = useState<ChopFilterType>('All');
   const [marketCapFilter, setMarketCapFilter] = useState<CapFilterType>('All');
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [adrFilter, setAdrFilter] = useState<AdrFilterType>('All');
@@ -616,30 +701,51 @@ export default function SwingCandidates() {
   // what removed the need for a MKT CAP "All" button — nothing selected
   // already means all, and a second click gets you there.
   const handleAdrFilter = (val: AdrFilterType) => setAdrFilter(prev => prev === val ? 'All' : val);
+  const handleChopFilter = (val: ChopFilterType) => setChopFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
   const handlePlanFilter = (val: PlanFilterType) => setPlanFilter(prev => prev === val ? 'All' : val);
   const handleCapFilter = (val: CapFilterType) => setMarketCapFilter(prev => prev === val ? 'All' : val);
   const handlePostureFilter = (val: PostureFilterType) => setPostureFilter(prev => prev === val ? 'All' : val);
 
-  /* Does ANY row carry a plan object? Drives whether the PLAN group renders
-     at all. The swing route does not emit one yet, and a filter that empties
-     the table rather than narrowing it is worse than no filter. When the
-     route catches up this flips to true on its own. */
+  /* Does ANY row carry a plan object? Drives whether the PLAN group renders.
+     Route v1.8 emits plans, so this should now be true — kept because it
+     costs nothing and a stale payload would otherwise leave a filter that
+     empties the table rather than narrowing it. */
   const anyPlan = useMemo(() => candidates.some(c => planOf(c) != null), [candidates]);
 
-  // A hidden group must not keep filtering. Without this, selecting 1R+ and
-  // then losing plan data on the next poll would leave an invisible filter
-  // holding the table empty with no control to clear it.
+  /* Same guard for chop, which arrives with route v1.9. */
+  const anyChop = useMemo(() => candidates.some(c => chopOf(c) != null), [candidates]);
+
+  // A hidden group must not keep filtering. Without these, selecting an
+  // option and then losing the underlying data on the next poll would leave
+  // an invisible filter holding the table empty with no control to clear it.
   useEffect(() => {
     if (!anyPlan && planFilter !== 'All') setPlanFilter('All');
   }, [anyPlan, planFilter]);
+
+  useEffect(() => {
+    if (!anyChop && chopFilter !== 'All') setChopFilter('All');
+  }, [anyChop, chopFilter]);
 
   const filteredAndSorted = useMemo(() => {
     let filtered = [...candidates];
     if (showReadyOnly) filtered = filtered.filter(isReady);
     if (postureFilter !== 'All') {
       filtered = filtered.filter(c => postureOf(c) === postureFilter);
+    }
+    /* CHOP. Rows with no reading fall OUT of either selection rather than
+       passing — a name with too few daily bars to score is not evidence of a
+       trend. On this scan that is a real population: the 210-bar minimum in
+       the route means most rows will have a reading, but a recent listing
+       that slipped through is exactly the case where structure is unknown
+       and the churn risk is highest. */
+    if (chopFilter !== 'All') {
+      filtered = filtered.filter(c => {
+        const v = chopOf(c);
+        if (v == null) return false;
+        return chopFilter === 'trend' ? v <= CHOP_TREND_MAX : v < CHOP_CHOP_MIN;
+      });
     }
     if (marketCapFilter !== 'All') {
       filtered = filtered.filter(c => {
@@ -669,8 +775,7 @@ export default function SwingCandidates() {
 
        `clear` rows carry no resistanceR at all — there is nothing overhead to
        measure — so they satisfy BOTH levels rather than falling out of the
-       stricter one. That is the correction v2.1 makes: the old pair had
-       "Clear" as a subset of "1R+" and called them two options. */
+       stricter one. */
     if (planFilter !== 'All') {
       const minR = planFilter === '2R' ? 2.0 : 1.0;
       filtered = filtered.filter(c => {
@@ -690,7 +795,7 @@ export default function SwingCandidates() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, showReadyOnly, postureFilter, marketCapFilter, cnfFilter, adrFilter, vwapFilter, planFilter]);
+  }, [candidates, sortConfig, showReadyOnly, postureFilter, chopFilter, marketCapFilter, cnfFilter, adrFilter, vwapFilter, planFilter]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -782,6 +887,7 @@ export default function SwingCandidates() {
   const activeFilterCount =
     (showReadyOnly ? 1 : 0) +
     (postureFilter !== 'All' ? 1 : 0) +
+    (chopFilter !== 'All' ? 1 : 0) +
     (marketCapFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
     (adrFilter !== 'All' ? 1 : 0) +
@@ -846,9 +952,11 @@ export default function SwingCandidates() {
             </div>
             {showFilters && (
               <div className="flex flex-wrap justify-center items-center gap-3 w-full">
-                {/* POSTURE leads because it is the only group that answers
-                    "is this at an entry" rather than "is this big enough /
-                    liquid enough / scored well enough". */}
+                {/* POSTURE and CHOP are meant to be used together on this
+                    table. Posture says price pulled back to the anchor; chop
+                    says whether that anchor sits in an advance or in a box.
+                    FIRST TOUCH + TREND is the setup. FIRST TOUCH alone is
+                    just a shape. */}
                 <div className={pillWrap}>
                   <span className={pillLabel}>POSTURE</span>
                   <div className="flex items-center gap-1">
@@ -864,10 +972,27 @@ export default function SwingCandidates() {
                     ))}
                   </div>
                 </div>
-                {/* STAT is orthogonal to everything else here: POSTURE asks
-                    where price sits, STAT asks whether the stochastic reset
-                    is close enough to fire. A first touch that is not yet
-                    Ready is a watch item, not an entry. */}
+                {anyChop && (
+                  <div className={pillWrap}>
+                    <span className={pillLabel}>CHOP</span>
+                    <div className="flex items-center gap-1">
+                      {CHOP_BUCKETS.map((opt) => (
+                        <button
+                          key={opt}
+                          onClick={() => handleChopFilter(opt)}
+                          title={CHOP_META[opt].title}
+                          className={`${pillBtn} ${chopFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                        >
+                          {CHOP_META[opt].label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* STAT is orthogonal to both: POSTURE asks where price sits,
+                    CHOP asks what structure it sits in, STAT asks whether the
+                    stochastic reset is close enough to fire. A first touch in
+                    a trend that is not yet Ready is a watch item. */}
                 <div className={pillWrap}>
                   <span className={pillLabel}>STAT</span>
                   <div className="flex items-center gap-1">
@@ -923,7 +1048,7 @@ export default function SwingCandidates() {
                       <button
                         key={opt}
                         onClick={() => handleAdrFilter(opt)}
-                        title={`20-day average daily range of ${opt}% and above — scan floor is 3%`}
+                        title={`20-day average daily range of ${opt}% and above — scan floor is 3%. This measures how much the name moves, not whether it goes anywhere; the CHOP filter is the one that answers that.`}
                         className={`${pillBtn} ${adrFilter === opt ? filterBtnActive : filterBtnIdle}`}
                       >
                         {opt}%+
@@ -976,6 +1101,9 @@ export default function SwingCandidates() {
                   <th className={`${thBase} w-[6%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  {/* One header, two stacked readings. Clicking sorts by ADR;
+                      CHOP is filtered rather than sorted, since a single
+                      header cannot carry two sort keys. */}
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
@@ -999,6 +1127,7 @@ export default function SwingCandidates() {
                     const sectorText = cleanSector(row.sector, row.symbol);
                     const bdRev = isBlueDotSetup(row.setupName);
                     const adr = adrOf(row);
+                    const chop = chopOf(row);
                     const mf = mfOf(row);
                     const rmv = rmvOf(row);
                     const rme = rmeOf(row);
@@ -1059,8 +1188,22 @@ export default function SwingCandidates() {
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{row.dVol ? formatCurrency(row.dVol) : (row.avgDollarVolM ? `$${row.avgDollarVolM}M` : '—')}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`}>
-                            {adr != null ? `${adr.toFixed(1)}%` : '—'}
+                          {/* ADR over CHOP, one cell. On this table the pair
+                              is the read: a wide-range name that never goes
+                              anywhere looks like the best pullback candidate
+                              on the board until you see the second line. */}
+                          <td
+                            className={`${tdBase} whitespace-nowrap tabular-nums cursor-help`}
+                            title={chopTooltip(chop, adr)}
+                          >
+                            <div className="flex flex-col leading-tight">
+                              <span className={`text-xs font-bold ${getAdrColor(adr)}`}>
+                                {adr != null ? `${adr.toFixed(1)}%` : '—'}
+                              </span>
+                              <span className={`text-[8px] font-semibold tracking-tight ${chopColor(chop)}`}>
+                                {chop != null ? `CHOP ${chop.toFixed(0)}` : ''}
+                              </span>
+                            </div>
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={mf != null ? `Money Flow ${mf.toFixed(0)} — ${mfLabel(mf)}` : undefined}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
