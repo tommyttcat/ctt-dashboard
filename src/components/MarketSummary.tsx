@@ -1,5 +1,20 @@
 'use client';
 
+/* MarketSummary.tsx — v2.1
+   Mobile layout pass. Aligned rows were clipping on a phone: six fixed-width
+   fields plus card padding totalled ~440px against a ~380px viewport, so TG
+   fell off the right edge with no way to reach it.
+
+   Three layers, because any one alone still fails on an outlier:
+     - every aligned width is now responsive, mobile-first
+     - card and section padding shrink below md
+     - aligned rows sit in an overflow-x-auto wrapper, so a 4-digit price
+       scrolls instead of vanishing
+
+   The scroll wrapper is per-ROW, not per-column-block, deliberately: rows are
+   independently readable, and a shared scroll container would drag every row
+   sideways to read one. */
+
 import React, { useState, useEffect } from 'react';
 
 /* ActionableEvent and the actionableEvents field are retained because
@@ -1353,16 +1368,25 @@ const CATALYST_TAGS = 'Earnings|FDA|Analyst|M&A|Offering|Contract|Guidance|Legal
        blurbs       11 → 10px
        footers      12 → 11px
 
-   The fixed column widths came down with it — they are measured in pixels
-   against a font that is now smaller, so leaving them would have opened gaps
-   rather than closing them.
-
    12px is roughly the floor for this. Below it the tabular figures start
    losing the distinction between 6, 8 and 0 at a glance, which for a column
-   of price levels is the whole point of having them. */
-const tickerChipCls = "inline-block align-baseline text-[9px] font-bold text-slate-300 bg-slate-500/10 px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5 min-w-[44px] text-center";
+   of price levels is the whole point of having them.
+
+   v2.1 — MOBILE WIDTHS. The fixed widths below are the mobile values; each
+   carries an md: variant that restores the desktop figure. A Trade Plan row
+   at the old widths measured ~440px against a ~380px viewport and TG fell
+   off the edge. Mobile drops ~55px across the six fields, mobile padding
+   returns another ~40px, and the scroll wrapper covers whatever a 4-digit
+   price does to the rest. */
+const tickerChipCls = "inline-block align-baseline text-[9px] font-bold text-slate-300 bg-slate-500/10 px-1 md:px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5 min-w-[38px] md:min-w-[44px] text-center";
 const valNum = "text-[11px] tabular-nums";
 const rowText = "text-[12px]";
+
+/* Aligned rows scroll rather than clip. The scrollbar is suppressed because
+   on a touch device it is an overlay that never appears, and on desktop
+   these rows fit and never scroll — a visible track would be pure noise. */
+const scrollRowCls = "overflow-x-auto -mx-0.5 px-0.5";
+const scrollRowStyle: React.CSSProperties = { scrollbarWidth: 'none', msOverflowStyle: 'none' };
 
 const rvolColor = (v: number) => (v >= 2 ? 'text-amber-400' : v >= 1.5 ? 'text-emerald-400' : 'text-slate-400');
 const stageColor = (st: string) => {
@@ -1423,12 +1447,12 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
   );
   const parts = text.split(rx);
 
-  const chgW = align ? 'inline-block min-w-[54px] text-right' : '';
-  const cnfW = align ? 'min-w-[26px] text-center' : '';
-  const rtrW = align ? 'min-w-[38px] text-center' : '';
-  const rvolW = align ? 'inline-block min-w-[30px] text-right' : '';
-  const lvlValW = align ? 'inline-block min-w-[36px] text-right' : '';
-  const dvolW = align ? 'inline-block min-w-[48px] text-right ml-1' : '';
+  const chgW = align ? 'inline-block min-w-[46px] md:min-w-[54px] text-right' : '';
+  const cnfW = align ? 'min-w-[22px] md:min-w-[26px] text-center' : '';
+  const rtrW = align ? 'min-w-[32px] md:min-w-[38px] text-center' : '';
+  const rvolW = align ? 'inline-block min-w-[28px] md:min-w-[30px] text-right' : '';
+  const lvlValW = align ? 'inline-block min-w-[30px] md:min-w-[36px] text-right' : '';
+  const dvolW = align ? 'inline-block min-w-[42px] md:min-w-[48px] text-right ml-1' : '';
 
   return parts.map((part, i) => {
     if (!part) return null;
@@ -1463,7 +1487,7 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
       const isDash = m[1] === '—';
       const v = isDash ? 0 : parseFloat(m[1]);
       return (
-        <span key={i} className={align ? 'ml-1.5' : ''}>
+        <span key={i} className={align ? 'ml-1 md:ml-1.5' : ''}>
           <span className="text-slate-500 text-[9px]">RVOL</span>{' '}
           <span className={`${valNum} ${isDash ? 'text-slate-600' : rvolColor(v)} ${rvolW}`}>{m[1]}</span>
         </span>
@@ -1502,7 +1526,7 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
     if (m) {
       const tone = m[1] === 'ST' ? 'text-rose-400' : m[1] === 'TG' ? 'text-emerald-400' : 'text-slate-200';
       return (
-        <span key={i} className={align ? 'inline-block ml-2' : ''}>
+        <span key={i} className={align ? 'inline-block ml-1 md:ml-2' : ''}>
           <span className="text-slate-500 text-[8px] tracking-tight">{m[1]}</span>
           <span className={`${valNum} ${tone} ${lvlValW}`}>{m[2]}</span>
         </span>
@@ -1546,6 +1570,26 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
     }
     return <React.Fragment key={i}>{part}</React.Fragment>;
   });
+};
+
+/* One renderer for every body line, so the two-column branch and the
+   single-column branch cannot drift apart. An aligned row gets the nowrap
+   treatment inside a scroll wrapper; prose gets neither and wraps normally. */
+const renderBodyLine = (line: string, li: number, aligned: boolean): React.ReactNode => {
+  if (aligned) {
+    return (
+      <div key={li} className={scrollRowCls} style={scrollRowStyle}>
+        <p className={`${rowText} text-slate-300 leading-relaxed font-medium whitespace-nowrap`}>
+          {renderBriefingText(line, true)}
+        </p>
+      </div>
+    );
+  }
+  return (
+    <p key={li} className={`${rowText} text-slate-300 leading-relaxed font-medium`}>
+      {renderBriefingText(line, false)}
+    </p>
+  );
 };
 
 const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
@@ -1792,8 +1836,8 @@ export default function MarketSummary() {
     const nextLabel = BLOCK_WINDOWS[key].nextLabel;
 
     return (
-      <div className="bg-[#161c2a]/60 border border-white/5 rounded-xl p-5 md:p-6 mt-3">
-        <div className="flex items-center gap-3 mb-4 flex-wrap">
+      <div className="bg-[#161c2a]/60 border border-white/5 rounded-xl p-3 sm:p-5 md:p-6 mt-3">
+        <div className="flex items-center gap-2 sm:gap-3 mb-4 flex-wrap">
           <div className={`w-2 h-2 rounded-full border border-current ${stale ? 'bg-slate-500/10 text-slate-500' : `${styles.bg} ${styles.text}`}`}></div>
           <h4 className={`text-[10px] font-bold tracking-widest uppercase ${stale ? 'text-slate-400' : styles.text}`}>
             {block.phase}
@@ -1810,13 +1854,13 @@ export default function MarketSummary() {
 
         <div className="space-y-3 mb-5">
           {block.paragraphs.map((p, idx) => (
-            <p key={idx} className={`${rowText} text-slate-400 leading-relaxed border-l-[2px] border-slate-500/30 pl-3.5`}>
+            <p key={idx} className={`${rowText} text-slate-400 leading-relaxed border-l-[2px] border-slate-500/30 pl-2.5 md:pl-3.5`}>
               {renderBriefingText(p)}
             </p>
           ))}
         </div>
 
-        <div className={`border-l-[4px] p-4 rounded-r-xl transition-colors duration-300 ${stale ? 'bg-slate-500/[0.07] border-slate-500' : `${styles.boxBg} ${styles.boxBorder}`}`}>
+        <div className={`border-l-[4px] p-3 md:p-4 rounded-r-xl transition-colors duration-300 ${stale ? 'bg-slate-500/[0.07] border-slate-500' : `${styles.boxBg} ${styles.boxBorder}`}`}>
           <p className={`${rowText} leading-relaxed ${stale ? 'text-slate-300' : styles.boxText}`}>
             {block.takeaway}
           </p>
@@ -1833,28 +1877,28 @@ export default function MarketSummary() {
   };
 
   return (
-    <div className="bg-[#101623] border border-white/10 rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-2xl w-full">
+    <div className="bg-[#101623] border border-white/10 rounded-2xl p-3 sm:p-6 md:p-8 relative overflow-hidden shadow-2xl w-full">
       <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-500 via-emerald-500 to-indigo-500 opacity-40"></div>
 
       <div
         onClick={() => setIsExpanded(!isExpanded)}
-        className={`flex justify-between items-start md:items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-8 border-b border-white/5 pb-4' : ''}`}
+        className={`flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-6 md:mb-8 border-b border-white/5 pb-4' : ''}`}
       >
         <div className="flex items-center gap-3">
-          <span className="text-xs md:text-sm font-bold border px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 transition-colors text-[#7c8bfa] bg-[#161c2a]/40 border-white/5 group-hover:bg-white/[0.02]">
+          <span className="text-[10px] sm:text-xs md:text-sm font-bold border px-2.5 sm:px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 transition-colors text-[#7c8bfa] bg-[#161c2a]/40 border-white/5 group-hover:bg-white/[0.02]">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
             LIVE SESSION NARRATIVE
           </span>
         </div>
 
-        <div className="flex flex-col items-center gap-1.5 mt-3 md:mt-0">
-          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
+        <div className="flex flex-row sm:flex-col items-center gap-2 sm:gap-1.5">
+          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-3 sm:px-4 py-1.5 rounded-[10px] min-w-[100px] sm:min-w-[120px]">
             <span className={`text-[10px] font-bold tracking-widest uppercase ${status === 'Loading' ? 'text-amber-500' : status === 'Error' ? 'text-rose-400' : getSessionTextColor()}`}>
               {status === 'Synced' ? session : status}
             </span>
           </div>
           {lastUpdated && (
-            <span className="text-[10px] text-slate-400/80 font-medium px-1 tracking-wide">
+            <span className="text-[10px] text-slate-400/80 font-medium px-1 tracking-wide whitespace-nowrap">
               Updated: {formatTime(lastUpdated)} EST
             </span>
           )}
@@ -1864,15 +1908,15 @@ export default function MarketSummary() {
       {isExpanded && (
         <>
           {macroInsights && (
-            <div className="mb-8 bg-[#161c2a]/60 border border-cyan-500/20 rounded-xl p-5 md:p-6 relative overflow-hidden shadow-[0_0_15px_rgba(34,211,238,0.03)]">
+            <div className="mb-6 md:mb-8 bg-[#161c2a]/60 border border-cyan-500/20 rounded-xl p-3 sm:p-5 md:p-6 relative overflow-hidden shadow-[0_0_15px_rgba(34,211,238,0.03)]">
               <div className="absolute right-0 top-0 w-64 h-64 bg-cyan-500/10 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
 
-              <div className="flex items-center gap-3 mb-3 relative z-10 flex-wrap">
-                <span className="text-[9px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-3 py-1 rounded tracking-widest uppercase flex items-center gap-2">
+              <div className="flex items-center gap-2 sm:gap-3 mb-3 relative z-10 flex-wrap">
+                <span className="text-[9px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2 sm:px-3 py-1 rounded tracking-widest uppercase flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
                   MARKET BRIEFING
                 </span>
-                <span className="text-sm md:text-base font-black text-white tracking-wide">{macroInsights.theme}</span>
+                <span className="text-[13px] sm:text-sm md:text-base font-black text-white tracking-wide">{macroInsights.theme}</span>
               </div>
 
               {(() => {
@@ -1881,10 +1925,10 @@ export default function MarketSummary() {
                   : (macroInsights.topCatalyst ? [macroInsights.topCatalyst] : []);
                 if (!cats.length) return null;
                 return (
-                  <div className="mb-6 relative z-10 flex flex-col gap-2">
+                  <div className="mb-5 md:mb-6 relative z-10 flex flex-col gap-2">
                     {cats.map((cat, ci) => (
-                      <div key={ci} className="border-l-[3px] border-amber-500 bg-amber-500/[0.04] rounded-r-xl px-4 py-3">
-                        <div className="flex items-center gap-2.5 flex-wrap">
+                      <div key={ci} className="border-l-[3px] border-amber-500 bg-amber-500/[0.04] rounded-r-xl px-2.5 md:px-4 py-3">
+                        <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
                           <span className="text-[8px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded shrink-0">{ci === 0 ? 'TOP CATALYST' : 'CATALYST'}</span>
                           <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider shrink-0">{cat.ticker}</span>
                           {cat.url ? (
@@ -1906,7 +1950,7 @@ export default function MarketSummary() {
                 );
               })()}
 
-              <div className="relative z-10 flex flex-col gap-8">
+              <div className="relative z-10 flex flex-col gap-6 md:gap-8">
                 {(() => {
                   const paras = formatBriefing(macroInsights.briefing).split('\n\n').filter(Boolean);
                   const sections = paras.map((p, i) => {
@@ -1941,7 +1985,7 @@ export default function MarketSummary() {
                           const sectionAligns = !!label && ALIGNED_SECTIONS.has(label);
 
                           return (
-                            <div key={idx} className={`border-l-[3px] rounded-r-xl px-4 py-3 ${st.border} ${st.bg}`}>
+                            <div key={idx} className={`border-l-[3px] rounded-r-xl px-2.5 md:px-4 py-3 ${st.border} ${st.bg}`}>
                               {label && (
                                 <div className={isOpen ? 'mb-2' : ''}>
                                   <div className="flex items-center gap-2 flex-wrap">
@@ -1972,19 +2016,13 @@ export default function MarketSummary() {
                                     const afterCols = parts.length > 2 ? parts.slice(2).join('\n') : '';
                                     return (
                                       <>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
                                           {parts.slice(0, 2).map((col, ci) => {
                                             const colLines = col.trim().split('\n').filter(Boolean);
                                             const [heading, ...rows] = colLines;
                                             const isHeading = heading && heading.trim().endsWith(':');
-                                            const render = (line: string, li: number) => {
-                                              const a = sectionAligns && isRowLine(line);
-                                              return (
-                                                <p key={li} className={`${rowText} text-slate-300 leading-relaxed font-medium ${a ? 'whitespace-nowrap' : ''}`}>
-                                                  {renderBriefingText(line, a)}
-                                                </p>
-                                              );
-                                            };
+                                            const render = (line: string, li: number) =>
+                                              renderBodyLine(line, li, sectionAligns && isRowLine(line));
                                             return (
                                               <div key={ci} className="space-y-1.5">
                                                 {isHeading ? (
@@ -2015,14 +2053,9 @@ export default function MarketSummary() {
                                   })()
                                 ) : (
                                   <div className="space-y-2">
-                                    {body.split('\n').filter(Boolean).map((line, li) => {
-                                      const a = sectionAligns && isRowLine(line);
-                                      return (
-                                        <p key={li} className={`${rowText} text-slate-300 leading-relaxed font-medium ${a ? 'whitespace-nowrap' : ''}`}>
-                                          {renderBriefingText(line, a)}
-                                        </p>
-                                      );
-                                    })}
+                                    {body.split('\n').filter(Boolean).map((line, li) =>
+                                      renderBodyLine(line, li, sectionAligns && isRowLine(line))
+                                    )}
                                   </div>
                                 )
                               )}
@@ -2034,7 +2067,7 @@ export default function MarketSummary() {
                   );
                 })()}
 
-                <div className="border-t border-white/5 pt-6">
+                <div className="border-t border-white/5 pt-5 md:pt-6">
                   <h3 className="text-[8px] font-bold tracking-widest uppercase text-slate-500 mb-3">What To Watch &amp; Why</h3>
                   <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                     {macroInsights.watching?.map((item, idx) => {
@@ -2053,14 +2086,14 @@ export default function MarketSummary() {
                       }
 
                       return (
-                        <li key={idx} className={`flex flex-col gap-2 bg-[#161c2a]/60 p-3.5 rounded-xl border transition-colors ${
+                        <li key={idx} className={`flex flex-col gap-2 bg-[#161c2a]/60 p-3 md:p-3.5 rounded-xl border transition-colors ${
                           dk === 'red' ? 'border-rose-500/25 hover:border-rose-500/40' : 'border-white/5 hover:border-cyan-500/20'
                         }`}>
-                          <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
                             <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider">
                               {symbol}
                             </span>
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
                               {dk === 'red' && (
                                 <span className="text-[8px] font-bold px-1 py-0.5 rounded border tracking-wider uppercase text-rose-400 bg-rose-500/10 border-rose-500/20">
                                   RD
@@ -2072,7 +2105,7 @@ export default function MarketSummary() {
                                 </span>
                               )}
                               {pMeta && (
-                                <span className={`text-[8px] font-bold px-1 py-0.5 rounded border tracking-wider uppercase ${postureChipCls(pMeta.tone)}`}>
+                                <span className={`text-[8px] font-bold px-1 py-0.5 rounded border tracking-wider uppercase whitespace-nowrap ${postureChipCls(pMeta.tone)}`}>
                                   {pMeta.short}
                                 </span>
                               )}
@@ -2127,13 +2160,13 @@ export default function MarketSummary() {
             </div>
           )}
 
-          <div className="border-t border-white/5 pt-6 mt-4">
-            <span className="inline-flex text-xs md:text-sm font-bold border px-4 py-1.5 rounded-lg tracking-widest uppercase items-center gap-2 text-[#7c8bfa] bg-[#161c2a]/40 border-white/5">
+          <div className="border-t border-white/5 pt-5 md:pt-6 mt-4">
+            <span className="inline-flex text-[10px] sm:text-xs md:text-sm font-bold border px-2.5 sm:px-4 py-1.5 rounded-lg tracking-widest uppercase items-center gap-2 text-[#7c8bfa] bg-[#161c2a]/40 border-white/5">
               <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
               LIVE SESSION UPDATES
             </span>
             {status === 'Loading' && !data ? (
-              <div className="animate-pulse bg-[#161c2a]/40 border border-white/5 rounded-xl p-5 md:p-6 mt-3">
+              <div className="animate-pulse bg-[#161c2a]/40 border border-white/5 rounded-xl p-3 sm:p-5 md:p-6 mt-3">
                 <div className="h-3 bg-white/5 rounded w-1/4 mb-4"></div>
                 <div className="h-3 bg-white/5 rounded w-full mb-2"></div>
                 <div className="h-3 bg-white/5 rounded w-11/12 mb-6"></div>
