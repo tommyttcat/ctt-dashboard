@@ -808,7 +808,7 @@ export default function MacroScorecard() {
      the words mean rather than which rows appear, a forgotten one is
      invisible until it misleads. Defaulting to AS IS every session means the
      number always starts at the textbook interpretation. */
-  const [chopMode, setChopMode] = useState<ChopMode>('asis');
+  const [chopMode, setChopMode] = useState<ChopMode>('strong');
 
   // A/D trend: the feed only sends current counts, so direction is derived by
   // comparing the incoming ratio against the previous poll. Flat until the
