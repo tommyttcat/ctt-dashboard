@@ -229,7 +229,13 @@ const twoCol = (left: string, right: string, footer: string[] = []): string =>
    under 25k shares cannot produce a tradeable RVOL regardless of today. And
    a sanity ceiling on the ratio — a genuine 40x day exists, a 600x day does
    not, and past that the denominator is the story. Null means every consumer
-   treats it as "no reading" rather than as a very large one. */
+   treats it as "no reading" rather than as a very large one.
+
+   NULL IS PRINTED, NOT SKIPPED. FCUV came through the EP9M scan with the
+   guard tripped, and because the old formatter dropped the field entirely
+   the row rendered one column short — every value after it shifted left and
+   lined up under the wrong heading. A row with a missing reading has to keep
+   the slot and show a dash. */
 const MIN_AVG_VOL_FOR_RVOL = 25_000;
 const MAX_PLAUSIBLE_RVOL = 40;
 
@@ -244,12 +250,14 @@ const rvolOf = (s: any): number | null => {
   return v;
 };
 
+const fmtRvol = (s: any): string => {
+  const rv = rvolOf(s);
+  return rv != null ? `RVOL ${rv.toFixed(2)}` : 'RVOL —';
+};
+
 const stageOf = (s: any): string => (s?.stage ? String(s.stage).replace(/Stage\s*/i, '') : '');
 
 /* ---- ● and REV are MUTUALLY EXCLUSIVE, and here is why -------------------
-   The last pass printed both on the same row and every REV row also carried
-   a ●. That was not a rendering bug — it is what the scanner does.
-
    detectPattern() in /api/scanner/run short-circuits:
 
        if (dotKind === 'blue') return { name: 'Blue Dot Rev', ... }
@@ -278,6 +286,32 @@ const setupOf = (s: any): string | null => {
   return str;
 };
 
+const hasRealCatalyst = (s: any): boolean =>
+  !!s?.catalyst && !String(s.catalyst).toLowerCase().startsWith('technical momentum');
+
+const catalystTextOf = (s: any): string | null =>
+  hasRealCatalyst(s) ? String(s.catalyst).replace(/\.$/, '') : null;
+
+/* One word, for a row. classifyWiim emits tags like "FDA / Data",
+   "Legal / Risk", "Sector Move", and appends "(Delayed)" on stale news —
+   all too wide for a column. First word carries the meaning: FDA, Legal,
+   Sector, Earnings, M&A. */
+const catalystTagOf = (s: any): string | null => {
+  const c = catalystTextOf(s);
+  if (!c) return null;
+  const first = c.replace(/\s*\(delayed\)\s*/i, '').trim().split(/[\s/]+/)[0];
+  return first || null;
+};
+
+const dotOf = (s: any): 'blue' | 'red' | null => {
+  const k = s?.dotKind;
+  if (k === 'blue' || k === 'red') return k;
+  // The swing and consolidation scans predate the dots indicator and ship a
+  // `blueDot` boolean instead.
+  if (s?.blueDot === true) return 'blue';
+  return null;
+};
+
 const setupRowLabel = (s: any): string | null => {
   const n = s?.setupName;
   const str = n && n !== '-' && n !== '—' ? String(n) : '';
@@ -295,12 +329,6 @@ const setupRowLabel = (s: any): string | null => {
   return str;
 };
 
-const hasRealCatalyst = (s: any): boolean =>
-  !!s?.catalyst && !String(s.catalyst).toLowerCase().startsWith('technical momentum');
-
-const catalystTextOf = (s: any): string | null =>
-  hasRealCatalyst(s) ? String(s.catalyst).replace(/\.$/, '') : null;
-
 const catalystLinked = (s: any): string => {
   const cat = catalystTextOf(s);
   if (!cat) return '';
@@ -314,15 +342,6 @@ const dVolOf = (s: any): number => {
   const p = Number(s?.price) || 0;
   const v = Number(s?.volume ?? s?.vol) || 0;
   return p * v;
-};
-
-const dotOf = (s: any): 'blue' | 'red' | null => {
-  const k = s?.dotKind;
-  if (k === 'blue' || k === 'red') return k;
-  // The swing and consolidation scans predate the dots indicator and ship a
-  // `blueDot` boolean instead.
-  if (s?.blueDot === true) return 'blue';
-  return null;
 };
 
 /* Detects ETF-style sector strings: "ETF", "TICKER - ETF", or ETF_TARGET_MAP
@@ -460,9 +479,7 @@ const fmtDollar = (v: number): string => {
    of width per field on rows that were already wrapping. */
 const fmtLeader = (s: any): string => {
   const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
-  const bits: string[] = [chg];
-  const rv = rvolOf(s);
-  if (rv != null) bits.push(`RVOL ${rv.toFixed(2)}`);
+  const bits: string[] = [chg, fmtRvol(s)];
   const su = setupRowLabel(s);
   if (su) bits.push(su);
   return `${s.ticker} ${bits.join(' ')}`;
@@ -481,10 +498,6 @@ const fmtLeader = (s: any): string => {
    a fixed minimum width, so the badges line up as columns down both lists
    rather than drifting with the width of the change figure — +12.05% is three
    characters wider than -0.15%, enough to stagger every badge after it.
-
-   An earlier pass carried risk-percent and trigger-reach here too and it
-   read as a wall. Both survive as GATES rather than as columns: reach still
-   decides what qualifies, it just is not printed. Risk is TR minus ST.
 
    TWO GATES, both necessary, neither sufficient alone.
 
@@ -612,10 +625,6 @@ const buildTradePlanPara = (pool: any[]): string => {
   const cnfCol = `Best tape — ranked by CNF:\n${byCnf.map(fmtPlanRow).join('\n')}`;
   const rtrCol = `Most room — ranked by RTR:\n${byRtr.map(fmtPlanRow).join('\n')}`;
 
-  /* Footer is deliberately thin. What survives is the two things that change
-     the read: which name cleared both rankings, and which carry a live red
-     dot. The count line and the TR/ST/TG legend both moved out — the legend
-     lives in the section blurb, and the count was a number you read once. */
   const footer: string[] = [];
 
   const cnfSet = new Set(byCnf.map(tickerOf));
@@ -894,9 +903,7 @@ const blendedScore = (s: any): number => {
    The old split answered "what is buyable" but sat next to a separately-
    ranked watchlist answering "what is interesting" — and the two disagreed.
    This IS the ranked pick list, cut by holding period, with structure shown
-   per row rather than as a bucket heading. A name below its 21 still appears
-   if it ranks, but labelled BELOW 21 rather than in a column implying
-   otherwise. */
+   per row rather than as a bucket heading. */
 const isDayName = (s: any): boolean =>
   String(s?.tradeType || '').toLowerCase().startsWith('day');
 
@@ -924,8 +931,7 @@ const build1021Para = (pool: any[]): string => {
 
   /* Both distances are emitted as bare signed percentages so the renderer
      can give them the same fixed width, and the EMA they refer to follows as
-     a plain "21" / "10". "vs 21" spelled out cost eight characters per field
-     on a row that has to fit a phone. */
+     a plain "21" / "10". */
   const pct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
   const fmtRow = (r: any): string => {
     const bits = [`${pct(r.d21 as number)} 21`];
@@ -948,8 +954,6 @@ const build1021Para = (pool: any[]): string => {
 
   const footer: string[] = [];
 
-  // Closing read counts the buckets that actually matter, so it can no longer
-  // claim "the buyable names are stacked" while listing six broken ones.
   const anchored = rows.filter(r => r.bucket === 'first-touch');
   const stacked = rows.filter(r => r.bucket === 'stacked');
   const broken = rows.filter(r => r.bucket === 'below-21');
@@ -976,7 +980,6 @@ const build1021Para = (pool: any[]): string => {
 };
 
 const ep9mVs60dOf = (s: any): number | null => numOrNull(s?.volVs60dMax);
-const ep9mTurnOf = (s: any): number | null => numOrNull(s?.floatTurnover);
 const ep9mSilent = (s: any): boolean => !hasRealCatalyst(s);
 
 const buildMoversPara = (movers: any): string => {
@@ -984,11 +987,8 @@ const buildMoversPara = (movers: any): string => {
   const losers: any[] = Array.isArray(movers?.['Losers']) ? movers['Losers'] : [];
   if (gainers.length === 0 && losers.length === 0) return '';
 
-  const fmtMover = (s: any): string => {
-    const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
-    const rv = rvolOf(s);
-    return `${s.ticker} ${chg}${rv != null ? ` RVOL ${rv.toFixed(2)}` : ''}`;
-  };
+  const fmtMover = (s: any): string =>
+    `${s.ticker} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% ${fmtRvol(s)}`;
 
   const topG = gainers.slice().sort((a, b) => chgOf(b) - chgOf(a)).slice(0, 4);
   const topL = losers.slice().sort((a, b) => chgOf(a) - chgOf(b)).slice(0, 3);
@@ -1015,19 +1015,28 @@ const buildMoversPara = (movers: any): string => {
   return '';
 };
 
+/* ---- EP9M ---------------------------------------------------------------
+   Four fields: ticker, change, RVOL, catalyst.
+
+   THE TWO RATIOS ARE GONE. Rows read "0.29x 60d 67.17x float", which are
+   volume-vs-60-day-high and float turnover — both real EP9M measures and
+   both unreadable without the definition in front of you. What made them
+   worse than useless is that the COLUMN ALREADY SAYS IT: a name in the
+   Unprecedented column beat its own 60-day record by definition, so the
+   number restated the heading. Float turnover is genuinely interesting and
+   genuinely needs a sentence to explain, which a row cannot carry.
+
+   vs-60d still RANKS the Unprecedented column. Ranking without display is
+   normal here — reach does the same in Trade Plan. */
 const buildEp9mPara = (ep9m: any[]): string => {
   const rows = ep9m.filter(s => s?.ticker);
   if (rows.length < 1) return '';
 
   const fmtEp = (s: any): string => {
     const chg = chgOf(s);
-    const bits: string[] = [`${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`];
-    const rv = rvolOf(s);
-    if (rv != null) bits.push(`RVOL ${rv.toFixed(2)}`);
-    const vs = ep9mVs60dOf(s);
-    if (vs != null) bits.push(`${vs.toFixed(2)}x 60d`);
-    const turn = ep9mTurnOf(s);
-    if (turn != null && turn >= 0.25) bits.push(`${turn.toFixed(2)}x float`);
+    const bits: string[] = [`${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`, fmtRvol(s)];
+    const tag = catalystTagOf(s);
+    if (tag) bits.push(tag);
     return `${s.ticker} ${bits.join(' ')}`;
   };
 
@@ -1075,7 +1084,7 @@ const buildLocalInsights = (
      tomorrow — but they do not belong in the momentum watchlist, the 10/21
      thesis, or the theme. A coil is by definition a name that has not moved,
      and dropping those into a list ranked on RVOL and change would quietly
-     change what every other section means. Wider here, unchanged elsewhere. */
+     change what every other section means. */
   const planPool = [
     ...sips, ...daily, ...ep9m,
     ...(Array.isArray(swingList) ? swingList : []),
@@ -1095,8 +1104,6 @@ const buildLocalInsights = (
     })
     .slice(0, 6);
 
-  // Posture and dot ride along on the item so the card can chip them without
-  // recomputing — and therefore without any chance of disagreeing.
   const watching: WatchItem[] = ranked.map(s => ({
     symbol: s.ticker,
     score: scoreOf(s) || undefined,
@@ -1155,13 +1162,11 @@ const buildLocalInsights = (
   const newsItems = sips.filter(hasRealCatalyst).slice(0, 4);
 
   const fmtNewsRow = (s: any): string => {
-    const cat = catalystLinked(s);
-    const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
-    const rv = rvolOf(s);
-    return `${s.ticker} ${chg}${rv != null ? ` RVOL ${rv.toFixed(2)}` : ''}${cat ? ` — ${cat}` : ''}`;
+    const tag = catalystTagOf(s);
+    return `${s.ticker} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% ${fmtRvol(s)}${tag ? ` ${tag}` : ''}`;
   };
   const fmtFaderRow = (s: any): string =>
-    `${s.ticker} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% RVOL ${(rvolOf(s) ?? 0).toFixed(2)}`;
+    `${s.ticker} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% ${fmtRvol(s)}`;
 
   const leadersCol = leaders.length ? `Volume-confirmed:\n${leaders.map(fmtLeader).join('\n')}` : '';
   const newsCol = newsItems.length ? `News-driven:\n${newsItems.map(fmtNewsRow).join('\n')}` : '';
@@ -1172,8 +1177,6 @@ const buildLocalInsights = (
 
   let sipsPara = '';
   if (leftCol && rightCol && leftCol !== rightCol) {
-    // The third block, when all three exist, is a FOOTER — appending it to
-    // the right column made the two lists different lengths for no reason.
     const footer = (leadersCol && newsCol && fadersCol) ? [newsCol] : [];
     sipsPara = `SIPs Thesis: ${twoCol(leftCol, rightCol, footer)}`;
   } else if (leftCol || rightCol) {
@@ -1182,15 +1185,12 @@ const buildLocalInsights = (
     sipsPara = 'SIPs Thesis: No volume-confirmed leaders yet.';
   }
 
-  /* CNF moved ahead of the setup name so the badge aligns down the column —
-     "20 EMA PB" is six characters wider than "●" and was pushing the badge
-     out of line on every other row. Variable-width fields belong last. */
+  /* CNF ahead of the setup name so the badge aligns down the column —
+     "20 EMA PB" is six characters wider than "●" and was knocking the badge
+     out of line on every other row. Variable-width fields go last. */
   const fmtDaily = (s: any): string => {
     const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
-    const bits: string[] = [chg, `CNF ${scoreOf(s)}`];
-
-    const rv = rvolOf(s);
-    if (rv != null) bits.push(`RVOL ${rv.toFixed(2)}`);
+    const bits: string[] = [chg, `CNF ${scoreOf(s)}`, fmtRvol(s)];
 
     const su = setupRowLabel(s);
     if (su) bits.push(su);
@@ -1311,9 +1311,6 @@ const buildLocalInsights = (
   const dailyFinal = dailyPara || (daily.length === 0 && (sips.length || ep9m.length) ? 'Daily Setups Thesis: No daily setups on the board right now.' : '');
   const ep9mFinal = ep9mPara || (ep9m.length === 0 && (sips.length || daily.length) ? 'EP9M Thesis: No names trading abnormal 9M+ size yet — this fills in as session volume builds.' : '');
 
-  // Trade Plan leads, directly under the Top Catalyst block. It is the only
-  // forward-looking equity section — everything below it describes what has
-  // already happened.
   const orderedParas = [
     tradePlanPara, moversPara, sipsFinal, dailyFinal, ema1021Para, ep9mFinal,
     heatPara, etfPara, moneyPara, keyEventsPara,
@@ -1345,6 +1342,11 @@ const TICKER_STOPWORDS = new Set([
   'FIRST', 'TOUCH', 'BELOW', 'CROSS', 'PRE', 'RED', 'DOT', 'BLUE',
 ]);
 
+/* The one-word catalyst tags classifyWiim can produce. Matched explicitly so
+   they render as tags rather than as prose — and so "FDA" does not get chipped
+   as a ticker. */
+const CATALYST_TAGS = 'Earnings|FDA|Analyst|M&A|Offering|Contract|Guidance|Legal|Volatility|Sector';
+
 const tickerChipCls = "inline-block align-baseline text-[10px] font-bold text-slate-300 bg-slate-500/10 px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5 min-w-[48px] text-center";
 const valNum = "text-[12px] tabular-nums";
 
@@ -1358,12 +1360,8 @@ const stageColor = (st: string) => {
 };
 const stochColor = (k: number) => (k <= 20 ? 'text-purple-400' : k <= 30 ? 'text-emerald-400' : 'text-slate-400');
 const rsColor = (rs: number) => (rs >= 20 ? 'text-purple-400' : rs >= 10 ? 'text-emerald-400' : rs >= 0 ? 'text-slate-300' : 'text-rose-400');
-// Reach: under half an average day is imminent, over one is out of range.
-// Only the watch cards print this now — the plan rows gate on it silently.
 const reachColor = (v: number) => (v <= 0.5 ? 'text-emerald-400' : v <= 1 ? 'text-slate-300' : 'text-amber-400');
 
-/* Both badges use exactly the thresholds and palette the tables use, so a
-   score or an R reads the same here as it does in its column. */
 const rtrBadgeCls = (v: number): string => {
   if (v >= 2) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
   if (v >= 1) return 'bg-slate-500/10 text-slate-300 border-white/10';
@@ -1383,20 +1381,33 @@ const postureChipCls = (tone: 'good' | 'warn' | 'bad'): string => {
   return 'text-rose-400 bg-rose-500/10 border-rose-500/20';
 };
 
-/* Sections whose bodies are LISTS OF ROWS rather than prose. These get fixed
-   field widths so values stack into columns; everywhere else the same tokens
-   appear mid-sentence and a fixed width would open gaps in running text. */
+/* Sections whose bodies contain rows. The per-LINE test below decides which
+   lines inside them actually get column widths — a section can hold both
+   rows and prose, and Money Flow does exactly that. */
 const ALIGNED_SECTIONS = new Set([
   'Trade Plan', 'Top Movers', 'SIPs Thesis', 'Daily Setups Thesis',
-  '10/21 Thesis', 'EP9M Thesis', 'Industry Heat',
+  '10/21 Thesis', 'EP9M Thesis', 'Industry Heat', 'ETF Flow', 'Money Flow',
 ]);
 
-/* ---- renderBriefingText -------------------------------------------------
-   The widths are MINIMUMS, not caps: a four-digit level or a three-digit CNF
-   still renders, it just pushes that row's later fields right rather than
-   truncating. Tuned narrow enough that a five-field row fits a phone. */
+/* A ROW starts with a ticker (all-caps, 1-5 chars, then a space) or with a
+   signed percentage (Industry Heat has no ticker). Prose never does, so
+   "$57.7B in tracked dollar volume..." keeps its natural spacing while the
+   dollar magnets below it get aligned columns. Without this test the fixed
+   widths opened gaps mid-sentence. */
+const isRowLine = (line: string): boolean => {
+  const t = line.trim();
+  return /^[A-Z]{1,5}\s/.test(t) || /^[+-]\d/.test(t);
+};
+
 const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
-  const rx = /(▸|●|REV|RED DOT|BLUE DOT|\[[^\]]+\]\([^)]+\)|\d{1,2}:\d{2} (?:AM|PM)|RVOL \d+(?:\.\d+)?|CNF \d+|Stage \d[ABC]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|(?:TR|ST|TG) \d+(?:\.\d+)?|\d+(?:\.\d+)?x ADR|\d+(?:\.\d+)?R\+?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
+  const rx = new RegExp(
+    `(▸|●|REV|RED DOT|BLUE DOT|\\[[^\\]]+\\]\\([^)]+\\)|\\d{1,2}:\\d{2} (?:AM|PM)` +
+    `|RVOL (?:\\d+(?:\\.\\d+)?|—)|CNF \\d+|Stage \\d[ABC]?|stoch \\d+(?:\\.\\d+)?` +
+    `|RS \\+?\\d+(?:\\.\\d+)?|(?:TR|ST|TG) \\d+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?x ADR` +
+    `|\\d+(?:\\.\\d+)?R\\+?|\\b(?:${CATALYST_TAGS})\\b|10\\/21|S&P|Nasdaq|Dow|Bitcoin` +
+    `|\\$\\d+(?:\\.\\d+)?[BMK]|[+-]\\d+(?:\\.\\d+)?%|\\b[A-Z]{1,5}\\b)`,
+    'g'
+  );
   const parts = text.split(rx);
 
   const chgW = align ? 'inline-block min-w-[60px] text-right' : '';
@@ -1404,6 +1415,7 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
   const rtrW = align ? 'min-w-[42px] text-center' : '';
   const rvolW = align ? 'inline-block min-w-[34px] text-right' : '';
   const lvlValW = align ? 'inline-block min-w-[40px] text-right' : '';
+  const dvolW = align ? 'inline-block min-w-[54px] text-right ml-1' : '';
 
   return parts.map((part, i) => {
     if (!part) return null;
@@ -1433,13 +1445,14 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
       return <span key={i} className={`${valNum} text-amber-400 font-bold`}>{part}</span>;
     }
 
-    let m = part.match(/^RVOL (\d+(?:\.\d+)?)$/);
+    let m = part.match(/^RVOL (\d+(?:\.\d+)?|—)$/);
     if (m) {
-      const v = parseFloat(m[1]);
+      const isDash = m[1] === '—';
+      const v = isDash ? 0 : parseFloat(m[1]);
       return (
         <span key={i} className={align ? 'ml-1.5' : ''}>
           <span className="text-slate-500 text-[10px]">RVOL</span>{' '}
-          <span className={`${valNum} ${rvolColor(v)} ${rvolW}`}>{m[1]}</span>
+          <span className={`${valNum} ${isDash ? 'text-slate-600' : rvolColor(v)} ${rvolW}`}>{m[1]}</span>
         </span>
       );
     }
@@ -1471,8 +1484,7 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
       return <span key={i}>RS <span className={`${valNum} ${rsColor(v)}`}>{m[1]}</span></span>;
     }
     // The three order levels, set tight — label and value are one unit, so
-    // no space between them. Stop red, target green, trigger neutral,
-    // matching the tables.
+    // no space between them. Stop red, target green, trigger neutral.
     m = part.match(/^(TR|ST|TG) (\d+(?:\.\d+)?)$/);
     if (m) {
       const tone = m[1] === 'ST' ? 'text-rose-400' : m[1] === 'TG' ? 'text-emerald-400' : 'text-slate-200';
@@ -1500,11 +1512,18 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
         </span>
       );
     }
+    if (new RegExp(`^(?:${CATALYST_TAGS})$`).test(part)) {
+      return (
+        <span key={i} className={`text-[10px] font-bold tracking-wider uppercase text-amber-400/80 ${align ? 'ml-1' : ''}`}>
+          {part}
+        </span>
+      );
+    }
     if (part === '10/21') return <span key={i} className={`${valNum} text-violet-400 font-bold`}>10/21</span>;
     if (part === 'S&P' || part === 'Nasdaq' || part === 'Dow' || part === 'Bitcoin') {
       return <span key={i} className={tickerChipCls}>{part}</span>;
     }
-    if (/^\$\d+(?:\.\d+)?[BMK]$/.test(part)) return <span key={i} className={`${valNum} text-slate-200`}>{part}</span>;
+    if (/^\$\d+(?:\.\d+)?[BMK]$/.test(part)) return <span key={i} className={`${valNum} text-slate-200 ${dvolW}`}>{part}</span>;
     if (/^[+]\d+(?:\.\d+)?%$/.test(part)) return <span key={i} className={`${valNum} text-emerald-400 ${chgW}`}>{part}</span>;
     if (/^-\d+(?:\.\d+)?%$/.test(part)) return <span key={i} className={`${valNum} text-rose-400 ${chgW}`}>{part}</span>;
     if (part === 'DAY') return <span key={i} className="text-amber-400">DAY</span>;
@@ -1522,7 +1541,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, who has news, and who is grinding on air.' },
   { label: 'Daily Setups Thesis', color: 'emerald', blurb: 'Structured setups from the daily scan. SWING holds for days; DAY is intraday momentum only. ● is a Blue Dot reversal — the oversold stochastic reset fired; REV is a reversal by structure with no dot behind it.' },
   { label: '10/21 Thesis', color: 'violet', blurb: 'Top-ranked names split by holding period. The two percentages are distance from the 21 and the 10 EMA, followed by the posture read. Leveraged and inverse ETFs excluded. A name tagged BELOW 21, EXTENDED, or RED DOT ranks on tape action — it is not at an entry.' },
-  { label: 'EP9M Thesis', color: 'rose', blurb: 'Abnormal 9M+ share volume — institutional footprints. Unprecedented = beat their own 60-day record.' },
+  { label: 'EP9M Thesis', color: 'rose', blurb: 'Abnormal 9M+ share volume — institutional footprints. Left column beat its own 60-day volume record; right column has no headline out yet, which is the case worth researching.' },
   { label: 'Industry Heat', color: 'amber', blurb: 'Sector rotation — where money is flowing in and where it is leaving. Wide dispersion = stock-picker tape.' },
   { label: 'ETF Flow', color: 'indigo', blurb: 'Heaviest ETF dollar volume and the advancing/declining split — shows where leveraged money is betting.' },
   { label: 'Money Flow', color: 'rose', blurb: 'Total tracked dollar volume across the scanned universe — who is buying, where dollars concentrate, and the advancing share.' },
@@ -1643,10 +1662,6 @@ export default function MarketSummary() {
       }
 
       try {
-        // Swing and consolidation join the fetch set for the Trade Plan
-        // section only — see the planPool note in buildLocalInsights. Both are
-        // optional in exactly the way ep9m already is: a failure degrades the
-        // one section rather than breaking the briefing.
         const [scannerRes, ep9mRes, econRes, earningsRes, swingRes, consolRes] = await Promise.all([
           fetch('/api/scanner/latest', { cache: 'no-store' }),
           fetch(`/api/ep9m/latest?t=${Date.now()}`, { cache: 'no-store' }).catch(() => null),
@@ -1910,7 +1925,7 @@ export default function MarketSummary() {
                             (body.match(/\b[A-Z]{2,5}\b/g) || []).filter(t => !TICKER_STOPWORDS.has(t))
                           ));
                           const isOpen = !label || !collapsedSections.has(key);
-                          const alignRows = !!label && ALIGNED_SECTIONS.has(label);
+                          const sectionAligns = !!label && ALIGNED_SECTIONS.has(label);
 
                           return (
                             <div key={idx} className={`border-l-[3px] rounded-r-xl px-4 py-3 ${st.border} ${st.bg}`}>
@@ -1949,6 +1964,14 @@ export default function MarketSummary() {
                                             const colLines = col.trim().split('\n').filter(Boolean);
                                             const [heading, ...rows] = colLines;
                                             const isHeading = heading && heading.trim().endsWith(':');
+                                            const render = (line: string, li: number) => {
+                                              const a = sectionAligns && isRowLine(line);
+                                              return (
+                                                <p key={li} className={`text-[13px] text-slate-300 leading-relaxed font-medium ${a ? 'whitespace-nowrap' : ''}`}>
+                                                  {renderBriefingText(line, a)}
+                                                </p>
+                                              );
+                                            };
                                             return (
                                               <div key={ci} className="space-y-1.5">
                                                 {isHeading ? (
@@ -1956,18 +1979,10 @@ export default function MarketSummary() {
                                                     <p className="text-[10px] font-bold tracking-wider uppercase text-slate-500 pb-0.5 border-b border-white/5">
                                                       {heading.replace(/:$/, '')}
                                                     </p>
-                                                    {rows.map((line, li) => (
-                                                      <p key={li} className={`text-[13px] text-slate-300 leading-relaxed font-medium ${alignRows ? 'whitespace-nowrap' : ''}`}>
-                                                        {renderBriefingText(line, alignRows)}
-                                                      </p>
-                                                    ))}
+                                                    {rows.map(render)}
                                                   </>
                                                 ) : (
-                                                  colLines.map((line, li) => (
-                                                    <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
-                                                      {renderBriefingText(line, alignRows)}
-                                                    </p>
-                                                  ))
+                                                  colLines.map(render)
                                                 )}
                                               </div>
                                             );
@@ -1987,11 +2002,14 @@ export default function MarketSummary() {
                                   })()
                                 ) : (
                                   <div className="space-y-2">
-                                    {body.split('\n').filter(Boolean).map((line, li) => (
-                                      <p key={li} className="text-[13px] text-slate-300 leading-relaxed font-medium">
-                                        {renderBriefingText(line, alignRows)}
-                                      </p>
-                                    ))}
+                                    {body.split('\n').filter(Boolean).map((line, li) => {
+                                      const a = sectionAligns && isRowLine(line);
+                                      return (
+                                        <p key={li} className={`text-[13px] text-slate-300 leading-relaxed font-medium ${a ? 'whitespace-nowrap' : ''}`}>
+                                          {renderBriefingText(line, a)}
+                                        </p>
+                                      );
+                                    })}
                                   </div>
                                 )
                               )}
