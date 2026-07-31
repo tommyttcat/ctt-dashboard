@@ -1,6 +1,6 @@
 'use client';
 
-// StocksInPlay — v3.1
+// StocksInPlay — v3.2
 // v2.6: FILTERS bleed-through fixed (header z-30); min-w 960 → 880
 // v2.7: 1% shifted STAGE 4→5 / SECTOR 8→7 — didn't help, SECTOR was still
 //       right-aligned so its text kept sliding to the card edge.
@@ -8,39 +8,49 @@
 // v2.9: + R column and the trade plan on the sub-row.
 // v3.0: STOP shows the PRICE, not the percentage. SETUP NAME moved under
 //       TICKER.
-// v3.1: FILTER CONSOLIDATION — 7 groups / 15 buttons down to 6 / 12.
+// v3.1: filter consolidation — STAGE + 10/21 into POSTURE, PLAN Clear → 2R+,
+//       MKT CAP All and VWAP Below removed.
+// v3.2: + CHOPPINESS INDEX (chop14), from scanner route v6.18.
 //
-//       STAGE 2 and 10/21 both collapse into POSTURE. They were two controls
-//       reading one dimension: Weinstein Stage 2 means price above a rising
-//       long MA, and a daily name above its 21 EMA is Stage 2 nearly always.
-//       Worse, TOGETHER THEY LET THROUGH THE THING YOU MOST WANT OUT — a name
-//       four ATRs past its anchor passes both "Stage 2" and ">21" cleanly,
-//       because neither control knows what extension is. Posture checks
-//       extension FIRST, so EXTENDED becomes a bucket you can see and exclude
-//       rather than a trap inside the pass set.
+//       CHOP SHARES THE ADR CELL rather than taking a column of its own, and
+//       that is the substantive decision here, not a space-saving one.
 //
-//       PLAN CLEAR → 2R+. Clear was `p.clear === true`, and 1R+ was
-//       `p.clear === true || resistanceR >= 1` — so every Clear row already
-//       passed 1R+ and the pair was a threshold plus its own subset. 2R+ is a
-//       second real level: clear air, or two measured stop-widths of it.
+//       ADR and CHOP answer two halves of one question and are misleading
+//       apart. ADR says the name MOVES. CHOP says it moves SOMEWHERE. A row
+//       reading ADR 8.2% looks like the best kind of candidate — wide range,
+//       plenty of room to be paid — right up until you learn it is CHOP 74,
+//       at which point it is the worst thing on the board: enormous daily
+//       travel, no resolution, every trigger fires and every stop gets hit.
 //
-//       MKT CAP ALL removed. Nothing selected already means all; the button
-//       existed to un-press the other two, which a second click now does —
-//       matching how every other group on this bar behaves.
+//       Putting them in adjacent columns would let the eye take one without
+//       the other, which is exactly the failure the field exists to prevent.
+//       Stacked in one cell they cannot be read apart. Consolidation1021
+//       already established the pattern for COIL (range % over ATR multiple).
 //
-//       VWAP BELOW removed. On a table gated at +4% with a long-side trade
-//       plan on every row, below-VWAP is a short-side question, and the one
-//       legitimate use (hunting a reclaim) is better served by the price-cell
-//       dot than by dropping every other row.
+//       The word CHOP is printed in the cell rather than left as a bare
+//       second number, so the column is self-documenting without a header
+//       change — "ADR / CHOP" does not fit a 5% column at 10px.
 //
-//       Nothing computed is lost: stage, EMA dots and VWAP all still render
-//       in their columns. Only the redundant FILTERS are gone.
+//       THE FILTER IS A THRESHOLD PAIR, matching PLAN. TREND is the narrow
+//       cut (38.2 and below, names that actually go somewhere); NO CHOP is
+//       the broad one (under 61.8, just exclude the churners) and is the one
+//       worth pressing daily.
+//
+//       ROWS WITH NO CHOP READING FALL OUT of either selection rather than
+//       passing. A name with under 15 daily bars cannot be scored, and an
+//       unscored name is not evidence of a trend.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { stateOf, stateTooltip, stateLegend, readinessTooltip } from '@/lib/indicators/state';
+import {
+  chopColor,
+  chopTooltip,
+  CHOP_TREND_MAX,
+  CHOP_CHOP_MIN,
+} from '@/lib/indicators/chop';
 import { SCANNER_SIP_META, COLUMN_NOTES } from '@/lib/scanConfig';
 import MetricsKey from './MetricsKey';
 
@@ -77,8 +87,8 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Purple ≤20M · green ≤50M · grey above.',
   },
   ADR: {
-    what: '20-day average daily range. The anti-chop gate — scan floor is 3%. Also the basis for the stop: 1.25× ADR or 2.5%, whichever is wider, and for the extension test behind the EXTENDED posture.',
-    colour: 'Purple 10%+ · green 5%+ · grey at the floor.',
+    what: 'Two readings, stacked, because neither means much alone.\n\nTOP — ADR: 20-day average daily range. The scan floor is 3%. Also the stop basis: 1.25× ADR or 2.5%, whichever is wider.\n\nBOTTOM — CHOP: 14-day Choppiness Index. Distance travelled over ground covered. ADR says the name MOVES; CHOP says it moves SOMEWHERE. A wide ADR with CHOP above 61.8 is the trap — huge daily range, no resolution, triggers fire and reverse.',
+    colour: 'ADR: purple 10%+ · green 5%+ · grey at the floor.\nCHOP: teal/green trending · slate mixed · amber choppy · red dead chop.',
   },
   MF: {
     what: 'Money Flow (21) — volume-weighted accumulation vs distribution, 0–100. Arrow shows the bar-over-bar trend.',
@@ -153,6 +163,8 @@ interface StockInPlay {
   rsVsSpy?: number | null;
   distToEma21?: number | null;
   adrPct?: number | null;
+  chop14?: number | null;
+  chopTrap?: boolean | null;
   rmv?: number | null;
   mf?: number | null;
   mfTrend?: number;
@@ -176,6 +188,7 @@ type AdrFilterType = 'All' | '5' | '10';
 type PlanFilterType = 'All' | '1R' | '2R';
 type CapFilterType = 'All' | 'Small' | 'Large';
 type PostureFilterType = 'All' | 'first-touch' | 'stacked' | 'extended';
+type ChopFilterType = 'All' | 'trend' | 'nochop';
 
 const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
 const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
@@ -183,6 +196,19 @@ const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
 const PLAN_BUCKETS: PlanFilterType[] = ['1R', '2R'];
 const CAP_BUCKETS: CapFilterType[] = ['Small', 'Large'];
 const POSTURE_BUCKETS: PostureFilterType[] = ['first-touch', 'stacked', 'extended'];
+const CHOP_BUCKETS: ChopFilterType[] = ['trend', 'nochop'];
+
+const CHOP_META: Record<ChopFilterType, { label: string; title: string }> = {
+  'All': { label: 'ALL', title: '' },
+  'trend': {
+    label: 'TREND',
+    title: `Choppiness ${CHOP_TREND_MAX} or below — the name is covering ground rather than travelling in circles. The narrow cut; expect it to empty the table on a rangebound tape.`,
+  },
+  'nochop': {
+    label: 'NO CHOP',
+    title: `Choppiness under ${CHOP_CHOP_MIN} — excludes only the churners. The broad cut, and the one worth leaving on: it removes names whose triggers fire and reverse without demanding a clean trend.`,
+  },
+};
 
 const CNF_LABELS: Record<string, string> = {
   rvol: 'Relative volume',
@@ -315,6 +341,11 @@ const adrOf = (row: StockInPlay): number | null => {
   return Number(row.adrPct);
 };
 
+const chopOf = (row: StockInPlay): number | null => {
+  if (row.chop14 == null || isNaN(Number(row.chop14))) return null;
+  return Number(row.chop14);
+};
+
 const mfOf = (row: StockInPlay): number | null => {
   if (row.mf == null || isNaN(Number(row.mf))) return null;
   return Number(row.mf);
@@ -415,6 +446,17 @@ const planTooltip = (row: StockInPlay): string => {
     lines.push('');
     lines.push(p.note);
   }
+
+  /* A chop reading belongs in the PLAN tooltip, not just the ADR cell,
+     because it is the thing most likely to invalidate the plan. A clean 2R
+     setup inside a churning range is a trigger that fires and reverses —
+     the levels are correct and the trade still does not work. */
+  const chop = chopOf(row);
+  if (chop != null && chop >= CHOP_CHOP_MIN) {
+    lines.push('');
+    lines.push(`CHOP ${chop.toFixed(0)} — the levels are sound but the range has been rejecting both edges. Expect this trigger to fail.`);
+  }
+
   lines.push('');
   lines.push('Stop is the wider of 1.25× ADR or 2.5%. Target is a fixed 2R.');
   return lines.join('\n');
@@ -423,11 +465,6 @@ const planTooltip = (row: StockInPlay): string => {
 /* ---- POSTURE ------------------------------------------------------------
    One structural read, replacing the old STAGE 2 and 10/21 controls.
 
-   Those two were reading the same dimension from different angles — Stage 2
-   means price above a rising long MA, and a daily name above its 21 EMA is
-   Stage 2 the overwhelming majority of the time. Running both narrowed the
-   set without adding a question.
-
    THE ORDER OF THESE CHECKS IS THE WHOLE POINT. Extension is tested FIRST,
    because a name can be above both EMAs, pass "Stage 2", pass ">21", and
    still be four ATRs past its anchor with nowhere to put a stop. Under the
@@ -435,12 +472,12 @@ const planTooltip = (row: StockInPlay): string => {
    where you can see it and exclude it.
 
    Everything needed is already on the row — `aboveEma10` / `aboveEma21` as
-   booleans, plus `distToEma21` and `adrPct` for the extension test. No
-   scanner change, and `distToEma10` is not required because the first-touch
-   test only asks which side of the 10 price sits on, not how far.
+   booleans, plus `distToEma21` and `adrPct` for the extension test.
 
-   The plan object's own `overextended` flag is honoured too, so this can
-   never disagree with the EXT badge in the R column.                      */
+   POSTURE AND CHOP ARE ORTHOGONAL and both are worth having. Posture asks
+   where price sits relative to its averages; chop asks whether the range it
+   sits in resolves. A textbook first touch inside a churning range is a
+   perfect-looking entry that does not work.                               */
 type PostureBucket = 'first-touch' | 'stacked' | 'extended' | 'below-21';
 
 const EXTENSION_ATR_MULTIPLE = 3;
@@ -520,6 +557,14 @@ const cnfTooltip = (row: StockInPlay): string => {
     }
   }
 
+  // CNF does not read chop — the scanner emits it unscored on purpose. Say so
+  // here rather than letting a high CNF imply the regime was considered.
+  const chop = chopOf(row);
+  if (chop != null && chop >= CHOP_CHOP_MIN) {
+    lines.push('');
+    lines.push(`CHOP ${chop.toFixed(0)} — not scored into CNF. This grade rates the tape, not whether the range resolves.`);
+  }
+
   return lines.join('\n');
 };
 
@@ -543,6 +588,7 @@ export default function StocksInPlay() {
   const [marketCapFilter, setMarketCapFilter] = useState<CapFilterType>('All');
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [adrFilter, setAdrFilter] = useState<AdrFilterType>('All');
+  const [chopFilter, setChopFilter] = useState<ChopFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [planFilter, setPlanFilter] = useState<PlanFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
@@ -585,6 +631,8 @@ export default function StocksInPlay() {
               rsVsSpy: item.rsVsSpy ?? null,
               distToEma21: item.distToEma21 ?? null,
               adrPct: item.adrPct ?? null,
+              chop14: item.chop14 ?? null,
+              chopTrap: item.chopTrap ?? null,
               rmv: item.rmv ?? null,
               mf: item.mf ?? null,
               mfTrend: item.mfTrend ?? 0,
@@ -622,15 +670,29 @@ export default function StocksInPlay() {
     setSortConfig({ key, direction });
   };
 
-  // Every group is now a toggle: pressing the active option clears it. That
-  // is what removed the need for a MKT CAP "All" button — nothing selected
+  // Every group is a toggle: pressing the active option clears it. That is
+  // what removed the need for a MKT CAP "All" button — nothing selected
   // already means all, and a second click gets you there.
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
   const handleAdrFilter = (val: AdrFilterType) => setAdrFilter(prev => prev === val ? 'All' : val);
+  const handleChopFilter = (val: ChopFilterType) => setChopFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
   const handlePlanFilter = (val: PlanFilterType) => setPlanFilter(prev => prev === val ? 'All' : val);
   const handleCapFilter = (val: CapFilterType) => setMarketCapFilter(prev => prev === val ? 'All' : val);
   const handlePostureFilter = (val: PostureFilterType) => setPostureFilter(prev => prev === val ? 'All' : val);
+
+  /* Does ANY row carry a chop reading? Drives whether the CHOP group renders
+     at all. Until the scanner has run since v6.18 the field is absent on
+     every row, and a filter that empties the table rather than narrowing it
+     is worse than no filter. Flips to true on its own once the scan runs. */
+  const anyChop = useMemo(() => stocks.some(s => chopOf(s) != null), [stocks]);
+
+  // A hidden group must not keep filtering. Without this, selecting NO CHOP
+  // and then losing chop data on the next poll would leave an invisible
+  // filter holding the table empty with no control to clear it.
+  useEffect(() => {
+    if (!anyChop && chopFilter !== 'All') setChopFilter('All');
+  }, [anyChop, chopFilter]);
 
   const filteredAndSortedStocks = useMemo(() => {
     let filtered = stocks.filter(s => s.changePct >= 4.0 && s.vol >= 500000 && s.mktCap !== null && s.mktCap >= 20000000);
@@ -658,6 +720,17 @@ export default function StocksInPlay() {
         return a != null && a >= minAdr;
       });
     }
+    /* CHOP. Rows with no reading fall OUT of either selection rather than
+       passing — a name with too few daily bars to score is not evidence of a
+       trend, and letting it through would quietly defeat the filter on
+       exactly the thin-history names most likely to churn. */
+    if (chopFilter !== 'All') {
+      filtered = filtered.filter(s => {
+        const c = chopOf(s);
+        if (c == null) return false;
+        return chopFilter === 'trend' ? c <= CHOP_TREND_MAX : c < CHOP_CHOP_MIN;
+      });
+    }
     if (vwapFilter !== 'All') {
       filtered = filtered.filter(s => s.vwapStatus === vwapFilter);
     }
@@ -666,8 +739,7 @@ export default function StocksInPlay() {
 
        `clear` rows carry no resistanceR at all — there is nothing overhead to
        measure — so they satisfy BOTH levels rather than falling out of the
-       stricter one. That is the correction v3.1 makes: the old pair had
-       "Clear" as a subset of "1R+" and called them two options. */
+       stricter one. */
     if (planFilter !== 'All') {
       const minR = planFilter === '2R' ? 2.0 : 1.0;
       filtered = filtered.filter(s => {
@@ -687,7 +759,7 @@ export default function StocksInPlay() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [stocks, sortConfig, postureFilter, marketCapFilter, cnfFilter, adrFilter, vwapFilter, planFilter]);
+  }, [stocks, sortConfig, postureFilter, marketCapFilter, cnfFilter, adrFilter, chopFilter, vwapFilter, planFilter]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -790,6 +862,7 @@ export default function StocksInPlay() {
 
   const activeFilterCount =
     (postureFilter !== 'All' ? 1 : 0) +
+    (chopFilter !== 'All' ? 1 : 0) +
     (marketCapFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
     (adrFilter !== 'All' ? 1 : 0) +
@@ -847,9 +920,9 @@ export default function StocksInPlay() {
             </div>
             {showFilters && (
               <div className="flex flex-wrap justify-center items-center gap-3 w-full">
-                {/* POSTURE leads the bar because it is the only group that
-                    answers "is this at an entry" rather than "is this big
-                    enough / liquid enough / scored well enough". */}
+                {/* POSTURE and CHOP lead together — they are the two questions
+                    about whether a row is enterable at all. Posture asks where
+                    price sits; chop asks whether the range resolves. */}
                 <div className={pillWrap}>
                   <span className={pillLabel}>POSTURE</span>
                   <div className="flex items-center gap-1">
@@ -865,6 +938,23 @@ export default function StocksInPlay() {
                     ))}
                   </div>
                 </div>
+                {anyChop && (
+                  <div className={pillWrap}>
+                    <span className={pillLabel}>CHOP</span>
+                    <div className="flex items-center gap-1">
+                      {CHOP_BUCKETS.map((opt) => (
+                        <button
+                          key={opt}
+                          onClick={() => handleChopFilter(opt)}
+                          title={CHOP_META[opt].title}
+                          className={`${pillBtn} ${chopFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                        >
+                          {CHOP_META[opt].label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className={pillWrap}>
                   <span className={pillLabel}>PLAN</span>
                   <div className="flex items-center gap-1">
@@ -904,7 +994,7 @@ export default function StocksInPlay() {
                       <button
                         key={opt}
                         onClick={() => handleAdrFilter(opt)}
-                        title={`20-day average daily range of ${opt}% and above — scan floor is 3%`}
+                        title={`20-day average daily range of ${opt}% and above — scan floor is 3%. Pair with the CHOP filter: a wide ADR that is also choppy is range without direction.`}
                         className={`${pillBtn} ${adrFilter === opt ? filterBtnActive : filterBtnIdle}`}
                       >
                         {opt}%+
@@ -957,6 +1047,9 @@ export default function StocksInPlay() {
                   <th className={`${thBase} w-[6%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('FLOAT')} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  {/* One header, two stacked readings. Clicking sorts by ADR;
+                      CHOP is filtered rather than sorted, since a single
+                      header cannot carry two sort keys. */}
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
@@ -980,6 +1073,7 @@ export default function StocksInPlay() {
                     const sectorText = cleanSector(row.sector, row.ticker);
                     const bdRev = isBlueDotSetup(row.setupName);
                     const adr = adrOf(row);
+                    const chop = chopOf(row);
                     const mf = mfOf(row);
                     const rmv = rmvOf(row);
                     const rme = rmeOf(row);
@@ -1039,8 +1133,23 @@ export default function StocksInPlay() {
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getAdrColor(adr)}`}>
-                            {adr != null ? `${adr.toFixed(1)}%` : '—'}
+                          {/* ADR over CHOP, one cell. See the v3.2 header: the
+                              two are misleading apart, and separate columns
+                              would let the eye take one without the other.
+                              The word CHOP is printed so the second line is
+                              self-explaining without a header change. */}
+                          <td
+                            className={`${tdBase} whitespace-nowrap tabular-nums cursor-help`}
+                            title={chopTooltip(chop, adr)}
+                          >
+                            <div className="flex flex-col leading-tight">
+                              <span className={`text-xs font-bold ${getAdrColor(adr)}`}>
+                                {adr != null ? `${adr.toFixed(1)}%` : '—'}
+                              </span>
+                              <span className={`text-[8px] font-semibold tracking-tight ${chopColor(chop)}`}>
+                                {chop != null ? `CHOP ${chop.toFixed(0)}` : ''}
+                              </span>
+                            </div>
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={mf != null ? `Money Flow ${mf.toFixed(0)} — ${mfLabel(mf)}` : undefined}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
