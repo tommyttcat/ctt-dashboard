@@ -16,6 +16,7 @@ import MarketSummary from '../components/MarketSummary';
 import TopMovers from '../components/TopMovers';
 import SwingCandidates from '../components/SwingCandidates';
 import Ep9m from '../components/Ep9m'; 
+import Vcp from '../components/Vcp';
 
 
 export default function DailySetupsPage() {
@@ -44,6 +45,7 @@ export default function DailySetupsPage() {
               <DailySetupsComponent />
               <SwingCandidates />
               <Consolidation1021 />
+              <Vcp />
               <Ep9m /> 
               <TechnicalsEcon />
               <EarningsCalendar />
