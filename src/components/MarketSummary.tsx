@@ -234,10 +234,19 @@ const rvolOf = (s: any): number | null => {
 
 const stageOf = (s: any): string => (s?.stage ? String(s.stage).replace(/Stage\s*/i, '') : '');
 
-/* The blue dot glyph. On a ROW the marker is the setup name — "BD Rev" spent
-   five characters saying what one dot says, and a separate "BD" tag beside it
-   said it a second time. Prose keeps words, because a glyph as the subject of
-   a sentence reads as a typo. */
+/* ---- REV vs ● : two different claims -----------------------------------
+   REV is the SETUP — the pattern detector named this a blue-dot reversal.
+   ● is the INDICATOR — computeDotDetail saw an oversold stochastic reset
+   close up above an anchor TODAY.
+
+   These are not the same thing and an earlier pass printed one glyph for
+   both. A 20 EMA pullback or a trend hold can carry a live dot without being
+   a reversal at all, so a ● on those rows meant "has a dot" while a ● that
+   had replaced the setup name meant "is a reversal". Same mark, two
+   meanings, no way to tell which from the row.
+
+   Separated now. A row can carry both — a reversal setup with a live dot,
+   which is the strongest version of the signal — or either alone. */
 const BLUE_DOT_GLYPH = '●';
 
 const setupOf = (s: any): string | null => {
@@ -254,7 +263,7 @@ const setupRowLabel = (s: any): string | null => {
   const n = s?.setupName;
   if (!n || n === '-' || n === '—') return null;
   const str = String(n);
-  if (/blue dot|bd rev/i.test(str)) return BLUE_DOT_GLYPH;
+  if (/blue dot|bd rev|reversal/i.test(str)) return 'REV';
   if (str.includes('BB SQZ')) return 'BB SQZ';
   if (str === 'Episodic Pivot') return 'EP';
   return str;
@@ -439,12 +448,16 @@ const fmtLeader = (s: any): string => {
    nearest overhead level on every row, and none of that reached this
    component until now.
 
-   THE ROW IS SIX FIELDS: change, CNF, the R badge, and the three prices.
-   An earlier pass carried risk-percent and trigger-reach on the row too and
-   it read as a wall — seven and eight fields wrapping to two lines each,
-   which defeats the point of a summary. Both survive as GATES rather than
-   as columns: reach still decides what qualifies, it just is not printed.
-   Risk is recoverable from trigger minus stop, and the tables show it.
+   THE ROW IS SIX FIELDS, space-separated: change, CNF, R, TR, ST, TG.
+   Interpuncts came out because with three badges already breaking the line
+   visually, the dots were adding a fourth kind of separator to a row that
+   only needed one. TR/ST/TG over trig/stop/tgt for the same reason — two
+   characters carry the meaning once you know the row, and the colour does
+   the rest (stop red, target green).
+
+   An earlier pass also carried risk-percent and trigger-reach here and it
+   read as a wall. Both survive as GATES rather than as columns: reach still
+   decides what qualifies, it just is not printed. Risk is trigger minus stop.
 
    TWO GATES, both necessary, neither sufficient alone.
 
@@ -519,8 +532,8 @@ const isSettingUp = (s: any): boolean => {
   return rtrValue(s) >= PLAN_MIN_RTR;
 };
 
-/* Six fields, in the order you read them: what it did today, how it scores,
-   how much room it has, and the three prices that make up the order. */
+// Six fields, space-separated. The badges and the label colours provide the
+// visual breaks that the interpuncts used to.
 const fmtPlanRow = (s: any): string => {
   const p = livePlanOf(s);
   if (!p) return `${tickerOf(s)} —`;
@@ -532,11 +545,11 @@ const fmtPlanRow = (s: any): string => {
   if (cnf) bits.push(`CNF ${cnf}`);
 
   bits.push(rtrLabel(s));
-  bits.push(`trig ${fmtLevel(p.trigger)}`);
-  bits.push(`stop ${fmtLevel(p.stop)}`);
-  bits.push(`tgt ${fmtLevel(p.target)}`);
+  bits.push(`TR ${fmtLevel(p.trigger)}`);
+  bits.push(`ST ${fmtLevel(p.stop)}`);
+  bits.push(`TG ${fmtLevel(p.target)}`);
 
-  return `${tickerOf(s)} ${bits.join(' · ')}`;
+  return `${tickerOf(s)} ${bits.join(' ')}`;
 };
 
 const buildTradePlanPara = (pool: any[]): string => {
@@ -576,7 +589,7 @@ const buildTradePlanPara = (pool: any[]): string => {
 
   const lines: string[] = [`${cnfCol}|||${rtrCol}`];
 
-  lines.push(`${ready.length} of ${planned.length} planned name${planned.length === 1 ? '' : 's'} sit within one ADR of a trigger with at least 1R of room. Trigger is the alert, stop is the exit, target is a fixed 2R.`);
+  lines.push(`${ready.length} of ${planned.length} planned name${planned.length === 1 ? '' : 's'} sit within one ADR of a trigger with at least 1R of room. TR is the alert, ST is the exit, TG is a fixed 2R.`);
 
   // A name in both columns is the intersection — the tape likes it AND there
   // is somewhere for it to go. That pairing is rare enough to name.
@@ -740,8 +753,8 @@ const buildCatalystBrief = (s: any): string => {
   // without an entry and an exit is a story, not a trade.
   const p = livePlanOf(s);
   if (p?.trigger != null) {
-    bits.push(`trig ${fmtLevel(p.trigger)}`);
-    if (p.stop != null) bits.push(`stop ${fmtLevel(p.stop)}`);
+    bits.push(`TR ${fmtLevel(p.trigger)}`);
+    if (p.stop != null) bits.push(`ST ${fmtLevel(p.stop)}`);
     bits.push(`${rtrLabel(s)} to the first level overhead`);
   }
   return bits.join(' · ') + '.';
@@ -800,8 +813,8 @@ const buildWatchReason = (s: any): string => {
       reach <= 0.05 ? ', live now' :
       reach <= PLAN_MAX_REACH_ADR ? `, ${reach.toFixed(1)}x ADR away` :
       `, ${reach.toFixed(1)}x ADR away — not reachable in a normal session`;
-    const stopTxt = p.stop != null ? ` stop ${fmtLevel(p.stop)}` : '';
-    parts.push(`trig ${fmtLevel(p.trigger)}${reachTxt},${stopTxt} with ${rtrLabel(s)} of room`);
+    const stopTxt = p.stop != null ? ` ST ${fmtLevel(p.stop)}` : '';
+    parts.push(`TR ${fmtLevel(p.trigger)}${reachTxt},${stopTxt} with ${rtrLabel(s)} of room`);
   } else if (s?.plan?.collapsed === true) {
     parts.push('no long plan — price has collapsed away from its averages');
   } else if (s?.plan?.overextended === true) {
@@ -896,6 +909,8 @@ const build1021Para = (pool: any[]): string => {
     const bits = [`${pct(r.d21 as number)} vs 21`];
     if (r.d10 != null) bits.push(`${pct(r.d10 as number)} vs 10`);
     const tags: string[] = [POSTURE_META[r.bucket as PostureBucket].label];
+    // The glyph here is the INDICATOR dot, not a setup name — this section
+    // has no setup column, so there is nothing to confuse it with.
     if (r.dot === 'red') tags.push('RED DOT');
     else if (r.dot === 'blue') tags.push(BLUE_DOT_GLYPH);
     return `${r.ticker} ${bits.join(' · ')} — ${tags.join(', ')}`;
@@ -1140,9 +1155,11 @@ const buildLocalInsights = (
   /* Four fields, down from six. STAGE went because the row already ranks by
      blendedScore, which reads posture — a stage code sitting between RVOL and
      CNF was a number you had to interpret rather than one you could act on.
-     The separate BD tag went because the setup name now carries the dot
-     itself; a name whose setup is not a blue-dot reversal but which HAS a
-     blue dot still shows one, so nothing is lost by dropping the tag. */
+
+     REV and ● can both appear and that is deliberate: REV says the pattern
+     detector called this a reversal, ● says the stochastic reset fired today.
+     A reversal setup with a live dot is the strongest version of the signal
+     and it should look different from either half alone. */
   const fmtDaily = (s: any): string => {
     const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
     const bits: string[] = [];
@@ -1150,10 +1167,11 @@ const buildLocalInsights = (
     if (rv != null) bits.push(`RVOL ${rv.toFixed(2)}`);
 
     const su = setupRowLabel(s);
-    const dot = dotOf(s);
     if (su) bits.push(su);
-    if (dot === 'blue' && su !== BLUE_DOT_GLYPH) bits.push(BLUE_DOT_GLYPH);
-    if (dot === 'red') bits.push('RED DOT');
+
+    const dot = dotOf(s);
+    if (dot === 'blue') bits.push(BLUE_DOT_GLYPH);
+    else if (dot === 'red') bits.push('RED DOT');
 
     bits.push(`CNF ${scoreOf(s)}`);
     return `${s.ticker} ${chg} · ${bits.join(' · ')}`;
@@ -1286,13 +1304,15 @@ const buildLocalInsights = (
   };
 };
 
-/* ADR, RTR, TRIG, STOP and TGT are label words, not tickers. Without them
+/* TR, ST, TG, REV and the rest are label words, not tickers. Without them
    here the renderer chips them like symbols and SectionCopyButton copies
-   them into a TradingView watchlist. */
+   them into a TradingView watchlist. ST and TR are real tickers (Sensata,
+   Tootsie Roll) — an acceptable trade, since neither has ever appeared on
+   this board and the level pattern matches first anyway. */
 const TICKER_STOPWORDS = new Set([
   'RVOL', 'CNF', 'SMB', 'DAY', 'SWING', 'BD', 'REV', 'EP', 'BB', 'SQZ',
   'GLB', 'VCP', 'PB', 'GO', 'GC', 'EMA', 'SMA', 'MACD', 'ATR', 'ADR', 'RS', 'R2G',
-  'RTR', 'TRIG', 'STOP', 'TGT', 'RISK', 'COIL', 'EXT',
+  'RTR', 'TR', 'ST', 'TG', 'TRIG', 'STOP', 'TGT', 'RISK', 'COIL', 'EXT',
   'ETF', 'ETFS', 'STAGE', 'A', 'I', 'AND', 'THE', 'IS', 'ARE',
   'IN', 'OF', 'BY', 'VS', 'ON', 'TO', 'UP', 'AT', 'OR', 'IT', 'AI',
   'US', 'USA', 'FDA', 'SEC', 'IPO', 'CEO', 'EPS', 'FY', 'Q',
@@ -1342,7 +1362,7 @@ const postureChipCls = (tone: 'good' | 'warn' | 'bad'): string => {
 };
 
 const renderBriefingText = (text: string): React.ReactNode[] => {
-  const rx = /(▸|●|RED DOT|BLUE DOT|\[[^\]]+\]\([^)]+\)|\d{1,2}:\d{2} (?:AM|PM)|RVOL \d+(?:\.\d+)?|CNF \d+|Stage \d[ABC]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|(?:trig|stop|tgt) \d+(?:\.\d+)?|\d+(?:\.\d+)?x ADR|\d+(?:\.\d+)?R\+?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
+  const rx = /(▸|●|REV|RED DOT|BLUE DOT|\[[^\]]+\]\([^)]+\)|\d{1,2}:\d{2} (?:AM|PM)|RVOL \d+(?:\.\d+)?|CNF \d+|Stage \d[ABC]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|(?:TR|ST|TG) \d+(?:\.\d+)?|\d+(?:\.\d+)?x ADR|\d+(?:\.\d+)?R\+?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
   const parts = text.split(rx);
 
   return parts.map((part, i) => {
@@ -1350,8 +1370,15 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
     if (part === '▸') return <span key={i} className="text-rose-400 font-bold">▸</span>;
     if (part === BLUE_DOT_GLYPH) {
       return (
-        <span key={i} title="Blue Dot — oversold stochastic reset on the daily" className="text-sky-400 text-[13px] align-baseline">
+        <span key={i} title="Blue Dot — oversold stochastic reset fired on the daily" className="text-sky-400 text-[13px] align-baseline">
           {BLUE_DOT_GLYPH}
+        </span>
+      );
+    }
+    if (part === 'REV') {
+      return (
+        <span key={i} title="Reversal setup — the pattern detector named this a blue-dot reversal" className="text-sky-400 font-bold tracking-wide text-[11px]">
+          REV
         </span>
       );
     }
@@ -1398,14 +1425,15 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
       const v = parseFloat(m[1]);
       return <span key={i}>RS <span className={`${valNum} ${rsColor(v)}`}>{m[1]}</span></span>;
     }
-    // The three order levels, coloured the way the tables colour them: stop
-    // red, target green, trigger neutral. Same glance, same meaning.
-    m = part.match(/^(trig|stop|tgt) (\d+(?:\.\d+)?)$/);
+    // The three order levels. Stop red, target green, trigger neutral —
+    // matching the tables. The label carries a left margin because the row
+    // no longer has interpuncts to separate fields.
+    m = part.match(/^(TR|ST|TG) (\d+(?:\.\d+)?)$/);
     if (m) {
-      const tone = m[1] === 'stop' ? 'text-rose-400' : m[1] === 'tgt' ? 'text-emerald-400' : 'text-slate-200';
+      const tone = m[1] === 'ST' ? 'text-rose-400' : m[1] === 'TG' ? 'text-emerald-400' : 'text-slate-200';
       return (
         <span key={i}>
-          <span className="text-slate-500">{m[1]}</span>{' '}
+          <span className="text-slate-500 text-[10px] font-bold ml-1">{m[1]}</span>{' '}
           <span className={`${valNum} ${tone} font-bold`}>{m[2]}</span>
         </span>
       );
@@ -1444,10 +1472,10 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
 };
 
 const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
-  { label: 'Trade Plan', color: 'teal', blurb: 'The only forward-looking equity section. Names with a defined entry that can realistically fire next session — trigger within one average daily range of price, and at least one stop-width of room before the first level overhead. The R badge is room-to-resistance in stop-widths, coloured as on the tables. Collapsed and over-extended names are excluded, not ranked last.' },
+  { label: 'Trade Plan', color: 'teal', blurb: 'The only forward-looking equity section. Names with a defined entry that can realistically fire next session — trigger within one average daily range of price, and at least one stop-width of room before the first level overhead. TR is the alert, ST the exit, TG a fixed 2R. The R badge is room-to-resistance in stop-widths, coloured as on the tables. Collapsed and over-extended names are excluded, not ranked last.' },
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves right now. Volume-confirmed names are tradeable; thin gaps are fade candidates.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, who has news, and who is grinding on air.' },
-  { label: 'Daily Setups Thesis', color: 'emerald', blurb: 'Structured setups from the daily scan. SWING holds for days; DAY is intraday momentum only. A ● marks a blue-dot reversal.' },
+  { label: 'Daily Setups Thesis', color: 'emerald', blurb: 'Structured setups from the daily scan. SWING holds for days; DAY is intraday momentum only. REV is a reversal setup by pattern; ● is a live blue dot — an oversold stochastic reset that fired today. A row can carry both.' },
   { label: '10/21 Thesis', color: 'violet', blurb: 'Top-ranked names split by holding period, each tagged with its 10/21 EMA posture. Leveraged and inverse ETFs excluded. A name tagged BELOW 21, EXTENDED, or RED DOT ranks on tape action — it is not at an entry.' },
   { label: 'EP9M Thesis', color: 'rose', blurb: 'Abnormal 9M+ share volume — institutional footprints. Unprecedented = beat their own 60-day record.' },
   { label: 'Industry Heat', color: 'amber', blurb: 'Sector rotation — where money is flowing in and where it is leaving. Wide dispersion = stock-picker tape.' },
