@@ -1,4 +1,4 @@
-// src/app/api/scanner/run/route.ts — v6.17
+// src/app/api/scanner/run/route.ts — v6.18
 // v6.1–v6.10: RMV/RME/stage/money-flow/daysToCover indicators; scanConfig
 //   thresholds; background scan mode; deterministic macro briefing;
 //   distToEma10 on every row
@@ -11,37 +11,38 @@
 // v6.15: + raw EMA levels and a trade plan on every row
 // v6.16: changePct passed to the planner; runway component graded rather
 //   than binary; collapsed charts capped at 44
-// v6.17: + ABSOLUTE EXTENSION CEILING.
+// v6.17: + absolute extension ceiling keyed to ATRs above the 21 EMA, because
+//   RME is a percentile and saturates — PN at 198% above its anchor and MA at
+//   7% above both read -12
+// v6.18: + PER-TICKER CHOPPINESS INDEX (chop14).
 //
-//   PN closed 198% above its 21 EMA and graded 84-A. DFNS closed 262% above
-//   and graded 66-B. Fixing the runway bonus in tradeplan v1.4 took roughly
-//   eight points off each, which was not the real problem.
+//   The scan's anti-chop gate is minAdrPct. ADR says the name MOVES. It does
+//   not say the name moves SOMEWHERE, and those are different questions.
 //
-//   The real problem is that RME is a PERCENTILE. It answers "how extended
-//   is this name relative to its own history" and saturates at 100, so
-//   rmeScoreAdjustment bottoms out at -12 for MA at 7% above its anchor,
-//   MSFT at 14%, CMCO at 35%, and PN at 198%. All four look identical to the
-//   score. A relative measure cannot distinguish a normal post-earnings gap
-//   from a vertical move, because both are at the top of their own range.
+//   A stock with 8% ADR and CHOP 75 travels enormous distance every session
+//   and ends the month where it started. It clears the ADR floor cleanly, it
+//   looks volatile and therefore tradeable, and it is the single worst thing
+//   that can reach the board — every trigger fires, every stop gets hit, and
+//   the range never resolves. ADR alone cannot see it. CHOP can:
 //
-//   So this adds an ABSOLUTE ceiling on top of the relative penalty, keyed to
-//   ATRs above the 21 EMA — the same basis the scanner already uses for its
-//   `extended` flag and the same one tradeplan v1.4 uses for `overextended`.
-//   Three thresholds, one rule: the further past your anchor you are, the
-//   lower the grade you can reach, no matter how good the tape looks.
+//       CHOP = 100 x log10( sum TR(n) / (maxHigh(n) - minLow(n)) ) / log10(n)
 //
-//     > 3 ATRs above the 21  -> cap 69 (B max)
-//     > 6 ATRs above the 21  -> cap 49 (C max)
+//   distance travelled over ground covered. Above 61.8 the name churns;
+//   below 38.2 it trends.
 //
-//   This deliberately catches MSFT too. MSFT gapped 12% on earnings, sits 4
-//   ATRs above its anchor, and the scanner already flags it `extended: true`
-//   — it is a superb move and an un-enterable one, and an A grade on it is
-//   the dashboard telling you to chase. Capping at B is the honest read.
+//   NO NEW API CALL. dailyBars is already in scope for the ADR, ATR, EMA and
+//   RME computations — this is the same array read one more way.
 //
-//   Consistent with the three ceilings already here: structural (Stage 4 /
-//   dead cross / deep drawdown), red dot, and collapse. All four answer the
-//   same question — is there any tape reading good enough to make this
-//   tradeable — and all four answer no.
+//   NOT GATED, DELIBERATELY. This version only EMITS the field. Gating at
+//   61.8 immediately would silently stop surfacing names with no way to know
+//   whether the threshold is right for this universe. catalystCoverage now
+//   reports the distribution, including the trap quadrant (ADR >= 5% with
+//   CHOP >= 61.8) — the count that says how many current candidates are chop
+//   machines the ADR floor is letting through. Gate on evidence, in v6.19,
+//   once that number has been watched for a week.
+//
+//   CNF IS ALSO UNTOUCHED for the same reason. A chop penalty would move
+//   every score at once and make the effect impossible to isolate.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -51,6 +52,7 @@ import { computeStageDetail } from '@/lib/indicators/stage';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { computeDotDetail } from '@/lib/indicators/dots';
 import { computeTradePlan } from '@/lib/indicators/tradeplan';
+import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN, CHOP_TREND_MAX } from '@/lib/indicators/chop';
 import { SCANNER, SCANNER_SIP_META, SCANNER_DAILY_META, TOPMOVERS_META } from '@/lib/scanConfig';
 
 export const dynamic = 'force-dynamic';
@@ -281,6 +283,13 @@ const EXT_PARABOLIC_ATRS = 6;
 const EXT_HARD_PCT_NO_ATR = 25;
 const EXT_PARABOLIC_PCT_NO_ATR = 60;
 
+// --- Chop trap threshold (v6.18) -------------------------------------------
+// ADR at or above this WITH chop at or above CHOP_CHOP_MIN is the specific
+// combination the ADR floor cannot see: wide range, no direction. Reported in
+// catalystCoverage so the gate in a later version can be set on evidence
+// rather than on the textbook 61.8.
+const CHOP_TRAP_MIN_ADR = 5;
+
 const atrsAboveAnchor = (distToEma21: number | null, atrPct: number | null): number | null => {
   if (distToEma21 == null || distToEma21 <= 0) return null;
   if (atrPct != null && atrPct > 0) return distToEma21 / atrPct;
@@ -403,6 +412,12 @@ const computeCnfScore = (
     else b.runway = -10;
   }
 
+  // NOTE (v6.18): chop14 is deliberately NOT a component here. It is emitted
+  // on every row and reported in catalystCoverage, but folding it into the
+  // score would move every grade at once and make its effect impossible to
+  // isolate from the ceilings already in place. Score it in v6.19, once the
+  // distribution has been watched.
+
   const raw = Object.values(b).reduce((s, v) => s + v, 0);
 
   // --- CEILING 1: structural ----------------------------------------------
@@ -512,6 +527,22 @@ const buildReadout = (t: any): string | null => {
   if (t.rsVsSpy != null) parts.push(`RS ${t.rsVsSpy >= 0 ? '+' : ''}${t.rsVsSpy.toFixed(0)} vs SPY`);
   if (t.atrPct != null) parts.push(`ATR ${t.atrPct.toFixed(1)}%`);
   if (t.adrPct != null) parts.push(`ADR ${t.adrPct.toFixed(1)}%`);
+
+  /* CHOP is stated with its meaning attached, and PAIRED WITH ADR when the
+     two disagree. "ADR 8.2%, CHOP 74" read as two separate numbers looks like
+     a volatile name that scores oddly on something; read together it is the
+     specific warning — the range is wide and it goes nowhere. That pairing is
+     the entire reason the field exists, so the readout says it outright. */
+  if (t.chop14 != null) {
+    const label =
+      t.chop14 >= 70 ? 'dead chop' :
+      t.chop14 >= CHOP_CHOP_MIN ? 'choppy' :
+      t.chop14 > CHOP_TREND_MAX ? 'mixed' :
+      t.chop14 > 30 ? 'trending' : 'strong trend';
+    const trap = t.adrPct != null && t.adrPct >= CHOP_TRAP_MIN_ADR && t.chop14 >= CHOP_CHOP_MIN;
+    parts.push(`CHOP ${t.chop14.toFixed(0)} (${label})${trap ? ' — wide range going nowhere' : ''}`);
+  }
+
   if (t.goldenCross != null) parts.push(t.goldenCross ? '50>200 intact' : '50<200');
 
   if (t.plan?.tradeable) {
@@ -598,6 +629,7 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
   const planned = i.surfaced.filter((t: any) => t.plan?.tradeable).length;
   const clearRunway = i.surfaced.filter((t: any) => t.plan?.tradeable && t.plan.clear).length;
   const collapsed = i.surfaced.filter((t: any) => t.plan?.collapsed).length;
+  const choppy = i.surfaced.filter((t: any) => t.chop14 != null && t.chop14 >= CHOP_CHOP_MIN).length;
 
   const yieldBits: string[] = [
     `${i.surfaced.length} name${i.surfaced.length === 1 ? '' : 's'} cleared the setup gates`,
@@ -609,6 +641,7 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
     if (unnamed > 0) yieldBits.push(`${unnamed} matched no pattern`);
     yieldBits.push(`${planned} have a definable entry, ${clearRunway} with 2R clear of overhead`);
     if (collapsed > 0) yieldBits.push(`${collapsed} have fallen off their own averages`);
+    if (choppy > 0) yieldBits.push(`${choppy} are in a chop regime on their own 14-day range`);
     if (extended > 0) yieldBits.push(`${extended} already extended`);
     if (capped > 0) yieldBits.push(`${capped} grade-capped`);
     yieldBits.push(`${ready} flagged Ready`);
@@ -617,8 +650,11 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
 
   let posture: string;
   const thinYield = gradeA + gradeB <= 2;
+  const mostlyChop = i.surfaced.length >= 4 && choppy / i.surfaced.length >= 0.6;
 
-  if (i.surfaced.length >= 4 && clearRunway === 0) {
+  if (mostlyChop) {
+    posture = `${choppy} of ${i.surfaced.length} surfaced names are churning inside their own 14-day range — the board is full of movement that is not going anywhere, and breakout triggers on these will fire and reverse.`;
+  } else if (i.surfaced.length >= 4 && clearRunway === 0) {
     posture = 'Nothing on the board has two stop-widths of clear air above its trigger. Whatever the grades say, there is no room to be paid — wait for a level to break or for price to come back to an anchor.';
   } else if (i.breadthSignal === 'RED' && thinYield) {
     posture = 'Weak breadth with almost nothing scoring well is the combination that argues for sitting out — breakouts carry a scoring penalty in this regime and the reversal candidates have not confirmed.';
@@ -1259,6 +1295,27 @@ async function runScan(request: Request) {
         if (ratioCount > 0) adrPct = ((ratioSum / ratioCount) - 1) * 100;
       }
 
+      /* --- CHOP (v6.18) ---------------------------------------------------
+         BAR ORDER IS THE ONE THING TO GET RIGHT HERE. dailyBars is sorted
+         DESCENDING (newest first) for every other consumer in this function;
+         the chop lib expects ASCENDING, oldest first. Passing the descending
+         array would return a plausible-looking number computed from the wrong
+         end of the series, which is worse than an error because nothing would
+         look broken.
+
+         Slicing before reversing keeps this cheap: only the 15 bars the
+         calculation needs get touched, not all 350. `.slice()` returns a new
+         array, so the `.reverse()` cannot mutate dailyBars out from under the
+         EMA and RME loops that run after this. */
+      let chop14: number | null = null;
+      if (dailyBars.length >= CHOP_PERIOD_DEFAULT + 1) {
+        const chopBars = dailyBars
+          .slice(0, CHOP_PERIOD_DEFAULT + 1)
+          .reverse()
+          .map((b: any) => ({ h: b.h, l: b.l, c: b.c }));
+        chop14 = choppiness(chopBars, CHOP_PERIOD_DEFAULT);
+      }
+
       const rmv = computeRMV(dailyBars, { order: 'desc', lookback: 15 });
       const rmeDetail = computeRMEDetail(dailyBars, { order: 'desc', maLength: 21, lookback: 250 });
       const mf = computeMoneyFlow(dailyBars, { order: 'desc', length: 21 });
@@ -1453,6 +1510,7 @@ async function runScan(request: Request) {
         pctOffLow: pctOffLow != null ? parseFloat(pctOffLow.toFixed(1)) : null,
         atrPct: atrPct != null ? parseFloat(atrPct.toFixed(2)) : null,
         adrPct: adrPct != null ? parseFloat(adrPct.toFixed(2)) : null,
+        chop14: chop14 != null ? parseFloat(chop14.toFixed(1)) : null,
         rmv, mf, mfTrend,
         rme: rmeDetail.rme,
         rmeExtPct: rmeDetail.extPct,
@@ -1546,6 +1604,11 @@ async function runScan(request: Request) {
       t.extended = (t.moveVsAtr != null && t.moveVsAtr >= 3.5) ||
         (t.distToEma21 != null && t.atrPct != null && t.atrPct > 0 && t.distToEma21 > EXT_HARD_ATRS * t.atrPct);
 
+      // v6.18: chop trap flag. Emitted for the UI and the coverage counts;
+      // it gates nothing yet.
+      t.chopTrap = t.chop14 != null && t.adrPct != null &&
+        t.adrPct >= CHOP_TRAP_MIN_ADR && t.chop14 >= CHOP_CHOP_MIN;
+
       t.status = (t.stochK != null && t.stochK <= 25 && t.distToEma21 != null && Math.abs(t.distToEma21) <= 2.5)
         ? 'Ready' : 'Forming';
       if (t.tradeType === 'Day Trade' && t.vwapStatus === 'below') t.status = 'Forming';
@@ -1621,6 +1684,10 @@ async function runScan(request: Request) {
       } catch (e) { console.error('streak persist failed', e); }
     }
 
+    /* v6.18 NOTE: chop is NOT in either filter chain below. The ADR floor is
+       the only volatility gate for now. Adding `r.chop14 <= CHOP_CHOP_MIN`
+       here is the v6.19 change, once catalystCoverage.chopTrap has been
+       watched long enough to know what it costs. */
     const finalSip = sipCandidates
       .map((t: any) => enrichedMap.get(t.ticker))
       .filter((r: any) =>
@@ -1778,6 +1845,27 @@ async function runScan(request: Request) {
         runwayMid: enrichedList.filter((t: any) => rBucket(t, 1.0, 2.0)).length,
         runwayNear: enrichedList.filter((t: any) => rBucket(t, 0.5, 1.0)).length,
         runwayTight: enrichedList.filter((t: any) => rBucket(t, 0, 0.5)).length,
+
+        /* v6.18 CHOP DISTRIBUTION. This block is the whole reason chop ships
+           unwired: it answers, on live data and immediately, what a gate at
+           61.8 would actually cost.
+
+           chopTrap IS THE NUMBER TO WATCH. It counts names that cleared the
+           ADR floor at 5%+ AND are churning — wide range, no direction. Those
+           are the rows the current gate cannot see and the ones a chop gate
+           would remove. If that count is consistently 0-1, the trap is rare
+           and a gate is not worth the false negatives. If it is 5+ every
+           session, the ADR floor has been quietly admitting chop machines
+           the whole time and v6.19 should gate on it.
+
+           chopScored guards the read: a low chopChoppy count means nothing if
+           half the universe returned null for want of 15 bars. */
+        chopScored: enrichedList.filter((t: any) => t.chop14 != null).length,
+        chopTrending: enrichedList.filter((t: any) => t.chop14 != null && t.chop14 <= CHOP_TREND_MAX).length,
+        chopMixed: enrichedList.filter((t: any) => t.chop14 != null && t.chop14 > CHOP_TREND_MAX && t.chop14 < CHOP_CHOP_MIN).length,
+        chopChoppy: enrichedList.filter((t: any) => t.chop14 != null && t.chop14 >= CHOP_CHOP_MIN).length,
+        chopTrap: enrichedList.filter((t: any) => t.chopTrap === true).length,
+        chopTrapSurfaced: [...finalSip, ...finalDaily].filter((t: any) => t?.chopTrap === true).length,
       },
       fromCache: false
     }, { headers: noStoreHeaders });
