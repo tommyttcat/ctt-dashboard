@@ -1,34 +1,33 @@
 'use client';
 
-// Scorecard — v1.6  (component: MacroScorecard)
+// Scorecard — v1.7  (component: MacroScorecard)
 // v1.1: SOL removed; T2108 added as the twelfth card.
-// v1.2: Tone narrative condensed from five prose sentences to four dense
-//       lines; measurement separated from verdict so the internals line and
-//       the regime line can no longer contradict each other.
+// v1.2: Tone narrative condensed to four lines; measurement separated from
+//       verdict so the internals line and the regime line can no longer
+//       contradict each other.
 // v1.3: CHOP regime strip added below ATHI/ATLO.
 // v1.4: Arrow band 0.5 -> 0.15 (a 14-day CHOP moves in tenths per session);
 //       delta derived from raw rather than from two composites that
 //       cancelled their own modifiers.
-// v1.5: CHOP right cluster cut to the composite badge and the zone label.
-//       Five elements there made the strip unscannable, which is the only
-//       job a strip has. The benchmark legs survive as 1px ticks on the
-//       track and in full in the tooltip.
-// v1.6: +4%/-4% dropped from Internals, and all three strips normalised to
-//       a shared width skeleton.
+// v1.5: CHOP right cluster cut to the score and the zone label.
+// v1.6: +4%/-4% dropped from Internals; all three strips normalised to a
+//       shared width skeleton so the bars come out the same length.
+// v1.7: CHOP cluster reordered and the cluster slots given real widths.
 //
-//       THE BARS WERE DIFFERENT LENGTHS FOR A STRUCTURAL REASON, not a
-//       styling one. Each bar is flex-1, so it absorbs whatever width the
-//       fixed elements around it leave behind — and the three strips carried
-//       different numbers of right-cluster items (four, two, five). The bar
-//       length was therefore encoding "how much other stuff is on this row",
-//       which is not information about the market. Three bars at three
-//       lengths also breaks the visual claim that they are the same kind of
-//       object read the same way.
+//       v1.6 aligned the BARS but left the right clusters ragged, because
+//       justify-end only guarantees a shared RIGHT edge — the items inside
+//       still sized to their own content, so "A/D: 0.66" and "MIXED" started
+//       at different x positions and the trailing badges did too.
 //
-//       Every slot is now a fixed width at sm and up: label, arrow, left
-//       value, right value, right cluster. The bar gets identical residual
-//       space on all three rows. Below sm the strips stack and the widths
-//       are dropped, since a column has no alignment to preserve.
+//       Two slots now, both fixed:
+//         note   the qualifier — A/D ratio, H/L ratio, or the CHOP zone word
+//         badge  the headline figure — advancing %, highs %, or CHOP score
+//
+//       CHOP's order flips to match: the zone word is a qualifier and belongs
+//       in the note slot, the score is the headline and belongs in the badge.
+//       Reading down the column now gives 0.66 / 0.71 / MIXED then 40% / 41%
+//       / 53, which is the same grammar three times rather than two of one
+//       kind and one of another.
 
 import React, { useEffect, useState, useRef } from 'react';
 
@@ -90,18 +89,25 @@ type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
 
 /* ---- Shared strip skeleton ----------------------------------------------
    The three internals strips are one component shape rendered three times,
-   so their slots have to measure the same or the bars cannot match. Widths
-   are sized to the longest realistic content in each slot:
+   so every slot has to measure the same or nothing lines up. Widths are
+   sized to the longest realistic content in each slot:
 
-     label    "ATHI / ATLO" at 9px tracking-widest
-     side     "DEC 1,149" — five digits plus a comma plus a three-char prefix
-     cluster  two badges plus a labelled ratio
+     label   "ATHI / ATLO" at 9px tracking-widest
+     arrow   a single glyph
+     side    "DEC 1,149" — four digits, a comma, a three-char prefix
+     note    "STRONG TREND" is the widest zone word; "A/D: 0.66" the widest
+             ratio. Right-aligned so the trailing badge starts at a fixed x.
+     badge   "STRONG TREND" would blow this out, which is why the zone word
+             is a note and the score is the badge — a badge holds 2-3
+             characters, a note holds a phrase.
 
    Applied from sm up only. Stacked on mobile there is nothing to align. */
 const STRIP_LABEL_W = 'sm:w-[88px] sm:shrink-0';
 const STRIP_ARROW_W = 'sm:w-[12px] sm:shrink-0';
 const STRIP_SIDE_W = 'sm:w-[92px] sm:shrink-0';
-const STRIP_CLUSTER_W = 'sm:w-[172px] sm:shrink-0 sm:justify-end';
+const STRIP_NOTE_W = 'sm:w-[104px] sm:shrink-0 sm:justify-end sm:text-right';
+const STRIP_BADGE_W = 'sm:min-w-[46px] text-center';
+const STRIP_CLUSTER_W = 'sm:shrink-0 sm:justify-end';
 
 // --- HELPERS ---
 const getMarketSession = (): MarketSession => {
@@ -959,13 +965,13 @@ export default function MacroScorecard() {
               </div>
 
               <div className={`flex items-center gap-4 ${STRIP_CLUSTER_W}`}>
-                <span className="flex items-center gap-1.5 whitespace-nowrap" title="A/D ratio">
+                <span className={`flex items-center gap-1.5 whitespace-nowrap ${STRIP_NOTE_W}`} title="A/D ratio">
                   <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">A/D:</span>
                   <span className={`text-[11px] font-bold tabular-nums ${breadth.decliners > 0 && breadth.advancers / breadth.decliners >= 1 ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {breadth.decliners > 0 ? (breadth.advancers / breadth.decliners).toFixed(2) : '—'}
                   </span>
                 </span>
-                <span className={`text-[10px] font-bold tabular-nums px-2 py-0.5 rounded border ${breadthPctBg(advPct)} ${breadthPctColor(advPct)}`}>
+                <span className={`text-[10px] font-bold tabular-nums px-2 py-0.5 rounded border ${STRIP_BADGE_W} ${breadthPctBg(advPct)} ${breadthPctColor(advPct)}`}>
                   {advPct.toFixed(0)}%
                 </span>
               </div>
@@ -1012,13 +1018,13 @@ export default function MacroScorecard() {
               </div>
 
               <div className={`flex items-center gap-4 ${STRIP_CLUSTER_W}`}>
-                <span className="flex items-center gap-1.5 whitespace-nowrap" title="New Highs / New Lows ratio">
+                <span className={`flex items-center gap-1.5 whitespace-nowrap ${STRIP_NOTE_W}`} title="New Highs / New Lows ratio">
                   <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">H/L:</span>
                   <span className={`text-[11px] font-bold tabular-nums ${(breadth.newHighs ?? 0) >= (breadth.newLows ?? 0) ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {(breadth.newLows ?? 0) > 0 ? ((breadth.newHighs ?? 0) / (breadth.newLows ?? 0)).toFixed(2) : (breadth.newHighs ?? 0) > 0 ? '∞' : '—'}
                   </span>
                 </span>
-                <span className={`text-[10px] font-bold tabular-nums px-2 py-0.5 rounded border ${breadthPctBg(highsPct)} ${breadthPctColor(highsPct)}`}>
+                <span className={`text-[10px] font-bold tabular-nums px-2 py-0.5 rounded border ${STRIP_BADGE_W} ${breadthPctBg(highsPct)} ${breadthPctColor(highsPct)}`}>
                   {highsPct.toFixed(0)}%
                 </span>
               </div>
@@ -1102,12 +1108,19 @@ export default function MacroScorecard() {
                 </span>
               </div>
 
+              {/* Zone word in the note slot, score in the badge — the same
+                  grammar as A/D 0.66 then 40%. The word is the qualifier and
+                  the number is the headline, which is also why the word could
+                  never be the badge: "STRONG TREND" in a 46px pill would blow
+                  the column open on the one day it matters most. */}
               <div className={`flex items-center gap-4 ${STRIP_CLUSTER_W}`}>
-                <span className={`text-[10px] font-bold tabular-nums px-2 py-0.5 rounded border ${chopBadgeBg(chopVal)} ${chopColor(chopVal)}`}>
-                  {chopVal.toFixed(0)}
+                <span className={`flex items-center whitespace-nowrap ${STRIP_NOTE_W}`}>
+                  <span className={`text-[9px] font-bold tracking-widest uppercase ${chopColor(chopVal)}`}>
+                    {chopZoneLabel(chopVal)}
+                  </span>
                 </span>
-                <span className={`text-[9px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border whitespace-nowrap ${chopBadgeBg(chopVal)} ${chopColor(chopVal)}`}>
-                  {chopZoneLabel(chopVal)}
+                <span className={`text-[10px] font-bold tabular-nums px-2 py-0.5 rounded border ${STRIP_BADGE_W} ${chopBadgeBg(chopVal)} ${chopColor(chopVal)}`}>
+                  {chopVal.toFixed(0)}
                 </span>
               </div>
             </div>
