@@ -1,6 +1,6 @@
 'use client';
 
-// SwingCandidates — v2.0
+// SwingCandidates — v2.1
 // v1.5: full parity with DailySetups v1.9 + DAY/SWING chip.
 // v1.6: build fix — scanConfig exports the swing meta as SWING_META.
 // v2.0: parity with SIPs v3.0 / Daily v2.0 — RTR column, trade plan on the
@@ -12,14 +12,32 @@
 //       values, dayHigh or priorSwingHigh. The wiring here is complete and
 //       correct; it is waiting on the route.
 //
-//       Deliberately NOT computing the plan client-side. It would be
-//       possible — ema21 is recoverable from price and distToEma21 — but the
-//       resistance scan needs the 50 EMA and the prior swing high, and this
-//       payload has neither. Every swing candidate is above its EMAs by
-//       construction, so a partial scan would find nothing overhead and
-//       report "2R clear" on every single row. A column that says the same
-//       encouraging thing about everything is worse than one that admits it
-//       has no data.
+// v2.1: filter consolidation, matching SIPs v3.1 / Daily v2.1 — with three
+//       deliberate divergences, because this scan is not those scans.
+//
+//       STAGE 2 and 10/21 collapse into POSTURE, same as the others. Stage 2
+//       means price above a rising long MA, and a name above its 21 EMA is
+//       Stage 2 nearly always — two controls, one dimension. Posture also
+//       tests extension FIRST, so a name past its anchor lands in a bucket
+//       you can see rather than passing both old filters cleanly.
+//
+//       BUT THE BUCKET DISTRIBUTION HERE IS THE INVERSE OF SIPs. That table
+//       gates on +4% today, so its rows have usually run past the 10 EMA and
+//       FIRST TOUCH is the rare bucket. This scan selects pullbacks in
+//       uptrends by construction, so FIRST TOUCH should be the COMMON case
+//       and EXTENDED should be nearly empty. If that inverts — if this table
+//       fills with EXTENDED — the pullback gate upstream has stopped working,
+//       and the filter has just told you something about the scan.
+//
+//       NO HOLD FILTER. Daily got one because tradeType genuinely varies
+//       there. Here tradeTypeLabel() defaults to 'swing' when the field is
+//       absent, so every row reads SWING and the control would be a no-op.
+//
+//       PLAN RENDERS ONLY WHEN A ROW CARRIES ONE. See the v2.0 note: the
+//       swing route does not emit `plan`. A filter that empties the table
+//       rather than narrowing it is worse than no filter, so the group is
+//       hidden until at least one row has a plan object — at which point it
+//       reappears on its own with no code change.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -48,7 +66,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Green up · red down.',
   },
   '10/21': {
-    what: 'Price vs the 10 and 21 EMAs — the Dr. Wish trend pair.',
+    what: 'Price vs the 10 and 21 EMAs — the Dr. Wish trend pair. This pair drives the POSTURE filter: above 21 and below 10 is a first touch, which on a pullback scan is the expected shape.',
     colour: 'Green dot above that EMA · red below · grey no data.',
   },
   VOL: { what: 'Shares traded today.' },
@@ -58,7 +76,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Amber 2x+ · green 1.5x+ · grey below.',
   },
   ADR: {
-    what: '20-day average daily range. The anti-chop gate — scan floor is 3%. Also the basis for the stop: 1.25× ADR or 2.5%, whichever is wider.',
+    what: '20-day average daily range. The anti-chop gate — scan floor is 3%. Also the basis for the stop: 1.25× ADR or 2.5%, whichever is wider, and for the extension test behind the EXTENDED posture.',
     colour: 'Purple 10%+ · green 5%+ · grey at the floor.',
   },
   MF: {
@@ -160,15 +178,18 @@ interface SwingCandidate {
 
 type SortDirection = 'asc' | 'desc';
 type CnfFilterType = 'All' | 'A' | 'B';
-type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
-type VwapFilterType = 'All' | 'above' | 'below';
+type VwapFilterType = 'All' | 'above';
 type AdrFilterType = 'All' | '5' | '10';
-type PlanFilterType = 'All' | '1R' | 'Clear';
+type PlanFilterType = 'All' | '1R' | '2R';
+type CapFilterType = 'All' | 'Small' | 'Large';
+type PostureFilterType = 'All' | 'first-touch' | 'stacked' | 'extended';
 
 const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
 const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
-const PLAN_BUCKETS: PlanFilterType[] = ['1R', 'Clear'];
+const PLAN_BUCKETS: PlanFilterType[] = ['1R', '2R'];
+const CAP_BUCKETS: CapFilterType[] = ['Small', 'Large'];
+const POSTURE_BUCKETS: PostureFilterType[] = ['first-touch', 'stacked', 'extended'];
 
 const CNF_LABELS: Record<string, string> = {
   rvol: 'Relative volume',
@@ -395,9 +416,9 @@ const planBadge = (c: SwingCandidate): string => {
   return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
 };
 
-// Holding period lives here now that the DAY/SWING chip is gone. It belongs
-// with the levels: the same trigger means a different position depending on
-// whether you intend to be out by the close.
+// Holding period leads the tooltip. There is no HOLD filter on this table —
+// tradeTypeLabel defaults to 'swing', so every row would read SWING and the
+// control would narrow nothing.
 const planTooltip = (c: SwingCandidate): string => {
   const p = planOf(c);
   const tt = tradeTypeLabel(c.tradeType);
@@ -470,6 +491,72 @@ const cnfTooltip = (c: SwingCandidate): string => {
 const above21 = (c: SwingCandidate) => c.aboveEma21 ?? c.distToEma21 >= 0;
 const above10 = (c: SwingCandidate) => c.aboveEma10 ?? (c.distToEma10 != null ? c.distToEma10 >= 0 : null);
 
+/* ---- POSTURE ------------------------------------------------------------
+   One structural read, replacing the old STAGE 2 and 10/21 controls.
+
+   THE ORDER OF THESE CHECKS IS THE POINT. Extension is tested FIRST, because
+   a name can be above both EMAs, pass "Stage 2", pass ">21", and still be
+   several ATRs past its anchor with nowhere to put a stop. Under the old
+   pair that row sailed through both filters.
+
+   EXTENSION FALLS BACK TO atrPct HERE, not to a flat percentage. atrPct is a
+   required field on this interface while adrPct is optional, so this scan can
+   always size the ceiling to the name's own volatility — a 3%-ATR utility and
+   a 14%-ATR biotech should not share one extension threshold.
+
+   ABOVE-10 CAN BE UNKNOWN. distToEma10 and aboveEma10 are both optional, and
+   when neither is present there is no way to tell a first touch from a
+   stacked name. That returns null rather than guessing — the row falls out of
+   every posture filter and shows no posture on hover, which is the honest
+   outcome. Guessing 'stacked' would silently mislabel exactly the setup this
+   scan exists to find. */
+type PostureBucket = 'first-touch' | 'stacked' | 'extended' | 'below-21';
+
+const EXTENSION_ATR_MULTIPLE = 3;
+const EXTENSION_FALLBACK_PCT = 12;
+
+const postureOf = (c: SwingCandidate): PostureBucket | null => {
+  const a21 = above21(c);
+
+  // The scanner's own verdict wins if it has one, since that is what the RTR
+  // column is already showing.
+  const p = planOf(c);
+  if (p?.overextended === true) return 'extended';
+
+  const d21 = c.distToEma21;
+  const adr = adrOf(c);
+  if (a21 === true && d21 != null && !isNaN(d21)) {
+    const basis = adr != null && adr > 0 ? adr : (c.atrPct > 0 ? c.atrPct : null);
+    const ceiling = basis != null ? EXTENSION_ATR_MULTIPLE * basis : EXTENSION_FALLBACK_PCT;
+    if (d21 > ceiling) return 'extended';
+  }
+
+  if (a21 === false) return 'below-21';
+
+  const a10 = above10(c);
+  if (a10 == null) return null;
+  // Holding the 21 but back under the 10 — the Dr. Wish first touch, and on
+  // a pullback scan the expected shape rather than the exception.
+  if (a10 === false) return 'first-touch';
+  return 'stacked';
+};
+
+const POSTURE_META: Record<PostureFilterType, { label: string; title: string }> = {
+  'All': { label: 'ALL', title: '' },
+  'first-touch': {
+    label: 'FIRST TOUCH',
+    title: 'Holding the 21 EMA but pulled back under the 10 — the Dr. Wish first touch, where the stop is defined and close. On this scan it should be the common case.',
+  },
+  'stacked': {
+    label: 'STACKED',
+    title: 'Above both the 10 and the 21, and not extended past the anchor. The pullback has already been bought back.',
+  },
+  'extended': {
+    label: 'EXTENDED',
+    title: 'More than three ATRs above the 21 EMA — no room to place a stop. This should be near-empty on a pullback scan; if it fills, the upstream pullback gate has stopped working.',
+  },
+};
+
 // Ready = stoch deep and pullback tight — the blue dot could fire imminently.
 const isReady = (c: SwingCandidate) => c.stochK <= 25 && Math.abs(c.distToEma21) <= 2.5;
 
@@ -484,10 +571,9 @@ export default function SwingCandidates() {
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [showReadyOnly, setShowReadyOnly] = useState<boolean>(false);
-  const [showStage2Only, setShowStage2Only] = useState<boolean>(false);
-  const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
+  const [postureFilter, setPostureFilter] = useState<PostureFilterType>('All');
+  const [marketCapFilter, setMarketCapFilter] = useState<CapFilterType>('All');
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
-  const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [adrFilter, setAdrFilter] = useState<AdrFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [planFilter, setPlanFilter] = useState<PlanFilterType>('All');
@@ -526,16 +612,35 @@ export default function SwingCandidates() {
     setSortConfig({ key, direction });
   };
 
-  const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
+  // Every group is a toggle: pressing the active option clears it. That is
+  // what removed the need for a MKT CAP "All" button — nothing selected
+  // already means all, and a second click gets you there.
   const handleAdrFilter = (val: AdrFilterType) => setAdrFilter(prev => prev === val ? 'All' : val);
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
   const handlePlanFilter = (val: PlanFilterType) => setPlanFilter(prev => prev === val ? 'All' : val);
+  const handleCapFilter = (val: CapFilterType) => setMarketCapFilter(prev => prev === val ? 'All' : val);
+  const handlePostureFilter = (val: PostureFilterType) => setPostureFilter(prev => prev === val ? 'All' : val);
+
+  /* Does ANY row carry a plan object? Drives whether the PLAN group renders
+     at all. The swing route does not emit one yet, and a filter that empties
+     the table rather than narrowing it is worse than no filter. When the
+     route catches up this flips to true on its own. */
+  const anyPlan = useMemo(() => candidates.some(c => planOf(c) != null), [candidates]);
+
+  // A hidden group must not keep filtering. Without this, selecting 1R+ and
+  // then losing plan data on the next poll would leave an invisible filter
+  // holding the table empty with no control to clear it.
+  useEffect(() => {
+    if (!anyPlan && planFilter !== 'All') setPlanFilter('All');
+  }, [anyPlan, planFilter]);
 
   const filteredAndSorted = useMemo(() => {
     let filtered = [...candidates];
     if (showReadyOnly) filtered = filtered.filter(isReady);
-    if (showStage2Only) filtered = filtered.filter(c => stageShort(c.stage).startsWith('2'));
+    if (postureFilter !== 'All') {
+      filtered = filtered.filter(c => postureOf(c) === postureFilter);
+    }
     if (marketCapFilter !== 'All') {
       filtered = filtered.filter(c => {
         const mc = c.mktCap;
@@ -549,16 +654,6 @@ export default function SwingCandidates() {
       const minScore = CNF_MIN_SCORE[cnfFilter];
       filtered = filtered.filter(c => (c.score ?? -1) >= minScore);
     }
-    if (emaFilter !== 'All') {
-      filtered = filtered.filter(c => {
-        const a10 = above10(c);
-        const a21 = above21(c);
-        if (emaFilter === '>10') return a10 === true;
-        if (emaFilter === '>21') return a21 === true;
-        if (emaFilter === 'Both') return a10 === true && a21 === true;
-        return true;
-      });
-    }
     if (adrFilter !== 'All') {
       const minAdr = Number(adrFilter);
       filtered = filtered.filter(c => {
@@ -569,15 +664,20 @@ export default function SwingCandidates() {
     if (vwapFilter !== 'All') {
       filtered = filtered.filter(c => c.vwapStatus === vwapFilter);
     }
-    // Plan filter drops anything without a usable entry. Until the swing
-    // route emits a plan this will empty the table, which is why it is not
-    // on by default.
+    /* Plan filter drops anything without a usable entry, then applies a
+       threshold in stop-widths.
+
+       `clear` rows carry no resistanceR at all — there is nothing overhead to
+       measure — so they satisfy BOTH levels rather than falling out of the
+       stricter one. That is the correction v2.1 makes: the old pair had
+       "Clear" as a subset of "1R+" and called them two options. */
     if (planFilter !== 'All') {
+      const minR = planFilter === '2R' ? 2.0 : 1.0;
       filtered = filtered.filter(c => {
         const p = planOf(c);
         if (!p || p.tradeable !== true || p.collapsed || p.overextended) return false;
-        if (planFilter === 'Clear') return p.clear === true;
-        return p.clear === true || (p.resistanceR != null && p.resistanceR >= 1.0);
+        if (p.clear === true) return true;
+        return p.resistanceR != null && p.resistanceR >= minR;
       });
     }
     if (!sortConfig) return filtered;
@@ -590,7 +690,7 @@ export default function SwingCandidates() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, showReadyOnly, showStage2Only, marketCapFilter, cnfFilter, emaFilter, adrFilter, vwapFilter, planFilter]);
+  }, [candidates, sortConfig, showReadyOnly, postureFilter, marketCapFilter, cnfFilter, adrFilter, vwapFilter, planFilter]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -680,11 +780,10 @@ export default function SwingCandidates() {
   const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
 
   const activeFilterCount =
-    (showStage2Only ? 1 : 0) +
     (showReadyOnly ? 1 : 0) +
+    (postureFilter !== 'All' ? 1 : 0) +
     (marketCapFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
-    (emaFilter !== 'All' ? 1 : 0) +
     (adrFilter !== 'All' ? 1 : 0) +
     (vwapFilter !== 'All' ? 1 : 0) +
     (planFilter !== 'All' ? 1 : 0);
@@ -747,46 +846,73 @@ export default function SwingCandidates() {
             </div>
             {showFilters && (
               <div className="flex flex-wrap justify-center items-center gap-3 w-full">
+                {/* POSTURE leads because it is the only group that answers
+                    "is this at an entry" rather than "is this big enough /
+                    liquid enough / scored well enough". */}
                 <div className={pillWrap}>
-                  <span className={pillLabel}>STAGE</span>
+                  <span className={pillLabel}>POSTURE</span>
                   <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setShowStage2Only(!showStage2Only)}
-                      title="Stage 2 only — includes 2A, 2B and 2C"
-                      className={`${pillBtn} ${showStage2Only ? filterBtnActive : filterBtnIdle}`}
-                    >
-                      2
-                    </button>
-                  </div>
-                </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>STAT</span>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => setShowReadyOnly(!showReadyOnly)} className={`${pillBtn} ${showReadyOnly ? filterBtnActive : filterBtnIdle}`}>Ready</button>
-                  </div>
-                </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>PLAN</span>
-                  <div className="flex items-center gap-1">
-                    {PLAN_BUCKETS.map((opt) => (
+                    {POSTURE_BUCKETS.map((opt) => (
                       <button
                         key={opt}
-                        onClick={() => handlePlanFilter(opt)}
-                        title={opt === 'Clear'
-                          ? 'Only names with a definable trigger and 2R of clear air above it'
-                          : 'Only names with at least one stop-width to the nearest overhead level'}
-                        className={`${pillBtn} ${planFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                        onClick={() => handlePostureFilter(opt)}
+                        title={POSTURE_META[opt].title}
+                        className={`${pillBtn} ${postureFilter === opt ? filterBtnActive : filterBtnIdle}`}
                       >
-                        {opt === '1R' ? '1R+' : 'Clear'}
+                        {POSTURE_META[opt].label}
                       </button>
                     ))}
                   </div>
                 </div>
+                {/* STAT is orthogonal to everything else here: POSTURE asks
+                    where price sits, STAT asks whether the stochastic reset
+                    is close enough to fire. A first touch that is not yet
+                    Ready is a watch item, not an entry. */}
                 <div className={pillWrap}>
-                  <span className={pillLabel}>MKT CAP</span>
+                  <span className={pillLabel}>STAT</span>
                   <div className="flex items-center gap-1">
-                    {['All', 'Small', 'Large'].map((cap) => (
-                      <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>{cap}</button>
+                    <button
+                      onClick={() => setShowReadyOnly(!showReadyOnly)}
+                      title="Stochastic at or below 25 with price within 2.5% of the 21 EMA — the blue dot could fire on the next bar"
+                      className={`${pillBtn} ${showReadyOnly ? filterBtnActive : filterBtnIdle}`}
+                    >
+                      Ready
+                    </button>
+                  </div>
+                </div>
+                {/* PLAN only renders once a row actually carries one — see
+                    the note by `anyPlan`. */}
+                {anyPlan && (
+                  <div className={pillWrap}>
+                    <span className={pillLabel}>PLAN</span>
+                    <div className="flex items-center gap-1">
+                      {PLAN_BUCKETS.map((opt) => (
+                        <button
+                          key={opt}
+                          onClick={() => handlePlanFilter(opt)}
+                          title={opt === '2R'
+                            ? 'At least two stop-widths to the nearest overhead level, or clear air above the trigger'
+                            : 'At least one stop-width to the nearest overhead level'}
+                          className={`${pillBtn} ${planFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                        >
+                          {opt === '1R' ? '1R+' : '2R+'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className={pillWrap}>
+                  <span className={pillLabel}>CNF</span>
+                  <div className="flex items-center gap-1">
+                    {CNF_BUCKETS.map((g) => (
+                      <button
+                        key={g}
+                        onClick={() => handleCnfFilter(g)}
+                        title={g === 'A' ? 'A only — CNF 70 and above' : 'B and above — includes A (CNF 50+)'}
+                        className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {g}
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -806,26 +932,16 @@ export default function SwingCandidates() {
                   </div>
                 </div>
                 <div className={pillWrap}>
-                  <span className={pillLabel}>CNF</span>
+                  <span className={pillLabel}>CAP</span>
                   <div className="flex items-center gap-1">
-                    {CNF_BUCKETS.map((g) => (
+                    {CAP_BUCKETS.map((cap) => (
                       <button
-                        key={g}
-                        onClick={() => handleCnfFilter(g)}
-                        title={g === 'A' ? 'A only — CNF 70 and above' : 'B and above — includes A (CNF 50+)'}
-                        className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}
+                        key={cap}
+                        onClick={() => handleCapFilter(cap)}
+                        title={cap === 'Large' ? 'Market cap $2B and above' : 'Market cap under $2B'}
+                        className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}
                       >
-                        {g}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>10/21</span>
-                  <div className="flex items-center gap-1">
-                    {(['>10', '>21', 'Both'] as EmaFilterType[]).map((opt) => (
-                      <button key={opt} onClick={() => handleEmaFilter(opt)} className={`${pillBtn} ${emaFilter === opt ? filterBtnActive : filterBtnIdle}`}>
-                        {opt}
+                        {cap}
                       </button>
                     ))}
                   </div>
@@ -833,11 +949,12 @@ export default function SwingCandidates() {
                 <div className={pillWrap}>
                   <span className={pillLabel}>VWAP</span>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
+                    <button
+                      onClick={() => handleVwapFilter('above')}
+                      title="Only names trading above VWAP. Below-VWAP names still show their red dot in the price cell."
+                      className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}
+                    >
                       <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
-                    </button>
-                    <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
-                      <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Below
                     </button>
                   </div>
                 </div>
@@ -889,6 +1006,7 @@ export default function SwingCandidates() {
                     const st = isReady(row) ? 'Ready' : 'Forming';
                     const dot = dotOf(row);
                     const plan = planOf(row);
+                    const posture = postureOf(row);
                     return (
                       <React.Fragment key={row.symbol}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -919,8 +1037,15 @@ export default function SwingCandidates() {
                             <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus && row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div>
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{row.changePct != null ? `${isPositive ? '+' : ''}${row.changePct.toFixed(2)}%` : '—'}</td>
+                          {/* The 10/21 dots ARE the posture read — above 21
+                              and below 10 is a first touch, both green is
+                              stacked. Hover states the bucket so the filter
+                              and the column can never be read apart. */}
                           <td className={`${tdBase} whitespace-nowrap`}>
-                            <div className="flex items-center justify-center gap-1">
+                            <div
+                              className="flex items-center justify-center gap-1"
+                              title={posture ? `Posture: ${POSTURE_META[posture as PostureFilterType]?.label ?? 'BELOW 21'}` : undefined}
+                            >
                               <div className="flex items-center gap-px">
                                 <span className="text-[8px] font-bold text-slate-500">10</span>
                                 <div className={`w-1.5 h-1.5 rounded-full ${emaDot(above10(row))}`} title={`10 EMA: ${above10(row) == null ? 'n/a' : above10(row) ? 'above' : 'below'}`}></div>
@@ -964,7 +1089,7 @@ export default function SwingCandidates() {
                             directly under the ticker. Order down the left edge:
                             symbol, then what it is. Then the three levels you
                             would actually place, then the headline, then
-                            RMV/RME. DAY/SWING moved into the plan tooltip. */}
+                            RMV/RME. DAY/SWING lives in the plan tooltip. */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td colSpan={15} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
