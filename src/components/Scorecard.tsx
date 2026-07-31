@@ -1,9 +1,20 @@
 'use client';
 
-// MacroScorecard — v1.1
+// MacroScorecard — v1.3
 // v1.1: SOL removed; T2108 added as the twelfth card (11 assets + T2108 keeps
 //       the 4-column grid square). T2108 also feeds the tone narrative — it's
 //       Bonde's primary regime gauge and it changes which setups to hunt.
+// v1.2: Tone narrative condensed from five prose sentences to four dense
+//       lines. The old s3 could contradict itself in a single breath —
+//       "the tape is weak ... stay selective" followed by "momentum is broad,
+//       not just index-level" — because the breadth read and the 4%-mover
+//       append were written independently and neither knew about the other.
+//       Now exactly ONE line issues an instruction (the verdict), and the
+//       internals line is pure measurement.
+// v1.3: CHOP regime strip added below ATHI/ATLO. Raw Choppiness Index comes
+//       from /api/chop (needs daily bars, which /api/macro does not carry);
+//       the breadth and high/low modifiers are applied HERE because this
+//       component already holds both in state.
 
 import React, { useEffect, useState, useRef } from 'react';
 
@@ -47,6 +58,17 @@ interface T2108Data {
   zone: string;
   above: number | null;
   total: number | null;
+  updatedAt: string | null;
+}
+
+interface ChopData {
+  qqq: number | null;
+  qqqPrev: number | null;
+  spy: number | null;
+  spyPrev: number | null;
+  blended: number | null;
+  blendedPrev: number | null;
+  period: number;
   updatedAt: string | null;
 }
 
@@ -109,6 +131,100 @@ const t2108ZoneLabel = (v: number | null, zone: string): string => {
   return 'FROTHY';
 };
 
+/* ---- CHOP composite ------------------------------------------------------
+   The route hands over raw Choppiness Index. The two modifiers below are
+   applied here, and they exist because raw CHOP on an index has one
+   specific failure mode that matters for this dashboard:
+
+   A ROTATION TAPE SCORES AS CHOP. When money rotates out of one group and
+   into another, the index travels a lot of distance and covers no ground —
+   which is exactly the signature CHOP is built to detect. But underneath,
+   leadership is clean and breakouts in the receiving group follow through
+   perfectly well. Raw CHOP would tell you to stand down on a day that pays.
+
+   The distinguishing evidence is dispersion. In real chop nothing is
+   winning: breadth sits pinned near the middle and new highs roughly equal
+   new lows. In rotation, breadth and the high/low line both skew, because
+   one side genuinely is winning — just not the side the index tracks.
+
+   So both modifiers push the SAME direction: centred internals raise the
+   score toward chop, skewed internals pull it back toward trend. Each is
+   capped at ±12, so together they can move the reading 24 points but never
+   flip a decisive raw print on their own — a raw 20 cannot become chop and
+   a raw 80 cannot become trend. They arbitrate the middle, which is the
+   only place the ambiguity lives. */
+const CHOP_MODIFIER_CAP = 12;
+
+const chopComposite = (raw: number | null, breadth: BreadthData | null): number | null => {
+  if (raw == null) return null;
+
+  let adj = 0;
+
+  // Breadth centrality — 3/6 is dead centre and maximally uninformative.
+  if (breadth && typeof breadth.score === 'number') {
+    const centrality = 1 - Math.abs(breadth.score - 3) / 3;
+    adj += (centrality - 0.5) * 2 * CHOP_MODIFIER_CAP;
+  }
+
+  // High/low balance — highs ≈ lows is the structural signature of churn.
+  const nh = breadth?.newHighs ?? 0;
+  const nl = breadth?.newLows ?? 0;
+  if (nh > 0 || nl > 0) {
+    const highsShare = (nh / (nh + nl)) * 100;
+    const balance = 1 - Math.abs(highsShare - 50) / 50;
+    adj += (balance - 0.5) * 2 * CHOP_MODIFIER_CAP;
+  }
+
+  return Math.max(0, Math.min(100, raw + adj));
+};
+
+// Fibonacci thresholds, the convention the indicator ships with. 61.8 and
+// above is consolidation; 38.2 and below is trend.
+const chopZoneLabel = (v: number | null): string => {
+  if (v == null) return 'NO DATA';
+  if (v >= 70) return 'DEAD CHOP';
+  if (v >= 61.8) return 'CHOPPY';
+  if (v > 38.2) return 'MIXED';
+  if (v > 30) return 'TRENDING';
+  return 'STRONG TREND';
+};
+
+const chopColor = (v: number | null): string => {
+  if (v == null) return 'text-slate-500';
+  if (v >= 70) return 'text-rose-400';
+  if (v >= 61.8) return 'text-amber-400';
+  if (v > 38.2) return 'text-slate-300';
+  if (v > 30) return 'text-emerald-400';
+  return 'text-teal-300';
+};
+
+const chopBadgeBg = (v: number | null): string => {
+  if (v == null) return 'bg-slate-500/10 border-white/10';
+  if (v >= 70) return 'bg-rose-500/10 border-rose-500/20';
+  if (v >= 61.8) return 'bg-amber-500/10 border-amber-500/20';
+  if (v > 38.2) return 'bg-slate-500/10 border-white/10';
+  return 'bg-emerald-500/10 border-emerald-500/20';
+};
+
+const chopStripStyle = (v: number | null): string => {
+  if (v == null) return 'border-white/5 bg-[#161c2a]/40';
+  if (v >= 61.8) return 'border-amber-500/20 bg-amber-500/[0.04]';
+  if (v <= 38.2) return 'border-emerald-500/20 bg-emerald-500/[0.04]';
+  return 'border-white/5 bg-[#161c2a]/40';
+};
+
+/* One line, shown under the strip. This is the only place the chop reading
+   gives an instruction — the strip itself is measurement, same split the
+   tone narrative uses. */
+const chopVerdict = (v: number | null): string => {
+  if (v == null) return '';
+  if (v >= 70) return 'Nothing is trending. Breakout triggers will fire and reverse — sit out or trade the range.';
+  if (v >= 61.8) return 'Consolidation regime. Expect failed breakouts; favour reversals at range edges.';
+  if (v > 38.2) return 'No clear regime edge. Setup quality has to carry the trade on its own.';
+  if (v > 30) return 'Trending tape. Breakouts have follow-through — triggers are worth taking.';
+  return 'Strong trend. This is the regime breakout entries are built for.';
+};
+
 // Builds a data-driven market-tone read straight from the live quotes and
 // breadth internals — no AI call, so it costs nothing and updates every
 // refresh with the actual numbers. Sentences are newline-separated so the
@@ -126,7 +242,7 @@ const buildToneNarrative = (
   const qqq = pct('QQQ');
   if (spy === null || qqq === null) return '';
 
-  const names: Record<string, string> = { SPY: 'the S&P', QQQ: 'the Nasdaq', DIA: 'the Dow', IWM: 'small caps' };
+  const names: Record<string, string> = { SPY: 'S&P', QQQ: 'Nasdaq', DIA: 'Dow', IWM: 'small caps' };
   const idx = (['SPY', 'QQQ', 'DIA', 'IWM'])
     .map((id) => ({ id, v: pct(id) }))
     .filter((e): e is { id: string; v: number } => e.v !== null);
@@ -134,168 +250,146 @@ const buildToneNarrative = (
   const up = idx.filter((e) => e.v > 0.05).length;
   const down = idx.filter((e) => e.v < -0.05).length;
 
-  // Session framing so a weekend/evening read is honest about what it describes.
   const lead =
-    session === 'Closed' ? 'At the close, ' :
-    session === 'Pre-Market' ? 'In pre-market trade, ' :
-    session === 'Post-Market' ? 'In after-hours trade, ' : '';
+    session === 'Closed' ? 'At the close: ' :
+    session === 'Pre-Market' ? 'Pre-market: ' :
+    session === 'Post-Market' ? 'After hours: ' : '';
 
-  // Sentence 1 — leadership / direction with the actual index prints.
+  // ---- 1. TAPE
   let s1 = '';
   if (down === 0 && up >= 2) {
-    s1 = `${lead}the major averages are broadly higher — S&P ${fmt(spy)}, Nasdaq ${fmt(qqq)} — with buyers in control across the board.`;
+    s1 = `${lead}Broadly higher — S&P ${fmt(spy)}, Nasdaq ${fmt(qqq)}.`;
   } else if (up === 0 && down >= 2) {
-    s1 = `${lead}the major averages are broadly lower — S&P ${fmt(spy)}, Nasdaq ${fmt(qqq)} — with sellers in control across the board.`;
+    s1 = `${lead}Broadly lower — S&P ${fmt(spy)}, Nasdaq ${fmt(qqq)}.`;
   } else if (idx.length >= 2) {
     const leader = idx.reduce((a, b) => (b.v > a.v ? b : a));
     const laggard = idx.reduce((a, b) => (b.v < a.v ? b : a));
-    s1 = `${lead}breadth is mixed — ${names[leader.id]} leads at ${fmt(leader.v)} while ${names[laggard.id]} lags at ${fmt(laggard.v)}, pointing to rotation rather than one clean direction.`;
+    s1 = `${lead}Mixed — ${names[leader.id]} ${fmt(leader.v)} leads, ${names[laggard.id]} ${fmt(laggard.v)} lags. Rotation, not direction.`;
   }
-  if (s1) s1 = s1.charAt(0).toUpperCase() + s1.slice(1);
 
-  // Sentence 2 — volatility, havens, risk appetite, with numbers attached.
+  // ---- 2. RISK
   const vix = pct('VIX');
   const tlt = pct('TLT');
   const gld = pct('GLD');
   const btc = pct('BTC');
-  const bits: string[] = [];
-  if (vix !== null) {
-    if (vix <= -2) bits.push(`the VIX is dropping sharply (${fmt(vix)}), a calming backdrop`);
-    else if (vix < 0) bits.push(`the VIX is easing (${fmt(vix)})`);
-    else if (vix >= 3) bits.push(`the VIX is spiking ${fmt(vix)}, flagging rising fear`);
-    else if (vix > 0) bits.push(`the VIX is ticking higher (${fmt(vix)})`);
-  }
-  if (tlt !== null && gld !== null && tlt > 0.1 && gld > 0.1) {
-    bits.push(`bonds (${fmt(tlt)}) and gold (${fmt(gld)}) are catching a defensive bid`);
-  }
-  if (btc !== null) {
-    if (btc <= -2) bits.push(`Bitcoin ${fmt(btc)} shows risk appetite pulling back`);
-    else if (btc >= 2) bits.push(`Bitcoin ${fmt(btc)} signals healthy risk appetite`);
-  }
+
+  const riskBits: string[] = [];
+  if (vix !== null) riskBits.push(`VIX ${fmt(vix)}`);
+  if (btc !== null) riskBits.push(`Bitcoin ${fmt(btc)}`);
+  if (tlt !== null && gld !== null && tlt > 0.1 && gld > 0.1) riskBits.push('bonds and gold bid');
 
   let s2 = '';
-  if (bits.length) {
-    const joined = bits.slice(0, 2).join(', and ');
-    s2 = joined.charAt(0).toUpperCase() + joined.slice(1) + '.';
+  if (riskBits.length) {
+    const tail =
+      vix !== null && vix >= 3 ? ' — fear rising' :
+      vix !== null && vix <= -2 ? ' — vol crushing' :
+      btc !== null && btc <= -2 ? ' — risk appetite fading' :
+      btc !== null && btc >= 2 ? ' — risk appetite firm' :
+      tlt !== null && gld !== null && tlt > 0.1 && gld > 0.1 ? ' — defensive bid' :
+      '';
+    s2 = riskBits.join(', ') + tail + '.';
   }
 
-  // Sentence 3 — market internals from the GMI-style breadth feed.
+  // ---- 3. INTERNALS — measurement only, no verdict
+  const nh = breadth?.newHighs ?? 0;
+  const nl = breadth?.newLows ?? 0;
+
   let s3 = '';
   if (breadth) {
-    const ratio = breadth.decliners > 0 ? breadth.advancers / breadth.decliners : null;
-    if (breadth.score >= 5) {
-      s3 = `Under the surface the tape is strong: breadth ${breadth.score}/6 with ${breadth.advancers.toLocaleString()} advancers vs ${breadth.decliners.toLocaleString()} decliners — participation confirms the move.`;
-    } else if (breadth.score <= 1) {
-      s3 = `Under the surface the tape is weak: breadth ${breadth.score}/6 with ${breadth.decliners.toLocaleString()} decliners vs ${breadth.advancers.toLocaleString()} advancers — stay selective until internals repair.`;
-    } else if (ratio !== null && ratio >= 1.5) {
-      s3 = `Internals lean positive — ${breadth.advancers.toLocaleString()} advancers vs ${breadth.decliners.toLocaleString()} decliners (breadth ${breadth.score}/6).`;
-    } else if (ratio !== null && ratio > 0 && ratio <= 0.67) {
-      s3 = `Internals lean negative — ${breadth.decliners.toLocaleString()} decliners vs ${breadth.advancers.toLocaleString()} advancers (breadth ${breadth.score}/6).`;
-    } else {
-      s3 = `Internals are split — ${breadth.advancers.toLocaleString()} advancers vs ${breadth.decliners.toLocaleString()} decliners (breadth ${breadth.score}/6).`;
+    const bits: string[] = [
+      `Breadth ${breadth.score}/6`,
+      `${breadth.advancers.toLocaleString()} adv vs ${breadth.decliners.toLocaleString()} dec`,
+    ];
+    if (breadth.up4 >= 25 || breadth.down4 >= 25) {
+      bits.push(`${breadth.up4} up 4%+, ${breadth.down4} down 4%+`);
     }
-    if (breadth.up4 >= 25) {
-      s3 += ` ${breadth.up4} names up 4%+ — momentum is broad, not just index-level.`;
-    } else if (breadth.down4 >= 25) {
-      s3 += ` ${breadth.down4} names down 4%+ — the selling runs deeper than the indexes show.`;
-    }
+    if (nh > 0 || nl > 0) bits.push(`${nh} highs vs ${nl} lows`);
+    s3 = bits.join(' · ') + '.';
   }
 
-  // Sentence 4 — regime, from T2108. This is the one that changes WHICH
-  // setups to hunt rather than just describing the day: sub-20 favours
-  // reversals, 80+ is where breakouts start failing.
+  // ---- 4. VERDICT — the only line that tells you what to do
+  const hlRatio = nl > 0 ? nh / nl : (nh > 0 ? Infinity : 0);
+  const hlCall =
+    (nh === 0 && nl === 0) ? 'No structural read — trade the setup, not the tape.' :
+    hlRatio >= 2.0 ? 'Structural strength — breakouts have participation behind them.' :
+    hlRatio >= 1.2 ? 'Leaning constructive, but not enough to chase extension.' :
+    hlRatio >= 0.8 ? 'Index-level move, not broad — stay selective.' :
+    hlRatio >= 0.5 ? 'More names breaking down than up — favour pullbacks over breakouts.' :
+    'Structurally weak underneath — tighten stops, hunt reversals.';
+
   let s4 = '';
   const t = t2108?.value ?? null;
   if (t != null) {
-    if (t <= 10) {
-      s4 = `T2108 ${t.toFixed(0)} — the market is washed out. Historically this is where mean reversion pays; hunt reversals, not breakouts.`;
-    } else if (t <= 20) {
-      s4 = `T2108 ${t.toFixed(0)} — deeply oversold. Reversal setups have the edge here; breakouts into this tape tend to fail.`;
-    } else if (t <= 35) {
-      s4 = `T2108 ${t.toFixed(0)} — oversold, with more names below their 40-day than above. Favour pullback entries over chasing strength.`;
-    } else if (t >= 85) {
-      s4 = `T2108 ${t.toFixed(0)} — frothy. Most names are extended above their 40-day; tighten stops and expect breakouts to fail more often.`;
-    } else if (t >= 70) {
-      s4 = `T2108 ${t.toFixed(0)} — extended. Participation is broad but late; the easy part of the move is likely behind us.`;
-    } else {
-      s4 = `T2108 ${t.toFixed(0)} — a neutral regime, with no strong mean-reversion edge either way.`;
-    }
+    const regime =
+      t <= 10 ? 'washed out' :
+      t <= 20 ? 'deeply oversold' :
+      t <= 35 ? 'oversold' :
+      t >= 85 ? 'frothy' :
+      t >= 70 ? 'extended' :
+      'neutral';
+    const action =
+      t <= 10 ? 'Mean reversion pays here — hunt reversals, not breakouts.' :
+      t <= 20 ? 'Reversals have the edge; breakouts into this tape fail.' :
+      t <= 35 ? 'Favour pullback entries over chasing strength.' :
+      t >= 85 ? 'Tighten stops — breakouts fail more often from here.' :
+      t >= 70 ? 'Broad but late; the easy part of the move is behind us.' :
+      hlCall;
+    s4 = `T2108 ${t.toFixed(0)} — ${regime}. ${action}`;
+  } else if (nh > 0 || nl > 0) {
+    s4 = hlCall;
   }
 
-  // Sentence 5 — ATHI/ATLO structural breadth: how many names are making
-  // new highs vs new lows. This tells you whether the tape's strength is
-  // broad (many names at highs) or narrow (index-level only).
-  let s5 = '';
-  const nh = breadth?.newHighs ?? 0;
-  const nl = breadth?.newLows ?? 0;
-  if (nh > 0 || nl > 0) {
-    const hlRatio = nl > 0 ? nh / nl : (nh > 0 ? Infinity : 0);
-    if (hlRatio >= 2.0) {
-      s5 = `New highs outnumber new lows ${nh} to ${nl} (${hlRatio === Infinity ? '∞' : hlRatio.toFixed(1)}:1) — structural strength, breakouts have broad participation behind them.`;
-    } else if (hlRatio >= 1.2) {
-      s5 = `New highs vs lows: ${nh} to ${nl} (${hlRatio.toFixed(1)}:1) — leaning constructive, but not dominant enough to chase extended names.`;
-    } else if (hlRatio >= 0.8) {
-      s5 = `New highs and lows are nearly even (${nh} vs ${nl}) — the rally is index-level more than broad-based. Stay selective.`;
-    } else if (hlRatio >= 0.5) {
-      s5 = `New lows outnumber highs ${nl} to ${nh} — more names are breaking down than up. Defensive tape, favour pullbacks over breakouts.`;
-    } else {
-      s5 = `New lows dominate: ${nl} vs just ${nh} highs — the tape is structurally weak underneath. Tighten stops, hunt reversals, not breakouts.`;
-    }
-  }
-
-  return [s1, s2, s3, s4, s5].filter(Boolean).join('\n');
+  return [s1, s2, s3, s4].filter(Boolean).join('\n');
 };
 
 /* ============================================================
    Tone narrative renderer — badges asset names, colors percents
-   (VIX-aware), breadth scores, and A/D counts. Values render
-   regular weight and one size smaller than the body text.
+   (VIX-aware), breadth scores, and the internals counts.
+
+   ORDER IN THE REGEX IS LOAD-BEARING. "VIX +1.05%" has to match as
+   one unit before the bare "VIX" and bare-percent alternatives get
+   a chance, because a VIX percent is colour-INVERTED — up is red.
+   Split into two tokens it would render green and say the opposite
+   of what it means.
    ============================================================ */
 
-// Compact gray badge for asset/index names
 const nameChipCls = "inline-block align-baseline text-[10px] font-bold text-slate-300 bg-slate-500/10 px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5";
-// Colored numeric values — slightly smaller than the 13px body
 const valNum = "text-[12px] tabular-nums";
 
 const renderToneText = (text: string): React.ReactNode[] => {
-  // Capture: VIX phrases w/ percent, asset names, signed percents,
-  // breadth n/6, "N advancers/decliners", "N names up/down 4%+", T2108 nn
-  const rx = /((?:the )?VIX is [a-z ]+?\(?[+-]\d+(?:\.\d+)?%\)?|T2108 \d+(?:\.\d+)?|S&P|Nasdaq|Dow|Bitcoin|VIX|[+-]\d+(?:\.\d+)?%|breadth \d\/6|[\d,]+ advancers|[\d,]+ decliners|\d+ names (?:up|down) 4%\+)/g;
+  const rx = /(VIX [+-]\d+(?:\.\d+)?%|T2108 \d+(?:\.\d+)?|S&P|Nasdaq|Dow|Bitcoin|VIX|[+-]\d+(?:\.\d+)?%|[Bb]readth \d\/6|[\d,]+ adv\b|[\d,]+ dec\b|\d+ (?:up|down) 4%\+|[\d,]+ highs|[\d,]+ lows)/g;
   const parts = text.split(rx);
 
   return parts.map((part, i) => {
     if (!part) return null;
 
-    // VIX phrase — badge the name, invert percent color (VIX up = red)
-    const vixMatch = part.match(/^(the )?VIX( is [a-z ]+?\(?)([+-]\d+(?:\.\d+)?%)(\)?)$/);
-    if (vixMatch) {
-      const v = parseFloat(vixMatch[3]);
+    let m = part.match(/^VIX ([+-]\d+(?:\.\d+)?%)$/);
+    if (m) {
+      const v = parseFloat(m[1]);
       const cls = v > 0 ? 'text-rose-400' : 'text-emerald-400';
       return (
         <span key={i}>
-          {vixMatch[1] || ''}<span className={nameChipCls}>VIX</span>{vixMatch[2]}<span className={`${valNum} ${cls}`}>{vixMatch[3]}</span>{vixMatch[4]}
+          <span className={nameChipCls}>VIX</span>
+          <span className={`${valNum} ${cls}`}>{m[1]}</span>
         </span>
       );
     }
 
-    // T2108 reading — badge the name, color the value by regime
-    const tm = part.match(/^T2108 (\d+(?:\.\d+)?)$/);
-    if (tm) {
-      const v = parseFloat(tm[1]);
+    m = part.match(/^T2108 (\d+(?:\.\d+)?)$/);
+    if (m) {
+      const v = parseFloat(m[1]);
       return (
         <span key={i}>
           <span className={nameChipCls}>T2108</span>
-          <span className={`${valNum} ${t2108Color(v)}`}>{tm[1]}</span>
+          <span className={`${valNum} ${t2108Color(v)}`}>{m[1]}</span>
         </span>
       );
     }
 
-    // Asset/index names — gray badge
     if (part === 'S&P' || part === 'Nasdaq' || part === 'Dow' || part === 'Bitcoin' || part === 'VIX') {
       return <span key={i} className={nameChipCls}>{part}</span>;
     }
 
-    // Signed percent — green/red
     if (/^[+]\d+(?:\.\d+)?%$/.test(part)) {
       return <span key={i} className={`${valNum} text-emerald-400`}>{part}</span>;
     }
@@ -303,30 +397,28 @@ const renderToneText = (text: string): React.ReactNode[] => {
       return <span key={i} className={`${valNum} text-rose-400`}>{part}</span>;
     }
 
-    // breadth n/6 — green >=5, red <=1, amber between
-    const bm = part.match(/^breadth (\d)\/6$/);
-    if (bm) {
-      const s = parseInt(bm[1], 10);
+    m = part.match(/^([Bb]readth) (\d)\/6$/);
+    if (m) {
+      const s = parseInt(m[2], 10);
       const cls = s >= 5 ? 'text-emerald-400' : s <= 1 ? 'text-rose-400' : 'text-amber-400';
-      return <span key={i}>breadth <span className={`${valNum} ${cls}`}>{bm[1]}/6</span></span>;
+      return <span key={i}>{m[1]} <span className={`${valNum} ${cls}`}>{m[2]}/6</span></span>;
     }
 
-    // advancer/decliner counts
-    const am = part.match(/^([\d,]+) advancers$/);
-    if (am) {
-      return <span key={i}><span className={`${valNum} text-emerald-400`}>{am[1]}</span> advancers</span>;
-    }
-    const dm = part.match(/^([\d,]+) decliners$/);
-    if (dm) {
-      return <span key={i}><span className={`${valNum} text-rose-400`}>{dm[1]}</span> decliners</span>;
+    m = part.match(/^([\d,]+) adv$/);
+    if (m) return <span key={i}><span className={`${valNum} text-emerald-400`}>{m[1]}</span> adv</span>;
+    m = part.match(/^([\d,]+) dec$/);
+    if (m) return <span key={i}><span className={`${valNum} text-rose-400`}>{m[1]}</span> dec</span>;
+
+    m = part.match(/^(\d+) (up|down) 4%\+$/);
+    if (m) {
+      const cls = m[2] === 'up' ? 'text-emerald-400' : 'text-rose-400';
+      return <span key={i}><span className={`${valNum} ${cls}`}>{m[1]}</span> {m[2]} <span className={`${valNum} ${cls}`}>4%+</span></span>;
     }
 
-    // "N names up/down 4%+"
-    const nm = part.match(/^(\d+) names (up|down) 4%\+$/);
-    if (nm) {
-      const cls = nm[2] === 'up' ? 'text-emerald-400' : 'text-rose-400';
-      return <span key={i}><span className={`${valNum} ${cls}`}>{nm[1]}</span> names {nm[2]} <span className={`${valNum} ${cls}`}>4%+</span></span>;
-    }
+    m = part.match(/^([\d,]+) highs$/);
+    if (m) return <span key={i}><span className={`${valNum} text-emerald-400`}>{m[1]}</span> highs</span>;
+    m = part.match(/^([\d,]+) lows$/);
+    if (m) return <span key={i}><span className={`${valNum} text-rose-400`}>{m[1]}</span> lows</span>;
 
     return <React.Fragment key={i}>{part}</React.Fragment>;
   });
@@ -342,6 +434,7 @@ export default function MacroScorecard() {
   const [marketTone, setMarketTone] = useState<'BULLISH' | 'NEUTRAL' | 'BEARISH'>('NEUTRAL');
   const [breadth, setBreadth] = useState<BreadthData | null>(null);
   const [t2108, setT2108] = useState<T2108Data | null>(null);
+  const [chop, setChop] = useState<ChopData | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
 
   // A/D trend: the feed only sends current counts, so direction is derived by
@@ -370,16 +463,13 @@ export default function MacroScorecard() {
     const volScore = Math.abs(vixPct) > 2 ? (vixPct * -0.6) : 0;
     const cryptoScore = (getPct('BTC') * 0.25);
 
-    // GMI-style market-internals breadth (0-6) as a co-driver: a strong/weak
-    // tape under the surface should pull tone even when the index print is muted.
-    // Maps 6 -> +1.5, 3 -> 0, 0 -> -1.5.
     const breadthAdj = breadth ? ((breadth.score - 3) / 3) * 1.5 : 0;
 
-    // T2108 is deliberately NOT folded into tone. It's a MEAN-REVERSION gauge,
-    // not a directional one — a washed-out 15 reading is bearish today and
-    // bullish for what comes next. Blending it into a single bull/bear score
-    // would destroy exactly the information it carries. It gets its own card
-    // and its own line in the narrative instead.
+    // Neither T2108 nor CHOP is folded into tone. T2108 is a MEAN-REVERSION
+    // gauge and CHOP is a REGIME gauge — neither is directional. A washed-out
+    // 15 is bearish today and bullish for what comes next; a CHOP of 75 says
+    // nothing about which way. Blending either into a single bull/bear score
+    // destroys exactly the information it carries. Both get their own strip.
     const totalScore = eqScore + volScore + cryptoScore + breadthAdj;
 
     if (totalScore >= 1.0) {
@@ -426,8 +516,6 @@ export default function MacroScorecard() {
   }, [breadth]);
 
   // --- ENGINE 2: SERVER-CACHED MACRO QUOTES ---
-  // Reads /api/macro (KV-cached, ~1 FMP hit/min for ALL clients) instead of
-  // calling FMP directly from every browser tab. Polls once a minute.
   useEffect(() => {
     let isMounted = true;
 
@@ -510,6 +598,41 @@ export default function MacroScorecard() {
 
     fetchT2108();
     const interval = setInterval(() => { if (isMounted) fetchT2108(); }, 300000);
+    return () => { isMounted = false; clearInterval(interval); };
+  }, []);
+
+  // --- ENGINE 2c: CHOP ---
+  // Daily-bar metric behind a 15-min server cache, so a 10-minute client poll
+  // is already faster than the data can change. Failure is silent: the strip
+  // simply doesn't render rather than showing a placeholder that looks like a
+  // reading of zero.
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchChop = async () => {
+      try {
+        const res = await fetch(`/api/chop?t=${Date.now()}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (isMounted && data && data.success) {
+          setChop({
+            qqq: data.qqq ?? null,
+            qqqPrev: data.qqqPrev ?? null,
+            spy: data.spy ?? null,
+            spyPrev: data.spyPrev ?? null,
+            blended: data.blended ?? null,
+            blendedPrev: data.blendedPrev ?? null,
+            period: data.period ?? 14,
+            updatedAt: data.updatedAt ?? null,
+          });
+        }
+      } catch {
+        // Silent — no strip is better than a fabricated one.
+      }
+    };
+
+    fetchChop();
+    const interval = setInterval(() => { if (isMounted) fetchChop(); }, 600000);
     return () => { isMounted = false; clearInterval(interval); };
   }, []);
 
@@ -606,6 +729,17 @@ export default function MacroScorecard() {
   const tVal = t2108?.value ?? null;
   const tStyle = t2108CardStyle(tVal);
 
+  // CHOP composite and its day-over-day direction. Both the current and the
+  // previous reading go through the SAME modifier function, so the arrow
+  // reflects a change in the composite rather than a change in raw CHOP that
+  // the modifiers might have cancelled out.
+  const chopVal = chopComposite(chop?.blended ?? null, breadth);
+  const chopPrevVal = chopComposite(chop?.blendedPrev ?? null, breadth);
+  const chopDelta = chopVal != null && chopPrevVal != null ? chopVal - chopPrevVal : null;
+  const chopTrend: 'up' | 'down' | 'flat' =
+    chopDelta == null ? 'flat' : chopDelta > 0.5 ? 'up' : chopDelta < -0.5 ? 'down' : 'flat';
+  const chopRaw = chop?.blended ?? null;
+
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-xl">
       
@@ -647,6 +781,13 @@ export default function MacroScorecard() {
               title={`Advancers ${breadth.advancers} / Decliners ${breadth.decliners} · +4%: ${breadth.up4} / -4%: ${breadth.down4}`}
             >
               BREADTH {breadth.score}/6
+            </div>
+          )}
+          {chopVal != null && (
+            <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${chopBadgeBg(chopVal)} ${chopColor(chopVal)}`}
+              title={`CHOP ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal)}. ${chopVerdict(chopVal)}`}
+            >
+              CHOP {chopVal.toFixed(0)}
             </div>
           )}
         </div>
@@ -712,7 +853,6 @@ export default function MacroScorecard() {
                 Internals
               </span>
 
-              {/* A/D direction since the last refresh */}
               <span
                 className={`text-sm font-bold leading-none shrink-0 ${
                   adTrend === 'up' ? 'text-emerald-400' : adTrend === 'down' ? 'text-rose-400' : 'text-slate-600'
@@ -811,6 +951,77 @@ export default function MacroScorecard() {
                 </span>
                 <span className={`text-[10px] font-bold tabular-nums px-2 py-0.5 rounded border ${breadthPctBg(highsPct)} ${breadthPctColor(highsPct)}`}>
                   {highsPct.toFixed(0)}%
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* CHOP — regime strip. Same geometry as the two above, but the bar
+              is a SPECTRUM WITH A MARKER rather than a proportional fill.
+              A/D and H/L are shares of a total, so a fill is an honest
+              picture of them. CHOP is a single reading on a 0-100 scale —
+              filling it left-to-right would imply a ratio that does not
+              exist. The marker sits at the score; the gradient behind it
+              shows which end of the scale the score is near. */}
+          {chopVal != null && (
+            <div
+              className={`flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border rounded-xl px-4 py-3 relative z-10 cursor-help ${chopStripStyle(chopVal)}`}
+              title={`CHOP ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal)}.\n\nRaw Choppiness Index (${chop?.period ?? 14}-day): QQQ ${chop?.qqq != null ? chop.qqq.toFixed(1) : '—'}, SPY ${chop?.spy != null ? chop.spy.toFixed(1) : '—'}, blended ${chopRaw != null ? chopRaw.toFixed(1) : '—'}.\nAdjusted ${chopVal - (chopRaw ?? 0) >= 0 ? '+' : ''}${chopRaw != null ? (chopVal - chopRaw).toFixed(1) : '0'} by breadth centrality and high/low balance.\n\nAbove 61.8 = consolidation, breakouts fail. Below 38.2 = trending, breakouts follow through.\n\n${chopVerdict(chopVal)}`}
+            >
+              <span className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
+                Chop
+              </span>
+
+              <span
+                className={`text-sm font-bold leading-none shrink-0 ${
+                  chopTrend === 'up' ? 'text-amber-400' : chopTrend === 'down' ? 'text-emerald-400' : 'text-slate-600'
+                }`}
+                title={
+                  chopTrend === 'up' ? `Choppiness rising vs yesterday${chopDelta != null ? ` (+${chopDelta.toFixed(1)})` : ''} — conditions deteriorating for breakouts`
+                  : chopTrend === 'down' ? `Choppiness falling vs yesterday${chopDelta != null ? ` (${chopDelta.toFixed(1)})` : ''} — trend conditions improving`
+                  : 'Choppiness unchanged vs yesterday'
+                }
+              >
+                {chopTrend === 'up' ? '▲' : chopTrend === 'down' ? '▼' : '–'}
+              </span>
+
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <span className="text-[11px] font-bold text-emerald-400 tabular-nums whitespace-nowrap">
+                  TREND
+                </span>
+                <div
+                  className="flex-1 h-1.5 rounded-full relative min-w-[60px] bg-gradient-to-r from-emerald-400/35 via-slate-400/25 to-amber-400/40"
+                  title={`Marker at ${chopVal.toFixed(0)} on a 0-100 scale`}
+                >
+                  {/* Fibonacci threshold ticks at 38.2 and 61.8 — the marker
+                      means nothing without the boundaries it sits between. */}
+                  <div className="absolute top-[-2px] h-[9px] w-px bg-white/15" style={{ left: '38.2%' }}></div>
+                  <div className="absolute top-[-2px] h-[9px] w-px bg-white/15" style={{ left: '61.8%' }}></div>
+                  <div
+                    className={`absolute top-[-4px] h-[13px] w-[3px] rounded-sm transition-all duration-500 ${
+                      chopVal >= 61.8 ? 'bg-amber-400' : chopVal <= 38.2 ? 'bg-emerald-400' : 'bg-slate-300'
+                    }`}
+                    style={{ left: `calc(${chopVal}% - 1.5px)` }}
+                  ></div>
+                </div>
+                <span className="text-[11px] font-bold text-amber-400 tabular-nums whitespace-nowrap">
+                  CHOP
+                </span>
+              </div>
+
+              <div className="flex items-center gap-4 shrink-0">
+                <span className="flex items-center gap-1.5 whitespace-nowrap" title={`Raw ${chop?.period ?? 14}-day Choppiness Index before breadth adjustment`}>
+                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">RAW:</span>
+                  <span className="text-[11px] font-bold text-slate-400 tabular-nums">
+                    {chopRaw != null ? chopRaw.toFixed(0) : '—'}
+                  </span>
+                </span>
+                <span className={`text-[10px] font-bold tabular-nums px-2 py-0.5 rounded border ${chopBadgeBg(chopVal)} ${chopColor(chopVal)}`}>
+                  {chopVal.toFixed(0)}
+                </span>
+                <span className={`text-[9px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border whitespace-nowrap ${chopBadgeBg(chopVal)} ${chopColor(chopVal)}`}>
+                  {chopZoneLabel(chopVal)}
                 </span>
               </div>
             </div>
