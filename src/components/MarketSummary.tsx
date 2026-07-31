@@ -234,13 +234,30 @@ const rvolOf = (s: any): number | null => {
 
 const stageOf = (s: any): string => (s?.stage ? String(s.stage).replace(/Stage\s*/i, '') : '');
 
+/* The blue dot glyph. On a ROW the marker is the setup name — "BD Rev" spent
+   five characters saying what one dot says, and a separate "BD" tag beside it
+   said it a second time. Prose keeps words, because a glyph as the subject of
+   a sentence reads as a typo. */
+const BLUE_DOT_GLYPH = '●';
+
 const setupOf = (s: any): string | null => {
   const n = s?.setupName;
   if (!n || n === '-' || n === '—') return null;
-  if (String(n).includes('BB SQZ')) return 'BB SQZ';
-  if (n === 'Blue Dot Rev') return 'BD Rev';
-  if (n === 'Episodic Pivot') return 'EP';
-  return String(n);
+  const str = String(n);
+  if (str.includes('BB SQZ')) return 'BB SQZ';
+  if (str === 'Blue Dot Rev') return 'Blue Dot Rev';
+  if (str === 'Episodic Pivot') return 'EP';
+  return str;
+};
+
+const setupRowLabel = (s: any): string | null => {
+  const n = s?.setupName;
+  if (!n || n === '-' || n === '—') return null;
+  const str = String(n);
+  if (/blue dot|bd rev/i.test(str)) return BLUE_DOT_GLYPH;
+  if (str.includes('BB SQZ')) return 'BB SQZ';
+  if (str === 'Episodic Pivot') return 'EP';
+  return str;
 };
 
 const hasRealCatalyst = (s: any): boolean =>
@@ -363,7 +380,7 @@ const POSTURE_META: Record<PostureBucket, { label: string; short: string; tone: 
   'stacked': { label: 'stacked', short: 'STACKED', tone: 'good', scoreAdj: 4 },
   'pre-cross': { label: 'pre-cross', short: 'PRE-CROSS', tone: 'warn', scoreAdj: 2 },
   'extended': { label: 'too extended', short: 'EXTENDED', tone: 'bad', scoreAdj: -10 },
-  'below-21': { label: 'below the 21', short: 'BELOW 21', tone: 'bad', scoreAdj: -12 },
+  'below-21': { label: 'below 21', short: 'BELOW 21', tone: 'bad', scoreAdj: -12 },
 };
 
 const posture = (s: any): PostureBucket | null => {
@@ -408,7 +425,7 @@ const fmtLeader = (s: any): string => {
   const bits: string[] = [];
   const rv = rvolOf(s);
   if (rv != null) bits.push(`RVOL ${rv.toFixed(2)}`);
-  const su = setupOf(s);
+  const su = setupRowLabel(s);
   if (su) bits.push(su);
   return `${s.ticker} ${chg}${bits.length ? ` · ${bits.join(' · ')}` : ''}`;
 };
@@ -713,6 +730,8 @@ const buildCatalystBrief = (s: any): string => {
   else if (rv != null && rv < 1) bits.push('headline pop without volume — fade risk');
   if (dot === 'red') bits.push('RED DOT active — reversal against a long');
   else if (dot === 'blue') bits.push('BLUE DOT');
+  // "Stage" is still emitted so the renderer has an unambiguous token to
+  // match on — it strips the word and prints only the coloured number.
   if (su) bits.push(`${su}${st ? ` in Stage ${st}` : ''}`);
   if (d21 != null) bits.push(`${d21 >= 0 ? '+' : ''}${d21.toFixed(1)}% vs the 21 EMA`);
   if (cnf) bits.push(`CNF ${cnf}`);
@@ -878,7 +897,7 @@ const build1021Para = (pool: any[]): string => {
     if (r.d10 != null) bits.push(`${pct(r.d10 as number)} vs 10`);
     const tags: string[] = [POSTURE_META[r.bucket as PostureBucket].label];
     if (r.dot === 'red') tags.push('RED DOT');
-    else if (r.dot === 'blue') tags.push('BD');
+    else if (r.dot === 'blue') tags.push(BLUE_DOT_GLYPH);
     return `${r.ticker} ${bits.join(' · ')} — ${tags.join(', ')}`;
   };
 
@@ -1118,18 +1137,24 @@ const buildLocalInsights = (
     sipsPara = 'SIPs Thesis: No volume-confirmed leaders yet.';
   }
 
+  /* Four fields, down from six. STAGE went because the row already ranks by
+     blendedScore, which reads posture — a stage code sitting between RVOL and
+     CNF was a number you had to interpret rather than one you could act on.
+     The separate BD tag went because the setup name now carries the dot
+     itself; a name whose setup is not a blue-dot reversal but which HAS a
+     blue dot still shows one, so nothing is lost by dropping the tag. */
   const fmtDaily = (s: any): string => {
     const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
     const bits: string[] = [];
     const rv = rvolOf(s);
     if (rv != null) bits.push(`RVOL ${rv.toFixed(2)}`);
-    const su = setupOf(s);
-    if (su) bits.push(su);
-    const st = stageOf(s);
-    if (st) bits.push(`Stage ${st}`);
+
+    const su = setupRowLabel(s);
     const dot = dotOf(s);
+    if (su) bits.push(su);
+    if (dot === 'blue' && su !== BLUE_DOT_GLYPH) bits.push(BLUE_DOT_GLYPH);
     if (dot === 'red') bits.push('RED DOT');
-    else if (dot === 'blue') bits.push('BD');
+
     bits.push(`CNF ${scoreOf(s)}`);
     return `${s.ticker} ${chg} · ${bits.join(' · ')}`;
   };
@@ -1293,14 +1318,21 @@ const rsColor = (rs: number) => (rs >= 20 ? 'text-purple-400' : rs >= 10 ? 'text
 // Only the watch cards print this now — the plan rows gate on it silently.
 const reachColor = (v: number) => (v <= 0.5 ? 'text-emerald-400' : v <= 1 ? 'text-slate-300' : 'text-amber-400');
 
-/* The R badge, using exactly the thresholds and palette the tables use, so
-   0.9R looks the same here as it does in the RTR column. Rendered as a pill
-   rather than coloured text because it is the field the eye jumps to. */
+/* Both badges use exactly the thresholds and palette the tables use, so a
+   score or an R reads the same here as it does in its column. Rendered as
+   pills rather than coloured text because these are the two fields the eye
+   jumps to first. */
 const rtrBadgeCls = (v: number): string => {
   if (v >= 2) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
   if (v >= 1) return 'bg-slate-500/10 text-slate-300 border-white/10';
   if (v >= 0.5) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
   return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+};
+
+const cnfBadgeCls = (v: number): string => {
+  if (v >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+  if (v >= 50) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+  return 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50';
 };
 
 const postureChipCls = (tone: 'good' | 'warn' | 'bad'): string => {
@@ -1310,12 +1342,19 @@ const postureChipCls = (tone: 'good' | 'warn' | 'bad'): string => {
 };
 
 const renderBriefingText = (text: string): React.ReactNode[] => {
-  const rx = /(▸|RED DOT|BLUE DOT|\[[^\]]+\]\([^)]+\)|\d{1,2}:\d{2} (?:AM|PM)|RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|(?:trig|stop|tgt) \d+(?:\.\d+)?|\d+(?:\.\d+)?x ADR|\d+(?:\.\d+)?R\+?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
+  const rx = /(▸|●|RED DOT|BLUE DOT|\[[^\]]+\]\([^)]+\)|\d{1,2}:\d{2} (?:AM|PM)|RVOL \d+(?:\.\d+)?|CNF \d+|Stage \d[ABC]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|(?:trig|stop|tgt) \d+(?:\.\d+)?|\d+(?:\.\d+)?x ADR|\d+(?:\.\d+)?R\+?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
   const parts = text.split(rx);
 
   return parts.map((part, i) => {
     if (!part) return null;
     if (part === '▸') return <span key={i} className="text-rose-400 font-bold">▸</span>;
+    if (part === BLUE_DOT_GLYPH) {
+      return (
+        <span key={i} title="Blue Dot — oversold stochastic reset on the daily" className="text-sky-400 text-[13px] align-baseline">
+          {BLUE_DOT_GLYPH}
+        </span>
+      );
+    }
     if (part === 'RED DOT') return <span key={i} className="text-rose-400 font-bold tracking-wide">RED DOT</span>;
     if (part === 'BLUE DOT') return <span key={i} className="text-cyan-400 font-bold tracking-wide">BLUE DOT</span>;
 
@@ -1332,8 +1371,23 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
       const v = parseFloat(m[1]);
       return <span key={i}>RVOL <span className={`${valNum} ${rvolColor(v)}`}>{m[1]}</span></span>;
     }
-    m = part.match(/^Stage (\d[AB]?)$/);
-    if (m) return <span key={i}>Stage <span className={`${valNum} ${stageColor(m[1])}`}>{m[1]}</span></span>;
+    m = part.match(/^CNF (\d+)$/);
+    if (m) {
+      const v = parseInt(m[1], 10);
+      return (
+        <span
+          key={i}
+          className={`inline-block align-baseline text-[10px] font-bold tabular-nums px-1.5 py-[1px] rounded border mx-0.5 ${cnfBadgeCls(v)}`}
+        >
+          {m[1]}
+        </span>
+      );
+    }
+    // The word "Stage" is emitted upstream purely so this match is
+    // unambiguous — a bare "2" cannot be distinguished from any other number
+    // in the stream. The word is stripped here; only the coloured code prints.
+    m = part.match(/^Stage (\d[ABC]?)$/);
+    if (m) return <span key={i} className={`${valNum} font-bold ${stageColor(m[1])}`}>{m[1]}</span>;
     m = part.match(/^stoch (\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
@@ -1393,7 +1447,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Trade Plan', color: 'teal', blurb: 'The only forward-looking equity section. Names with a defined entry that can realistically fire next session — trigger within one average daily range of price, and at least one stop-width of room before the first level overhead. The R badge is room-to-resistance in stop-widths, coloured as on the tables. Collapsed and over-extended names are excluded, not ranked last.' },
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves right now. Volume-confirmed names are tradeable; thin gaps are fade candidates.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, who has news, and who is grinding on air.' },
-  { label: 'Daily Setups Thesis', color: 'emerald', blurb: 'Structured setups from the daily scan. SWING holds for days; DAY is intraday momentum only.' },
+  { label: 'Daily Setups Thesis', color: 'emerald', blurb: 'Structured setups from the daily scan. SWING holds for days; DAY is intraday momentum only. A ● marks a blue-dot reversal.' },
   { label: '10/21 Thesis', color: 'violet', blurb: 'Top-ranked names split by holding period, each tagged with its 10/21 EMA posture. Leveraged and inverse ETFs excluded. A name tagged BELOW 21, EXTENDED, or RED DOT ranks on tape action — it is not at an entry.' },
   { label: 'EP9M Thesis', color: 'rose', blurb: 'Abnormal 9M+ share volume — institutional footprints. Unprecedented = beat their own 60-day record.' },
   { label: 'Industry Heat', color: 'amber', blurb: 'Sector rotation — where money is flowing in and where it is leaving. Wide dispersion = stock-picker tape.' },
@@ -1917,13 +1971,7 @@ export default function MarketSummary() {
                                 </span>
                               )}
                               {parsedScore !== undefined && (
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded border tracking-wide ${
-                                  parsedScore >= 70
-                                    ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                                    : parsedScore >= 50
-                                      ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400'
-                                      : 'bg-slate-500/10 border-white/10 text-slate-400'
-                                }`}>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded border tracking-wide ${cnfBadgeCls(parsedScore)}`}>
                                   {parsedScore}
                                 </span>
                               )}
