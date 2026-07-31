@@ -1,4 +1,4 @@
-// app/api/ep9m/run/route.ts — v1.5
+// app/api/ep9m/run/route.ts — v1.6
 //
 // EP9M — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee)
 //
@@ -17,30 +17,45 @@
 //       45 is 21 sessions of distribution, however good today's print looks.
 // v1.3: thresholds moved to lib/scanConfig and shipped in the payload.
 // v1.4: + Stochastic %K(10) emitted as stochK.
-// v1.5: + TRADE PLAN, matching scanner v6.15 and swing v1.8.
+// v1.5: + trade plan, raw EMA levels, dayHigh/dayLow, priorSwingHigh.
+// v1.6: + PER-TICKER CHOPPINESS INDEX (chop14).
 //
-//       This route already computed ema10 and ema21 and kept only the
-//       percentage distances. Fine for ranking, useless for planning: you
-//       cannot place a stop relative to "3.2% below the 21 EMA". The raw
-//       levels are retained now, ema50 is added as a resistance reference,
-//       and priorSwingHigh gives the planner something above the averages to
-//       measure against.
+//       CHOP MATTERS MORE ON THIS TABLE THAN ANY OTHER, and the reason is the
+//       same one that makes RTR matter here: this scan has NO TREND GATE and
+//       NO ADR FLOOR. Every other scan filters on structure somewhere — SIPs
+//       and Daily need +4% and an ADR floor, Swing needs price over the 50 and
+//       200, Consolidation needs a rising 21. This one gates on volume
+//       abnormality alone, so a name can print 12M shares while oscillating
+//       inside the same range it has held for a month, and it belongs here,
+//       because that volume is real information.
 //
-//       SETUP NAME IS DELIBERATELY LEFT NULL, which resolves to the generic
-//       family and triggers off the day high. That is the honest read here:
-//       an EP9M name has no pattern by construction — the scan gates on
-//       volume abnormality, not on shape — so there is no 10 EMA reclaim or
-//       range high to key off. The day high is the level that says the
-//       volume produced follow-through rather than just churn.
+//       What the volume does not say is whether the range will resolve. CHOP
+//       does:
 //
-//       WHAT THE PLAN WILL AND WILL NOT SHOW HERE. The `collapsed` flag can
-//       never fire on this table, because the negative-change gate below
-//       (see the NOTE ON THE CHANGE GATE) removes every down name before
-//       scoring. `trigger already passed` also cannot fire, since the day
-//       high is by definition at or above price. So the two live signals are
-//       `overextended` — the name already ran too far past its 21 EMA to
-//       place a sane stop — and the R figure itself, which measures how much
-//       room there is before the first average overhead.
+//           CHOP = 100 x log10( sum TR(n) / (maxHigh(n) - minLow(n)) ) / log10(n)
+//
+//       distance travelled over ground covered. Above 61.8 the name churns;
+//       below 38.2 it trends. An EP9M name at CHOP 75 has institutions moving
+//       size inside a range that keeps rejecting both edges — worth watching,
+//       not worth a breakout entry.
+//
+//       BAR ORDER: this route fetches with sort=asc, so bars are ALREADY
+//       oldest-first and pass to choppiness() directly. The scanner route
+//       sorts descending and has to reverse a slice first. Same gotcha,
+//       opposite direction, and silent either way — a wrongly ordered array
+//       returns a plausible number computed from the wrong end of the series.
+//       Every other helper here (atr, adrPct, stochasticK, pctReturn,
+//       priorSwingHighOf) already treats the tail as recent, which is the
+//       confirmation that ascending is correct.
+//
+//       NO NEW API CALL — `bars` is already fetched for ATR, ADR, EMA, RME,
+//       Money Flow and the stochastic.
+//
+//       NOT SCORED, DELIBERATELY. chop14 is emitted and reported in
+//       planCoverage but is not a scoreEp9m component and gates nothing.
+//       Folding it into the score would move every grade at once and make its
+//       effect impossible to isolate. Score it once the distribution has been
+//       watched — see the chop block in the response payload.
 //
 // ---------------------------------------------------------------------------
 // NOTE ON THE CHANGE GATE — a contradiction that predates this version.
@@ -59,7 +74,7 @@
 // real filter and the header should not have claimed otherwise.
 //
 // Left in place: changing scan semantics is a separate decision from adding
-// a trade plan, and reversing it would alter what appears on the table.
+// an indicator, and reversing it would alter what appears on the table.
 // Flagged here so the choice is visible rather than buried.
 // ---------------------------------------------------------------------------
 
@@ -70,6 +85,7 @@ import { computeRMEDetail } from '@/lib/indicators/rme';
 import { computeStage } from '@/lib/indicators/stage';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { computeTradePlan } from '@/lib/indicators/tradeplan';
+import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN, CHOP_TREND_MAX } from '@/lib/indicators/chop';
 import { EP9M, EP9M_META } from '@/lib/scanConfig';
 
 export const dynamic = 'force-dynamic';
@@ -95,6 +111,12 @@ const WINDOW = {
 // anywhere else: an EP9M name IS a fresh mover by definition.
 const SWING_HIGH_LOOKBACK = 63;
 const SWING_HIGH_EXCLUDE_RECENT = 5;
+
+// ADR level at which a name is "wide" for the chop-trap read below. There is
+// no ADR floor on this scan, so unlike the scanner route this is purely a
+// reporting threshold — it identifies names whose range is big enough that
+// the churn actually costs something.
+const CHOP_TRAP_MIN_ADR = 5;
 
 // ETFs that clear 9M shares on any ordinary day. Most would fail the RVOL gate
 // anyway, but leveraged products spike hard enough to sneak through, and they
@@ -192,6 +214,9 @@ interface Ep9mCandidate {
   dayLow: number | null;
   priorSwingHigh: number | null;
   plan: TradePlanOut | null;
+  // v1.6 — regime.
+  chop14: number | null;
+  chopTrap: boolean;
 }
 
 async function polygon<T = any>(path: string): Promise<T> {
@@ -616,6 +641,10 @@ async function fetchBenzingaWiims(
 // NOTE: this score says nothing about whether the name is enterable. That is
 // the trade plan's job, and the two are deliberately kept apart — a 90 here
 // means the volume event is exceptional, not that there is room to be paid.
+//
+// v1.6: chop14 is NOT a component here, for the same reason. It measures the
+// regime the volume landed in, which is a third question again — a 90 in a
+// chop regime is still an exceptional volume event, it just has nowhere to go.
 // ---------------------------------------------------------------
 function scoreEp9m(q: {
   rvol: number;
@@ -783,6 +812,18 @@ export async function GET() {
       const rmv = computeRMV(bars, { lookback: 15 });
       const rmeDetail = computeRMEDetail(bars, { maLength: 21, lookback: 250 });
 
+      /* --- CHOP (v1.6) ----------------------------------------------------
+         NO REVERSE NEEDED HERE. The aggs fetch above uses sort=asc, so bars
+         are already oldest-first — which is exactly what choppiness() wants,
+         and the opposite of the scanner route, where dailyBars is descending
+         and a slice has to be reversed before the call.
+
+         Passing bars straight in is correct; the Bar interface (t/o/h/l/c/v)
+         structurally satisfies ChopBar (h/l/c). Every other helper on this
+         route already treats bars[bars.length - 1] as today, which is the
+         standing confirmation that ascending holds. */
+      const chop14 = choppiness(bars, CHOP_PERIOD_DEFAULT);
+
       // Money Flow (21) — the sharpest cross-check this scan has. Heavy
       // abnormal volume with MF under 45 means the last month was steady
       // distribution, however good today's single-day print looks.
@@ -875,6 +916,7 @@ export async function GET() {
           mfTrend,
           stochK,
           rme: rmeDetail.rme,
+          chop14,
           aboveEma10: e10 != null ? price >= e10 : null,
           aboveEma21: e21 != null ? price >= e21 : null,
           distToEma10: e10 && e10 > 0 ? ((price - e10) / e10) * 100 : null,
@@ -934,6 +976,13 @@ export async function GET() {
       // and it is why plan.collapsed can never fire on this table.
       if ((snap.changePct ?? 0) < 0) return null;
 
+      // v1.6: wide range AND churning. Reported, not gated. On this table it
+      // reads as institutional size moving inside a range that keeps
+      // rejecting both edges — real activity, no resolution.
+      const chopTrap =
+        raw.chop14 != null && raw.adrPct != null &&
+        raw.adrPct >= CHOP_TRAP_MIN_ADR && raw.chop14 >= CHOP_CHOP_MIN;
+
       return {
         ticker: ab.sym,
         name: raw.name,
@@ -984,6 +1033,8 @@ export async function GET() {
         dayLow: round2(raw.dayLow),
         priorSwingHigh: round2(raw.priorSwingHigh),
         plan: raw.plan,
+        chop14: raw.chop14 != null ? +raw.chop14.toFixed(1) : null,
+        chopTrap,
       };
     }).filter((c): c is Ep9mCandidate => c !== null);
 
@@ -1031,6 +1082,31 @@ export async function GET() {
       noStopBasis: finalList.filter(c => c.plan?.note === 'no ADR/ATR to size a stop').length,
     };
 
+    /* v1.6 CHOP DISTRIBUTION. Ships unwired so the effect of a future gate can
+       be sized before it is applied.
+
+       chopChoppy IS THE NUMBER THAT MATTERS HERE, more than on any other
+       table. This scan has no trend gate — a name churning inside a month-old
+       range passes every filter it has. If that count is routinely half the
+       list, the volume signal is regularly landing in tape that cannot
+       resolve it, and the answer is probably a CHOP column the eye can sort
+       on rather than a hard gate: an EP9M name in chop is still worth
+       researching, it just is not worth a breakout entry today.
+
+       chopScored guards the read — a low choppy count means nothing if the
+       15-bar minimum was failing across the list. */
+    const chopStats = {
+      scored: finalList.filter(c => c.chop14 != null).length,
+      trending: finalList.filter(c => c.chop14 != null && c.chop14 <= CHOP_TREND_MAX).length,
+      mixed: finalList.filter(c => c.chop14 != null && c.chop14 > CHOP_TREND_MAX && c.chop14 < CHOP_CHOP_MIN).length,
+      choppy: finalList.filter(c => c.chop14 != null && c.chop14 >= CHOP_CHOP_MIN).length,
+      trap: finalList.filter(c => c.chopTrap).length,
+      // Unprecedented volume landing in a chop regime — the volume event is
+      // real and the tape cannot express it. The most interesting pairing on
+      // this table and the one worth watching first.
+      unprecedentedInChop: finalList.filter(c => c.unprecedented && c.chop14 != null && c.chop14 >= CHOP_CHOP_MIN).length,
+    };
+
     return NextResponse.json({
       success: true,
       lastScanTime: scanTime,
@@ -1041,6 +1117,7 @@ export async function GET() {
       catalystsFound: wiimMap.size,
       scanMeta: EP9M_META,
       planCoverage,
+      chopStats,
     });
   } catch (error: any) {
     console.error('EP9M_RUN_ERROR:', error);
