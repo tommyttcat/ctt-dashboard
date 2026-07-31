@@ -33,6 +33,36 @@
 //       EMA — both of which sit BELOW price on a coil that is holding its
 //       averages, producing a trigger already passed. The dot is a signal
 //       about condition; the range high is still the entry.
+//
+// v1.9: + PER-TICKER CHOPPINESS INDEX (chop14) on BOTH tables — but it means
+//       opposite things on each, and only one of them should ever filter on
+//       it.
+//
+//           CHOP = 100 x log10( sum TR(n) / (maxHigh(n) - minLow(n)) ) / log10(n)
+//
+//       distance travelled over ground covered. Above 61.8 the name churns;
+//       below 38.2 it trends.
+//
+//       ON SWING IT IS A GENUINE FILTER. A pullback into a trending name and
+//       a pullback inside a range look identical on the EMAs — same distance
+//       to the 10, same distance to the 21, same stochastic — and behave
+//       nothing alike. The first resumes; the second reverses at the range
+//       edge it has already reversed at four times. Nothing else on that
+//       table separates them.
+//
+//       ON CONSOLIDATION IT IS EXPECTED TO BE HIGH AND MUST NOT FILTER.
+//       A coil IS churn by construction. Fourteen days of oscillation inside
+//       a range roughly twice the daily range gives sum(TR)/range around 7,
+//       which scores near 74 — solidly "choppy". That is not a warning about
+//       the row, it is a restatement of why the row qualified. Filtering the
+//       consolidation table on chop would reject every good base on the
+//       board, and coilRatio already measures tightness directly and better
+//       (it normalises the 10-day range by ATR rather than inferring it).
+//
+//       So chop is emitted on both — it costs nothing, dailyBars is already
+//       in hand — and Consolidation1021 gets no CHOP filter. The asymmetry
+//       is the point, and consolidationChopNote in the response says so on
+//       the wire rather than only in this comment.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -40,6 +70,7 @@ import { computeRMV } from '@/lib/indicators/rmv';
 import { computeStage } from '@/lib/indicators/stage';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { computeTradePlan } from '@/lib/indicators/tradeplan';
+import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN, CHOP_TREND_MAX } from '@/lib/indicators/chop';
 import { SWING, CONSOL, SWING_META, CONSOL_META } from '@/lib/scanConfig';
 
 export const dynamic = 'force-dynamic';
@@ -62,6 +93,10 @@ const GROUPED = {
 // Prior swing high window. 63 sessions back, EXCLUDING the most recent five —
 // without that exclusion a name that just ran becomes its own resistance and
 // every fresh mover reports a trigger already blocked.
+// ADR level at which a name is "wide" for the chop-trap read. Reporting only
+// on these tables — neither scan has an ADR floor that this would reinforce.
+const CHOP_TRAP_MIN_ADR = 5;
+
 const SWING_HIGH_LOOKBACK = 63;
 const SWING_HIGH_EXCLUDE_RECENT = 5;
 
@@ -109,6 +144,11 @@ interface Candidate {
   vwapStatus: 'above' | 'below' | 'neutral';
   atrPct: number;
   adrPct?: number;
+  // v1.9 — regime. Read the header before using this on Consolidation: a coil
+  // scores high by construction and the value is descriptive there, not a
+  // warning.
+  chop14?: number | null;
+  chopTrap?: boolean;
   rmv?: number | null;
   mf?: number | null;
   mfTrend?: number;
@@ -673,6 +713,21 @@ function analyze(
 
   const atrPctVal = (atr14 / price) * 100;
   const adr = adrPct(bars, 20);
+
+  /* --- CHOP (v1.9) ------------------------------------------------------
+     NO REVERSE NEEDED. getDailyBars fetches with sort=asc, so bars are
+     already oldest-first, which is what choppiness() expects. The scanner
+     route sorts descending and has to reverse a slice; this one does not.
+     Silent either way — a wrongly ordered array returns a plausible number
+     computed from the wrong end of the series — so the confirmation is that
+     every other helper here treats bars[bars.length - 1] as today.
+
+     THIS IS THE FILTER THAT MATTERS ON THE SWING TABLE. A pullback into a
+     trending name and a pullback inside a range are indistinguishable on the
+     EMAs and behave nothing alike. Nothing else computed here separates
+     them. */
+  const chop14 = choppiness(bars, CHOP_PERIOD_DEFAULT);
+
   const rmv = computeRMV(bars, { lookback: 15 });
   // Money Flow (21) — on a pullback candidate this is the key confirmation:
   // price pulling back with MF still above 55 is orderly profit-taking, not
@@ -775,6 +830,8 @@ function analyze(
     vwapStatus,
     atrPct: +atrPctVal.toFixed(2),
     adrPct: adr != null ? +adr.toFixed(2) : undefined,
+    chop14: chop14 != null ? +chop14.toFixed(1) : null,
+    chopTrap: chop14 != null && adr != null && adr >= CHOP_TRAP_MIN_ADR && chop14 >= CHOP_CHOP_MIN,
     rmv,
     mf,
     mfTrend,
@@ -825,6 +882,13 @@ function analyzeConsolidation(
 
   const atrPctVal = (atr14 / price) * 100;
   const adr = adrPct(bars, 20);
+
+  /* Descriptive only — see the note on the return field below and the v1.9
+     header. Computed because it costs nothing and the number is genuinely
+     interesting for comparing one base against another (a coil at 66 is
+     resolving faster than one at 80), but it is never a gate here and
+     Consolidation1021 renders no CHOP filter. */
+  const consChop = choppiness(bars, CHOP_PERIOD_DEFAULT);
   const rmv = computeRMV(bars, { lookback: 15 });
   // Money Flow matters most on this table: a tight coil with MF above 55 is
   // accumulation inside the base. The same coil under 45 is a name being
@@ -987,6 +1051,12 @@ function analyzeConsolidation(
     vwapStatus,
     atrPct: +atrPctVal.toFixed(2),
     adrPct: +adr.toFixed(2),
+    /* Emitted, never filtered. A coil scores high here BY CONSTRUCTION —
+       fourteen days of oscillation inside a tight range is exactly what the
+       Choppiness Index is built to detect, and it is also exactly what
+       qualified this row. Read it as a description of the base, not a
+       verdict on it; coilRatio is the tightness measure that discriminates. */
+    chop14: consChop != null ? +consChop.toFixed(1) : null,
     rmv,
     mf,
     mfTrend,
@@ -1181,6 +1251,32 @@ async function runSwingScan() {
         swing: planStats(candidates),
         consolidation: planStats(consolKeep),
       },
+      /* v1.9 CHOP DISTRIBUTION. Reported unwired so a future gate on the
+         SWING table can be sized before it is applied.
+
+         READ THE TWO BLOCKS DIFFERENTLY. On swing, `choppy` counts pullbacks
+         that will resolve back into a range rather than a trend — the number
+         a gate would remove, and the one worth watching. On consolidation the
+         same field is expected to be high, because a coil is churn by
+         construction; a LOW count there would be the surprising result and
+         would suggest the coil gate is admitting names that are not actually
+         basing. */
+      chopStats: {
+        swing: {
+          scored: candidates.filter(c => c.chop14 != null).length,
+          trending: candidates.filter(c => c.chop14 != null && c.chop14 <= CHOP_TREND_MAX).length,
+          choppy: candidates.filter(c => c.chop14 != null && c.chop14 >= CHOP_CHOP_MIN).length,
+          trap: candidates.filter(c => c.chopTrap === true).length,
+        },
+        consolidation: {
+          scored: consolKeep.filter(c => c.chop14 != null).length,
+          // Expected to be most of the list. See the note above.
+          choppy: consolKeep.filter(c => c.chop14 != null && c.chop14 >= CHOP_CHOP_MIN).length,
+          trending: consolKeep.filter(c => c.chop14 != null && c.chop14 <= CHOP_TREND_MAX).length,
+        },
+      },
+      consolidationChopNote:
+        'chop14 is descriptive on the consolidation table, not a quality signal — a coil scores high by construction. Filter on coilRatio (STAT) instead.',
       // Per-table write outcome. `false` means the previous snapshot was kept
       // because this run found nothing — not that the run failed.
       dataPersisted: {
