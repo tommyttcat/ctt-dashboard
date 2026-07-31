@@ -1,35 +1,54 @@
 'use client';
 
-// Consolidation1021 — v2.8
+// Consolidation1021 — v2.9
 // v2.5: dropped the ? badge — the cluster wrapper is cursor-help with the
 //       combined tooltip, and each stat keeps its own hover.
-// v2.6: DIC / PM / BVR / 10/21% collapsed into a single RDY score. Four
-//       numbers meant weighing four things by eye on every row, and DNLI
-//       carried CNF 91 with BVR ✗ and the 10 below the 21 while PTGX — every
-//       condition confirming — scored 88.
-// v2.7: RMV/RME moved to the far left of the sub-row, into the slot the
-//       DIC/PM/BVR cluster vacated.
+// v2.6: DIC / PM / BVR / 10/21% collapsed into a single RDY score.
+// v2.7: RMV/RME moved to the far left of the sub-row.
 // v2.8: parity with SIPs v3.0 / Daily v2.0 — RTR column and the trade plan
-//       on the sub-row.
+//       on the sub-row. RMV/RME moved back right; colspan bug fixed.
+// v2.9: filter consolidation — 10 groups / 19 buttons down to 8 / 13.
 //
-//       RMV/RME MOVES BACK RIGHT. v2.7 put it left because it appeared to
-//       drift horizontally row to row; the real cause was the headline
-//       collapsing on rows with no catalyst, not the ordering. The headline
-//       is flex-1 with min-w-0, so it always claims the slack and anything
-//       after it pins right — the same arrangement SIPs has used throughout.
-//       Left-anchoring it now would push the trade levels away from the
-//       ticker, which is the pairing that matters more.
+//       THIS TABLE DOES NOT GET THE POSTURE FILTER, and that is deliberate
+//       rather than an omission. SIPs, Daily and Swing all collapsed STAGE +
+//       10/21 into POSTURE, whose load-bearing part is the extension check —
+//       catching a name several ATRs past its anchor that passes every other
+//       filter. A CONSOLIDATING NAME CANNOT BE EXTENDED BY CONSTRUCTION:
+//       tight range, converging EMAs, that is the entire admission criterion.
+//       And the first-touch/stacked split depends on price crossing the 10
+//       EMA meaningfully, which inside a base is noise — it flips daily
+//       without signalling anything. Porting posture here would have added a
+//       control whose useful bucket is always empty and whose other two
+//       buckets sort on coin flips.
 //
-//       COLSPAN BUG FIXED. The v2.7 sub-row spanned 15 + 1 + 1 = 17 cells
-//       against an 18-column header, so every cell after the first was
-//       shifted one column left: the STATE badge rendered under MCAP and the
-//       Coiled label under STAGE. With 19 columns the sub-row is now
-//       17 + 1 + 1 and lines up.
+//       THE REAL REDUNDANCY HERE IS 10/21 AGAINST RDY. The EMA gap is
+//       already 25 of RDY's 100 points, and RDY reads it in a way a boolean
+//       cannot: at the cross scores 25, ribbon opening 22, ribbon already
+//       wide 12, 10 well under 21 only 5. A ">10" toggle treats a name 8%
+//       above its 10 EMA identically to one sitting on it — on a coil table
+//       that is backwards, because the tight one is the better base. The
+//       toggle was overriding the better measurement with a worse one.
 //
-//       TRIGGER IS THE RANGE HIGH, not today's high — set in the swing route
-//       by tagging these rows 'Coil'. A tight base prints several inside days
-//       before it resolves, and treating each one as an entry is how you get
-//       chopped inside the coil.
+//       VWAP IS GONE ENTIRELY, not trimmed to Above. It is a single-session
+//       measure and this is a multi-week structure. Whether price sits above
+//       today's VWAP says nothing about whether a 20-day base resolves. The
+//       dot stays in the price cell for the rows you are actually watching.
+//
+//       PLAN CLEAR → 2R+. Clear was `p.clear === true` and 1R+ was
+//       `p.clear === true || resistanceR >= 1`, so every Clear row already
+//       passed 1R+ — a threshold and its own subset presented as two
+//       options. 2R+ is a second real level.
+//
+//       MKT CAP ALL removed; every group is a toggle now, so a second click
+//       on the active option clears it.
+//
+//       WHAT SURVIVED, and why each earns its place: RDY (base quality),
+//       STAT (tightness — note that coilRatio is NOT in RDY, so this is
+//       genuinely orthogonal), PLAN (reward once it breaks), CNF (tape),
+//       $VOL (can you get filled on the resolution), ADR (volatility), CAP,
+//       STAGE (200-day structure — a coil in Stage 2 is a continuation base,
+//       the same coil in Stage 4 is a bear flag, and RDY's prior-move term
+//       looks at 60 days so it does not cover this).
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
@@ -54,7 +73,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Green 2R+ (clear) · slate 1R+ · amber 0.5R+ · red under 0.5R · EXT extended · ✕ no plan.',
   },
   PRICE: {
-    what: 'Last price. The dot beside it is VWAP position.',
+    what: 'Last price. The dot beside it is VWAP position — a single-session read, shown for context on rows you are watching rather than used as a filter on a multi-week base.',
     colour: 'Green dot above VWAP · red dot below.',
   },
   'CHG%': {
@@ -62,17 +81,17 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Green up · red down.',
   },
   '10/21': {
-    what: 'Price vs the 10 and 21 EMAs — the Dr. Wish trend pair. The signed EMA gap feeds the RDY score.',
+    what: 'Price vs the 10 and 21 EMAs — the Dr. Wish trend pair. There is no 10/21 filter on this table because the signed gap already carries 25 of RDY\'s 100 points, scored the way a coil needs it: at the cross is best, ribbon already wide is worse. Filter on RDY instead.',
     colour: 'Green dot above that EMA · red below · grey no data.',
   },
   VOL: { what: 'Shares traded today.' },
-  '$VOL': { what: 'Dollar volume — price × volume.' },
+  '$VOL': { what: 'Dollar volume — price × volume. The liquidity question: can you get filled when the base resolves.' },
   RVOL: {
     what: 'Relative volume vs the 20-day average at this time of day.',
     colour: 'Amber 2x+ · green 1.5x+ · grey below.',
   },
   COIL: {
-    what: 'Tightness of the last 10 days: raw 10-day range % on top, and below it that range normalized by daily ATR (N× ATR). Lower is tighter. Coiled ≤ 2.5× · Setting Up ≤ 4.0×.',
+    what: 'Tightness of the last 10 days: raw 10-day range % on top, and below it that range normalized by daily ATR (N× ATR). Lower is tighter. Coiled ≤ 2.5× · Setting Up ≤ 4.0×. Not part of RDY — the STAT filter is the direct control for it.',
     colour: 'Purple ≤2.5× (coiled) · green ≤4× (setting up) · grey looser.',
   },
   ADR: {
@@ -97,7 +116,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   },
   MCAP: { what: 'Market cap.' },
   STAGE: {
-    what: 'Weinstein stage with sub-stage. 2A strong advance · 2B extended · 2C sagging below the 50 SMA. Hover the value for the row-specific read.',
+    what: 'Weinstein stage with sub-stage. 2A strong advance · 2B extended · 2C sagging below the 50 SMA. On this table it is the structural context RDY does not carry: a coil in Stage 2 is a continuation base, the same coil in Stage 4 is a bear flag.',
     colour: 'Green healthy Stage 2 · amber sagging · red Stage 4.',
   },
   SECTOR: { what: 'Sector, cleaned of ticker prefixes.' },
@@ -183,19 +202,20 @@ interface ConsolidationCandidate {
 type SortDirection = 'asc' | 'desc';
 type CnfFilterType = 'All' | 'A' | 'B';
 type RdyFilterType = 'All' | '55' | '75';
-type EmaFilterType = 'All' | '>10' | '>21' | 'Both';
-type VwapFilterType = 'All' | 'above' | 'below';
 type AdrFilterType = 'All' | '5' | '10';
 type StatFilterType = 'All' | 'Coiled' | 'Setting Up';
 type VolFilterType = 'All' | '20' | '50' | '100';
-type PlanFilterType = 'All' | '1R' | 'Clear';
+type PlanFilterType = 'All' | '1R' | '2R';
+type CapFilterType = 'All' | 'Small' | 'Large';
 
 const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
 const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 const RDY_BUCKETS: RdyFilterType[] = ['55', '75'];
 const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
 const VOL_BUCKETS: VolFilterType[] = ['20', '50', '100'];
-const PLAN_BUCKETS: PlanFilterType[] = ['1R', 'Clear'];
+const PLAN_BUCKETS: PlanFilterType[] = ['1R', '2R'];
+const CAP_BUCKETS: CapFilterType[] = ['Small', 'Large'];
+const STAT_BUCKETS: StatFilterType[] = ['Coiled', 'Setting Up'];
 
 const COIL_COILED_MAX = 2.5;
 const COIL_SETTING_MAX = 4.0;
@@ -342,10 +362,20 @@ const gap1021Of = (c: ConsolidationCandidate): number | null => numField(c.ema10
    yet. A negative gap does not disqualify — a coil resolving upward crosses
    from below — but it is earlier and therefore worth fewer points.
 
+   THIS TERM IS WHY THERE IS NO 10/21 FILTER on this table as of v2.9. A
+   ">10" boolean cannot express that AT THE CROSS beats RIBBON ALREADY WIDE,
+   which on a coil is the whole point — it would have let the cruder measure
+   override the better one.
+
    Days in coil (20) and prior move (20) split the rest. Both are context: a
    long base is more meaningful than a three-day pause, and a coil after a
    strong advance is a continuation setup while a coil after nothing is just
    a quiet stock.
+
+   COIL TIGHTNESS IS DELIBERATELY NOT IN HERE. It is the admission criterion
+   for the scan rather than a differentiator within it, and it already drives
+   the COIL column and the STAT filter. Folding it in would double-count the
+   one thing every row on this table has in common.
 
    Every component degrades to 0 rather than throwing when its field is
    missing, and `sampled` reports how many of the four actually resolved so
@@ -600,6 +630,9 @@ const cnfTooltip = (c: ConsolidationCandidate): string => {
   return lines.join('\n');
 };
 
+// Still used by the EMA dots in the 10/21 column. The FILTER that read these
+// is gone in v2.9 — the gap is scored inside RDY, where the coil-specific
+// interpretation lives — but the column itself stays.
 const above21 = (c: ConsolidationCandidate) => c.aboveEma21 ?? (c.distToEma21 != null ? c.distToEma21 >= 0 : null);
 const above10 = (c: ConsolidationCandidate) => c.aboveEma10 ?? (c.distToEma10 != null ? c.distToEma10 >= 0 : null);
 
@@ -613,12 +646,10 @@ export default function Consolidation1021() {
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [showStage2Only, setShowStage2Only] = useState<boolean>(false);
-  const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
+  const [marketCapFilter, setMarketCapFilter] = useState<CapFilterType>('All');
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [rdyFilter, setRdyFilter] = useState<RdyFilterType>('All');
-  const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [adrFilter, setAdrFilter] = useState<AdrFilterType>('All');
-  const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [statFilter, setStatFilter] = useState<StatFilterType>('All');
   const [volFilter, setVolFilter] = useState<VolFilterType>('All');
   const [planFilter, setPlanFilter] = useState<PlanFilterType>('All');
@@ -666,14 +697,16 @@ export default function Consolidation1021() {
     setSortConfig({ key, direction });
   };
 
-  const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
+  // Every group is a toggle: pressing the active option clears it. That is
+  // what removed the need for a MKT CAP "All" button — nothing selected
+  // already means all, and a second click gets you there.
   const handleAdrFilter = (val: AdrFilterType) => setAdrFilter(prev => prev === val ? 'All' : val);
-  const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
   const handleRdyFilter = (val: RdyFilterType) => setRdyFilter(prev => prev === val ? 'All' : val);
   const handleStatFilter = (val: StatFilterType) => setStatFilter(prev => prev === val ? 'All' : val);
   const handleVolFilter = (val: VolFilterType) => setVolFilter(prev => prev === val ? 'All' : val);
   const handlePlanFilter = (val: PlanFilterType) => setPlanFilter(prev => prev === val ? 'All' : val);
+  const handleCapFilter = (val: CapFilterType) => setMarketCapFilter(prev => prev === val ? 'All' : val);
 
   const filteredAndSorted = useMemo(() => {
     let filtered = [...candidates];
@@ -691,21 +724,15 @@ export default function Consolidation1021() {
       const minScore = CNF_MIN_SCORE[cnfFilter];
       filtered = filtered.filter(c => (c.score ?? -1) >= minScore);
     }
+    /* RDY replaces the old 10/21 filter as the way to ask about the trend
+       pair — the gap is 25 of its 100 points, scored so that AT THE CROSS
+       outranks RIBBON ALREADY WIDE. A row that cannot be scored (fewer than
+       two resolved inputs) falls out rather than passing on a null. */
     if (rdyFilter !== 'All') {
       const minRdy = Number(rdyFilter);
       filtered = filtered.filter(c => {
         const r = rdyBySymbol.get(c.symbol)?.score;
         return r != null && r >= minRdy;
-      });
-    }
-    if (emaFilter !== 'All') {
-      filtered = filtered.filter(c => {
-        const a10 = above10(c);
-        const a21 = above21(c);
-        if (emaFilter === '>10') return a10 === true;
-        if (emaFilter === '>21') return a21 === true;
-        if (emaFilter === 'Both') return a10 === true && a21 === true;
-        return true;
       });
     }
     if (adrFilter !== 'All') {
@@ -715,9 +742,9 @@ export default function Consolidation1021() {
         return a != null && a >= minAdr;
       });
     }
-    if (vwapFilter !== 'All') {
-      filtered = filtered.filter(c => c.vwapStatus === vwapFilter);
-    }
+    // Tightness. NOT part of RDY — coilRatio is the scan's admission
+    // criterion rather than a differentiator inside it, so this is the
+    // direct control and the two do not double-count.
     if (statFilter !== 'All') {
       filtered = filtered.filter(c => coilStat(c) === statFilter);
     }
@@ -725,14 +752,20 @@ export default function Consolidation1021() {
       const minVol = Number(volFilter) * 1e6;
       filtered = filtered.filter(c => (c.dVol ?? (c.avgDollarVolM ? c.avgDollarVolM * 1e6 : 0)) >= minVol);
     }
-    // Plan filter drops anything without a usable entry. "Clear" is the
-    // strictest read: a definable trigger AND two stop-widths of air above it.
+    /* Plan filter drops anything without a usable entry, then applies a
+       threshold in stop-widths.
+
+       `clear` rows carry no resistanceR at all — there is nothing overhead to
+       measure — so they satisfy BOTH levels rather than falling out of the
+       stricter one. That is the correction v2.9 makes: the old pair had
+       "Clear" as a subset of "1R+" and called them two options. */
     if (planFilter !== 'All') {
+      const minR = planFilter === '2R' ? 2.0 : 1.0;
       filtered = filtered.filter(c => {
         const p = planOf(c);
         if (!p || p.tradeable !== true || p.collapsed || p.overextended) return false;
-        if (planFilter === 'Clear') return p.clear === true;
-        return p.clear === true || (p.resistanceR != null && p.resistanceR >= 1.0);
+        if (p.clear === true) return true;
+        return p.resistanceR != null && p.resistanceR >= minR;
       });
     }
     if (!sortConfig) return filtered;
@@ -753,7 +786,7 @@ export default function Consolidation1021() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, rdyBySymbol, sortConfig, showStage2Only, marketCapFilter, cnfFilter, rdyFilter, emaFilter, adrFilter, vwapFilter, statFilter, volFilter, planFilter]);
+  }, [candidates, rdyBySymbol, sortConfig, showStage2Only, marketCapFilter, cnfFilter, rdyFilter, adrFilter, statFilter, volFilter, planFilter]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -858,16 +891,14 @@ export default function Consolidation1021() {
   const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
 
   const activeFilterCount =
-    (showStage2Only ? 1 : 0) +
-    (marketCapFilter !== 'All' ? 1 : 0) +
-    (cnfFilter !== 'All' ? 1 : 0) +
     (rdyFilter !== 'All' ? 1 : 0) +
-    (planFilter !== 'All' ? 1 : 0) +
-    (emaFilter !== 'All' ? 1 : 0) +
-    (adrFilter !== 'All' ? 1 : 0) +
-    (vwapFilter !== 'All' ? 1 : 0) +
     (statFilter !== 'All' ? 1 : 0) +
-    (volFilter !== 'All' ? 1 : 0);
+    (planFilter !== 'All' ? 1 : 0) +
+    (cnfFilter !== 'All' ? 1 : 0) +
+    (volFilter !== 'All' ? 1 : 0) +
+    (adrFilter !== 'All' ? 1 : 0) +
+    (marketCapFilter !== 'All' ? 1 : 0) +
+    (showStage2Only ? 1 : 0);
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-visible shadow-xl w-full max-w-[1280px] mx-auto">
@@ -920,18 +951,10 @@ export default function Consolidation1021() {
             </div>
             {showFilters && (
               <div className="flex flex-wrap justify-center items-center gap-3 w-full">
-                <div className={pillWrap}>
-                  <span className={pillLabel}>STAGE</span>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setShowStage2Only(!showStage2Only)}
-                      title="Stage 2 only — includes 2A, 2B and 2C"
-                      className={`${pillBtn} ${showStage2Only ? filterBtnActive : filterBtnIdle}`}
-                    >
-                      2
-                    </button>
-                  </div>
-                </div>
+                {/* RDY and STAT lead because they are the two coil-specific
+                    questions — is the base ready, and is it tight. Everything
+                    after them is generic screening this table shares with the
+                    others. */}
                 <div className={pillWrap}>
                   <span className={pillLabel}>RDY</span>
                   <div className="flex items-center gap-1">
@@ -939,10 +962,29 @@ export default function Consolidation1021() {
                       <button
                         key={opt}
                         onClick={() => handleRdyFilter(opt)}
-                        title={opt === '75' ? 'Base ready — RDY 75 and above' : 'Setting up or better — RDY 55 and above'}
+                        title={opt === '75'
+                          ? 'Base ready — RDY 75 and above. Volume dried up, ribbon set, coiled long enough.'
+                          : 'Setting up or better — RDY 55 and above. Also the way to filter on the 10/21 pair: the signed gap is 25 of RDY\'s 100 points.'}
                         className={`${pillBtn} ${rdyFilter === opt ? filterBtnActive : filterBtnIdle}`}
                       >
                         {opt}+
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>STAT</span>
+                  <div className="flex items-center gap-1">
+                    {STAT_BUCKETS.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => handleStatFilter(opt)}
+                        title={opt === 'Coiled'
+                          ? '10-day range at or under 2.5× daily ATR — genuinely tight'
+                          : '10-day range at or under 4× daily ATR — narrowing but not there'}
+                        className={`${pillBtn} ${statFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {opt}
                       </button>
                     ))}
                   </div>
@@ -954,51 +996,12 @@ export default function Consolidation1021() {
                       <button
                         key={opt}
                         onClick={() => handlePlanFilter(opt)}
-                        title={opt === 'Clear'
-                          ? 'Only coils with a definable trigger and 2R of clear air above the range high'
-                          : 'Only coils with at least one stop-width to the nearest overhead level'}
+                        title={opt === '2R'
+                          ? 'At least two stop-widths above the range high before the first level overhead, or clear air'
+                          : 'At least one stop-width above the range high before the first level overhead'}
                         className={`${pillBtn} ${planFilter === opt ? filterBtnActive : filterBtnIdle}`}
                       >
-                        {opt === '1R' ? '1R+' : 'Clear'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>STAT</span>
-                  <div className="flex items-center gap-1">
-                    {(['Coiled', 'Setting Up'] as StatFilterType[]).map((opt) => (
-                      <button key={opt} onClick={() => handleStatFilter(opt)} className={`${pillBtn} ${statFilter === opt ? filterBtnActive : filterBtnIdle}`}>{opt}</button>
-                    ))}
-                  </div>
-                </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>$VOL</span>
-                  <div className="flex items-center gap-1">
-                    {VOL_BUCKETS.map((opt) => (
-                      <button key={opt} onClick={() => handleVolFilter(opt)} title={`Dollar volume of $${opt}M and above`} className={`${pillBtn} ${volFilter === opt ? filterBtnActive : filterBtnIdle}`}>{opt}M+</button>
-                    ))}
-                  </div>
-                </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>MKT CAP</span>
-                  <div className="flex items-center gap-1">
-                    {['All', 'Small', 'Large'].map((cap) => (
-                      <button key={cap} onClick={() => setMarketCapFilter(cap)} className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}>{cap}</button>
-                    ))}
-                  </div>
-                </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>ADR</span>
-                  <div className="flex items-center gap-1">
-                    {ADR_BUCKETS.map((opt) => (
-                      <button
-                        key={opt}
-                        onClick={() => handleAdrFilter(opt)}
-                        title={`20-day average daily range of ${opt}% and above — scan floor is 3%`}
-                        className={`${pillBtn} ${adrFilter === opt ? filterBtnActive : filterBtnIdle}`}
-                      >
-                        {opt}%+
+                        {opt === '1R' ? '1R+' : '2R+'}
                       </button>
                     ))}
                   </div>
@@ -1019,23 +1022,59 @@ export default function Consolidation1021() {
                   </div>
                 </div>
                 <div className={pillWrap}>
-                  <span className={pillLabel}>10/21</span>
+                  <span className={pillLabel}>$VOL</span>
                   <div className="flex items-center gap-1">
-                    {(['>10', '>21', 'Both'] as EmaFilterType[]).map((opt) => (
-                      <button key={opt} onClick={() => handleEmaFilter(opt)} className={`${pillBtn} ${emaFilter === opt ? filterBtnActive : filterBtnIdle}`}>
-                        {opt}
+                    {VOL_BUCKETS.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => handleVolFilter(opt)}
+                        title={`Dollar volume of $${opt}M and above — can you get filled when the base resolves`}
+                        className={`${pillBtn} ${volFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {opt}M+
                       </button>
                     ))}
                   </div>
                 </div>
                 <div className={pillWrap}>
-                  <span className={pillLabel}>VWAP</span>
+                  <span className={pillLabel}>ADR</span>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
-                    </button>
-                    <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
-                      <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Below
+                    {ADR_BUCKETS.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => handleAdrFilter(opt)}
+                        title={`20-day average daily range of ${opt}% and above — scan floor is 3%`}
+                        className={`${pillBtn} ${adrFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {opt}%+
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>CAP</span>
+                  <div className="flex items-center gap-1">
+                    {CAP_BUCKETS.map((cap) => (
+                      <button
+                        key={cap}
+                        onClick={() => handleCapFilter(cap)}
+                        title={cap === 'Large' ? 'Market cap $2B and above' : 'Market cap under $2B'}
+                        className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {cap}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>STAGE</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setShowStage2Only(!showStage2Only)}
+                      title="Stage 2 only — includes 2A, 2B and 2C. A coil in Stage 2 is a continuation base; the same coil in Stage 4 is a bear flag."
+                      className={`${pillBtn} ${showStage2Only ? filterBtnActive : filterBtnIdle}`}
+                    >
+                      2
                     </button>
                   </div>
                 </div>
@@ -1044,7 +1083,7 @@ export default function Consolidation1021() {
           </div>
 
           <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            {/* 19 columns now — min-w 880 → 980. */}
+            {/* 19 columns — min-w 980. */}
             <table className="w-full min-w-[980px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
@@ -1090,6 +1129,7 @@ export default function Consolidation1021() {
                     const st = coilStat(row);
                     const rdy = rdyBySymbol.get(row.symbol) ?? computeRdy(row);
                     const plan = planOf(row);
+                    const gap = gap1021Of(row);
                     return (
                       <React.Fragment key={row.symbol}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
@@ -1127,8 +1167,17 @@ export default function Consolidation1021() {
                             <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus && row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div>
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{row.changePct != null ? `${isPositive ? '+' : ''}${row.changePct.toFixed(2)}%` : '—'}</td>
+                          {/* The dots stay; the FILTER that read them is gone.
+                              Hover now names the gap and its RDY contribution,
+                              so the column points at where the trend pair is
+                              actually scored. */}
                           <td className={`${tdBase} whitespace-nowrap`}>
-                            <div className="flex items-center justify-center gap-1">
+                            <div
+                              className="flex items-center justify-center gap-1"
+                              title={gap != null
+                                ? `10/21 gap ${gap >= 0 ? '+' : ''}${gap.toFixed(1)}% — scored inside RDY, hover that badge for the value`
+                                : undefined}
+                            >
                               <div className="flex items-center gap-px">
                                 <span className="text-[8px] font-bold text-slate-500">10</span>
                                 <div className={`w-1.5 h-1.5 rounded-full ${emaDot(above10(row))}`} title={`10 EMA: ${above10(row) == null ? 'n/a' : above10(row) ? 'above' : 'below'}`}></div>
@@ -1176,9 +1225,7 @@ export default function Consolidation1021() {
                         </tr>
                         {/* Sub-row: colSpan 17 covers TICKER..MCAP, then STAGE
                             and SECTOR get their own cells — 19 total, matching
-                            the header. The v2.7 sub-row spanned 17 against an
-                            18-column header, which shifted the STATE badge
-                            under MCAP and the Coiled label under STAGE.
+                            the header.
 
                             Levels sit under the ticker where the setup name
                             goes on the other tables. There is no setup name to
