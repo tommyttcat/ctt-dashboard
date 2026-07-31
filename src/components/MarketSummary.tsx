@@ -422,11 +422,12 @@ const fmtLeader = (s: any): string => {
    nearest overhead level on every row, and none of that reached this
    component until now.
 
-   THE ROW CARRIES THE WHOLE ORDER. Trigger, stop, target and risk percent
-   are all present so the card stands alone — the point of this section is
-   that you can read it and place an alert without opening a table. A row
-   showing only the trigger is half a plan: it tells you where to get in and
-   nothing about where you are wrong, which is the half that decides size.
+   THE ROW IS SIX FIELDS: change, CNF, the R badge, and the three prices.
+   An earlier pass carried risk-percent and trigger-reach on the row too and
+   it read as a wall — seven and eight fields wrapping to two lines each,
+   which defeats the point of a summary. Both survive as GATES rather than
+   as columns: reach still decides what qualifies, it just is not printed.
+   Risk is recoverable from trigger minus stop, and the tables show it.
 
    TWO GATES, both necessary, neither sufficient alone.
 
@@ -434,11 +435,10 @@ const fmtLeader = (s: any): string => {
    ranges. This number exists nowhere else on the dashboard and it is the
    one that separates a setup from a watch item. MU's trigger sat 0.6% above
    price on a 7.4% ADR: 0.08 of an average day, so it can fire on the open.
-   SNDK's sat 5.4% above price with a 14% stop: reachable, but not tomorrow,
-   and sizing it is a different decision. The R column cannot tell those
-   apart because R measures the space ABOVE the trigger, not the distance TO
-   it. One ADR is the natural ceiling — beyond that, price has to do
-   something out of character just to reach the entry.
+   SNDK's sat 5.4% above price with a 14% stop: reachable, but not tomorrow.
+   The R badge cannot tell those apart because R measures the space ABOVE
+   the trigger, not the distance TO it. One ADR is the natural ceiling —
+   beyond that, price has to do something out of character to reach entry.
 
    RTR — room to resistance, in stop-widths. Below 1R the first average
    overhead arrives before you have covered the distance you are risking,
@@ -502,28 +502,22 @@ const isSettingUp = (s: any): boolean => {
   return rtrValue(s) >= PLAN_MIN_RTR;
 };
 
-/* The full order, in the sequence you would place it: what gets you in,
-   what gets you out, what you are aiming at, what it costs if you are wrong,
-   and how far price has to travel before any of it matters. */
+/* Six fields, in the order you read them: what it did today, how it scores,
+   how much room it has, and the three prices that make up the order. */
 const fmtPlanRow = (s: any): string => {
   const p = livePlanOf(s);
   if (!p) return `${tickerOf(s)} —`;
 
-  const bits: string[] = [rtrLabel(s)];
+  const chg = chgOf(s);
+  const bits: string[] = [`${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`];
+
   const cnf = scoreOf(s);
   if (cnf) bits.push(`CNF ${cnf}`);
 
+  bits.push(rtrLabel(s));
   bits.push(`trig ${fmtLevel(p.trigger)}`);
   bits.push(`stop ${fmtLevel(p.stop)}`);
   bits.push(`tgt ${fmtLevel(p.target)}`);
-  if (p.stopPct != null) bits.push(`risk ${Number(p.stopPct).toFixed(1)}%`);
-
-  const reach = reachInAdr(s);
-  if (reach != null) bits.push(`${reach.toFixed(1)}x ADR`);
-
-  const dot = dotOf(s);
-  if (dot === 'red') bits.push('RED DOT');
-  else if (dot === 'blue') bits.push('BLUE DOT');
 
   return `${tickerOf(s)} ${bits.join(' · ')}`;
 };
@@ -565,7 +559,7 @@ const buildTradePlanPara = (pool: any[]): string => {
 
   const lines: string[] = [`${cnfCol}|||${rtrCol}`];
 
-  lines.push(`${ready.length} of ${planned.length} planned name${planned.length === 1 ? '' : 's'} sit within one ADR of a trigger with at least 1R of room. Trigger is the alert; stop is the exit; risk is the distance between them as a percentage.`);
+  lines.push(`${ready.length} of ${planned.length} planned name${planned.length === 1 ? '' : 's'} sit within one ADR of a trigger with at least 1R of room. Trigger is the alert, stop is the exit, target is a fixed 2R.`);
 
   // A name in both columns is the intersection — the tape likes it AND there
   // is somewhere for it to go. That pairing is rare enough to name.
@@ -577,9 +571,13 @@ const buildTradePlanPara = (pool: any[]): string => {
     lines.push('No name ranks in both columns today — the best-scoring setups and the roomiest ones are different names.');
   }
 
-  const reds = ready.filter(s => dotOf(s) === 'red');
+  // Red dots are NAMED here rather than shown on the row. Trimming the row to
+  // six fields dropped the dot marker, and a bare count would tell you a
+  // reversal exists without telling you which name carries it — worse than
+  // either showing it or omitting it entirely.
+  const reds = ready.filter(s => dotOf(s) === 'red').map(tickerOf).filter(Boolean) as string[];
   if (reds.length) {
-    lines.push(`${reds.length} carr${reds.length === 1 ? 'ies' : 'y'} an active red dot — a defined entry does not cancel an overbought reversal.`);
+    lines.push(`${reds.join(', ')} carr${reds.length === 1 ? 'ies' : 'y'} an active red dot — a defined entry does not cancel an overbought reversal.`);
   }
 
   return `Trade Plan: ${lines.join('\n')}`;
@@ -773,9 +771,9 @@ const buildWatchReason = (s: any): string => {
     else parts.push(`${d21.toFixed(1)}% under the 21 EMA — structure needs repair first`);
   }
 
-  // The plan is the actionable half of the card, so it carries both levels.
-  // Reach matters more than the trigger price alone: a level two average days
-  // away is not a plan for tomorrow however good the setup reads.
+  // The card keeps reach where the Trade Plan row drops it: the row is a
+  // ranked list already filtered on reach, but a watch card can hold a name
+  // whose trigger is nowhere near, and saying so is the whole point.
   const p = livePlanOf(s);
   if (p?.trigger != null) {
     const reach = reachInAdr(s);
@@ -1263,9 +1261,9 @@ const buildLocalInsights = (
   };
 };
 
-/* ADR, RTR, TRIG, STOP, TGT and RISK are label words, not tickers. Without
-   them here the renderer chips them like symbols and SectionCopyButton
-   copies them into a TradingView watchlist. */
+/* ADR, RTR, TRIG, STOP and TGT are label words, not tickers. Without them
+   here the renderer chips them like symbols and SectionCopyButton copies
+   them into a TradingView watchlist. */
 const TICKER_STOPWORDS = new Set([
   'RVOL', 'CNF', 'SMB', 'DAY', 'SWING', 'BD', 'REV', 'EP', 'BB', 'SQZ',
   'GLB', 'VCP', 'PB', 'GO', 'GC', 'EMA', 'SMA', 'MACD', 'ATR', 'ADR', 'RS', 'R2G',
@@ -1291,14 +1289,19 @@ const stageColor = (st: string) => {
 };
 const stochColor = (k: number) => (k <= 20 ? 'text-purple-400' : k <= 30 ? 'text-emerald-400' : 'text-slate-400');
 const rsColor = (rs: number) => (rs >= 20 ? 'text-purple-400' : rs >= 10 ? 'text-emerald-400' : rs >= 0 ? 'text-slate-300' : 'text-rose-400');
-// Matches the RTR badge thresholds on the tables so the summary and the
-// tables cannot disagree about what counts as room.
-const rtrColor = (v: number) => (v >= 2 ? 'text-emerald-400' : v >= 1 ? 'text-slate-300' : 'text-amber-400');
 // Reach: under half an average day is imminent, over one is out of range.
+// Only the watch cards print this now — the plan rows gate on it silently.
 const reachColor = (v: number) => (v <= 0.5 ? 'text-emerald-400' : v <= 1 ? 'text-slate-300' : 'text-amber-400');
-// Risk is the stop distance. Past ~8% position size gets small enough that
-// the trade stops being worth the attention.
-const riskColor = (v: number) => (v <= 4 ? 'text-slate-400' : v <= 8 ? 'text-amber-400' : 'text-rose-400');
+
+/* The R badge, using exactly the thresholds and palette the tables use, so
+   0.9R looks the same here as it does in the RTR column. Rendered as a pill
+   rather than coloured text because it is the field the eye jumps to. */
+const rtrBadgeCls = (v: number): string => {
+  if (v >= 2) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+  if (v >= 1) return 'bg-slate-500/10 text-slate-300 border-white/10';
+  if (v >= 0.5) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+  return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+};
 
 const postureChipCls = (tone: 'good' | 'warn' | 'bad'): string => {
   if (tone === 'good') return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
@@ -1307,7 +1310,7 @@ const postureChipCls = (tone: 'good' | 'warn' | 'bad'): string => {
 };
 
 const renderBriefingText = (text: string): React.ReactNode[] => {
-  const rx = /(▸|RED DOT|BLUE DOT|\[[^\]]+\]\([^)]+\)|\d{1,2}:\d{2} (?:AM|PM)|RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|(?:trig|stop|tgt) \d+(?:\.\d+)?|risk \d+(?:\.\d+)?%|\d+(?:\.\d+)?x ADR|\d+(?:\.\d+)?R\+?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
+  const rx = /(▸|RED DOT|BLUE DOT|\[[^\]]+\]\([^)]+\)|\d{1,2}:\d{2} (?:AM|PM)|RVOL \d+(?:\.\d+)?|Stage \d[AB]?|stoch \d+(?:\.\d+)?|RS \+?\d+(?:\.\d+)?|(?:trig|stop|tgt) \d+(?:\.\d+)?|\d+(?:\.\d+)?x ADR|\d+(?:\.\d+)?R\+?|10\/21|S&P|Nasdaq|Dow|Bitcoin|\$\d+(?:\.\d+)?[BMK]|[+-]\d+(?:\.\d+)?%|\b[A-Z]{1,5}\b)/g;
   const parts = text.split(rx);
 
   return parts.map((part, i) => {
@@ -1353,16 +1356,6 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
         </span>
       );
     }
-    m = part.match(/^risk (\d+(?:\.\d+)?)%$/);
-    if (m) {
-      const v = parseFloat(m[1]);
-      return (
-        <span key={i}>
-          <span className="text-slate-500">risk</span>{' '}
-          <span className={`${valNum} ${riskColor(v)}`}>{m[1]}%</span>
-        </span>
-      );
-    }
     m = part.match(/^(\d+(?:\.\d+)?)x ADR$/);
     if (m) {
       const v = parseFloat(m[1]);
@@ -1371,7 +1364,14 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
     m = part.match(/^(\d+(?:\.\d+)?)R(\+?)$/);
     if (m) {
       const v = parseFloat(m[1]);
-      return <span key={i} className={`${valNum} font-bold ${rtrColor(v)}`}>{part}</span>;
+      return (
+        <span
+          key={i}
+          className={`inline-block align-baseline text-[10px] font-bold tabular-nums px-1.5 py-[1px] rounded border mx-0.5 ${rtrBadgeCls(v)}`}
+        >
+          {part}
+        </span>
+      );
     }
     if (part === '10/21') return <span key={i} className={`${valNum} text-violet-400 font-bold`}>10/21</span>;
     if (part === 'S&P' || part === 'Nasdaq' || part === 'Dow' || part === 'Bitcoin') {
@@ -1390,7 +1390,7 @@ const renderBriefingText = (text: string): React.ReactNode[] => {
 };
 
 const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
-  { label: 'Trade Plan', color: 'teal', blurb: 'The only forward-looking equity section. Names with a defined entry that can realistically fire next session — trigger within one average daily range of price, and at least one stop-width of room before the first level overhead. Each row is the whole order: trig is the alert, stop is the exit, tgt is 2R, risk is the distance between entry and stop. Collapsed and over-extended names are excluded, not ranked last.' },
+  { label: 'Trade Plan', color: 'teal', blurb: 'The only forward-looking equity section. Names with a defined entry that can realistically fire next session — trigger within one average daily range of price, and at least one stop-width of room before the first level overhead. The R badge is room-to-resistance in stop-widths, coloured as on the tables. Collapsed and over-extended names are excluded, not ranked last.' },
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves right now. Volume-confirmed names are tradeable; thin gaps are fade candidates.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, who has news, and who is grinding on air.' },
   { label: 'Daily Setups Thesis', color: 'emerald', blurb: 'Structured setups from the daily scan. SWING holds for days; DAY is intraday momentum only.' },
