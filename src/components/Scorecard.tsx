@@ -1,35 +1,34 @@
 'use client';
 
-// Scorecard — v1.4  (component: MacroScorecard)
-// v1.1: SOL removed; T2108 added as the twelfth card (11 assets + T2108 keeps
-//       the 4-column grid square). T2108 also feeds the tone narrative — it's
-//       Bonde's primary regime gauge and it changes which setups to hunt.
+// Scorecard — v1.6  (component: MacroScorecard)
+// v1.1: SOL removed; T2108 added as the twelfth card.
 // v1.2: Tone narrative condensed from five prose sentences to four dense
-//       lines. The old s3 could contradict itself in a single breath —
-//       "the tape is weak ... stay selective" followed by "momentum is broad,
-//       not just index-level" — because the breadth read and the 4%-mover
-//       append were written independently and neither knew about the other.
-//       Now exactly ONE line issues an instruction (the verdict), and the
-//       internals line is pure measurement.
-// v1.3: CHOP regime strip added below ATHI/ATLO. Raw Choppiness Index comes
-//       from /api/chop (needs daily bars, which /api/macro does not carry);
-//       the breadth and high/low modifiers are applied HERE because this
-//       component already holds both in state.
-// v1.4: Three CHOP corrections after first live data.
-//       (a) Arrow threshold 0.5 -> 0.15. First real reading moved 0.25 points
-//           day-over-day, so a 0.5 band would have printed flat essentially
-//           every session and the arrow would have been decoration — the exact
-//           failure the shifted-window computation existed to prevent.
-//       (b) QQQ/SPY spread surfaced on the strip. First reading showed QQQ
-//           44.7 against SPY 55.7 — an 11-point gap that quantifies the
-//           rotation the tone line describes in prose, and matters more than
-//           the blend for a book of momentum names.
-//       (c) Delta now derived from RAW, not from two composites. The previous
-//           composite was being computed with TODAY's breadth, so the
-//           modifiers applied identically to both sides and cancelled out —
-//           the arrow was already tracking raw while claiming to track the
-//           composite. Yesterday's breadth isn't in state, so raw is the only
-//           honest comparison available.
+//       lines; measurement separated from verdict so the internals line and
+//       the regime line can no longer contradict each other.
+// v1.3: CHOP regime strip added below ATHI/ATLO.
+// v1.4: Arrow band 0.5 -> 0.15 (a 14-day CHOP moves in tenths per session);
+//       delta derived from raw rather than from two composites that
+//       cancelled their own modifiers.
+// v1.5: CHOP right cluster cut to the composite badge and the zone label.
+//       Five elements there made the strip unscannable, which is the only
+//       job a strip has. The benchmark legs survive as 1px ticks on the
+//       track and in full in the tooltip.
+// v1.6: +4%/-4% dropped from Internals, and all three strips normalised to
+//       a shared width skeleton.
+//
+//       THE BARS WERE DIFFERENT LENGTHS FOR A STRUCTURAL REASON, not a
+//       styling one. Each bar is flex-1, so it absorbs whatever width the
+//       fixed elements around it leave behind — and the three strips carried
+//       different numbers of right-cluster items (four, two, five). The bar
+//       length was therefore encoding "how much other stuff is on this row",
+//       which is not information about the market. Three bars at three
+//       lengths also breaks the visual claim that they are the same kind of
+//       object read the same way.
+//
+//       Every slot is now a fixed width at sm and up: label, arrow, left
+//       value, right value, right cluster. The bar gets identical residual
+//       space on all three rows. Below sm the strips stack and the widths
+//       are dropped, since a column has no alignment to preserve.
 
 import React, { useEffect, useState, useRef } from 'react';
 
@@ -88,6 +87,21 @@ interface ChopData {
 }
 
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
+
+/* ---- Shared strip skeleton ----------------------------------------------
+   The three internals strips are one component shape rendered three times,
+   so their slots have to measure the same or the bars cannot match. Widths
+   are sized to the longest realistic content in each slot:
+
+     label    "ATHI / ATLO" at 9px tracking-widest
+     side     "DEC 1,149" — five digits plus a comma plus a three-char prefix
+     cluster  two badges plus a labelled ratio
+
+   Applied from sm up only. Stacked on mobile there is nothing to align. */
+const STRIP_LABEL_W = 'sm:w-[88px] sm:shrink-0';
+const STRIP_ARROW_W = 'sm:w-[12px] sm:shrink-0';
+const STRIP_SIDE_W = 'sm:w-[92px] sm:shrink-0';
+const STRIP_CLUSTER_W = 'sm:w-[172px] sm:shrink-0 sm:justify-end';
 
 // --- HELPERS ---
 const getMarketSession = (): MarketSession => {
@@ -167,12 +181,7 @@ const t2108ZoneLabel = (v: number | null, zone: string): string => {
    capped at +/-12, so together they can move the reading 24 points but never
    flip a decisive raw print on their own — a raw 20 cannot become chop and
    a raw 80 cannot become trend. They arbitrate the middle, which is the
-   only place the ambiguity lives.
-
-   First live reading confirmed the design: raw 49 with breadth 0/6 and
-   highs at 34% of the high/low total produced -12 from centrality and
-   +4.2 from balance, landing at ~41. Decisively negative internals are not
-   churn, and the composite said so. */
+   only place the ambiguity lives. */
 const CHOP_MODIFIER_CAP = 12;
 
 const chopComposite = (raw: number | null, breadth: BreadthData | null): number | null => {
@@ -210,12 +219,11 @@ const CHOP_TREND_BAND = 0.15;
 
 /* The QQQ/SPY spread is the rotation tell. When the Nasdaq trends while the
    broad market churns, the blend splits the difference and hides both facts.
-   For a book of momentum and growth names the QQQ leg is the more relevant
-   reading, and a wide spread means the blend is understating the regime the
-   trades actually live in.
 
    6 points is roughly where the two benchmarks stop describing the same
-   market — below that they are the same tape with noise between them. */
+   market. This threshold now only drives TOOLTIP wording, which is the right
+   weight for it — interesting when you go looking, not worth a pill
+   competing with the score. */
 const CHOP_SPREAD_NOTABLE = 6;
 
 // Fibonacci thresholds, the convention the indicator ships with. 61.8 and
@@ -265,13 +273,18 @@ const chopVerdict = (v: number | null): string => {
   return 'Strong trend. This is the regime breakout entries are built for.';
 };
 
-/* Which benchmark is the cleaner tape, and by how much. Returned as a short
-   token because it sits in a fixed-width slot on the strip. */
+// Tooltip-only. Reads as a sentence rather than a two-word pill, since
+// nothing constrains its width any more.
 const chopSpreadNote = (qqq: number | null, spy: number | null): string => {
   if (qqq == null || spy == null) return '';
   const gap = spy - qqq;
-  if (Math.abs(gap) < CHOP_SPREAD_NOTABLE) return 'aligned';
-  return gap > 0 ? 'QQQ cleaner' : 'SPY cleaner';
+  const abs = Math.abs(gap).toFixed(1);
+  if (Math.abs(gap) < CHOP_SPREAD_NOTABLE) {
+    return `Spread ${abs} pts — both benchmarks describe the same tape.`;
+  }
+  return gap > 0
+    ? `Spread ${abs} pts — the Nasdaq is trending better than the broad market, which favours momentum names.`
+    : `Spread ${abs} pts — the broad market is trending better than the Nasdaq; growth leadership is the weaker side.`;
 };
 
 // Builds a data-driven market-tone read straight from the live quotes and
@@ -339,7 +352,11 @@ const buildToneNarrative = (
     s2 = riskBits.join(', ') + tail + '.';
   }
 
-  // ---- 3. INTERNALS — measurement only, no verdict
+  /* ---- 3. INTERNALS — measurement only, no verdict.
+     The 4%-mover counts stay in the NARRATIVE even though they left the
+     strip. On the strip they were two more numbers competing for a glance;
+     in a sentence they qualify the advance/decline read, which is the only
+     context that makes them mean anything. */
   const nh = breadth?.newHighs ?? 0;
   const nl = breadth?.newLows ?? 0;
 
@@ -785,9 +802,7 @@ export default function MacroScorecard() {
      rigorous and was not: only today's breadth exists in state, so the same
      modifier was added to both sides and cancelled exactly in the
      subtraction. The arrow was tracking raw movement while the code claimed
-     otherwise. Raw-to-raw is the comparison actually available, and saying
-     so in the tooltip is more useful than implying a precision that isn't
-     there. */
+     otherwise. Raw-to-raw is the comparison actually available. */
   const chopRaw = chop?.blended ?? null;
   const chopRawPrev = chop?.blendedPrev ?? null;
   const chopVal = chopComposite(chopRaw, breadth);
@@ -797,10 +812,6 @@ export default function MacroScorecard() {
       : chopDelta > CHOP_TREND_BAND ? 'up'
       : chopDelta < -CHOP_TREND_BAND ? 'down'
       : 'flat';
-
-  const chopSpread = chop?.qqq != null && chop?.spy != null ? chop.spy - chop.qqq : null;
-  const chopSpreadLabel = chopSpreadNote(chop?.qqq ?? null, chop?.spy ?? null);
-  const chopSpreadWide = chopSpread != null && Math.abs(chopSpread) >= CHOP_SPREAD_NOTABLE;
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-xl">
@@ -904,19 +915,23 @@ export default function MacroScorecard() {
             </div>
           )}
 
-          {/* INTERNALS — advance/decline strip from the breadth feed */}
+          {/* INTERNALS — advance/decline strip from the breadth feed.
+              The 4%-mover counts moved to the tooltip and the narrative: on
+              the strip they were two more figures competing with the A/D
+              ratio for the same glance, and they qualify the advance read
+              rather than standing on their own. */}
           {breadth && (
             <div
               className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border border-white/5 bg-[#161c2a]/40 rounded-xl px-4 py-3 relative z-10 cursor-help"
-              title={`Advance / Decline — ${breadth.advancers.toLocaleString()} advancing vs ${breadth.decliners.toLocaleString()} declining (${advPct.toFixed(0)}% advancing). Above 60% = buyers in control. Below 40% = sellers dominate. +4% movers: ${breadth.up4} up / ${breadth.down4} down. A/D ratio: ${breadth.decliners > 0 ? (breadth.advancers / breadth.decliners).toFixed(2) : 'n/a'}.`}
+              title={`Advance / Decline — ${breadth.advancers.toLocaleString()} advancing vs ${breadth.decliners.toLocaleString()} declining (${advPct.toFixed(0)}% advancing). Above 60% = buyers in control. Below 40% = sellers dominate.\n\n4% movers: ${breadth.up4} up / ${breadth.down4} down.\nA/D ratio: ${breadth.decliners > 0 ? (breadth.advancers / breadth.decliners).toFixed(2) : 'n/a'}.`}
             >
-              <span className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 shrink-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
+              <span className={`flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 ${STRIP_LABEL_W}`}>
+                <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa] shrink-0"></span>
                 Internals
               </span>
 
               <span
-                className={`text-sm font-bold leading-none shrink-0 ${
+                className={`text-sm font-bold leading-none ${STRIP_ARROW_W} ${
                   adTrend === 'up' ? 'text-emerald-400' : adTrend === 'down' ? 'text-rose-400' : 'text-slate-600'
                 }`}
                 title={
@@ -929,7 +944,7 @@ export default function MacroScorecard() {
               </span>
 
               <div className="flex items-center gap-3 flex-1 min-w-0">
-                <span className="text-[11px] font-bold text-emerald-400 tabular-nums whitespace-nowrap">
+                <span className={`text-[11px] font-bold text-emerald-400 tabular-nums whitespace-nowrap ${STRIP_SIDE_W}`}>
                   ADV {breadth.advancers.toLocaleString()}
                 </span>
                 <div className="flex-1 h-1.5 rounded-full overflow-hidden bg-rose-500/30 min-w-[60px]" title={`${advPct.toFixed(0)}% of movers advancing`}>
@@ -938,20 +953,12 @@ export default function MacroScorecard() {
                     style={{ width: `${advPct}%` }}
                   ></div>
                 </div>
-                <span className="text-[11px] font-bold text-rose-400 tabular-nums whitespace-nowrap">
+                <span className={`text-[11px] font-bold text-rose-400 tabular-nums whitespace-nowrap sm:text-right ${STRIP_SIDE_W}`}>
                   DEC {breadth.decliners.toLocaleString()}
                 </span>
               </div>
 
-              <div className="flex items-center gap-4 shrink-0">
-                <span className="flex items-center gap-1.5 whitespace-nowrap" title="Names up 4%+ today">
-                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">+4%:</span>
-                  <span className="text-[11px] font-bold text-emerald-400 tabular-nums">{breadth.up4}</span>
-                </span>
-                <span className="flex items-center gap-1.5 whitespace-nowrap" title="Names down 4%+ today">
-                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">-4%:</span>
-                  <span className="text-[11px] font-bold text-rose-400 tabular-nums">{breadth.down4}</span>
-                </span>
+              <div className={`flex items-center gap-4 ${STRIP_CLUSTER_W}`}>
                 <span className="flex items-center gap-1.5 whitespace-nowrap" title="A/D ratio">
                   <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">A/D:</span>
                   <span className={`text-[11px] font-bold tabular-nums ${breadth.decliners > 0 && breadth.advancers / breadth.decliners >= 1 ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -971,13 +978,13 @@ export default function MacroScorecard() {
               className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border border-white/5 bg-[#161c2a]/40 rounded-xl px-4 py-3 relative z-10 cursor-help"
               title={`ATHI/ATLO — ${breadth.newHighs ?? 0} stocks within 1% of 52-week high vs ${breadth.newLows ?? 0} near 52-week low (${highsPct.toFixed(0)}% near highs). Above 60% = structural strength. Below 40% = defensive tape. H/L ratio: ${(breadth.newLows ?? 0) > 0 ? ((breadth.newHighs ?? 0) / (breadth.newLows ?? 0)).toFixed(2) : '∞'}.`}
             >
-              <span className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 shrink-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
+              <span className={`flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 ${STRIP_LABEL_W}`}>
+                <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa] shrink-0"></span>
                 ATHI / ATLO
               </span>
 
               <span
-                className={`text-sm font-bold leading-none shrink-0 ${
+                className={`text-sm font-bold leading-none ${STRIP_ARROW_W} ${
                   hlTrend === 'up' ? 'text-emerald-400' : hlTrend === 'down' ? 'text-rose-400' : 'text-slate-600'
                 }`}
                 title={
@@ -990,7 +997,7 @@ export default function MacroScorecard() {
               </span>
 
               <div className="flex items-center gap-3 flex-1 min-w-0">
-                <span className="text-[11px] font-bold text-emerald-400 tabular-nums whitespace-nowrap">
+                <span className={`text-[11px] font-bold text-emerald-400 tabular-nums whitespace-nowrap ${STRIP_SIDE_W}`}>
                   HIGHS {(breadth.newHighs ?? 0).toLocaleString()}
                 </span>
                 <div className="flex-1 h-1.5 rounded-full overflow-hidden bg-rose-500/30 min-w-[60px]" title={`${highsPct.toFixed(0)}% making new highs`}>
@@ -999,12 +1006,12 @@ export default function MacroScorecard() {
                     style={{ width: `${highsPct}%` }}
                   ></div>
                 </div>
-                <span className="text-[11px] font-bold text-rose-400 tabular-nums whitespace-nowrap">
+                <span className={`text-[11px] font-bold text-rose-400 tabular-nums whitespace-nowrap sm:text-right ${STRIP_SIDE_W}`}>
                   LOWS {(breadth.newLows ?? 0).toLocaleString()}
                 </span>
               </div>
 
-              <div className="flex items-center gap-4 shrink-0">
+              <div className={`flex items-center gap-4 ${STRIP_CLUSTER_W}`}>
                 <span className="flex items-center gap-1.5 whitespace-nowrap" title="New Highs / New Lows ratio">
                   <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">H/L:</span>
                   <span className={`text-[11px] font-bold tabular-nums ${(breadth.newHighs ?? 0) >= (breadth.newLows ?? 0) ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -1018,7 +1025,7 @@ export default function MacroScorecard() {
             </div>
           )}
 
-          {/* CHOP — regime strip. Same geometry as the two above, but the bar
+          {/* CHOP — regime strip. Same skeleton as the two above, but the bar
               is a SPECTRUM WITH A MARKER rather than a proportional fill.
               A/D and H/L are shares of a total, so a fill is an honest
               picture of them. CHOP is a single reading on a 0-100 scale —
@@ -1026,21 +1033,21 @@ export default function MacroScorecard() {
               exist. The marker sits at the score; the gradient behind it
               shows which end of the scale the score is near.
 
-              The QQQ and SPY markers sit on the SAME track as small ticks,
-              so the spread is visible as distance rather than as a number
-              the eye has to subtract. */}
+              The QQQ and SPY legs are 1px ticks on the same track, so the
+              spread reads as distance rather than as a number the eye has
+              to subtract. Their values are in the tooltip. */}
           {chopVal != null && (
             <div
               className={`flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border rounded-xl px-4 py-3 relative z-10 cursor-help ${chopStripStyle(chopVal)}`}
-              title={`CHOP ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal)}.\n\nRaw Choppiness Index (${chop?.period ?? 14}-day): QQQ ${chop?.qqq != null ? chop.qqq.toFixed(1) : '—'}, SPY ${chop?.spy != null ? chop.spy.toFixed(1) : '—'}, blended ${chopRaw != null ? chopRaw.toFixed(1) : '—'}.\nAdjusted ${chopRaw != null && chopVal - chopRaw >= 0 ? '+' : ''}${chopRaw != null ? (chopVal - chopRaw).toFixed(1) : '0'} by breadth centrality and high/low balance.\n${chopSpread != null ? `Spread ${Math.abs(chopSpread).toFixed(1)} pts — ${chopSpreadLabel === 'aligned' ? 'both benchmarks describing the same tape' : `${chopSpreadLabel}, the benchmarks disagree on regime`}.\n` : ''}\nAbove 61.8 = consolidation, breakouts fail. Below 38.2 = trending, breakouts follow through.\n\n${chopVerdict(chopVal)}`}
+              title={`CHOP ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal)}.\n\nRaw Choppiness Index (${chop?.period ?? 14}-day): QQQ ${chop?.qqq != null ? chop.qqq.toFixed(1) : '—'}, SPY ${chop?.spy != null ? chop.spy.toFixed(1) : '—'}, blended ${chopRaw != null ? chopRaw.toFixed(1) : '—'}.\nAdjusted ${chopRaw != null && chopVal - chopRaw >= 0 ? '+' : ''}${chopRaw != null ? (chopVal - chopRaw).toFixed(1) : '0'} by breadth centrality and high/low balance.\n${chopSpreadNote(chop?.qqq ?? null, chop?.spy ?? null)}\n\nAbove 61.8 = consolidation, breakouts fail. Below 38.2 = trending, breakouts follow through.\n\n${chopVerdict(chopVal)}`}
             >
-              <span className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 shrink-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
+              <span className={`flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 ${STRIP_LABEL_W}`}>
+                <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa] shrink-0"></span>
                 Chop
               </span>
 
               <span
-                className={`text-sm font-bold leading-none shrink-0 ${
+                className={`text-sm font-bold leading-none ${STRIP_ARROW_W} ${
                   chopTrend === 'up' ? 'text-amber-400' : chopTrend === 'down' ? 'text-emerald-400' : 'text-slate-600'
                 }`}
                 title={
@@ -1054,12 +1061,12 @@ export default function MacroScorecard() {
               </span>
 
               <div className="flex items-center gap-3 flex-1 min-w-0">
-                <span className="text-[11px] font-bold text-emerald-400 tabular-nums whitespace-nowrap">
+                <span className={`text-[11px] font-bold text-emerald-400 tabular-nums whitespace-nowrap ${STRIP_SIDE_W}`}>
                   TREND
                 </span>
                 <div
-                  className="flex-1 h-1.5 rounded-full relative min-w-[80px] bg-gradient-to-r from-emerald-400/35 via-slate-400/25 to-amber-400/40"
-                  title={`Composite at ${chopVal.toFixed(0)}; QQQ ${chop?.qqq != null ? chop.qqq.toFixed(0) : '—'}, SPY ${chop?.spy != null ? chop.spy.toFixed(0) : '—'}`}
+                  className="flex-1 h-1.5 rounded-full relative min-w-[60px] bg-gradient-to-r from-emerald-400/35 via-slate-400/25 to-amber-400/40"
+                  title={`Composite ${chopVal.toFixed(0)} · QQQ ${chop?.qqq != null ? chop.qqq.toFixed(0) : '—'} · SPY ${chop?.spy != null ? chop.spy.toFixed(0) : '—'}`}
                 >
                   {/* Fibonacci threshold ticks at 38.2 and 61.8 — the marker
                       means nothing without the boundaries it sits between. */}
@@ -1067,8 +1074,7 @@ export default function MacroScorecard() {
                   <div className="absolute top-[-2px] h-[9px] w-px bg-white/15" style={{ left: '61.8%' }}></div>
 
                   {/* Benchmark ticks, drawn UNDER the composite marker so the
-                      composite always reads as the primary value. Short and
-                      dim — they are context, not the headline. */}
+                      composite always reads as the primary value. */}
                   {chop?.qqq != null && (
                     <div
                       className="absolute top-[-1px] h-[7px] w-px bg-violet-400/70 transition-all duration-500"
@@ -1091,42 +1097,12 @@ export default function MacroScorecard() {
                     style={{ left: `calc(${chopVal}% - 1.5px)` }}
                   ></div>
                 </div>
-                <span className="text-[11px] font-bold text-amber-400 tabular-nums whitespace-nowrap">
+                <span className={`text-[11px] font-bold text-amber-400 tabular-nums whitespace-nowrap sm:text-right ${STRIP_SIDE_W}`}>
                   CHOP
                 </span>
               </div>
 
-              <div className="flex items-center gap-4 shrink-0">
-                {/* Benchmark legs, colour-matched to their ticks on the track
-                    so the number and the mark are obviously the same thing. */}
-                <span className="flex items-center gap-1.5 whitespace-nowrap" title={`QQQ ${chop?.period ?? 14}-day Choppiness Index`}>
-                  <span className="text-[9px] font-bold tracking-widest uppercase text-violet-400/70">QQQ:</span>
-                  <span className="text-[11px] font-bold text-slate-300 tabular-nums">
-                    {chop?.qqq != null ? chop.qqq.toFixed(0) : '—'}
-                  </span>
-                </span>
-                <span className="flex items-center gap-1.5 whitespace-nowrap" title={`SPY ${chop?.period ?? 14}-day Choppiness Index`}>
-                  <span className="text-[9px] font-bold tracking-widest uppercase text-sky-400/70">SPY:</span>
-                  <span className="text-[11px] font-bold text-slate-300 tabular-nums">
-                    {chop?.spy != null ? chop.spy.toFixed(0) : '—'}
-                  </span>
-                </span>
-                {chopSpread != null && (
-                  <span
-                    className={`text-[9px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border whitespace-nowrap ${
-                      chopSpreadWide
-                        ? 'text-violet-400 bg-violet-500/10 border-violet-500/20'
-                        : 'text-slate-500 bg-slate-500/10 border-white/10'
-                    }`}
-                    title={
-                      chopSpreadWide
-                        ? `${Math.abs(chopSpread).toFixed(1)}-point spread — the benchmarks disagree on regime. ${chopSpreadLabel === 'QQQ cleaner' ? 'The Nasdaq is trending better than the broad market, which favours momentum names.' : 'The broad market is trending better than the Nasdaq — growth leadership is the weaker side.'}`
-                        : `${Math.abs(chopSpread).toFixed(1)}-point spread — both benchmarks describe the same tape.`
-                    }
-                  >
-                    {chopSpreadLabel}
-                  </span>
-                )}
+              <div className={`flex items-center gap-4 ${STRIP_CLUSTER_W}`}>
                 <span className={`text-[10px] font-bold tabular-nums px-2 py-0.5 rounded border ${chopBadgeBg(chopVal)} ${chopColor(chopVal)}`}>
                   {chopVal.toFixed(0)}
                 </span>
