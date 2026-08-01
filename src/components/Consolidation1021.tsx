@@ -1,6 +1,27 @@
 'use client';
 
-// Consolidation1021 — v3.0
+// Consolidation1021 — v3.1
+//
+// v3.1: news asterisk beside the ticker, and provenance on the sub-row
+//       headline. Same treatment as the other four tables.
+//
+//   THE MARKER IS RARER HERE THAN ANYWHERE ELSE, and that is what makes it
+//   worth having. A coil is a stock going quiet — no move to explain, no
+//   volume to justify a story, so most rows will show nothing. The few that
+//   DO carry a headline are the ones where something happened and the price
+//   did not react to it, which is a genuinely unusual state and the kind of
+//   thing worth reading before the range resolves.
+//
+//   It cuts both ways and the row cannot say which. A contract award during
+//   a base with no price response is either the market not paying attention
+//   yet, or the market having decided the award does not matter. A dilutive
+//   offering during a base explains why the coil is tightening downward.
+//   The asterisk says "read this", not "this is bullish".
+//
+//   Fed by swing route v1.10, which moved both this table and Reversal/Swing
+//   off the dead Benzinga endpoint.
+//
+// v3.0: RS column switched from rsVsSpy (a SPREAD versus SPY) to the
 //
 // v3.0: RS column switched from rsVsSpy (a SPREAD versus SPY) to the
 //       market-wide RS RATING (a PERCENTILE).
@@ -214,6 +235,9 @@ interface ConsolidationCandidate {
   setupName?: string | null;
   catalyst?: string | null;
   catalystUrl?: string | null;
+  newsPublisher?: string | null;
+  newsAge?: string | null;
+  newsSentiment?: 'positive' | 'negative' | 'neutral' | null;
   cnfBreakdown?: Record<string, number> | null;
   cnfCeiling?: number | null;
   cnfCeilingReason?: string | null;
@@ -338,6 +362,32 @@ const headlineOf = (c: ConsolidationCandidate): string | null => {
 };
 
 const catalystUrlOf = (c: ConsolidationCandidate): string | null => c.catalystUrl ?? c.newsUrl ?? null;
+
+/* A row has news only when there is a HEADLINE AND a link. Both go through
+   the accessors above rather than reading fields directly, because this
+   component still supports the older payload shape where the headline
+   arrived as `news` or `headline` — bypassing them would make the asterisk
+   disagree with the sub-row on exactly those rows. */
+const hasNews = (c: ConsolidationCandidate): boolean =>
+  !!(headlineOf(c) && catalystUrlOf(c));
+
+/* One tooltip for the asterisk and the sub-row, so the two can never
+   describe the same article differently. */
+const newsTooltip = (c: ConsolidationCandidate): string => {
+  const headline = headlineOf(c);
+  if (!headline) return '';
+  const meta = [c.catalyst, c.newsPublisher, c.newsAge].filter(Boolean).join(' · ');
+  const lines: string[] = [];
+  if (meta) { lines.push(meta); lines.push(''); }
+  lines.push(headline);
+  lines.push('');
+  lines.push(
+    c.newsSentiment === 'negative'
+      ? 'Reads negative — on a coil that is often why the range is tightening downward.'
+      : 'Published while the base was forming, with no price reaction. Either the market has not priced it yet, or it decided this does not matter.'
+  );
+  return lines.join('\n');
+};
 
 const numField = (v: any): number | null => {
   if (v == null || isNaN(Number(v))) return null;
@@ -1139,6 +1189,23 @@ export default function Consolidation1021() {
                           <td className={tdBase}>
                             <div className="flex items-center justify-center gap-1.5">
                               <span title={row.name || row.symbol} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.symbol}</span>
+                              {/* Fixed-width whether or not there is news, so
+                                  the dots that follow sit at the same x on
+                                  every row. */}
+                              <span className="inline-block w-[9px] text-center leading-none shrink-0">
+                                {hasNews(row) && (
+                                  <a
+                                    href={catUrl!}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title={newsTooltip(row)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-amber-400/90 hover:text-amber-300 font-bold text-[11px] cursor-pointer transition-colors"
+                                  >
+                                    *
+                                  </a>
+                                )}
+                              </span>
                               {row.blueDot && <BlueDot />}
                             </div>
                           </td>
@@ -1260,7 +1327,7 @@ export default function Consolidation1021() {
                                   {plan?.collapsed ? 'no long plan' : plan?.note === 'trigger already passed' ? 'entry passed' : 'no plan'}
                                 </span>
                               )}
-                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={headline || undefined}>
+                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={newsTooltip(row) || headline || undefined}>
                                 {headline || tag ? (
                                   <>
                                     {tag && (
@@ -1275,6 +1342,17 @@ export default function Consolidation1021() {
                                       ) : (
                                         <span className="text-slate-500 font-normal">{headline}</span>
                                       )
+                                    )}
+                                    {/* Source and age, dimmer than the
+                                        headline. Age matters more on a coil
+                                        than elsewhere: a headline from four
+                                        days ago that the price still has not
+                                        reacted to is a different observation
+                                        from one published this morning. */}
+                                    {(row.newsPublisher || row.newsAge) && (
+                                      <span className="text-[8px] text-slate-600 font-medium ml-1.5 whitespace-nowrap">
+                                        {[row.newsPublisher, row.newsAge].filter(Boolean).join(' · ')}
+                                      </span>
                                     )}
                                   </>
                                 ) : (
