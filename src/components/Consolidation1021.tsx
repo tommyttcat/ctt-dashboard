@@ -1,6 +1,30 @@
 'use client';
 
-// Consolidation1021 — v2.9
+// Consolidation1021 — v3.0
+//
+// v3.0: RS column switched from rsVsSpy (a SPREAD versus SPY) to the
+//       market-wide RS RATING (a PERCENTILE).
+//
+//   Like SwingCandidates and unlike the other tables, RS is not decoration
+//   here — the shared swing route gates on it and scores 30 of 100 points
+//   from it, so route v1.9 changed which coils appear and what they score:
+//
+//       old   reject if rsVsSpy <= 0        score min(rsVsSpy/20, 1) x 30
+//       new   reject if rsRating < 50       score ((rs-50)/40 clamped) x 30
+//
+//   The gate preserves the old strictness rather than adopting Minervini's
+//   70; "beat SPY by any margin" is roughly the median, so 50 is the
+//   translation.
+//
+//   THE RS GATE MATTERS MORE ON A COIL TABLE THAN IT LOOKS. A base is a
+//   stock going nowhere by construction, so nothing in the coil measurements
+//   themselves — tightness, days in base, volume drying — can distinguish a
+//   leader pausing from a laggard drifting. They produce identical
+//   silhouettes. Relative strength over the trailing year is the only thing
+//   on this table that separates them, which is why it gates rather than
+//   merely scoring.
+//
+// v2.9: filter consolidation — 10 groups / 19 buttons down to 8 / 13.
 // v2.5: dropped the ? badge — the cluster wrapper is cursor-help with the
 //       combined tooltip, and each stat keeps its own hover.
 // v2.6: DIC / PM / BVR / 10/21% collapsed into a single RDY score.
@@ -55,6 +79,7 @@ import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { stateOf, stateTooltip, stateLegend } from '@/lib/indicators/state';
+import { rsColor, rsTooltip } from '@/lib/indicators/rs';
 import { CONSOL_META, COLUMN_NOTES } from '@/lib/scanConfig';
 import MetricsKey from './MetricsKey';
 
@@ -103,8 +128,8 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Green high (accumulation) · red low (distribution).',
   },
   RS: {
-    what: 'Relative strength vs SPY over three months, in percentage points.',
-    colour: 'Purple +20 · green +10 · grey positive · red negative.',
+    what: 'Minervini / IBD Relative Strength Rating — a PERCENTILE against every liquid US stock, not a spread versus SPY. 88 means stronger than 88% of the market over the trailing year, with the most recent quarter double-weighted.\n\nThis is the most important column on a coil table. A base is a stock going nowhere by construction, so tightness, days in base and volume drying cannot tell a leader pausing from a laggard drifting — they look identical. RS is what separates them, and it gates: names below 50 never reach this table.\n\nComputed on closing prices, so it does not move intraday.',
+    colour: 'Purple 90+ · green 80+ · slate 70+ · red below the floor.',
   },
   STOCH: {
     what: 'Stochastic %K (10). Low readings near a rising 21 EMA are the Blue Dot precondition.',
@@ -174,7 +199,7 @@ interface ConsolidationCandidate {
   aboveEma10?: boolean;
   aboveEma21?: boolean;
   stochK?: number;
-  rsVsSpy?: number;
+  rsRating?: number;
   avgDollarVolM?: number;
   goldenCross?: boolean;
   ema21Rising?: boolean;
@@ -268,21 +293,6 @@ const formatLevel = (v: number | null | undefined): string => {
   if (n >= 100) return n.toFixed(0);
   if (n >= 10) return n.toFixed(1);
   return n.toFixed(2);
-};
-
-const formatRs = (rs: number | null | undefined): string => {
-  if (rs == null || isNaN(Number(rs))) return '—';
-  const v = Number(rs);
-  const sign = v >= 0 ? '+' : '-';
-  const abs = Math.abs(v);
-  if (abs >= 1000) {
-    const k = abs / 1000;
-    const s = k >= 10
-      ? Math.round(k).toString()
-      : (Math.round(k * 10) / 10).toString().replace(/\.0$/, '');
-    return `${sign}${s}k%`;
-  }
-  return `${sign}${Math.round(abs)}%`;
 };
 
 const statePair = (rmv: number | null, rme: number | null): string => {
@@ -848,13 +858,6 @@ export default function Consolidation1021() {
     if (k <= 30) return 'text-emerald-400';
     return 'text-slate-400';
   };
-  const getRsColor = (rs: number | null | undefined) => {
-    if (rs == null) return 'text-slate-500';
-    if (rs >= 20) return 'text-purple-400';
-    if (rs >= 10) return 'text-emerald-400';
-    if (rs >= 0) return 'text-slate-300';
-    return 'text-rose-400';
-  };
   const getCoilColor = (r: number | null) => {
     if (r == null) return 'text-slate-500';
     if (r <= COIL_COILED_MAX) return 'text-purple-400';
@@ -1100,7 +1103,7 @@ export default function Consolidation1021() {
                   <th className={`${thBase} w-[6%]`} title={colTip('COIL')} onClick={() => handleSort('coilRatio')}>COIL{getSortIcon('coilRatio')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
@@ -1203,8 +1206,8 @@ export default function Consolidation1021() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={mf != null ? `Money Flow ${mf.toFixed(0)} — ${mfLabel(mf)}` : undefined}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`} title={row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)} percentage points vs SPY over three months` : undefined}>
-                            {formatRs(row.rsVsSpy)}
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums cursor-help ${rsColor(row.rsRating)}`} title={rsTooltip(row.rsRating)}>
+                            {row.rsRating ?? '—'}
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`}>
