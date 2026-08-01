@@ -1,4 +1,30 @@
-// app/api/vcp/run/route.ts — v1.0
+// app/api/vcp/run/route.ts — v1.1
+//
+// v1.1: two changes.
+//
+//   (a) RS RATING NOW COMES FROM /api/rs/run rather than being computed
+//       here. This route ranked its own universe — every stock clearing its
+//       $10 / 200k floors — while the shared job ranks everything above
+//       $5 / 100k. Same formula, DIFFERENT POPULATIONS, and therefore
+//       different percentiles for the same stock on the same day: a name
+//       rating 85 against the VCP universe rates a point or two higher
+//       against the broader one, because the VCP population is already
+//       filtered toward strength and is a tougher field to rank inside.
+//
+//       That was fine while this was the only percentile on the dashboard.
+//       It is not fine now that four scans show an RS column, because two
+//       tables could give the same stock two ratings and both would be
+//       internally correct.
+//
+//       Removing the inline version also deletes ~15 grouped-aggregate
+//       calls per scan — the anchor fetches the shared job already performs
+//       once daily for the whole market.
+//
+//   (b) BACKGROUND EXECUTION for cron. This scan runs in about eleven
+//       seconds today, comfortably inside cron-job.org's ~30s ceiling, but
+//       its runtime scales with how many names clear the prefilter and a
+//       day full of bases would push it over. Cheap to add now, irritating
+//       to diagnose later.
 //
 // VCP — Volatility Contraction Pattern (Mark Minervini)
 //
@@ -64,8 +90,6 @@ import {
   atrPercent,
   findPivots,
   extractContractions,
-  rawRsScore,
-  percentileRank,
   PIVOT_ATR_MULTIPLE,
   VCP_MIN_CONTRACTIONS,
   VCP_MAX_CONTRACTIONS,
@@ -77,6 +101,8 @@ import {
 } from '@/lib/indicators/vcp';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { computeStage } from '@/lib/indicators/stage';
+import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
+import { runInBackground, isDetachedRun, BG_HEADERS } from '@/lib/background';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -111,9 +137,6 @@ export const VCP_GATES = {
 
 const ENRICH_CONCURRENCY = 8;
 
-/* Trading days back for each RS leg. The 63-day leg is read out of the
-   recent window; the rest need their own grouped fetches. */
-const RS_ANCHORS_TRADING = [126, 189, 252];
 
 /* Trading days to calendar days, roughly. 252 trading days is a year, so the
    ratio is about 1.45. Used only to guess where to start looking — each
@@ -332,90 +355,6 @@ async function fetchRecentWindow(
   return { series, datesUsed: kept.map(d => d.date) };
 }
 
-// ---------------------------------------------------------------
-// Stage 3: RS anchors
-//
-// Three far-back grouped dates. Each walks back day by day until one returns
-// results, so holidays and weekends resolve themselves.
-// ---------------------------------------------------------------
-async function fetchRsAnchors(
-  universe: Set<string>
-): Promise<{ anchors: Map<number, Map<string, number>>; datesUsed: Record<number, string | null> }> {
-  const anchors = new Map<number, Map<string, number>>();
-  const datesUsed: Record<number, string | null> = {};
-
-  for (const tradingBack of RS_ANCHORS_TRADING) {
-    const startCalendar = Math.round(tradingBack * TRADING_TO_CALENDAR);
-    let found: { date: string; results: any[] } | null = null;
-
-    for (let attempt = 0; attempt < ANCHOR_MAX_ATTEMPTS && !found; attempt++) {
-      const dt = dateDaysAgo(startCalendar + attempt);
-      const day = dt.getUTCDay();
-      if (day === 0 || day === 6) continue;
-      const date = ymd(dt);
-      const d = await polygonSafe<{ results?: any[] }>(
-        `/v2/aggs/grouped/locale/us/market/stocks/${date}?adjusted=true`,
-        { results: [] }
-      );
-      if ((d.results ?? []).length > 0) found = { date, results: d.results ?? [] };
-    }
-
-    const m = new Map<string, number>();
-    if (found) {
-      for (const bar of found.results) {
-        if (!universe.has(bar.T)) continue;
-        if (typeof bar.c === 'number' && bar.c > 0) m.set(bar.T, bar.c);
-      }
-    }
-    anchors.set(tradingBack, m);
-    datesUsed[tradingBack] = found?.date ?? null;
-  }
-
-  return { anchors, datesUsed };
-}
-
-// ---------------------------------------------------------------
-// Stage 4a: RS ratings for the whole universe
-//
-// THE RANKING POPULATION IS EVERY LIQUID STOCK, not the VCP candidates.
-// Ranking candidates against each other would produce a number that says
-// "strongest among stocks already chosen for strength", which carries no
-// information at all.
-// ---------------------------------------------------------------
-function computeRsRatings(
-  series: Map<string, VcpBar[]>,
-  anchors: Map<number, Map<string, number>>,
-  snapMap: Map<string, SnapInfo>
-): { ratings: Map<string, number>; raws: Map<string, number>; scored: number } {
-  const raws = new Map<string, number>();
-
-  series.forEach((bars, sym) => {
-    const snap = snapMap.get(sym);
-    if (!snap || snap.price <= 0) return;
-    if (bars.length < 64) return;
-
-    // 63 trading days back, out of the window already in hand.
-    const p63 = bars[bars.length - 64]?.c ?? null;
-
-    const raw = rawRsScore({
-      p0: snap.price,
-      p63,
-      p126: anchors.get(126)?.get(sym) ?? null,
-      p189: anchors.get(189)?.get(sym) ?? null,
-      p252: anchors.get(252)?.get(sym) ?? null,
-    });
-
-    if (raw != null && Number.isFinite(raw)) raws.set(sym, raw);
-  });
-
-  const sorted = Array.from(raws.values()).sort((a, b) => a - b);
-  const ratings = new Map<string, number>();
-  raws.forEach((raw, sym) => {
-    ratings.set(sym, percentileRank(raw, sorted));
-  });
-
-  return { ratings, raws, scored: raws.size };
-}
 
 /* ---- Stage 4b: structural prefilter -------------------------------------
    DELIBERATELY LOOSER THAN THE REAL TEST, for a reason that matters.
@@ -601,7 +540,7 @@ function buildLevels(vcp: VcpResult, price: number): {
   return { trigger, stop, stopPct, target };
 }
 
-export async function GET(request: Request) {
+async function runScan(request: Request) {
   const started = Date.now();
 
   try {
@@ -615,14 +554,29 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: 'Empty universe from snapshot' }, { status: 502 });
     }
 
-    // --- 2 & 3. Market-wide history, in parallel ---
-    const [{ series, datesUsed }, { anchors, datesUsed: anchorDates }] = await Promise.all([
+    /* --- 2 & 3. Market-wide history and the shared RS map, in parallel ---
+
+       The anchor fetches that used to live here are gone: /api/rs/run pulls
+       them once daily for the whole market and writes the ranked result to
+       KV, so this is a single read instead of ~15 grouped calls.
+
+       A missing or stale map is FATAL to this scan, unlike the others. RS is
+       a hard gate here — VCP_GATES.minRsRating — so an absent map would send
+       every name through the gate unrated and the scan would either return
+       nothing or, worse, return bases with no strength requirement at all
+       while looking like it worked. */
+    const [{ series, datesUsed }, rsLookup] = await Promise.all([
       fetchRecentWindow(symbols, VCP_GATES.windowTradingDays),
-      fetchRsAnchors(symbols),
+      loadRsRatings(),
     ]);
 
-    // --- 4a. RS ratings across the whole liquid universe ---
-    const { ratings, raws, scored: rsScored } = computeRsRatings(series, anchors, snapMap);
+    if (!rsLookup.available) {
+      return NextResponse.json({
+        success: false,
+        error: `RS ratings unavailable — ${rsLookup.reason ?? 'unknown'}. This scan gates on RS, so it will not run without them.`,
+        hint: 'Run /api/rs/run, then retry.',
+      }, { status: 503 });
+    }
 
     // --- 4b. Structural prefilter ---
     const prefiltered: { sym: string; rs: number }[] = [];
@@ -640,7 +594,7 @@ export async function GET(request: Request) {
       if (avgVol < VCP_GATES.minAvgVolume) { liquidityRejects++; return; }
       if (avgVol * snap.price < VCP_GATES.minDollarVol) { liquidityRejects++; return; }
 
-      const rs = ratings.get(sym);
+      const rs = rsLookup.get(sym);
       if (rs == null || rs < VCP_GATES.minRsRating) { rsRejects++; return; }
 
       if (!prefilterVcp(bars)) { structureRejects++; return; }
@@ -729,7 +683,11 @@ export async function GET(request: Request) {
         scoreBreakdown: scored.breakdown,
 
         rsRating: rs,
-        rsRaw: raws.get(sym) != null ? +raws.get(sym)!.toFixed(3) : null,
+        /* rsRaw is gone. It was the pre-ranking score from this route's own
+           computation, and the shared job does not publish per-symbol raws —
+           only the ranked percentile, which is the number that means
+           anything. */
+        rsRaw: null,
 
         contractionCount: vcp.contractionCount,
         depths: vcp.depths.map(d => +d.toFixed(1)),
@@ -786,7 +744,9 @@ export async function GET(request: Request) {
     const scanTime = Date.now();
     const meta = {
       gates: VCP_GATES,
-      rsAnchorDates: anchorDates,
+      rsAsOf: rsLookup.asOf,
+      rsAgeDays: rsLookup.ageDays,
+      rsRankedUniverse: rsLookup.ranked,
       windowStart: datesUsed[0] ?? null,
       windowEnd: datesUsed[datesUsed.length - 1] ?? null,
       windowBars: datesUsed.length,
@@ -797,7 +757,6 @@ export async function GET(request: Request) {
     await kv.set('vcp_meta_v1', {
       ...meta,
       universe: symbols.size,
-      rsScored,
       prefiltered: prefiltered.length,
       confirmed: confirmed.length,
       count: finalList.length,
@@ -817,7 +776,7 @@ export async function GET(request: Request) {
       funnel: {
         universe: symbols.size,
         withHistory: series.size,
-        rsScored,
+        rsRankedUniverse: rsLookup.ranked,
         liquidityRejects,
         rsRejects,
         structureRejects,
@@ -836,4 +795,29 @@ export async function GET(request: Request) {
     console.error('VCP_RUN_ERROR:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
+}
+
+/* ---- Entry point --------------------------------------------------------
+   ?bg=true acknowledges immediately and runs the scan after the response
+   flushes — that is what cron should hit. Without it the route runs
+   synchronously, which is what you want by hand: the response carries the
+   funnel, and the funnel is the only way to tell "the market has no bases"
+   from "the scan is broken".
+
+   isDetachedRun() forces the synchronous path even if `bg` survived into a
+   self-call. The background lib already strips the parameter, so this guards
+   against a recursion that would spawn scans until the platform cut them
+   off, with none ever finishing. */
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const background = searchParams.get('bg') === 'true' && !isDetachedRun(request);
+
+  if (!background) return runScan(request);
+
+  const result = await runInBackground(request, 'vcp', () => runScan(request));
+  return NextResponse.json({ success: true, ...result }, { headers: BG_HEADERS });
+}
+
+export async function POST(request: Request) {
+  return GET(request);
 }
