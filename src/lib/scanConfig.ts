@@ -104,7 +104,11 @@ export const SWING = {
   maxPctOffHigh: 20,
   maxDistToEma21: 4,
   maxStochK: 35,
-  rsLookback: 63,
+  /* rsLookback is gone. It set the window for the SPY benchmark return that
+     produced rsVsSpy; swing route v1.9 replaced that with the shared RS
+     Rating, whose lookback is fixed by the IBD formula (four quarters, most
+     recent double-weighted) inside /api/rs/run. Leaving a 63 here would
+     imply this scan still chooses a window it no longer controls. */
   earningsBlackoutDays: 7,
   universeSize: 120,
 } as const;
@@ -112,11 +116,11 @@ export const SWING = {
 export const SWING_META: ScanConfigMeta = {
   title: 'Reversal / Swing',
   premise:
-    'Leaders pulling back into their 21 EMA with the stochastic oversold \u2014 the Dr. Wish blue-dot entry. Every name here is already outperforming SPY; the scan is looking for the rest.',
+    'Leaders pulling back into their 21 EMA with the stochastic oversold \u2014 the Dr. Wish blue-dot entry. Every name here already ranks in the stronger half of the market on relative strength; the scan is looking for the rest.',
   gates: [
     { label: 'Price', value: `${usd(SWING.minPrice)} \u2013 ${usd(SWING.maxPrice)}`, why: 'Excludes penny names and the handful of four-figure listings.' },
     { label: 'Avg $ volume', value: `\u2265 ${usd(SWING.minAvgDollarVol)} (20d)`, why: 'Institutional liquidity \u2014 you need size on both sides.' },
-    { label: 'RS vs SPY', value: '> 0', why: 'Hard gate. A name that cannot beat the index over three months is not a leader.' },
+    { label: 'RS Rating', value: '\u2265 50', why: 'Hard gate, and 35 of the 100 score points. A percentile against the whole liquid market rather than a spread versus SPY \u2014 50 is the median, chosen to preserve the strictness of the old "beat SPY by any margin" test rather than to adopt Minervini\'s 70. Raising it would make this a leadership scan instead of a pullback scan.' },
     { label: 'Trend', value: 'Above 50 & 200 SMA', why: 'Pullbacks only work inside an uptrend.' },
     { label: 'ATR', value: `${pct(SWING.minAtrPct)} \u2013 ${pct(SWING.maxAtrPct)}`, why: 'Enough movement to pay, not so much the stop is unmanageable.' },
     { label: 'Off highs', value: `${pct(SWING.minPctOffHigh)} \u2013 ${pct(SWING.maxPctOffHigh)}`, why: 'A real pullback, not an extended name and not broken structure.' },
@@ -161,7 +165,7 @@ export const CONSOL_META: ScanConfigMeta = {
     { label: 'Coil ratio', value: `\u2264 ${CONSOL.maxCoilRatio}\u00d7 ATR`, why: 'The primary gate. A stock drifts ~3-4\u00d7 ATR over ten sessions; tighter is a genuine coil.' },
     { label: 'Today', value: `within \u00b1${pct(CONSOL.maxDayChange)}`, why: 'Quiet tape today \u2014 an event bar is not consolidation.' },
     { label: 'Off highs', value: `\u2264 ${pct(CONSOL.maxPctOffHigh)}`, why: 'Basing below the highs, not repairing real damage.' },
-    { label: 'RS vs SPY', value: '> 0', why: 'Same leadership requirement as the swing scan.' },
+    { label: 'RS Rating', value: '\u2265 50', why: 'Same gate as the swing scan, and 30 of the score. It matters more here than it looks: a base is a stock going nowhere by construction, so tightness, days in base and volume drying cannot tell a leader pausing from a laggard drifting \u2014 they look identical. Relative strength is the only thing that separates them.' },
   ],
   shows: `Top ${CONSOL.finalSize} by score \u00b7 "Coiled" = \u2264 ${CONSOL.tightCoilRatio}\u00d7 ATR`,
 };
