@@ -18,6 +18,31 @@
 // v1.3: thresholds moved to lib/scanConfig and shipped in the payload.
 // v1.4: + Stochastic %K(10) emitted as stochK.
 // v1.5: + trade plan, raw EMA levels, dayHigh/dayLow, priorSwingHigh.
+// v1.7: two changes.
+//
+//   (a) BACKGROUND EXECUTION for cron. This scan completes well inside
+//       Vercel's 300-second limit; what times out is cron-job.org, which
+//       gives up waiting at around thirty seconds. The work finished, KV
+//       updated, and the cron dashboard reported a failure anyway.
+//
+//       That is worse than it sounds. A monitor that cries wolf on every run
+//       trains you to ignore it, and then a REAL failure — a Polygon outage,
+//       an expired key, a bad deploy — arrives looking exactly like the noise
+//       you have been dismissing. Point cron at ?bg=true and the response is
+//       immediate and honest: received, running.
+//
+//   (b) rsVsSpy REPLACED by the market-wide RS RATING from /api/rs/run.
+//       Until now "RS" meant a percentile on the VCP table and a spread
+//       everywhere else — same column header, different claims. +18 versus
+//       SPY might be 60th percentile in a strong tape and 95th in a weak
+//       one, and the spread cannot tell you which.
+//
+//       The rating is looked up, not computed. Four routes each ranking
+//       their own universe would give four different answers for the same
+//       stock on the same day.
+//
+//       NOTE: rsVsSpy was NOT part of scoreEp9m, so no EP score moves.
+//
 // v1.6: + PER-TICKER CHOPPINESS INDEX (chop14).
 //
 //       CHOP MATTERS MORE ON THIS TABLE THAN ANY OTHER, and the reason is the
@@ -87,6 +112,8 @@ import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { computeTradePlan } from '@/lib/indicators/tradeplan';
 import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN, CHOP_TREND_MAX } from '@/lib/indicators/chop';
 import { EP9M, EP9M_META } from '@/lib/scanConfig';
+import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
+import { runInBackground, isDetachedRun, BG_HEADERS } from '@/lib/background';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -199,7 +226,7 @@ interface Ep9mCandidate {
   ema21Rising: boolean | null;
   goldenCross: boolean | null;
   pctOffHigh: number | null;
-  rsVsSpy: number | null;
+  rsRating: number | null;
   priorTriggers: number;
   sugarBaby: boolean;
   catalyst: string | null;
@@ -390,6 +417,10 @@ function stochasticK(bars: Bar[], period = 10): number | null {
   return Math.round(((close - lowestLow) / range) * 100 * 10) / 10;
 }
 
+/* Currently unused — its only caller was the SPY benchmark return behind
+   rsVsSpy, which v1.7 replaced with the shared RS Rating. Kept because it is
+   a correct, generic helper and the next thing that needs a trailing return
+   should not have to rewrite it. */
 function pctReturn(closes: number[], lookback: number): number | null {
   if (closes.length < lookback + 1) return null;
   const then = closes[closes.length - 1 - lookback];
@@ -743,7 +774,7 @@ async function readRegistry(): Promise<RegistryEntry[]> {
   }
 }
 
-export async function GET() {
+async function runScan(request: Request) {
   try {
     if (!POLYGON_KEY) {
       return NextResponse.json({ success: false, error: 'Missing Polygon API Key' }, { status: 500 });
@@ -751,12 +782,17 @@ export async function GET() {
 
     const today = dateStr(0);
 
-    const spyRes = await polygonSafe<{ results?: Bar[] }>(
-      `/v2/aggs/ticker/SPY/range/1/day/${dateStr(450)}/${today}?adjusted=true&sort=asc&limit=5000`,
-      { results: [] }
-    );
-    const spyBars = spyRes.results ?? [];
-    const spyReturn = pctReturn(spyBars.map(b => b.c), 63);
+    /* One lookup for the whole scan. Loading it here rather than inside the
+       per-ticker enrichment matters: that runs once per shortlisted name
+       across concurrent batches, and a KV read per ticker would be dozens of
+       requests for a map that cannot change mid-scan.
+
+       THIS REPLACED A SPY HISTORY FETCH. rsVsSpy needed 450 days of SPY bars
+       to compute a benchmark return; the rating needs none, because the
+       ranking already happened in /api/rs/run. One fewer Polygon call per
+       scan, and pctReturn() below now has no caller — left in place because
+       it is a generic helper worth having, not because anything uses it. */
+    const rsLookup: RsLookup = await loadRsRatings();
 
     const { symbols, snapMap } = await getUniverse();
 
@@ -844,8 +880,12 @@ export async function GET() {
       const hi52 = hiWindow.length ? Math.max(...hiWindow) : null;
       const pctOffHigh = hi52 && hi52 > 0 ? ((price - hi52) / hi52) * 100 : null;
 
-      const ret3M = pctReturn(closes, 63);
-      const rsVsSpy = ret3M != null && spyReturn != null ? ret3M - spyReturn : null;
+      /* A lookup, not a calculation. Null is common and benign — the name
+         sits below the ranking floor, or listed less than a quarter ago and
+         has no recent leg to weight. Null renders as an em-dash and drops
+         out of any RS filter, which is the honest outcome: a stale or
+         invented percentile would pass filters and get traded on. */
+      const rsRating = rsLookup.get(sym);
 
       const mktCap = details?.results?.market_cap || null;
       const float = details?.results?.share_class_shares_outstanding || (mktCap && price ? mktCap / price : null);
@@ -924,7 +964,7 @@ export async function GET() {
           ema21Rising: e21 != null && e21Prev != null ? e21 > e21Prev : null,
           goldenCross: sma50 != null && sma200 != null ? sma50 > sma200 : null,
           pctOffHigh,
-          rsVsSpy,
+          rsRating,
           stage: computeStage(closes, { price }),
           ema10: e10,
           ema21: e21,
@@ -1019,7 +1059,7 @@ export async function GET() {
         ema21Rising: raw.ema21Rising,
         goldenCross: raw.goldenCross,
         pctOffHigh: raw.pctOffHigh != null ? +raw.pctOffHigh.toFixed(1) : null,
-        rsVsSpy: raw.rsVsSpy != null ? +raw.rsVsSpy.toFixed(1) : null,
+        rsRating: raw.rsRating,
         priorTriggers,
         sugarBaby: priorTriggers >= 2,
         catalyst,
@@ -1123,4 +1163,32 @@ export async function GET() {
     console.error('EP9M_RUN_ERROR:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
+}
+
+/* ---- Entry point --------------------------------------------------------
+   ?bg=true acknowledges immediately and runs the scan after the response
+   flushes. That is what cron should hit: the client gets its 200 in under a
+   second instead of waiting out a scan it has no reason to wait for.
+
+   WITHOUT ?bg THE ROUTE STILL RUNS SYNCHRONOUSLY, which is what you want
+   when triggering it by hand — the response carries the funnel, the plan
+   coverage and the chop distribution, and none of that is worth having if
+   the request returns before the numbers exist.
+
+   isDetachedRun() forces the synchronous path even if `bg` somehow survived
+   into a self-call. The background lib already strips the parameter, so this
+   is belt-and-braces against a recursion that would spawn scans until the
+   platform cut it off, with none of them ever finishing. */
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const background = searchParams.get('bg') === 'true' && !isDetachedRun(request);
+
+  if (!background) return runScan(request);
+
+  const result = await runInBackground(request, 'ep9m', () => runScan(request));
+  return NextResponse.json({ success: true, ...result }, { headers: BG_HEADERS });
+}
+
+export async function POST(request: Request) {
+  return GET(request);
 }
