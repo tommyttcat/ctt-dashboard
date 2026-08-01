@@ -1,814 +1,1091 @@
-// app/api/vcp/run/route.ts — v1.1
+'use client';
+
+// Vcp — Volatility Contraction Pattern (Mark Minervini) — v1.0
 //
-// v1.1: two changes.
-//
-//   (a) RS RATING NOW COMES FROM /api/rs/run rather than being computed
-//       here. This route ranked its own universe — every stock clearing its
-//       $10 / 200k floors — while the shared job ranks everything above
-//       $5 / 100k. Same formula, DIFFERENT POPULATIONS, and therefore
-//       different percentiles for the same stock on the same day: a name
-//       rating 85 against the VCP universe rates a point or two higher
-//       against the broader one, because the VCP population is already
-//       filtered toward strength and is a tougher field to rank inside.
-//
-//       That was fine while this was the only percentile on the dashboard.
-//       It is not fine now that four scans show an RS column, because two
-//       tables could give the same stock two ratings and both would be
-//       internally correct.
-//
-//       Removing the inline version also deletes ~15 grouped-aggregate
-//       calls per scan — the anchor fetches the shared job already performs
-//       once daily for the whole market.
-//
-//   (b) BACKGROUND EXECUTION for cron. This scan runs in about eleven
-//       seconds today, comfortably inside cron-job.org's ~30s ceiling, but
-//       its runtime scales with how many names clear the prefilter and a
-//       day full of bases would push it over. Cheap to add now, irritating
-//       to diagnose later.
-//
-// VCP — Volatility Contraction Pattern (Mark Minervini)
-//
-// Finds stocks BUILDING a base, not stocks that have already broken out of
-// one. That distinction is the reason this scan exists separately from
-// /api/scanner/run, whose detectPattern() names a VCP only when
-// `currentPrice > baseHigh` — i.e. on the day the pivot is already behind
-// you. A base is worth watching for the two to six weeks BEFORE that.
+// The only table on the dashboard that surfaces a setup BEFORE it triggers.
+// Every other scan gates on something that has already happened — +4% today,
+// 9M shares today, a blue dot that has fired. A VCP is worth watching for the
+// two to six weeks while the base is still building, and this table is
+// ordered around that.
 //
 // ---------------------------------------------------------------------------
-// THE PIPELINE, and why it is shaped this way.
+// THE CONTRACTION SEQUENCE IS THE HEADLINE COLUMN, and it is the one thing no
+// other table here shows. "24 → 11 → 5" is the entire pattern in nine
+// characters: three pullbacks, each roughly half the last, supply drying out.
+// A score can summarise that but cannot replace it — 24 → 11 → 5 and
+// 14 → 13 → 12 can produce similar scores and are completely different
+// structures, and only the sequence makes that visible at a glance.
 //
-// The expensive thing in any market-wide structural scan is per-ticker daily
-// bars. At ~3,000 names that is 3,000 calls, which is slow even with
-// unlimited quota. So the work is staged cheapest-first:
+// ---------------------------------------------------------------------------
+// ON THE BREAKING-OUT STATUS, which needs care.
 //
-//   1. UNIVERSE (1 call)
-//      Full-market snapshot. Price, volume and instrument-type floors.
+// The lib sets status to 'breaking-out' whenever price is above the pivot,
+// with NO BOUND ON HOW FAR ABOVE. A name that cleared its pivot three weeks
+// ago and ran 18% still reports 'breaking-out' — the pattern is real, the
+// entry is long gone. On the first live scan five of nine names were in that
+// state, so untreated this table would be half names you already missed.
 //
-//   2. RECENT WINDOW (~126 calls, whole market)
-//      Grouped daily aggregates, one call per trading date. Gives OHLCV for
-//      EVERY stock across the base window in ~126 requests rather than 3,000.
-//      This is the same trick /api/ep9m/run uses for its volume profile.
+// Handled here rather than in the lib because pctToPivot already carries the
+// distance and the fix is a display decision: a breakout within
+// FRESH_BREAKOUT_PCT of the pivot is actionable, beyond that it is labelled
+// EXTENDED and coloured as a warning. The underlying `status` field is left
+// untouched so the route's statusCounts stay comparable across scans.
 //
-//   3. RS ANCHORS (~15 calls, whole market)
-//      Three far-back grouped dates for the 126/189/252-day legs of the RS
-//      formula. The 63-day leg comes free from the window in step 2.
-//
-//   4. PREFILTER (no calls)
-//      Structural screen on the window data — two or more contractions, final
-//      leg tight, legs shallowing. Deliberately LOOSER than the real test
-//      because 90 bars cannot measure the prior advance properly; see the
-//      note on prefilterVcp().
-//
-//   5. CONFIRM (one call per survivor, typically 30-80)
-//      Full history per shortlisted name. This is the AUTHORITATIVE pass:
-//      analyzeVcp with enough bars behind the base to measure the prior
-//      advance, plus the 200-day Trend Template, which needs 200 bars and
-//      therefore cannot be done in step 4 at any price.
-//
-// Net: roughly 150 market-wide calls plus a few dozen per-ticker, instead of
-// 3,000 per-ticker.
+// The cleaner long-term fix is a bound inside analyzeVcp so the route stops
+// reporting stale breakouts as live ones. Worth doing once there is a week of
+// data showing how often it happens.
 // ---------------------------------------------------------------------------
 //
-// RS RATING IS A PERCENTILE, which is the whole point of computing it here
-// rather than reusing rsVsSpy from the other scans. "+18 points versus SPY
-// over three months" does not say whether that is top-decile leadership or
-// the middle of a strong tape — and in a strong tape it is usually the
-// middle. Minervini gates at 70 and prefers 80-90+; those numbers only mean
-// anything against a ranked universe.
+// RS RATING IS A PERCENTILE, not the rsVsSpy the other tables show. 88 means
+// stronger than 88% of every liquid stock in the market — which is a claim
+// rsVsSpy cannot make. Minervini gates at 70 and wants 80-90+.
 //
-// The ranking universe is EVERY stock that clears the liquidity floors, not
-// just the VCP candidates. Ranking the candidates against each other would
-// produce a rating that says "strongest of the stocks already selected for
-// being strong", which is not information.
+// v1.1: + the ? key, now that VCP_META exists in scanConfig.
+//
+//   It was left out of v1.0 deliberately rather than forgotten: MetricsKey
+//   takes a meta object whose shape is defined in that file, and inventing
+//   one would have produced a key documenting thresholds nobody had checked
+//   against the scan. The gates now live in scanConfig, the route imports
+//   them, and `liveGates` renders what the last run ACTUALLY enforced rather
+//   than what the config currently says — those differ whenever the config
+//   has been edited since the scan ran, and the key should show the former.
 
-import { NextResponse } from 'next/server';
-import { kv } from '@vercel/kv';
-import {
-  analyzeVcp,
-  evaluateTrendTemplate,
-  scoreVcp,
-  atrPercent,
-  findPivots,
-  extractContractions,
-  PIVOT_ATR_MULTIPLE,
-  VCP_MIN_CONTRACTIONS,
-  VCP_MAX_CONTRACTIONS,
-  VCP_MAX_FINAL_DEPTH,
-  VCP_SHALLOWING_TOLERANCE,
-  type VcpBar,
-  type VcpResult,
-  type TrendTemplate,
-} from '@/lib/indicators/vcp';
-import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
-import { computeStage } from '@/lib/indicators/stage';
-import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
-import { runInBackground, isDetachedRun, BG_HEADERS } from '@/lib/background';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useMarketData } from './MarketDataContext';
+import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
+import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
+import { VCP_META } from '@/lib/scanConfig';
+import MetricsKey from './MetricsKey';
 
-export const dynamic = 'force-dynamic';
-export const fetchCache = 'force-no-store';
-export const revalidate = 0;
-export const maxDuration = 300;
+/* A breakout further than this above the pivot has run away from its own
+   entry. Three percent is roughly one ordinary session on a liquid mid-cap —
+   past that you are chasing rather than entering. */
+const FRESH_BREAKOUT_PCT = 3;
 
-const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
-const BENZINGA_KEY = process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '';
-const BASE = 'https://api.polygon.io';
+const COLUMN_NOTES: Record<string, { what: string; colour?: string }> = {
+  TICKER: {
+    what: 'Symbol. Hover for the company name. The dot is base status — see the STATUS column.',
+  },
+  VCP: {
+    what: 'Pattern score 0–100. Weights the contraction shape most heavily (final leg tightness and how far the legs contract), then volume drying, then RS Rating, then the Trend Template. Hover the badge for the per-row breakdown.',
+    colour: 'Green 70+ (A) · amber 50+ (B) · grey below (C).',
+  },
+  RS: {
+    what: 'Minervini / IBD Relative Strength Rating — a PERCENTILE against every liquid stock in the market, not a spread versus SPY. 88 means stronger than 88% of the market over the trailing year, with the most recent quarter double-weighted. Minervini gates at 70 and prefers 80–90+.',
+    colour: 'Purple 90+ · green 80+ · slate 70+ · red below the floor.',
+  },
+  PRICE: {
+    what: 'Last price. The dot is VWAP position.',
+    colour: 'Green dot above VWAP · red dot below.',
+  },
+  'CHG%': { what: 'Change vs prior close. Not a gate on this scan — a base is built on quiet days.' },
+  CONTRACTIONS: {
+    what: 'The pattern itself: the depth of each pullback in the base, oldest first. 24 → 11 → 5 is textbook — each leg roughly half the last, supply thinning as it goes. Two to six legs qualify; three or four is the sweet spot.',
+    colour: 'The final figure is coloured by tightness — green under 8%, slate under 12%, amber above.',
+  },
+  PIVOT: {
+    what: 'The buy point — the high of the final contraction — and how far price sits from it. Negative means price is already above the pivot.',
+    colour: 'Green within 3% below · slate further out · amber already extended past it.',
+  },
+  BASE: { what: 'Length of the base in trading days, measured from the start of the first contraction. Minervini wants at least three weeks; shorter bases fail more often because supply has not had time to change hands.' },
+  VOL: {
+    what: 'Volume drying ratio — average volume across the base against the equivalent span before it. Below 0.7 is real accumulation-side quiet. Above 1.0 the price is contracting on RISING volume, which looks identical on a depth chart and resolves the opposite way.',
+    colour: 'Green under 0.7 · slate under 0.9 · amber above.',
+  },
+  TT: {
+    what: 'Trend Template — how many of Minervini\'s seven computable structural criteria the name passes (price vs the 50/150/200 day, the stacking of those averages, the 200 rising, distance off the 52-week low and high). The eighth criterion is the RS Rating, which has its own column. Hover for which ones fail.',
+    colour: 'Green 7/7 · slate 6/7 · amber 5/7 · red below.',
+  },
+  ATR: { what: '14-day ATR as a percent of price. Also the basis for the pivot-detection threshold — a leg has to exceed 2 ATRs to count as a contraction rather than noise.' },
+  MF: {
+    what: 'Money Flow (21). Inside a base this is the accumulation read: contracting price with MF above 55 is supply being absorbed; below 45 it is quiet distribution.',
+    colour: 'Green high · red low.',
+  },
+  STAGE: {
+    what: 'Weinstein stage. A VCP should be a Stage 2 phenomenon — the same silhouette in Stage 4 is a bear flag.',
+    colour: 'Green healthy Stage 2 · amber sagging · red Stage 4.',
+  },
+  SECTOR: { what: 'Sector, derived from SIC where available.' },
+};
 
-/* ---- Gates --------------------------------------------------------------
-   Defined in @/lib/scanConfig rather than here, and aliased so the rest of
-   this file reads unchanged.
-
-   That file's whole purpose is that the numbers doing the filtering and the
-   numbers shown in the on-screen key are the SAME OBJECT. A local copy here
-   would drift the moment either was edited alone, and the divergence would
-   be invisible: the key would confidently document a threshold the scan had
-   stopped enforcing. */
-import { VCP as VCP_GATES, VCP_META } from '@/lib/scanConfig';
-export { VCP_GATES };
-
-const ENRICH_CONCURRENCY = 8;
-
-
-/* Trading days to calendar days, roughly. 252 trading days is a year, so the
-   ratio is about 1.45. Used only to guess where to start looking — each
-   anchor then walks back day by day until a date returns data. */
-const TRADING_TO_CALENDAR = 1.45;
-const ANCHOR_MAX_ATTEMPTS = 6;
-
-// ETFs that clear the liquidity floors. Most would fail the structural test
-// anyway, but leveraged products can produce textbook-looking contractions
-// that mean nothing — there is no company being accumulated. Backstopped by
-// a ticker `type` check at confirmation.
-const EXCLUDED_ETFS = new Set([
-  'SPY', 'QQQ', 'IWM', 'DIA', 'VOO', 'VTI', 'EEM', 'EFA', 'XLF', 'XLE', 'XLK',
-  'XLI', 'XLV', 'XLU', 'XLP', 'XLY', 'XLB', 'XLRE', 'XLC', 'SMH', 'SOXX',
-  'TQQQ', 'SQQQ', 'QLD', 'QID', 'SOXL', 'SOXS', 'TECL', 'TECS', 'SPXL', 'SPXS',
-  'SPXU', 'UPRO', 'SDS', 'SSO', 'TNA', 'TZA', 'FAS', 'FAZ', 'LABU', 'LABD',
-  'UVXY', 'UVIX', 'SVIX', 'VIXY', 'VXX', 'FNGU', 'FNGD', 'GLD', 'SLV', 'GDX',
-  'GDXJ', 'USO', 'UNG', 'TLT', 'HYG', 'LQD', 'ARKK', 'IBIT', 'BITO', 'BITX',
-  'NUGT', 'DUST', 'JNUG', 'ERX', 'ERY', 'BOIL', 'KOLD', 'NAIL', 'URAA',
-  'MSTX', 'MSTU', 'CONL', 'NVDL', 'TSLL', 'AAPU', 'MSFU', 'AMZU',
-]);
-
-interface SnapInfo {
-  price: number;
-  prevClose: number;
-  changePct: number;
-  vol: number;
-  vwap: number | null;
-  dayHigh: number | null;
-  dayLow: number | null;
-}
+const colTip = (key: string): string | undefined => {
+  const n = COLUMN_NOTES[key];
+  if (!n) return undefined;
+  return n.colour ? `${n.what}\n\n${n.colour}` : n.what;
+};
 
 interface VcpCandidate {
   symbol: string;
-  name: string;
-  sector: string;
+  name?: string;
+  sector?: string;
   price: number;
-  changePct: number;
-  vol: number;
-  dVol: number;
-  avgVol: number;
-  rvol: number | null;
-  mktCap: number | null;
-  float: number | null;
+  changePct?: number;
+  vol?: number;
+  dVol?: number;
+  avgVol?: number;
+  rvol?: number | null;
+  mktCap?: number | null;
+  float?: number | null;
 
   score: number;
-  grade: string;
-  scoreBreakdown: Record<string, number>;
+  grade?: string;
+  scoreBreakdown?: Record<string, number> | null;
 
-  rsRating: number | null;
-  rsRaw: number | null;
+  rsRating?: number | null;
+  rsRaw?: number | null;
 
-  // VCP shape
   contractionCount: number;
-  depths: number[];
-  firstDepthPct: number | null;
-  finalDepthPct: number | null;
-  pivot: number | null;
-  pctToPivot: number | null;
-  baseLengthBars: number | null;
-  baseHigh: number | null;
-  baseLow: number | null;
-  priorMovePct: number | null;
-  volumeDryingRatio: number | null;
-  finalLegVolumeRatio: number | null;
-  status: string;
-  atrPct: number | null;
+  depths?: number[];
+  firstDepthPct?: number | null;
+  finalDepthPct?: number | null;
+  pivot?: number | null;
+  pctToPivot?: number | null;
+  baseLengthBars?: number | null;
+  baseHigh?: number | null;
+  baseLow?: number | null;
+  priorMovePct?: number | null;
+  volumeDryingRatio?: number | null;
+  finalLegVolumeRatio?: number | null;
+  status?: string;
+  atrPct?: number | null;
 
-  // Trend template
-  templatePassed: number | null;
-  templateTotal: number | null;
-  templateFailures: string[];
-  pctAbove52wLow: number | null;
-  pctBelow52wHigh: number | null;
+  templatePassed?: number | null;
+  templateTotal?: number | null;
+  templateFailures?: string[];
+  pctAbove52wLow?: number | null;
+  pctBelow52wHigh?: number | null;
 
-  // Context
-  stage: string;
-  mf: number | null;
-  mfTrend: number;
-  vwapStatus: 'above' | 'below' | 'neutral';
-  catalyst: string | null;
-  catalystUrl: string | null;
-  thesis: string | null;
+  stage?: string;
+  mf?: number | null;
+  mfTrend?: number;
+  vwapStatus?: 'above' | 'below' | 'neutral';
+  catalyst?: string | null;
+  catalystUrl?: string | null;
+  thesis?: string | null;
 
-  // Levels for the trade
-  trigger: number | null;
-  stop: number | null;
-  stopPct: number | null;
-  target: number | null;
+  trigger?: number | null;
+  stop?: number | null;
+  stopPct?: number | null;
+  target?: number | null;
 }
 
-async function polygon<T = any>(path: string): Promise<T> {
-  const sep = path.includes('?') ? '&' : '?';
-  const res = await fetch(`${BASE}${path}${sep}apiKey=${POLYGON_KEY}`, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`Polygon ${res.status}: ${path.split('?')[0]}`);
-  return res.json() as Promise<T>;
-}
+type SortDirection = 'asc' | 'desc';
+type StatusFilterType = 'All' | 'watch' | 'ready' | 'fresh';
+type RsFilterType = 'All' | '80' | '90';
+type GradeFilterType = 'All' | 'A' | 'B';
+type TtFilterType = 'All' | 'perfect';
+type LegsFilterType = 'All' | 'sweet';
 
-async function polygonSafe<T = any>(path: string, fallback: T): Promise<T> {
-  try { return await polygon<T>(path); } catch { return fallback; }
-}
+const RS_BUCKETS: RsFilterType[] = ['80', '90'];
+const GRADE_BUCKETS: GradeFilterType[] = ['A', 'B'];
 
-const ymd = (d: Date): string => d.toISOString().slice(0, 10);
+const SCORE_LABELS: Record<string, string> = {
+  finalTightness: 'Final contraction tightness',
+  contractionRatio: 'Degree of contraction',
+  volumeDrying: 'Volume drying across base',
+  finalLegVolume: 'Final leg volume',
+  rsRating: 'RS Rating',
+  trendTemplate: 'Trend Template',
+  baseLength: 'Base maturity',
+  legCount: 'Contraction count',
+};
 
-const dateDaysAgo = (n: number): Date => new Date(Date.now() - n * 86400000);
+const formatTime = (timestamp: number | Date) => {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
+};
 
-async function inBatches<T, R>(items: T[], size: number, fn: (item: T) => Promise<R | null>): Promise<R[]> {
-  const out: R[] = [];
-  for (let i = 0; i < items.length; i += size) {
-    const results = await Promise.allSettled(items.slice(i, i + size).map(fn));
-    for (const r of results) {
-      if (r.status === 'fulfilled' && r.value) out.push(r.value);
+const formatNumber = (num: number | null | undefined) => {
+  if (num === null || num === undefined || num === 0 || isNaN(num)) return '—';
+  if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
+  if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
+  if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
+  return num.toLocaleString();
+};
+
+const formatLevel = (v: number | null | undefined): string => {
+  if (v == null || isNaN(Number(v))) return '—';
+  const n = Number(v);
+  if (n >= 100) return n.toFixed(0);
+  if (n >= 10) return n.toFixed(1);
+  return n.toFixed(2);
+};
+
+const cleanSector = (sector: string | null | undefined): string => {
+  if (!sector || sector === '—' || sector === '-') return '—';
+  return String(sector).trim();
+};
+
+/* ---- Effective status ---------------------------------------------------
+   The route's `status` does not bound how far past the pivot a breakout is.
+   See the header. This derives the version the table actually displays:
+
+     watch      forming, still building the base
+     ready      within 3% below the pivot — the alert level
+     fresh      just cleared the pivot, still within 3% above it
+     extended   cleared it and ran; the pattern is real, the entry is gone */
+type EffStatus = 'watch' | 'ready' | 'fresh' | 'extended' | 'unknown';
+
+const effStatusOf = (row: VcpCandidate): EffStatus => {
+  const p = row.pctToPivot;
+  if (p == null) return row.status === 'breaking-out' ? 'fresh' : 'unknown';
+
+  // pctToPivot is (pivot - price) / price: positive means price is BELOW the
+  // pivot and has that far to travel; negative means it is already through.
+  if (p > FRESH_BREAKOUT_PCT) return 'watch';
+  if (p >= 0) return 'ready';
+  if (p >= -FRESH_BREAKOUT_PCT) return 'fresh';
+  return 'extended';
+};
+
+const STATUS_META: Record<EffStatus, { label: string; dot: string; text: string; title: string }> = {
+  watch: {
+    label: 'WATCH',
+    dot: 'bg-slate-400',
+    text: 'text-slate-400',
+    title: 'Base still building — price is more than 3% below the pivot. Nothing to do yet; this is the list to keep an eye on.',
+  },
+  ready: {
+    label: 'READY',
+    dot: 'bg-emerald-400',
+    text: 'text-emerald-400',
+    title: 'Within 3% of the pivot and still below it. This is the alert level — set the trigger and wait for volume.',
+  },
+  fresh: {
+    label: 'FRESH',
+    dot: 'bg-cyan-400',
+    text: 'text-cyan-400',
+    title: 'Just cleared the pivot and still within 3% of it. The entry is live rather than passed.',
+  },
+  extended: {
+    label: 'EXTENDED',
+    dot: 'bg-amber-400',
+    text: 'text-amber-400',
+    title: 'Cleared the pivot and ran. The pattern was real and the entry has gone — chasing from here gives up the tight stop that made the setup worth taking.',
+  },
+  unknown: {
+    label: '—',
+    dot: 'bg-slate-600',
+    text: 'text-slate-600',
+    title: 'No pivot computed.',
+  },
+};
+
+const rsColor = (rs: number | null | undefined): string => {
+  if (rs == null) return 'text-slate-500';
+  if (rs >= 90) return 'text-purple-400';
+  if (rs >= 80) return 'text-emerald-400';
+  if (rs >= 70) return 'text-slate-300';
+  return 'text-rose-400';
+};
+
+const rsBadge = (rs: number | null | undefined): string => {
+  if (rs == null) return 'bg-white/[0.02] text-slate-600 border-white/5';
+  if (rs >= 90) return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
+  if (rs >= 80) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+  if (rs >= 70) return 'bg-slate-500/10 text-slate-300 border-white/10';
+  return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+};
+
+const scoreBadge = (score: number | null | undefined): string => {
+  if (score == null) return 'bg-white/[0.02] text-slate-600 border-white/5';
+  if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+  if (score >= 50) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+  return 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50';
+};
+
+const finalDepthColor = (d: number | null | undefined): string => {
+  if (d == null) return 'text-slate-500';
+  if (d <= 8) return 'text-emerald-400';
+  if (d <= 12) return 'text-slate-300';
+  return 'text-amber-400';
+};
+
+const pivotColor = (p: number | null | undefined): string => {
+  if (p == null) return 'text-slate-500';
+  if (p < -FRESH_BREAKOUT_PCT) return 'text-amber-400';
+  if (p < 0) return 'text-cyan-400';
+  if (p <= FRESH_BREAKOUT_PCT) return 'text-emerald-400';
+  return 'text-slate-400';
+};
+
+const volDryColor = (r: number | null | undefined): string => {
+  if (r == null) return 'text-slate-500';
+  if (r <= 0.7) return 'text-emerald-400';
+  if (r <= 0.9) return 'text-slate-300';
+  return 'text-amber-400';
+};
+
+const ttColor = (passed: number | null | undefined, total: number | null | undefined): string => {
+  if (passed == null || total == null) return 'text-slate-500';
+  if (passed === total) return 'text-emerald-400';
+  if (passed === total - 1) return 'text-slate-300';
+  if (passed === total - 2) return 'text-amber-400';
+  return 'text-rose-400';
+};
+
+const atrColor = (a: number | null | undefined): string => {
+  if (a == null) return 'text-slate-500';
+  if (a >= 6) return 'text-purple-400';
+  if (a >= 3) return 'text-emerald-400';
+  return 'text-slate-400';
+};
+
+const baseLenColor = (n: number | null | undefined): string => {
+  if (n == null) return 'text-slate-500';
+  if (n >= 25) return 'text-emerald-400';
+  if (n >= 15) return 'text-slate-300';
+  return 'text-amber-400';
+};
+
+const vcpTooltip = (row: VcpCandidate): string => {
+  const lines: string[] = [
+    `VCP ${row.score} — ${row.score >= 70 ? 'A' : row.score >= 50 ? 'B' : 'C'}`,
+  ];
+
+  const bd = row.scoreBreakdown;
+  if (bd && typeof bd === 'object') {
+    const entries = Object.entries(bd)
+      .filter(([, v]) => typeof v === 'number' && v !== 0)
+      .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+    if (entries.length) {
+      lines.push('');
+      for (const [k, v] of entries) {
+        lines.push(`${v > 0 ? '+' : ''}${v}  ${SCORE_LABELS[k] || k}`);
+      }
     }
   }
-  return out;
-}
 
-// ---------------------------------------------------------------
-// Stage 1: universe
-// ---------------------------------------------------------------
-async function getUniverse(): Promise<{ symbols: Set<string>; snapMap: Map<string, SnapInfo> }> {
-  const data = await polygon<{ tickers?: any[] }>('/v2/snapshot/locale/us/markets/stocks/tickers');
-  const tickers = data.tickers ?? [];
-
-  const snapMap = new Map<string, SnapInfo>();
-  const symbols = new Set<string>();
-
-  for (const t of tickers) {
-    const sym: string = t.ticker ?? '';
-    if (!/^[A-Z]{1,5}$/.test(sym)) continue;
-    if (EXCLUDED_ETFS.has(sym)) continue;
-
-    const price = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || 0;
-    if (price < VCP_GATES.minPrice || price > VCP_GATES.maxPrice) continue;
-
-    const vol = t.day?.v || t.prevDay?.v || 0;
-    const prevClose = t.prevDay?.c || 0;
-
-    let changePct = 0;
-    if (t.todaysChangePerc != null && t.todaysChangePerc !== 0) {
-      changePct = t.todaysChangePerc;
-    } else if (prevClose > 0 && price > 0) {
-      changePct = ((price - prevClose) / prevClose) * 100;
-    }
-
-    snapMap.set(sym, {
-      price,
-      prevClose,
-      changePct: Number.isNaN(changePct) ? 0 : changePct,
-      vol,
-      vwap: t.day?.vw ?? null,
-      dayHigh: t.day?.h ?? null,
-      dayLow: t.day?.l ?? null,
-    });
-    symbols.add(sym);
+  if (row.priorMovePct != null) {
+    lines.push('');
+    lines.push(`Prior advance into the base: +${row.priorMovePct.toFixed(0)}%`);
+  }
+  if (row.finalLegVolumeRatio != null) {
+    lines.push(`Final leg volume vs first leg: ${row.finalLegVolumeRatio.toFixed(2)}x`);
   }
 
-  return { symbols, snapMap };
-}
+  lines.push('');
+  lines.push('The score rates the pattern. See the STATUS dot for whether the entry is still available.');
 
-// ---------------------------------------------------------------
-// Stage 2: recent window from grouped aggregates
-//
-// One call per trading date returns every stock's bar for that date. ~126
-// calls covers the base window for the whole market — the alternative is one
-// call per ticker, which is twenty times as many.
-// ---------------------------------------------------------------
-async function fetchRecentWindow(
-  universe: Set<string>,
-  tradingDays: number
-): Promise<{ series: Map<string, VcpBar[]>; datesUsed: string[] }> {
-  const calendarDays = Math.ceil(tradingDays * TRADING_TO_CALENDAR) + 10;
+  return lines.join('\n');
+};
 
-  const dates: string[] = [];
-  for (let d = calendarDays; d >= 1; d--) {
-    const dt = dateDaysAgo(d);
-    const day = dt.getUTCDay();
-    if (day === 0 || day === 6) continue;
-    dates.push(ymd(dt));
+const contractionTooltip = (row: VcpCandidate): string => {
+  const d = row.depths ?? [];
+  if (!d.length) return 'No contraction data.';
+
+  const lines: string[] = [
+    `${d.length} contraction${d.length === 1 ? '' : 's'}, oldest first:`,
+    '',
+  ];
+  d.forEach((depth, i) => {
+    lines.push(`  T${i + 1}   ${depth.toFixed(1)}%`);
+  });
+
+  if (d.length >= 2 && d[0] > 0) {
+    const ratio = d[d.length - 1] / d[0];
+    lines.push('');
+    lines.push(`Final leg is ${(ratio * 100).toFixed(0)}% of the first — textbook is under 45%.`);
   }
 
-  const dayResults: { date: string; results: any[] }[] = [];
-  const BATCH = 7;
-  for (let i = 0; i < dates.length; i += BATCH) {
-    const chunk = dates.slice(i, i + BATCH);
-    const settled = await Promise.allSettled(chunk.map(async (date) => {
-      const d = await polygonSafe<{ results?: any[] }>(
-        `/v2/aggs/grouped/locale/us/market/stocks/${date}?adjusted=true`,
-        { results: [] }
-      );
-      return { date, results: d.results ?? [] };
-    }));
-    for (const r of settled) {
-      if (r.status === 'fulfilled' && r.value.results.length > 0) dayResults.push(r.value);
-    }
+  if (row.baseHigh != null && row.baseLow != null) {
+    lines.push('');
+    lines.push(`Base range ${formatLevel(row.baseLow)} – ${formatLevel(row.baseHigh)}`);
   }
 
-  dayResults.sort((a, b) => a.date.localeCompare(b.date));
-  const kept = dayResults.slice(-tradingDays);
+  return lines.join('\n');
+};
 
-  // Series are built OLDEST FIRST, which is what the vcp lib requires. The
-  // sort above is what guarantees it; without it the pivot walk would run
-  // backwards and return a plausible number computed from the wrong end.
-  const series = new Map<string, VcpBar[]>();
-  for (const day of kept) {
-    const t = new Date(day.date).getTime();
-    for (const bar of day.results) {
-      const sym = bar.T;
-      if (!universe.has(sym)) continue;
-      let arr = series.get(sym);
-      if (!arr) { arr = []; series.set(sym, arr); }
-      arr.push({ t, o: bar.o, h: bar.h, l: bar.l, c: bar.c, v: bar.v });
-    }
+const ttTooltip = (row: VcpCandidate): string => {
+  const p = row.templatePassed;
+  const t = row.templateTotal;
+  if (p == null || t == null) return 'Trend Template not computed — needs 200 daily bars.';
+
+  const lines: string[] = [`Trend Template ${p}/${t}`];
+
+  const fails = row.templateFailures ?? [];
+  if (fails.length) {
+    lines.push('');
+    lines.push('Failing:');
+    for (const f of fails) lines.push(`  · ${f}`);
+  } else {
+    lines.push('');
+    lines.push('All structural criteria pass.');
   }
 
-  return { series, datesUsed: kept.map(d => d.date) };
-}
-
-
-/* ---- Stage 4b: structural prefilter -------------------------------------
-   DELIBERATELY LOOSER THAN THE REAL TEST, for a reason that matters.
-
-   analyzeVcp() gates on the prior advance — at least 25% up into the base,
-   because without an advance there is no supply overhang to absorb and the
-   "base" is just a quiet stock. Measuring that needs bars from BEFORE the
-   base began, and a 90-bar window whose base occupies the last 40 leaves
-   only 50 bars of prior history. On a base that formed after a long run,
-   that truncation understates the advance and would reject the name.
-
-   So this pass checks only what 90 bars can answer honestly — are there two
-   or more contractions, is the final one tight, are they shallowing — and
-   defers every judgement that needs deeper history to the confirmation pass,
-   which fetches 400 bars per survivor.
-
-   A prefilter that is stricter than the real test silently loses candidates
-   and no downstream count will ever reveal it. Looser is the safe direction:
-   the cost is a few extra per-ticker fetches. */
-function prefilterVcp(bars: VcpBar[]): boolean {
-  if (bars.length < 60) return false;
-
-  const atrP = atrPercent(bars, 14);
-  if (atrP == null || atrP <= 0) return false;
-
-  const threshold = Math.max(1.5, Math.min(12, atrP * PIVOT_ATR_MULTIPLE));
-  const pivots = findPivots(bars, threshold);
-  const all = extractContractions(bars, pivots);
-  if (all.length < VCP_MIN_CONTRACTIONS) return false;
-
-  const cons = all.slice(-VCP_MAX_CONTRACTIONS);
-  const depths = cons.map(c => c.depthPct);
-
-  if (depths[depths.length - 1] > VCP_MAX_FINAL_DEPTH) return false;
-
-  for (let i = 1; i < depths.length; i++) {
-    if (depths[i] > depths[i - 1] * VCP_SHALLOWING_TOLERANCE) return false;
+  if (row.pctAbove52wLow != null || row.pctBelow52wHigh != null) {
+    lines.push('');
+    if (row.pctAbove52wLow != null) lines.push(`${row.pctAbove52wLow.toFixed(0)}% above the 52-week low`);
+    if (row.pctBelow52wHigh != null) lines.push(`${Math.abs(row.pctBelow52wHigh).toFixed(0)}% below the 52-week high`);
   }
 
-  return true;
-}
+  lines.push('');
+  lines.push('The eighth Minervini criterion is the RS Rating — its own column.');
 
-// ---------------------------------------------------------------
-// Catalyst (optional, best-effort)
-// ---------------------------------------------------------------
-const WIIM_MAX_AGE_DAYS = 5;
-const WIIM_MAX_BREADTH = 12;
+  return lines.join('\n');
+};
 
-function classifyWiim(title: string): string {
-  const s = (title || '').toLowerCase();
-  if (/\b(earnings|eps|revenue|beat|miss|quarter|q[1-4]\b)/.test(s)) return 'Earnings';
-  if (/\b(fda|approval|phase\s*[123]|trial|clinical|topline|drug|therap)/.test(s)) return 'FDA / Data';
-  if (/\b(upgrade|downgrade|price target|initiat|analyst|rating|overweight|outperform)/.test(s)) return 'Analyst';
-  if (/\b(merger|acquir|acquisition|buyout|takeover|stake)/.test(s)) return 'M&A';
-  if (/\b(offering|dilut|secondary|registered direct|atm |capital raise)/.test(s)) return 'Offering';
-  if (/\b(contract|partnership|collaborat|agreement|awarded|wins )/.test(s)) return 'Contract';
-  if (/\b(guidance|raises|lowers|reaffirm|outlook|forecast)/.test(s)) return 'Guidance';
-  if (/\b(lawsuit|sec |investigat|probe|fraud|settle|recall|halt)/.test(s)) return 'Legal / Risk';
-  return 'News';
-}
+const planTooltip = (row: VcpCandidate): string => {
+  if (row.trigger == null) return 'No levels — the pivot could not be resolved.';
 
-async function fetchWiims(
-  tickers: string[]
-): Promise<Map<string, { title: string; url: string | null; tag: string }>> {
-  const out = new Map<string, { title: string; url: string | null; tag: string }>();
-  if (!BENZINGA_KEY || tickers.length === 0) return out;
+  const lines: string[] = [
+    `Trigger  ${formatLevel(row.trigger)}   (pivot — high of the final contraction)`,
+    `Stop     ${formatLevel(row.stop)}   (${row.stopPct != null ? `−${row.stopPct.toFixed(1)}%` : '—'}, low of the final contraction)`,
+    `Target   ${formatLevel(row.target)}   (2R)`,
+  ];
 
-  const now = Date.now();
-  const BATCH = 50;
-  for (let i = 0; i < tickers.length; i += BATCH) {
-    const batch = tickers.slice(i, i + BATCH);
-    try {
-      const res = await fetch(
-        `https://api.benzinga.com/api/v2/news?token=${BENZINGA_KEY}` +
-        `&tickers=${encodeURIComponent(batch.join(','))}` +
-        `&channels=WIIM&displayOutput=full&pageSize=100`,
-        { headers: { accept: 'application/json' }, cache: 'no-store' }
-      );
-      if (!res.ok) continue;
-      const items = await res.json();
-      if (!Array.isArray(items)) continue;
+  if (row.trigger != null && row.stop != null) {
+    lines.push(`Risk     ${(row.trigger - row.stop).toFixed(2)} per share`);
+  }
 
-      for (const item of items) {
-        const isWiim = Array.isArray(item?.channels) &&
-          item.channels.some((c: any) => (c?.name || '').toUpperCase() === 'WIIM');
-        if (!isWiim) continue;
+  lines.push('');
+  lines.push('The stop is the pattern\'s own invalidation — price back under the tightest leg means the absorption read was wrong. That is usually tighter than an ATR stop, and it is the reason to trade a VCP at all.');
 
-        const title = (item?.title || '').trim();
-        if (!title) continue;
+  const eff = effStatusOf(row);
+  if (eff === 'extended') {
+    lines.push('');
+    lines.push('PRICE IS ALREADY WELL ABOVE THE TRIGGER. Entering here gives up the tight stop that made the setup worth taking.');
+  }
 
-        const stocks = Array.isArray(item?.stocks) ? item.stocks : [];
-        if (stocks.length === 0 || stocks.length > WIIM_MAX_BREADTH) continue;
+  return lines.join('\n');
+};
 
-        const created = item?.created ? new Date(item.created).getTime() : 0;
-        const daysOld = created > 0 ? (now - created) / 86400000 : 999;
-        if (daysOld > WIIM_MAX_AGE_DAYS) continue;
+export default function Vcp() {
+  const { session } = useMarketData();
 
-        for (const s of stocks) {
-          const sym = (s?.name || '').toUpperCase();
-          if (!sym || out.has(sym)) continue;
-          out.set(sym, { title, url: item?.url || null, tag: classifyWiim(title) });
+  const [candidates, setCandidates] = useState<VcpCandidate[]>([]);
+  const [status, setStatus] = useState<string>('Syncing...');
+  const [generatedAt, setGeneratedAt] = useState<number | null>(null);
+  const [funnel, setFunnel] = useState<{ universe: number | null; prefiltered: number | null; confirmed: number | null }>({
+    universe: null, prefiltered: null, confirmed: null,
+  });
+  const [scanMeta, setScanMeta] = useState<any>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: SortDirection } | null>(null);
+  const [isExpanded, setIsExpanded] = useState<boolean>(false);
+
+  const [statusFilter, setStatusFilter] = useState<StatusFilterType>('All');
+  const [rsFilter, setRsFilter] = useState<RsFilterType>('All');
+  const [gradeFilter, setGradeFilter] = useState<GradeFilterType>('All');
+  const [ttFilter, setTtFilter] = useState<TtFilterType>('All');
+  const [legsFilter, setLegsFilter] = useState<LegsFilterType>('All');
+  const [showFilters, setShowFilters] = useState<boolean>(false);
+  const [copied, setCopied] = useState<boolean>(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchCandidates = async () => {
+      try {
+        const res = await fetch(`/api/vcp/latest?t=${Date.now()}`, { cache: 'no-store' });
+        const data = await res.json();
+
+        if (isMounted && data && data.success && Array.isArray(data.candidates)) {
+          setCandidates(data.candidates);
+          setGeneratedAt(data.lastScanTime ? Number(data.lastScanTime) : null);
+          setFunnel({
+            universe: data.universe ?? null,
+            prefiltered: data.prefiltered ?? null,
+            confirmed: data.confirmed ?? null,
+          });
+          if (data.scanMeta?.vcp) setScanMeta(data.scanMeta.vcp);
+          setStatus('Live');
+        } else if (isMounted && data?.error) {
+          setStatus('Feed Error');
         }
+      } catch {
+        if (isMounted) setStatus('Feed Offline');
       }
-    } catch {
-      continue;
-    }
-  }
-  return out;
-}
-
-function cleanSector(sic: string | undefined, sector: string | undefined, industry: string | undefined): string {
-  const blob = `${(industry || '').toLowerCase()} ${(sic || '').toLowerCase()}`;
-  if (/nuclear|uranium/.test(blob)) return 'Nuclear';
-  if (/solar|photovoltaic/.test(blob)) return 'Solar';
-  if (/electric vehicle|motor vehicle/.test(blob)) return 'EV';
-  if (/biotechnolog|biological product|in vitro/.test(blob)) return 'Biotech';
-  if (/semiconductor/.test(blob)) return "Semi's";
-  if (/artificial intelligence/.test(blob)) return 'AI';
-  if (/cybersecurity|security software/.test(blob)) return 'Cyber';
-  if (/aerospace|\bdefense\b|aircraft|space vehicle/.test(blob)) return 'Aerospace';
-
-  const s = (sic || '').toLowerCase();
-  if (/software|prepackaged|data processing|computer/.test(s)) return 'IT';
-  if (/pharmaceutical|drug|medical|health|surgical/.test(s)) return 'Healthcare';
-  if (/petroleum|natural gas|drilling|\boil\b|energy/.test(s)) return 'Energy';
-  if (/\bbank\b|insurance|investment|securities broker/.test(s)) return 'Financials';
-  if (/real estate/.test(s)) return 'Real Estate';
-  if (/electric services|water supply/.test(s)) return 'Utilities';
-  if (/telephone|broadcast|publishing|entertainment/.test(s)) return 'Comm Serv';
-  if (/retail|restaurant|apparel|hotel/.test(s)) return 'Con Disc';
-  if (/beverage|\bfood\b|tobacco|household/.test(s)) return 'Con Staples';
-  if (/mining|steel|chemical|paper mill/.test(s)) return 'Materials';
-  if (/machinery|industrial|construction|transportation/.test(s)) return 'Industrials';
-
-  const sec = (sector || '').toLowerCase();
-  if (sec.includes('technology')) return 'IT';
-  if (sec.includes('health')) return 'Healthcare';
-  if (sec.includes('financial')) return 'Financials';
-  if (sec.includes('energy')) return 'Energy';
-  return 'Other';
-}
-
-const round2 = (v: number | null | undefined): number | null =>
-  v == null || !Number.isFinite(v) ? null : parseFloat(v.toFixed(2));
-
-/* ---- The trade ----------------------------------------------------------
-   Trigger is the PIVOT — the high of the final contraction — not the day
-   high and not the base high. Minervini's buy point is the point at which
-   the last supply that defended the base gives way.
-
-   Stop is the low of the final contraction, which is what invalidates the
-   pattern: price back through the bottom of the tightest leg means the
-   absorption read was wrong. That is usually a tighter stop than an ATR
-   rule would produce, which is the reason to trade a VCP at all — the
-   pattern defines its own risk. A floor is applied so a freakishly tight
-   final leg does not produce a stop inside normal daily noise. */
-const MIN_STOP_PCT = 2.0;
-
-function buildLevels(vcp: VcpResult, price: number): {
-  trigger: number | null;
-  stop: number | null;
-  stopPct: number | null;
-  target: number | null;
-} {
-  if (!vcp.valid || vcp.pivot == null || vcp.contractions.length === 0) {
-    return { trigger: null, stop: null, stopPct: null, target: null };
-  }
-
-  const finalLeg = vcp.contractions[vcp.contractions.length - 1];
-  const trigger = vcp.pivot;
-
-  let stop = finalLeg.low;
-  let stopPct = ((trigger - stop) / trigger) * 100;
-
-  if (stopPct < MIN_STOP_PCT) {
-    stopPct = MIN_STOP_PCT;
-    stop = trigger * (1 - MIN_STOP_PCT / 100);
-  }
-
-  const risk = trigger - stop;
-  const target = trigger + risk * 2;
-
-  return { trigger, stop, stopPct, target };
-}
-
-async function runScan(request: Request) {
-  const started = Date.now();
-
-  try {
-    if (!POLYGON_KEY) {
-      return NextResponse.json({ success: false, error: 'Missing Polygon API Key' }, { status: 500 });
-    }
-
-    // --- 1. Universe ---
-    const { symbols, snapMap } = await getUniverse();
-    if (symbols.size === 0) {
-      return NextResponse.json({ success: false, error: 'Empty universe from snapshot' }, { status: 502 });
-    }
-
-    /* --- 2 & 3. Market-wide history and the shared RS map, in parallel ---
-
-       The anchor fetches that used to live here are gone: /api/rs/run pulls
-       them once daily for the whole market and writes the ranked result to
-       KV, so this is a single read instead of ~15 grouped calls.
-
-       A missing or stale map is FATAL to this scan, unlike the others. RS is
-       a hard gate here — VCP_GATES.minRsRating — so an absent map would send
-       every name through the gate unrated and the scan would either return
-       nothing or, worse, return bases with no strength requirement at all
-       while looking like it worked. */
-    const [{ series, datesUsed }, rsLookup] = await Promise.all([
-      fetchRecentWindow(symbols, VCP_GATES.windowTradingDays),
-      loadRsRatings(),
-    ]);
-
-    if (!rsLookup.available) {
-      return NextResponse.json({
-        success: false,
-        error: `RS ratings unavailable — ${rsLookup.reason ?? 'unknown'}. This scan gates on RS, so it will not run without them.`,
-        hint: 'Run /api/rs/run, then retry.',
-      }, { status: 503 });
-    }
-
-    // --- 4b. Structural prefilter ---
-    const prefiltered: { sym: string; rs: number }[] = [];
-    let liquidityRejects = 0;
-    let rsRejects = 0;
-    let structureRejects = 0;
-
-    series.forEach((bars, sym) => {
-      const snap = snapMap.get(sym);
-      if (!snap) return;
-
-      const avgVol = bars.length >= 20
-        ? bars.slice(-20).reduce((s, b) => s + (b.v || 0), 0) / 20
-        : 0;
-      if (avgVol < VCP_GATES.minAvgVolume) { liquidityRejects++; return; }
-      if (avgVol * snap.price < VCP_GATES.minDollarVol) { liquidityRejects++; return; }
-
-      const rs = rsLookup.get(sym);
-      if (rs == null || rs < VCP_GATES.minRsRating) { rsRejects++; return; }
-
-      if (!prefilterVcp(bars)) { structureRejects++; return; }
-
-      prefiltered.push({ sym, rs });
-    });
-
-    // Strongest first, so the shortlist cap cuts the weakest rather than an
-    // arbitrary alphabetical tail.
-    prefiltered.sort((a, b) => b.rs - a.rs);
-    const shortlist = prefiltered.slice(0, VCP_GATES.shortlistCap);
-
-    // --- 5. Confirmation pass ---
-    const to = ymd(new Date());
-    const from = ymd(dateDaysAgo(500));
-
-    const confirmed = await inBatches(shortlist, ENRICH_CONCURRENCY, async ({ sym, rs }) => {
-      const snap = snapMap.get(sym);
-      if (!snap) return null;
-
-      const [barsRes, details] = await Promise.all([
-        polygonSafe<{ results?: any[] }>(
-          `/v2/aggs/ticker/${encodeURIComponent(sym)}/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=5000`,
-          { results: [] }
-        ),
-        polygonSafe<any>(`/v3/reference/tickers/${sym}`, {}),
-      ]);
-
-      // Backstop for funds that slipped past the static exclusion list.
-      const tickerType = (details?.results?.type || '').toUpperCase();
-      if (tickerType && tickerType !== 'CS' && tickerType !== 'ADRC') return null;
-
-      const raw = barsRes.results ?? [];
-      if (raw.length < 200) return null;
-
-      // sort=asc above, so these are already oldest-first — which is what
-      // the vcp lib requires. analyzeVcp has a guard, but the order is the
-      // caller's responsibility.
-      const bars: VcpBar[] = raw
-        .filter((b: any) => b && typeof b.h === 'number' && typeof b.l === 'number' && typeof b.c === 'number')
-        .map((b: any) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
-
-      const vcp = analyzeVcp(bars, { lookback: VCP_GATES.windowTradingDays });
-      if (!vcp.valid) return null;
-
-      const template = evaluateTrendTemplate(bars);
-      const scored = scoreVcp({ vcp, rsRating: rs, template });
-
-      const avgVol = bars.length >= 20
-        ? bars.slice(-20).reduce((s, b) => s + (b.v || 0), 0) / 20
-        : 0;
-      const rvol = avgVol > 0 && snap.vol > 0 ? snap.vol / avgVol : null;
-
-      const mf = computeMoneyFlow(bars, { length: 21 });
-      const mfTrend = moneyFlowTrend(bars, { length: 21, lookback: 5 });
-      const stage = computeStage(bars.map(b => b.c), { price: snap.price });
-
-      const levels = buildLevels(vcp, snap.price);
-
-      const mktCap = details?.results?.market_cap || null;
-      const float = details?.results?.share_class_shares_outstanding
-        || (mktCap && snap.price ? mktCap / snap.price : null);
-
-      let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
-      if (snap.vwap && snap.vwap > 0) vwapStatus = snap.price >= snap.vwap ? 'above' : 'below';
-
-      const out: VcpCandidate = {
-        symbol: sym,
-        name: details?.results?.name || sym,
-        sector: cleanSector(
-          details?.results?.sic_description,
-          details?.results?.sector,
-          details?.results?.industry
-        ),
-        price: +snap.price.toFixed(2),
-        changePct: +snap.changePct.toFixed(2),
-        vol: snap.vol,
-        dVol: Math.round(snap.price * snap.vol),
-        avgVol: Math.round(avgVol),
-        rvol: rvol != null ? +rvol.toFixed(2) : null,
-        mktCap,
-        float,
-
-        score: scored.score,
-        grade: scored.grade,
-        scoreBreakdown: scored.breakdown,
-
-        rsRating: rs,
-        /* rsRaw is gone. It was the pre-ranking score from this route's own
-           computation, and the shared job does not publish per-symbol raws —
-           only the ranked percentile, which is the number that means
-           anything. */
-        rsRaw: null,
-
-        contractionCount: vcp.contractionCount,
-        depths: vcp.depths.map(d => +d.toFixed(1)),
-        firstDepthPct: vcp.firstDepthPct != null ? +vcp.firstDepthPct.toFixed(1) : null,
-        finalDepthPct: vcp.finalDepthPct != null ? +vcp.finalDepthPct.toFixed(1) : null,
-        pivot: round2(vcp.pivot),
-        pctToPivot: vcp.pctToPivot != null ? +vcp.pctToPivot.toFixed(2) : null,
-        baseLengthBars: vcp.baseLengthBars,
-        baseHigh: round2(vcp.baseHigh),
-        baseLow: round2(vcp.baseLow),
-        priorMovePct: vcp.priorMovePct != null ? +vcp.priorMovePct.toFixed(1) : null,
-        volumeDryingRatio: vcp.volumeDryingRatio != null ? +vcp.volumeDryingRatio.toFixed(2) : null,
-        finalLegVolumeRatio: vcp.finalLegVolumeRatio != null ? +vcp.finalLegVolumeRatio.toFixed(2) : null,
-        status: vcp.status,
-        atrPct: vcp.atrPct != null ? +vcp.atrPct.toFixed(2) : null,
-
-        templatePassed: template?.passed ?? null,
-        templateTotal: template?.total ?? null,
-        templateFailures: template?.failures ?? [],
-        pctAbove52wLow: template?.pctAbove52wLow != null ? +template.pctAbove52wLow.toFixed(1) : null,
-        pctBelow52wHigh: template?.pctBelow52wHigh != null ? +template.pctBelow52wHigh.toFixed(1) : null,
-
-        stage,
-        mf,
-        mfTrend,
-        vwapStatus,
-        catalyst: null,
-        catalystUrl: null,
-        thesis: null,
-
-        trigger: round2(levels.trigger),
-        stop: round2(levels.stop),
-        stopPct: levels.stopPct != null ? +levels.stopPct.toFixed(2) : null,
-        target: round2(levels.target),
-      };
-
-      return out;
-    });
-
-    // --- Catalysts, best-effort ---
-    const wiims = await fetchWiims(confirmed.map(c => c.symbol));
-    for (const c of confirmed) {
-      const w = wiims.get(c.symbol);
-      if (w) {
-        c.catalyst = w.tag;
-        c.catalystUrl = w.url;
-        c.thesis = w.title;
-      }
-    }
-
-    confirmed.sort((a, b) => b.score - a.score);
-    const finalList = confirmed.slice(0, VCP_GATES.finalSize);
-
-    const scanTime = Date.now();
-    const meta = {
-      ...VCP_META,
-      gates: VCP_GATES,
-      rsAsOf: rsLookup.asOf,
-      rsAgeDays: rsLookup.ageDays,
-      rsRankedUniverse: rsLookup.ranked,
-      windowStart: datesUsed[0] ?? null,
-      windowEnd: datesUsed[datesUsed.length - 1] ?? null,
-      windowBars: datesUsed.length,
     };
+    fetchCandidates();
+    // Bases move on daily bars — a five-minute poll is already faster than
+    // the data can change.
+    const interval = setInterval(fetchCandidates, 300000);
+    return () => { isMounted = false; clearInterval(interval); };
+  }, []);
 
-    await kv.set('vcp_v1', finalList);
-    await kv.set('vcp_last_scan_v1', scanTime);
-    await kv.set('vcp_meta_v1', {
-      ...meta,
-      universe: symbols.size,
-      prefiltered: prefiltered.length,
-      confirmed: confirmed.length,
-      count: finalList.length,
+  const handleSort = (key: string) => {
+    let direction: SortDirection = 'desc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
+    else if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') { setSortConfig(null); return; }
+    setSortConfig({ key, direction });
+  };
+
+  // Every group is a toggle: pressing the active option clears it.
+  const handleStatusFilter = (v: StatusFilterType) => setStatusFilter(p => p === v ? 'All' : v);
+  const handleRsFilter = (v: RsFilterType) => setRsFilter(p => p === v ? 'All' : v);
+  const handleGradeFilter = (v: GradeFilterType) => setGradeFilter(p => p === v ? 'All' : v);
+  const handleTtFilter = (v: TtFilterType) => setTtFilter(p => p === v ? 'All' : v);
+  const handleLegsFilter = (v: LegsFilterType) => setLegsFilter(p => p === v ? 'All' : v);
+
+  const filteredAndSorted = useMemo(() => {
+    let list = [...candidates];
+
+    /* STATUS is the filter that matters most on this table. Half the list
+       can be names that already broke out and ran, and those are not
+       actionable however good the pattern was. */
+    if (statusFilter !== 'All') {
+      list = list.filter(c => {
+        const eff = effStatusOf(c);
+        if (statusFilter === 'watch') return eff === 'watch';
+        if (statusFilter === 'ready') return eff === 'ready';
+        if (statusFilter === 'fresh') return eff === 'fresh';
+        return true;
+      });
+    }
+
+    if (rsFilter !== 'All') {
+      const min = Number(rsFilter);
+      list = list.filter(c => (c.rsRating ?? -1) >= min);
+    }
+
+    if (gradeFilter !== 'All') {
+      const min = gradeFilter === 'A' ? 70 : 50;
+      list = list.filter(c => (c.score ?? -1) >= min);
+    }
+
+    if (ttFilter === 'perfect') {
+      list = list.filter(c =>
+        c.templatePassed != null && c.templateTotal != null && c.templatePassed === c.templateTotal
+      );
+    }
+
+    // Three or four legs: enough repetitions to prove supply is thinning,
+    // not so many that the base has become a stalled range.
+    if (legsFilter === 'sweet') {
+      list = list.filter(c => c.contractionCount === 3 || c.contractionCount === 4);
+    }
+
+    if (!sortConfig) return list;
+    return list.sort((a, b) => {
+      const aVal = (a as any)[sortConfig.key];
+      const bVal = (b as any)[sortConfig.key];
+      if (aVal === null || aVal === undefined) return 1;
+      if (bVal === null || bVal === undefined) return -1;
+      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
     });
+  }, [candidates, sortConfig, statusFilter, rsFilter, gradeFilter, ttFilter, legsFilter]);
 
-    /* The funnel is the diagnostic that matters on a structural scan. If
-       `prefiltered` is large and `confirmed` is tiny, the confirmation pass
-       is rejecting on prior-move or trend-template and the shortlist cap may
-       be cutting real candidates before they are tested. If `prefiltered` is
-       near zero, the market has no bases — which on a trending tape is
-       itself the finding. */
-    return NextResponse.json({
-      success: true,
-      lastScanTime: scanTime,
-      elapsedMs: scanTime - started,
-      count: finalList.length,
-      funnel: {
-        universe: symbols.size,
-        withHistory: series.size,
-        rsRankedUniverse: rsLookup.ranked,
-        liquidityRejects,
-        rsRejects,
-        structureRejects,
-        prefiltered: prefiltered.length,
-        shortlisted: shortlist.length,
-        confirmed: confirmed.length,
-      },
-      statusCounts: {
-        forming: finalList.filter(c => c.status === 'forming').length,
-        pivotReady: finalList.filter(c => c.status === 'pivot-ready').length,
-        breakingOut: finalList.filter(c => c.status === 'breaking-out').length,
-      },
-      scanMeta: meta,
-    });
-  } catch (error: any) {
-    console.error('VCP_RUN_ERROR:', error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-  }
-}
+  const handleCopyTickers = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const tickers = filteredAndSorted.map(c => c.symbol).join(',');
+    if (!tickers) return;
+    try {
+      await navigator.clipboard.writeText(tickers);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = tickers;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch {}
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
 
-/* ---- Entry point --------------------------------------------------------
-   ?bg=true acknowledges immediately and runs the scan after the response
-   flushes — that is what cron should hit. Without it the route runs
-   synchronously, which is what you want by hand: the response carries the
-   funnel, and the funnel is the only way to tell "the market has no bases"
-   from "the scan is broken".
+  const statusCounts = useMemo(() => {
+    const c = { watch: 0, ready: 0, fresh: 0, extended: 0 };
+    for (const row of candidates) {
+      const e = effStatusOf(row);
+      if (e in c) (c as any)[e]++;
+    }
+    return c;
+  }, [candidates]);
 
-   isDetachedRun() forces the synchronous path even if `bg` survived into a
-   self-call. The background lib already strips the parameter, so this guards
-   against a recursion that would spawn scans until the platform cut them
-   off, with none ever finishing. */
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const background = searchParams.get('bg') === 'true' && !isDetachedRun(request);
+  const getSortIcon = (columnKey: string) =>
+    sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
-  if (!background) return runScan(request);
+  const displaySession = ['Pre-Market', 'Open', 'Post-Market', 'Closed'].includes(session) ? session : 'Closed';
+  const getSessionTextColor = () => {
+    if (displaySession === 'Pre-Market') return 'text-amber-500';
+    if (displaySession === 'Open') return 'text-[#00e676]';
+    if (displaySession === 'Post-Market') return 'text-indigo-400';
+    return 'text-slate-500';
+  };
 
-  const result = await runInBackground(request, 'vcp', () => runScan(request));
-  return NextResponse.json({ success: true, ...result }, { headers: BG_HEADERS });
-}
+  const thBase = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
+  const tdBase = "px-0.5 pt-2.5 pb-1.5 text-center";
 
-export async function POST(request: Request) {
-  return GET(request);
+  const thStage = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
+  const tdStage = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
+
+  const thSector = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
+  const tdSector = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
+
+  const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
+  const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
+  const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
+  const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
+  const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
+
+  const activeFilterCount =
+    (statusFilter !== 'All' ? 1 : 0) +
+    (rsFilter !== 'All' ? 1 : 0) +
+    (gradeFilter !== 'All' ? 1 : 0) +
+    (ttFilter !== 'All' ? 1 : 0) +
+    (legsFilter !== 'All' ? 1 : 0);
+
+  const funnelNote = funnel.universe != null && funnel.prefiltered != null
+    ? `${funnel.universe.toLocaleString()} liquid names scanned · ${funnel.prefiltered} showed contraction structure · ${funnel.confirmed ?? 0} confirmed`
+    : null;
+
+  return (
+    <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-visible shadow-xl w-full max-w-[1280px] mx-auto">
+      <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-30 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
+            VCP
+          </span>
+
+          {/* Status counts in the header, because the split between watchable
+              and already-gone is the first thing worth knowing about this
+              table on any given day. */}
+          {candidates.length > 0 && (
+            <span className="hidden md:flex items-center gap-2">
+              {statusCounts.ready > 0 && (
+                <span className="text-[10px] font-bold tracking-wider uppercase text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded"
+                  title="Within 3% of the pivot and still below it — the alert level">
+                  {statusCounts.ready} Ready
+                </span>
+              )}
+              {statusCounts.fresh > 0 && (
+                <span className="text-[10px] font-bold tracking-wider uppercase text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded"
+                  title="Just cleared the pivot, entry still live">
+                  {statusCounts.fresh} Fresh
+                </span>
+              )}
+              <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400 bg-white/[0.03] border border-white/5 px-2 py-0.5 rounded"
+                title="Base still building, more than 3% below the pivot">
+                {statusCounts.watch} Watch
+              </span>
+              {statusCounts.extended > 0 && (
+                <span className="text-[10px] font-bold tracking-wider uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded"
+                  title="Cleared the pivot and ran — the pattern was real, the entry has gone">
+                  {statusCounts.extended} Extended
+                </span>
+              )}
+            </span>
+          )}
+
+          {filteredAndSorted.length > 0 && (
+            <button
+              onClick={handleCopyTickers}
+              title={`Copy ${filteredAndSorted.length} ticker${filteredAndSorted.length !== 1 ? 's' : ''} for TradingView`}
+              className={`text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded border transition-all duration-200 ${
+                copied
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  : 'bg-[#161c2a] text-slate-400 border-white/5 hover:text-slate-200 hover:bg-white/[0.04]'
+              }`}
+            >
+              {copied ? `✓ Copied ${filteredAndSorted.length}` : `Copy ${filteredAndSorted.length}`}
+            </button>
+          )}
+          {/* z-40 so the panel paints above the FILTERS bar (z-10) rather
+              than losing the sibling z-fight to it. */}
+          <span className="relative z-40 inline-flex">
+            <MetricsKey meta={VCP_META} liveGates={scanMeta?.gates} />
+          </span>
+        </div>
+        <div className="flex flex-col items-center gap-1.5">
+          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
+            <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>{displaySession}</span>
+          </div>
+          {generatedAt && (<span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">Scanned: {formatTime(generatedAt)} EST</span>)}
+        </div>
+      </div>
+
+      {isExpanded && (
+        <>
+          <div className="flex flex-col gap-3 mb-4 relative z-10" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-center">
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className={`px-4 py-1.5 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 flex items-center gap-2 ${
+                  activeFilterCount > 0
+                    ? 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]'
+                    : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'
+                }`}
+              >
+                <span className={`inline-block transition-transform duration-200 ${showFilters ? 'rotate-90' : ''}`}>▸</span>
+                Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+              </button>
+            </div>
+            {showFilters && (
+              <div className="flex flex-wrap justify-center items-center gap-3 w-full">
+                {/* STATUS leads. On the first live scan five of nine names had
+                    already broken out and run — the pattern was real and the
+                    entry was gone. This is the control that separates a
+                    watchlist from a history lesson. */}
+                <div className={pillWrap}>
+                  <span className={pillLabel}>STATUS</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleStatusFilter('watch')}
+                      title={STATUS_META.watch.title}
+                      className={`${pillBtn} ${statusFilter === 'watch' ? filterBtnActive : filterBtnIdle}`}
+                    >
+                      Watch
+                    </button>
+                    <button
+                      onClick={() => handleStatusFilter('ready')}
+                      title={STATUS_META.ready.title}
+                      className={`${pillBtn} ${statusFilter === 'ready' ? filterBtnActive : filterBtnIdle}`}
+                    >
+                      Ready
+                    </button>
+                    <button
+                      onClick={() => handleStatusFilter('fresh')}
+                      title={STATUS_META.fresh.title}
+                      className={`${pillBtn} ${statusFilter === 'fresh' ? filterBtnActive : filterBtnIdle}`}
+                    >
+                      Fresh
+                    </button>
+                  </div>
+                </div>
+
+                <div className={pillWrap}>
+                  <span className={pillLabel}>RS</span>
+                  <div className="flex items-center gap-1">
+                    {RS_BUCKETS.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => handleRsFilter(opt)}
+                        title={opt === '90'
+                          ? 'RS Rating 90+ — stronger than 90% of the liquid market. Minervini\'s preferred zone.'
+                          : 'RS Rating 80+ — the level he wants before taking a base seriously. The scan floor is 70.'}
+                        className={`${pillBtn} ${rsFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {opt}+
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className={pillWrap}>
+                  <span className={pillLabel}>VCP</span>
+                  <div className="flex items-center gap-1">
+                    {GRADE_BUCKETS.map((g) => (
+                      <button
+                        key={g}
+                        onClick={() => handleGradeFilter(g)}
+                        title={g === 'A' ? 'A only — pattern score 70 and above' : 'B and above — includes A (50+)'}
+                        className={`${pillBtn} ${gradeFilter === g ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {g}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className={pillWrap}>
+                  <span className={pillLabel}>TT</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleTtFilter('perfect')}
+                      title="Only names passing every computable Trend Template criterion. The eighth, RS Rating, has its own filter."
+                      className={`${pillBtn} ${ttFilter === 'perfect' ? filterBtnActive : filterBtnIdle}`}
+                    >
+                      Perfect
+                    </button>
+                  </div>
+                </div>
+
+                <div className={pillWrap}>
+                  <span className={pillLabel}>LEGS</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleLegsFilter('sweet')}
+                      title="Three or four contractions — enough repetitions to prove supply is thinning, not so many that the base has stalled into a range."
+                      className={`${pillBtn} ${legsFilter === 'sweet' ? filterBtnActive : filterBtnIdle}`}
+                    >
+                      3–4
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
+            <table className="w-full min-w-[940px] table-fixed border-collapse">
+              <thead>
+                <tr className="border-b border-white/5 select-none">
+                  <th className={`${thBase} w-[8%]`} title={colTip('TICKER')} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('VCP')} onClick={() => handleSort('score')}>VCP{getSortIcon('score')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
+                  <th className={`${thBase} w-[7%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  {/* The signature column — the pattern itself, not a summary
+                      of it. Wider than anything else for that reason. */}
+                  <th className={`${thBase} w-[13%]`} title={colTip('CONTRACTIONS')} onClick={() => handleSort('contractionCount')}>CONTRACTIONS{getSortIcon('contractionCount')}</th>
+                  <th className={`${thBase} w-[9%]`} title={colTip('PIVOT')} onClick={() => handleSort('pctToPivot')}>PIVOT{getSortIcon('pctToPivot')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('BASE')} onClick={() => handleSort('baseLengthBars')}>BASE{getSortIcon('baseLengthBars')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('VOL')} onClick={() => handleSort('volumeDryingRatio')}>VOL{getSortIcon('volumeDryingRatio')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('TT')} onClick={() => handleSort('templatePassed')}>TT{getSortIcon('templatePassed')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('ATR')} onClick={() => handleSort('atrPct')}>ATR{getSortIcon('atrPct')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
+                  <th className={`${thStage} w-[6%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className={`${thSector} w-[8%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-white/5">
+                {filteredAndSorted.length === 0 ? (
+                  <tr>
+                    <td colSpan={14} className="py-12 text-center text-slate-500 text-sm font-medium">
+                      {status === 'Live'
+                        ? (candidates.length > 0
+                            ? 'No bases match the current filters.'
+                            : 'No qualifying VCPs in the current scan. On a trending or falling tape that is the normal result — bases form in the pause between advances.')
+                        : status === 'Syncing...'
+                          ? 'Loading…'
+                          : 'Feed unavailable — awaiting the next scheduled scan.'}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredAndSorted.map((row) => {
+                    const eff = effStatusOf(row);
+                    const meta = STATUS_META[eff];
+                    const isPositive = (row.changePct ?? 0) >= 0;
+                    const sectorText = cleanSector(row.sector);
+                    const depths = row.depths ?? [];
+
+                    return (
+                      <React.Fragment key={row.symbol}>
+                        <tr className="hover:bg-white/[0.02] transition-colors group">
+                          <td className={tdBase}>
+                            <div className="flex items-center justify-center gap-1.5">
+                              <span title={row.name || row.symbol} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.symbol}</span>
+                              <span
+                                className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${meta.dot}`}
+                                title={`${meta.label} — ${meta.title}`}
+                              ></span>
+                            </div>
+                          </td>
+
+                          <td className={tdBase}>
+                            <span
+                              title={vcpTooltip(row)}
+                              className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border cursor-help ${scoreBadge(row.score)}`}
+                            >
+                              {row.score}
+                            </span>
+                          </td>
+
+                          <td className={tdBase}>
+                            <span
+                              title={`RS Rating ${row.rsRating ?? '—'} — stronger than ${row.rsRating ?? '—'}% of every liquid stock in the market over the trailing year, most recent quarter double-weighted.${row.rsRaw != null ? `\n\nRaw score ${row.rsRaw.toFixed(2)} before ranking.` : ''}`}
+                              className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border cursor-help ${rsBadge(row.rsRating)}`}
+                            >
+                              {row.rsRating ?? '—'}
+                            </span>
+                          </td>
+
+                          <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
+                            <div className="flex items-center justify-center gap-1">
+                              ${row.price.toFixed(2)}
+                              {row.vwapStatus && row.vwapStatus !== 'neutral' && (
+                                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>
+                              )}
+                            </div>
+                          </td>
+
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {row.changePct != null ? `${isPositive ? '+' : ''}${row.changePct.toFixed(2)}%` : '—'}
+                          </td>
+
+                          {/* The pattern, rendered as the sequence it is. Each
+                              depth in its own span so the final one can carry
+                              the tightness colour — that last figure is the
+                              readiness signal and deserves to be found without
+                              counting arrows. */}
+                          <td className={`${tdBase} whitespace-nowrap cursor-help`} title={contractionTooltip(row)}>
+                            <div className="flex items-center justify-center gap-0.5 tabular-nums">
+                              {depths.length === 0 ? (
+                                <span className="text-xs text-slate-600">—</span>
+                              ) : (
+                                depths.map((d, i) => (
+                                  <React.Fragment key={i}>
+                                    {i > 0 && <span className="text-[8px] text-slate-600 px-px">→</span>}
+                                    <span className={`text-[11px] font-bold ${
+                                      i === depths.length - 1 ? finalDepthColor(d) : 'text-slate-400'
+                                    }`}>
+                                      {d.toFixed(0)}
+                                    </span>
+                                  </React.Fragment>
+                                ))
+                              )}
+                            </div>
+                          </td>
+
+                          <td className={`${tdBase} whitespace-nowrap tabular-nums cursor-help`} title={planTooltip(row)}>
+                            <div className="flex flex-col leading-tight">
+                              <span className="text-xs font-bold text-slate-200">
+                                {formatLevel(row.pivot)}
+                              </span>
+                              <span className={`text-[9px] font-semibold ${pivotColor(row.pctToPivot)}`}>
+                                {row.pctToPivot != null
+                                  ? `${row.pctToPivot >= 0 ? '+' : ''}${row.pctToPivot.toFixed(1)}%`
+                                  : ''}
+                              </span>
+                            </div>
+                          </td>
+
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${baseLenColor(row.baseLengthBars)}`}
+                            title={row.baseLengthBars != null ? `${row.baseLengthBars} trading days since the base began — about ${(row.baseLengthBars / 5).toFixed(0)} weeks` : undefined}>
+                            {row.baseLengthBars ?? '—'}d
+                          </td>
+
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${volDryColor(row.volumeDryingRatio)}`}
+                            title={row.volumeDryingRatio != null ? `Base volume is ${(row.volumeDryingRatio * 100).toFixed(0)}% of the equivalent span before the base began.` : undefined}>
+                            {row.volumeDryingRatio != null ? `${row.volumeDryingRatio.toFixed(2)}x` : '—'}
+                          </td>
+
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums cursor-help ${ttColor(row.templatePassed, row.templateTotal)}`}
+                            title={ttTooltip(row)}>
+                            {row.templatePassed != null && row.templateTotal != null
+                              ? `${row.templatePassed}/${row.templateTotal}`
+                              : '—'}
+                          </td>
+
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${atrColor(row.atrPct)}`}>
+                            {row.atrPct != null ? `${row.atrPct.toFixed(1)}%` : '—'}
+                          </td>
+
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(row.mf ?? null)}`}
+                            title={row.mf != null ? `Money Flow ${row.mf.toFixed(0)} — ${mfLabel(row.mf)}. Inside a base, above 55 is absorption and below 45 is quiet distribution.` : undefined}>
+                            {row.mf != null ? `${row.mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
+                          </td>
+
+                          <td className={`${tdStage} whitespace-nowrap border-l border-white/5`}>
+                            <span
+                              title={stageDescription(row.stage)}
+                              className={`text-[9px] font-bold tracking-wide cursor-help ${stageColor(row.stage)}`}
+                            >
+                              {stageShort(row.stage)}
+                            </span>
+                          </td>
+
+                          <td className={tdSector}>
+                            <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
+                          </td>
+                        </tr>
+
+                        {/* Sub-row: status word first, then the three levels,
+                            then the headline. Status leads because on this
+                            table it decides whether the rest of the row is a
+                            trade or a post-mortem. */}
+                        <tr className="bg-transparent border-t border-white/5">
+                          <td colSpan={12} className="pb-1.5 pt-1 pr-3">
+                            <div className="flex items-center text-left gap-0 min-w-0">
+                              <span
+                                className={`shrink-0 w-[64px] px-0.5 text-center font-bold text-[9px] tracking-[0.04em] uppercase leading-none truncate cursor-help ${meta.text}`}
+                                title={meta.title}
+                              >
+                                {meta.label}
+                              </span>
+
+                              {row.trigger != null ? (
+                                <span
+                                  title={planTooltip(row)}
+                                  className="shrink-0 flex items-baseline gap-2 pl-2 pr-2.5 cursor-help whitespace-nowrap"
+                                >
+                                  <span className="flex items-baseline gap-1">
+                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">TRIG</span>
+                                    <span className="text-[9px] font-bold tabular-nums text-slate-200">{formatLevel(row.trigger)}</span>
+                                  </span>
+                                  <span className="flex items-baseline gap-1">
+                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">STOP</span>
+                                    <span className="text-[9px] font-bold tabular-nums text-rose-400/90">{formatLevel(row.stop)}</span>
+                                  </span>
+                                  <span className="flex items-baseline gap-1">
+                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">TGT</span>
+                                    <span className="text-[9px] font-bold tabular-nums text-emerald-400/90">{formatLevel(row.target)}</span>
+                                  </span>
+                                  {row.stopPct != null && (
+                                    <span className="flex items-baseline gap-1">
+                                      <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">RISK</span>
+                                      <span className="text-[9px] font-bold tabular-nums text-slate-400">{row.stopPct.toFixed(1)}%</span>
+                                    </span>
+                                  )}
+                                </span>
+                              ) : (
+                                <span className="shrink-0 pl-2 pr-2.5 text-[9px] font-semibold text-slate-600 italic whitespace-nowrap">
+                                  no pivot
+                                </span>
+                              )}
+
+                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={row.thesis || undefined}>
+                                {row.thesis || row.catalyst ? (
+                                  <>
+                                    {row.catalyst && (
+                                      <>
+                                        <span className="text-[8px] font-bold tracking-[0.12em] uppercase text-amber-400/70">{row.catalyst}</span>
+                                        {row.thesis ? ' ' : ''}
+                                      </>
+                                    )}
+                                    {row.thesis && (
+                                      row.catalystUrl ? (
+                                        <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-slate-500 font-normal hover:text-slate-300 hover:underline transition-colors">{row.thesis}</a>
+                                      ) : (
+                                        <span className="text-slate-500 font-normal">{row.thesis}</span>
+                                      )
+                                    )}
+                                  </>
+                                ) : (
+                                  <span className="text-slate-600 italic">No catalyst — the base is the thesis.</span>
+                                )}
+                              </p>
+
+                              <span
+                                className="shrink-0 flex items-baseline gap-1.5 cursor-help whitespace-nowrap"
+                                title={row.priorMovePct != null
+                                  ? `The stock advanced ${row.priorMovePct.toFixed(0)}% into this base. That prior run is what creates the supply the contractions absorb — without it there is nothing to absorb and the base is just a quiet stock.`
+                                  : undefined}
+                              >
+                                <span className="text-[8px] font-bold tracking-[0.1em] uppercase text-slate-600">RUN-UP</span>
+                                <span className="text-[9px] font-semibold text-slate-500 tabular-nums">
+                                  {row.priorMovePct != null ? `+${row.priorMovePct.toFixed(0)}%` : '—'}
+                                </span>
+                              </span>
+                            </div>
+                          </td>
+
+                          <td className="pb-1.5 pt-1 pl-1.5 text-left align-middle border-l border-white/5">
+                            <span
+                              className="text-[8px] font-semibold text-slate-500 whitespace-nowrap cursor-help"
+                              title={`${row.contractionCount} contraction${row.contractionCount === 1 ? '' : 's'} in the current base`}
+                            >
+                              T{row.contractionCount}
+                            </span>
+                          </td>
+
+                          <td className="pb-1.5 pt-1 pl-1.5 text-left align-middle">
+                            <span className="text-[8px] font-semibold text-slate-600 whitespace-nowrap tabular-nums">
+                              {formatNumber(row.avgVol)}
+                            </span>
+                          </td>
+                        </tr>
+                      </React.Fragment>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {funnelNote && (
+            <div className="relative z-10 mt-3 text-center">
+              <span className="text-[10px] text-slate-600 font-medium tracking-wide">{funnelNote}</span>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
