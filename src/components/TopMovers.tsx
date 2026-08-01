@@ -1,6 +1,21 @@
 'use client';
 
-// TopMovers — v1.2
+import { rsColor, rsTooltip } from '@/lib/indicators/rs';
+
+// TopMovers — v1.3
+//
+// v1.3: RS column switched from rsVsSpy (a SPREAD versus SPY) to the
+//       market-wide RS RATING (a PERCENTILE), matching every other table.
+//
+//   The old column read "+18" and meant eighteen points of three-month
+//   outperformance. The new one reads "88" and means stronger than 88% of
+//   the liquid market. The spread could not tell you whether +18 was
+//   top-decile leadership or the middle of a strong tape; the percentile
+//   answers that directly.
+//
+//   Colour thresholds and the tooltip come from @/lib/indicators/rs so this
+//   table cannot describe the same number differently from the others —
+//   which was the whole point of consolidating the measure.
 // v1.1: RS compaction, DTC, 10/21 dots, Copy button.
 // v1.2: + MetricsKey "?" panel showing scan gates from scanConfig.
 
@@ -31,7 +46,7 @@ interface StockData {
   aboveEma10: boolean | null;
   aboveEma21: boolean | null;
   stochK: number | null;
-  rsVsSpy: number | null;
+  rsRating: number | null;
 }
 
 type TabType = 'Mega Caps' | 'Gainers' | 'Losers' | 'ETF Gainers' | 'ETF Losers';
@@ -46,7 +61,6 @@ interface Benchmark { symbol: string; price: number; day?: MovingAverage[]; week
 const formatTime = (timestamp: number | Date) => { if (!timestamp) return ''; const date = new Date(timestamp); return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' }); };
 const formatNumber = (num: number | null) => { if (num === null || num === 0 || isNaN(num)) return '\u2014'; if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B'; if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M'; if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K'; return num.toLocaleString(); };
 const formatCurrency = (num: number | null) => { if (num === null || num === 0 || isNaN(num)) return '\u2014'; if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B'; if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M'; return '$' + num.toLocaleString(); };
-const formatRs = (rs: number | null): string => { if (rs == null || isNaN(rs)) return '\u2014'; const sign = rs >= 0 ? '+' : '-'; const abs = Math.abs(rs); if (abs >= 1000) { const k = abs / 1000; const s = k >= 10 ? Math.round(k).toString() : (Math.round(k * 10) / 10).toString().replace(/\.0$/, ''); return `${sign}${s}k%`; } return `${sign}${Math.round(abs)}%`; };
 const formatSetupName = (name: string | null) => { if (!name || name === '-' || name === '\u2014') return null; if (name.includes('BB SQZ')) return 'BB SQZ'; if (name === 'Blue Dot Rev') return 'BD Rev'; return name; };
 const isGenericCatalyst = (catalyst: string | null | undefined) => !catalyst || catalyst.toLowerCase().startsWith('technical momentum');
 const cnfGradeOf = (score: number | null): CnfFilterType | null => { if (score == null) return null; if (score >= 70) return 'A'; if (score >= 50) return 'B'; return 'C'; };
@@ -93,7 +107,7 @@ export default function TopMovers() {
               stage: item.stage || '\u2014', setupName: item.setupName || null,
               conviction: item.conviction != null ? Number(item.conviction) : ((item.cnfScore ?? item.smbScore) ?? null),
               aboveEma10: item.aboveEma10 ?? null, aboveEma21: item.aboveEma21 ?? null,
-              stochK: item.stochK ?? null, rsVsSpy: item.rsVsSpy ?? null,
+              stochK: item.stochK ?? null, rsRating: item.rsRating ?? null,
             }));
           });
           setTopMoversData(safeData);
@@ -133,7 +147,6 @@ export default function TopMovers() {
   const getFloatColor = (float: number | null) => { if (!float) return 'text-slate-500'; if (float <= 20000000) return 'text-purple-400'; if (float <= 50000000) return 'text-emerald-400'; return 'text-slate-300'; };
   const getDtcColor = (d: number | null) => { if (d == null) return 'text-slate-500'; if (d >= 5) return 'text-purple-400'; if (d >= 3) return 'text-emerald-400'; if (d >= 1.5) return 'text-slate-300'; return 'text-slate-500'; };
   const getStochColor = (k: number | null) => { if (k == null) return 'text-slate-500'; if (k <= 20) return 'text-purple-400'; if (k <= 30) return 'text-emerald-400'; return 'text-slate-400'; };
-  const getRsColor = (rs: number | null) => { if (rs == null) return 'text-slate-500'; if (rs >= 20) return 'text-purple-400'; if (rs >= 10) return 'text-emerald-400'; if (rs >= 0) return 'text-slate-300'; return 'text-rose-400'; };
   const emaDot = (state: boolean | null) => { if (state === null) return 'bg-slate-600'; return state ? 'bg-emerald-400' : 'bg-rose-500'; };
 
   const thBase = "px-3 py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 transition-colors text-center";
@@ -257,7 +270,7 @@ export default function TopMovers() {
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
@@ -284,7 +297,7 @@ export default function TopMovers() {
                         <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '\u2014'}</td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`} title={row.rsVsSpy != null ? `3-month return vs SPY: ${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)} percentage points` : undefined}>{formatRs(row.rsVsSpy)}</td>
+                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums cursor-help ${rsColor(row.rsRating)}`} title={rsTooltip(row.rsRating)}>{row.rsRating ?? '\u2014'}</td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '\u2014'}</td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover \u2014 short interest divided by average daily volume.">{row.daysToCover != null ? row.daysToCover.toFixed(1) : '\u2014'}</td>
                         <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
