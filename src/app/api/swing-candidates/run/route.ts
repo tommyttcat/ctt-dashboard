@@ -1,5 +1,29 @@
 // src/app/api/swing-candidates/run/route.ts — v1.9
 //
+// v1.10: NEWS MOVED FROM BENZINGA WIIM TO POLYGON.
+//
+//   The Benzinga news endpoint returns an empty JSON array for a key without
+//   the news product, and fetchBenzingaWiims swallowed errors, so a dead
+//   credential was indistinguishable from a quiet news day. Both tables this
+//   route feeds — Reversal/Swing and 10/21 Consolidation — showed no
+//   catalyst on any row, and on a pullback scan that looked entirely
+//   plausible.
+//
+//   THE BATCH SHAPE CHANGES. WIIM took many tickers per request, so one call
+//   covered both final lists. Polygon's news endpoint is per-ticker, so this
+//   is now a concurrent fan-out — but only across the FINAL lists, a few
+//   dozen names, not the shortlist and certainly not the universe. Fetching
+//   during per-ticker enrichment would have meant a news call for every name
+//   that gets analysed and discarded.
+//
+//   DISPLAY ONLY. Neither analyze() nor analyzeConsolidation() takes a
+//   catalyst term, so no score moves and no row appears or disappears. That
+//   is deliberate on a pullback scan: the setup is the ABSENCE of a move, so
+//   a headline published during the base is not evidence for the setup. It
+//   is context you want before sizing — an upgrade mid-pullback is support,
+//   a dilutive offering mid-pullback is why the pullback will not hold — and
+//   the row cannot tell you which, which is exactly why it should not score.
+//
 // v1.9: rsVsSpy REPLACED by the market-wide RS RATING from /api/rs/run, on
 //       BOTH analyzers.
 //
@@ -105,6 +129,7 @@ import { computeTradePlan } from '@/lib/indicators/tradeplan';
 import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN, CHOP_TREND_MAX } from '@/lib/indicators/chop';
 import { SWING, CONSOL, SWING_META, CONSOL_META } from '@/lib/scanConfig';
 import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
+import { pickBestNews, polygonNewsPath, type NewsItem } from '@/lib/indicators/news';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -129,6 +154,11 @@ const GROUPED = {
 // ADR level at which a name is "wide" for the chop-trap read. Reporting only
 // on these tables — neither scan has an ADR floor that this would reinforce.
 const CHOP_TRAP_MIN_ADR = 5;
+
+/* Fan-out width for the news pass. Higher than the enrichment concurrency
+   because these are single small responses with no downstream computation —
+   the limit is politeness rather than memory or CPU. */
+const NEWS_CONCURRENCY = 10;
 
 /* ---- RS Rating mapping (v1.9) -------------------------------------------
    Both analyzers gate and score on the rating, so the numbers live in one
@@ -230,6 +260,9 @@ interface Candidate {
   catalyst?: string | null;
   catalystUrl?: string | null;
   thesis?: string | null;
+  newsPublisher?: string | null;
+  newsAge?: string | null;
+  newsSentiment?: 'positive' | 'negative' | 'neutral' | null;
   // v1.8 — raw levels and the plan built from them.
   setupName?: string | null;
   ema10?: number | null;
@@ -672,80 +705,18 @@ async function getEarningsBlackout(): Promise<Set<string>> {
   }
 }
 
-const WIIM_MAX_AGE_DAYS = 4;
-const WIIM_MAX_BREADTH = 12;
 // Matches scanner v6.8. At pageSize=100 a 50-ticker batch truncates — the
 // first few tickers consume the item budget and the rest come back empty.
-const WIIM_BATCH_SIZE = 15;
 
-function classifyWiim(title: string): string {
-  const s = (title || '').toLowerCase();
-  if (/\b(earnings|eps|revenue|beat|miss|quarter|q[1-4]\b)/.test(s)) return 'Earnings';
-  if (/\b(fda|approval|phase\s*[123]|trial|clinical|topline|drug|therap)/.test(s)) return 'FDA / Data';
-  if (/\b(upgrade|downgrade|price target|initiat|analyst|rating|overweight|underweight|outperform|reiterat)/.test(s)) return 'Analyst';
-  if (/\b(merger|acquir|acquisition|buyout|takeover|to acquire|stake|going private)/.test(s)) return 'M&A';
-  if (/\b(offering|dilut|prices?\s|secondary|registered direct|atm |capital raise|warrant)/.test(s)) return 'Offering';
-  if (/\b(contract|partnership|collaborat|agreement|awarded|order|wins |selected)/.test(s)) return 'Contract';
-  if (/\b(guidance|raises|lowers|cuts |reaffirm|outlook|forecast)/.test(s)) return 'Guidance';
-  if (/\b(lawsuit|sec |investigat|probe|fraud|settle|recall|halt)/.test(s)) return 'Legal / Risk';
-  if (/\b(short|squeeze|volatil|spik|surg|plung|tumbl)/.test(s)) return 'Volatility';
-  if (/\b(sector|broader market|index|futures|rotat|peers)/.test(s)) return 'Sector Move';
-  return 'News';
-}
+/* fetchBenzingaWiims and classifyWiim used to live here. Their rejection
+   cases — law-firm solicitations, over-broad baskets, stale items — are all
+   covered inside @/lib/indicators/news, and keeping a local copy as a second
+   opinion is how two classifiers drift apart on the same headline.
 
-async function fetchBenzingaWiims(
-  tickers: string[]
-): Promise<Map<string, { title: string; url: string | null; daysOld: number; score: number }>> {
-  const out = new Map<string, { title: string; url: string | null; daysOld: number; score: number }>();
-  if (!BENZINGA_KEY || tickers.length === 0) return out;
-
-  const now = Date.now();
-  for (let i = 0; i < tickers.length; i += WIIM_BATCH_SIZE) {
-    const batch = tickers.slice(i, i + WIIM_BATCH_SIZE);
-    const url =
-      `https://api.benzinga.com/api/v2/news?token=${BENZINGA_KEY}` +
-      `&tickers=${encodeURIComponent(batch.join(','))}` +
-      `&channels=WIIM&displayOutput=full&pageSize=100`;
-
-    let items: any = [];
-    try {
-      const res = await fetch(url, { headers: { accept: 'application/json' } });
-      if (!res.ok) continue;
-      items = await res.json();
-    } catch {
-      continue;
-    }
-    if (!Array.isArray(items)) continue;
-
-    for (const item of items) {
-      const isWiim =
-        Array.isArray(item?.channels) &&
-        item.channels.some((c: any) => (c?.name || '').toUpperCase() === 'WIIM');
-      if (!isWiim) continue;
-
-      const title = (item?.title || '').trim();
-      if (!title) continue;
-
-      const stocks = Array.isArray(item?.stocks) ? item.stocks : [];
-      if (stocks.length === 0 || stocks.length > WIIM_MAX_BREADTH) continue;
-
-      const created = item?.created ? new Date(item.created).getTime() : 0;
-      const daysOld = created > 0 ? (now - created) / (1000 * 60 * 60 * 24) : 999;
-      if (daysOld > WIIM_MAX_AGE_DAYS) continue;
-
-      const score = daysOld + stocks.length * 0.02;
-      for (const s of stocks) {
-        const sym = (s?.name || '').toUpperCase();
-        if (!sym) continue;
-        const prev = out.get(sym);
-        if (!prev || score < prev.score) {
-          out.set(sym, { title, url: item?.url || null, daysOld, score });
-        }
-      }
-    }
-  }
-  return out;
-}
+   BENZINGA_KEY survives only for fetchEarningsCalendar above, which powers
+   the earnings blackout. That endpoint is on the same credential and is
+   probably also dead — worth a direct check, since a blackout that never
+   fires means earnings-week names are reaching both tables unflagged. */
 
 function analyze(
   symbol: string,
@@ -1232,26 +1203,54 @@ async function runSwingScan() {
     candidates.sort((a, b) => b.score - a.score);
     consols.sort((a, b) => b.score - a.score);
 
-    // --- Catalysts: one batched WIIM lookup across both final lists --------
+    /* --- Catalysts: Polygon news across both final lists ------------------
+
+       ONLY THE FINAL LISTS. Polygon's news endpoint is per-ticker, so this
+       is a fan-out where WIIM was a batch — and the cost is bounded by
+       running it here rather than during enrichment. Enrichment analyses the
+       whole shortlist and discards most of it; a news call there would be
+       spent on names that never reach a table.
+
+       The symbol set is deduped because a name can qualify as both a swing
+       pullback and a coil, and fetching its news twice would be two
+       identical requests and two chances to disagree. */
     const consolKeep = consols.slice(0, CONSOL.finalSize);
     const newsSymbols = Array.from(new Set([
       ...candidates.map(c => c.symbol),
       ...consolKeep.map(c => c.symbol),
     ]));
-    const wiimMap = await fetchBenzingaWiims(newsSymbols);
+
+    const newsMap = new Map<string, NewsItem | null>();
+    await inBatches(newsSymbols, NEWS_CONCURRENCY, async (sym) => {
+      const res = await polygonSafe<any>(polygonNewsPath(sym, 20), { results: [] });
+      newsMap.set(sym, pickBestNews(res?.results, sym));
+      return sym;
+    });
+
+    /* Age at which the chip gains "(Delayed)". Thirty-six hours is a long
+       time on a momentum table and almost nothing on a base that has been
+       building for weeks — but the label describes the READER's expectation
+       of freshness, not the pattern's timescale, so it stays consistent with
+       every other table. */
+    const DELAYED_AGE_HOURS = 36;
 
     const attachCatalyst = (c: Candidate) => {
-      const w = wiimMap.get(c.symbol);
-      if (!w) {
+      const n = newsMap.get(c.symbol) ?? null;
+      if (!n) {
         c.catalyst = null;
         c.thesis = null;
         c.catalystUrl = null;
+        c.newsPublisher = null;
+        c.newsAge = null;
+        c.newsSentiment = null;
         return;
       }
-      const tag = classifyWiim(w.title);
-      c.catalyst = w.daysOld >= 1.5 ? `${tag} (Delayed)` : tag;
-      c.thesis = w.title;
-      c.catalystUrl = w.url;
+      c.catalyst = n.ageHours >= DELAYED_AGE_HOURS ? `${n.tag} (Delayed)` : n.tag;
+      c.thesis = n.title;
+      c.catalystUrl = n.url;
+      c.newsPublisher = n.publisher;
+      c.newsAge = n.ageLabel;
+      c.newsSentiment = n.sentiment;
     };
     candidates.forEach(attachCatalyst);
     consolKeep.forEach(attachCatalyst);
@@ -1323,7 +1322,15 @@ async function runSwingScan() {
       consolShortlisted: consolShortlist.length,
       universeSize: universe.length,
       excludedForEarnings: universe.length - toScan.length,
-      catalystsFound: wiimMap.size,
+      /* Renamed from catalystsFound, which counted WIIM matches and had been
+         reporting zero for weeks without being read as a fault. Split by
+         table because the two mean different things: a swing pullback with
+         news is a name to read before sizing, while a coil with news is
+         rarer and more interesting — most bases form in silence. */
+      newsFound: {
+        swing: candidates.filter(c => c.thesis != null).length,
+        consolidation: consolKeep.filter(c => c.thesis != null).length,
+      },
       t2108: t2108.value,
       t2108Zone: t2108.zone,
       t2108Sample: t2108.total,
