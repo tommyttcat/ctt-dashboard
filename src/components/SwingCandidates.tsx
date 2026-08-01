@@ -1,6 +1,32 @@
 'use client';
 
-// SwingCandidates — v2.2
+// SwingCandidates — v2.3
+//
+// v2.3: RS column switched from rsVsSpy (a SPREAD versus SPY) to the
+//       market-wide RS RATING (a PERCENTILE).
+//
+//   THIS TABLE IS THE ONE WHERE THE CHANGE IS VISIBLE BEYOND THE COLUMN.
+//   On StocksInPlay, DailySetups and TopMovers rsVsSpy was display-only, so
+//   the swap moved a number's units and nothing else. Here the scan route
+//   GATES on relative strength and SCORES 35 of 100 points from it, so
+//   route v1.9 changed both which names appear and what they score:
+//
+//       old   reject if rsVsSpy <= 0        score min(rsVsSpy/20, 1) x 35
+//       new   reject if rsRating < 50       score ((rs-50)/40 clamped) x 35
+//
+//   The gate was chosen to preserve the old strictness rather than adopt
+//   Minervini's 70 — "beat SPY by any margin" is roughly the median, so 50
+//   is the translation and 70 would be a different, stricter scan. Expect
+//   the candidate list to shift somewhat even so: SPY is cap-weighted, and
+//   in a tape led by mega-caps beating SPY is HARDER than beating the median
+//   stock, so the count can rise rather than fall.
+//
+//   The CNF column note below was also corrected. It described the scanner
+//   route's confluence composite, which this table does not use — its score
+//   is relative strength, pullback tightness, volatility fit and trend, and
+//   listing the wrong components made the RS weight invisible.
+//
+// v2.2: + CHOPPINESS INDEX (chop14), from swing route v1.9.
 // v1.5: full parity with DailySetups v1.9 + DAY/SWING chip.
 // v1.6: build fix — scanConfig exports the swing meta as SWING_META.
 // v2.0: parity with SIPs v3.0 / Daily v2.0 — RTR column, trade plan on the
@@ -74,6 +100,7 @@ import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { stateOf, stateTooltip, stateLegend, readinessTooltip } from '@/lib/indicators/state';
+import { rsColor, rsTooltip } from '@/lib/indicators/rs';
 import {
   chopColor,
   chopTooltip,
@@ -86,7 +113,7 @@ import MetricsKey from './MetricsKey';
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The setup name sits directly beneath it.' },
   CNF: {
-    what: 'Confluence score 0–100 — how many independent factors line up: RVOL, gap, range expansion, RS, catalyst quality, persistence, VWAP, regime, sector heat. Hover the badge for the per-row breakdown.',
+    what: 'Swing score 0–100, built from four parts: RS Rating (35), pullback tightness — distance to the 21 EMA and how deep the stochastic has reset (30), volatility fit, which rewards an ATR near 3% and penalises both ends (20), and trend structure, 50 over 200 plus a rising 21 (15).\n\nRelative strength is the largest single component AND a hard gate: a name below RS 50 never reaches this table at all.',
     colour: 'Green 70+ (A) · amber 50+ (B) · grey below (C).',
   },
   RTR: {
@@ -120,8 +147,8 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Green high (accumulation) · red low (distribution).',
   },
   RS: {
-    what: 'Relative strength vs SPY over three months, in percentage points.',
-    colour: 'Purple +20 · green +10 · grey positive · red negative.',
+    what: 'Minervini / IBD Relative Strength Rating — a PERCENTILE against every liquid US stock, not a spread versus SPY. 88 means stronger than 88% of the market over the trailing year, with the most recent quarter double-weighted.\n\nOn this table it is a GATE as well as a column: names below 50 are rejected by the scan, and the score scales from zero at 50 to full marks at 90. Computed on closing prices, so it does not move intraday.',
+    colour: 'Purple 90+ · green 80+ · slate 70+ · red below the floor.',
   },
   STOCH: {
     what: 'Stochastic %K (10). Low readings near a rising 21 EMA are the Blue Dot precondition.',
@@ -193,7 +220,7 @@ interface SwingCandidate {
   aboveEma10?: boolean;
   aboveEma21?: boolean;
   stochK: number;
-  rsVsSpy: number;
+  rsRating: number;
   avgDollarVolM: number;
   goldenCross: boolean;
   ema21Rising: boolean;
@@ -290,21 +317,6 @@ const formatLevel = (v: number | null | undefined): string => {
   if (n >= 100) return n.toFixed(0);
   if (n >= 10) return n.toFixed(1);
   return n.toFixed(2);
-};
-
-const formatRs = (rs: number | null | undefined): string => {
-  if (rs == null || isNaN(Number(rs))) return '—';
-  const v = Number(rs);
-  const sign = v >= 0 ? '+' : '-';
-  const abs = Math.abs(v);
-  if (abs >= 1000) {
-    const k = abs / 1000;
-    const s = k >= 10
-      ? Math.round(k).toString()
-      : (Math.round(k * 10) / 10).toString().replace(/\.0$/, '');
-    return `${sign}${s}k%`;
-  }
-  return `${sign}${Math.round(abs)}%`;
 };
 
 const statePair = (rmv: number | null, rme: number | null): string => {
@@ -849,12 +861,6 @@ export default function SwingCandidates() {
     if (k <= 30) return 'text-emerald-400';
     return 'text-slate-400';
   };
-  const getRsColor = (rs: number) => {
-    if (rs >= 20) return 'text-purple-400';
-    if (rs >= 10) return 'text-emerald-400';
-    if (rs >= 0) return 'text-slate-300';
-    return 'text-rose-400';
-  };
 
   const emaDot = (state: boolean | null | undefined) => {
     if (state === null || state === undefined) return 'bg-slate-600';
@@ -1106,7 +1112,7 @@ export default function SwingCandidates() {
                       header cannot carry two sort keys. */}
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
@@ -1208,8 +1214,8 @@ export default function SwingCandidates() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={mf != null ? `Money Flow ${mf.toFixed(0)} — ${mfLabel(mf)}` : undefined}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`} title={`${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)} percentage points vs SPY over three months`}>
-                            {formatRs(row.rsVsSpy)}
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums cursor-help ${rsColor(row.rsRating)}`} title={rsTooltip(row.rsRating)}>
+                            {row.rsRating ?? '—'}
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK.toFixed(1)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`}>
