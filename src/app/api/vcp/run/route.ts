@@ -114,26 +114,16 @@ const BENZINGA_KEY = process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BEN
 const BASE = 'https://api.polygon.io';
 
 /* ---- Gates --------------------------------------------------------------
-   Minervini avoids low-priced and thin stocks on principle — the pattern
-   depends on institutional accumulation, and institutions cannot accumulate
-   what does not trade. $10 and 200k shares are his rough working floors. */
-export const VCP_GATES = {
-  minPrice: 10,
-  maxPrice: 10000,
-  minAvgVolume: 200_000,
-  minDollarVol: 5_000_000,
+   Defined in @/lib/scanConfig rather than here, and aliased so the rest of
+   this file reads unchanged.
 
-  /* RS floor. 70 is Minervini's stated minimum; he prefers 80+ and is most
-     interested above 90. Gating at 70 rather than 80 is deliberate — the
-     score penalises 70-79 heavily, so those names appear at the bottom of
-     the table rather than vanishing, and you can see how thin the top of
-     the list is on a given day. A hard 80 gate would hide that. */
-  minRsRating: 70,
-
-  windowTradingDays: 90,
-  shortlistCap: 150,
-  finalSize: 40,
-};
+   That file's whole purpose is that the numbers doing the filtering and the
+   numbers shown in the on-screen key are the SAME OBJECT. A local copy here
+   would drift the moment either was edited alone, and the divergence would
+   be invisible: the key would confidently document a threshold the scan had
+   stopped enforcing. */
+import { VCP as VCP_GATES, VCP_META } from '@/lib/scanConfig';
+export { VCP_GATES };
 
 const ENRICH_CONCURRENCY = 8;
 
@@ -743,6 +733,7 @@ async function runScan(request: Request) {
 
     const scanTime = Date.now();
     const meta = {
+      ...VCP_META,
       gates: VCP_GATES,
       rsAsOf: rsLookup.asOf,
       rsAgeDays: rsLookup.ageDays,
