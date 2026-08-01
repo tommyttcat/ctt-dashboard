@@ -18,6 +18,35 @@
 // v1.3: thresholds moved to lib/scanConfig and shipped in the payload.
 // v1.4: + Stochastic %K(10) emitted as stochK.
 // v1.5: + trade plan, raw EMA levels, dayHigh/dayLow, priorSwingHigh.
+// v1.8: NEWS MOVED FROM BENZINGA WIIM TO POLYGON.
+//
+//   The Benzinga news endpoint returns an empty JSON array for a key without
+//   the news product — indistinguishable from a quiet news day, and
+//   fetchBenzingaWiims swallowed errors, so a dead credential looked exactly
+//   like no news. On the scanner this showed up as 3 matches out of 80. Here
+//   it meant EVERY row scored catalystTier 'none'.
+//
+//   THAT WAS NOT COSMETIC ON THIS SCAN. catalystTier is worth +15 for a
+//   strong catalyst, +9 for neutral and -20 for a dilutive or legal one
+//   inside scoreEp9m. With the feed dead, a name that had announced an
+//   offering scored identically to one with a defence contract, and both
+//   scored identically to one with no news at all. The 20-point spread that
+//   was supposed to separate them never applied.
+//
+//   UNLIKE THE SCANNER, THIS ROUTE ADDS AN API CALL. The scanner was already
+//   fetching /v2/reference/news per ticker and merely under-using it; this
+//   route never fetched news at all, so news now rides in the existing
+//   per-ticker Promise.all. It is one more request per SHORTLISTED name —
+//   a few dozen, not the whole universe — and the shortlist is already
+//   making three calls each.
+//
+//   EXPECT THE "SILENT" COUNT TO FALL, and read that as the scan getting
+//   more accurate rather than less interesting. Silent means heavy abnormal
+//   volume with no published explanation — the footprint before the story,
+//   which is the premise of the whole scan. With a dead feed every name
+//   qualified, so the label meant nothing. Names that drop out of it were
+//   never silent; the dashboard just could not see their news.
+//
 // v1.7: two changes.
 //
 //   (a) BACKGROUND EXECUTION for cron. This scan completes well inside
@@ -114,6 +143,7 @@ import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN, CHOP_TREND_MAX } from '
 import { EP9M, EP9M_META } from '@/lib/scanConfig';
 import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
 import { runInBackground, isDetachedRun, BG_HEADERS } from '@/lib/background';
+import { pickBestNews, polygonNewsPath, type NewsItem } from '@/lib/indicators/news';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -121,7 +151,8 @@ export const revalidate = 0;
 export const maxDuration = 300;
 
 const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
-const BENZINGA_KEY = process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '';
+/* BENZINGA_KEY is gone — this route no longer touches Benzinga at all.
+   Polygon covers news, and the earnings calendar this scan never used. */
 const BASE = 'https://api.polygon.io';
 
 // Fetch-window mechanics, not scan gates — these stay local rather than
@@ -232,6 +263,13 @@ interface Ep9mCandidate {
   catalyst: string | null;
   catalystUrl: string | null;
   thesis: string | null;
+  /* Provenance. An aggregated feed mixes GlobeNewswire 8-Ks with opinion
+     pieces, and once the source is stripped the two are indistinguishable —
+     which is why the news lib tiers publishers before choosing. Carrying it
+     to the row makes that filtering auditable rather than trusted. */
+  newsPublisher: string | null;
+  newsAge: string | null;
+  newsSentiment: 'positive' | 'negative' | 'neutral' | null;
   scoreBreakdown: Record<string, number>;
   // v1.5 — raw levels and the plan built from them.
   ema10: number | null;
@@ -579,84 +617,12 @@ function shortlistAbnormal(
   return picks.slice(0, EP9M.shortlistSize);
 }
 
-const WIIM_MAX_AGE_DAYS = 4;
-const WIIM_MAX_BREADTH = 12;
-
-function classifyWiim(title: string): string {
-  const s = (title || '').toLowerCase();
-  if (/\b(earnings|eps|revenue|beat|miss|quarter|q[1-4]\b)/.test(s)) return 'Earnings';
-  if (/\b(fda|approval|phase\s*[123]|trial|clinical|topline|drug|therap)/.test(s)) return 'FDA / Data';
-  if (/\b(upgrade|downgrade|price target|initiat|analyst|rating|overweight|underweight|outperform|reiterat)/.test(s)) return 'Analyst';
-  if (/\b(merger|acquir|acquisition|buyout|takeover|to acquire|stake|going private)/.test(s)) return 'M&A';
-  if (/\b(offering|dilut|prices?\s|secondary|registered direct|atm |capital raise|warrant)/.test(s)) return 'Offering';
-  if (/\b(contract|partnership|collaborat|agreement|awarded|order|wins |selected)/.test(s)) return 'Contract';
-  if (/\b(guidance|raises|lowers|cuts |reaffirm|outlook|forecast)/.test(s)) return 'Guidance';
-  if (/\b(lawsuit|sec |investigat|probe|fraud|settle|recall|halt)/.test(s)) return 'Legal / Risk';
-  if (/\b(short|squeeze|volatil|spik|surg|plung|tumbl)/.test(s)) return 'Volatility';
-  if (/\b(sector|broader market|index|futures|rotat|peers)/.test(s)) return 'Sector Move';
-  return 'News';
-}
-
-function isNegativeHeadline(title: string | null | undefined): boolean {
-  if (!title) return false;
-  const s = title.toLowerCase();
-  return /offering|dilut|reverse split|reverse stock split|going concern|delist|bankrupt|chapter 11|at-the-market|atm program|warrant exercise|registered direct|shelf registration/.test(s);
-}
-
-async function fetchBenzingaWiims(
-  tickers: string[]
-): Promise<Map<string, { title: string; url: string | null; daysOld: number; score: number }>> {
-  const out = new Map<string, { title: string; url: string | null; daysOld: number; score: number }>();
-  if (!BENZINGA_KEY || tickers.length === 0) return out;
-
-  const now = Date.now();
-  const BATCH = 50;
-  for (let i = 0; i < tickers.length; i += BATCH) {
-    const batch = tickers.slice(i, i + BATCH);
-    const url =
-      `https://api.benzinga.com/api/v2/news?token=${BENZINGA_KEY}` +
-      `&tickers=${encodeURIComponent(batch.join(','))}` +
-      `&channels=WIIM&displayOutput=full&pageSize=100`;
-
-    let items: any = [];
-    try {
-      const res = await fetch(url, { headers: { accept: 'application/json' } });
-      if (!res.ok) continue;
-      items = await res.json();
-    } catch {
-      continue;
-    }
-    if (!Array.isArray(items)) continue;
-
-    for (const item of items) {
-      const isWiim =
-        Array.isArray(item?.channels) &&
-        item.channels.some((c: any) => (c?.name || '').toUpperCase() === 'WIIM');
-      if (!isWiim) continue;
-
-      const title = (item?.title || '').trim();
-      if (!title) continue;
-
-      const stocks = Array.isArray(item?.stocks) ? item.stocks : [];
-      if (stocks.length === 0 || stocks.length > WIIM_MAX_BREADTH) continue;
-
-      const created = item?.created ? new Date(item.created).getTime() : 0;
-      const daysOld = created > 0 ? (now - created) / (1000 * 60 * 60 * 24) : 999;
-      if (daysOld > WIIM_MAX_AGE_DAYS) continue;
-
-      const score = daysOld + stocks.length * 0.02;
-      for (const s of stocks) {
-        const sym = (s?.name || '').toUpperCase();
-        if (!sym) continue;
-        const prev = out.get(sym);
-        if (!prev || score < prev.score) {
-          out.set(sym, { title, url: item?.url || null, daysOld, score });
-        }
-      }
-    }
-  }
-  return out;
-}
+/* fetchBenzingaWiims, classifyWiim and isNegativeHeadline used to live here.
+   Every case they covered is now inside @/lib/indicators/news — the spam and
+   legal-solicitation shapes by its rejection layers, the dilutive and
+   going-concern language by classifyNews landing on Offering or Legal / Risk.
+   Keeping local copies as a defensive second opinion is how two classifiers
+   drift apart and start disagreeing about the same headline. */
 
 // ---------------------------------------------------------------
 // EP9M score (0-100), on the same grade lines as CNF (A>=70, B>=50)
@@ -823,13 +789,17 @@ async function runScan(request: Request) {
       const snap = snapMap.get(sym);
       if (!snap) return null;
 
-      const [barsRes, details, shortData] = await Promise.all([
+      const [barsRes, details, shortData, newsRes] = await Promise.all([
         polygonSafe<{ results?: Bar[] }>(
           `/v2/aggs/ticker/${encodeURIComponent(sym)}/range/1/day/${dateStr(450)}/${today}?adjusted=true&sort=asc&limit=5000`,
           { results: [] }
         ),
         polygonSafe<any>(`/v3/reference/tickers/${sym}`, {}),
         polygonSafe<any>(`/stocks/v1/short-interest?ticker=${sym}`, { results: [] }),
+        /* v1.8 — news, in the same round trip as everything else. Sequencing
+           it after the bars would add a full latency hop per name for a
+           field that has no dependency on them. */
+        polygonSafe<any>(polygonNewsPath(sym, 20), { results: [] }),
       ]);
 
       // Backstop for ETFs/funds that slipped past the static exclusion list.
@@ -973,29 +943,51 @@ async function runScan(request: Request) {
           dayLow: snap.dayLow ?? bars[bars.length - 1]?.l ?? null,
           priorSwingHigh,
           plan: serialisePlan(plan),
+          news: pickBestNews(newsRes?.results, sym),
         },
       };
     });
 
-    const wiimMap = await fetchBenzingaWiims(enriched.map(e => e.ab.sym));
-    const STRONG_TAGS = new Set(['Earnings', 'FDA / Data', 'M&A', 'Guidance', 'Contract']);
-    const NEGATIVE_TAGS = new Set(['Offering', 'Legal / Risk']);
+    /* Age at which the chip gains "(Delayed)". A headline from yesterday
+       morning explaining today's volume is a different trade — the market
+       has had a session to price it and you are buying follow-through, not
+       the news. */
+    const DELAYED_AGE_HOURS = 36;
 
     const candidates: Ep9mCandidate[] = enriched.map(({ ab, snap, raw }): Ep9mCandidate | null => {
-      const wiim = wiimMap.get(ab.sym);
+      const news: NewsItem | null = raw.news ?? null;
+
       let catalyst: string | null = null;
       let catalystUrl: string | null = null;
       let thesis: string | null = null;
+      let newsPublisher: string | null = null;
+      let newsAge: string | null = null;
+      let newsSentiment: 'positive' | 'negative' | 'neutral' | null = null;
       let tier: 'strong' | 'neutral' | 'negative' | 'none' = 'none';
 
-      if (wiim) {
-        const tag = classifyWiim(wiim.title);
-        catalyst = wiim.daysOld >= 1.5 ? `${tag} (Delayed)` : tag;
-        catalystUrl = wiim.url;
-        thesis = wiim.title;
-        if (NEGATIVE_TAGS.has(tag) || isNegativeHeadline(wiim.title)) tier = 'negative';
-        else if (STRONG_TAGS.has(tag)) tier = 'strong';
-        else tier = 'neutral';
+      if (news) {
+        catalyst = news.ageHours >= DELAYED_AGE_HOURS ? `${news.tag} (Delayed)` : news.tag;
+        catalystUrl = news.url;
+        thesis = news.title;
+        newsPublisher = news.publisher;
+        newsAge = news.ageLabel;
+        newsSentiment = news.sentiment;
+
+        /* The lib's tier maps straight onto scoreEp9m's, with one
+           adjustment: 'headline' has no slot there, and the honest
+           translation is 'none' rather than 'neutral'. A tier of 'headline'
+           means something was published that did NOT explain the move —
+           exactly the filler this scan should not be paid for. Rounding it
+           up to neutral would hand +9 points to a Zacks rank update.
+
+           Negative sentiment on a strong tag demotes to neutral, same as the
+           scanner: "Reports Q2 Results" tags Earnings whether it beat or
+           missed, and the price action is already in the score, so applying
+           a penalty here would count the same fact twice. */
+        tier =
+          news.tier === 'headline' ? 'none'
+          : news.tier === 'strong' && news.sentiment === 'negative' ? 'neutral'
+          : news.tier;
       }
 
       const priorTriggers = priorCounts.get(ab.sym) || 0;
@@ -1065,6 +1057,9 @@ async function runScan(request: Request) {
         catalyst,
         catalystUrl,
         thesis,
+        newsPublisher,
+        newsAge,
+        newsSentiment,
         scoreBreakdown: scored.breakdown,
         ema10: round2(raw.ema10),
         ema21: round2(raw.ema21),
@@ -1154,7 +1149,16 @@ async function runScan(request: Request) {
       shortlisted: shortlist.length,
       count: finalList.length,
       registrySize: nextRegistry.length,
-      catalystsFound: wiimMap.size,
+      /* Renamed from catalystsFound, which counted WIIM matches and had been
+         reporting near-zero for weeks without anyone reading it as a fault.
+         `silent` is the one to watch here: it is the scan's whole premise —
+         heavy abnormal volume with no published explanation — and it is only
+         meaningful once the news feed actually works. A silent count equal to
+         the full list means the feed is broken again, not that the market has
+         gone quiet. */
+      newsFound: finalList.filter(c => c.thesis != null).length,
+      silent: finalList.filter(c => c.thesis == null).length,
+      negativeCatalysts: finalList.filter(c => c.newsSentiment === 'negative').length,
       scanMeta: EP9M_META,
       planCoverage,
       chopStats,
