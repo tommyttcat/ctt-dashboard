@@ -1,6 +1,30 @@
 'use client';
 
-// SwingCandidates — v2.3
+// SwingCandidates — v2.4
+//
+// v2.4: news asterisk beside the ticker, and provenance on the sub-row
+//       headline. Same treatment as StocksInPlay v3.4 and DailySetups v2.4.
+//
+//   A headline has to be READ; an asterisk is SEEN. Answering "which of
+//   these has a story" meant scanning every sub-row of prose, and the eye
+//   catches a marker beside the name in one pass.
+//
+//   ON A PULLBACK TABLE THE ASTERISK MEANS SOMETHING SLIGHTLY DIFFERENT from
+//   what it means on SIPs or Top Movers. There, news explains why a name
+//   moved today. Here the setup IS the absence of a move — a leader resting
+//   into its 21 EMA — so a headline is not the reason for the pullback, it
+//   is a thing that happened during it. That cuts both ways and the row
+//   cannot tell you which: an upgrade mid-pullback is support, a dilutive
+//   offering mid-pullback is why the pullback will not hold. The marker
+//   says "read this before you size it", not "this is bullish".
+//
+//   IT WILL STAY DARK UNTIL THE SWING ROUTE MOVES TO POLYGON. That route
+//   still calls Benzinga WIIM, which returns an empty array for a key
+//   without the news product — so catalystUrl and thesis are null on every
+//   row and hasNews is false everywhere. The wiring is complete and correct;
+//   it is waiting on the route, exactly as the RTR column waited in v2.0.
+//
+// v2.3: RS column switched from rsVsSpy (a SPREAD versus SPY) to the
 //
 // v2.3: RS column switched from rsVsSpy (a SPREAD versus SPY) to the
 //       market-wide RS RATING (a PERCENTILE).
@@ -231,6 +255,9 @@ interface SwingCandidate {
   setupName?: string | null;
   catalyst?: string | null;
   catalystUrl?: string | null;
+  newsPublisher?: string | null;
+  newsAge?: string | null;
+  newsSentiment?: 'positive' | 'negative' | 'neutral' | null;
   cnfBreakdown?: Record<string, number> | null;
   cnfCeiling?: number | null;
   cnfCeilingReason?: string | null;
@@ -391,6 +418,30 @@ const headlineOf = (c: SwingCandidate): string | null => {
 };
 
 const catalystUrlOf = (c: SwingCandidate): string | null => c.catalystUrl ?? c.newsUrl ?? null;
+
+/* A row has news only when there is a HEADLINE AND a link, not merely a tag.
+   Both go through the existing accessors rather than reading the fields
+   directly, because this component still supports the older payload shape
+   where the headline arrived as `news` or `headline` — bypassing them would
+   make the asterisk disagree with the sub-row on exactly those rows. */
+const hasNews = (c: SwingCandidate): boolean =>
+  !!(headlineOf(c) && catalystUrlOf(c));
+
+/* One tooltip for the asterisk and the sub-row, so the two can never
+   describe the same article differently. */
+const newsTooltip = (c: SwingCandidate): string => {
+  const headline = headlineOf(c);
+  if (!headline) return '';
+  const meta = [c.catalyst, c.newsPublisher, c.newsAge].filter(Boolean).join(' · ');
+  const lines: string[] = [];
+  if (meta) { lines.push(meta); lines.push(''); }
+  lines.push(headline);
+  if (c.newsSentiment === 'negative') {
+    lines.push('');
+    lines.push('Reads negative — on a pullback that is the difference between a rest and a breakdown.');
+  }
+  return lines.join('\n');
+};
 
 const adrOf = (c: SwingCandidate): number | null => {
   if (c.adrPct == null || isNaN(Number(c.adrPct))) return null;
@@ -1148,6 +1199,23 @@ export default function SwingCandidates() {
                           <td className={tdBase}>
                             <div className="flex items-center justify-center gap-1.5">
                               <span title={row.name || row.symbol} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.symbol}</span>
+                              {/* Fixed-width whether or not there is news, so
+                                  the dots that follow sit at the same x on
+                                  every row. */}
+                              <span className="inline-block w-[9px] text-center leading-none shrink-0">
+                                {hasNews(row) && (
+                                  <a
+                                    href={catUrl!}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title={newsTooltip(row)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-amber-400/90 hover:text-amber-300 font-bold text-[11px] cursor-pointer transition-colors"
+                                  >
+                                    *
+                                  </a>
+                                )}
+                              </span>
                               {dot === 'blue' && <BlueDot />}
                               {dot === 'red' && <RedDot />}
                             </div>
@@ -1268,7 +1336,7 @@ export default function SwingCandidates() {
                                   {plan?.collapsed ? 'no long plan' : plan?.note === 'trigger already passed' ? 'entry passed' : 'no plan'}
                                 </span>
                               )}
-                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={headline || undefined}>
+                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={newsTooltip(row) || headline || undefined}>
                                 {headline || tag ? (
                                   <>
                                     {tag && (
@@ -1283,6 +1351,14 @@ export default function SwingCandidates() {
                                       ) : (
                                         <span className="text-slate-500 font-normal">{headline}</span>
                                       )
+                                    )}
+                                    {/* Source and age, dimmer than the
+                                        headline. On an aggregated feed the
+                                        publisher is the main discriminator. */}
+                                    {(row.newsPublisher || row.newsAge) && (
+                                      <span className="text-[8px] text-slate-600 font-medium ml-1.5 whitespace-nowrap">
+                                        {[row.newsPublisher, row.newsAge].filter(Boolean).join(' · ')}
+                                      </span>
                                     )}
                                   </>
                                 ) : (
