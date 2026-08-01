@@ -125,11 +125,11 @@ const isGenericCatalyst = (catalyst: string | null | undefined) => !catalyst || 
    tag. "Earnings" with no article behind it comes from the earnings calendar
    rather than the news feed — real information, but nothing to click, and an
    asterisk that opens nothing is worse than no asterisk. */
-const hasNews = (row: MoverRow): boolean => !!(row.thesis && row.catalystUrl);
+const hasNews = (row: StockData): boolean => !!(row.thesis && row.catalystUrl);
 
 /* One tooltip, used by the asterisk and the catalyst cell, so the two can
    never describe the same article differently. */
-const newsTooltip = (row: MoverRow): string => {
+const newsTooltip = (row: StockData): string => {
   if (!row.thesis) return '';
   const meta = [row.catalyst, row.newsPublisher, row.newsAge].filter(Boolean).join(' \u00b7 ');
   const lines = [meta, '', row.thesis];
