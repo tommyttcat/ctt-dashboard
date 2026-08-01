@@ -1,6 +1,23 @@
 'use client';
 
-/* MarketSummary.tsx — v2.2
+/* MarketSummary.tsx — v2.3
+   v2.3: VCP rows given the same column alignment as Trade Plan.
+
+   Adding 'VCP Thesis' to ALIGNED_SECTIONS in v2.2 turned the rows nowrap and
+   put them in a scroll wrapper, but two of their tokens had no width slot,
+   so the columns still drifted:
+
+     RS   rendered at natural width. Fine mid-sentence in a watch card;
+          in a row, "RS 88" and "RS 100" differ by a character and every
+          column after them shifts.
+     T3   was not a recognised token at all and fell through as plain text,
+          landing wherever the preceding column left it.
+
+   Both now have fixed slots. The leg count also became a badge rather than
+   text, because it is a categorical read rather than a magnitude — three or
+   four legs is the sweet spot, two is thin, five or more means the base has
+   stalled into a range — and colouring it says that without a legend.
+
    v2.2: two changes.
 
    (a) RS switched from rsVsSpy (a SPREAD versus SPY) to the market-wide RS
@@ -1578,7 +1595,7 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
   const rx = new RegExp(
     `(▸|●|REV|RED DOT|BLUE DOT|\\[[^\\]]+\\]\\([^)]+\\)|\\d{1,2}:\\d{2} (?:AM|PM)` +
     `|RVOL (?:\\d+(?:\\.\\d+)?|—)|CNF \\d+|Stage \\d[ABC]?|stoch \\d+(?:\\.\\d+)?` +
-    `|RS \\d{1,2}\\b|(?:TR|ST|TG) \\d+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?x ADR` +
+    `|RS \\d{1,2}\\b|\\bT[2-9]\\b|(?:TR|ST|TG) \\d+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?x ADR` +
     `|\\d+(?:\\.\\d+)?R\\+?|\\b(?:${CATALYST_TAGS})\\b|10\\/21|S&P|Nasdaq|Dow|Bitcoin` +
     `|\\$\\d+(?:\\.\\d+)?[BMK]|[+-]\\d+(?:\\.\\d+)?%|\\b[A-Z]{1,5}\\b)`,
     'g'
@@ -1591,6 +1608,19 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
   const rvolW = align ? 'inline-block min-w-[28px] md:min-w-[30px] text-right' : '';
   const lvlValW = align ? 'inline-block min-w-[30px] md:min-w-[36px] text-right' : '';
   const dvolW = align ? 'inline-block min-w-[42px] md:min-w-[48px] text-right ml-1' : '';
+
+  /* v2.3 — VCP row slots.
+
+     RS previously rendered at its natural width, which was fine while it
+     only appeared mid-sentence in a watch card. In an aligned row it drifts:
+     "RS 88" and "RS 100" differ by a character and every column after them
+     shifts. Two digits is the real ceiling (the rating is 1-99) so the slot
+     is sized for that and right-aligned like every other numeric.
+
+     The leg count had no token at all and fell through as plain text, so
+     T3 and T4 sat wherever the preceding column left them. */
+  const rsValW = align ? 'inline-block min-w-[18px] md:min-w-[20px] text-right' : '';
+  const legW = align ? 'min-w-[20px] md:min-w-[24px] text-center' : '';
 
   return parts.map((part, i) => {
     if (!part) return null;
@@ -1656,7 +1686,39 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
     m = part.match(/^RS (\d{1,2})$/);
     if (m) {
       const v = parseInt(m[1], 10);
-      return <span key={i}>RS <span className={`${valNum} ${rsColor(v)}`}>{m[1]}</span></span>;
+      return (
+        <span key={i} className={align ? 'ml-1 md:ml-1.5' : ''}>
+          <span className="text-slate-500 text-[9px]">RS</span>{' '}
+          <span className={`${valNum} ${rsColor(v)} ${rsValW}`}>{m[1]}</span>
+        </span>
+      );
+    }
+
+    /* Contraction count, T2 through T9. Rendered as a badge rather than
+       text because it is a categorical read, not a magnitude: three or four
+       legs is the sweet spot, two is thin, five or more means the base has
+       stalled into a range. Colouring it says that without a legend.
+
+       T1 is deliberately excluded from the pattern — a single contraction is
+       not a VCP, so the token should never appear and matching it would
+       imply otherwise. */
+    m = part.match(/^T([2-9])$/);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      const cls = (n === 3 || n === 4)
+        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+        : n === 2
+          ? 'bg-slate-500/10 text-slate-300 border-white/10'
+          : 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+      return (
+        <span
+          key={i}
+          title={`${n} contractions in the base — three or four is the sweet spot: enough repetitions to prove supply is thinning, not so many that the base has stalled into a range.`}
+          className={`inline-block align-baseline text-[9px] font-bold tabular-nums px-1 py-[1px] rounded border mx-0.5 cursor-help ${legW} ${cls}`}
+        >
+          {part}
+        </span>
+      );
     }
     // The three order levels, set tight — label and value are one unit, so
     // no space between them. Stop red, target green, trigger neutral.
