@@ -1,5 +1,30 @@
 'use client';
 
+// TopMovers — v1.4
+//
+// v1.4: news asterisk beside the ticker, and provenance in the CATALYST cell.
+//
+//   THE ASTERISK IS PARTLY REDUNDANT HERE and worth it anyway. This table
+//   already has a CATALYST column, so unlike the summary cards it is not the
+//   only place news is visible. But a column of prose is read, not scanned —
+//   picking out which four of twenty rows have a story means moving your eye
+//   across the full width and back. A marker beside the name is answerable
+//   at a glance, and it keeps the vocabulary identical to the summary cards
+//   so an asterisk means one thing everywhere on the dashboard.
+//
+//   THE CATALYST CELL NOW CARRIES WHAT IT ALWAYS SHOULD HAVE. It showed a
+//   bare tag — "Earnings", "Contract" — with the headline nowhere. Scanner
+//   v6.20 emits the headline, publisher and age on every row, and the tag
+//   alone is the least useful third of that: "Contract" could be a $2M
+//   reseller deal or a $200M defence award, and only the headline says
+//   which. Hovering now gives publisher, age and the full headline.
+//
+//   PUBLISHER MATTERS MORE THAN IT LOOKS on an aggregated feed. Polygon
+//   mixes GlobeNewswire 8-Ks with Motley Fool opinion, and once you strip
+//   the source the two are indistinguishable — which is exactly why the news
+//   lib tiers publishers before choosing. Surfacing it here means the
+//   filtering is auditable rather than trusted.
+
 import { rsColor, rsTooltip } from '@/lib/indicators/rs';
 
 // TopMovers — v1.3
@@ -40,6 +65,10 @@ interface StockData {
   daysToCover: number | null;
   catalyst: string | null;
   catalystUrl: string | null;
+  thesis: string | null;
+  newsPublisher: string | null;
+  newsAge: string | null;
+  newsSentiment: 'positive' | 'negative' | 'neutral' | null;
   stage: string;
   setupName: string | null;
   conviction: number | null;
@@ -63,6 +92,24 @@ const formatNumber = (num: number | null) => { if (num === null || num === 0 || 
 const formatCurrency = (num: number | null) => { if (num === null || num === 0 || isNaN(num)) return '\u2014'; if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B'; if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M'; return '$' + num.toLocaleString(); };
 const formatSetupName = (name: string | null) => { if (!name || name === '-' || name === '\u2014') return null; if (name.includes('BB SQZ')) return 'BB SQZ'; if (name === 'Blue Dot Rev') return 'BD Rev'; return name; };
 const isGenericCatalyst = (catalyst: string | null | undefined) => !catalyst || catalyst.toLowerCase().startsWith('technical momentum');
+
+/* A row counts as having news only when there is a HEADLINE, not merely a
+   tag. "Earnings" with no article behind it comes from the earnings calendar
+   rather than the news feed — real information, but nothing to click, and an
+   asterisk that opens nothing is worse than no asterisk. */
+const hasNews = (row: MoverRow): boolean => !!(row.thesis && row.catalystUrl);
+
+/* One tooltip, used by the asterisk and the catalyst cell, so the two can
+   never describe the same article differently. */
+const newsTooltip = (row: MoverRow): string => {
+  if (!row.thesis) return '';
+  const meta = [row.catalyst, row.newsPublisher, row.newsAge].filter(Boolean).join(' \u00b7 ');
+  const lines = [meta, '', row.thesis];
+  if (row.newsSentiment === 'negative') {
+    lines.push('', 'Reads negative \u2014 the tag alone would not have told you that.');
+  }
+  return lines.filter((l, i) => l !== '' || i > 0).join('\n');
+};
 const cnfGradeOf = (score: number | null): CnfFilterType | null => { if (score == null) return null; if (score >= 70) return 'A'; if (score >= 50) return 'B'; return 'C'; };
 
 export default function TopMovers() {
@@ -104,6 +151,8 @@ export default function TopMovers() {
               rvol: item.rvol || null, mktCap: item.mktCap || null, float: item.float || null,
               shortPct: item.shortPct || null, daysToCover: item.daysToCover ?? null,
               catalyst: item.catalyst || null, catalystUrl: item.catalystUrl || null,
+              thesis: item.thesis || null, newsPublisher: item.newsPublisher || null,
+              newsAge: item.newsAge || null, newsSentiment: item.newsSentiment || null,
               stage: item.stage || '\u2014', setupName: item.setupName || null,
               conviction: item.conviction != null ? Number(item.conviction) : ((item.cnfScore ?? item.smbScore) ?? null),
               aboveEma10: item.aboveEma10 ?? null, aboveEma21: item.aboveEma21 ?? null,
@@ -288,7 +337,30 @@ export default function TopMovers() {
                     const isPositive = row.changePct >= 0;
                     return (
                       <tr key={i} className="hover:bg-white/[0.02] transition-colors group">
-                        <td className={tdBase}><span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help" title={row.name || row.ticker}>{row.ticker}</span></td>
+                        <td className={tdBase}>
+                          <span className="inline-flex items-center justify-center gap-0.5">
+                            <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help" title={row.name || row.ticker}>{row.ticker}</span>
+                            {/* Fixed-width slot whether or not there is news, so
+                                the CHG% column starts at the same x on every
+                                row. An asterisk that only sometimes occupies
+                                space would shift the whole table on exactly the
+                                rows worth looking at. */}
+                            <span className="inline-block w-[10px] text-center leading-none">
+                              {hasNews(row) && (
+                                <a
+                                  href={row.catalystUrl!}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title={newsTooltip(row)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="text-amber-400/90 hover:text-amber-300 font-bold text-[11px] cursor-pointer transition-colors"
+                                >
+                                  *
+                                </a>
+                              )}
+                            </span>
+                          </span>
+                        </td>
                         <td className={tdBase}><span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.conviction)}`}>{row.conviction != null ? row.conviction : '--'}</span></td>
                         <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}><div className="flex items-center justify-center gap-1.5">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div></td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
@@ -304,7 +376,23 @@ export default function TopMovers() {
                         <td className={`${tdBase} border-l border-white/5`}><span className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{row.sector || '\u2014'}</span></td>
                         <td className={`${tdBase} text-[10px] whitespace-normal break-words`}>
                           {!isGenericCatalyst(row.catalyst) ? (
-                            row.catalystUrl ? (<a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>) : (<span className="text-indigo-300/90 font-medium">{row.catalyst}</span>)
+                            <span className="flex flex-col leading-tight" title={newsTooltip(row) || undefined}>
+                              {row.catalystUrl ? (
+                                <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>
+                              ) : (
+                                <span className="text-indigo-300/90 font-medium">{row.catalyst}</span>
+                              )}
+                              {/* Publisher and age under the tag. "Contract" is
+                                  the same word for a $2M reseller deal and a
+                                  $200M defence award; the source and how long
+                                  ago it landed are the cheapest available
+                                  discriminators, and both fit on one line. */}
+                              {(row.newsPublisher || row.newsAge) && (
+                                <span className="text-[9px] text-slate-500 font-medium truncate">
+                                  {[row.newsPublisher, row.newsAge].filter(Boolean).join(' \u00b7 ')}
+                                </span>
+                              )}
+                            </span>
                           ) : formatSetupName(row.setupName) ? (
                             <span className="text-slate-400 font-medium whitespace-nowrap">{formatSetupName(row.setupName)}</span>
                           ) : (<span className="text-slate-500 font-medium">Technical</span>)}
