@@ -1,6 +1,27 @@
 'use client';
 
-// StocksInPlay — v3.2
+// StocksInPlay — v3.3
+//
+// v3.3: RS column switched from rsVsSpy (a SPREAD versus SPY) to the
+//       market-wide RS RATING (a PERCENTILE).
+//
+//   The old column read "+18" and meant eighteen points of three-month
+//   outperformance. The new one reads "88" and means stronger than 88% of
+//   the liquid market. The spread could not say whether +18 was top-decile
+//   leadership or the middle of a strong tape — and in a strong tape it was
+//   usually the middle. The percentile answers that directly, and it is the
+//   unit Minervini's 70 floor and 80-90+ preference are stated in.
+//
+//   COLOURS AND TOOLTIP NOW COME FROM @/lib/indicators/rs rather than being
+//   defined here. Six tables show this column; six local threshold ladders
+//   would eventually disagree about what counts as strong, and a number that
+//   is green on one table and grey on another is worse than no colour at all.
+//
+//   formatRs is gone with it. A rating is a bare integer 1-99 — no sign to
+//   render, no thousands to abbreviate. The old helper existed because a
+//   spread could be -1,400 percentage points on a name that had collapsed.
+//
+// v3.2: + CHOPPINESS INDEX (chop14), from scanner route v6.18.
 // v2.6: FILTERS bleed-through fixed (header z-30); min-w 960 → 880
 // v2.7: 1% shifted STAGE 4→5 / SECTOR 8→7 — didn't help, SECTOR was still
 //       right-aligned so its text kept sliding to the card edge.
@@ -45,6 +66,7 @@ import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { stateOf, stateTooltip, stateLegend, readinessTooltip } from '@/lib/indicators/state';
+import { rsColor, rsTooltip } from '@/lib/indicators/rs';
 import {
   chopColor,
   chopTooltip,
@@ -95,8 +117,8 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Green high (accumulation) · red low (distribution).',
   },
   RS: {
-    what: 'Relative strength vs SPY over three months, in percentage points.',
-    colour: 'Purple +20 · green +10 · grey positive · red negative.',
+    what: 'Minervini / IBD Relative Strength Rating — a PERCENTILE against every liquid US stock, not a spread versus SPY. 88 means stronger than 88% of the market over the trailing year, with the most recent quarter double-weighted.\n\nComputed on closing prices, so it does not move intraday: a stock up 8% today still shows yesterday\'s rating. Minervini gates at 70 and prefers 80-90+.',
+    colour: 'Purple 90+ · green 80+ · slate 70+ · red below the floor.',
   },
   STOCH: {
     what: 'Stochastic %K (10). Low readings near a rising 21 EMA are the Blue Dot precondition.',
@@ -160,7 +182,7 @@ interface StockInPlay {
   aboveEma10?: boolean | null;
   aboveEma21?: boolean | null;
   stochK?: number | null;
-  rsVsSpy?: number | null;
+  rsRating?: number | null;
   distToEma21?: number | null;
   adrPct?: number | null;
   chop14?: number | null;
@@ -257,21 +279,6 @@ const formatLevel = (v: number | null | undefined): string => {
   if (n >= 100) return n.toFixed(0);
   if (n >= 10) return n.toFixed(1);
   return n.toFixed(2);
-};
-
-const formatRs = (rs: number | null | undefined): string => {
-  if (rs == null || isNaN(Number(rs))) return '—';
-  const v = Number(rs);
-  const sign = v >= 0 ? '+' : '-';
-  const abs = Math.abs(v);
-  if (abs >= 1000) {
-    const k = abs / 1000;
-    const s = k >= 10
-      ? Math.round(k).toString()
-      : (Math.round(k * 10) / 10).toString().replace(/\.0$/, '');
-    return `${sign}${s}k%`;
-  }
-  return `${sign}${Math.round(abs)}%`;
 };
 
 const statePair = (rmv: number | null, rme: number | null): string => {
@@ -628,7 +635,7 @@ export default function StocksInPlay() {
               aboveEma10: item.aboveEma10 ?? null,
               aboveEma21: item.aboveEma21 ?? null,
               stochK: item.stochK ?? null,
-              rsVsSpy: item.rsVsSpy ?? null,
+              rsRating: item.rsRating ?? null,
               distToEma21: item.distToEma21 ?? null,
               adrPct: item.adrPct ?? null,
               chop14: item.chop14 ?? null,
@@ -814,13 +821,6 @@ export default function StocksInPlay() {
     if (k <= 20) return 'text-purple-400';
     if (k <= 30) return 'text-emerald-400';
     return 'text-slate-400';
-  };
-  const getRsColor = (rs: number | null | undefined) => {
-    if (rs == null) return 'text-slate-500';
-    if (rs >= 20) return 'text-purple-400';
-    if (rs >= 10) return 'text-emerald-400';
-    if (rs >= 0) return 'text-slate-300';
-    return 'text-rose-400';
   };
   const getScoreBadge = (score: number | null | undefined) => {
     if (score == null) return 'bg-white/[0.02] text-slate-600 border-white/5';
@@ -1052,7 +1052,7 @@ export default function StocksInPlay() {
                       header cannot carry two sort keys. */}
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
@@ -1154,8 +1154,8 @@ export default function StocksInPlay() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={mf != null ? `Money Flow ${mf.toFixed(0)} — ${mfLabel(mf)}` : undefined}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`} title={row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)} percentage points vs SPY over three months` : undefined}>
-                            {formatRs(row.rsVsSpy)}
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums cursor-help ${rsColor(row.rsRating)}`} title={rsTooltip(row.rsRating)}>
+                            {row.rsRating ?? '—'}
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`}>
