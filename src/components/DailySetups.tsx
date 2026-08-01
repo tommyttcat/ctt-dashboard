@@ -1,6 +1,23 @@
 'use client';
 
-// DailySetups — v2.3
+// DailySetups — v2.4
+//
+// v2.4: news asterisk beside the ticker, and provenance on the sub-row
+//       headline. Same treatment as StocksInPlay v3.4 and TopMovers v1.4.
+//
+//   The headline was already on the sub-row, which is what makes the marker
+//   worth adding rather than redundant: a headline has to be READ, an
+//   asterisk is SEEN. Answering "which of these has a story" meant scanning
+//   every sub-row of prose; now it is one pass down the left edge.
+//
+//   It matters slightly more here than on SIPs because this table carries
+//   both day trades and swings. A catalyst is worth more to a DAY row — it
+//   is why the move is happening today — and worth watching on a SWING row
+//   for the opposite reason, since a headline you are holding through is a
+//   headline that can be revised. Either way you want to know which rows
+//   have one before deciding how to size them.
+//
+// v2.3: RS column switched from rsVsSpy (a SPREAD versus SPY) to the
 //
 // v2.3: RS column switched from rsVsSpy (a SPREAD versus SPY) to the
 //       market-wide RS RATING (a PERCENTILE). Same change as StocksInPlay
@@ -159,6 +176,9 @@ interface SetupData {
   setupName: string | null;
   catalyst?: string | null;
   catalystUrl?: string | null;
+  newsPublisher?: string | null;
+  newsAge?: string | null;
+  newsSentiment?: 'positive' | 'negative' | 'neutral' | null;
   conviction?: number | null;
   thesis?: string | null;
   tradeType?: string | null;
@@ -309,6 +329,27 @@ const cleanSector = (sector: string | null | undefined, ticker?: string): string
   }
   s = s.replace(/^[A-Z]{1,5}\s*[-–—:]\s*/, '');
   return s.trim() || '—';
+};
+
+/* A row has news only when there is a HEADLINE, not merely a tag. An
+   "Earnings" tag with no article behind it comes from the earnings calendar
+   rather than the news feed — real information, but nothing to open, and an
+   asterisk that clicks through to nothing is worse than no asterisk. */
+const hasNews = (row: SetupData): boolean => !!(row.thesis && row.catalystUrl);
+
+/* One tooltip for the asterisk and the sub-row, so the two can never
+   describe the same article differently. */
+const newsTooltip = (row: SetupData): string => {
+  if (!row.thesis) return '';
+  const meta = [row.catalyst, row.newsPublisher, row.newsAge].filter(Boolean).join(' · ');
+  const lines: string[] = [];
+  if (meta) { lines.push(meta); lines.push(''); }
+  lines.push(String(row.thesis));
+  if (row.newsSentiment === 'negative') {
+    lines.push('');
+    lines.push('Reads negative — the category alone would not have told you that.');
+  }
+  return lines.join('\n');
 };
 
 const isGenericCatalyst = (catalyst: string | null | undefined) => {
@@ -637,6 +678,9 @@ export default function DailySetups() {
               stage: item.stage || '—',
               setupName: item.setupName || null,
               catalyst: item.catalyst || null,
+              newsPublisher: item.newsPublisher || null,
+              newsAge: item.newsAge || null,
+              newsSentiment: item.newsSentiment || null,
               catalystUrl: item.catalystUrl || null,
               conviction: item.conviction != null ? Number(item.conviction) : ((item.cnfScore ?? item.smbScore ?? item.aiScore ?? item.score) ?? null),
               thesis: rawThesis,
@@ -1124,6 +1168,23 @@ export default function DailySetups() {
                           <td className={tdBase}>
                             <div className="flex items-center justify-center gap-1.5">
                               <span title={row.name || row.ticker} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
+                              {/* Fixed-width whether or not there is news, so
+                                  the dots that follow sit at the same x on
+                                  every row. */}
+                              <span className="inline-block w-[9px] text-center leading-none shrink-0">
+                                {hasNews(row) && (
+                                  <a
+                                    href={row.catalystUrl!}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title={newsTooltip(row)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-amber-400/90 hover:text-amber-300 font-bold text-[11px] cursor-pointer transition-colors"
+                                  >
+                                    *
+                                  </a>
+                                )}
+                              </span>
                               {row.dotKind === 'blue' && <BlueDot />}
                               {row.dotKind === 'red' && <RedDot />}
                             </div>
@@ -1246,7 +1307,7 @@ export default function DailySetups() {
                                   {plan?.collapsed ? 'no long plan' : plan?.note === 'trigger already passed' ? 'entry passed' : 'no plan'}
                                 </span>
                               )}
-                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={headline || undefined}>
+                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={newsTooltip(row) || headline || undefined}>
                                 {headline || tag ? (
                                   <>
                                     {tag && (
@@ -1261,6 +1322,17 @@ export default function DailySetups() {
                                       ) : (
                                         <span className="text-slate-500 font-normal">{headline}</span>
                                       )
+                                    )}
+                                    {/* Source and age, dimmer than the
+                                        headline. On an aggregated feed the
+                                        publisher is the main discriminator —
+                                        "Contract" reads the same for a $2M
+                                        reseller deal and a $200M defence
+                                        award. */}
+                                    {(row.newsPublisher || row.newsAge) && (
+                                      <span className="text-[8px] text-slate-600 font-medium ml-1.5 whitespace-nowrap">
+                                        {[row.newsPublisher, row.newsAge].filter(Boolean).join(' · ')}
+                                      </span>
                                     )}
                                   </>
                                 ) : (
