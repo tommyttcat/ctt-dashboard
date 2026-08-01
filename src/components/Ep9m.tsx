@@ -1,6 +1,27 @@
 'use client';
 
-// Ep9m — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee) — v2.5
+// Ep9m — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee) — v2.6
+//
+// v2.6: news asterisk beside the ticker, and provenance on the sub-row.
+//
+//   ON THIS TABLE THE ASTERISK IS THE INVERSE OF "SILENT", which is already
+//   the most important label here. Silent means heavy abnormal volume with
+//   nothing published — the footprint before the story, and the whole
+//   premise of the scan. The asterisk marks the complement: volume WITH an
+//   explanation, where the work is reading the headline rather than hunting
+//   for one.
+//
+//   Both facts were already on the row, but only on the SUB-row and only as
+//   words. Moving the positive case to a marker beside the name means you
+//   can sort the board by eye in one pass instead of reading twenty lines of
+//   prose to find which four have a story.
+//
+//   Fed by ep9m route v1.8, which moved this scan off the dead Benzinga
+//   endpoint. Before that every row was Silent — not because the market was
+//   quiet, but because the dashboard could not see any news at all, and the
+//   scan's central label was therefore meaningless.
+//
+// v2.5: + CHOPPINESS INDEX (chop14), from ep9m route v1.6.
 //
 // Fewer than ~2% of US listings trade 9M+ shares in a session. When a stock
 // that normally trades 800k suddenly does 12M, institutions are accumulating
@@ -184,6 +205,9 @@ interface Ep9mCandidate {
   setupName?: string | null;
   catalyst?: string | null;
   catalystUrl?: string | null;
+  newsPublisher?: string | null;
+  newsAge?: string | null;
+  newsSentiment?: 'positive' | 'negative' | 'neutral' | null;
   thesis?: string | null;
   scoreBreakdown?: Record<string, number>;
   plan?: TradePlanRow | null;
@@ -313,6 +337,31 @@ const headlineOf = (c: Ep9mCandidate): string | null => {
 };
 
 const hasCatalyst = (c: Ep9mCandidate): boolean => catalystTagOf(c) != null || headlineOf(c) != null;
+
+/* STRICTER THAN hasCatalyst, deliberately. That one drives the Silent filter
+   and accepts a bare tag, because a name with an "Earnings" tag and no
+   article genuinely is not silent. The asterisk needs a headline AND a link,
+   because it is a control — an asterisk that opens nothing is worse than no
+   asterisk, and the two questions are different enough to deserve different
+   predicates rather than one loosened to cover both. */
+const hasNews = (c: Ep9mCandidate): boolean =>
+  !!(headlineOf(c) && c.catalystUrl);
+
+/* One tooltip for the asterisk and the sub-row, so the two can never
+   describe the same article differently. */
+const newsTooltip = (c: Ep9mCandidate): string => {
+  const headline = headlineOf(c);
+  if (!headline) return '';
+  const meta = [c.catalyst, c.newsPublisher, c.newsAge].filter(Boolean).join(' · ');
+  const lines: string[] = [];
+  if (meta) { lines.push(meta); lines.push(''); }
+  lines.push(headline);
+  if (c.newsSentiment === 'negative') {
+    lines.push('');
+    lines.push('Reads negative — heavy volume against bad news is distribution, not accumulation.');
+  }
+  return lines.join('\n');
+};
 
 const adrOf = (c: Ep9mCandidate): number | null =>
   c.adrPct == null || isNaN(Number(c.adrPct)) ? null : Number(c.adrPct);
@@ -1064,6 +1113,27 @@ export default function Ep9m() {
                           <td className={tdBase}>
                             <div className="flex items-center justify-center gap-1.5">
                               <span title={row.name || row.ticker} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
+                              {/* Fixed-width slot, immediately after the
+                                  ticker and BEFORE the unprecedented dot and
+                                  the star. Those two are conditional and
+                                  already ragged; putting the news marker
+                                  first gives it a stable column of its own
+                                  rather than a position that depends on
+                                  which other flags happen to be set. */}
+                              <span className="inline-block w-[9px] text-center leading-none shrink-0">
+                                {hasNews(row) && (
+                                  <a
+                                    href={row.catalystUrl!}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title={newsTooltip(row)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-amber-400/90 hover:text-amber-300 font-bold text-[11px] cursor-pointer transition-colors"
+                                  >
+                                    *
+                                  </a>
+                                )}
+                              </span>
                               {row.unprecedented && <UnprecedentedMark chop={chop} />}
                               {row.sugarBaby && <SugarBabyMark />}
                             </div>
@@ -1196,7 +1266,7 @@ export default function Ep9m() {
                                 <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">VS60D</span>
                                 <span className={`text-[9px] font-bold tabular-nums ${getVs60dColor(vs60d)}`}>{vs60d != null ? `${vs60d.toFixed(2)}×` : '—'}</span>
                               </span>
-                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={headline || undefined}>
+                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={newsTooltip(row) || headline || undefined}>
                                 {headline || tag ? (
                                   <>
                                     {tag && (
@@ -1211,6 +1281,16 @@ export default function Ep9m() {
                                       ) : (
                                         <span className="text-slate-500 font-normal">{headline}</span>
                                       )
+                                    )}
+                                    {/* Source and age. Age is unusually
+                                        pointed here: 9M shares today against
+                                        a headline from three days ago means
+                                        the volume is NOT the news, which is
+                                        the more interesting case. */}
+                                    {(row.newsPublisher || row.newsAge) && (
+                                      <span className="text-[8px] text-slate-600 font-medium ml-1.5 whitespace-nowrap">
+                                        {[row.newsPublisher, row.newsAge].filter(Boolean).join(' · ')}
+                                      </span>
                                     )}
                                   </>
                                 ) : (
