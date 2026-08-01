@@ -1,6 +1,27 @@
 'use client';
 
-// Vcp — Volatility Contraction Pattern (Mark Minervini) — v1.0
+// Vcp — Volatility Contraction Pattern (Mark Minervini) — v1.2
+//
+// v1.2: news asterisk beside the ticker, and provenance on the sub-row.
+//       Completes the set — the same amber asterisk now means the same thing
+//       on all six tables and the summary cards.
+//
+//   THIS TABLE IS WHERE THE DEAD NEWS FEED HID BEST, and the fix is worth
+//   understanding as more than plumbing. "No catalyst — the base is the
+//   thesis" is TRUE of most VCP rows: a base forming quietly is the normal
+//   case. So a broken feed produced output indistinguishable from correct
+//   output, for weeks, on the one table where nobody would think to check.
+//
+//   Now that it works, the asterisk marks the genuinely unusual state: a
+//   stock that has news AND is not moving. Something was published and the
+//   price did not respond, which during a contraction is either the market
+//   not paying attention yet, or the market having decided it does not
+//   matter. Both are worth knowing before the pivot goes.
+//
+//   The empty state keeps its wording, and should. It was never wrong — it
+//   was just unfalsifiable while the feed was dead.
+//
+// v1.1: + the ? key, now that VCP_META exists in scanConfig.
 //
 // The only table on the dashboard that surfaces a setup BEFORE it triggers.
 // Every other scan gates on something that has already happened — +4% today,
@@ -162,6 +183,9 @@ interface VcpCandidate {
   catalyst?: string | null;
   catalystUrl?: string | null;
   thesis?: string | null;
+  newsPublisher?: string | null;
+  newsAge?: string | null;
+  newsSentiment?: 'positive' | 'negative' | 'neutral' | null;
 
   trigger?: number | null;
   stop?: number | null;
@@ -270,6 +294,31 @@ const STATUS_META: Record<EffStatus, { label: string; dot: string; text: string;
     text: 'text-slate-600',
     title: 'No pivot computed.',
   },
+};
+
+/* A row has news only when there is a HEADLINE and a link. An asterisk that
+   opens nothing is worse than no asterisk. */
+const hasNews = (row: VcpCandidate): boolean => !!(row.thesis && row.catalystUrl);
+
+/* One tooltip for the asterisk and the sub-row, so the two can never
+   describe the same article differently.
+
+   The closing line is specific to this table. Elsewhere a headline explains
+   a move; here there IS no move, so the interesting fact is the absence of a
+   reaction rather than the news itself. */
+const newsTooltip = (row: VcpCandidate): string => {
+  if (!row.thesis) return '';
+  const meta = [row.catalyst, row.newsPublisher, row.newsAge].filter(Boolean).join(' · ');
+  const lines: string[] = [];
+  if (meta) { lines.push(meta); lines.push(''); }
+  lines.push(String(row.thesis));
+  lines.push('');
+  lines.push(
+    row.newsSentiment === 'negative'
+      ? 'Reads negative — during a contraction that is often why the base is tightening downward rather than coiling.'
+      : 'Published while the base was building, with no price reaction. Either the market has not priced it yet, or it decided this does not matter.'
+  );
+  return lines.join('\n');
 };
 
 const rsColor = (rs: number | null | undefined): string => {
@@ -861,6 +910,26 @@ export default function Vcp() {
                           <td className={tdBase}>
                             <div className="flex items-center justify-center gap-1.5">
                               <span title={row.name || row.symbol} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.symbol}</span>
+                              {/* Fixed-width slot before the status dot, so
+                                  the dot sits at the same x on every row.
+                                  The status dot is the primary read on this
+                                  table — whether the entry is still there —
+                                  and it should not shift because a neighbour
+                                  has news. */}
+                              <span className="inline-block w-[9px] text-center leading-none shrink-0">
+                                {hasNews(row) && (
+                                  <a
+                                    href={row.catalystUrl!}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title={newsTooltip(row)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-amber-400/90 hover:text-amber-300 font-bold text-[11px] cursor-pointer transition-colors"
+                                  >
+                                    *
+                                  </a>
+                                )}
+                              </span>
                               <span
                                 className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${meta.dot}`}
                                 title={`${meta.label} — ${meta.title}`}
@@ -1020,7 +1089,7 @@ export default function Vcp() {
                                 </span>
                               )}
 
-                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={row.thesis || undefined}>
+                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={newsTooltip(row) || undefined}>
                                 {row.thesis || row.catalyst ? (
                                   <>
                                     {row.catalyst && (
@@ -1035,6 +1104,17 @@ export default function Vcp() {
                                       ) : (
                                         <span className="text-slate-500 font-normal">{row.thesis}</span>
                                       )
+                                    )}
+                                    {/* Source and age. Age carries real
+                                        weight on a base: a headline from
+                                        four days ago that price still has
+                                        not reacted to says something the
+                                        same headline this morning does
+                                        not. */}
+                                    {(row.newsPublisher || row.newsAge) && (
+                                      <span className="text-[8px] text-slate-600 font-medium ml-1.5 whitespace-nowrap">
+                                        {[row.newsPublisher, row.newsAge].filter(Boolean).join(' · ')}
+                                      </span>
                                     )}
                                   </>
                                 ) : (
