@@ -1,5 +1,33 @@
 'use client';
 
+// TopMovers — v1.5
+//
+// v1.5: the empty state stops lying.
+//
+//   It read "No tracking instruments currently found matching criteria",
+//   which asserts something specific and usually false: that the scan ran
+//   against a live session and nothing cleared the bar. On a weekend or
+//   before the open there IS no session — every name computes to roughly
+//   zero change because last trade and prior close are the same Friday
+//   print, so the +4% Gainers gate rejects the entire market. The table
+//   looked broken and the message blamed the filters.
+//
+//   Worse, that state is REACHABLE BY ACCIDENT. Forcing a scan outside
+//   market hours writes the degenerate result over a good one: Losers has no
+//   change gate so it survives, which is enough to satisfy the route's
+//   "did we get real data" check, and Friday's snapshot is gone until the
+//   next weekday run.
+//
+//   The component cannot prevent that — the guard belongs in the route — but
+//   it can stop presenting it as a filter outcome. It now distinguishes
+//   three cases it already has the information to tell apart: the market is
+//   closed, the filters ate everything, or the scan genuinely found nothing.
+//
+//   The scan-age line matters most on the first. "No movers" on a Sunday is
+//   correct and unalarming; "no movers, last scanned Friday 8pm" is the same
+//   fact with the reason attached, and stops you debugging a scan that is
+//   working exactly as designed.
+
 // TopMovers — v1.4
 //
 // v1.4: news asterisk beside the ticker, and provenance in the CATALYST cell.
@@ -130,6 +158,48 @@ export default function TopMovers() {
   const [scanMeta, setScanMeta] = useState<any>(null);
 
   useEffect(() => { setSortConfig(null); }, [activeTab]);
+
+  /* Distinguishes "the filters removed everything" from "there was nothing
+     to remove". Both render an empty table and they call for opposite
+     responses — clear a filter, or wait for a session. */
+  const anyFilterActive =
+    marketCapFilter !== 'All' || emaFilter !== 'All' ||
+    vwapFilter !== 'All' || cnfFilter !== 'All';
+
+  const rawCount = (topMoversData[activeTab] || []).length;
+
+  /* Age of the snapshot in hours. A weekend gap is the common case and the
+     one worth naming. */
+  const scanAgeHours = lastScanTime != null
+    ? (Date.now() - lastScanTime) / 3_600_000
+    : null;
+
+  const emptyStateText = (): string => {
+    if (rawCount > 0 && anyFilterActive) {
+      return 'Every name in this tab was removed by the active filters. Clear one to see the list.';
+    }
+
+    const stale = scanAgeHours != null && scanAgeHours > 12;
+
+    if (session === 'Closed') {
+      /* The specific mechanism, because it is not obvious and it looks like
+         a bug: with no session, change is measured from the prior close to
+         the prior close. */
+      return stale
+        ? `Market closed — the last scan ran ${Math.round(scanAgeHours!)} hours ago. Outside a live session every name shows roughly zero change, so the movers tabs have nothing to rank.`
+        : 'Market closed. Outside a live session every name shows roughly zero change against its prior close, so there are no movers to rank — this is not a filter or a scan problem.';
+    }
+
+    if (session === 'Pre-Market') {
+      return 'Pre-market. Movers populate once the session opens and volume starts printing against the prior close.';
+    }
+
+    if (stale) {
+      return `No movers in the current snapshot, which is ${Math.round(scanAgeHours!)} hours old. Worth checking the scan is still running.`;
+    }
+
+    return 'No names in this tab from the most recent scan.';
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -331,7 +401,13 @@ export default function TopMovers() {
                 {status.includes('Syncing') && topMoversData[activeTab].length === 0 ? (
                   <tr><td colSpan={15} className="py-12 text-center"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
                 ) : sortedStocks.length === 0 ? (
-                  <tr><td colSpan={15} className="py-12 text-center text-slate-500 text-sm font-medium">No tracking instruments currently found matching criteria.</td></tr>
+                  <tr>
+                    <td colSpan={15} className="py-12 px-8 text-center">
+                      <span className="block text-slate-500 text-sm font-medium max-w-[560px] mx-auto leading-relaxed">
+                        {emptyStateText()}
+                      </span>
+                    </td>
+                  </tr>
                 ) : (
                   sortedStocks.map((row, i) => {
                     const isPositive = row.changePct >= 0;
