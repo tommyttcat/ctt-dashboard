@@ -1,4 +1,36 @@
-// src/app/api/swing-candidates/run/route.ts — v1.8
+// src/app/api/swing-candidates/run/route.ts — v1.9
+//
+// v1.9: rsVsSpy REPLACED by the market-wide RS RATING from /api/rs/run, on
+//       BOTH analyzers.
+//
+//   THIS ONE IS NOT A COSMETIC SWAP, unlike the same change in the scanner
+//   and ep9m routes where rsVsSpy was display-only. Here it did two jobs:
+//
+//       if (rsVsSpy == null || rsVsSpy <= 0) return null;   // hard gate
+//       const rsScore = Math.min(rsVsSpy / 20, 1) * 35;     // 35 of 100 pts
+//
+//   so the unit change moves both WHICH names appear and WHAT they score.
+//   The mapping below is chosen to preserve current behaviour rather than to
+//   adopt Minervini's stricter floor, and that is deliberate — swapping the
+//   measure and tightening the scan in one commit would make any change in
+//   the candidate count impossible to attribute.
+//
+//   THE GATE: rsVsSpy > 0 means "beat SPY over the lookback, by any amount",
+//   which is a WEAK gate — a stock outperforming by 0.3 points cleared it.
+//   Its percentile equivalent is roughly the median, so RS >= 50. Minervini
+//   gates at 70 and that is the more defensible number for a leadership
+//   scan, but it is a materially stricter screen and belongs in its own
+//   change once there is a week of data showing what it costs. Moving
+//   RS_GATE below to 70 is the entire edit when that day comes.
+//
+//   THE SCORE: the old curve ran 0 at parity with SPY and saturated at +20
+//   points of outperformance. The new one runs 0 at RS 50 and saturates at
+//   RS 90 — the level at which Minervini calls a stock a genuine leader.
+//   Same shape, same weights, expressed in ranks instead of spreads.
+//
+//   spyReturn is gone with it: pctReturn against SPY existed only to derive
+//   rsVsSpy, and the rating arrives pre-ranked. That also removes a 450-day
+//   SPY history fetch from every scan.
 // v1.1: + RMV(15) on Swing and 10/21; + batched Benzinga WIIM catalysts
 // v1.2: RMV imported from lib/indicators/rmv
 // v1.3: Weinstein sub-stages via lib/indicators/stage
@@ -72,6 +104,7 @@ import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { computeTradePlan } from '@/lib/indicators/tradeplan';
 import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN, CHOP_TREND_MAX } from '@/lib/indicators/chop';
 import { SWING, CONSOL, SWING_META, CONSOL_META } from '@/lib/scanConfig';
+import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -96,6 +129,29 @@ const GROUPED = {
 // ADR level at which a name is "wide" for the chop-trap read. Reporting only
 // on these tables — neither scan has an ADR floor that this would reinforce.
 const CHOP_TRAP_MIN_ADR = 5;
+
+/* ---- RS Rating mapping (v1.9) -------------------------------------------
+   Both analyzers gate and score on the rating, so the numbers live in one
+   place — two copies drifting apart would let the swing and consolidation
+   tables disagree about what counts as strong.
+
+   RS_GATE 50 preserves the strictness of the old `rsVsSpy > 0` test, which
+   was satisfied by beating SPY by any margin at all. Raising it to 70 adopts
+   Minervini's floor and makes this a leadership scan rather than a pullback
+   scan; that is a real change in what the table is for, and it is one edit
+   here when you want it.
+
+   RS_SATURATE 90 is where the score stops improving — the old curve topped
+   out at 20 points of outperformance, and 90 is the percentile at which
+   Minervini stops calling a stock strong and starts calling it a leader. */
+const RS_GATE = 50;
+const RS_SATURATE = 90;
+
+/* 0 at the gate, 1 at saturation, clamped. Multiplied by each analyzer's own
+   RS weight — 35 on swing, 30 on consolidation — so the relative importance
+   of relative strength inside each score is unchanged from v1.8. */
+const rsFraction = (rs: number): number =>
+  Math.max(0, Math.min((rs - RS_GATE) / (RS_SATURATE - RS_GATE), 1));
 
 const SWING_HIGH_LOOKBACK = 63;
 const SWING_HIGH_EXCLUDE_RECENT = 5;
@@ -159,7 +215,7 @@ interface Candidate {
   aboveEma10: boolean;
   aboveEma21: boolean;
   stochK: number;
-  rsVsSpy: number;
+  rsRating: number;
   avgDollarVolM: number;
   goldenCross: boolean;
   ema21Rising: boolean;
@@ -364,6 +420,10 @@ function stochK(bars: Bar[], length = 10, smooth = 4): number | null {
   return lastN.reduce((a, b) => a + b, 0) / lastN.length;
 }
 
+/* Currently unused — its only caller was the SPY benchmark return behind
+   rsVsSpy, which v1.9 replaced with the shared RS Rating. Kept because it is
+   a correct generic helper and the next thing needing a trailing return
+   should not have to rewrite it. */
 function pctReturn(closes: number[], lookback: number): number | null {
   if (closes.length < lookback + 1) return null;
   const then = closes[closes.length - 1 - lookback];
@@ -690,7 +750,7 @@ async function fetchBenzingaWiims(
 function analyze(
   symbol: string,
   bars: Bar[],
-  spyReturn: number | null,
+  rsLookup: RsLookup,
   details: any,
   shortData: any,
   snap: SnapInfo | undefined
@@ -746,8 +806,10 @@ function analyze(
   const vols = bars.slice(-20).map(b => b.v).filter(v => v > 0);
   const avgVol = vols.length > 0 ? vols.reduce((a, b) => a + b, 0) / vols.length : 0;
 
-  const ret = pctReturn(closes, SWING.rsLookback);
-  const rsVsSpy = ret != null && spyReturn != null ? ret - spyReturn : null;
+  /* A lookup, not a calculation. Null means the name is unrated — below the
+     ranking floor, or listed less than a quarter ago — and an unrated name
+     fails the gate below rather than passing on a missing value. */
+  const rsRating = rsLookup.get(symbol);
 
   if (avgDollarVol < SWING.minAvgDollarVol) return null;
   if (price < sma50) return null;
@@ -756,9 +818,9 @@ function analyze(
   if (pctOffHigh < SWING.minPctOffHigh || pctOffHigh > SWING.maxPctOffHigh) return null;
   if (Math.abs(distToEma21) > SWING.maxDistToEma21) return null;
   if (kVal > SWING.maxStochK) return null;
-  if (rsVsSpy == null || rsVsSpy <= 0) return null;
+  if (rsRating == null || rsRating < RS_GATE) return null;
 
-  const rsScore = Math.min(rsVsSpy / 20, 1) * 35;
+  const rsScore = rsFraction(rsRating) * 35;
   const pullbackScore =
     (1 - Math.abs(distToEma21) / SWING.maxDistToEma21) * 15 +
     (1 - kVal / SWING.maxStochK) * 15;
@@ -841,7 +903,7 @@ function analyze(
     aboveEma10: price >= ema10,
     aboveEma21: price >= ema21,
     stochK: +kVal.toFixed(1),
-    rsVsSpy: +rsVsSpy.toFixed(1),
+    rsRating,
     avgDollarVolM: Math.round(avgDollarVol / 1e6),
     goldenCross: sma50 > sma200,
     ema21Rising,
@@ -859,7 +921,7 @@ function analyze(
 function analyzeConsolidation(
   symbol: string,
   bars: Bar[],
-  spyReturn: number | null,
+  rsLookup: RsLookup,
   details: any,
   shortData: any,
   snap: SnapInfo | undefined
@@ -906,8 +968,10 @@ function analyzeConsolidation(
   const vols = bars.slice(-20).map(b => b.v).filter(v => v > 0);
   const avgVol = vols.length > 0 ? vols.reduce((a, b) => a + b, 0) / vols.length : 0;
 
-  const ret = pctReturn(closes, SWING.rsLookback);
-  const rsVsSpy = ret != null && spyReturn != null ? ret - spyReturn : null;
+  /* A lookup, not a calculation. Null means the name is unrated — below the
+     ranking floor, or listed less than a quarter ago — and an unrated name
+     fails the gate below rather than passing on a missing value. */
+  const rsRating = rsLookup.get(symbol);
 
   const win10 = bars.slice(-10);
   const hi10 = Math.max(...win10.map(b => b.h));
@@ -971,7 +1035,7 @@ function analyzeConsolidation(
   if (coilRatio > CONSOL.maxCoilRatio) return null;
   if (Math.abs(changePct) > CONSOL.maxDayChange) return null;
   if (pctOffHigh > CONSOL.maxPctOffHigh) return null;
-  if (rsVsSpy == null || rsVsSpy <= 0) return null;
+  if (rsRating == null || rsRating < RS_GATE) return null;
 
   const tightScore = Math.max(0, Math.min(1,
     (CONSOL.maxCoilRatio - coilRatio) / (CONSOL.maxCoilRatio - 2.0)
@@ -979,7 +1043,7 @@ function analyzeConsolidation(
   const proxScore =
     (1 - Math.abs(distToEma10) / CONSOL.maxDistToEma10) * 15 +
     Math.max(0, 1 - Math.abs(distToEma21) / CONSOL.maxAboveEma21) * 10;
-  const rsScore = Math.min(rsVsSpy / 20, 1) * 30;
+  const rsScore = rsFraction(rsRating) * 30;
   const trendScore = 10 + (pctOffHigh <= 7 ? 5 : 0);
   const score = Math.round(Math.max(0, Math.min(100, tightScore + proxScore + rsScore + trendScore)));
 
@@ -1066,7 +1130,7 @@ function analyzeConsolidation(
     aboveEma10: price >= ema10,
     aboveEma21: price >= ema21,
     stochK: +kVal.toFixed(1),
-    rsVsSpy: +rsVsSpy.toFixed(1),
+    rsRating,
     avgDollarVolM: Math.round(avgDollarVol / 1e6),
     goldenCross: sma50 > sma200,
     ema21Rising,
@@ -1100,8 +1164,17 @@ async function runSwingScan() {
 
     const startedAt = Date.now();
 
-    const spyBars = await getDailyBars("SPY");
-    const spyReturn = pctReturn(spyBars.map(b => b.c), SWING.rsLookback);
+    /* One lookup for the whole scan, replacing the SPY benchmark return.
+
+       THIS ALSO REMOVED A POLYGON CALL. rsVsSpy needed a full SPY history
+       fetch on every scan just to compute one benchmark number; the rating
+       arrives pre-ranked, so the fetch is gone entirely.
+
+       Loading it here rather than inside the analyzers matters: those run
+       once per shortlisted name across concurrent batches, and a KV read per
+       ticker would be hundreds of requests for a map that cannot change
+       mid-scan. The analyzers take it as a parameter. */
+    const rsLookup: RsLookup = await loadRsRatings();
 
     const [{ symbols: universe, snapMap, snapMapAll }, earningsBlackout] = await Promise.all([getUniverse(), getEarningsBlackout()]);
     const toScan = universe.filter(sym => !earningsBlackout.has(sym));
@@ -1135,8 +1208,8 @@ async function runSwingScan() {
         polygonSafe<any>(`/v3/reference/tickers/${sym}`, {}),
         polygonSafe<any>(`/stocks/v1/short-interest?ticker=${sym}`, { results: [] }),
       ]);
-      const swing = analyze(sym, bars, spyReturn, details, shortData, snapMap.get(sym));
-      const consol = analyzeConsolidation(sym, bars, spyReturn, details, shortData, snapMap.get(sym));
+      const swing = analyze(sym, bars, rsLookup, details, shortData, snapMap.get(sym));
+      const consol = analyzeConsolidation(sym, bars, rsLookup, details, shortData, snapMap.get(sym));
       if (!swing && !consol) return null;
       return { swing, consol };
     });
@@ -1147,7 +1220,7 @@ async function runSwingScan() {
         polygonSafe<any>(`/v3/reference/tickers/${sym}`, {}),
         polygonSafe<any>(`/stocks/v1/short-interest?ticker=${sym}`, { results: [] }),
       ]);
-      return analyzeConsolidation(sym, bars, spyReturn, details, shortData, snapMapAll.get(sym));
+      return analyzeConsolidation(sym, bars, rsLookup, details, shortData, snapMapAll.get(sym));
     });
 
     const candidates = results.map(r => r.swing).filter((c): c is Candidate => !!c);
@@ -1201,7 +1274,15 @@ async function runSwingScan() {
     if (swingPersisted) {
       await kv.set('swing_candidates_v1', candidates);
       await kv.set('swing_meta_v1', {
-        spyReturn3M: spyReturn != null ? +spyReturn.toFixed(1) : null,
+        /* spyReturn3M is gone — it existed only to derive rsVsSpy. What
+           replaces it is the RS map's own provenance, which is what you
+           actually need when a column of ratings looks wrong: whether the
+           map loaded, how old it is, and how many names were ranked. */
+        rsAvailable: rsLookup.available,
+        rsAsOf: rsLookup.asOf,
+        rsAgeDays: rsLookup.ageDays,
+        rsRankedUniverse: rsLookup.ranked,
+        rsReason: rsLookup.reason,
         universeSize: universe.length,
         excludedForEarnings: universe.length - toScan.length,
         count: candidates.length,
