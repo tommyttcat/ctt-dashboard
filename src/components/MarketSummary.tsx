@@ -1,6 +1,19 @@
 'use client';
 
-/* MarketSummary.tsx — v2.3
+/* MarketSummary.tsx — v2.4
+   v2.4: the ticker chip gets a FIXED width inside aligned rows.
+
+   v2.3 gave RS and the leg count their own slots and the rows still drifted,
+   because the thing every other column was aligning against was itself
+   moving. The chip carried a MIN-width: RUSHA at five characters overflowed
+   it, EG at two stopped at it, and every column after started at a different
+   x on each row.
+
+   The chip keeps its min-width in prose, where a five-character ticker
+   mid-sentence should take the room it needs and a fixed box would leave
+   gaps inside a paragraph. Rows get a fixed 56px, which fits the five-
+   character ceiling that [A-Z]{1,5} imposes.
+
    v2.3: VCP rows given the same column alignment as Trade Plan.
 
    Adding 'VCP Thesis' to ALIGNED_SECTIONS in v2.2 turned the rows nowrap and
@@ -1530,7 +1543,27 @@ const CATALYST_TAGS = 'Earnings|FDA|Analyst|M&A|Offering|Contract|Guidance|Legal
    off the edge. Mobile drops ~55px across the six fields, mobile padding
    returns another ~40px, and the scroll wrapper covers whatever a 4-digit
    price does to the rest. */
-const tickerChipCls = "inline-block align-baseline text-[9px] font-bold text-slate-300 bg-slate-500/10 px-1 md:px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5 min-w-[38px] md:min-w-[44px] text-center";
+/* THE CHIP HAS TWO WIDTHS, and that distinction is the whole reason rows
+   were still drifting after v2.3 gave every other token a slot.
+
+   In PROSE the chip must size to its content — a min-width keeps single
+   letters from looking cramped, but a five-character ticker mid-sentence has
+   to be allowed to take the room it needs, and padding it to a fixed box
+   would leave visible gaps inside a paragraph.
+
+   In an ALIGNED ROW that same min-width is the bug. RUSHA is five characters
+   and overflows the 44px minimum; EG is two and stops at it. Every column
+   after the chip then starts at a different x on each row, which is exactly
+   what the fixed slots on RS, the leg badge and the price levels were meant
+   to prevent — they were all aligning correctly to a starting point that
+   itself moved.
+
+   56px fits five characters at 9px bold with tracking-wider plus padding and
+   border, with a little slack. Tickers here are matched by [A-Z]{1,5} so
+   five is the ceiling and nothing can overflow it. */
+const TICKER_CHIP_BASE = "inline-block align-baseline text-[9px] font-bold text-slate-300 bg-slate-500/10 px-1 md:px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5 text-center";
+const tickerChipCls = `${TICKER_CHIP_BASE} min-w-[38px] md:min-w-[44px]`;
+const tickerChipAlignedCls = `${TICKER_CHIP_BASE} w-[48px] md:w-[56px]`;
 const valNum = "text-[11px] tabular-nums";
 const rowText = "text-[12px]";
 
@@ -1758,7 +1791,7 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
     }
     if (part === '10/21') return <span key={i} className={`${valNum} text-violet-400 font-bold`}>10/21</span>;
     if (part === 'S&P' || part === 'Nasdaq' || part === 'Dow' || part === 'Bitcoin') {
-      return <span key={i} className={tickerChipCls}>{part}</span>;
+      return <span key={i} className={align ? tickerChipAlignedCls : tickerChipCls}>{part}</span>;
     }
     if (/^\$\d+(?:\.\d+)?[BMK]$/.test(part)) return <span key={i} className={`${valNum} text-slate-200 ${dvolW}`}>{part}</span>;
     if (/^[+]\d+(?:\.\d+)?%$/.test(part)) return <span key={i} className={`${valNum} text-emerald-400 ${chgW}`}>{part}</span>;
@@ -1766,7 +1799,7 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
     if (part === 'DAY') return <span key={i} className="text-amber-400">DAY</span>;
     if (part === 'SWING') return <span key={i} className="text-cyan-400">SWING</span>;
     if (/^[A-Z]{2,5}$/.test(part) && !TICKER_STOPWORDS.has(part)) {
-      return <span key={i} className={tickerChipCls}>{part}</span>;
+      return <span key={i} className={align ? tickerChipAlignedCls : tickerChipCls}>{part}</span>;
     }
     return <React.Fragment key={i}>{part}</React.Fragment>;
   });
