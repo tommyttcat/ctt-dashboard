@@ -1,6 +1,35 @@
 'use client';
 
-/* MarketSummary.tsx — v2.1
+/* MarketSummary.tsx — v2.2
+   v2.2: two changes.
+
+   (a) RS switched from rsVsSpy (a SPREAD versus SPY) to the market-wide RS
+       RATING (a PERCENTILE), matching the five tables.
+
+       The watch-card prose said "RS +18 vs SPY", which stated a magnitude
+       without a reference: eighteen points of outperformance is top-decile
+       in a weak tape and unremarkable in a strong one, and the sentence
+       could not tell you which. It now reads "RS 88", meaning stronger than
+       88% of the liquid market.
+
+       The threshold for MENTIONING it moved with the unit. The old rule
+       printed RS whenever the spread cleared +10, which on a momentum
+       watchlist was nearly every row and therefore said nothing. The new
+       rule prints it at 80+, which is Minervini's "worth noticing" line and
+       leaves the mention meaning something.
+
+   (b) + VCP THESIS section, placed before EP9M.
+
+       Its position is deliberate. Read top to bottom the briefing runs from
+       what is happening RIGHT NOW to what is setting up LATER — Trade Plan,
+       Top Movers and SIPs are today's tape; 10/21 is this week's structure.
+       A VCP base is weeks of accumulation resolving at some future pivot,
+       which puts it at the far end of that scale. EP9M follows because a
+       volume event with no headline is a research task rather than a trade,
+       and Industry Heat / ETF Flow / Money Flow close as context rather than
+       candidates.
+
+   v2.1 — MOBILE WIDTHS.
    Mobile layout pass. Aligned rows were clipping on a phone: six fixed-width
    fields plus card padding totalled ~440px against a ~380px viewport, so TG
    fell off the right edge with no way to reach it.
@@ -867,8 +896,12 @@ const buildWatchReason = (s: any): string => {
     const k = Number(s.stochK);
     if (k <= 25) parts.push(`stoch ${k.toFixed(0)} (oversold reset)`);
   }
-  if (s?.rsVsSpy != null && !isNaN(Number(s.rsVsSpy)) && Number(s.rsVsSpy) >= 10) {
-    parts.push(`RS +${Number(s.rsVsSpy).toFixed(0)} vs SPY`);
+  /* 80 rather than the old +10 spread. The previous threshold fired on
+     nearly every momentum name, and a qualifier that appears on every row
+     conveys nothing. 80 is Minervini's "worth noticing" line, so the mention
+     is now information rather than decoration. */
+  if (s?.rsRating != null && !isNaN(Number(s.rsRating)) && Number(s.rsRating) >= 80) {
+    parts.push(`RS ${Number(s.rsRating).toFixed(0)}`);
   }
 
   const tt = s?.tradeType ? String(s.tradeType).toLowerCase() : null;
@@ -1025,6 +1058,100 @@ const buildMoversPara = (movers: any): string => {
   return '';
 };
 
+/* ---- VCP -----------------------------------------------------------------
+   Volatility Contraction Pattern bases, split by whether the entry is still
+   available.
+
+   THE SPLIT IS THE POINT, and it is not the same as the scan's own `status`
+   field. That reports 'breaking-out' whenever price is above the pivot with
+   NO BOUND ON HOW FAR — a name that cleared its pivot three weeks ago and
+   ran 18% still reports as breaking out, and on the first live scan five of
+   nine names were in that state. A summary listing those alongside genuine
+   setups would be half history.
+
+   So the same derivation the VCP table uses is applied here: distance to the
+   pivot decides. Within 3% either side is live; further below is still
+   building; further above has gone.
+
+   EXTENDED NAMES ARE EXCLUDED ENTIRELY rather than shown in a third column.
+   The briefing exists to answer "what can I do", and a base whose entry
+   passed cannot be acted on — its only remaining use is as a lesson, and a
+   lesson does not belong in a list of candidates. The footer states how many
+   were dropped so the omission is visible rather than silent. */
+const VCP_FRESH_PCT = 3;
+
+const vcpStatusOf = (c: any): 'ready' | 'watch' | 'extended' | null => {
+  const p = numOrNull(c?.pctToPivot);
+  if (p == null) return null;
+  // pctToPivot is (pivot - price) / price: positive means price is BELOW the
+  // pivot with that far to travel, negative means it is already through.
+  if (p > VCP_FRESH_PCT) return 'watch';
+  if (p >= -VCP_FRESH_PCT) return 'ready';
+  return 'extended';
+};
+
+const buildVcpPara = (vcp: any[]): string => {
+  const rows = (Array.isArray(vcp) ? vcp : []).filter(c => c?.symbol);
+  if (rows.length === 0) return '';
+
+  const fmtVcp = (c: any): string => {
+    const bits: string[] = [];
+    const rs = numOrNull(c?.rsRating);
+    if (rs != null) bits.push(`RS ${rs.toFixed(0)}`);
+
+    /* The contraction count as T3 / T4 rather than the full depth sequence.
+       The sequence is the signature and belongs on the table where it has a
+       column; inline it would be three bare numbers the tokeniser cannot
+       colour and the eye cannot align. */
+    const legs = numOrNull(c?.contractionCount);
+    if (legs != null) bits.push(`T${legs.toFixed(0)}`);
+
+    if (c?.trigger != null) bits.push(`TR ${fmtLevel(c.trigger)}`);
+    if (c?.stop != null) bits.push(`ST ${fmtLevel(c.stop)}`);
+
+    return `${c.symbol} ${bits.join(' ')}`;
+  };
+
+  const byScore = (a: any, b: any) => num(b?.score) - num(a?.score);
+
+  const ready = rows.filter(c => vcpStatusOf(c) === 'ready').sort(byScore);
+  const watch = rows.filter(c => vcpStatusOf(c) === 'watch').sort(byScore);
+  const extended = rows.filter(c => vcpStatusOf(c) === 'extended').length;
+
+  const footer: string[] = [];
+
+  if (ready.length === 0 && watch.length === 0) {
+    if (extended > 0) {
+      return `VCP Thesis: ${extended} base${extended === 1 ? '' : 's'} on the board but every one has already cleared its pivot and run. The patterns were real; the entries have gone.`;
+    }
+    return '';
+  }
+
+  if (ready.length) {
+    footer.push(`${ready.length} base${ready.length === 1 ? ' is' : 's are'} within ${VCP_FRESH_PCT}% of the pivot — the trigger is the high of the final contraction and the stop is its low, which is why a VCP carries a tighter stop than an ATR rule would give you.`);
+  } else {
+    footer.push('Nothing is at a pivot yet. These are bases still contracting — the list to watch, not to trade.');
+  }
+
+  if (extended > 0) {
+    footer.push(`${extended} more cleared and ran, excluded here.`);
+  }
+
+  const strong = rows.filter(c => num(c?.rsRating) >= 90).map(c => c.symbol);
+  if (strong.length) {
+    footer.push(`${strong.slice(0, 4).join(', ')} rank in the top decile of the market on relative strength.`);
+  }
+
+  const readyCol = ready.length
+    ? `At the pivot — ${ready.length}:\n${ready.slice(0, 5).map(fmtVcp).join('\n')}`
+    : 'At the pivot:\nNothing within reach yet.';
+  const watchCol = watch.length
+    ? `Still basing — ${watch.length}:\n${watch.slice(0, 5).map(fmtVcp).join('\n')}`
+    : 'Still basing:\nNo bases in the building stage.';
+
+  return `VCP Thesis: ${twoCol(readyCol, watchCol, footer)}`;
+};
+
 /* ---- EP9M ---------------------------------------------------------------
    Four fields: ticker, change, RVOL, catalyst.
 
@@ -1077,7 +1204,8 @@ const buildLocalInsights = (
   econList: EconEvent[] = [],
   earningsList: EarningsEvent[] = [],
   swingList: any[] = [],
-  consolList: any[] = []
+  consolList: any[] = [],
+  vcpList: any[] = []
 ): MacroInsights | null => {
   const sips: any[] = Array.isArray(scan?.stocksInPlay) ? scan.stocksInPlay : [];
   const daily: any[] = Array.isArray(scan?.dailySetups) ? scan.dailySetups : [];
@@ -1313,14 +1441,21 @@ const buildLocalInsights = (
 
   const keyEventsPara = buildKeyEventsPara(econList, earningsList);
   const moversPara = buildMoversPara(movers);
+  const vcpPara = buildVcpPara(vcpList);
   const ep9mPara = buildEp9mPara(ep9m);
 
   const sipsFinal = sipsPara || (sips.length === 0 && (daily.length || ep9m.length) ? 'SIPs Thesis: No stocks in play in the current scan.' : '');
   const dailyFinal = dailyPara || (daily.length === 0 && (sips.length || ep9m.length) ? 'Daily Setups Thesis: No daily setups on the board right now.' : '');
   const ep9mFinal = ep9mPara || (ep9m.length === 0 && (sips.length || daily.length) ? 'EP9M Thesis: No names trading abnormal 9M+ size yet — this fills in as session volume builds.' : '');
 
+  /* Order runs from what is happening RIGHT NOW to what sets up LATER.
+     Trade Plan, Top Movers and SIPs are today's tape; 10/21 is this week's
+     structure; VCP is weeks of accumulation resolving at a future pivot.
+     EP9M follows because a volume event with no headline is a research task
+     rather than a trade, and the three flow sections close as context. */
   const orderedParas = [
-    tradePlanPara, moversPara, sipsFinal, dailyFinal, ema1021Para, ep9mFinal,
+    tradePlanPara, moversPara, sipsFinal, dailyFinal, ema1021Para,
+    vcpPara, ep9mFinal,
     heatPara, etfPara, moneyPara, keyEventsPara,
   ];
 
@@ -1397,7 +1532,10 @@ const stageColor = (st: string) => {
   return 'text-slate-400';
 };
 const stochColor = (k: number) => (k <= 20 ? 'text-purple-400' : k <= 30 ? 'text-emerald-400' : 'text-slate-400');
-const rsColor = (rs: number) => (rs >= 20 ? 'text-purple-400' : rs >= 10 ? 'text-emerald-400' : rs >= 0 ? 'text-slate-300' : 'text-rose-400');
+/* Percentile thresholds, matching @/lib/indicators/rs. Not imported from
+   there because this file colours inline prose tokens rather than table
+   cells and takes a bare number, but the ladder is identical on purpose. */
+const rsColor = (rs: number) => (rs >= 90 ? 'text-purple-400' : rs >= 80 ? 'text-emerald-400' : rs >= 70 ? 'text-slate-300' : 'text-rose-400');
 const reachColor = (v: number) => (v <= 0.5 ? 'text-emerald-400' : v <= 1 ? 'text-slate-300' : 'text-amber-400');
 
 const rtrBadgeCls = (v: number): string => {
@@ -1424,7 +1562,7 @@ const postureChipCls = (tone: 'good' | 'warn' | 'bad'): string => {
    rows and prose, and Money Flow does exactly that. */
 const ALIGNED_SECTIONS = new Set([
   'Trade Plan', 'Top Movers', 'SIPs Thesis', 'Daily Setups Thesis',
-  '10/21 Thesis', 'EP9M Thesis', 'Industry Heat', 'ETF Flow', 'Money Flow',
+  '10/21 Thesis', 'VCP Thesis', 'EP9M Thesis', 'Industry Heat', 'ETF Flow', 'Money Flow',
 ]);
 
 /* A ROW starts with a ticker (all-caps, 1-5 chars, then a space) or with a
@@ -1440,7 +1578,7 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
   const rx = new RegExp(
     `(▸|●|REV|RED DOT|BLUE DOT|\\[[^\\]]+\\]\\([^)]+\\)|\\d{1,2}:\\d{2} (?:AM|PM)` +
     `|RVOL (?:\\d+(?:\\.\\d+)?|—)|CNF \\d+|Stage \\d[ABC]?|stoch \\d+(?:\\.\\d+)?` +
-    `|RS \\+?\\d+(?:\\.\\d+)?|(?:TR|ST|TG) \\d+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?x ADR` +
+    `|RS \\d{1,2}\\b|(?:TR|ST|TG) \\d+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?x ADR` +
     `|\\d+(?:\\.\\d+)?R\\+?|\\b(?:${CATALYST_TAGS})\\b|10\\/21|S&P|Nasdaq|Dow|Bitcoin` +
     `|\\$\\d+(?:\\.\\d+)?[BMK]|[+-]\\d+(?:\\.\\d+)?%|\\b[A-Z]{1,5}\\b)`,
     'g'
@@ -1515,9 +1653,9 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
       const v = parseFloat(m[1]);
       return <span key={i}>stoch <span className={`${valNum} ${stochColor(v)}`}>{m[1]}</span></span>;
     }
-    m = part.match(/^RS (\+?\d+(?:\.\d+)?)$/);
+    m = part.match(/^RS (\d{1,2})$/);
     if (m) {
-      const v = parseFloat(m[1]);
+      const v = parseInt(m[1], 10);
       return <span key={i}>RS <span className={`${valNum} ${rsColor(v)}`}>{m[1]}</span></span>;
     }
     // The three order levels, set tight — label and value are one unit, so
@@ -1598,6 +1736,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, who has news, and who is grinding on air.' },
   { label: 'Daily Setups Thesis', color: 'emerald', blurb: 'Structured setups from the daily scan. SWING holds for days; DAY is intraday momentum only. ● is a Blue Dot reversal — the oversold stochastic reset fired; REV is a reversal by structure with no dot behind it.' },
   { label: '10/21 Thesis', color: 'violet', blurb: 'Top-ranked names split by holding period. The two percentages are distance from the 21 and the 10 EMA, followed by the posture read. Leveraged and inverse ETFs excluded. A name tagged BELOW 21, EXTENDED, or RED DOT ranks on tape action — it is not at an entry.' },
+  { label: 'VCP Thesis', color: 'teal', blurb: 'Volatility Contraction Patterns — bases of successively shallower pullbacks on lighter volume, which is supply being absorbed. TR is the pivot (the high of the final contraction) and ST its low, so the stop is the pattern\'s own invalidation rather than a volatility rule. T3 means three contractions; three or four is the sweet spot. Names that already cleared the pivot and ran are excluded, not ranked last.' },
   { label: 'EP9M Thesis', color: 'rose', blurb: 'Abnormal 9M+ share volume — institutional footprints. Left column beat its own 60-day volume record; right column has no headline out yet, which is the case worth researching.' },
   { label: 'Industry Heat', color: 'amber', blurb: 'Sector rotation — where money is flowing in and where it is leaving. Wide dispersion = stock-picker tape.' },
   { label: 'ETF Flow', color: 'indigo', blurb: 'Heaviest ETF dollar volume and the advancing/declining split — shows where leveraged money is betting.' },
@@ -1719,13 +1858,14 @@ export default function MarketSummary() {
       }
 
       try {
-        const [scannerRes, ep9mRes, econRes, earningsRes, swingRes, consolRes] = await Promise.all([
+        const [scannerRes, ep9mRes, econRes, earningsRes, swingRes, consolRes, vcpRes] = await Promise.all([
           fetch('/api/scanner/latest', { cache: 'no-store' }),
           fetch(`/api/ep9m/latest?t=${Date.now()}`, { cache: 'no-store' }).catch(() => null),
           fetch('/api/econ', { cache: 'no-store' }).catch(() => null),
           fetch('/api/earnings', { cache: 'no-store' }).catch(() => null),
           fetch(`/api/swing-candidates/latest?t=${Date.now()}`, { cache: 'no-store' }).catch(() => null),
           fetch(`/api/consolidation/latest?t=${Date.now()}`, { cache: 'no-store' }).catch(() => null),
+          fetch(`/api/vcp/latest?t=${Date.now()}`, { cache: 'no-store' }).catch(() => null),
         ]);
         if (!scannerRes.ok) throw new Error(`Scanner API returned status: ${scannerRes.status}`);
 
@@ -1771,8 +1911,20 @@ export default function MarketSummary() {
           }
         } catch { /* consolidation is optional */ }
 
+        /* VCP is optional in the strongest sense: the scan runs once daily
+           and legitimately returns nothing when the market has no bases,
+           which on a trending or falling tape is the normal result rather
+           than a fault. An empty list produces no section at all. */
+        let vcpList: any[] = [];
+        try {
+          if (vcpRes && vcpRes.ok) {
+            const d = await vcpRes.json();
+            if (d && Array.isArray(d.candidates)) vcpList = d.candidates;
+          }
+        } catch { /* vcp is optional */ }
+
         if (isMounted) {
-          const local = buildLocalInsights(scannerData, ep9mList, econList, earningsList, swingList, consolList);
+          const local = buildLocalInsights(scannerData, ep9mList, econList, earningsList, swingList, consolList, vcpList);
           if (local) setMacroInsights(local);
           else if (scannerData.macroInsights) setMacroInsights(scannerData.macroInsights);
         }
@@ -1816,6 +1968,7 @@ export default function MarketSummary() {
       .replace(/(SIPs Thesis:)/gi, '\n\n$1')
       .replace(/(Daily Setups Thesis:)/gi, '\n\n$1')
       .replace(/(10\/21 Thesis:)/gi, '\n\n$1')
+      .replace(/(VCP Thesis:)/gi, '\n\n$1')
       .replace(/(EP9M Thesis:)/gi, '\n\n$1')
       .replace(/(Industry Heat:)/gi, '\n\n$1')
       .replace(/(ETF Flow:)/gi, '\n\n$1')
