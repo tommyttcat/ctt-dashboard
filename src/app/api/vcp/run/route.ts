@@ -1,4 +1,26 @@
-// app/api/vcp/run/route.ts — v1.1
+// app/api/vcp/run/route.ts — v1.3
+//
+// v1.3: NEWS MOVED FROM BENZINGA WIIM TO POLYGON.
+//
+//   The Benzinga news endpoint returns an empty JSON array for a key without
+//   the news product, which is indistinguishable from a quiet news day, so
+//   every row on this table read "No catalyst — the base is the thesis."
+//   That line is TRUE OF MOST VCP ROWS and was therefore the perfect
+//   camouflage: a base forming quietly is the normal case, so a broken feed
+//   produced output that looked exactly like correct output.
+//
+//   DISPLAY ONLY HERE, unlike ep9m. scoreVcp takes contraction shape, volume
+//   drying, RS Rating and the Trend Template — no catalyst term — so nothing
+//   about the ranking moves. That is deliberate and worth keeping: a base is
+//   supply being absorbed over weeks, and rewarding it for a headline
+//   published this morning would score the wrong thing.
+//
+//   News on a VCP row answers a different question from news on a momentum
+//   row. It is not why the stock moved — it has not moved, that is the
+//   point. It is what the market may be positioning around while the base
+//   builds, and whether the eventual breakout has a story waiting behind it.
+//
+// v1.2: gates and meta imported from scanConfig rather than defined locally.
 //
 // v1.1: two changes.
 //
@@ -103,6 +125,7 @@ import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { computeStage } from '@/lib/indicators/stage';
 import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
 import { runInBackground, isDetachedRun, BG_HEADERS } from '@/lib/background';
+import { pickBestNews, polygonNewsPath, type NewsItem } from '@/lib/indicators/news';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -110,7 +133,7 @@ export const revalidate = 0;
 export const maxDuration = 300;
 
 const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
-const BENZINGA_KEY = process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '';
+/* BENZINGA_KEY is gone — this route no longer touches Benzinga at all. */
 const BASE = 'https://api.polygon.io';
 
 /* ---- Gates --------------------------------------------------------------
@@ -210,6 +233,9 @@ interface VcpCandidate {
   catalyst: string | null;
   catalystUrl: string | null;
   thesis: string | null;
+  newsPublisher: string | null;
+  newsAge: string | null;
+  newsSentiment: 'positive' | 'negative' | 'neutral' | null;
 
   // Levels for the trade
   trigger: number | null;
@@ -390,70 +416,10 @@ function prefilterVcp(bars: VcpBar[]): boolean {
 // ---------------------------------------------------------------
 // Catalyst (optional, best-effort)
 // ---------------------------------------------------------------
-const WIIM_MAX_AGE_DAYS = 5;
-const WIIM_MAX_BREADTH = 12;
-
-function classifyWiim(title: string): string {
-  const s = (title || '').toLowerCase();
-  if (/\b(earnings|eps|revenue|beat|miss|quarter|q[1-4]\b)/.test(s)) return 'Earnings';
-  if (/\b(fda|approval|phase\s*[123]|trial|clinical|topline|drug|therap)/.test(s)) return 'FDA / Data';
-  if (/\b(upgrade|downgrade|price target|initiat|analyst|rating|overweight|outperform)/.test(s)) return 'Analyst';
-  if (/\b(merger|acquir|acquisition|buyout|takeover|stake)/.test(s)) return 'M&A';
-  if (/\b(offering|dilut|secondary|registered direct|atm |capital raise)/.test(s)) return 'Offering';
-  if (/\b(contract|partnership|collaborat|agreement|awarded|wins )/.test(s)) return 'Contract';
-  if (/\b(guidance|raises|lowers|reaffirm|outlook|forecast)/.test(s)) return 'Guidance';
-  if (/\b(lawsuit|sec |investigat|probe|fraud|settle|recall|halt)/.test(s)) return 'Legal / Risk';
-  return 'News';
-}
-
-async function fetchWiims(
-  tickers: string[]
-): Promise<Map<string, { title: string; url: string | null; tag: string }>> {
-  const out = new Map<string, { title: string; url: string | null; tag: string }>();
-  if (!BENZINGA_KEY || tickers.length === 0) return out;
-
-  const now = Date.now();
-  const BATCH = 50;
-  for (let i = 0; i < tickers.length; i += BATCH) {
-    const batch = tickers.slice(i, i + BATCH);
-    try {
-      const res = await fetch(
-        `https://api.benzinga.com/api/v2/news?token=${BENZINGA_KEY}` +
-        `&tickers=${encodeURIComponent(batch.join(','))}` +
-        `&channels=WIIM&displayOutput=full&pageSize=100`,
-        { headers: { accept: 'application/json' }, cache: 'no-store' }
-      );
-      if (!res.ok) continue;
-      const items = await res.json();
-      if (!Array.isArray(items)) continue;
-
-      for (const item of items) {
-        const isWiim = Array.isArray(item?.channels) &&
-          item.channels.some((c: any) => (c?.name || '').toUpperCase() === 'WIIM');
-        if (!isWiim) continue;
-
-        const title = (item?.title || '').trim();
-        if (!title) continue;
-
-        const stocks = Array.isArray(item?.stocks) ? item.stocks : [];
-        if (stocks.length === 0 || stocks.length > WIIM_MAX_BREADTH) continue;
-
-        const created = item?.created ? new Date(item.created).getTime() : 0;
-        const daysOld = created > 0 ? (now - created) / 86400000 : 999;
-        if (daysOld > WIIM_MAX_AGE_DAYS) continue;
-
-        for (const s of stocks) {
-          const sym = (s?.name || '').toUpperCase();
-          if (!sym || out.has(sym)) continue;
-          out.set(sym, { title, url: item?.url || null, tag: classifyWiim(title) });
-        }
-      }
-    } catch {
-      continue;
-    }
-  }
-  return out;
-}
+/* fetchWiims and classifyWiim used to live here. Their rejection cases —
+   law-firm solicitations, over-broad baskets, stale items — are all covered
+   inside @/lib/indicators/news, and keeping a local copy as a second opinion
+   is how two classifiers drift apart on the same headline. */
 
 function cleanSector(sic: string | undefined, sector: string | undefined, industry: string | undefined): string {
   const blob = `${(industry || '').toLowerCase()} ${(sic || '').toLowerCase()}`;
@@ -502,6 +468,13 @@ const round2 = (v: number | null | undefined): number | null =>
    pattern defines its own risk. A floor is applied so a freakishly tight
    final leg does not produce a stop inside normal daily noise. */
 const MIN_STOP_PCT = 2.0;
+
+/* Age at which the chip gains "(Delayed)". Thirty-six hours is a long time
+   on a momentum table and almost nothing on a base that has been forming for
+   six weeks — but the label is about the READER's expectation, not the
+   pattern's timescale, and a headline from yesterday should say so wherever
+   it appears. */
+const DELAYED_AGE_HOURS = 36;
 
 function buildLevels(vcp: VcpResult, price: number): {
   trigger: number | null;
@@ -605,12 +578,17 @@ async function runScan(request: Request) {
       const snap = snapMap.get(sym);
       if (!snap) return null;
 
-      const [barsRes, details] = await Promise.all([
+      const [barsRes, details, newsRes] = await Promise.all([
         polygonSafe<{ results?: any[] }>(
           `/v2/aggs/ticker/${encodeURIComponent(sym)}/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=5000`,
           { results: [] }
         ),
         polygonSafe<any>(`/v3/reference/tickers/${sym}`, {}),
+        /* One extra call per CONFIRMED name — a few dozen, not the universe.
+           It rides in the existing round trip rather than following the bars,
+           because news has no dependency on them and sequencing would add a
+           full latency hop per name for nothing. */
+        polygonSafe<any>(polygonNewsPath(sym, 20), { results: [] }),
       ]);
 
       // Backstop for funds that slipped past the static exclusion list.
@@ -643,6 +621,12 @@ async function runScan(request: Request) {
       const stage = computeStage(bars.map(b => b.c), { price: snap.price });
 
       const levels = buildLevels(vcp, snap.price);
+
+      /* A base is quiet by construction, so null here is the expected
+         outcome on most rows rather than a gap. What matters is that it is
+         now null because nothing was published, not because the feed was
+         dead. */
+      const news: NewsItem | null = pickBestNews(newsRes?.results, sym);
 
       const mktCap = details?.results?.market_cap || null;
       const float = details?.results?.share_class_shares_outstanding
@@ -704,9 +688,18 @@ async function runScan(request: Request) {
         mf,
         mfTrend,
         vwapStatus,
-        catalyst: null,
-        catalystUrl: null,
-        thesis: null,
+        /* Filled from `news` below rather than left for a second pass. The
+           old flow built every candidate with nulls and then looped again to
+           patch in WIIM results; folding it here means one place where a row
+           acquires its catalyst instead of two. */
+        catalyst: news
+          ? (news.ageHours >= DELAYED_AGE_HOURS ? `${news.tag} (Delayed)` : news.tag)
+          : null,
+        catalystUrl: news?.url ?? null,
+        thesis: news?.title ?? null,
+        newsPublisher: news?.publisher ?? null,
+        newsAge: news?.ageLabel ?? null,
+        newsSentiment: news?.sentiment ?? null,
 
         trigger: round2(levels.trigger),
         stop: round2(levels.stop),
@@ -717,16 +710,8 @@ async function runScan(request: Request) {
       return out;
     });
 
-    // --- Catalysts, best-effort ---
-    const wiims = await fetchWiims(confirmed.map(c => c.symbol));
-    for (const c of confirmed) {
-      const w = wiims.get(c.symbol);
-      if (w) {
-        c.catalyst = w.tag;
-        c.catalystUrl = w.url;
-        c.thesis = w.title;
-      }
-    }
+    /* The catalyst back-fill loop that used to sit here is gone — news is
+       assigned inside the confirmation pass now, where the row is built. */
 
     confirmed.sort((a, b) => b.score - a.score);
     const finalList = confirmed.slice(0, VCP_GATES.finalSize);
@@ -774,6 +759,16 @@ async function runScan(request: Request) {
         prefiltered: prefiltered.length,
         shortlisted: shortlist.length,
         confirmed: confirmed.length,
+      },
+      /* `withNews` well under `count` is the EXPECTED shape on this table
+         and not a warning: a base is a stock going quiet, and most of them
+         have nothing published. The number that would signal a fault is
+         ZERO across several runs, which is what the dead Benzinga feed
+         produced — and which looked entirely plausible because "no catalyst,
+         the base is the thesis" is true of most VCP rows anyway. */
+      newsCoverage: {
+        withNews: finalList.filter(c => c.thesis != null).length,
+        negative: finalList.filter(c => c.newsSentiment === 'negative').length,
       },
       statusCounts: {
         forming: finalList.filter(c => c.status === 'forming').length,
