@@ -1,6 +1,27 @@
 'use client';
 
-// StocksInPlay — v3.3
+// StocksInPlay — v3.4
+//
+// v3.4: news asterisk beside the ticker, and provenance on the sub-row
+//       headline.
+//
+//   THE HEADLINE WAS ALREADY HERE, on the sub-row, which is what makes the
+//   asterisk worth adding rather than redundant. A headline has to be READ;
+//   an asterisk is SEEN. Answering "which of these twenty names has a story"
+//   currently means scanning twenty sub-rows of prose, and the eye catches a
+//   marker beside the name in one pass.
+//
+//   It also unifies the vocabulary: after v6.20 the same amber asterisk
+//   means the same thing on the summary cards, Top Movers and here.
+//
+//   PROVENANCE ON THE SUB-ROW is the second half. The headline sat there
+//   with no source and no age, and on an aggregated feed those are exactly
+//   the discriminators that matter — Polygon mixes GlobeNewswire 8-Ks with
+//   Motley Fool opinion, and once you strip the publisher the two read
+//   identically. Scanner v6.20 emits publisher, age and sentiment on every
+//   row; not showing them was leaving the filtering unauditable.
+//
+// v3.3: RS column switched from rsVsSpy (a SPREAD versus SPY) to the
 //
 // v3.3: RS column switched from rsVsSpy (a SPREAD versus SPY) to the
 //       market-wide RS RATING (a PERCENTILE).
@@ -177,6 +198,9 @@ interface StockInPlay {
   setupName: string | null;
   catalyst?: string | null;
   catalystUrl?: string | null;
+  newsPublisher?: string | null;
+  newsAge?: string | null;
+  newsSentiment?: 'positive' | 'negative' | 'neutral' | null;
   conviction?: number | null;
   thesis?: string | null;
   aboveEma10?: boolean | null;
@@ -323,6 +347,27 @@ const cleanSector = (sector: string | null | undefined, ticker?: string): string
   }
   s = s.replace(/^[A-Z]{1,5}\s*[-–—:]\s*/, '');
   return s.trim() || '—';
+};
+
+/* A row has news only when there is a HEADLINE, not merely a tag. An
+   "Earnings" tag with no article behind it comes from the earnings calendar
+   rather than the news feed — real information, but nothing to open, and an
+   asterisk that clicks through to nothing is worse than no asterisk. */
+const hasNews = (row: StockInPlay): boolean => !!(row.thesis && row.catalystUrl);
+
+/* One tooltip for the asterisk and the sub-row, so the two can never
+   describe the same article differently. */
+const newsTooltip = (row: StockInPlay): string => {
+  if (!row.thesis) return '';
+  const meta = [row.catalyst, row.newsPublisher, row.newsAge].filter(Boolean).join(' · ');
+  const lines: string[] = [];
+  if (meta) { lines.push(meta); lines.push(''); }
+  lines.push(String(row.thesis));
+  if (row.newsSentiment === 'negative') {
+    lines.push('');
+    lines.push('Reads negative — the category alone would not have told you that.');
+  }
+  return lines.join('\n');
 };
 
 const isGenericCatalyst = (catalyst: string | null | undefined) => {
@@ -629,6 +674,9 @@ export default function StocksInPlay() {
               stage: item.stage || '—',
               setupName: item.setupName || null,
               catalyst: item.catalyst || null,
+              newsPublisher: item.newsPublisher || null,
+              newsAge: item.newsAge || null,
+              newsSentiment: item.newsSentiment || null,
               catalystUrl: item.catalystUrl || null,
               conviction: item.conviction != null ? Number(item.conviction) : ((item.cnfScore ?? item.smbScore ?? item.aiScore ?? item.score) ?? null),
               thesis: rawThesis,
@@ -1086,6 +1134,25 @@ export default function StocksInPlay() {
                           <td className={tdBase}>
                             <div className="flex items-center justify-center gap-1.5">
                               <span title={row.name || row.ticker} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
+                              {/* Fixed-width whether or not there is news, so
+                                  the dots that follow sit at the same x on
+                                  every row. A marker that only sometimes
+                                  occupies space shifts the column on exactly
+                                  the rows worth looking at. */}
+                              <span className="inline-block w-[9px] text-center leading-none shrink-0">
+                                {hasNews(row) && (
+                                  <a
+                                    href={row.catalystUrl!}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title={newsTooltip(row)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-amber-400/90 hover:text-amber-300 font-bold text-[11px] cursor-pointer transition-colors"
+                                  >
+                                    *
+                                  </a>
+                                )}
+                              </span>
                               {row.dotKind === 'blue' && <BlueDot />}
                               {row.dotKind === 'red' && <RedDot />}
                             </div>
@@ -1208,7 +1275,7 @@ export default function StocksInPlay() {
                                   {plan?.collapsed ? 'no long plan' : plan?.note === 'trigger already passed' ? 'entry passed' : 'no plan'}
                                 </span>
                               )}
-                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={headline || undefined}>
+                              <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={newsTooltip(row) || headline || undefined}>
                                 {headline || tag ? (
                                   <>
                                     {tag && (
@@ -1223,6 +1290,17 @@ export default function StocksInPlay() {
                                       ) : (
                                         <span className="text-slate-500 font-normal">{headline}</span>
                                       )
+                                    )}
+                                    {/* Source and age, dimmer than the
+                                        headline. "Contract" is the same word
+                                        for a $2M reseller deal and a $200M
+                                        defence award; the publisher and how
+                                        long ago it landed are the cheapest
+                                        available discriminators. */}
+                                    {(row.newsPublisher || row.newsAge) && (
+                                      <span className="text-[8px] text-slate-600 font-medium ml-1.5 whitespace-nowrap">
+                                        {[row.newsPublisher, row.newsAge].filter(Boolean).join(' · ')}
+                                      </span>
                                     )}
                                   </>
                                 ) : (
