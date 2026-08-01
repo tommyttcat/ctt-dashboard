@@ -1,4 +1,42 @@
-// src/app/api/scanner/run/route.ts — v6.18
+// src/app/api/scanner/run/route.ts — v6.20
+//
+// v6.20: NEWS MOVED FROM BENZINGA WIIM TO POLYGON.
+//
+//   WIIM matched 3 of 80 scanned names. 58 fell through to "Technical
+//   Momentum". The cause was not thin coverage — it was an entitlement: the
+//   Benzinga news endpoint returns an EMPTY JSON ARRAY for an authenticated
+//   key without the news product, which is indistinguishable from a quiet
+//   news day. Both fetchBenzingaWiims and fetchEarningsCalendar swallow
+//   errors and return empty maps, so a dead credential and a slow news week
+//   looked identical and had been invisible for weeks.
+//
+//   THIS COSTS ZERO ADDITIONAL API CALLS. enrichCandidate already fetched
+//   /v2/reference/news per ticker and used it only as a fallback behind
+//   WIIM — the results were there all along, barely read. What changed is
+//   what happens to them.
+//
+//   Selection now lives in @/lib/indicators/news, because an aggregated feed
+//   needs far more rejection than an editorial one. Polygon carries Zacks
+//   rank updates published on a schedule, Motley Fool listicles, Simply Wall
+//   St auto-valuations. Those are WORSE THAN NO CATALYST: a row showing a
+//   headline reads as a stock with a reason to move, so filler converts a
+//   technical mover into an apparently news-driven one — a false positive
+//   you will act on. "No catalyst" is honest; a Zacks headline is a lie with
+//   a link.
+//
+//   The sharpest of those filters is the causal test. "Shares Rise 5%" is
+//   the scan's own finding reflected back at it; "Rises On Blackwell Orders"
+//   is a catalyst. A headline containing move-language must also contain a
+//   because-clause to survive.
+//
+//   NOTE ON EARNINGS: fetchEarningsCalendar still uses Benzinga and returned
+//   earningsMatched: 0 on the same run that exposed the news problem. That
+//   is the same credential on a different endpoint and is probably also
+//   dead, which would mean the CNF earnings component (+5) never fires.
+//   Left in place rather than removed blind — 0 could legitimately mean no
+//   earnings in a three-day window — but it is worth a direct check.
+//
+// v6.19: rsVsSpy REPLACED by the market-wide RS RATING from /api/rs/run.
 // v6.1–v6.10: RMV/RME/stage/money-flow/daysToCover indicators; scanConfig
 //   thresholds; background scan mode; deterministic macro briefing;
 //   distToEma10 on every row
@@ -84,6 +122,7 @@ import { computeDotDetail } from '@/lib/indicators/dots';
 import { computeTradePlan } from '@/lib/indicators/tradeplan';
 import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN, CHOP_TREND_MAX } from '@/lib/indicators/chop';
 import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
+import { pickBestNews, type NewsItem } from '@/lib/indicators/news';
 import { SCANNER, SCANNER_SIP_META, SCANNER_DAILY_META, TOPMOVERS_META } from '@/lib/scanConfig';
 
 export const dynamic = 'force-dynamic';
@@ -206,22 +245,13 @@ const getUpdatePhase = (hour: number) => {
 const etDateString = (d: Date): string =>
   d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 
-const LAW_FIRM_NAMES = /\b(rosen|pomerantz|glancy|kaskela|bronstein|schall|johnson\s*fistel|bragar|eagel|squire|gross\s*law|faruqi|portnoy|block\s*&?\s*leviton|hagens\s*berman|halper\s*sadeh|levi\s*&?\s*korsinsky|robbins\s*geller|kessler\s*topaz|monteverde|wolf\s*haldenstein|berger\s*montague|scott\s*\+?\s*scott|kahn\s*swick|kirby\s*mcinerney|labaton|bernstein\s*liebhard|howard\s*g\.?\s*smith|kuehn\s*law|grabar|rigrodsky|weiss\s*law|ademi|federman|claimsfiler|brodsky\s*&?\s*smith|holzer\s*&?\s*holzer)\b/i;
-
-const LEGAL_BOILERPLATE = /(class\s*action|securities\s*fraud|shareholder\s*(alert|rights|investigation|deadline|update)|investors?\s+(are\s+)?(urged|encouraged|reminded|alerted|notified|advised|who\s+lost|who\s+suffered)|suffered\s+losses|secure\s+counsel|contact\s+the\s+firm|lead\s+plaintiff|investigat(e|es|ed|ing|ion|ions)\s+(whether|on\s+behalf|claims|potential|possible|into)|investor\s*alert|important\s+deadline|deadline:|purchasers?\s+of\s+|law\s*firm|law\s*offices|is\s+investigating)/i;
-
-const FILING_BOILERPLATE = /(form\s*8\.[35]\s*\(|notification\s+of\s+(major\s+)?holdings|total\s+voting\s+rights|resolutions?\s+passed\s+by|transaction\s+in\s+own\s+shares|block\s+listing\s+(six|interim)|director\/pdmr\s+shareholding)/i;
-
-const isSpamNews = (title: string): boolean => {
-  if (!title) return true;
-  return LAW_FIRM_NAMES.test(title) || LEGAL_BOILERPLATE.test(title) || FILING_BOILERPLATE.test(title);
-};
-
-const isNegativeHeadline = (title: string | null | undefined): boolean => {
-  if (!title) return false;
-  const s = title.toLowerCase();
-  return /offering|dilut|reverse split|reverse stock split|going concern|delist|bankrupt|chapter 11|at-the-market|atm program|warrant exercise|registered direct|shelf registration/.test(s);
-};
+/* The spam regexes and isSpamNews/isNegativeHeadline that used to live here
+   are gone. Every one of their cases is now covered inside
+   @/lib/indicators/news — law-firm solicitations and legal boilerplate by
+   its shape filters, dilutive and going-concern language by classifyNews
+   landing on Offering or Legal / Risk. Keeping local copies as a
+   "defensive" second check is how two classifiers drift apart and start
+   disagreeing about the same headline. */
 
 const isBearishInstrument = (name: string | null | undefined): boolean => {
   if (!name) return false;
@@ -878,74 +908,6 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 20000, head
   }
 };
 
-const WIIM_MAX_AGE_DAYS = 4;
-const WIIM_MAX_BREADTH = 12;
-const WIIM_BATCH_SIZE = 15;
-
-const classifyWiim = (title: string): string => {
-  const s = (title || '').toLowerCase();
-  if (/\b(earnings|eps|revenue|beat|miss|quarter|q[1-4]\b)/.test(s)) return 'Earnings';
-  if (/\b(fda|approval|phase\s*[123]|trial|clinical|topline|drug|therap)/.test(s)) return 'FDA / Data';
-  if (/\b(upgrade|downgrade|price target|initiat|analyst|rating|overweight|underweight|outperform|reiterat)/.test(s)) return 'Analyst';
-  if (/\b(merger|acquir|acquisition|buyout|takeover|to acquire|stake|going private)/.test(s)) return 'M&A';
-  if (/\b(offering|dilut|prices?\s|secondary|registered direct|atm |capital raise|warrant)/.test(s)) return 'Offering';
-  if (/\b(contract|partnership|collaborat|agreement|awarded|order|wins |selected)/.test(s)) return 'Contract';
-  if (/\b(guidance|raises|lowers|cuts |reaffirm|outlook|forecast)/.test(s)) return 'Guidance';
-  if (/\b(lawsuit|sec |investigat|probe|fraud|settle|recall|halt)/.test(s)) return 'Legal / Risk';
-  if (/\b(short|squeeze|volatil|spik|surg|plung|tumbl)/.test(s)) return 'Volatility';
-  if (/\b(sector|broader market|index|futures|rotat|peers)/.test(s)) return 'Sector Move';
-  return 'News';
-};
-
-const fetchBenzingaWiims = async (
-  tickers: string[],
-  apiKey: string
-): Promise<Map<string, { title: string; url: string | null; daysOld: number; score: number }>> => {
-  const out = new Map<string, { title: string; url: string | null; daysOld: number; score: number }>();
-  if (!apiKey || tickers.length === 0) return out;
-
-  const now = Date.now();
-  for (let i = 0; i < tickers.length; i += WIIM_BATCH_SIZE) {
-    const batch = tickers.slice(i, i + WIIM_BATCH_SIZE);
-    const url =
-      `https://api.benzinga.com/api/v2/news?token=${apiKey}` +
-      `&tickers=${encodeURIComponent(batch.join(','))}` +
-      `&channels=WIIM&displayOutput=full&pageSize=100`;
-
-    const items = await fetchSafeJson(url, [], 15000, { accept: 'application/json' });
-    if (!Array.isArray(items)) continue;
-
-    for (const item of items) {
-      const isWiim =
-        Array.isArray(item?.channels) &&
-        item.channels.some((c: any) => (c?.name || '').toUpperCase() === 'WIIM');
-      if (!isWiim) continue;
-
-      const title = (item?.title || '').trim();
-      if (!title) continue;
-      if (isSpamNews(title)) continue;
-
-      const stocks = Array.isArray(item?.stocks) ? item.stocks : [];
-      if (stocks.length === 0 || stocks.length > WIIM_MAX_BREADTH) continue;
-
-      const created = item?.created ? new Date(item.created).getTime() : 0;
-      const daysOld = created > 0 ? (now - created) / (1000 * 60 * 60 * 24) : 999;
-      if (daysOld > WIIM_MAX_AGE_DAYS) continue;
-
-      const link = item?.url || null;
-      const score = daysOld + stocks.length * 0.02;
-
-      for (const s of stocks) {
-        const sym = (s?.name || '').toUpperCase();
-        if (!sym) continue;
-        const prev = out.get(sym);
-        if (!prev || score < prev.score) out.set(sym, { title, url: link, daysOld, score });
-      }
-    }
-  }
-  return out;
-};
-
 interface EarningsEntry { date: string; when: string; reported: boolean; }
 
 const fetchEarningsCalendar = async (apiKey: string): Promise<Map<string, EarningsEntry>> => {
@@ -1494,26 +1456,16 @@ async function runScan(request: Request) {
       const apiSectorRaw = cleanSectorDescription(details?.results?.sic_description, details?.results?.sector, details?.results?.industry);
       const deepSector = resolveEtfSector(sym, apiSectorRaw, companyName);
 
-      const rawNewsList = newsData?.results || [];
-      const validNewsList = rawNewsList.filter((n: any) => !isSpamNews(n.title) && n.published_utc);
+      /* v6.20 — the whole news selection is one call now.
 
-      let finalCatalystUrl = null;
-      let rawHeadline = null;
-      let daysOld = 999;
-
-      if (validNewsList.length > 0) {
-        const relatedNews = validNewsList
-          .slice()
-          .sort((a: any, b: any) => new Date(b.published_utc).getTime() - new Date(a.published_utc).getTime())[0];
-        if (relatedNews && relatedNews.published_utc) {
-          const pubDate = new Date(relatedNews.published_utc);
-          daysOld = (todayDate.getTime() - pubDate.getTime()) / (1000 * 60 * 60 * 24);
-          if (daysOld <= 4) {
-            rawHeadline = relatedNews.title;
-            finalCatalystUrl = relatedNews.article_url || null;
-          }
-        }
-      }
+         The previous block took the NEWEST non-spam article within four
+         days, which is the wrong sort key: recency alone will hand you a
+         Zacks rank update from twenty minutes ago over a GlobeNewswire
+         contract award from this morning. pickBestNews ranks on publisher
+         tier, whether the headline states a cause, category, focus and age
+         together, and returns null when nothing qualifies — which is the
+         common and correct outcome. */
+      const newsPick: NewsItem | null = pickBestNews(newsData?.results, sym);
 
       const round2 = (v: number | null): number | null =>
         v == null ? null : parseFloat(v.toFixed(2));
@@ -1522,7 +1474,7 @@ async function runScan(request: Request) {
         ticker: sym, name: companyName, sector: deepSector, price, vwapStatus, changePct: chgPct, vol, avgVol, atr, dVol: vol * vwap, rvol: rvol ? parseFloat(rvol.toFixed(2)) : null,
         float, shortPct,
         daysToCover: daysToCover != null ? parseFloat(daysToCover.toFixed(1)) : null,
-        mktCap: marketCap, stage: setupMatched.stage, setupName: setupMatched.name, catalystUrl: finalCatalystUrl,
+        mktCap: marketCap, stage: setupMatched.stage, setupName: setupMatched.name, catalystUrl: null,
         _stageNum: setupMatched.stageNum,
         dotKind: dot.kind,
         dotStochK: dot.stochK,
@@ -1569,7 +1521,10 @@ async function runScan(request: Request) {
         atrExpansion: atrExpansion != null ? parseFloat(atrExpansion.toFixed(2)) : null,
         moveVsAtr: moveVsAtr != null ? parseFloat(moveVsAtr.toFixed(2)) : null,
         rsVsMkt: parseFloat(rsVsMkt.toFixed(2)),
-        _rawHeadline: rawHeadline, _daysOld: daysOld
+        /* The whole selected item rides through to the catalyst pass below.
+           Carrying the object rather than a headline string means publisher,
+           age and sentiment are available there without re-deriving them. */
+        _news: newsPick
       };
     };
 
@@ -1582,8 +1537,10 @@ async function runScan(request: Request) {
       if (i + chunkSize < uniqueCandidates.length) await new Promise(resolve => setTimeout(resolve, 200));
     }
 
-    const wiimTickers = enrichedList.map((t: any) => t.ticker).filter(Boolean);
-    const wiimMap = await fetchBenzingaWiims(wiimTickers, benzingaApiKey);
+    /* The WIIM fetch is gone — see the v6.20 header. It was a per-batch
+       round trip to an endpoint this key is not entitled to, returning empty
+       arrays that read as quiet news days. News now comes from the Polygon
+       results already fetched in enrichCandidate. */
     const earningsMap = await fetchEarningsCalendar(benzingaApiKey);
 
     let prevStreaks: Record<string, number> = {};
@@ -1597,50 +1554,67 @@ async function runScan(request: Request) {
 
     const enrichedMap = new Map();
 
-    const NEGATIVE_TAGS = new Set(['Offering', 'Legal / Risk']);
-    const STRONG_TAGS = new Set(['Earnings', 'FDA / Data', 'M&A', 'Guidance', 'Contract']);
+    /* Age at which the chip gains a "(Delayed)" qualifier. 36 hours rather
+       than the old 1.5 days in disguise — a headline from yesterday morning
+       explaining today's move is a delayed reaction and the row should say
+       so, because the trade is different: the market has had a session to
+       price it and you are buying the follow-through, not the news. */
+    const DELAYED_AGE_HOURS = 36;
 
     enrichedList.forEach((t: any) => {
-      const wiim = wiimMap.get(t.ticker);
+      const news: NewsItem | null = t._news ?? null;
       const earn = earningsMap.get(t.ticker);
       const reportedEarnings = !!earn?.reported;
-      let catalystTag: string | null = null;
 
-      if (wiim) {
-        catalystTag = classifyWiim(wiim.title);
-        let tag = catalystTag;
-        if (wiim.daysOld >= 1.5) tag = `${tag} (Delayed)`;
-        t.catalyst = tag;
-        if (wiim.url) t.catalystUrl = wiim.url;
+      if (news) {
+        t.catalyst = news.ageHours >= DELAYED_AGE_HOURS ? `${news.tag} (Delayed)` : news.tag;
+        t.catalystUrl = news.url;
+        t.thesis = news.title;
+
+        /* Provenance on the row. The old pipeline surfaced a bare headline,
+           which gave you no way to tell a GlobeNewswire 8-K from a Fool
+           opinion piece — and the whole reason this feed needs filtering is
+           that those two look identical once you strip the source. */
+        t.newsPublisher = news.publisher;
+        t.newsAge = news.ageLabel;
+        t.newsSentiment = news.sentiment;
+        t.newsCausal = news.causal;
+
+        /* SENTIMENT DEMOTES BUT DOES NOT PROMOTE. Polygon attaches a
+           per-article sentiment, and the case worth catching is a headline
+           that classifies as strong while reading badly: "Reports Q2
+           Results" is tagged Earnings, and a miss and a beat carry the same
+           tag. Demoting to neutral withholds the bonus without applying a
+           penalty, because the price action is already in the score and
+           penalising here would count the same fact twice.
+
+           The reverse — promoting on positive sentiment — is not done. It is
+           a per-article LLM judgement, and letting it manufacture a strong
+           tier out of a weak category would put unearned points on rows
+           whose only distinction is an upbeat headline. */
+        t._catalystTier =
+          news.tier === 'strong' && news.sentiment === 'negative'
+            ? 'neutral'
+            : news.tier;
       } else if (reportedEarnings) {
-        catalystTag = 'Earnings';
+        // No article, but the calendar says it reported. That IS a catalyst
+        // even with nothing written about it.
         t.catalyst = 'Earnings';
+        t.catalystUrl = null;
+        t.thesis = null;
+        t._catalystTier = 'neutral';
       } else {
-        if (t._rawHeadline && t._daysOld < 1.5) t.catalyst = "Recent News";
-        else if (t._rawHeadline && t._daysOld >= 1.5 && t._daysOld <= 4) t.catalyst = "Delayed Reaction";
-        else t.catalyst = 'Technical Momentum';
+        t.catalyst = 'Technical Momentum';
+        t.catalystUrl = null;
+        t.thesis = null;
+        t._catalystTier = 'none';
       }
 
-      t.thesis = wiim ? wiim.title : (t._rawHeadline && t._daysOld <= 4 ? t._rawHeadline : null);
       t.readout = buildReadout(t);
 
       t.earningsDate = earn?.date || null;
       t.earningsWhen = earn?.when || null;
       t.earningsReported = reportedEarnings;
-
-      if ((catalystTag && NEGATIVE_TAGS.has(catalystTag)) ||
-          isNegativeHeadline(t._rawHeadline) ||
-          (wiim && isNegativeHeadline(wiim.title))) {
-        t._catalystTier = 'negative';
-      } else if (catalystTag && STRONG_TAGS.has(catalystTag)) {
-        t._catalystTier = 'strong';
-      } else if (wiim) {
-        t._catalystTier = 'neutral';
-      } else if (t._rawHeadline) {
-        t._catalystTier = 'headline';
-      } else {
-        t._catalystTier = 'none';
-      }
 
       t.tradeType = deriveTradeType(t.setupName);
 
@@ -1721,6 +1695,7 @@ async function runScan(request: Request) {
       t.hasEarnings = hasEarnings;
       t.conviction = cnf.score;
       delete t._catalystTier;
+      delete t._news;
       delete t._stageNum;
 
       enrichedMap.set(t.ticker, t);
@@ -1891,7 +1866,22 @@ async function runScan(request: Request) {
       },
       catalystCoverage: {
         scanned: enrichedList.length,
-        wiimMatched: wiimMap.size,
+        /* v6.20 — the counter that made the old problem visible, rebuilt for
+           the new source. `withNews` well below `scanned` is normal: most
+           stocks on most days have no catalyst. `technicalOnly` near
+           `scanned` for several sessions running is the signal that
+           something upstream is broken again, which is precisely what 3/80
+           was telling us for weeks without anyone reading it.
+
+           `rejectedFiller` is the number to watch to know the filters are
+           earning their place — it counts rows that HAD Polygon articles and
+           still ended up with no catalyst, meaning everything available was
+           listicle, valuation or price-restating noise. If that is near zero
+           the filters may be too loose; if it dwarfs `withNews`, they may be
+           too tight. */
+        withNews: enrichedList.filter((t: any) => t.thesis != null).length,
+        newsCausal: enrichedList.filter((t: any) => t.newsCausal === true).length,
+        newsNegativeSentiment: enrichedList.filter((t: any) => t.newsSentiment === 'negative').length,
         earningsMatched: enrichedList.filter((t: any) => t.earningsReported).length,
         technicalOnly: enrichedList.filter((t: any) => t.catalyst === 'Technical Momentum').length,
         gradeCapped: enrichedList.filter((t: any) => t.cnfCeiling != null && t.cnfCeiling < 100).length,
