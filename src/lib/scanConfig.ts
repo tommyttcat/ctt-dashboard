@@ -199,6 +199,47 @@ export const EP9M_META: ScanConfigMeta = {
 };
 
 /* ==========================================================================
+   VCP  \u2014  Volatility Contraction Pattern
+   ========================================================================== */
+export const VCP = {
+  minPrice: 10,
+  maxPrice: 10_000,
+  minAvgVolume: 200_000,
+  minDollarVol: 5_000_000,
+
+  /* RS floor. 70 is Minervini's stated minimum; he prefers 80+ and is most
+     interested above 90. Gating at 70 rather than 80 is deliberate \u2014 the
+     score penalises 70-79 heavily, so those names appear at the BOTTOM of the
+     table rather than vanishing, and you can see how thin the top of the list
+     is on a given day. A hard 80 gate would hide that distinction: an empty
+     table and a table full of marginal bases would look identical. */
+  minRsRating: 70,
+
+  windowTradingDays: 90,
+  shortlistCap: 150,
+  finalSize: 40,
+};
+
+export const VCP_META: ScanConfigMeta = {
+  title: 'VCP',
+  premise:
+    'Minervini\'s Volatility Contraction Pattern. A stock that has already advanced builds a base of successively SHALLOWER pullbacks on successively LIGHTER volume \u2014 25%, then 12%, then 6% is the textbook shape \u2014 then breaks out through the high of the final contraction. The contractions are supply being absorbed: each pullback finds buyers sooner than the last because there is less stock left to sell.\n\nThis is the only table here that surfaces a setup BEFORE it triggers. Every other scan gates on something that already happened \u2014 +4% today, 9M shares today, a dot that has fired. A base is worth watching for the two to six weeks while it forms, so the STATUS column matters more than the score: a perfect pattern whose pivot is already behind you is a history lesson, not a trade.',
+  gates: [
+    { label: 'RS Rating', value: `\u2265 ${VCP.minRsRating}`, why: 'A percentile against the whole liquid market, not a spread versus SPY. A flawless base in a laggard is still a laggard \u2014 Minervini treats this as a hard gate rather than a nicety.' },
+    { label: 'Contractions', value: '2 \u2013 6, each shallower', why: 'The pattern itself. Checked pairwise with 15% tolerance: a base going 20/8/14 has WIDENED again and fails, even though its last leg beats its first.' },
+    { label: 'Final leg', value: '\u2264 15% deep', why: 'Above this the base has not finished \u2014 the stock is still correcting rather than coiling.' },
+    { label: 'First leg', value: '\u2264 40% deep', why: 'Deeper than this is a correction, not a base.' },
+    { label: 'Prior advance', value: '\u2265 25%', why: 'Without a run into the base there is no supply overhang to absorb, and the "base" is just a quiet stock going sideways.' },
+    { label: 'Trend Template', value: 'Scored, not gated', why: 'Minervini\'s seven structural criteria. Shown as n/7 rather than enforced, because a name failing one is worth seeing and knowing which.' },
+    { label: 'Price', value: `${usd(VCP.minPrice)} \u2013 ${usd(VCP.maxPrice)}`, why: 'The pattern depends on institutional accumulation, and institutions do not accumulate low-priced stock.' },
+    { label: 'Volume', value: `\u2265 ${shares(VCP.minAvgVolume)} avg`, why: 'Same reason. They cannot accumulate what does not trade.' },
+    { label: '$ Volume', value: `\u2265 ${usd(VCP.minDollarVol)}`, why: 'It has to be fillable when the pivot gives way.' },
+    { label: 'History', value: `${VCP.windowTradingDays}d window \u00b7 200d confirm`, why: 'The base window finds contractions market-wide; the Trend Template needs 200 bars and runs only on survivors.' },
+  ],
+  shows: `Top ${VCP.finalSize} by pattern score, from a shortlist of ${VCP.shortlistCap}`,
+};
+
+/* ==========================================================================
    TOP MOVERS
    ========================================================================== */
 export const TOPMOVERS_META: ScanConfigMeta = {
@@ -223,6 +264,10 @@ export interface FilterNote {
 }
 
 export const FILTER_NOTES: FilterNote[] = [
+  { label: 'VCP STATUS', note: 'Derived from distance to the pivot, NOT from the scan\'s own status field \u2014 that reports "breaking out" whenever price is above the pivot with no bound on how far, so a name that cleared three weeks ago and ran 18% still counts. Watch is more than 3% below; Ready is within 3% below; Fresh is within 3% above. Beyond that the entry has gone.' },
+  { label: 'VCP RS 80 / 90', note: '"And above." The scan already floors at 70, Minervini\'s stated minimum \u2014 these tighten to his preferred and his most-interested levels.' },
+  { label: 'VCP TT Perfect', note: 'All seven computable Trend Template criteria. The eighth is the RS Rating, which has its own filter.' },
+  { label: 'VCP LEGS 3\u20134', note: 'Enough repetitions to prove supply is thinning, not so many that the base has stalled into a range. Two qualifies but is thin; five or more is scored down.' },
   { label: 'CNF A / B', note: 'A floor, not an exact grade. Picking B shows B and A. Unset shows everything, which is effectively "C and above".' },
   { label: 'STAGE 2', note: 'Matches any Stage 2 sub-stage \u2014 2A, 2B and 2C. Filtering to 2A alone would hide names whose trend is intact but weakening.' },
   { label: 'ADR 5% / 10%', note: '"And above." The scan already floors at 3%, so these tighten rather than replace it.' },
@@ -278,8 +323,8 @@ export const COLUMN_NOTES: Record<string, ColumnNote> = {
     colour: 'Purple \u2265 70 \u00b7 green \u2265 60 \u00b7 lime \u2265 50 \u00b7 amber \u2265 40 \u00b7 orange \u2265 30 \u00b7 red below. Above 50 is accumulation.',
   },
   RS: {
-    what: 'Relative strength versus SPY over three months (63 sessions), in percentage points. +12% means it beat the index by 12 points. Compacts to "1k%" past a thousand.',
-    colour: 'Purple \u2265 +20 \u00b7 green \u2265 +10 \u00b7 grey 0 to +10 \u00b7 red negative.',
+    what: 'Minervini / IBD Relative Strength Rating \u2014 a PERCENTILE against every liquid US stock, not a spread versus SPY. 88 means stronger than 88% of the market.\n\nTrailing-year performance with the most recent quarter double-weighted, then ranked against everything above $5 and 100K average shares. The percentile is the point: +18 versus SPY might be top-decile in a weak tape and unremarkable in a strong one, and a spread cannot tell you which. Minervini gates at 70 and prefers 80-90+.\n\nComputed on CLOSING prices by a single daily job, so it does not move intraday \u2014 a stock up 8% today still shows yesterday\'s rating. IBD\'s works the same way.\n\nOn the Reversal/Swing and 10/21 tables it is a GATE as well as a column: names below 50 never appear.',
+    colour: 'Purple \u2265 90 \u00b7 green \u2265 80 \u00b7 grey \u2265 70 \u00b7 red below.',
   },
   STOCH: {
     what: 'Smoothed stochastic %K (10, 4) \u2014 the Dr. Wish setting. Low is oversold.',
