@@ -1,6 +1,19 @@
 'use client';
 
-// DailySetups — v2.2
+// DailySetups — v2.3
+//
+// v2.3: RS column switched from rsVsSpy (a SPREAD versus SPY) to the
+//       market-wide RS RATING (a PERCENTILE). Same change as StocksInPlay
+//       v3.3 and TopMovers v1.3; the reasoning is identical and the shared
+//       helpers in @/lib/indicators/rs mean all three cannot drift apart on
+//       what counts as strong.
+//
+//   "+18" meant eighteen points of three-month outperformance and could not
+//   say whether that was top-decile leadership or the middle of a strong
+//   tape. "88" means stronger than 88% of the liquid market, which is the
+//   unit Minervini's 70 floor is actually stated in.
+//
+// v2.2: + CHOPPINESS INDEX (chop14), from scanner route v6.18.
 // v1.7: matched SIPs v2.8 — header z-30, SECTOR left-aligned, min-w 880.
 // v1.8: column widths copied 1:1 from SIPs v2.8 (FLOAT dropped).
 // v1.9: DAY/SWING chip text off-white — text-slate-300 → text-slate-200.
@@ -39,6 +52,7 @@ import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { stateOf, stateTooltip, stateLegend, readinessTooltip } from '@/lib/indicators/state';
+import { rsColor, rsTooltip } from '@/lib/indicators/rs';
 import {
   chopColor,
   chopTooltip,
@@ -85,8 +99,8 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Green high (accumulation) · red low (distribution).',
   },
   RS: {
-    what: 'Relative strength vs SPY over three months, in percentage points.',
-    colour: 'Purple +20 · green +10 · grey positive · red negative.',
+    what: 'Minervini / IBD Relative Strength Rating — a PERCENTILE against every liquid US stock, not a spread versus SPY. 88 means stronger than 88% of the market over the trailing year, with the most recent quarter double-weighted.\n\nComputed on closing prices, so it does not move intraday: a stock up 8% today still shows yesterday\'s rating. Minervini gates at 70 and prefers 80-90+.',
+    colour: 'Purple 90+ · green 80+ · slate 70+ · red below the floor.',
   },
   STOCH: {
     what: 'Stochastic %K (10). Low readings near a rising 21 EMA are the Blue Dot precondition.',
@@ -151,7 +165,7 @@ interface SetupData {
   aboveEma10?: boolean | null;
   aboveEma21?: boolean | null;
   stochK?: number | null;
-  rsVsSpy?: number | null;
+  rsRating?: number | null;
   distToEma21?: number | null;
   adrPct?: number | null;
   chop14?: number | null;
@@ -250,21 +264,6 @@ const formatLevel = (v: number | null | undefined): string => {
   if (n >= 100) return n.toFixed(0);
   if (n >= 10) return n.toFixed(1);
   return n.toFixed(2);
-};
-
-const formatRs = (rs: number | null | undefined): string => {
-  if (rs == null || isNaN(Number(rs))) return '—';
-  const v = Number(rs);
-  const sign = v >= 0 ? '+' : '-';
-  const abs = Math.abs(v);
-  if (abs >= 1000) {
-    const k = abs / 1000;
-    const s = k >= 10
-      ? Math.round(k).toString()
-      : (Math.round(k * 10) / 10).toString().replace(/\.0$/, '');
-    return `${sign}${s}k%`;
-  }
-  return `${sign}${Math.round(abs)}%`;
 };
 
 const statePair = (rmv: number | null, rme: number | null): string => {
@@ -645,7 +644,7 @@ export default function DailySetups() {
               aboveEma10: item.aboveEma10 ?? null,
               aboveEma21: item.aboveEma21 ?? null,
               stochK: item.stochK ?? null,
-              rsVsSpy: item.rsVsSpy ?? null,
+              rsRating: item.rsRating ?? null,
               distToEma21: item.distToEma21 ?? null,
               adrPct: item.adrPct ?? null,
               chop14: item.chop14 ?? null,
@@ -834,13 +833,6 @@ export default function DailySetups() {
     if (k <= 20) return 'text-purple-400';
     if (k <= 30) return 'text-emerald-400';
     return 'text-slate-400';
-  };
-  const getRsColor = (rs: number | null | undefined) => {
-    if (rs == null) return 'text-slate-500';
-    if (rs >= 20) return 'text-purple-400';
-    if (rs >= 10) return 'text-emerald-400';
-    if (rs >= 0) return 'text-slate-300';
-    return 'text-rose-400';
   };
   const getScoreBadge = (score: number | null | undefined) => {
     if (score == null) return 'bg-white/[0.02] text-slate-600 border-white/5';
@@ -1096,7 +1088,7 @@ export default function DailySetups() {
                       header cannot carry two sort keys. */}
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
@@ -1199,8 +1191,8 @@ export default function DailySetups() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={mf != null ? `Money Flow ${mf.toFixed(0)} — ${mfLabel(mf)}` : undefined}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`} title={row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)} percentage points vs SPY over three months` : undefined}>
-                            {formatRs(row.rsVsSpy)}
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums cursor-help ${rsColor(row.rsRating)}`} title={rsTooltip(row.rsRating)}>
+                            {row.rsRating ?? '—'}
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`}>
