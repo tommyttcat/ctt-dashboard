@@ -1,6 +1,32 @@
 'use client';
 
-/* MarketSummary.tsx — v2.4
+/* MarketSummary.tsx — v2.5
+   v2.5: + a clickable NEWS ASTERISK on every scanner row.
+
+   The cards are an overview. If a name has a catalyst, the row should say
+   SO and nothing more — the headline itself belongs on the scanner table
+   where there is width for it. An asterisk is the whole message: something
+   was published, click to read it, otherwise carry on.
+
+   PLACED AFTER THE TICKER, NOT AT THE END OF THE ROW. Trailing would have
+   been simpler and needed no placeholder, but the Daily Setups and EP9M
+   rows end in variable-width fields — a setup name, a catalyst tag — so the
+   marker would have landed at a different x on every line. Next to the name
+   it reads as part of the name ("AAPL*"), which is also what a footnote
+   marker conventionally means.
+
+   That placement costs a placeholder: rows WITHOUT news have to occupy the
+   same slot or every column after them shifts. Hence the ∅ sentinel, which
+   renders as an empty fixed-width span. It is a rare enough character that
+   it cannot collide with a ticker, a headline or a number.
+
+   THE TOOLTIP CARRIES PROVENANCE. Scanner v6.20 put publisher and age on
+   every row for a reason — an aggregated feed mixes GlobeNewswire 8-Ks with
+   Motley Fool opinion, and once the source is stripped the two look
+   identical. Hovering the asterisk shows category, publisher, age and the
+   headline, which is enough to decide whether to click.
+
+   v2.4: the ticker chip gets a FIXED width inside aligned rows.
    v2.4: the ticker chip gets a FIXED width inside aligned rows.
 
    v2.3 gave RS and the leg count their own slots and the rows still drifted,
@@ -646,9 +672,46 @@ const isSettingUp = (s: any): boolean => {
   return rtrValue(s) >= PLAN_MIN_RTR;
 };
 
+/* ---- News marker --------------------------------------------------------
+   Emits the token that becomes a clickable asterisk, or the empty-slot
+   sentinel when a row has no catalyst.
+
+   THE SENTINEL IS NOT OPTIONAL. Rows sit in a fixed-column layout, and a
+   marker that only appears on some of them would shift every column to its
+   right on exactly those rows — the same class of bug v2.4 fixed on the
+   ticker chip, reintroduced one slot over.
+
+   Metadata rides inside the link label between ≡ delimiters. That is a
+   little grubby, but the renderer receives a plain string and has no other
+   channel; the alternative is a module-level URL-to-metadata map, which
+   means shared mutable state between the builders and the renderer for the
+   sake of a tooltip.
+
+   NEWLINES ARE STRIPPED from the tooltip because rows are split on \n
+   downstream — a headline containing one would break the row into two and
+   the second half would render as garbage. */
+const NEWS_MARK_EMPTY = '∅';
+
+const newsMark = (s: any): string => {
+  const url = s?.catalystUrl;
+  const title = s?.thesis;
+  if (!url || !title) return NEWS_MARK_EMPTY;
+
+  const meta = [s?.catalyst, s?.newsPublisher, s?.newsAge]
+    .filter(Boolean)
+    .join(' · ');
+
+  const tip = `${meta ? `${meta} — ` : ''}${title}`
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/[\]≡]/g, '')
+    .slice(0, 240);
+
+  return `[*≡${tip}≡](${url})`;
+};
+
 const fmtPlanRow = (s: any): string => {
   const p = livePlanOf(s);
-  if (!p) return `${tickerOf(s)} —`;
+  if (!p) return `${tickerOf(s)} ${newsMark(s)} —`;
 
   const chg = chgOf(s);
   const bits: string[] = [`${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`];
@@ -661,7 +724,7 @@ const fmtPlanRow = (s: any): string => {
   bits.push(`ST ${fmtLevel(p.stop)}`);
   bits.push(`TG ${fmtLevel(p.target)}`);
 
-  return `${tickerOf(s)} ${bits.join(' ')}`;
+  return `${tickerOf(s)} ${newsMark(s)} ${bits.join(' ')}`;
 };
 
 const buildTradePlanPara = (pool: any[]): string => {
@@ -997,6 +1060,15 @@ const build1021Para = (pool: any[]): string => {
       dot: dotOf(s),
       day: isDayName(s),
       score: blendedScore(s),
+      /* Carried through the projection so newsMark can read them. Without
+         these four the 10/21 rows would be the only section with no
+         asterisk slot, and their columns would sit a few pixels off every
+         other table's. */
+      catalystUrl: s.catalystUrl ?? null,
+      thesis: s.thesis ?? null,
+      catalyst: s.catalyst ?? null,
+      newsPublisher: s.newsPublisher ?? null,
+      newsAge: s.newsAge ?? null,
     }))
     .filter(r => r.d21 != null && r.bucket != null);
 
@@ -1011,7 +1083,7 @@ const build1021Para = (pool: any[]): string => {
     if (r.d10 != null) bits.push(`${pct(r.d10 as number)} 10`);
     bits.push(POSTURE_META[r.bucket as PostureBucket].label);
     if (r.dot === 'red') bits.push('RED DOT');
-    return `${r.ticker} ${bits.join(' ')}`;
+    return `${r.ticker} ${newsMark(r)} ${bits.join(' ')}`;
   };
 
   const byScore = (a: any, b: any) => b.score - a.score;
@@ -1061,7 +1133,7 @@ const buildMoversPara = (movers: any): string => {
   if (gainers.length === 0 && losers.length === 0) return '';
 
   const fmtMover = (s: any): string =>
-    `${s.ticker} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% ${fmtRvol(s)}`;
+    `${s.ticker} ${newsMark(s)} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% ${fmtRvol(s)}`;
 
   const topG = gainers.slice().sort((a, b) => chgOf(b) - chgOf(a)).slice(0, 4);
   const topL = losers.slice().sort((a, b) => chgOf(a) - chgOf(b)).slice(0, 3);
@@ -1139,7 +1211,7 @@ const buildVcpPara = (vcp: any[]): string => {
     if (c?.trigger != null) bits.push(`TR ${fmtLevel(c.trigger)}`);
     if (c?.stop != null) bits.push(`ST ${fmtLevel(c.stop)}`);
 
-    return `${c.symbol} ${bits.join(' ')}`;
+    return `${c.symbol} ${newsMark(c)} ${bits.join(' ')}`;
   };
 
   const byScore = (a: any, b: any) => num(b?.score) - num(a?.score);
@@ -1202,7 +1274,7 @@ const buildEp9mPara = (ep9m: any[]): string => {
     const bits: string[] = [`${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`, fmtRvol(s)];
     const tag = catalystTagOf(s);
     if (tag) bits.push(tag);
-    return `${s.ticker} ${bits.join(' ')}`;
+    return `${s.ticker} ${newsMark(s)} ${bits.join(' ')}`;
   };
 
   const unprec = rows.filter(ep9mUnprec).sort((a, b) => (ep9mVs60dOf(b) ?? 0) - (ep9mVs60dOf(a) ?? 0));
@@ -1329,10 +1401,10 @@ const buildLocalInsights = (
 
   const fmtNewsRow = (s: any): string => {
     const tag = catalystTagOf(s);
-    return `${s.ticker} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% ${fmtRvol(s)}${tag ? ` ${tag}` : ''}`;
+    return `${s.ticker} ${newsMark(s)} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% ${fmtRvol(s)}${tag ? ` ${tag}` : ''}`;
   };
   const fmtFaderRow = (s: any): string =>
-    `${s.ticker} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% ${fmtRvol(s)}`;
+    `${s.ticker} ${newsMark(s)} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% ${fmtRvol(s)}`;
 
   const leadersCol = leaders.length ? `Volume-confirmed:\n${leaders.map(fmtLeader).join('\n')}` : '';
   const newsCol = newsItems.length ? `News-driven:\n${newsItems.map(fmtNewsRow).join('\n')}` : '';
@@ -1362,7 +1434,7 @@ const buildLocalInsights = (
     if (su) bits.push(su);
     if (dotOf(s) === 'red') bits.push('RED DOT');
 
-    return `${s.ticker} ${bits.join(' ')}`;
+    return `${s.ticker} ${newsMark(s)} ${bits.join(' ')}`;
   };
 
   const swingNames = daily.filter(s => !isDayName(s)).sort((a, b) => blendedScore(b) - blendedScore(a)).slice(0, 6);
@@ -1626,7 +1698,7 @@ const isRowLine = (line: string): boolean => {
 
 const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
   const rx = new RegExp(
-    `(▸|●|REV|RED DOT|BLUE DOT|\\[[^\\]]+\\]\\([^)]+\\)|\\d{1,2}:\\d{2} (?:AM|PM)` +
+    `(▸|●|∅|REV|RED DOT|BLUE DOT|\\[[^\\]]+\\]\\([^)]+\\)|\\d{1,2}:\\d{2} (?:AM|PM)` +
     `|RVOL (?:\\d+(?:\\.\\d+)?|—)|CNF \\d+|Stage \\d[ABC]?|stoch \\d+(?:\\.\\d+)?` +
     `|RS \\d{1,2}\\b|\\bT[2-9]\\b|(?:TR|ST|TG) \\d+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?x ADR` +
     `|\\d+(?:\\.\\d+)?R\\+?|\\b(?:${CATALYST_TAGS})\\b|10\\/21|S&P|Nasdaq|Dow|Bitcoin` +
@@ -1655,6 +1727,10 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
   const rsValW = align ? 'inline-block min-w-[18px] md:min-w-[20px] text-right' : '';
   const legW = align ? 'min-w-[20px] md:min-w-[24px] text-center' : '';
 
+  /* The news marker and its empty twin share one width, which is the entire
+     reason the sentinel exists — see the v2.5 header. */
+  const newsW = align ? 'inline-block w-[10px] md:w-[12px] text-center' : 'inline-block';
+
   return parts.map((part, i) => {
     if (!part) return null;
     if (part === '▸') return <span key={i} className="text-rose-400 font-bold">▸</span>;
@@ -1675,8 +1751,34 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
     if (part === 'RED DOT') return <span key={i} className="text-rose-400 font-bold tracking-wide text-[10px]">RED DOT</span>;
     if (part === 'BLUE DOT') return <span key={i} className="text-cyan-400 font-bold tracking-wide text-[11px]">BLUE DOT</span>;
 
+    /* Empty news slot. Renders nothing but occupies the marker's width, so
+       rows with and without a catalyst align. */
+    if (part === '∅') {
+      return <span key={i} className={newsW} aria-hidden="true" />;
+    }
+
     const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (linkMatch) {
+      /* The news asterisk, distinguished from an ordinary inline link by its
+         label. Amber rather than the link slate because it is a STATUS on
+         the row — this name has a catalyst — and only incidentally a link;
+         reading it should not require noticing it is clickable. */
+      const newsTip = linkMatch[1].match(/^\*≡(.*)≡$/);
+      if (newsTip) {
+        return (
+          <a
+            key={i}
+            href={linkMatch[2]}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={newsTip[1]}
+            onClick={(e) => e.stopPropagation()}
+            className={`${newsW} text-amber-400/90 hover:text-amber-300 font-bold text-[11px] leading-none align-baseline cursor-pointer transition-colors`}
+          >
+            *
+          </a>
+        );
+      }
       return <a key={i} href={linkMatch[2]} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-cyan-300 hover:underline transition-colors">{linkMatch[1]}</a>;
     }
     if (/^\d{1,2}:\d{2} (?:AM|PM)$/.test(part)) {
