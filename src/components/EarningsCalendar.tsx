@@ -52,6 +52,7 @@ interface EarningEvent {
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
 type SortDirection = 'asc' | 'desc';
 type PeriodFilter = 'TODAY' | 'WEEK' | 'NEXT';
+type CapFilter = 'MEGA' | 'LARGE' | 'MID' | 'ALL';
 
 // --- CONSTANTS & MAPS ---
 const SECTOR_MAP: Record<string, string> = {
@@ -170,6 +171,7 @@ export default function EarningsCalendar() {
      any of them a name I hold." That is a five-second check and should not
      require scrolling past three days of completed prints. */
   const [period, setPeriod] = useState<PeriodFilter>('TODAY');
+  const [capFilter, setCapFilter] = useState<CapFilter>('MEGA');
 
   /* The route defaults to the current trading week, so the component fetches
      TWO weeks (this + next) and filters client-side by period. That way
@@ -303,15 +305,36 @@ export default function EarningsCalendar() {
   };
 
   const periodCounts = useMemo(() => ({
-    TODAY: events.filter(e => inPeriod(e.rawDateString, 'TODAY')).length,
-    WEEK: events.filter(e => inPeriod(e.rawDateString, 'WEEK')).length,
-    NEXT: events.filter(e => inPeriod(e.rawDateString, 'NEXT')).length,
-  }), [events, todayStr]);
+    TODAY: events.filter(e => inPeriod(e.rawDateString, 'TODAY') && passesCapFilter(e.mktCap, capFilter)).length,
+    WEEK: events.filter(e => inPeriod(e.rawDateString, 'WEEK') && passesCapFilter(e.mktCap, capFilter)).length,
+    NEXT: events.filter(e => inPeriod(e.rawDateString, 'NEXT') && passesCapFilter(e.mktCap, capFilter)).length,
+  }), [events, todayStr, capFilter]);
 
   const todayCount = periodCounts.TODAY;
 
+  const CAP_THRESHOLDS: Record<CapFilter, number> = {
+    MEGA: 200_000_000_000,
+    LARGE: 10_000_000_000,
+    MID: 1_000_000_000,
+    ALL: 0,
+  };
+
+  const CAP_LABELS: Record<CapFilter, string> = {
+    MEGA: 'Mega $200B+',
+    LARGE: 'Large $10B+',
+    MID: 'Mid $1B+',
+    ALL: 'All',
+  };
+
+  const passesCapFilter = (cap: number | null, f: CapFilter): boolean => {
+    if (f === 'ALL') return true;
+    return (cap ?? 0) >= CAP_THRESHOLDS[f];
+  };
+
   const finalRenderedEvents = useMemo(() => {
-    const list = events.filter(e => inPeriod(e.rawDateString, period));
+    const list = events.filter(e =>
+      inPeriod(e.rawDateString, period) && passesCapFilter(e.mktCap, capFilter)
+    );
 
     if (!sortConfig) {
       return list
@@ -333,7 +356,7 @@ export default function EarningsCalendar() {
     });
 
     return list.slice(0, 50);
-  }, [events, sortConfig, period, todayStr]);
+  }, [events, sortConfig, period, capFilter, todayStr]);
 
   const isLoading = status.includes('Scouting');
   const getSortIcon = (columnKey: keyof EarningEvent) =>
@@ -351,6 +374,16 @@ export default function EarningsCalendar() {
     WEEK: 'This Week',
     NEXT: 'Next Week',
   };
+
+  const capFilterCount = useMemo(() => {
+    const periodFiltered = events.filter(e => inPeriod(e.rawDateString, period));
+    return {
+      MEGA: periodFiltered.filter(e => passesCapFilter(e.mktCap, 'MEGA')).length,
+      LARGE: periodFiltered.filter(e => passesCapFilter(e.mktCap, 'LARGE')).length,
+      MID: periodFiltered.filter(e => passesCapFilter(e.mktCap, 'MID')).length,
+      ALL: periodFiltered.length,
+    };
+  }, [events, period, todayStr]);
 
   const filterBtnActive = "bg-indigo-500/20 text-[#7c8bfa] border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
   const filterBtnIdle = "text-slate-500 hover:text-slate-300 border border-transparent hover:bg-white/[0.02]";
@@ -411,9 +444,26 @@ export default function EarningsCalendar() {
                   </button>
                 ))}
               </div>
+
+              <div className="flex items-center gap-1 bg-[#161c2a] border border-white/5 rounded-lg p-1">
+                {(['MEGA', 'LARGE', 'MID', 'ALL'] as CapFilter[]).map(c => (
+                  <button
+                    key={c}
+                    onClick={(e) => { e.stopPropagation(); setCapFilter(c); }}
+                    className={`px-3 py-1.5 rounded-md text-[10px] font-bold tracking-wide uppercase transition-all duration-300 ${
+                      capFilter === c ? filterBtnActive : filterBtnIdle
+                    }`}
+                  >
+                    {CAP_LABELS[c]}
+                    <span className={`ml-1.5 text-[9px] ${capFilter === c ? 'text-[#7c8bfa]/60' : 'text-slate-600'}`}>
+                      {capFilterCount[c]}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
             <span className="text-[10px] text-slate-500 font-medium tracking-wide">
-              $1B+ market cap · thematic sectors always shown
+              Server-side $1B floor · client cap filter stacks on top
             </span>
           </div>
 
