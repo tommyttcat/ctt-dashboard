@@ -3,33 +3,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 
 // ---------------------------------------------------------------------------
-// Earnings Calendar — v3.0
+// Earnings Calendar — v3.1
 //
-// v3.0: THREE CHANGES.
+// v3.1: MARKET CAP FILTER. Adds All / Small / Mid / Large / Mega pills
+//       matching the pattern used in the scanner tables. Filter is combined
+//       with the existing period selector; counts update per-period.
 //
-//   (a) READS THE NEW ROUTE RESPONSE. The route (v2.1) now returns
-//       { events, meta } instead of a bare array, with a $1B market-cap
-//       floor applied server-side via cached Polygon reference data. The
-//       component no longer filters by importance or market cap — that work
-//       is done before the data arrives.
-//
-//   (b) PERIOD SELECTOR replaces the importance tier filter. Three options:
-//       Today (default), This Week, Next Week. The old MAJOR/NOTABLE/ALL
-//       filter gated on Benzinga's importance score, which FMP does not
-//       provide — every row came through as 0 and the filter did nothing.
-//
-//       TODAY IS THE DEFAULT because the question the calendar answers most
-//       mornings is "who reports today and is any of them a name I hold or
-//       watch." That is a five-second check, and it should not require
-//       scrolling past three days of prints that already happened.
-//
-//   (c) THE WEIGHT COLUMN IS GONE. It showed Benzinga's importance badge
-//       (MAJOR / NOTABLE / MINOR). FMP has no equivalent, and with a $1B
-//       floor applied server-side the column would read MINOR on every row —
-//       pure noise. Market cap replaces it, since the route now includes
-//       mktCap from the Polygon reference data.
-//
-// v2.0: removed broken Massive market-cap enrichment entirely.
+// v3.0: Period selector (Today/This Week/Next Week), route returns
+//       { events, meta } with $1B floor, weight column removed.
 // ---------------------------------------------------------------------------
 
 // --- INTERFACES ---
@@ -52,7 +33,7 @@ interface EarningEvent {
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
 type SortDirection = 'asc' | 'desc';
 type PeriodFilter = 'TODAY' | 'WEEK' | 'NEXT';
-type CapFilter = 'MEGA' | 'LARGE' | 'MID' | 'ALL';
+type CapFilter = 'ALL' | 'SMALL' | 'MID' | 'LARGE' | 'MEGA';
 
 // --- CONSTANTS & MAPS ---
 const SECTOR_MAP: Record<string, string> = {
@@ -79,6 +60,28 @@ const THEMATIC_SECTORS = ['AI', 'Nuclear', 'Quantum', "Semi's", 'Cyber', 'Aerosp
 
 const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/* Market cap filter — thresholds in dollars. ALL passes everything. */
+const CAP_THRESHOLDS: Record<CapFilter, number> = {
+  ALL:   0,
+  SMALL: 1e9,
+  MID:   5e9,
+  LARGE: 20e9,
+  MEGA:  100e9,
+};
+
+const CAP_LABELS: Record<CapFilter, string> = {
+  ALL:   'All',
+  SMALL: 'Small',
+  MID:   'Mid',
+  LARGE: 'Large',
+  MEGA:  'Mega',
+};
+
+const passesCapFilter = (cap: number | null, f: CapFilter): boolean => {
+  if (f === 'ALL') return true;
+  return (cap ?? 0) >= CAP_THRESHOLDS[f];
+};
 
 // --- HELPERS ---
 const getMarketSession = (): MarketSession => {
@@ -127,9 +130,6 @@ const getResultBadge = (result: string | null) => {
   return '';
 };
 
-/* Monday of the current or upcoming trading week. On a weekend, that's NEXT
-   Monday — same logic as the route, so the two agree on what "this week"
-   means. */
 const tradingWeekMonday = (d: Date): Date => {
   const clone = new Date(d);
   const day = clone.getDay();
@@ -166,17 +166,9 @@ export default function EarningsCalendar() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: keyof EarningEvent; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
-
-  /* Default to TODAY. The question most mornings is "who reports today and is
-     any of them a name I hold." That is a five-second check and should not
-     require scrolling past three days of completed prints. */
   const [period, setPeriod] = useState<PeriodFilter>('TODAY');
-  const [capFilter, setCapFilter] = useState<CapFilter>('MEGA');
+  const [capFilter, setCapFilter] = useState<CapFilter>('ALL');
 
-  /* The route defaults to the current trading week, so the component fetches
-     TWO weeks (this + next) and filters client-side by period. That way
-     switching between Today / This Week / Next Week is instant — no
-     re-fetch. */
   useEffect(() => {
     let isMounted = true;
 
@@ -189,7 +181,7 @@ export default function EarningsCalendar() {
         const estNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
         const mon = tradingWeekMonday(estNow);
         const nextFri = new Date(mon);
-        nextFri.setDate(mon.getDate() + 11); // this Fri + next full week
+        nextFri.setDate(mon.getDate() + 11);
 
         const fromStr = getIsoDateString(mon);
         const toStr = getIsoDateString(nextFri);
@@ -197,9 +189,6 @@ export default function EarningsCalendar() {
         const calendarUrl = `/api/earnings?from=${fromStr}&to=${toStr}`;
         const rawData = await fetchSafeJson(calendarUrl, null);
 
-        /* The route returns { events, meta } in v2.1+, or a bare array in
-           older cached responses. Handle both so a deploy doesn't blank the
-           table until the cache expires. */
         let earningsList: any[] = [];
         if (rawData && typeof rawData === 'object' && Array.isArray(rawData.events)) {
           earningsList = rawData.events;
@@ -278,10 +267,9 @@ export default function EarningsCalendar() {
     setSortConfig({ key, direction });
   };
 
-  /* Date boundaries for the period filter. Computed once per render from the
-     current EST date, which is cheap. */
   const estNow = useMemo(() =>
     new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [lastUpdated]
   );
 
@@ -301,40 +289,39 @@ export default function EarningsCalendar() {
     const d = rawDate.substring(0, 10);
     if (p === 'TODAY') return d === todayStr;
     if (p === 'WEEK') return d >= getIsoDateString(thisWeekMon) && d <= getIsoDateString(thisWeekFri);
-    /* NEXT */ return d >= getIsoDateString(nextWeekMon) && d <= getIsoDateString(nextWeekFri);
+    return d >= getIsoDateString(nextWeekMon) && d <= getIsoDateString(nextWeekFri);
   };
 
+  /* Period-filtered list (before cap filter) — used for cap counts. */
+  const periodFiltered = useMemo(() =>
+    events.filter(e => inPeriod(e.rawDateString, period)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [events, period, todayStr]
+  );
+
+  /* Period counts — independent of cap filter so the period pills always
+     show the total count for each period. */
   const periodCounts = useMemo(() => ({
-    TODAY: events.filter(e => inPeriod(e.rawDateString, 'TODAY') && passesCapFilter(e.mktCap, capFilter)).length,
-    WEEK: events.filter(e => inPeriod(e.rawDateString, 'WEEK') && passesCapFilter(e.mktCap, capFilter)).length,
-    NEXT: events.filter(e => inPeriod(e.rawDateString, 'NEXT') && passesCapFilter(e.mktCap, capFilter)).length,
-  }), [events, todayStr, capFilter]);
+    TODAY: events.filter(e => inPeriod(e.rawDateString, 'TODAY')).length,
+    WEEK:  events.filter(e => inPeriod(e.rawDateString, 'WEEK')).length,
+    NEXT:  events.filter(e => inPeriod(e.rawDateString, 'NEXT')).length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [events, todayStr]);
+
+  /* Cap filter counts — scoped to the active period so you see how many
+     names are in each bucket *within* the period you're looking at. */
+  const capFilterCounts = useMemo(() => ({
+    ALL:   periodFiltered.length,
+    SMALL: periodFiltered.filter(e => passesCapFilter(e.mktCap, 'SMALL')).length,
+    MID:   periodFiltered.filter(e => passesCapFilter(e.mktCap, 'MID')).length,
+    LARGE: periodFiltered.filter(e => passesCapFilter(e.mktCap, 'LARGE')).length,
+    MEGA:  periodFiltered.filter(e => passesCapFilter(e.mktCap, 'MEGA')).length,
+  }), [periodFiltered]);
 
   const todayCount = periodCounts.TODAY;
 
-  const CAP_THRESHOLDS: Record<CapFilter, number> = {
-    MEGA: 200_000_000_000,
-    LARGE: 10_000_000_000,
-    MID: 1_000_000_000,
-    ALL: 0,
-  };
-
-  const CAP_LABELS: Record<CapFilter, string> = {
-    MEGA: 'Mega $200B+',
-    LARGE: 'Large $10B+',
-    MID: 'Mid $1B+',
-    ALL: 'All',
-  };
-
-  const passesCapFilter = (cap: number | null, f: CapFilter): boolean => {
-    if (f === 'ALL') return true;
-    return (cap ?? 0) >= CAP_THRESHOLDS[f];
-  };
-
   const finalRenderedEvents = useMemo(() => {
-    const list = events.filter(e =>
-      inPeriod(e.rawDateString, period) && passesCapFilter(e.mktCap, capFilter)
-    );
+    const list = periodFiltered.filter(e => passesCapFilter(e.mktCap, capFilter));
 
     if (!sortConfig) {
       return list
@@ -356,7 +343,7 @@ export default function EarningsCalendar() {
     });
 
     return list.slice(0, 50);
-  }, [events, sortConfig, period, capFilter, todayStr]);
+  }, [periodFiltered, sortConfig, capFilter]);
 
   const isLoading = status.includes('Scouting');
   const getSortIcon = (columnKey: keyof EarningEvent) =>
@@ -374,16 +361,6 @@ export default function EarningsCalendar() {
     WEEK: 'This Week',
     NEXT: 'Next Week',
   };
-
-  const capFilterCount = useMemo(() => {
-    const periodFiltered = events.filter(e => inPeriod(e.rawDateString, period));
-    return {
-      MEGA: periodFiltered.filter(e => passesCapFilter(e.mktCap, 'MEGA')).length,
-      LARGE: periodFiltered.filter(e => passesCapFilter(e.mktCap, 'LARGE')).length,
-      MID: periodFiltered.filter(e => passesCapFilter(e.mktCap, 'MID')).length,
-      ALL: periodFiltered.length,
-    };
-  }, [events, period, todayStr]);
 
   const filterBtnActive = "bg-indigo-500/20 text-[#7c8bfa] border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
   const filterBtnIdle = "text-slate-500 hover:text-slate-300 border border-transparent hover:bg-white/[0.02]";
@@ -428,6 +405,7 @@ export default function EarningsCalendar() {
         <>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 relative z-10 pb-2">
             <div className="flex gap-3 overflow-x-auto w-full md:w-auto" style={{ scrollbarWidth: 'none' }}>
+              {/* Period pills */}
               <div className="flex items-center gap-1 bg-[#161c2a] border border-white/5 rounded-lg p-1">
                 {(['TODAY', 'WEEK', 'NEXT'] as PeriodFilter[]).map(p => (
                   <button
@@ -445,8 +423,12 @@ export default function EarningsCalendar() {
                 ))}
               </div>
 
+              {/* Cap filter pills */}
               <div className="flex items-center gap-1 bg-[#161c2a] border border-white/5 rounded-lg p-1">
-                {(['MEGA', 'LARGE', 'MID', 'ALL'] as CapFilter[]).map(c => (
+                <div className="px-2 border-r border-white/10 mr-1">
+                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">CAP</span>
+                </div>
+                {(['ALL', 'SMALL', 'MID', 'LARGE', 'MEGA'] as CapFilter[]).map(c => (
                   <button
                     key={c}
                     onClick={(e) => { e.stopPropagation(); setCapFilter(c); }}
@@ -456,14 +438,14 @@ export default function EarningsCalendar() {
                   >
                     {CAP_LABELS[c]}
                     <span className={`ml-1.5 text-[9px] ${capFilter === c ? 'text-[#7c8bfa]/60' : 'text-slate-600'}`}>
-                      {capFilterCount[c]}
+                      {capFilterCounts[c]}
                     </span>
                   </button>
                 ))}
               </div>
             </div>
             <span className="text-[10px] text-slate-500 font-medium tracking-wide">
-              Server-side $1B floor · client cap filter stacks on top
+              $1B+ market cap · thematic sectors always shown
             </span>
           </div>
 
