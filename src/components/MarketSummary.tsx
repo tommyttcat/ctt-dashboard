@@ -1307,7 +1307,8 @@ const buildLocalInsights = (
   earningsList: EarningsEvent[] = [],
   swingList: any[] = [],
   consolList: any[] = [],
-  vcpList: any[] = []
+  vcpList: any[] = [],
+  liveChgMap: Record<string, [number, number]> | null = null,
 ): MacroInsights | null => {
   const sips: any[] = Array.isArray(scan?.stocksInPlay) ? scan.stocksInPlay : [];
   const daily: any[] = Array.isArray(scan?.dailySetups) ? scan.dailySetups : [];
@@ -1328,7 +1329,15 @@ const buildLocalInsights = (
     ...(Array.isArray(swingList) ? swingList : []),
     ...(Array.isArray(consolList) ? consolList : []),
   ]
-    .map(s => ({ ...s, ticker: tickerOf(s) }))
+    .map(s => {
+      const t = tickerOf(s);
+      const live = t && liveChgMap ? liveChgMap[t] : undefined;
+      return {
+        ...s,
+        ticker: t,
+        ...(live ? { changePct: live[0], price: live[1] } : {}),
+      };
+    })
     .filter(s => s.ticker);
 
   const seen = new Set<string>();
@@ -2121,7 +2130,7 @@ export default function MarketSummary() {
         } catch { /* vcp is optional */ }
 
         if (isMounted) {
-          const local = buildLocalInsights(scannerData, ep9mList, econList, earningsList, swingList, consolList, vcpList);
+          const local = buildLocalInsights(scannerData, ep9mList, econList, earningsList, swingList, consolList, vcpList, scannerData?.liveChgMap ?? null);
           if (local) setMacroInsights(local);
           else if (scannerData.macroInsights) setMacroInsights(scannerData.macroInsights);
         }

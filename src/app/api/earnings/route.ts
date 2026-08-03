@@ -1,33 +1,33 @@
-// app/api/earnings/route.ts — v2.2
+// app/api/earnings/route.ts — v3.0
 //
 // Earnings calendar: FMP calendar + Polygon market-cap floor.
 //
-// v2.2: Weekend guard. FMP and Polygon return stale/empty data on weekends.
-//       The route now keeps a durable "last good" payload in KV (no TTL) and
-//       serves it on Sat/Sun instead of hitting the APIs. During the trading
-//       week, every successful fetch updates the durable key so Monday's
-//       first request always has Friday's data to serve until the fresh
-//       fetch completes.
+// v3.0: Fixed market-cap sourcing. The /v3/reference/tickers LIST endpoint
+//       does NOT return market_cap — only the per-ticker DETAILS endpoint
+//       (/v3/reference/tickers/{ticker}) does. Switched to per-symbol
+//       lookups with per-symbol KV caching (7-day TTL). Cold start fetches
+//       concurrently; warm path is a single batch KV read.
+//
+// v2.2: Weekend guard (kept). Durable "last good" payload in KV for
+//       Sat/Sun serving.
 //
 // ---------------------------------------------------------------------------
-// WHY $1B AND HOW IT COSTS ZERO FMP CALLS
+// MARKET-CAP ENRICHMENT
 //
-// FMP's /stable/earnings-calendar returns every company reporting in the
-// window — 4,000+ over 45 days, most of them micro and nano caps whose
-// reports move nothing. A $1B floor cuts that to the names worth watching.
+// FMP's earnings calendar returns ~4000 events per 2-week window.
+// A $1B floor filters that to the names worth watching (~200-400).
 //
-// FMP charges per call and does not offer a market-cap filter on this
-// endpoint. Using FMP's /stable/profile to enrich would cost one call per
-// symbol or one batched call per ~100 — hundreds of calls per request.
+// Market caps come from Polygon's Ticker Details endpoint:
+//   GET /v3/reference/tickers/{ticker} → results.market_cap
 //
-// Instead, market caps come from Polygon's /v3/reference/tickers, which
-// returns market_cap on every ticker and is paginated at 1,000. The whole
-// US market fits in ~8 pages, cached daily in KV. The Polygon plan is
-// unlimited, so the cost is zero.
+// Each symbol is cached per-symbol in KV with a 7-day TTL. The warm path
+// reads all cached values via mget (one KV round-trip per 500 symbols).
+// Only uncached symbols hit Polygon (fetched concurrently, 25 at a time).
+// A "not found" sentinel (0) prevents re-fetching missing/OTC symbols.
 //
 // TOTAL API COST PER REQUEST:
 //   FMP:     1 call (the calendar itself)  — 0 on weekends
-//   Polygon: 0 calls (reads from KV; the map refreshes once a day at ~8)
+//   Polygon: 0 calls (warm) / up to ~100 calls (cold, first run only)
 //
 // ---------------------------------------------------------------------------
 // WINDOW
@@ -99,78 +99,110 @@ const CACHE_TTL_MS = 4 * 60 * 60 * 1000;
    On weekends, the route reads this instead of hitting APIs. */
 const DURABLE_KEY = 'earnings_last_good_v1';
 
-/* ---- Market-cap map (Polygon, cached daily) --------------------------- */
+/* ---- Market-cap per-symbol (Polygon Ticker Details, KV-cached) -------- */
 
-const MCAP_KV_KEY = 'polygon_mcap_map_v1';
-const MCAP_TTL_HOURS = 24;
-const POLYGON_REF_LIMIT = 1000;
-const POLYGON_REF_MAX_PAGES = 12;
+const MCAP_PREFIX = 'mcap:';
+const MCAP_TTL_SEC = 7 * 24 * 3600;          // 7 days for valid caps
+const MCAP_NOT_FOUND_TTL_SEC = 24 * 3600;    // 1 day for "not found" sentinel
+const POLYGON_CONCURRENCY = 25;
+const MGET_BATCH = 500;
 
-interface McapMap {
-  _t: number;
-  caps: Record<string, number>;
-}
+/** Looks like a US equity ticker: no dots, 1-5 uppercase letters. */
+const isUsLikeTicker = (s: string): boolean =>
+  /^[A-Z]{1,5}$/.test(s);
 
-async function loadOrBuildMcapMap(): Promise<Record<string, number>> {
-  // --- Try cache ---
-  try {
-    const cached = await kv.get<McapMap>(MCAP_KV_KEY);
-    if (cached && cached._t && (Date.now() - cached._t) < MCAP_TTL_HOURS * 3_600_000) {
-      return cached.caps;
-    }
-  } catch {
-    // KV unavailable — build fresh.
+/**
+ * Resolve market caps for a list of symbols.
+ *
+ * 1. Batch-read KV cache (mget, 500 per round-trip).
+ * 2. Fetch uncached symbols from Polygon Ticker Details (25 concurrent).
+ * 3. Pipeline-write new results back to KV.
+ *
+ * Returns { caps, hasMcapData }.
+ */
+async function fetchMcaps(
+  allSymbols: string[],
+): Promise<{ caps: Record<string, number>; hasMcapData: boolean }> {
+  if (!POLYGON_KEY || allSymbols.length === 0) {
+    return { caps: {}, hasMcapData: false };
   }
 
-  // --- Build from Polygon ---
-  if (!POLYGON_KEY) return {};
-
+  /* Only look up symbols that look like US equities. */
+  const symbols = allSymbols.filter(isUsLikeTicker);
   const caps: Record<string, number> = {};
-  let cursor: string | null = null;
-  let pages = 0;
+  const uncached: string[] = [];
 
-  while (pages < POLYGON_REF_MAX_PAGES) {
-    pages++;
-    let url =
-      `https://api.polygon.io/v3/reference/tickers` +
-      `?type=CS&market=stocks&active=true&limit=${POLYGON_REF_LIMIT}` +
-      `&apiKey=${POLYGON_KEY}`;
-    if (cursor) url += `&cursor=${cursor}`;
-
+  /* --- 1. Batch KV read ------------------------------------------------- */
+  for (let i = 0; i < symbols.length; i += MGET_BATCH) {
+    const batch = symbols.slice(i, i + MGET_BATCH);
+    const keys = batch.map(s => `${MCAP_PREFIX}${s}`);
     try {
-      const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) break;
-      const data = await res.json();
-      const results = data?.results;
-      if (!Array.isArray(results) || results.length === 0) break;
-
-      for (const t of results) {
-        if (t.ticker && typeof t.market_cap === 'number' && t.market_cap > 0) {
-          caps[t.ticker] = t.market_cap;
+      const vals = await kv.mget<(number | null)[]>(...keys);
+      for (let j = 0; j < batch.length; j++) {
+        const v = vals[j];
+        if (typeof v === 'number') {
+          if (v > 0) caps[batch[j]] = v;
+          // v === 0 means "not found" sentinel — skip (don't re-fetch)
+        } else {
+          // null = not in cache yet
+          uncached.push(batch[j]);
         }
       }
-
-      cursor = data?.next_url
-        ? new URL(data.next_url).searchParams.get('cursor')
-        : null;
-      if (!cursor) break;
     } catch {
-      break;
+      // KV unavailable — treat all as uncached.
+      uncached.push(...batch);
     }
   }
 
-  // --- Cache ---
-  if (Object.keys(caps).length > 1000) {
-    try {
-      await kv.set(MCAP_KV_KEY, { _t: Date.now(), caps } as McapMap, {
-        ex: Math.ceil(MCAP_TTL_HOURS * 3600),
-      });
-    } catch {
-      // Non-fatal.
+  /* --- 2. Fetch uncached from Polygon ----------------------------------- */
+  if (uncached.length > 0) {
+    const deadline = Date.now() + 45_000; // stop after 45s to leave room
+
+    const fetchOne = async (sym: string): Promise<[string, number]> => {
+      try {
+        const url =
+          `https://api.polygon.io/v3/reference/tickers/${encodeURIComponent(sym)}` +
+          `?apiKey=${POLYGON_KEY}`;
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) return [sym, 0];
+        const data = await res.json();
+        const cap = data?.results?.market_cap;
+        return [sym, typeof cap === 'number' && cap > 0 ? cap : 0];
+      } catch {
+        return [sym, 0];
+      }
+    };
+
+    const newEntries: [string, number][] = [];
+
+    for (let i = 0; i < uncached.length; i += POLYGON_CONCURRENCY) {
+      if (Date.now() > deadline) break; // safety valve
+      const batch = uncached.slice(i, i + POLYGON_CONCURRENCY);
+      const results = await Promise.allSettled(batch.map(fetchOne));
+      for (const r of results) {
+        if (r.status === 'fulfilled') {
+          newEntries.push(r.value);
+          if (r.value[1] > 0) caps[r.value[0]] = r.value[1];
+        }
+      }
+    }
+
+    /* --- 3. Pipeline-write new results to KV ----------------------------- */
+    if (newEntries.length > 0) {
+      try {
+        const pipeline = kv.pipeline();
+        for (const [sym, cap] of newEntries) {
+          const ttl = cap > 0 ? MCAP_TTL_SEC : MCAP_NOT_FOUND_TTL_SEC;
+          pipeline.set(`${MCAP_PREFIX}${sym}`, cap, { ex: ttl });
+        }
+        await pipeline.exec();
+      } catch {
+        // Non-fatal.
+      }
     }
   }
 
-  return caps;
+  return { caps, hasMcapData: Object.keys(caps).length > 0 };
 }
 
 /* ---- Route -------------------------------------------------------------- */
@@ -245,21 +277,21 @@ export async function GET(request: Request) {
     );
   }
 
-  // --- Market-cap filter (Polygon, 0 calls if cached) ---
-  const mcaps = await loadOrBuildMcapMap();
-  const hasMcapData = Object.keys(mcaps).length > 0;
+  // --- Market-cap filter (Polygon per-symbol, KV-cached) ---
+  const allSymbols = Array.from(new Set(raw.map((e: any) => e.symbol).filter(Boolean))) as string[];
+  const { caps: mcaps, hasMcapData } = await fetchMcaps(allSymbols);
 
   const events = raw
     .filter((e: any) => {
       if (!e || !e.symbol) return false;
-      if (!hasMcapData) return true;
+      if (!hasMcapData) return true; // fail-open only if Polygon key missing
       const cap = mcaps[e.symbol];
       return cap != null && cap >= MIN_MARKET_CAP;
     })
     .map((e: any) => ({
       symbol: String(e.symbol),
       date: e.date || null,
-      name: e.symbol,
+      name: e.name || e.symbol,
       epsEstimated: numOrNull(e.epsEstimated),
       revenueEstimated: numOrNull(e.revenueEstimated),
       epsActual: numOrNull(e.epsActual),

@@ -1132,6 +1132,19 @@ async function runScan(request: Request) {
     const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= SCANNER.minPrice && t._liveVol >= SCANNER.minVolume);
     const spyChgToday = processedSnapshot.find((t: any) => t.ticker === 'SPY')?._liveChg ?? 0;
 
+    // Lightweight {ticker: [changePct, price]} map from the full snapshot.
+    // Persisted to KV so MarketSummary can overlay fresh changePct onto
+    // stale swing/consol plan pool entries that still show Friday's 0%.
+    const liveChgMap: Record<string, [number, number]> = {};
+    for (const t of processedSnapshot) {
+      if (t.ticker && /^[A-Z]{1,5}$/.test(t.ticker) && t._livePrice > 0) {
+        liveChgMap[t.ticker] = [
+          Math.round((t._liveChg ?? 0) * 100) / 100,
+          Math.round(t._livePrice * 100) / 100,
+        ];
+      }
+    }
+
     let advancers = 0, decliners = 0, up4 = 0, down4 = 0;
     for (const t of viableSetups) {
       const chg = t._liveChg || 0;
@@ -1807,6 +1820,13 @@ async function runScan(request: Request) {
       await kv.set('scan_meta_v6', scanMeta);
     } else {
       console.warn('Scan produced no movers; preserving previous KV snapshot.');
+    }
+
+    // Always persist the live changePct map — even when scanners produce
+    // no movers the snapshot still has valid prices. TTL 2h so stale
+    // weekend data expires before Monday open.
+    if (Object.keys(liveChgMap).length > 500) {
+      await kv.set('live_chg_map_v1', liveChgMap, { ex: 7200 });
     }
 
     if (benchmark) await kv.set('benchmark_v6', benchmark);

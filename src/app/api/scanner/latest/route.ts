@@ -20,6 +20,7 @@ export async function GET() {
       benchmark,
       lastScanTime,
       storedMeta,
+      liveChgMap,
     ] = await Promise.all([
       kv.get('daily_setups_v6'),
       kv.get('stocks_in_play_v6'),
@@ -28,6 +29,7 @@ export async function GET() {
       kv.get('benchmark_v6'),
       kv.get('last_scan_time_v6'),
       kv.get<any>('scan_meta_v6'),
+      kv.get<Record<string, [number, number]>>('live_chg_map_v1'),
     ]);
 
     // Scan-gate metadata for the on-screen "?" key. Prefer whatever the last
@@ -50,6 +52,7 @@ export async function GET() {
       },
       macroInsights: macroInsights || null,
       benchmark: benchmark || null,
+      liveChgMap: liveChgMap || null,
       scanMeta,
     }, {
       headers: {
