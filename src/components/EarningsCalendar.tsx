@@ -167,7 +167,7 @@ export default function EarningsCalendar() {
   const [sortConfig, setSortConfig] = useState<{ key: keyof EarningEvent; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [period, setPeriod] = useState<PeriodFilter>('TODAY');
-  const [capFilter, setCapFilter] = useState<CapFilter>('ALL');
+  const [capFilter, setCapFilter] = useState<CapFilter>('LARGE');
 
   useEffect(() => {
     let isMounted = true;

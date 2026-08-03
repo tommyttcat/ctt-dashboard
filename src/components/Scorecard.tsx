@@ -795,7 +795,7 @@ export default function MacroScorecard() {
   const [session, setSession] = useState<MarketSession>('Closed');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  const [riskMode, setRiskMode] = useState<'ON' | 'OFF'>('ON');
+  // riskMode removed — tone and breadth badges cover the same ground
   const [marketTone, setMarketTone] = useState<'BULLISH' | 'NEUTRAL' | 'BEARISH'>('NEUTRAL');
   const [breadth, setBreadth] = useState<BreadthData | null>(null);
   const [t2108, setT2108] = useState<T2108Data | null>(null);
@@ -847,13 +847,10 @@ export default function MacroScorecard() {
 
     if (totalScore >= 1.0) {
       setMarketTone('BULLISH');
-      setRiskMode('ON');
     } else if (totalScore <= -1.0) {
       setMarketTone('BEARISH');
-      setRiskMode('OFF');
     } else {
       setMarketTone('NEUTRAL');
-      setRiskMode(totalScore >= 0 ? 'ON' : 'OFF');
     }
   }, [quotes, breadth]);
 
@@ -1190,12 +1187,6 @@ export default function MacroScorecard() {
 
         <div className="hidden sm:flex absolute left-1/2 -translate-x-1/2 items-center gap-3">
           <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${
-              riskMode === 'ON' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-            }`}
-          >
-            RISK {riskMode}
-          </div>
-          <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${
               marketTone === 'BULLISH' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
               marketTone === 'BEARISH' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
               'bg-amber-500/10 text-amber-400 border-amber-500/20'
@@ -1218,7 +1209,20 @@ export default function MacroScorecard() {
             <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${chopBadgeBg(chopVal, bands)} ${chopColor(chopVal, bands)}`}
               title={`CHOP ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal, bands)} at the ${bands.label} setting. ${chopVerdict(chopVal, bands)}`}
             >
-              CHOP {chopVal.toFixed(0)}
+              {chopZoneLabel(chopVal, bands)} {chopVal.toFixed(0)}
+            </div>
+          )}
+          {tVal != null && (
+            <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${
+                tVal <= 20 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                tVal <= 35 ? 'bg-lime-500/10 text-lime-400 border-lime-500/20' :
+                tVal <= 65 ? 'bg-slate-500/10 text-slate-300 border-white/10' :
+                tVal <= 80 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                'bg-rose-500/10 text-rose-400 border-rose-500/20'
+              }`}
+              title={`T2108 ${tVal.toFixed(0)}% of stocks above 40-day MA — ${t2108ZoneLabel(tVal, '')}`}
+            >
+              T2108 {t2108ZoneLabel(tVal, '')}
             </div>
           )}
         </div>
@@ -1240,13 +1244,7 @@ export default function MacroScorecard() {
       {/* COLLAPSIBLE CONTENT */}
       {isExpanded && (
         <>
-          <div className="flex sm:hidden justify-center items-center gap-3 mb-6 relative z-10">
-            <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${
-                riskMode === 'ON' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-              }`}
-            >
-              RISK {riskMode}
-            </div>
+          <div className="flex sm:hidden justify-center items-center gap-3 mb-6 relative z-10 flex-wrap">
             <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${
                 marketTone === 'BULLISH' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
                 marketTone === 'BEARISH' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
@@ -1255,6 +1253,23 @@ export default function MacroScorecard() {
             >
               TONE: {marketTone}
             </div>
+            {chopVal != null && (
+              <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${chopBadgeBg(chopVal, bands)} ${chopColor(chopVal, bands)}`}>
+                {chopZoneLabel(chopVal, bands)} {chopVal.toFixed(0)}
+              </div>
+            )}
+            {tVal != null && (
+              <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${
+                  tVal <= 20 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                  tVal <= 35 ? 'bg-lime-500/10 text-lime-400 border-lime-500/20' :
+                  tVal <= 65 ? 'bg-slate-500/10 text-slate-300 border-white/10' :
+                  tVal <= 80 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                  'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                }`}
+              >
+                T2108 {t2108ZoneLabel(tVal, '')}
+              </div>
+            )}
           </div>
 
           {narrative && (
@@ -1426,16 +1441,21 @@ export default function MacroScorecard() {
                       <span className={`text-[8px] font-bold tracking-wider uppercase text-slate-600 text-right ${CHOP_TRACK_LABEL_W}`}>
                         1D
                       </span>
-                      <div className="flex-1 h-1.5 rounded-full relative bg-gradient-to-r from-emerald-400/35 via-slate-400/25 to-amber-400/40">
-                        {/* Threshold ticks MOVE when sensitivity changes — the
-                            visual confirmation that the setting did something. */}
+                      <div className="flex-1 h-1.5 rounded-full relative overflow-hidden">
+                        <div className="absolute inset-0 flex transition-all duration-300" style={{ borderRadius: 'inherit' }}>
+                          <div className="h-full bg-teal-400/45" style={{ width: `${bands.strongTrend}%` }}></div>
+                          <div className="h-full bg-emerald-400/35" style={{ width: `${bands.trend - bands.strongTrend}%` }}></div>
+                          <div className="h-full bg-slate-400/20" style={{ width: `${bands.chop - bands.trend}%` }}></div>
+                          <div className="h-full bg-amber-400/35" style={{ width: `${bands.dead - bands.chop}%` }}></div>
+                          <div className="h-full bg-rose-400/35" style={{ width: `${100 - bands.dead}%` }}></div>
+                        </div>
                         <div
-                          className="absolute top-[-2px] h-[9px] w-px bg-white/20 transition-all duration-300"
+                          className="absolute top-[-2px] h-[9px] w-px bg-white/30 transition-all duration-300"
                           style={{ left: `${bands.trend}%` }}
                           title={`Trend threshold — ${bands.trend} (${bands.label})`}
                         ></div>
                         <div
-                          className="absolute top-[-2px] h-[9px] w-px bg-white/20 transition-all duration-300"
+                          className="absolute top-[-2px] h-[9px] w-px bg-white/30 transition-all duration-300"
                           style={{ left: `${bands.chop}%` }}
                           title={`Chop threshold — ${bands.chop} (${bands.label})`}
                         ></div>
@@ -1476,7 +1496,14 @@ export default function MacroScorecard() {
                         <span className={`text-[8px] font-bold tracking-wider uppercase text-slate-600 text-right ${CHOP_TRACK_LABEL_W}`}>
                           {chop?.intraday?.barMinutes ?? 15}M
                         </span>
-                        <div className="flex-1 h-1.5 rounded-full relative bg-gradient-to-r from-emerald-400/20 via-slate-400/15 to-amber-400/25">
+                        <div className="flex-1 h-1.5 rounded-full relative overflow-hidden">
+                          <div className="absolute inset-0 flex transition-all duration-300" style={{ borderRadius: 'inherit' }}>
+                            <div className="h-full bg-teal-400/25" style={{ width: `${bands.strongTrend}%` }}></div>
+                            <div className="h-full bg-emerald-400/20" style={{ width: `${bands.trend - bands.strongTrend}%` }}></div>
+                            <div className="h-full bg-slate-400/12" style={{ width: `${bands.chop - bands.trend}%` }}></div>
+                            <div className="h-full bg-amber-400/20" style={{ width: `${bands.dead - bands.chop}%` }}></div>
+                            <div className="h-full bg-rose-400/20" style={{ width: `${100 - bands.dead}%` }}></div>
+                          </div>
                           <div
                             className="absolute top-[-2px] h-[9px] w-px bg-white/15 transition-all duration-300"
                             style={{ left: `${bands.trend}%` }}
@@ -1559,6 +1586,20 @@ export default function MacroScorecard() {
                     );
                   })}
                 </div>
+
+                {chopRaw != null && chopVal != null && Math.abs(chopVal - chopRaw) >= 2 && (
+                  <span
+                    className="flex items-center gap-1 whitespace-nowrap cursor-help"
+                    title={`Raw CHOP ${chopRaw.toFixed(1)} adjusted ${chopVal - chopRaw >= 0 ? '+' : ''}${(chopVal - chopRaw).toFixed(1)} by breadth centrality and high/low balance → composite ${chopVal.toFixed(1)}.\n\nCentred internals push toward chop; skewed internals pull toward trend.`}
+                  >
+                    <span className="text-[9px] font-medium tabular-nums text-slate-600">
+                      raw {chopRaw.toFixed(0)}
+                    </span>
+                    <span className={`text-[9px] font-bold tabular-nums ${chopVal - chopRaw > 0 ? 'text-amber-500/70' : 'text-emerald-500/70'}`}>
+                      {chopVal - chopRaw >= 0 ? '→+' : '→'}{(chopVal - chopRaw).toFixed(0)}
+                    </span>
+                  </span>
+                )}
 
                 {intraVal != null && divergence.label && (
                   <span
