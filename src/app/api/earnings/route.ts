@@ -1,6 +1,13 @@
-// app/api/earnings/route.ts — v2.1
+// app/api/earnings/route.ts — v2.2
 //
 // Earnings calendar: FMP calendar + Polygon market-cap floor.
+//
+// v2.2: Weekend guard. FMP and Polygon return stale/empty data on weekends.
+//       The route now keeps a durable "last good" payload in KV (no TTL) and
+//       serves it on Sat/Sun instead of hitting the APIs. During the trading
+//       week, every successful fetch updates the durable key so Monday's
+//       first request always has Friday's data to serve until the fresh
+//       fetch completes.
 //
 // ---------------------------------------------------------------------------
 // WHY $1B AND HOW IT COSTS ZERO FMP CALLS
@@ -19,7 +26,7 @@
 // unlimited, so the cost is zero.
 //
 // TOTAL API COST PER REQUEST:
-//   FMP:     1 call (the calendar itself)
+//   FMP:     1 call (the calendar itself)  — 0 on weekends
 //   Polygon: 0 calls (reads from KV; the map refreshes once a day at ~8)
 //
 // ---------------------------------------------------------------------------
@@ -27,10 +34,6 @@
 //
 // Default is the CURRENT TRADING WEEK: Monday of this week through Friday.
 // The component can override with `from` and `to` query params.
-//
-// The old route defaulted to 45 days forward, which is why it returned
-// 4,000 events. A week returns a few hundred before the market-cap filter,
-// and a few dozen after — the right amount for a quick check.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
@@ -79,6 +82,22 @@ const fridayOf = (d: Date): Date => {
   mon.setDate(mon.getDate() + 4);
   return mon;
 };
+
+const isWeekend = (d: Date): boolean => {
+  const day = d.getDay();
+  return day === 0 || day === 6;
+};
+
+/* ---- KV keys ---------------------------------------------------------- */
+
+/* Per-window TTL cache (same as before). */
+const windowCacheKey = (from: string, to: string) => `earnings_fmp2_${from}_${to}`;
+const CACHE_TTL_MS = 4 * 60 * 60 * 1000;
+
+/* Durable "last good" key — NOT window-scoped, no TTL. Overwritten every
+   successful weekday fetch so it always holds the most recent good data.
+   On weekends, the route reads this instead of hitting APIs. */
+const DURABLE_KEY = 'earnings_last_good_v1';
 
 /* ---- Market-cap map (Polygon, cached daily) --------------------------- */
 
@@ -170,6 +189,18 @@ export async function GET(request: Request) {
     new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }),
   );
 
+  /* ---- Weekend guard -------------------------------------------------- */
+  if (isWeekend(estNow)) {
+    try {
+      const durable = await kv.get<any>(DURABLE_KEY);
+      if (durable && durable.payload) {
+        return NextResponse.json(durable.payload);
+      }
+    } catch {
+      // Fall through — try a live fetch as last resort.
+    }
+  }
+
   /* Default window: current trading week (Mon–Fri). The component sends
      explicit from/to when the user picks a different period. */
   const from = searchParams.get('from') || iso(mondayOf(estNow));
@@ -179,8 +210,7 @@ export async function GET(request: Request) {
      TTL is 4 hours rather than 12 — the current-week default means the
      component hits this more often with the same params, and a company
      rescheduling or reporting intraday should show up reasonably quickly. */
-  const cacheKey = `earnings_fmp2_${from}_${to}`;
-  const CACHE_TTL_MS = 4 * 60 * 60 * 1000;
+  const cacheKey = windowCacheKey(from, to);
 
   try {
     const cached = await kv.get<any>(cacheKey);
@@ -222,7 +252,7 @@ export async function GET(request: Request) {
   const events = raw
     .filter((e: any) => {
       if (!e || !e.symbol) return false;
-      if (!hasMcapData) return true; // no map = no filter, don't throw away everything
+      if (!hasMcapData) return true;
       const cap = mcaps[e.symbol];
       return cap != null && cap >= MIN_MARKET_CAP;
     })
@@ -250,13 +280,21 @@ export async function GET(request: Request) {
     });
 
   // --- Cache and respond ---
-  const payload = { events, meta: { from, to, total: raw.length, afterFilter: events.length, hasMcapData } };
+  const payload = {
+    events,
+    meta: { from, to, total: raw.length, afterFilter: events.length, hasMcapData },
+  };
 
   if (events.length > 0) {
     try {
+      /* Window-scoped TTL cache (same as before). */
       await kv.set(cacheKey, { _t: Date.now(), payload }, {
         ex: Math.ceil(CACHE_TTL_MS / 1000),
       });
+
+      /* Durable "last good" — no TTL, overwritten every successful fetch.
+         This is what the weekend guard serves. */
+      await kv.set(DURABLE_KEY, { _t: Date.now(), payload });
     } catch {
       // Non-fatal.
     }
