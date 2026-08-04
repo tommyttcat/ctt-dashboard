@@ -2097,7 +2097,12 @@ export default function MarketSummary() {
         try {
           if (earningsRes && earningsRes.ok) {
             const d = await earningsRes.json();
-            if (Array.isArray(d)) earningsList = d;
+            const raw: any[] = Array.isArray(d) ? d : (d && Array.isArray(d.events) ? d.events : []);
+            earningsList = raw.map((e: any) => {
+              const cap = e.mktCap ?? 0;
+              const imp = cap >= 100e9 ? 10 : cap >= 20e9 ? 7 : cap >= 5e9 ? 5 : 2;
+              return { ...e, importance: imp };
+            });
           }
         } catch { /* earnings is optional */ }
 
