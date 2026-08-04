@@ -893,32 +893,34 @@ const buildKeyEventsPara = (econ: EconEvent[], earnings: EarningsEvent[]): strin
   const todayReported = todayEarn.filter(e => e.epsActual != null);
   const tmrwPending = tmrwEarn.filter(e => e.epsActual == null);
 
-  let earnCol = '';
-  if (earnRows.length) {
-    const lines: string[] = [];
-    if (todayPending.length) {
-      lines.push(`Today — ${todayPending.length} pending:`);
-      lines.push(...todayPending.map(fmtEarnPending));
-    }
-    if (todayReported.length) {
-      lines.push(todayPending.length ? 'Reported:' : 'Today — all reported:');
-      lines.push(...todayReported.map(fmtEarnReported));
-    }
-    if (tmrwPending.length) {
-      if (lines.length) lines.push('');
-      lines.push(`Tomorrow — ${tmrwPending.length} pending:`);
-      lines.push(...tmrwPending.map(fmtEarnPending));
-    }
-    earnCol = `Earnings:\n${lines.join('\n')}`;
-  } else {
-    earnCol = 'Earnings:\nNo mega-cap prints today or tomorrow.';
+  const todayCol: string[] = [];
+  if (todayPending.length) {
+    todayCol.push(`Today — ${todayPending.length} pending:`);
+    todayCol.push(...todayPending.map(fmtEarnPending));
   }
+  if (todayReported.length) {
+    todayCol.push(todayPending.length ? 'Reported:' : 'Today — all reported:');
+    todayCol.push(...todayReported.map(fmtEarnReported));
+  }
+  if (!todayCol.length) todayCol.push('Today:\nNo mega-cap prints.');
+
+  const tmrwCol: string[] = [];
+  if (tmrwPending.length) {
+    tmrwCol.push(`Tomorrow — ${tmrwPending.length} pending:`);
+    tmrwCol.push(...tmrwPending.map(fmtEarnPending));
+  }
+  if (!tmrwCol.length) tmrwCol.push('Tomorrow:\nNo mega-cap prints.');
 
   const footer: string[] = [];
   if (pending.filter(e => e.impact === 'High').length) {
     footer.push('Setups are on a clock until this prints — breakouts into a scheduled release carry event risk the scan cannot price.');
   }
-  return `Key Events: ${twoCol(econCol, earnCol, footer)}`;
+
+  const earnCols = footer.length
+    ? `${todayCol.join('\n')}|||${tmrwCol.join('\n')}|||${footer.join('\n')}`
+    : `${todayCol.join('\n')}|||${tmrwCol.join('\n')}`;
+
+  return `Key Events: ${econCol}^^^${earnCols}`;
 };
 
 const buildCatalystBrief = (s: any): string => {
@@ -2403,10 +2405,27 @@ export default function MarketSummary() {
                               {isOpen && (
                                 body.includes('|||') ? (
                                   (() => {
-                                    const parts = body.split('|||');
+                                    let topBlock = '';
+                                    let colBody = body;
+                                    if (body.includes('^^^')) {
+                                      const [above, below] = body.split('^^^');
+                                      topBlock = above.trim();
+                                      colBody = below.trim();
+                                    }
+                                    const parts = colBody.split('|||');
                                     const afterCols = parts.length > 2 ? parts.slice(2).join('\n') : '';
                                     return (
                                       <>
+                                        {topBlock && (
+                                          <div className="space-y-1.5 mb-4 pb-3 border-b border-white/5">
+                                            {topBlock.split('\n').filter(Boolean).map((line, li) => {
+                                              const tLines = line.trim().split('\n').filter(Boolean);
+                                              const isHead = tLines.length === 1 && line.trim().endsWith(':');
+                                              if (isHead) return <p key={li} className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5">{line.replace(/:$/, '')}</p>;
+                                              return renderBodyLine(line, li, sectionAligns && isRowLine(line));
+                                            })}
+                                          </div>
+                                        )}
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
                                           {parts.slice(0, 2).map((col, ci) => {
                                             const colLines = col.trim().split('\n').filter(Boolean);
