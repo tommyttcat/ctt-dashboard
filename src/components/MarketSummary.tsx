@@ -866,23 +866,50 @@ const buildKeyEventsPara = (econ: EconEvent[], earnings: EarningsEvent[]): strin
     econCol = 'Economic:\nNothing scheduled today.';
   }
 
-  const fmtEarn = (e: EarningsEvent): string => {
-    const { dayKey } = parseEtDateTime(e.date);
-    const when = dayKey === tomorrow ? '(tmrw) ' : '';
-    if (e.epsActual != null) {
-      const beat = e.epsEstimated != null && e.epsActual >= e.epsEstimated;
-      return `${when}${e.symbol} — ${beat ? 'beat' : 'miss'} ${e.epsActual} vs ${e.epsEstimated ?? '—'} est`;
-    }
-    return `▸ ${when}${e.symbol} — est ${e.epsEstimated ?? '—'} EPS`;
+  const fmtEps = (v: number | null | undefined): string => {
+    if (v == null) return '—';
+    return v.toFixed(2);
   };
 
-  const reported = earnRows.filter(e => e.epsActual != null);
-  const upcoming = earnRows.filter(e => e.epsActual == null);
+  const fmtRev = (v: number | null | undefined): string => {
+    if (v == null) return '';
+    if (v >= 1e9) return ` · rev ${(v / 1e9).toFixed(1)}B`;
+    if (v >= 1e6) return ` · rev ${(v / 1e6).toFixed(0)}M`;
+    return '';
+  };
+
+  const fmtEarnPending = (e: EarningsEvent): string =>
+    `▸ ${e.symbol} — est ${fmtEps(e.epsEstimated)} EPS${fmtRev(e.revenueEstimated)}`;
+
+  const fmtEarnReported = (e: EarningsEvent): string => {
+    const beat = e.epsEstimated != null && e.epsActual != null && e.epsActual >= e.epsEstimated;
+    const pct = e.epsSurprisePct != null ? ` (${e.epsSurprisePct > 0 ? '+' : ''}${e.epsSurprisePct.toFixed(1)}%)` : '';
+    return `${e.symbol} — ${beat ? 'BEAT' : 'MISS'} ${fmtEps(e.epsActual)} vs ${fmtEps(e.epsEstimated)}${pct}`;
+  };
+
+  const todayEarn = earnRows.filter(e => parseEtDateTime(e.date).dayKey === today);
+  const tmrwEarn = earnRows.filter(e => parseEtDateTime(e.date).dayKey === tomorrow);
+  const todayPending = todayEarn.filter(e => e.epsActual == null);
+  const todayReported = todayEarn.filter(e => e.epsActual != null);
+  const tmrwPending = tmrwEarn.filter(e => e.epsActual == null);
 
   let earnCol = '';
   if (earnRows.length) {
-    const earnLines = [...upcoming.map(fmtEarn), ...reported.map(fmtEarn)];
-    earnCol = `${upcoming.length ? `Earnings — ${upcoming.length} pending:` : 'Earnings — all reported:'}\n${earnLines.join('\n')}`;
+    const lines: string[] = [];
+    if (todayPending.length) {
+      lines.push(`Today — ${todayPending.length} pending:`);
+      lines.push(...todayPending.map(fmtEarnPending));
+    }
+    if (todayReported.length) {
+      lines.push(todayPending.length ? 'Reported:' : 'Today — all reported:');
+      lines.push(...todayReported.map(fmtEarnReported));
+    }
+    if (tmrwPending.length) {
+      if (lines.length) lines.push('');
+      lines.push(`Tomorrow — ${tmrwPending.length} pending:`);
+      lines.push(...tmrwPending.map(fmtEarnPending));
+    }
+    earnCol = `Earnings:\n${lines.join('\n')}`;
   } else {
     earnCol = 'Earnings:\nNo mega-cap prints today or tomorrow.';
   }
