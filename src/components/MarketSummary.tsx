@@ -837,7 +837,7 @@ const buildKeyEventsPara = (econ: EconEvent[], earnings: EarningsEvent[]): strin
   const earnRows = earnings
     .filter(e => {
       const { dayKey } = parseEtDateTime(e.date);
-      return (dayKey === today || dayKey === tomorrow) && (e.importance ?? 0) >= 5;
+      return (dayKey === today || dayKey === tomorrow) && (e.importance ?? 0) >= 10;
     })
     .sort((a, b) => a.date.localeCompare(b.date) || a.symbol.localeCompare(b.symbol));
 
