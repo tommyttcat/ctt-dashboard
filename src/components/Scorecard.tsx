@@ -1635,7 +1635,7 @@ export default function MacroScorecard() {
                 return (
                   <div key={asset.id} className="bg-[#161c2a]/60 border border-white/5 rounded-xl p-4 flex flex-col justify-between h-24 opacity-60">
                     <div className="flex justify-between items-start">
-                      <span className="text-sm font-bold text-slate-300">{asset.id}</span>
+                      <a href={`https://www.tradingview.com/chart/?symbol=${asset.type === 'crypto' ? asset.fmp : asset.id}`} target="_blank" rel="noopener noreferrer" className="text-sm font-bold text-slate-300 hover:text-indigo-300 transition-colors">{asset.id}</a>
                       <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">{asset.name}</span>
                     </div>
                     <div className="flex flex-col mt-2">
@@ -1666,7 +1666,7 @@ export default function MacroScorecard() {
 
                   <div className="flex justify-between items-start">
                     <div className="flex flex-col">
-                      <span className="text-sm font-bold text-slate-200">{asset.id}</span>
+                      <a href={`https://www.tradingview.com/chart/?symbol=${asset.type === 'crypto' ? asset.fmp : asset.id}`} target="_blank" rel="noopener noreferrer" className="text-sm font-bold text-slate-200 hover:text-indigo-300 transition-colors">{asset.id}</a>
                       <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500 truncate max-w-[90px]">
                         {asset.name}
                       </span>
