@@ -510,7 +510,7 @@ export default function EarningsCalendar() {
                         </td>
 
                         <td className="py-3.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded border ${tickerBgColor}`}>{row.ticker}</span>
+                          <a href={`https://www.tradingview.com/chart/?symbol=${row.ticker}`} target="_blank" rel="noopener noreferrer" className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded border hover:brightness-125 transition-colors ${tickerBgColor}`}>{row.ticker}</a>
                         </td>
 
                         <td className={`py-3.5 text-xs whitespace-nowrap truncate max-w-[220px] ${nameTextColor}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.name}</td>

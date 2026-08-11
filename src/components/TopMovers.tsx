@@ -351,7 +351,7 @@ export default function TopMovers() {
                 const unit = maTimeframe === 'day' ? 'D' : 'W';
                 return (
                   <div className={pillWrap}>
-                    <span className="text-[8px] font-bold tracking-widest uppercase text-[#7c8bfa]">{benchmark.symbol}</span>
+                    <a href={`https://www.tradingview.com/chart/?symbol=${benchmark.symbol}`} target="_blank" rel="noopener noreferrer" className="text-[8px] font-bold tracking-widest uppercase text-[#7c8bfa] hover:text-indigo-300 transition-colors">{benchmark.symbol}</a>
                     <div className="flex items-center bg-[#0b101a] border border-white/5 rounded-md p-0.5">
                       {(['day', 'week'] as const).map((tf) => (
                         <button key={tf} onClick={() => setMaTimeframe(tf)} className={`px-1.5 py-0.5 rounded text-[8px] font-bold tracking-widest uppercase transition-colors ${maTimeframe === tf ? 'bg-indigo-500/20 text-indigo-300' : 'text-slate-500 hover:text-slate-300'}`}>
@@ -415,7 +415,7 @@ export default function TopMovers() {
                       <tr key={i} className="hover:bg-white/[0.02] transition-colors group">
                         <td className={tdBase}>
                           <span className="inline-flex items-center justify-center gap-0.5">
-                            <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help" title={row.name || row.ticker}>{row.ticker}</span>
+                            <a href={`https://www.tradingview.com/chart/?symbol=${row.ticker}`} target="_blank" rel="noopener noreferrer" className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 hover:bg-indigo-500/20 hover:text-indigo-300 transition-colors" title={row.name || row.ticker}>{row.ticker}</a>
                             {/* Fixed-width slot whether or not there is news, so
                                 the CHG% column starts at the same x on every
                                 row. An asterisk that only sometimes occupies

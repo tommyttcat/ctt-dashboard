@@ -1167,7 +1167,7 @@ export default function DailySetups() {
                         <tr className="hover:bg-white/[0.02] transition-colors group">
                           <td className={tdBase}>
                             <div className="flex items-center justify-center gap-1.5">
-                              <span title={row.name || row.ticker} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
+                              <a href={`https://www.tradingview.com/chart/?symbol=${row.ticker}`} target="_blank" rel="noopener noreferrer" title={row.name || row.ticker} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 hover:bg-indigo-500/20 hover:text-indigo-300 transition-colors">{row.ticker}</a>
                               {/* Fixed-width whether or not there is news, so
                                   the dots that follow sit at the same x on
                                   every row. */}
