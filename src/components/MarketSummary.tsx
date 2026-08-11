@@ -1979,6 +1979,10 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Money Flow', color: 'rose', blurb: 'Total tracked dollar volume across the scanned universe — who is buying, where dollars concentrate, and the advancing share.' },
   { label: 'Key Events', color: 'amber', blurb: 'Today\'s releases and mega-cap prints. ▸ marks what has not happened yet. The only forward-looking macro section.' },
   { label: 'Sector Flow', color: 'indigo', blurb: '' },
+  { label: 'Macro Snapshot', color: 'cyan', blurb: 'Broad market regime and key index levels — where the tape sits relative to its moving averages and what that means for positioning.' },
+  { label: 'Keys', color: 'amber', blurb: 'Critical levels and thresholds to watch this session.' },
+  { label: 'News', color: 'rose', blurb: 'Headline-driven names with catalysts already out.' },
+  { label: 'Caution', color: 'rose', blurb: 'Risk flags and names to avoid or handle with reduced size.' },
 ];
 
 const sectionStyles = (color: string) => {
@@ -2215,7 +2219,11 @@ export default function MarketSummary() {
       .replace(/(ETF Flow:)/gi, '\n\n$1')
       .replace(/(Money Flow:)/gi, '\n\n$1')
       .replace(/(Key Events:)/gi, '\n\n$1')
-      .replace(/(Sector Flow:)/gi, '\n\n$1');
+      .replace(/(Sector Flow:)/gi, '\n\n$1')
+      .replace(/(Macro Snapshot:)/gi, '\n\n$1')
+      .replace(/(Keys:)/gi, '\n\n$1')
+      .replace(/(News:)/gi, '\n\n$1')
+      .replace(/(Caution:)/gi, '\n\n$1');
   };
 
   const renderSingleUpdateBlock = (block: UpdateBlock | null, key: BlockKey) => {
