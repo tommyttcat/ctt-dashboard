@@ -1931,8 +1931,7 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
     }
     if (part === '10/21') return <span key={i} className={`${valNum} text-violet-400 font-bold`}>10/21</span>;
     if (part === 'S&P' || part === 'Nasdaq' || part === 'Dow' || part === 'Bitcoin') {
-      const indexMap: Record<string, string> = { 'S&P': 'SPY', 'Nasdaq': 'QQQ', 'Dow': 'DIA', 'Bitcoin': 'BTCUSD' };
-      return <a key={i} href={`https://www.tradingview.com/chart/?symbol=${indexMap[part]}`} target="_blank" rel="noopener noreferrer" className={`${align ? tickerChipAlignedCls : tickerChipCls} hover:bg-slate-500/20 hover:text-slate-100 transition-colors`}>{part}</a>;
+      return <span key={i} className={align ? tickerChipAlignedCls : tickerChipCls}>{part}</span>;
     }
     if (/^\$\d+(?:\.\d+)?[BMK]$/.test(part)) return <span key={i} className={`${valNum} text-slate-200 ${dvolW}`}>{part}</span>;
     if (/^[+]\d+(?:\.\d+)?%$/.test(part)) return <span key={i} className={`${valNum} text-emerald-400 ${chgW}`}>{part}</span>;
@@ -1940,7 +1939,7 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
     if (part === 'DAY') return <span key={i} className="text-amber-400">DAY</span>;
     if (part === 'SWING') return <span key={i} className="text-cyan-400">SWING</span>;
     if (/^[A-Z]{2,5}$/.test(part) && !TICKER_STOPWORDS.has(part)) {
-      return <a key={i} href={`https://www.tradingview.com/chart/?symbol=${part}`} target="_blank" rel="noopener noreferrer" className={`${align ? tickerChipAlignedCls : tickerChipCls} hover:bg-slate-500/20 hover:text-slate-100 transition-colors`}>{part}</a>;
+      return <span key={i} className={align ? tickerChipAlignedCls : tickerChipCls}>{part}</span>;
     }
     return <React.Fragment key={i}>{part}</React.Fragment>;
   });
@@ -1979,10 +1978,6 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Money Flow', color: 'rose', blurb: 'Total tracked dollar volume across the scanned universe — who is buying, where dollars concentrate, and the advancing share.' },
   { label: 'Key Events', color: 'amber', blurb: 'Today\'s releases and mega-cap prints. ▸ marks what has not happened yet. The only forward-looking macro section.' },
   { label: 'Sector Flow', color: 'indigo', blurb: '' },
-  { label: 'Macro Snapshot', color: 'cyan', blurb: 'Broad market regime and key index levels — where the tape sits relative to its moving averages and what that means for positioning.' },
-  { label: 'Keys', color: 'amber', blurb: 'Critical levels and thresholds to watch this session.' },
-  { label: 'News', color: 'rose', blurb: 'Headline-driven names with catalysts already out.' },
-  { label: 'Caution', color: 'rose', blurb: 'Risk flags and names to avoid or handle with reduced size.' },
 ];
 
 const sectionStyles = (color: string) => {
@@ -2219,11 +2214,7 @@ export default function MarketSummary() {
       .replace(/(ETF Flow:)/gi, '\n\n$1')
       .replace(/(Money Flow:)/gi, '\n\n$1')
       .replace(/(Key Events:)/gi, '\n\n$1')
-      .replace(/(Sector Flow:)/gi, '\n\n$1')
-      .replace(/(Macro Snapshot:)/gi, '\n\n$1')
-      .replace(/(Keys:)/gi, '\n\n$1')
-      .replace(/(News:)/gi, '\n\n$1')
-      .replace(/(Caution:)/gi, '\n\n$1');
+      .replace(/(Sector Flow:)/gi, '\n\n$1');
   };
 
   const renderSingleUpdateBlock = (block: UpdateBlock | null, key: BlockKey) => {
@@ -2332,7 +2323,7 @@ export default function MarketSummary() {
                       <div key={ci} className="border-l-[3px] border-amber-500 bg-amber-500/[0.04] rounded-r-xl px-2.5 md:px-4 py-3">
                         <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
                           <span className="text-[8px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded shrink-0">{ci === 0 ? 'TOP CATALYST' : 'CATALYST'}</span>
-                          <a href={`https://www.tradingview.com/chart/?symbol=${cat.ticker}`} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider shrink-0 hover:bg-cyan-500/20 hover:text-cyan-200 transition-colors">{cat.ticker}</a>
+                          <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider shrink-0">{cat.ticker}</span>
                           {cat.url ? (
                             <a href={cat.url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-slate-300 font-medium hover:text-cyan-300 transition-colors hover:underline">
                               {cat.headline}
@@ -2509,9 +2500,9 @@ export default function MarketSummary() {
                           dk === 'red' ? 'border-rose-500/25 hover:border-rose-500/40' : 'border-white/5 hover:border-cyan-500/20'
                         }`}>
                           <div className="flex items-center justify-between gap-2 flex-wrap">
-                            <a href={`https://www.tradingview.com/chart/?symbol=${symbol}`} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider hover:bg-cyan-500/20 hover:text-cyan-200 transition-colors">
+                            <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider">
                               {symbol}
-                            </a>
+                            </span>
                             <div className="flex items-center gap-1.5 flex-wrap">
                               {dk === 'red' && (
                                 <span className="text-[8px] font-bold px-1 py-0.5 rounded border tracking-wider uppercase text-rose-400 bg-rose-500/10 border-rose-500/20">
