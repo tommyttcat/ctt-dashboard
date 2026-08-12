@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import TickerChartHover from './TickerChartHover';
 
 // --- INTERFACES ---
 interface CatalystItem {
@@ -289,7 +290,7 @@ export default function NewsCatalysts() {
                 <div key={i} className="flex justify-between items-center gap-4 bg-[#161c2a] border border-white/5 px-4 py-3 rounded-lg hover:border-rose-500/20 transition-colors">
                   {/* Left: ticker + category badge, fixed width so headlines align */}
                   <div className="flex items-center gap-2 shrink-0 w-[170px]">
-                    <span className="inline-block shrink-0 w-[64px] text-center truncate bg-slate-500/10 text-slate-300 text-[11px] font-bold px-2 py-0.5 rounded border border-white/10" title={item.ticker}>{item.ticker || '—'}</span>
+                    <TickerChartHover symbol={item.ticker}><span className="inline-block shrink-0 w-[64px] text-center truncate bg-slate-500/10 text-slate-300 text-[11px] font-bold px-2 py-0.5 rounded border border-white/10" title={item.ticker}>{item.ticker || '—'}</span></TickerChartHover>
                     <TagBadge tag={item.tag} url={item.url} />
                   </div>
 

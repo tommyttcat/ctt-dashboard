@@ -108,7 +108,7 @@ const NOT_TICKERS = new Set([
   'THE','AND','FOR','BUT','NOT','YET','ALL','RED','ITS','HAS','ARE','WAS','HAD','NEW','LOW','HIGH',
   'ETF','IPO','GDP','CPI','PPI','RSI','EMA','SMA','VCP','ADR','ATR','ATH','ATL',
   'AI','RVOL','VOL','AVG','PCT','VS','PE','EPS','CEO','CFO','COO','CTO',
-  'USD','EUR','YTD','QTD','MTD','MOM','YOY','QOQ','EOD','IOT',
+  'USD','EUR','YTD','QTD','MTD','MOM','YOY','QOQ','EOD','IOT','UTC',
   'FOMC','FED','SEC','ECB','BOJ','FDIC','OTC','FAQ','API',
   'MA','PM','AM','IV','OI','DTE','BP','RR','UI','IS','OR','AN','AS','AT','BY','DO','GO','IF','IN','IT','MY','NO','OF','ON','SO','TO','UP','WE',
 ]);
@@ -124,7 +124,7 @@ function renderTickerChips(segment: string, keyBase: number): React.ReactNode[] 
     const isLikelyTicker = word.length >= 2 && !NOT_TICKERS.has(word);
     if (!isLikelyTicker) continue;
     if (m.index > last) parts.push(segment.slice(last, m.index));
-    parts.push(<span key={keyBase + m.index} className={BRIEF_TICKER_CHIP}>{word}</span>);
+    parts.push(<TickerChartHover key={keyBase + m.index} symbol={word}><span className={BRIEF_TICKER_CHIP}>{word}</span></TickerChartHover>);
     last = m.index + m[0].length;
   }
   if (last < segment.length) parts.push(segment.slice(last));
@@ -345,7 +345,7 @@ function sortStocks<T extends StockEntry>(stocks: T[], key: SortKey, dir: SortDi
   return sorted;
 }
 
-const GRID_COLS = '13px 3px 48px 24px 28px 56px 40px 36px 44px 20px 22px 22px';
+const GRID_COLS = '13px 3px 48px 24px 56px 40px 36px 44px 20px 22px 22px';
 const GRID_COLS_GAP = '13px 3px 48px 24px 56px 40px 36px 44px 20px 22px 22px';
 const scrollWrap = "overflow-x-auto";
 const scrollStyle: React.CSSProperties = { scrollbarWidth: 'none', msOverflowStyle: 'none' };
@@ -371,11 +371,11 @@ function SummaryHeader({ trap, gapper, sortKey, sortDir, onSort }: {
       </div>
     );
   }
-  const cols = gapper ? GRID_COLS_GAP : GRID_COLS;
+  const cols = GRID_COLS;
   return (
     <div className={scrollWrap} style={scrollStyle}>
       <div className="grid items-center gap-x-1 text-[7px] font-bold tracking-widest text-slate-600 uppercase pb-0.5 border-b border-white/5 mb-0.5" style={{ gridTemplateColumns: cols }}>
-        <span /><span /><span className="text-center">TICKER</span><span className={`text-center ${hdrCls}`} onClick={() => onSort?.('cnf')}>CNF<SortArrow active={sortKey === 'cnf'} dir={sortDir || 'desc'} /></span>{!gapper && <span className="text-center">SET</span>}<span className={`text-right ${hdrCls}`} onClick={() => onSort?.('chg')}>CHG%<SortArrow active={sortKey === 'chg'} dir={sortDir || 'desc'} /></span><span className={`text-right ${hdrCls}`} onClick={() => onSort?.('rvol')}>RVOL<SortArrow active={sortKey === 'rvol'} dir={sortDir || 'desc'} /></span><span className={`text-right ${hdrCls}`} onClick={() => onSort?.('vol')}>VOL<SortArrow active={sortKey === 'vol'} dir={sortDir || 'desc'} /></span><span className={`text-right ${hdrCls}`} onClick={() => onSort?.('dvol')}>$VOL<SortArrow active={sortKey === 'dvol'} dir={sortDir || 'desc'} /></span><span className={`text-center ${hdrCls}`} onClick={() => onSort?.('stg')}>STG<SortArrow active={sortKey === 'stg'} dir={sortDir || 'desc'} /></span><span className={`text-center ${hdrCls}`} onClick={() => onSort?.('rs')}>RS<SortArrow active={sortKey === 'rs'} dir={sortDir || 'desc'} /></span><span className="text-center">N</span>
+        <span /><span /><span className="text-center">TICKER</span><span className={`text-center ${hdrCls}`} onClick={() => onSort?.('cnf')}>CNF<SortArrow active={sortKey === 'cnf'} dir={sortDir || 'desc'} /></span><span className={`text-right ${hdrCls}`} onClick={() => onSort?.('chg')}>CHG%<SortArrow active={sortKey === 'chg'} dir={sortDir || 'desc'} /></span><span className={`text-right ${hdrCls}`} onClick={() => onSort?.('rvol')}>RVOL<SortArrow active={sortKey === 'rvol'} dir={sortDir || 'desc'} /></span><span className={`text-right ${hdrCls}`} onClick={() => onSort?.('vol')}>VOL<SortArrow active={sortKey === 'vol'} dir={sortDir || 'desc'} /></span><span className={`text-right ${hdrCls}`} onClick={() => onSort?.('dvol')}>$VOL<SortArrow active={sortKey === 'dvol'} dir={sortDir || 'desc'} /></span><span className={`text-center ${hdrCls}`} onClick={() => onSort?.('stg')}>STG<SortArrow active={sortKey === 'stg'} dir={sortDir || 'desc'} /></span><span className={`text-center ${hdrCls}`} onClick={() => onSort?.('rs')}>RS<SortArrow active={sortKey === 'rs'} dir={sortDir || 'desc'} /></span><span className="text-center">N</span>
       </div>
     </div>
   );
@@ -456,9 +456,8 @@ function SummaryRow({ item, stock, showNote, red }: { item: SummaryItem; stock?:
       <div className={`grid items-center gap-x-1 py-[3px] text-[11px] tabular-nums `} style={{ gridTemplateColumns: GRID_COLS }}>
         <span className={`text-[9px] font-black text-center ${item.grade === 'A' ? 'text-emerald-400' : item.grade === 'B' ? 'text-amber-400' : 'text-transparent'}`}>{item.grade || ''}</span>
         <span />
-        {stock ? <TickerChip stock={stock} red={red} /> : <span className={red ? TICKER_CHIP_RED : TICKER_CHIP}>{item.ticker}</span>}
+        {stock ? <TickerChip stock={stock} red={red} /> : <TickerChartHover symbol={item.ticker}><span className={red ? TICKER_CHIP_RED : TICKER_CHIP}>{item.ticker}</span></TickerChartHover>}
         <span className="text-center">{item.score != null ? <span className={`font-bold px-1 py-[1px] rounded border text-[9px] ${cnfBadgeCls(Number(item.score) || 0)}`}>{item.score}</span> : ''}</span>
-        <span>{(item.setup && item.setup.toUpperCase() !== 'GENERIC') ? <span className={`font-bold px-1 py-[1px] rounded border uppercase tracking-wide text-[9px] ${SETUP_COLORS[item.setup] || DEFAULT_SETUP_CLS}`}>{shortSetup(item.setup)}</span> : ''}</span>
         <span className={`font-semibold text-right ${(item.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{item.changePct != null ? `${(item.changePct || 0) >= 0 ? '+' : ''}${item.changePct.toFixed(2)}%` : ''}</span>
         <span className={`font-semibold text-right ${rv != null ? rvolColor(rv) : ''}`}>{rv != null ? rv.toFixed(2) : ''}</span>
         <span className="text-slate-400 text-right">{item.vol != null ? formatVol(item.vol) : ''}</span>
@@ -474,7 +473,7 @@ function SummaryRow({ item, stock, showNote, red }: { item: SummaryItem; stock?:
 function TrapRow({ item, stock }: { item: SummaryItem; stock?: StockEntry }) {
   return (
     <div className={`grid items-center gap-x-1 py-[3px] text-[11px] tabular-nums`} style={{ gridTemplateColumns: GRID_COLS_TRAP }}>
-      {stock ? <TickerChip stock={stock} red /> : <span className={TICKER_CHIP_RED}>{item.ticker}</span>}
+      {stock ? <TickerChip stock={stock} red /> : <TickerChartHover symbol={item.ticker}><span className={TICKER_CHIP_RED}>{item.ticker}</span></TickerChartHover>}
       <span className={`font-semibold text-right ${(item.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{item.changePct != null ? `${(item.changePct || 0) >= 0 ? '+' : ''}${item.changePct.toFixed(2)}%` : ''}</span>
       <span className={`text-[9px] font-bold text-center ${item.stage ? stageColor(item.stage) : 'text-slate-600'}`}>{item.stage ? stripStage(item.stage) : ''}</span>
       <span className="text-[9px] text-slate-600 italic truncate">{item.note || ''}</span>
@@ -518,7 +517,7 @@ function ActionableSummary({ summary, trades, avoidStocks, sortKey, sortDir, onS
         Actionable Summary
       </div>
 
-      <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="border-l-[3px] border-l-indigo-400 bg-[#0a1220] rounded-r-lg px-5 py-3">
           <div className="text-[11px] font-bold text-slate-500 tracking-[0.15em] uppercase mb-2">
             Highest Conviction
@@ -534,15 +533,25 @@ function ActionableSummary({ summary, trades, avoidStocks, sortKey, sortDir, onS
           <SummaryHeader sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
           {watchlist.map((s, i) => <SummaryRow key={i} item={toItem(s, watchNote(s))} stock={s} showNote />)}
         </div>
+      </div>
 
-        <div className="border-l-[3px] border-l-rose-500/60 bg-[#0a1220] rounded-r-lg px-5 py-3">
+      {traps.length > 0 && (
+        <div className="border-l-[3px] border-l-rose-500/60 bg-[#0a1220] rounded-r-lg px-5 py-3 mt-4">
           <div className="text-[11px] font-bold text-slate-500 tracking-[0.15em] uppercase mb-2">
             Traps to Avoid
           </div>
-          <SummaryHeader sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-          {traps.map((s, i) => <SummaryRow key={i} item={toItem(s, s.reason?.split('.')[0] || s.thesis?.split('.')[0])} stock={s} showNote red />)}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+            <div>
+              <SummaryHeader sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              {traps.slice(0, Math.ceil(traps.length / 2)).map((s, i) => <SummaryRow key={i} item={toItem(s)} stock={s} red />)}
+            </div>
+            <div>
+              <SummaryHeader sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              {traps.slice(Math.ceil(traps.length / 2)).map((s, i) => <SummaryRow key={i} item={toItem(s)} stock={s} red />)}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -557,7 +566,7 @@ function AnalystCard({ stock, rank }: { stock: StockEntry; rank: number }) {
   return (
     <div className={`border-l-[3px] ${borderColor} ${bgColor} rounded-r-xl px-4 md:px-5 py-4`}>
       <div className="flex items-center gap-3 flex-wrap mb-3">
-        <span className={isAvoid ? TICKER_CHIP_RED : TICKER_CHIP}>{stock.ticker}</span>
+        <TickerChartHover symbol={stock.ticker}><span className={isAvoid ? TICKER_CHIP_RED : TICKER_CHIP}>{stock.ticker}</span></TickerChartHover>
 
         {stock.score != null && (
           <span className={`text-[9px] font-bold px-1 py-[1px] rounded border tabular-nums ${stock.score >= 80 ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : stock.score >= 60 ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' : 'text-rose-400 bg-rose-500/10 border-rose-500/20'}`}>
@@ -747,33 +756,44 @@ function SIPSection({ section }: { section: SectionResult }) {
           {highlightBold(section.analysis, 'text-slate-100')}
         </div>
       )}
-      {stocks.length > 0 && (
-        <>
-          <SummaryHeader sortKey={sk} sortDir={sd} onSort={handleSort} />
-          {stocks.map((s, i) => {
-            const setupLabel = s.setup && s.setup.toUpperCase() !== 'GENERIC' ? s.setup : null;
-            const dolVol = s.dvol != null ? s.dvol : (s.price && s.vol) ? s.price * s.vol : null;
-            return (
-              <div key={i} className={scrollWrap} style={scrollStyle}>
-                <div className="grid items-center gap-x-1 py-[3px] text-[11px] tabular-nums min-w-[420px]" style={{ gridTemplateColumns: GRID_COLS }}>
-                  <span className={`text-[9px] font-black text-center ${s.grade === 'A' ? 'text-emerald-400' : s.grade === 'B' ? 'text-amber-400' : 'text-transparent'}`}>{s.grade || ''}</span>
-                  <span />
-                  <TickerChip stock={s} />
-                  <span className="text-center">{s.score != null ? <span className={`font-bold px-1 py-[1px] rounded border text-[9px] ${cnfBadgeCls(Number(s.score) || 0)}`}>{s.score}</span> : ''}</span>
-                  <span>{setupLabel ? <span className={`font-bold px-1 py-[1px] rounded border uppercase tracking-wide text-[9px] ${SETUP_COLORS[setupLabel] || DEFAULT_SETUP_CLS}`}>{shortSetup(setupLabel)}</span> : ''}</span>
-                  <span className={`font-semibold text-right ${(s.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(s.changePct || 0) >= 0 ? '+' : ''}{s.changePct.toFixed(2)}%</span>
-                  <span className={`font-semibold text-right ${s.rvol != null ? rvolColor(s.rvol) : ''}`}>{s.rvol != null ? s.rvol.toFixed(2) : ''}</span>
-                  <span className="text-slate-400 text-right">{s.vol != null ? formatVol(s.vol) : ''}</span>
-                  <span className="text-slate-300 text-right">{dolVol != null ? `$${formatVol(dolVol)}` : ''}</span>
-                  <span className={`text-[9px] font-bold text-center ${s.stage ? stageColor(s.stage) : ''}`}>{s.stage ? stripStage(s.stage) : ''}</span>
-                  <span className={`font-semibold text-right ${s.rs != null ? rsColor(s.rs) : ''}`}>{s.rs != null ? s.rs : ''}</span>
-                  <span className="text-center"><NewsStars count={newsStars(s as any)} url={(s as any).catalystUrl} /></span>
-                </div>
+      {stocks.length > 0 && (() => {
+        const top10 = stocks.slice(0, 10);
+        const left = top10.slice(0, Math.ceil(top10.length / 2));
+        const right = top10.slice(Math.ceil(top10.length / 2));
+        const renderCol = (list: typeof stocks) => list.map((s, i) => {
+          const setupLabel = s.setup && s.setup.toUpperCase() !== 'GENERIC' ? s.setup : null;
+          const dolVol = s.dvol != null ? s.dvol : (s.price && s.vol) ? s.price * s.vol : null;
+          return (
+            <div key={i} className={scrollWrap} style={scrollStyle}>
+              <div className="grid items-center gap-x-1 py-[3px] text-[11px] tabular-nums min-w-[420px]" style={{ gridTemplateColumns: GRID_COLS }}>
+                <span className={`text-[9px] font-black text-center ${s.grade === 'A' ? 'text-emerald-400' : s.grade === 'B' ? 'text-amber-400' : 'text-transparent'}`}>{s.grade || ''}</span>
+                <span />
+                <TickerChip stock={s} />
+                <span className="text-center">{s.score != null ? <span className={`font-bold px-1 py-[1px] rounded border text-[9px] ${cnfBadgeCls(Number(s.score) || 0)}`}>{s.score}</span> : ''}</span>
+                <span className={`font-semibold text-right ${(s.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(s.changePct || 0) >= 0 ? '+' : ''}{s.changePct.toFixed(2)}%</span>
+                <span className={`font-semibold text-right ${s.rvol != null ? rvolColor(s.rvol) : ''}`}>{s.rvol != null ? s.rvol.toFixed(2) : ''}</span>
+                <span className="text-slate-400 text-right">{s.vol != null ? formatVol(s.vol) : ''}</span>
+                <span className="text-slate-300 text-right">{dolVol != null ? `$${formatVol(dolVol)}` : ''}</span>
+                <span className={`text-[9px] font-bold text-center ${s.stage ? stageColor(s.stage) : ''}`}>{s.stage ? stripStage(s.stage) : ''}</span>
+                <span className={`font-semibold text-right ${s.rs != null ? rsColor(s.rs) : ''}`}>{s.rs != null ? s.rs : ''}</span>
+                <span className="text-center"><NewsStars count={newsStars(s as any)} url={(s as any).catalystUrl} /></span>
               </div>
-            );
-          })}
-        </>
-      )}
+            </div>
+          );
+        });
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+            <div>
+              <SummaryHeader sortKey={sk} sortDir={sd} onSort={handleSort} />
+              {renderCol(left)}
+            </div>
+            <div>
+              <SummaryHeader sortKey={sk} sortDir={sd} onSort={handleSort} />
+              {renderCol(right)}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -910,6 +930,155 @@ function FormattedBlock({ text, tickers, summaryLabel, skipLabels, distributeLab
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---- Key Events section (econ + earnings, same data as main dashboard) ---- */
+interface EconEvent { event: string; date: string; actual: number | null; previous: number | null; estimate: number | null; impact: string }
+interface EarningsEvent { symbol: string; date: string; name: string; epsEstimated?: number | null; revenueEstimated?: number | null; epsActual?: number | null; epsSurprisePct?: number | null; mktCap?: number }
+
+function KeyEventsSection() {
+  const [econ, setEcon] = useState<EconEvent[]>([]);
+  const [earnings, setEarnings] = useState<EarningsEvent[]>([]);
+
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/econ', { cache: 'no-store' }).then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch('/api/earnings', { cache: 'no-store' }).then(r => r.ok ? r.json() : { events: [] }).catch(() => ({ events: [] })),
+    ]).then(([econData, earningsData]) => {
+      if (Array.isArray(econData)) setEcon(econData);
+      const list: any[] = Array.isArray(earningsData) ? earningsData : (earningsData?.events ?? []);
+      setEarnings(list);
+    });
+  }, []);
+
+  const getEtDate = (offset = 0) => {
+    const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    d.setDate(d.getDate() + offset);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  const getNowMinutes = () => {
+    const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    return d.getHours() * 60 + d.getMinutes();
+  };
+
+  const today = getEtDate(0);
+  const tomorrow = getEtDate(1);
+  const nowMin = getNowMinutes();
+
+  const parseTime = (s: string): number | null => {
+    const m = String(s || '').match(/(\d{2}):(\d{2})/);
+    return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : null;
+  };
+  const fmtTime = (min: number | null) => {
+    if (min == null) return '';
+    const h = Math.floor(min / 60) % 12 || 12;
+    const mm = String(min % 60).padStart(2, '0');
+    return `${h}:${mm} ${min >= 720 ? 'PM' : 'AM'}`;
+  };
+  const fmtNum = (v: number | null | undefined) => {
+    if (v == null) return '—';
+    const abs = Math.abs(v);
+    if (abs >= 1e9) return `${(v / 1e9).toFixed(1)}B`;
+    if (abs >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+    if (abs >= 1e3) return `${(v / 1e3).toFixed(0)}K`;
+    return String(v);
+  };
+
+  const econToday = econ
+    .map(e => ({ ...e, minutes: parseTime(e.date) }))
+    .filter(e => e.date.startsWith(today) && e.impact !== 'Low')
+    .sort((a, b) => (a.minutes ?? 0) - (b.minutes ?? 0));
+
+  const earnFiltered = earnings
+    .filter(e => {
+      const dk = e.date?.slice(0, 10);
+      const cap = (e as any).mktCap ?? 0;
+      return (dk === today || dk === tomorrow) && cap >= 20e9;
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const todayEarn = earnFiltered.filter(e => e.date?.slice(0, 10) === today);
+  const tmrwEarn = earnFiltered.filter(e => e.date?.slice(0, 10) === tomorrow);
+
+  if (econToday.length === 0 && earnFiltered.length === 0) return null;
+
+  const impactCls = (i: string) => i === 'High' ? 'text-rose-400' : i === 'Medium' ? 'text-amber-400' : 'text-slate-500';
+  const hdrCls = 'text-[7px] font-bold tracking-widest uppercase text-slate-600';
+
+  const renderEarnRow = (e: EarningsEvent, i: number) => {
+    const pending = e.epsActual == null;
+    const beat = !pending && e.epsEstimated != null && e.epsActual != null && e.epsActual >= e.epsEstimated;
+    const pct = e.epsSurprisePct != null ? ` (${e.epsSurprisePct > 0 ? '+' : ''}${e.epsSurprisePct.toFixed(1)}%)` : '';
+    return (
+      <div key={i} className="flex items-center gap-2 py-[3px] text-[11px] tabular-nums">
+        <span className="w-[10px] text-center">{pending ? '▸' : ''}</span>
+        <TickerChartHover symbol={e.symbol}><span className={BRIEF_TICKER_CHIP}>{e.symbol}</span></TickerChartHover>
+        <span className="text-slate-400 min-w-[100px] truncate text-[10px]">{e.name?.split(' ').slice(0, 3).join(' ')}</span>
+        {pending ? (
+          <span className="text-slate-300">est {e.epsEstimated?.toFixed(2) ?? '—'}</span>
+        ) : (
+          <span className={beat ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold'}>
+            {beat ? 'BEAT' : 'MISS'} {e.epsActual?.toFixed(2)} vs {e.epsEstimated?.toFixed(2)}{pct}
+          </span>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="border-l-[3px] border-l-amber-400 bg-amber-500/[0.04] rounded-r-lg px-6 py-5">
+      <div className="text-[11px] font-bold text-amber-400 tracking-[0.15em] uppercase mb-5">
+        Key Events
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5">
+        {/* Economic */}
+        <div>
+          <div className="text-[9px] font-bold tracking-wider uppercase text-slate-500 mb-2">
+            Economic {econToday.filter(e => e.minutes != null && e.minutes > nowMin && e.actual == null).length ? `— ${econToday.filter(e => e.minutes != null && e.minutes > nowMin && e.actual == null).length} still ahead` : '— all printed'}
+          </div>
+          <div className="flex items-center gap-1 py-[2px] border-b border-white/5 mb-1">
+            <span className={`w-[10px] ${hdrCls}`} />
+            <span className={`w-[56px] ${hdrCls}`}>TIME</span>
+            <span className={`flex-1 ${hdrCls}`}>EVENT</span>
+            <span className={`w-[48px] text-right ${hdrCls}`}>ACT</span>
+            <span className={`w-[48px] text-right ${hdrCls}`}>EST</span>
+            <span className={`w-[48px] text-right ${hdrCls}`}>PREV</span>
+          </div>
+          {econToday.map((e, i) => {
+            const pending = e.minutes != null && e.minutes > nowMin && e.actual == null;
+            return (
+              <div key={i} className="flex items-center gap-1 py-[3px] text-[11px] tabular-nums">
+                <span className="w-[10px] text-center text-amber-400">{pending ? '▸' : ''}</span>
+                <span className="w-[56px] text-slate-400 text-[10px]">{fmtTime(e.minutes)}</span>
+                <span className={`flex-1 truncate ${impactCls(e.impact)}`}>{e.event}</span>
+                <span className={`w-[48px] text-right ${e.actual != null ? 'text-slate-200 font-semibold' : 'text-slate-600'}`}>{fmtNum(e.actual)}</span>
+                <span className="w-[48px] text-right text-slate-500">{fmtNum(e.estimate)}</span>
+                <span className="w-[48px] text-right text-slate-500">{fmtNum(e.previous)}</span>
+              </div>
+            );
+          })}
+          {econToday.length === 0 && <p className="text-[11px] text-slate-600 py-2">No medium/high impact events today.</p>}
+        </div>
+        {/* Earnings */}
+        <div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+            <div>
+              <div className="text-[9px] font-bold tracking-wider uppercase text-slate-500 mb-2">
+                Today {todayEarn.filter(e => e.epsActual == null).length ? `— ${todayEarn.filter(e => e.epsActual == null).length} pending` : todayEarn.length ? '— all reported' : ''}
+              </div>
+              {todayEarn.length > 0 ? todayEarn.map(renderEarnRow) : <p className="text-[11px] text-slate-600 py-2">No large-cap prints.</p>}
+            </div>
+            <div>
+              <div className="text-[9px] font-bold tracking-wider uppercase text-slate-500 mb-2">
+                Tomorrow {tmrwEarn.length ? `— ${tmrwEarn.length} pending` : ''}
+              </div>
+              {tmrwEarn.length > 0 ? tmrwEarn.map(renderEarnRow) : <p className="text-[11px] text-slate-600 py-2">No large-cap prints.</p>}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1566,8 +1735,8 @@ export default function AnalystBrief() {
             {/* Actionable Summary (below Stocks in Play) */}
             {brief.summary && <ActionableSummary summary={brief.summary} trades={trades?.stocks} avoidStocks={avoid?.stocks} sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />}
 
-            {/* Post-SIP sections: Econ, Earnings */}
-            {postSipSections.map(sec => <BriefSection key={sec.section} section={sec} />)}
+            {/* Key Events: econ + earnings (same data as main dashboard) */}
+            <KeyEventsSection />
 
           </div>
         )}
