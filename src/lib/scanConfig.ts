@@ -53,7 +53,7 @@ export const SCANNER = {
   minAvgVol: 2_000_000,
   minMarketCap: 10_000_000,
   minChange: 4.0,
-  minPrice: 1.00,
+  minPrice: 2.00,
   minDollarVol: 5_000_000,
   minAdrPct: 3.0,
   minAtr: 1.00,
@@ -95,7 +95,7 @@ export const SCANNER_DAILY_META: ScanConfigMeta = {
    REVERSAL / SWING
    ========================================================================== */
 export const SWING = {
-  minPrice: 10,
+  minPrice: 2,
   maxPrice: 2000,
   minAvgDollarVol: 50_000_000,
   minAtrPct: 1.5,
@@ -175,7 +175,7 @@ export const CONSOL_META: ScanConfigMeta = {
    ========================================================================== */
 export const EP9M = {
   minVolume: 9_000_000,
-  minPrice: 3.00,
+  minPrice: 2.00,
   maxPrice: 2000,
   minRvol: 3.0,
   minDollarVol: 20_000_000,
@@ -193,7 +193,7 @@ export const EP9M_META: ScanConfigMeta = {
   gates: [
     { label: 'Volume', value: `\u2265 ${shares(EP9M.minVolume)} shares`, why: 'The namesake threshold. Absolute, not time-weighted, so names appear progressively through the session.' },
     { label: 'RVOL', value: `\u2265 ${EP9M.minRvol}\u00d7`, why: 'THE gate. Without it the scan returns mega caps every day \u2014 NVDA trades 9M before 10am.' },
-    { label: 'Price', value: `${usd(EP9M.minPrice)} \u2013 ${usd(EP9M.maxPrice)}`, why: 'Below $3 the volume is noise.' },
+    { label: 'Price', value: `${usd(EP9M.minPrice)} \u2013 ${usd(EP9M.maxPrice)}`, why: 'Below $2 the volume is noise.' },
     { label: '$ Volume', value: `\u2265 ${usd(EP9M.minDollarVol)}`, why: 'It has to be actually tradeable.' },
     { label: 'Market cap', value: `\u2265 ${usd(EP9M.minMarketCap)}`, why: 'Excludes shells and sub-scale listings.' },
     { label: 'Type', value: 'Common stock only', why: 'ETFs are excluded \u2014 there is no company to re-rate.' },
@@ -206,7 +206,7 @@ export const EP9M_META: ScanConfigMeta = {
    VCP  \u2014  Volatility Contraction Pattern
    ========================================================================== */
 export const VCP = {
-  minPrice: 10,
+  minPrice: 2,
   maxPrice: 10_000,
   minAvgVolume: 200_000,
   minDollarVol: 5_000_000,
@@ -257,6 +257,35 @@ export const TOPMOVERS_META: ScanConfigMeta = {
     { label: 'Market cap', value: `\u2265 ${usd(SCANNER.minMarketCap)}`, why: 'Excludes shells.' },
   ],
   shows: 'Top 10 per tab',
+};
+
+/* ==========================================================================
+   100-BAGGER SCORECARD
+   ========================================================================== */
+export const MULTIBAGGER = {
+  minMarketCap: 50_000_000,
+  maxMarketCap: 10_000_000_000,
+  minPrice: 2,
+  minAvgVolume: 50_000,
+  universeSize: 1500,
+  finalSize: 25,
+} as const;
+
+export const MULTIBAGGER_META: ScanConfigMeta = {
+  title: '100-Bagger Scorecard',
+  premise:
+    'Screens for stocks exhibiting the fundamental characteristics shared by historical 100-baggers — consistent revenue growth, high returns on capital, low debt, small market cap (room to multiply), reasonable valuation, and strong cash generation. Fundamentals-based, updated daily from SEC filings via Polygon. A high score means the company LOOKS like a compounder; it does not mean the stock will compound — management quality, competitive moat, and market timing are not in the data.',
+  gates: [
+    { label: 'Market cap', value: `${usd(MULTIBAGGER.minMarketCap)} – ${usd(MULTIBAGGER.maxMarketCap)}`, why: 'A $50B company cannot 100x. The upside ceiling shrinks with size — micro and small caps have the most room.' },
+    { label: 'Price', value: `≥ ${usd(MULTIBAGGER.minPrice)}`, why: 'Sub-$2 names are shells and delistings, not compounders.' },
+    { label: 'Volume', value: `≥ ${shares(MULTIBAGGER.minAvgVolume)} avg`, why: 'Minimum liquidity — you have to be able to get in and out.' },
+    { label: 'Revenue Growth', value: '≥ 10% CAGR (gate) + scored', why: 'Hard gate at 10% — below that the business is not growing fast enough to compound. Consistent revenue growth is the single most correlated trait of 100-baggers.' },
+    { label: 'Return on Capital', value: '≥ 10% ROIC (gate) + scored', why: 'Hard gate at 10% — below that the reinvestment engine is not productive enough. High ROIC means each dollar reinvested creates more than a dollar of value.' },
+    { label: 'Low Debt', value: 'D/E scored', why: 'Leverage magnifies downturns. Companies that 100x do it with internal cash flow, not borrowed money.' },
+    { label: 'Valuation', value: 'P/E scored', why: 'Entry price matters for total return. Overpaying for even a great compounder delays the payoff by years.' },
+    { label: 'Cash Generation', value: 'FCF Yield scored', why: 'Earnings can be managed; cash cannot. Free cash flow is the real throughput of the business.' },
+  ],
+  shows: `Top ${MULTIBAGGER.finalSize} by multibagger score`,
 };
 
 /* ==========================================================================

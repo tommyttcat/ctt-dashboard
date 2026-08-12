@@ -73,6 +73,8 @@ import {
 } from '@/lib/indicators/chop';
 import { EP9M_META, COLUMN_NOTES } from '@/lib/scanConfig';
 import MetricsKey from './MetricsKey';
+import TickerChartHover from './TickerChartHover';
+import { newsStarCount } from '@/lib/newsStars';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: "Symbol. Hover shows the company name. Fuchsia dot = unprecedented (today's volume beat its own 60-day high); ★ = repeat EP9M offender. Hover the fuchsia dot on a choppy name — record volume inside a range that will not resolve is the most misread row on this table." },
@@ -208,6 +210,7 @@ interface Ep9mCandidate {
   newsPublisher?: string | null;
   newsAge?: string | null;
   newsSentiment?: 'positive' | 'negative' | 'neutral' | null;
+  newsCausal?: boolean | null;
   thesis?: string | null;
   scoreBreakdown?: Record<string, number>;
   plan?: TradePlanRow | null;
@@ -1073,6 +1076,7 @@ export default function Ep9m() {
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
+                  <th className={`${thBase} w-[3%]`}>N</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
@@ -1084,7 +1088,7 @@ export default function Ep9m() {
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
                   <tr>
-                    <td colSpan={18} className="py-12 text-center text-slate-500 text-sm font-medium">
+                    <td colSpan={19} className="py-12 text-center text-slate-500 text-sm font-medium">
                       {status === 'Live'
                         ? (candidates.length > 0
                             ? 'No names match the current filters.'
@@ -1112,28 +1116,7 @@ export default function Ep9m() {
                         <tr className="hover:bg-white/[0.02] transition-colors group">
                           <td className={tdBase}>
                             <div className="flex items-center justify-center gap-1.5">
-                              <span title={row.name || row.ticker} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.ticker}</span>
-                              {/* Fixed-width slot, immediately after the
-                                  ticker and BEFORE the unprecedented dot and
-                                  the star. Those two are conditional and
-                                  already ragged; putting the news marker
-                                  first gives it a stable column of its own
-                                  rather than a position that depends on
-                                  which other flags happen to be set. */}
-                              <span className="inline-block w-[9px] text-center leading-none shrink-0">
-                                {hasNews(row) && (
-                                  <a
-                                    href={row.catalystUrl!}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    title={newsTooltip(row)}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="text-amber-400/90 hover:text-amber-300 font-bold text-[11px] cursor-pointer transition-colors"
-                                  >
-                                    *
-                                  </a>
-                                )}
-                              </span>
+                              <TickerChartHover symbol={row.ticker}><span title={row.name || row.ticker} className="inline-block bg-slate-500/10 text-slate-300 text-[11px] font-bold px-1.5 py-0.5 rounded border border-white/10">{row.ticker}</span></TickerChartHover>
                               {row.unprecedented && <UnprecedentedMark chop={chop} />}
                               {row.sugarBaby && <SugarBabyMark />}
                             </div>
@@ -1209,6 +1192,7 @@ export default function Ep9m() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`} title={row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)} percentage points vs SPY over three months` : undefined}>
                             {formatRs(row.rsVsSpy)}
                           </td>
+                          <td className={`${tdBase} text-[7px] font-bold whitespace-nowrap`}>{(() => { const n = newsStarCount(row); const url = row.catalystUrl; if (n === 0) return <span className="text-slate-700">&mdash;</span>; const cls = n >= 2 ? 'text-amber-400' : 'text-slate-500'; const s = <span className={`leading-none ${cls}`}>{'★'.repeat(n)}</span>; return url ? <a href={url} target="_blank" rel="noopener noreferrer" className="hover:brightness-125 transition-all">{s}</a> : s; })()}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover — short interest divided by average daily volume. Squeeze fuel.">
                             {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
@@ -1226,15 +1210,15 @@ export default function Ep9m() {
                             <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: colSpan 16 covers TICKER..MCAP, then STAGE
-                            and SECTOR get their own cells — 18 total, matching
+                        {/* Sub-row: colSpan 17 covers TICKER..MCAP, then STAGE
+                            and SECTOR get their own cells — 19 total, matching
                             the header.
 
                             Levels lead, same slot the setup name occupies on
                             SIPs and Daily, then VS60D, which is the signal this
                             scan exists for. */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td colSpan={16} className="pb-1.5 pt-1 pr-3">
+                          <td colSpan={17} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
                               {plan?.tradeable && plan.trigger != null ? (
                                 <span

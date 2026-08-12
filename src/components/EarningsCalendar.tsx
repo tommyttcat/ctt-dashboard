@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import TickerChartHover from './TickerChartHover';
 
 // ---------------------------------------------------------------------------
 // Earnings Calendar — v3.1
@@ -499,7 +500,7 @@ export default function EarningsCalendar() {
                     const dateTextColor = isToday ? 'text-cyan-400 font-bold' : 'text-slate-300 font-bold';
                     const tickerBgColor = isToday
                       ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30 shadow-[0_0_8px_rgba(34,211,238,0.2)]'
-                      : 'bg-indigo-500/10 text-[#7c8bfa] border border-indigo-500/20';
+                      : 'bg-slate-500/10 text-slate-300 border border-white/10';
                     const nameTextColor = isToday ? 'text-white font-bold' : 'text-slate-200 font-medium';
                     const actualColor = row.result === 'BEAT' ? 'text-emerald-400' : row.result === 'MISS' ? 'text-rose-400' : (isToday ? 'text-slate-100' : 'text-slate-300');
 
@@ -510,7 +511,7 @@ export default function EarningsCalendar() {
                         </td>
 
                         <td className="py-3.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded border ${tickerBgColor}`}>{row.ticker}</span>
+                          <TickerChartHover symbol={row.ticker}><span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded border ${tickerBgColor}`}>{row.ticker}</span></TickerChartHover>
                         </td>
 
                         <td className={`py-3.5 text-xs whitespace-nowrap truncate max-w-[220px] ${nameTextColor}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.name}</td>

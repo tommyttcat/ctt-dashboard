@@ -54,6 +54,7 @@
 //   filtering is auditable rather than trusted.
 
 import { rsColor, rsTooltip } from '@/lib/indicators/rs';
+import { newsStarCount } from '@/lib/newsStars';
 
 // TopMovers — v1.3
 //
@@ -76,6 +77,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 import MetricsKey from './MetricsKey';
 import { TOPMOVERS_META } from '@/lib/scanConfig';
+import TickerChartHover from './TickerChartHover';
 
 interface StockData {
   ticker: string;
@@ -97,6 +99,7 @@ interface StockData {
   newsPublisher: string | null;
   newsAge: string | null;
   newsSentiment: 'positive' | 'negative' | 'neutral' | null;
+  newsCausal: boolean | null;
   stage: string;
   setupName: string | null;
   conviction: number | null;
@@ -222,7 +225,7 @@ export default function TopMovers() {
               shortPct: item.shortPct || null, daysToCover: item.daysToCover ?? null,
               catalyst: item.catalyst || null, catalystUrl: item.catalystUrl || null,
               thesis: item.thesis || null, newsPublisher: item.newsPublisher || null,
-              newsAge: item.newsAge || null, newsSentiment: item.newsSentiment || null,
+              newsAge: item.newsAge || null, newsSentiment: item.newsSentiment || null, newsCausal: item.newsCausal ?? null,
               stage: item.stage || '\u2014', setupName: item.setupName || null,
               conviction: item.conviction != null ? Number(item.conviction) : ((item.cnfScore ?? item.smbScore) ?? null),
               aboveEma10: item.aboveEma10 ?? null, aboveEma21: item.aboveEma21 ?? null,
@@ -390,6 +393,7 @@ export default function TopMovers() {
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
+                  <th className={`${thBase} w-[3%]`}>N</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
@@ -399,10 +403,10 @@ export default function TopMovers() {
               </thead>
               <tbody className="divide-y divide-white/5">
                 {status.includes('Syncing') && topMoversData[activeTab].length === 0 ? (
-                  <tr><td colSpan={15} className="py-12 text-center"><div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
+                  <tr><td colSpan={16} className="py-12 text-center"><div className="w-5 h-5 border-2 border-white/10 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
                 ) : sortedStocks.length === 0 ? (
                   <tr>
-                    <td colSpan={15} className="py-12 px-8 text-center">
+                    <td colSpan={16} className="py-12 px-8 text-center">
                       <span className="block text-slate-500 text-sm font-medium max-w-[560px] mx-auto leading-relaxed">
                         {emptyStateText()}
                       </span>
@@ -414,28 +418,7 @@ export default function TopMovers() {
                     return (
                       <tr key={i} className="hover:bg-white/[0.02] transition-colors group">
                         <td className={tdBase}>
-                          <span className="inline-flex items-center justify-center gap-0.5">
-                            <span className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20 cursor-help" title={row.name || row.ticker}>{row.ticker}</span>
-                            {/* Fixed-width slot whether or not there is news, so
-                                the CHG% column starts at the same x on every
-                                row. An asterisk that only sometimes occupies
-                                space would shift the whole table on exactly the
-                                rows worth looking at. */}
-                            <span className="inline-block w-[10px] text-center leading-none">
-                              {hasNews(row) && (
-                                <a
-                                  href={row.catalystUrl!}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  title={newsTooltip(row)}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="text-amber-400/90 hover:text-amber-300 font-bold text-[11px] cursor-pointer transition-colors"
-                                >
-                                  *
-                                </a>
-                              )}
-                            </span>
-                          </span>
+                          <TickerChartHover symbol={row.ticker}><span className="inline-block bg-slate-500/10 text-slate-300 text-[11px] font-bold px-1.5 py-0.5 rounded border border-white/10" title={row.name || row.ticker}>{row.ticker}</span></TickerChartHover>
                         </td>
                         <td className={tdBase}><span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.conviction)}`}>{row.conviction != null ? row.conviction : '--'}</span></td>
                         <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}><div className="flex items-center justify-center gap-1.5">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div></td>
@@ -446,6 +429,7 @@ export default function TopMovers() {
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '\u2014'}</td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums cursor-help ${rsColor(row.rsRating)}`} title={rsTooltip(row.rsRating)}>{row.rsRating ?? '\u2014'}</td>
+                        <td className={`${tdBase} text-[7px] font-bold whitespace-nowrap`}>{(() => { const n = newsStarCount(row); const url = row.catalystUrl; if (n === 0) return <span className="text-slate-700">&mdash;</span>; const cls = n >= 2 ? 'text-amber-400' : 'text-slate-500'; const s = <span className={`leading-none ${cls}`}>{'★'.repeat(n)}</span>; return url ? <a href={url} target="_blank" rel="noopener noreferrer" className="hover:brightness-125 transition-all">{s}</a> : s; })()}</td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '\u2014'}</td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover \u2014 short interest divided by average daily volume.">{row.daysToCover != null ? row.daysToCover.toFixed(1) : '\u2014'}</td>
                         <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>

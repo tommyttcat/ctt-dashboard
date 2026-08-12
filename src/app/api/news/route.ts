@@ -4,17 +4,32 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60; 
 
 const JUNK_NEWS_KEYWORDS = [
-  'lawsuit', 'class action', 'investigation', 'shareholder', 'investors alerted', 
-  'pomerantz', 'rosen law', 'glancy', 'kaskela', 'bronstein', 'schall', 
+  'lawsuit', 'class action', 'investigation', 'shareholder', 'investors alerted',
+  'pomerantz', 'rosen law', 'glancy', 'kaskela', 'bronstein', 'schall',
   'johnson fistel', 'deadline', 'reminder', 'bragar', 'eagel', 'squire',
   'gross law', 'faruqi', 'portnoy', 'investors reminded', 'purchasers of',
   'securities litigation', 'equity alert'
 ];
 
+const BLOCKED_PUBLISHERS = new Set([
+  'the motley fool', 'motley fool', 'fool.com',
+  'simply wall st', 'simply wall street',
+  'insider monkey', 'validea', 'talkmarkets', 'invezz',
+  'stocknews.com', 'stocknews', 'quiverquant',
+  '24/7 wall st', '24/7 wall street',
+]);
+
 const isSpamNews = (title: string) => {
   if (!title) return true;
   const lower = title.toLowerCase();
   return JUNK_NEWS_KEYWORDS.some(w => lower.includes(w));
+};
+
+const isBlockedPublisher = (publisher: string) => {
+  const p = (publisher || '').toLowerCase().trim();
+  if (BLOCKED_PUBLISHERS.has(p)) return true;
+  for (const b of BLOCKED_PUBLISHERS) if (p.includes(b)) return true;
+  return false;
 };
 
 export async function GET() {
@@ -26,14 +41,14 @@ export async function GET() {
   }
 
   try {
-    const res = await fetch(`https://api.massive.com/v2/reference/news?limit=40&apiKey=${polygonApiKey}`);
+    const res = await fetch(`https://api.polygon.io/v2/reference/news?limit=40&apiKey=${polygonApiKey}`);
     if (!res.ok) throw new Error('News API Failed');
     
     const data = await res.json();
     const results = data.results || [];
 
     const validNews = results
-      .filter((item: any) => !isSpamNews(item.title) && item.tickers && item.tickers.length > 0)
+      .filter((item: any) => !isSpamNews(item.title) && !isBlockedPublisher(item.publisher?.name) && item.tickers && item.tickers.length > 0)
       .slice(0, 15); 
 
     if (validNews.length === 0) return NextResponse.json({ results: [] });

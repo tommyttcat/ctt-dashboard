@@ -276,7 +276,7 @@ export default function NewsCatalysts() {
         <div className="relative z-10 custom-scrollbar max-h-[600px] overflow-y-auto pr-1" style={{ scrollbarWidth: 'none' }}>
           {isLoading && news.length === 0 ? (
             <div className="py-12 text-center">
-              <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
+              <div className="w-5 h-5 border-2 border-white/10 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div>
               <span className="text-xs text-slate-500 font-medium">Scanning for market-moving catalysts...</span>
             </div>
           ) : news.length === 0 ? (
@@ -289,7 +289,7 @@ export default function NewsCatalysts() {
                 <div key={i} className="flex justify-between items-center gap-4 bg-[#161c2a] border border-white/5 px-4 py-3 rounded-lg hover:border-rose-500/20 transition-colors">
                   {/* Left: ticker + category badge, fixed width so headlines align */}
                   <div className="flex items-center gap-2 shrink-0 w-[170px]">
-                    <span className="inline-block shrink-0 w-[64px] text-center truncate bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-2 py-0.5 rounded border border-indigo-500/20" title={item.ticker}>{item.ticker || '—'}</span>
+                    <span className="inline-block shrink-0 w-[64px] text-center truncate bg-slate-500/10 text-slate-300 text-[11px] font-bold px-2 py-0.5 rounded border border-white/10" title={item.ticker}>{item.ticker || '—'}</span>
                     <TagBadge tag={item.tag} url={item.url} />
                   </div>
 

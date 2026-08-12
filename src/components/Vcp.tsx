@@ -77,6 +77,8 @@ import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { VCP_META } from '@/lib/scanConfig';
 import MetricsKey from './MetricsKey';
+import TickerChartHover from './TickerChartHover';
+import { newsStarCount } from '@/lib/newsStars';
 
 /* A breakout further than this above the pivot has run away from its own
    entry. Three percent is roughly one ordinary session on a liquid mid-cap —
@@ -186,6 +188,7 @@ interface VcpCandidate {
   newsPublisher?: string | null;
   newsAge?: string | null;
   newsSentiment?: 'positive' | 'negative' | 'neutral' | null;
+  newsCausal?: boolean | null;
 
   trigger?: number | null;
   stop?: number | null;
@@ -194,7 +197,7 @@ interface VcpCandidate {
 }
 
 type SortDirection = 'asc' | 'desc';
-type StatusFilterType = 'All' | 'watch' | 'ready' | 'fresh';
+type StatusFilterType = 'All' | 'watch' | 'ready' | 'fresh' | 'extended';
 type RsFilterType = 'All' | '80' | '90';
 type GradeFilterType = 'All' | 'A' | 'B';
 type TtFilterType = 'All' | 'perfect';
@@ -578,6 +581,7 @@ export default function Vcp() {
         if (statusFilter === 'watch') return eff === 'watch';
         if (statusFilter === 'ready') return eff === 'ready';
         if (statusFilter === 'fresh') return eff === 'fresh';
+        if (statusFilter === 'extended') return eff === 'extended';
         return true;
       });
     }
@@ -697,26 +701,30 @@ export default function Vcp() {
           {candidates.length > 0 && (
             <span className="hidden md:flex items-center gap-2">
               {statusCounts.ready > 0 && (
-                <span className="text-[10px] font-bold tracking-wider uppercase text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded"
-                  title="Within 3% of the pivot and still below it — the alert level">
+                <button onClick={() => handleStatusFilter('ready')}
+                  className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border transition-all cursor-pointer ${statusFilter === 'ready' ? 'text-emerald-300 bg-emerald-500/20 border-emerald-400/40 ring-1 ring-emerald-400/30' : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/20'}`}
+                  title="Within 3% of the pivot and still below it — click to filter">
                   {statusCounts.ready} Ready
-                </span>
+                </button>
               )}
               {statusCounts.fresh > 0 && (
-                <span className="text-[10px] font-bold tracking-wider uppercase text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded"
-                  title="Just cleared the pivot, entry still live">
+                <button onClick={() => handleStatusFilter('fresh')}
+                  className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border transition-all cursor-pointer ${statusFilter === 'fresh' ? 'text-cyan-300 bg-cyan-500/20 border-cyan-400/40 ring-1 ring-cyan-400/30' : 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20 hover:bg-cyan-500/20'}`}
+                  title="Just cleared the pivot, entry still live — click to filter">
                   {statusCounts.fresh} Fresh
-                </span>
+                </button>
               )}
-              <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400 bg-white/[0.03] border border-white/5 px-2 py-0.5 rounded"
-                title="Base still building, more than 3% below the pivot">
+              <button onClick={() => handleStatusFilter('watch')}
+                className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border transition-all cursor-pointer ${statusFilter === 'watch' ? 'text-slate-200 bg-white/[0.08] border-white/20 ring-1 ring-white/20' : 'text-slate-400 bg-white/[0.03] border-white/5 hover:bg-white/[0.06]'}`}
+                title="Base still building, more than 3% below the pivot — click to filter">
                 {statusCounts.watch} Watch
-              </span>
+              </button>
               {statusCounts.extended > 0 && (
-                <span className="text-[10px] font-bold tracking-wider uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded"
-                  title="Cleared the pivot and ran — the pattern was real, the entry has gone">
+                <button onClick={() => handleStatusFilter('extended')}
+                  className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border transition-all cursor-pointer ${statusFilter === 'extended' ? 'text-amber-300 bg-amber-500/20 border-amber-400/40 ring-1 ring-amber-400/30' : 'text-amber-400 bg-amber-500/10 border-amber-500/20 hover:bg-amber-500/20'}`}
+                  title="Cleared the pivot and ran — click to filter">
                   {statusCounts.extended} Extended
-                </span>
+                </button>
               )}
             </span>
           )}
@@ -867,6 +875,7 @@ export default function Vcp() {
                   <th className={`${thBase} w-[8%]`} title={colTip('TICKER')} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('VCP')} onClick={() => handleSort('score')}>VCP{getSortIcon('score')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
+                  <th className={`${thBase} w-[3%]`}>N</th>
                   <th className={`${thBase} w-[7%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   {/* The signature column — the pattern itself, not a summary
@@ -886,7 +895,7 @@ export default function Vcp() {
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
                   <tr>
-                    <td colSpan={14} className="py-12 text-center text-slate-500 text-sm font-medium">
+                    <td colSpan={15} className="py-12 text-center text-slate-500 text-sm font-medium">
                       {status === 'Live'
                         ? (candidates.length > 0
                             ? 'No bases match the current filters.'
@@ -909,27 +918,7 @@ export default function Vcp() {
                         <tr className="hover:bg-white/[0.02] transition-colors group">
                           <td className={tdBase}>
                             <div className="flex items-center justify-center gap-1.5">
-                              <span title={row.name || row.symbol} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.symbol}</span>
-                              {/* Fixed-width slot before the status dot, so
-                                  the dot sits at the same x on every row.
-                                  The status dot is the primary read on this
-                                  table — whether the entry is still there —
-                                  and it should not shift because a neighbour
-                                  has news. */}
-                              <span className="inline-block w-[9px] text-center leading-none shrink-0">
-                                {hasNews(row) && (
-                                  <a
-                                    href={row.catalystUrl!}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    title={newsTooltip(row)}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="text-amber-400/90 hover:text-amber-300 font-bold text-[11px] cursor-pointer transition-colors"
-                                  >
-                                    *
-                                  </a>
-                                )}
-                              </span>
+                              <TickerChartHover symbol={row.symbol}><span title={row.name || row.symbol} className="inline-block bg-slate-500/10 text-slate-300 text-[11px] font-bold px-1.5 py-0.5 rounded border border-white/10">{row.symbol}</span></TickerChartHover>
                               <span
                                 className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${meta.dot}`}
                                 title={`${meta.label} — ${meta.title}`}
@@ -954,6 +943,8 @@ export default function Vcp() {
                               {row.rsRating ?? '—'}
                             </span>
                           </td>
+
+                          <td className={`${tdBase} text-[7px] font-bold whitespace-nowrap`}>{(() => { const n = newsStarCount(row); const url = row.catalystUrl; if (n === 0) return <span className="text-slate-700">&mdash;</span>; const cls = n >= 2 ? 'text-amber-400' : 'text-slate-500'; const s = <span className={`leading-none ${cls}`}>{'★'.repeat(n)}</span>; return url ? <a href={url} target="_blank" rel="noopener noreferrer" className="hover:brightness-125 transition-all">{s}</a> : s; })()}</td>
 
                           <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
                             <div className="flex items-center justify-center gap-1">
@@ -1050,7 +1041,7 @@ export default function Vcp() {
                             table it decides whether the rest of the row is a
                             trade or a post-mortem. */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td colSpan={12} className="pb-1.5 pt-1 pr-3">
+                          <td colSpan={13} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
                               <span
                                 className={`shrink-0 w-[64px] px-0.5 text-center font-bold text-[9px] tracking-[0.04em] uppercase leading-none truncate cursor-help ${meta.text}`}

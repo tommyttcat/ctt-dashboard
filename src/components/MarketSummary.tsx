@@ -100,7 +100,9 @@
    independently readable, and a shared scroll container would drag every row
    sideways to read one. */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import TickerChartHover, { ActiveChartProvider } from './TickerChartHover';
+import { newsStarCount } from '@/lib/newsStars';
 
 /* ActionableEvent and the actionableEvents field are retained because
    /api/market-summary returns them and the fetch assigns them. The SECTION
@@ -140,11 +142,18 @@ type PostureBucket = 'first-touch' | 'stacked' | 'pre-cross' | 'extended' | 'bel
 interface WatchItem {
   symbol: string;
   score?: number | string;
+  grade?: 'A' | 'B';
   reason: string;
   catalyst?: string | null;
   catalystUrl?: string | null;
   posture?: PostureBucket | null;
   dotKind?: 'blue' | 'red' | null;
+  chg?: number;
+  rvol?: number | null;
+  vol?: number;
+  dVol?: number;
+  stage?: string;
+  rsRating?: number | null;
 }
 
 interface TopCatalyst {
@@ -156,8 +165,14 @@ interface TopCatalyst {
 
 interface MacroInsights {
   theme: string;
+  marketOverview: string;
   briefing: string;
   watching: WatchItem[];
+  tomorrowWatch: WatchItem[];
+  gradeMap?: Record<string, 'A' | 'B'>;
+  dotMap?: Record<string, 'blue' | 'red'>;
+  postureMap?: Record<string, PostureBucket>;
+  avoidSet?: Set<string>;
   topCatalyst?: TopCatalyst | null;
   topCatalysts?: TopCatalyst[];
 }
@@ -357,6 +372,106 @@ const fmtRvol = (s: any): string => {
 
 const stageOf = (s: any): string => (s?.stage ? String(s.stage).replace(/Stage\s*/i, '') : '');
 
+const fmtVolStr = (s: any): string => {
+  const v = Number(s?.volume ?? s?.vol) || 0;
+  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+  if (v >= 1e3) return `${(v / 1e3).toFixed(0)}K`;
+  return '—';
+};
+
+const fmtDVolStr = (s: any): string => {
+  const dv = dVolOf(s);
+  if (dv >= 1e9) return `$${(dv / 1e9).toFixed(1)}B`;
+  if (dv >= 1e6) return `$${(dv / 1e6).toFixed(0)}M`;
+  if (dv > 0) return `$${(dv / 1e3).toFixed(0)}K`;
+  return '—';
+};
+
+const stdCols = (s: any): string => {
+  const cnf = scoreOf(s);
+  const chg = chgOf(s);
+  const rs = s?.rsRating != null ? Number(s.rsRating) : null;
+  return [
+    `CNF ${cnf}`,
+    `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`,
+    fmtRvol(s),
+    `VOL ${fmtVolStr(s)}`,
+    fmtDVolStr(s),
+    `Stage ${stageOf(s) || '—'}`,
+    ...(rs != null && isFinite(rs) ? [`RS ${rs.toFixed(0)}`] : []),
+    newsEndToken(s),
+  ].join(' ');
+};
+
+type ParsedStdRow = {
+  ticker: string;
+  newsUrl: string | null;
+  newsTip: string | null;
+  newsCount: number;
+  cnf: number;
+  chg: number;
+  rvol: number | null;
+  vol: string;
+  dvol: string;
+  stage: string;
+  rs: number | null;
+  setup: string | null;
+  blueDot: boolean;
+  extraStr: string;
+};
+
+const parseStdLine = (line: string): ParsedStdRow | null => {
+  const t = line.trim();
+  const tm = t.match(/^([A-Z]{1,5})\s/);
+  if (!tm) return null;
+  const ticker = tm[1];
+  if (TICKER_STOPWORDS.has(ticker)) return null;
+  const cm = t.match(/(?:CNF|SCR) (\d+)/);
+  if (!cm) return null;
+  const cnf = Number(cm[1]);
+  const chgM = t.match(/([+-]\d+(?:\.\d+)?)%/);
+  const chg = chgM ? Number(chgM[1]) : 0;
+  const rM = t.match(/RVOL (\d+(?:\.\d+)?|—)/);
+  const rvol = rM && rM[1] !== '—' ? Number(rM[1]) : null;
+  const vM = t.match(/VOL (\d+(?:\.\d+)?[MK]|—)/);
+  const vol = vM ? vM[1] : '—';
+  const dM = t.match(/(\$\d+(?:\.\d+)?[BMK])/);
+  const dvol = dM ? dM[1] : '—';
+  const sM = t.match(/Stage (\S+)/);
+  let stage = sM ? sM[1] : '—';
+  if (stage === '-') stage = '—';
+  const nM = t.match(/\[(★+)≡([^≡]*)≡\]\(([^)]+)\)/) || t.match(/\[\*≡([^≡]*)≡\]\(([^)]+)\)/);
+  let newsUrl: string | null = null;
+  let newsTip: string | null = null;
+  let newsCount = 0;
+  if (nM && nM[0].startsWith('[★')) {
+    newsCount = nM[1].length;
+    newsTip = nM[2] || null;
+    newsUrl = nM[3] || null;
+  } else if (nM) {
+    newsCount = 1;
+    newsTip = nM[1] || null;
+    newsUrl = nM[2] || null;
+  } else if (/\bN0\b/.test(t)) {
+    newsCount = 0;
+  }
+  const rsM = t.match(/\bRS (\d+)\b/);
+  const rs = rsM ? Number(rsM[1]) : null;
+  const stageIdx = t.search(/Stage \S+/);
+  let extraStr = '';
+  if (stageIdx >= 0) {
+    extraStr = t.slice(stageIdx).replace(/^Stage \S+/, '').replace(/\bRS \d+\b/, '').trim();
+  }
+  extraStr = extraStr.replace(/\bN0\b/, '').replace(/\[★+≡[^≡]*≡\]\([^)]+\)/, '').replace(/\[\*≡[^≡]*≡\]\([^)]+\)/, '').trim();
+  const setupRx = /\b(20 EMA PB|Episodic Pivot|Gap & Go|Gap and Go|Trend Hold|BB SQZ|REV)\b/;
+  const setupM = extraStr.match(setupRx);
+  const setup = setupM ? setupM[1] : null;
+  if (setup) extraStr = extraStr.replace(setupRx, '').trim();
+  const blueDot = extraStr.includes('●');
+  if (blueDot) extraStr = extraStr.replace(/●/g, '').trim();
+  return { ticker, newsUrl, newsTip, newsCount, cnf, chg, rvol, vol, dvol, stage, rs, setup, blueDot, extraStr };
+};
+
 /* ---- ● and REV are MUTUALLY EXCLUSIVE, and here is why -------------------
    detectPattern() in /api/scanner/run short-circuits:
 
@@ -529,12 +644,12 @@ const isExtendedOf = (s: any): boolean => {
    noise alone.
 
    Every consumer now reads posture() and nothing else. */
-const POSTURE_META: Record<PostureBucket, { label: string; short: string; tone: 'good' | 'warn' | 'bad'; scoreAdj: number }> = {
-  'first-touch': { label: 'first touch', short: 'FIRST TOUCH', tone: 'good', scoreAdj: 8 },
-  'stacked': { label: 'stacked', short: 'STACKED', tone: 'good', scoreAdj: 4 },
-  'pre-cross': { label: 'pre-cross', short: 'PRE-CROSS', tone: 'warn', scoreAdj: 2 },
-  'extended': { label: 'too extended', short: 'EXTENDED', tone: 'bad', scoreAdj: -10 },
-  'below-21': { label: 'below 21', short: 'BELOW 21', tone: 'bad', scoreAdj: -12 },
+const POSTURE_META: Record<PostureBucket, { label: string; short: string; tone: 'good' | 'warn' | 'bad'; scoreAdj: number; tip: string }> = {
+  'first-touch': { label: 'first touch', short: 'FIRST TOUCH', tone: 'good', scoreAdj: 8, tip: 'Price pulled back under the 10 EMA but is holding above the 21 EMA — the defined-stop pullback entry.' },
+  'stacked': { label: 'stacked', short: 'STACKED', tone: 'good', scoreAdj: 4, tip: 'Price is above both the 10 and 21 EMA with EMAs stacked in order — trend is intact and orderly.' },
+  'pre-cross': { label: 'pre-cross', short: 'PRE-CROSS', tone: 'warn', scoreAdj: 2, tip: 'Price is below the 21 EMA but the 10 and 21 are converging — a potential trend change, not confirmed yet.' },
+  'extended': { label: 'too extended', short: 'EXTENDED', tone: 'bad', scoreAdj: -10, tip: 'Price is too far above its moving averages — chasing here has poor risk/reward, wait for a pullback.' },
+  'below-21': { label: 'below 21', short: 'BELOW 21', tone: 'bad', scoreAdj: -12, tip: 'Price is below the 21 EMA — the trend is down or broken, not a buy-the-dip setup.' },
 };
 
 const posture = (s: any): PostureBucket | null => {
@@ -578,11 +693,8 @@ const fmtDollar = (v: number): string => {
    job the fixed column widths now do, and on a phone they cost a character
    of width per field on rows that were already wrapping. */
 const fmtLeader = (s: any): string => {
-  const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
-  const bits: string[] = [chg, fmtRvol(s)];
   const su = setupRowLabel(s);
-  if (su) bits.push(su);
-  return `${s.ticker} ${bits.join(' ')}`;
+  return `${s.ticker} ${stdCols(s)}${su ? ` ${su}` : ''}`;
 };
 
 /* ---- TRADE PLAN ---------------------------------------------------------
@@ -692,26 +804,27 @@ const isSettingUp = (s: any): boolean => {
    the second half would render as garbage. */
 const NEWS_MARK_EMPTY = '∅';
 
-const newsMark = (s: any): string => {
+const newsMark = (_s: any): string => '';
+
+const newsEndToken = (s: any): string => {
+  const n = newsStarCount(s);
+  if (n === 0) return 'N0';
   const url = s?.catalystUrl;
   const title = s?.thesis;
-  if (!url || !title) return NEWS_MARK_EMPTY;
-
   const meta = [s?.catalyst, s?.newsPublisher, s?.newsAge]
     .filter(Boolean)
     .join(' · ');
-
-  const tip = `${meta ? `${meta} — ` : ''}${title}`
+  const tip = `${meta ? `${meta} — ` : ''}${title || ''}`
     .replace(/[\r\n]+/g, ' ')
     .replace(/[\]≡]/g, '')
     .slice(0, 240);
-
-  return `[*≡${tip}≡](${url})`;
+  const stars = '★'.repeat(n);
+  return `[${stars}≡${tip}≡](${url || '#'})`;
 };
 
 const fmtPlanRow = (s: any): string => {
   const p = livePlanOf(s);
-  if (!p) return `${tickerOf(s)} ${newsMark(s)} —`;
+  if (!p) return `${tickerOf(s)} —`;
 
   const chg = chgOf(s);
   const bits: string[] = [`${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`];
@@ -724,7 +837,7 @@ const fmtPlanRow = (s: any): string => {
   bits.push(`ST ${fmtLevel(p.stop)}`);
   bits.push(`TG ${fmtLevel(p.target)}`);
 
-  return `${tickerOf(s)} ${newsMark(s)} ${bits.join(' ')}`;
+  return `${tickerOf(s)} ${bits.join(' ')}`;
 };
 
 const buildTradePlanPara = (pool: any[]): string => {
@@ -847,12 +960,12 @@ const buildKeyEventsPara = (econ: EconEvent[], earnings: EarningsEvent[]): strin
 
   const fmtEcon = (e: any): string => {
     const t = fmtClock(e.minutes);
-    const marker = isPending(e) ? '▸ ' : '';
+    const marker = isPending(e) ? '▸' : '∅';
     const bits: string[] = [];
     if (e.actual != null) bits.push(`act ${fmtEconNum(e.actual)}`);
     if (e.estimate != null) bits.push(`est ${fmtEconNum(e.estimate)}`);
     if (e.previous != null) bits.push(`prev ${fmtEconNum(e.previous)}`);
-    return `${marker}${t ? `${t} ` : ''}${e.event}${bits.length ? `  ${bits.join('  ')}` : ''}`;
+    return `${marker} ${t ? `${t} ` : ''}${e.event}${bits.length ? ` ${bits.join(' ')}` : ''}`;
   };
 
   const pending = econRows.filter(isPending);
@@ -1089,31 +1202,18 @@ const build1021Para = (pool: any[]): string => {
       dot: dotOf(s),
       day: isDayName(s),
       score: blendedScore(s),
-      /* Carried through the projection so newsMark can read them. Without
-         these four the 10/21 rows would be the only section with no
-         asterisk slot, and their columns would sit a few pixels off every
-         other table's. */
       catalystUrl: s.catalystUrl ?? null,
       thesis: s.thesis ?? null,
       catalyst: s.catalyst ?? null,
       newsPublisher: s.newsPublisher ?? null,
       newsAge: s.newsAge ?? null,
+      _src: s,
     }))
     .filter(r => r.d21 != null && r.bucket != null);
 
   if (rows.length < 2) return '';
 
-  /* Both distances are emitted as bare signed percentages so the renderer
-     can give them the same fixed width, and the EMA they refer to follows as
-     a plain "21" / "10". */
-  const pct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
-  const fmtRow = (r: any): string => {
-    const bits = [`${pct(r.d21 as number)} 21`];
-    if (r.d10 != null) bits.push(`${pct(r.d10 as number)} 10`);
-    bits.push(POSTURE_META[r.bucket as PostureBucket].label);
-    if (r.dot === 'red') bits.push('RED DOT');
-    return `${r.ticker} ${newsMark(r)} ${bits.join(' ')}`;
-  };
+  const fmtRow = (r: any): string => `${r.ticker} ${stdCols(r._src)}`;
 
   const byScore = (a: any, b: any) => b.score - a.score;
   const swing = rows.filter(r => !r.day).sort(byScore).slice(0, 6);
@@ -1162,7 +1262,7 @@ const buildMoversPara = (movers: any): string => {
   if (gainers.length === 0 && losers.length === 0) return '';
 
   const fmtMover = (s: any): string =>
-    `${s.ticker} ${newsMark(s)} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% ${fmtRvol(s)}`;
+    `${s.ticker} ${stdCols(s)}`;
 
   const topG = gainers.slice().sort((a, b) => chgOf(b) - chgOf(a)).slice(0, 4);
   const topL = losers.slice().sort((a, b) => chgOf(a) - chgOf(b)).slice(0, 3);
@@ -1226,21 +1326,12 @@ const buildVcpPara = (vcp: any[]): string => {
   if (rows.length === 0) return '';
 
   const fmtVcp = (c: any): string => {
-    const bits: string[] = [];
-    const rs = numOrNull(c?.rsRating);
-    if (rs != null) bits.push(`RS ${rs.toFixed(0)}`);
-
-    /* The contraction count as T3 / T4 rather than the full depth sequence.
-       The sequence is the signature and belongs on the table where it has a
-       column; inline it would be three bare numbers the tokeniser cannot
-       colour and the eye cannot align. */
+    const vcpBits: string[] = [];
     const legs = numOrNull(c?.contractionCount);
-    if (legs != null) bits.push(`T${legs.toFixed(0)}`);
-
-    if (c?.trigger != null) bits.push(`TR ${fmtLevel(c.trigger)}`);
-    if (c?.stop != null) bits.push(`ST ${fmtLevel(c.stop)}`);
-
-    return `${c.symbol} ${newsMark(c)} ${bits.join(' ')}`;
+    if (legs != null) vcpBits.push(`T${legs.toFixed(0)}`);
+    if (c?.trigger != null) vcpBits.push(`TR ${fmtLevel(c.trigger)}`);
+    if (c?.stop != null) vcpBits.push(`ST ${fmtLevel(c.stop)}`);
+    return `${c.symbol} ${stdCols(c)} ${vcpBits.join(' ')}`;
   };
 
   const byScore = (a: any, b: any) => num(b?.score) - num(a?.score);
@@ -1299,11 +1390,8 @@ const buildEp9mPara = (ep9m: any[]): string => {
   if (rows.length < 1) return '';
 
   const fmtEp = (s: any): string => {
-    const chg = chgOf(s);
-    const bits: string[] = [`${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`, fmtRvol(s)];
     const tag = catalystTagOf(s);
-    if (tag) bits.push(tag);
-    return `${s.ticker} ${newsMark(s)} ${bits.join(' ')}`;
+    return `${s.ticker} ${stdCols(s)}${tag ? ` ${tag}` : ''}`;
   };
 
   const unprec = rows.filter(ep9mUnprec).sort((a, b) => (ep9mVs60dOf(b) ?? 0) - (ep9mVs60dOf(a) ?? 0));
@@ -1329,6 +1417,34 @@ const buildEp9mPara = (ep9m: any[]): string => {
   return `EP9M Thesis: ${rows.length} name${rows.length !== 1 ? 's' : ''} trading abnormal size:\n${rows.slice(0, 6).map(fmtEp).join('\n')}`;
 };
 
+/* ---- 100-Bagger Scorecard ------------------------------------------------
+   Compact summary of the multibagger scan. Shows grade-A names first, then
+   a count of what passed the must-pass gates. Each row: ticker, score/grade,
+   change, RS, stage, and sector — enough to decide whether to scroll down. */
+const buildMultibaggerPara = (mbList: any[]): string => {
+  const rows = (Array.isArray(mbList) ? mbList : [])
+    .filter((c: any) => c?.ticker)
+    .filter((c: any) => c.rs == null || c.rs >= 50);
+  if (rows.length === 0) return '';
+
+  const gradeA = rows.filter((c: any) => c.grade === 'A');
+  const gradeB = rows.filter((c: any) => c.grade === 'B');
+
+  const fmtMb = (c: any): string => {
+    const chg = typeof c.changePct === 'number' ? `${c.changePct >= 0 ? '+' : ''}${c.changePct.toFixed(2)}%` : '—';
+    const stg = c.stageShort || '—';
+    const rvol = c.rvol != null ? `RVOL ${c.rvol.toFixed(2)}` : 'RVOL —';
+    const vol = c.vol ? `VOL ${c.vol >= 1e6 ? (c.vol / 1e6).toFixed(1) + 'M' : c.vol >= 1e3 ? Math.round(c.vol / 1e3) + 'K' : c.vol}` : 'VOL —';
+    const dvol = c.dvol ? `$${c.dvol >= 1e9 ? (c.dvol / 1e9).toFixed(1) + 'B' : c.dvol >= 1e6 ? Math.round(c.dvol / 1e6) + 'M' : Math.round(c.dvol / 1e3) + 'K'}` : '';
+    const rs = c.rs != null ? `RS ${c.rs}` : '';
+    return `${c.ticker} ∅ SCR ${c.score} ${chg} ${rvol} ${vol} ${dvol} Stage ${stg} ${rs} ${c.sector || ''}`.trim();
+  };
+
+  const topRows = [...gradeA, ...gradeB.slice(0, Math.max(0, 6 - gradeA.length))].slice(0, 6);
+
+  return `100-Bagger Thesis: ${gradeA.length}A / ${gradeB.length}B from ${rows.length} names passing Rev ≥10% + ROIC ≥10%.\n${topRows.map(fmtMb).join('\n')}`;
+};
+
 const buildLocalInsights = (
   scan: any,
   ep9mList: any[] = [],
@@ -1337,6 +1453,7 @@ const buildLocalInsights = (
   swingList: any[] = [],
   consolList: any[] = [],
   vcpList: any[] = [],
+  mbList: any[] = [],
   liveChgMap: Record<string, [number, number]> | null = null,
 ): MacroInsights | null => {
   const sips: any[] = Array.isArray(scan?.stocksInPlay) ? scan.stocksInPlay : [];
@@ -1347,28 +1464,6 @@ const buildLocalInsights = (
 
   const pool = [...sips, ...daily, ...ep9m].filter(s => s?.ticker);
 
-  /* The Trade Plan pool is DELIBERATELY WIDER than `pool`. Swing pullbacks
-     and 10/21 coils carry plans and belong in a ranking of what is enterable
-     tomorrow — but they do not belong in the momentum watchlist, the 10/21
-     thesis, or the theme. A coil is by definition a name that has not moved,
-     and dropping those into a list ranked on RVOL and change would quietly
-     change what every other section means. */
-  const planPool = [
-    ...sips, ...daily, ...ep9m,
-    ...(Array.isArray(swingList) ? swingList : []),
-    ...(Array.isArray(consolList) ? consolList : []),
-  ]
-    .map(s => {
-      const t = tickerOf(s);
-      const live = t && liveChgMap ? liveChgMap[t] : undefined;
-      return {
-        ...s,
-        ticker: t,
-        ...(live ? { changePct: live[0], price: live[1] } : {}),
-      };
-    })
-    .filter(s => s.ticker);
-
   const seen = new Set<string>();
   const ranked = pool
     .slice()
@@ -1378,17 +1473,27 @@ const buildLocalInsights = (
       seen.add(s.ticker);
       return true;
     })
-    .slice(0, 6);
+    .filter(s => scoreOf(s) >= 50)
+    .slice(0, 8);
 
-  const watching: WatchItem[] = ranked.map(s => ({
-    symbol: s.ticker,
-    score: scoreOf(s) || undefined,
-    reason: buildWatchReason(s),
-    catalyst: catalystTextOf(s),
-    catalystUrl: s?.catalystUrl || null,
-    posture: posture(s),
-    dotKind: dotOf(s),
-  }));
+  const watching: WatchItem[] = ranked
+    .filter(s => Math.abs(chgOf(s)) >= 4 && (Number(s?.volume ?? s?.vol) || 0) >= 1e6)
+    .map(s => ({
+      symbol: s.ticker,
+      score: scoreOf(s) || undefined,
+      grade: (scoreOf(s) >= 70 ? 'A' : 'B') as 'A' | 'B',
+      reason: buildWatchReason(s),
+      catalyst: catalystTextOf(s),
+      catalystUrl: s?.catalystUrl || null,
+      posture: posture(s),
+      dotKind: dotOf(s),
+      chg: chgOf(s),
+      rvol: rvolOf(s),
+      vol: Number(s?.volume ?? s?.vol) || 0,
+      dVol: dVolOf(s),
+      stage: stageOf(s),
+      rsRating: s?.rsRating != null ? Number(s.rsRating) : null,
+    }));
 
   const withNews = pool
     .filter(hasRealCatalyst)
@@ -1421,16 +1526,24 @@ const buildLocalInsights = (
     return true;
   });
 
-  const sectorCounts: Record<string, number> = {};
-  ranked.forEach(s => {
-    const sec = s?.sector && s.sector !== '—' && !isEtfSector(s.sector) ? String(s.sector) : null;
-    if (sec) sectorCounts[sec] = (sectorCounts[sec] || 0) + 1;
-  });
-  const topSectors = Object.entries(sectorCounts).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([sec]) => sec);
-  const aCount = ranked.filter(s => scoreOf(s) >= 70).length;
-  const theme = titleCase(
-    `${topSectors.length ? topSectors.join(' & ') : 'Broad Market'} In Focus — ${aCount > 0 ? `${aCount} A-Grade Setup${aCount > 1 ? 's' : ''}` : 'Momentum Watch'}`
-  );
+  // Use the scanner's macro-level theme if available (regime + leadership),
+  // otherwise fall back to a stock-focused theme.
+  const scannerMacro = scan?.macroInsights;
+  const theme = scannerMacro?.theme
+    ? titleCase(scannerMacro.theme)
+    : (() => {
+        const sectorCounts: Record<string, number> = {};
+        ranked.forEach(s => {
+          const sec = s?.sector && s.sector !== '—' && !isEtfSector(s.sector) ? String(s.sector) : null;
+          if (sec) sectorCounts[sec] = (sectorCounts[sec] || 0) + 1;
+        });
+        const topSectors = Object.entries(sectorCounts).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([sec]) => sec);
+        const aCount = ranked.filter(s => scoreOf(s) >= 70).length;
+        return titleCase(
+          `${topSectors.length ? topSectors.join(' & ') : 'Broad Market'} In Focus — ${aCount > 0 ? `${aCount} A-Grade Setup${aCount > 1 ? 's' : ''}` : 'Momentum Watch'}`
+        );
+      })();
+  const marketOverview = scannerMacro?.briefing ?? '';
 
   const sipsSorted = sips.slice().sort((a, b) => (rvolOf(b) ?? 0) - (rvolOf(a) ?? 0));
   const leaders = sipsSorted.filter(s => (rvolOf(s) ?? 0) >= 1.5).slice(0, 3);
@@ -1439,10 +1552,10 @@ const buildLocalInsights = (
 
   const fmtNewsRow = (s: any): string => {
     const tag = catalystTagOf(s);
-    return `${s.ticker} ${newsMark(s)} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% ${fmtRvol(s)}${tag ? ` ${tag}` : ''}`;
+    return `${s.ticker} ${stdCols(s)}${tag ? ` ${tag}` : ''}`;
   };
   const fmtFaderRow = (s: any): string =>
-    `${s.ticker} ${newsMark(s)} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% ${fmtRvol(s)}`;
+    `${s.ticker} ${stdCols(s)}`;
 
   const leadersCol = leaders.length ? `Volume-confirmed:\n${leaders.map(fmtLeader).join('\n')}` : '';
   const newsCol = newsItems.length ? `News-driven:\n${newsItems.map(fmtNewsRow).join('\n')}` : '';
@@ -1461,18 +1574,12 @@ const buildLocalInsights = (
     sipsPara = 'SIPs Thesis: No volume-confirmed leaders yet.';
   }
 
-  /* CNF ahead of the setup name so the badge aligns down the column —
-     "20 EMA PB" is six characters wider than "●" and was knocking the badge
-     out of line on every other row. Variable-width fields go last. */
   const fmtDaily = (s: any): string => {
-    const chg = `${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}%`;
-    const bits: string[] = [chg, `CNF ${scoreOf(s)}`, fmtRvol(s)];
-
     const su = setupRowLabel(s);
-    if (su) bits.push(su);
-    if (dotOf(s) === 'red') bits.push('RED DOT');
-
-    return `${s.ticker} ${newsMark(s)} ${bits.join(' ')}`;
+    const extra: string[] = [];
+    if (su) extra.push(su);
+    if (dotOf(s) === 'red') extra.push('RED DOT');
+    return `${s.ticker} ${stdCols(s)}${extra.length ? ` ${extra.join(' ')}` : ''}`;
   };
 
   const swingNames = daily.filter(s => !isDayName(s)).sort((a, b) => blendedScore(b) - blendedScore(a)).slice(0, 6);
@@ -1488,7 +1595,6 @@ const buildLocalInsights = (
   }
 
   const ema1021Para = build1021Para(pool);
-  const tradePlanPara = buildTradePlanPara(planPool);
 
   const heatAgg: Record<string, { sum: number; count: number }> = {};
   flowNames.forEach(s => {
@@ -1532,18 +1638,16 @@ const buildLocalInsights = (
       etfSeen.add(e.ticker);
       return true;
     })
-    .map(e => ({ ticker: e.ticker, dVol: dVolOf(e), chg: chgOf(e) }))
-    .filter(e => e.dVol > 0)
-    .sort((a, b) => b.dVol - a.dVol);
+    .filter(e => dVolOf(e) > 0)
+    .sort((a, b) => dVolOf(b) - dVolOf(a));
 
   let etfPara = '';
   if (etfs.length) {
-    const fmtE = (e: { ticker: string; dVol: number; chg: number }) =>
-      `${e.ticker} ${e.chg >= 0 ? '+' : ''}${e.chg.toFixed(2)}% ${fmtDollar(e.dVol)}`;
-    const upD = etfs.filter(e => e.chg > 0).reduce((a, e) => a + e.dVol, 0);
-    const totD = etfs.reduce((a, e) => a + e.dVol, 0);
+    const upD = etfs.filter(e => chgOf(e) > 0).reduce((a, e) => a + dVolOf(e), 0);
+    const totD = etfs.reduce((a, e) => a + dVolOf(e), 0);
     const upShare = totD > 0 ? Math.round((upD / totD) * 100) : 0;
-    const etfLines: string[] = [`Heaviest dollar volume:\n${etfs.slice(0, 4).map(fmtE).join('\n')}`];
+    const etfRows = etfs.slice(0, 4).map(e => `${e.ticker} ${stdCols(e)}`);
+    const etfLines: string[] = [`Heaviest dollar volume:\n${etfRows.join('\n')}`];
     etfLines.push(upShare >= 60
       ? `${upShare}% of ETF dollars are on the advancing side — money is chasing strength.`
       : upShare <= 40
@@ -1561,7 +1665,7 @@ const buildLocalInsights = (
       .slice()
       .sort((a, b) => dVolOf(b) - dVolOf(a))
       .slice(0, 3)
-      .map(s => `${s.ticker} ${chgOf(s) >= 0 ? '+' : ''}${chgOf(s).toFixed(2)}% ${fmtDollar(dVolOf(s))}`);
+      .map(s => `${s.ticker} ${stdCols(s)}`);
 
     const inflowAgg: Record<string, number> = {};
     flowNames.filter(s => chgOf(s) > 0).forEach(s => {
@@ -1583,26 +1687,88 @@ const buildLocalInsights = (
   const moversPara = buildMoversPara(movers);
   const vcpPara = buildVcpPara(vcpList);
   const ep9mPara = buildEp9mPara(ep9m);
+  const patchedMb = liveChgMap ? mbList.map(c => {
+    const live = liveChgMap[c.ticker];
+    return live ? { ...c, changePct: live[0] } : c;
+  }) : mbList;
+  const mbPara = buildMultibaggerPara(patchedMb);
 
   const sipsFinal = sipsPara || (sips.length === 0 && (daily.length || ep9m.length) ? 'SIPs Thesis: No stocks in play in the current scan.' : '');
   const dailyFinal = dailyPara || (daily.length === 0 && (sips.length || ep9m.length) ? 'Daily Setups Thesis: No daily setups on the board right now.' : '');
   const ep9mFinal = ep9mPara || (ep9m.length === 0 && (sips.length || daily.length) ? 'EP9M Thesis: No names trading abnormal 9M+ size yet — this fills in as session volume builds.' : '');
+  const mbFinal = mbPara || '100-Bagger Thesis: No candidates — awaiting scan.';
 
-  /* Order runs from what is happening RIGHT NOW to what sets up LATER.
-     Trade Plan, Top Movers and SIPs are today's tape; 10/21 is this week's
-     structure; VCP is weeks of accumulation resolving at a future pivot.
-     EP9M follows because a volume event with no headline is a research task
-     rather than a trade, and the three flow sections close as context. */
   const orderedParas = [
-    tradePlanPara, moversPara, sipsFinal, dailyFinal, ema1021Para,
-    vcpPara, ep9mFinal,
+    moversPara, sipsFinal, dailyFinal, ema1021Para,
+    vcpPara, ep9mFinal, mbFinal,
     heatPara, etfPara, moneyPara, keyEventsPara,
   ];
 
+  // Tomorrow's watchlist: swing candidates, consolidation patterns, and
+  // names with plans setting up that haven't triggered yet.
+  const tmrwSeen = new Set<string>();
+  const tmrwPool = [
+    ...(Array.isArray(swingList) ? swingList : []),
+    ...(Array.isArray(consolList) ? consolList : []),
+  ]
+    .map(s => {
+      const t = tickerOf(s);
+      const live = t && liveChgMap ? liveChgMap[t] : undefined;
+      return { ...s, ticker: t, ...(live ? { changePct: live[0], price: live[1] } : {}) };
+    })
+    .filter(s => s.ticker && scoreOf(s) >= 50)
+    .sort((a, b) => blendedScore(b) - blendedScore(a))
+    .filter(s => {
+      if (tmrwSeen.has(s.ticker)) return false;
+      if (seen.has(s.ticker)) return false;
+      tmrwSeen.add(s.ticker);
+      return true;
+    })
+    .slice(0, 6);
+
+  const tomorrowWatch: WatchItem[] = tmrwPool
+    .filter(s => (Number(s?.volume ?? s?.vol) || 0) >= 1e6)
+    .map(s => ({
+    symbol: s.ticker,
+    score: scoreOf(s) || undefined,
+    grade: (scoreOf(s) >= 70 ? 'A' : 'B') as 'A' | 'B',
+    reason: buildWatchReason(s),
+    catalyst: catalystTextOf(s),
+    catalystUrl: s?.catalystUrl || null,
+    posture: posture(s),
+    dotKind: dotOf(s),
+    chg: chgOf(s),
+    rvol: rvolOf(s),
+    vol: Number(s?.volume ?? s?.vol) || 0,
+    dVol: dVolOf(s),
+    stage: stageOf(s),
+    rsRating: s?.rsRating != null ? Number(s.rsRating) : null,
+  }));
+
+  const gradeMap: Record<string, 'A' | 'B'> = {};
+  const dotMap: Record<string, 'blue' | 'red'> = {};
+  const postureMap: Record<string, PostureBucket> = {};
+  for (const s of pool) {
+    const t = s?.ticker;
+    if (!t || gradeMap[t]) continue;
+    const sc = scoreOf(s);
+    if (sc >= 70) gradeMap[t] = 'A';
+    else if (sc >= 50) gradeMap[t] = 'B';
+    const d = dotOf(s);
+    if (d) dotMap[t] = d;
+    const p = posture(s);
+    if (p) postureMap[t] = p;
+  }
+
   return {
     theme,
+    marketOverview,
     briefing: orderedParas.filter(Boolean).join('\n\n'),
     watching,
+    tomorrowWatch,
+    gradeMap,
+    dotMap,
+    postureMap,
     topCatalyst,
     topCatalysts,
   };
@@ -1621,7 +1787,7 @@ const TICKER_STOPWORDS = new Set([
   'IN', 'OF', 'BY', 'VS', 'ON', 'TO', 'UP', 'AT', 'OR', 'IT', 'AI',
   'US', 'USA', 'FDA', 'SEC', 'IPO', 'CEO', 'EPS', 'FY', 'Q',
   'EST', 'PM', 'AM',
-  'ET', 'FOMC', 'CPI', 'PPI', 'GDP', 'NFP', 'PCE', 'ISM', 'FED', 'MOM', 'YOY', 'U6',
+  'EV', 'ET', 'FOMC', 'CPI', 'PPI', 'GDP', 'NFP', 'PCE', 'ISM', 'FED', 'MOM', 'YOY', 'U6',
   'FIRST', 'TOUCH', 'BELOW', 'CROSS', 'PRE', 'RED', 'DOT', 'BLUE',
 ]);
 
@@ -1629,6 +1795,7 @@ const TICKER_STOPWORDS = new Set([
    they render as tags rather than as prose — and so "FDA" does not get chipped
    as a ticker. */
 const CATALYST_TAGS = 'Earnings|FDA|Analyst|M&A|Offering|Contract|Guidance|Legal|Volatility|Sector';
+const CATALYST_TAGS_SET = new Set(CATALYST_TAGS.split('|'));
 
 /* ---- TYPE SCALE ---------------------------------------------------------
    Stepped down roughly 8% from the previous pass, which buys about one extra
@@ -1672,6 +1839,7 @@ const CATALYST_TAGS = 'Earnings|FDA|Analyst|M&A|Offering|Contract|Guidance|Legal
    border, with a little slack. Tickers here are matched by [A-Z]{1,5} so
    five is the ceiling and nothing can overflow it. */
 const TICKER_CHIP_BASE = "inline-block align-baseline text-[9px] font-bold text-slate-300 bg-slate-500/10 px-1 md:px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5 text-center";
+const TICKER_CHIP_RED = "inline-block align-baseline text-[9px] font-bold text-rose-200 bg-rose-950 px-1 md:px-1.5 py-[1px] rounded border border-rose-500/20 tracking-wider mx-0.5 text-center";
 const tickerChipCls = `${TICKER_CHIP_BASE} min-w-[38px] md:min-w-[44px]`;
 const tickerChipAlignedCls = `${TICKER_CHIP_BASE} w-[48px] md:w-[56px]`;
 const valNum = "text-[11px] tabular-nums";
@@ -1721,8 +1889,9 @@ const postureChipCls = (tone: 'good' | 'warn' | 'bad'): string => {
    lines inside them actually get column widths — a section can hold both
    rows and prose, and Money Flow does exactly that. */
 const ALIGNED_SECTIONS = new Set([
-  'Trade Plan', 'Top Movers', 'SIPs Thesis', 'Daily Setups Thesis',
-  '10/21 Thesis', 'VCP Thesis', 'EP9M Thesis', 'Industry Heat', 'ETF Flow', 'Money Flow',
+  'Top Movers', 'SIPs Thesis', 'Daily Setups Thesis',
+  '10/21 Thesis', 'VCP Thesis', 'EP9M Thesis', '100-Bagger Thesis', 'Industry Heat', 'ETF Flow', 'Money Flow',
+  'Key Events',
 ]);
 
 /* A ROW starts with a ticker (all-caps, 1-5 chars, then a space) or with a
@@ -1731,13 +1900,24 @@ const ALIGNED_SECTIONS = new Set([
    dollar magnets below it get aligned columns. */
 const isRowLine = (line: string): boolean => {
   const t = line.trim();
-  return /^[A-Z]{1,5}\s/.test(t) || /^[+-]\d/.test(t);
+  return /^[A-Z]{1,5}\s/.test(t) || /^[+-]\d/.test(t) || /^[▸∅]?\s*\d{1,2}:\d{2}\s/.test(t);
 };
 
-const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
+const SETUP_BADGES: Record<string, { label: string; cls: string }> = {
+  'Gap & Go': { label: 'GNG', cls: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
+  'Gap and Go': { label: 'GNG', cls: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
+  'Trend Hold': { label: 'TH', cls: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20' },
+  '20 EMA PB': { label: 'PB', cls: 'text-violet-400 bg-violet-500/10 border-violet-500/20' },
+  'BB SQZ': { label: 'SQZ', cls: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
+  'Episodic Pivot': { label: 'EP', cls: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
+};
+
+const renderBriefingText = (text: string, align = false, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>): React.ReactNode[] => {
   const rx = new RegExp(
-    `(▸|●|∅|REV|RED DOT|BLUE DOT|\\[[^\\]]+\\]\\([^)]+\\)|\\d{1,2}:\\d{2} (?:AM|PM)` +
-    `|RVOL (?:\\d+(?:\\.\\d+)?|—)|CNF \\d+|Stage \\d[ABC]?|stoch \\d+(?:\\.\\d+)?` +
+    `(▸|●|∅|N0|Gap & Go|Gap and Go|Trend Hold|20 EMA PB|Episodic Pivot|BB SQZ` +
+    `|REV|RED DOT|BLUE DOT|\\[[^\\]]+\\]\\([^)]+\\)|\\d{1,2}:\\d{2} (?:AM|PM)` +
+    `|(?:act|est|prev) (?:-?\\d+(?:\\.\\d+)?[BMK]?|—)` +
+    `|RVOL (?:\\d+(?:\\.\\d+)?|—)|VOL (?:\\d+(?:\\.\\d+)?[MK]|—)|CNF \\d+|Stage \\d[ABC]?|stoch \\d+(?:\\.\\d+)?` +
     `|RS \\d{1,2}\\b|\\bT[2-9]\\b|(?:TR|ST|TG) \\d+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?x ADR` +
     `|\\d+(?:\\.\\d+)?R\\+?|\\b(?:${CATALYST_TAGS})\\b|10\\/21|S&P|Nasdaq|Dow|Bitcoin` +
     `|\\$\\d+(?:\\.\\d+)?[BMK]|[+-]\\d+(?:\\.\\d+)?%|\\b[A-Z]{1,5}\\b)`,
@@ -1749,6 +1929,7 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
   const cnfW = align ? 'min-w-[22px] md:min-w-[26px] text-center' : '';
   const rtrW = align ? 'min-w-[32px] md:min-w-[38px] text-center' : '';
   const rvolW = align ? 'inline-block min-w-[28px] md:min-w-[30px] text-right' : '';
+  const volW = align ? 'inline-block min-w-[36px] md:min-w-[40px] text-right ml-2' : '';
   const lvlValW = align ? 'inline-block min-w-[30px] md:min-w-[36px] text-right' : '';
   const dvolW = align ? 'inline-block min-w-[42px] md:min-w-[48px] text-right ml-1' : '';
 
@@ -1765,14 +1946,15 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
   const rsValW = align ? 'inline-block min-w-[18px] md:min-w-[20px] text-right' : '';
   const legW = align ? 'min-w-[20px] md:min-w-[24px] text-center' : '';
 
-  /* The news marker and its empty twin share one width, which is the entire
-     reason the sentinel exists — see the v2.5 header. */
   const newsW = align ? 'inline-block w-[10px] md:w-[12px] text-center' : 'inline-block';
+  const newsEndW = align ? 'inline-block min-w-[14px] md:min-w-[16px] text-center' : 'inline-block';
 
-  return parts.map((part, i) => {
+  let hasBlueDot = false;
+  const rendered = parts.map((part, i) => {
     if (!part) return null;
-    if (part === '▸') return <span key={i} className="text-rose-400 font-bold">▸</span>;
+    if (part === '▸') return <span key={i} className={`text-rose-400 font-bold ${align ? 'inline-block w-[10px] text-center' : ''}`}>▸</span>;
     if (part === BLUE_DOT_GLYPH) {
+      if (dotMap) return null;
       return (
         <span key={i} title="Blue Dot reversal — oversold stochastic reset fired on the daily" className="text-sky-400 text-[12px] align-baseline">
           {BLUE_DOT_GLYPH}
@@ -1789,18 +1971,34 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
     if (part === 'RED DOT') return <span key={i} className="text-rose-400 font-bold tracking-wide text-[10px]">RED DOT</span>;
     if (part === 'BLUE DOT') return <span key={i} className="text-cyan-400 font-bold tracking-wide text-[11px]">BLUE DOT</span>;
 
-    /* Empty news slot. Renders nothing but occupies the marker's width, so
-       rows with and without a catalyst align. */
     if (part === '∅') {
       return <span key={i} className={newsW} aria-hidden="true" />;
     }
 
+    if (part === 'N0') {
+      return <span key={i} className={`${newsEndW} text-slate-700 text-[7px]`}>—</span>;
+    }
+
     const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (linkMatch) {
-      /* The news asterisk, distinguished from an ordinary inline link by its
-         label. Amber rather than the link slate because it is a STATUS on
-         the row — this name has a catalyst — and only incidentally a link;
-         reading it should not require noticing it is clickable. */
+      const starTip = linkMatch[1].match(/^(★+)≡(.*)≡$/);
+      if (starTip) {
+        const count = starTip[1].length;
+        const cls = count >= 2 ? 'text-amber-400' : 'text-slate-500';
+        return (
+          <a
+            key={i}
+            href={linkMatch[2]}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={starTip[2]}
+            onClick={(e) => e.stopPropagation()}
+            className={`${newsEndW} ${cls} hover:brightness-125 font-bold text-[7px] leading-none cursor-pointer transition-all`}
+          >
+            {starTip[1]}
+          </a>
+        );
+      }
       const newsTip = linkMatch[1].match(/^\*≡(.*)≡$/);
       if (newsTip) {
         return (
@@ -1811,16 +2009,16 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
             rel="noopener noreferrer"
             title={newsTip[1]}
             onClick={(e) => e.stopPropagation()}
-            className={`${newsW} text-amber-400/90 hover:text-amber-300 font-bold text-[11px] leading-none align-baseline cursor-pointer transition-colors`}
+            className={`${newsEndW} text-amber-400/90 hover:text-amber-300 font-bold text-[7px] leading-none cursor-pointer transition-colors`}
           >
-            *
+            ★
           </a>
         );
       }
       return <a key={i} href={linkMatch[2]} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-cyan-300 hover:underline transition-colors">{linkMatch[1]}</a>;
     }
     if (/^\d{1,2}:\d{2} (?:AM|PM)$/.test(part)) {
-      return <span key={i} className={`${valNum} text-amber-400 font-bold`}>{part}</span>;
+      return <span key={i} className={`${valNum} text-amber-400 font-bold ${align ? 'inline-block min-w-[58px] md:min-w-[64px]' : ''}`}>{part}</span>;
     }
 
     let m = part.match(/^RVOL (\d+(?:\.\d+)?|—)$/);
@@ -1831,6 +2029,20 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
         <span key={i} className={align ? 'ml-1 md:ml-1.5' : ''}>
           <span className="text-slate-500 text-[9px]">RVOL</span>{' '}
           <span className={`${valNum} ${isDash ? 'text-slate-600' : rvolColor(v)} ${rvolW}`}>{m[1]}</span>
+        </span>
+      );
+    }
+    m = part.match(/^VOL (\d+(?:\.\d+)?[MK]|—)$/);
+    if (m) {
+      const isDash = m[1] === '—';
+      return <span key={i} className={`${valNum} ${isDash ? 'text-slate-600' : 'text-slate-400'} ${volW}`}>{m[1]}</span>;
+    }
+    m = part.match(/^(act|est|prev) (-?\S+)$/);
+    if (m) {
+      return (
+        <span key={i} className={align ? 'inline-block ml-1.5' : ''}>
+          <span className="text-slate-500 text-[8px] tracking-tight">{m[1]}</span>{' '}
+          <span className={`${valNum} text-slate-200 ${align ? 'inline-block min-w-[28px] md:min-w-[32px] text-right' : ''}`}>{m[2]}</span>
         </span>
       );
     }
@@ -1929,6 +2141,9 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
         </span>
       );
     }
+    if (part === 'EP') return <span key={i} className="inline-block align-baseline text-[9px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 text-rose-400 bg-rose-500/10 border-rose-500/20">EP</span>;
+    if (part === 'R2G') return <span key={i} className="inline-block align-baseline text-[9px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 text-emerald-400 bg-emerald-500/10 border-emerald-500/20">R2G</span>;
+    if (part === 'PB') return <span key={i} className="inline-block align-baseline text-[9px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 text-violet-400 bg-violet-500/10 border-violet-500/20">PB</span>;
     if (part === '10/21') return <span key={i} className={`${valNum} text-violet-400 font-bold`}>10/21</span>;
     if (part === 'S&P' || part === 'Nasdaq' || part === 'Dow' || part === 'Bitcoin') {
       return <span key={i} className={align ? tickerChipAlignedCls : tickerChipCls}>{part}</span>;
@@ -1938,29 +2153,228 @@ const renderBriefingText = (text: string, align = false): React.ReactNode[] => {
     if (/^-\d+(?:\.\d+)?%$/.test(part)) return <span key={i} className={`${valNum} text-rose-400 ${chgW}`}>{part}</span>;
     if (part === 'DAY') return <span key={i} className="text-amber-400">DAY</span>;
     if (part === 'SWING') return <span key={i} className="text-cyan-400">SWING</span>;
+    const setupBadge = SETUP_BADGES[part];
+    if (setupBadge) {
+      return <span key={i} className={`inline-block align-baseline text-[9px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 ${setupBadge.cls}`}>{setupBadge.label}</span>;
+    }
     if (/^[A-Z]{2,5}$/.test(part) && !TICKER_STOPWORDS.has(part)) {
-      return <span key={i} className={align ? tickerChipAlignedCls : tickerChipCls}>{part}</span>;
+      const grade = gradeMap?.[part];
+      const pb = postureMap?.[part];
+      const pMeta = pb ? POSTURE_META[pb] : null;
+      const isAvoid = avoidSet?.has(part) || dotMap?.[part] === 'red';
+      if (dotMap?.[part] === 'blue') hasBlueDot = true;
+      const chipCls = isAvoid ? TICKER_CHIP_RED : (align ? tickerChipAlignedCls : tickerChipCls);
+      return (
+        <React.Fragment key={i}>
+          {grade ? <span className={`inline-block align-baseline text-[9px] font-black w-[10px] text-center ${grade === 'A' ? 'text-emerald-400' : 'text-amber-400'}`}>{grade}</span> : <span className="inline-block w-[10px]">&nbsp;</span>}
+          <TickerChartHover symbol={part}><span className={chipCls}>{part}</span></TickerChartHover>
+          {pMeta && <span title={`${pMeta.short} — ${pMeta.tip}`} className={`inline-block w-[6px] h-[6px] rounded-full align-middle ml-0.5 cursor-help ${pMeta.tone === 'good' ? 'bg-emerald-400' : pMeta.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`} />}
+        </React.Fragment>
+      );
     }
     return <React.Fragment key={i}>{part}</React.Fragment>;
   });
+  if (hasBlueDot) rendered.push(<span key="dot-end" className="text-sky-400 text-[10px] align-baseline ml-1" title="Blue Dot reversal — oversold stochastic reset fired on the daily">{BLUE_DOT_GLYPH}</span>);
+  return rendered;
 };
 
-/* One renderer for every body line, so the two-column branch and the
-   single-column branch cannot drift apart. An aligned row gets the nowrap
-   treatment inside a scroll wrapper; prose gets neither and wraps normally. */
-const renderBodyLine = (line: string, li: number, aligned: boolean): React.ReactNode => {
+const EXTRA_TOKEN_RX = new RegExp(
+  `(${BLUE_DOT_GLYPH}|RED DOT|REV|BB SQZ|Gap & Go|Gap and Go|Trend Hold|20 EMA PB|Episodic Pivot|` +
+  `RS \\d+|TR \\d+(?:\\.\\d+)?|ST \\d+(?:\\.\\d+)?|` +
+  `${CATALYST_TAGS}|\\S+)`,
+  'g'
+);
+
+const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>, chartHover?: boolean): React.ReactNode => {
+  const grade = gradeMap?.[p.ticker] ?? null;
+  const dot = dotMap?.[p.ticker] ?? null;
+  const isAvoid = avoidSet?.has(p.ticker) ?? false;
+  const pb = postureMap?.[p.ticker] ?? null;
+  const pMeta = pb ? POSTURE_META[pb] : null;
+  const rv = p.rvol;
+  const isDash = p.vol === '—';
+  const dIsDash = p.dvol === '—';
+  const chipBase = (isAvoid || dot === 'red') ? TICKER_CHIP_RED : TICKER_CHIP_BASE;
+
+  const extraEls: React.ReactNode[] = [];
+  if (p.extraStr) {
+    const tokens = p.extraStr.match(EXTRA_TOKEN_RX) || [];
+    tokens.forEach((ex, ei) => {
+      if (ex === BLUE_DOT_GLYPH || SETUP_BADGES[ex] || ex === 'REV') {
+        // handled as dedicated columns, skip
+      } else if (ex === 'RED DOT') {
+        extraEls.push(<span key={`ex${ei}`} className="text-rose-400 text-[10px] align-baseline ml-0.5" title="Active red dot — grade-capped on the long side">{BLUE_DOT_GLYPH}</span>);
+      } else if (/^T[2-9]$/.test(ex)) {
+        extraEls.push(<span key={`ex${ei}`} className="text-[11px] tabular-nums font-semibold text-slate-300 inline-block w-[22px] md:w-[26px] text-center ml-1">{ex}</span>);
+      } else if (/^TR \d/.test(ex)) {
+        extraEls.push(<span key={`ex${ei}`} className="text-[11px] tabular-nums font-medium text-emerald-400 inline-block w-[42px] md:w-[50px] text-right ml-1">{ex.slice(3)}</span>);
+      } else if (/^ST \d/.test(ex)) {
+        extraEls.push(<span key={`ex${ei}`} className="text-[11px] tabular-nums font-medium text-rose-400 inline-block w-[42px] md:w-[50px] text-right ml-1">{ex.slice(3)}</span>);
+      } else if (CATALYST_TAGS_SET.has(ex)) {
+        extraEls.push(<span key={`ex${ei}`} className="text-[9px] font-medium text-amber-400/80 ml-1">{ex}</span>);
+      } else if (ex && ex !== '∅') {
+        extraEls.push(<span key={`ex${ei}`} className="text-[9px] text-slate-500 ml-1">{ex}</span>);
+      }
+    });
+  }
+
+  return (
+    <div key={idx} className={scrollRowCls} style={scrollRowStyle}>
+      <div className="flex items-center whitespace-nowrap py-[3px]">
+        <span className={`inline-block w-[14px] shrink-0 text-center text-[9px] font-black ${grade === 'A' ? 'text-emerald-400' : grade === 'B' ? 'text-amber-400' : 'text-transparent'}`}>{grade || ' '}</span>
+        {chartHover ? (
+          <TickerChartHover symbol={p.ticker}><span className={`${chipBase} w-[48px] md:w-[56px]`}>{p.ticker}</span></TickerChartHover>
+        ) : (
+          <TickerChartHover symbol={p.ticker}><span className={`${chipBase} w-[48px] md:w-[56px]`}>{p.ticker}</span></TickerChartHover>
+        )}
+        <span className="inline-block w-[9px] text-center leading-none shrink-0" />
+        <span className="inline-block w-[8px] text-center shrink-0">
+          {p.blueDot && <span className="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)]" title="Blue Dot reversal — oversold stochastic reset fired on the daily" />}
+        </span>
+        <span className="inline-block w-[8px] text-center shrink-0">
+          {pMeta ? <span title={`${pMeta.short} — ${pMeta.tip}`} className={`inline-block w-[6px] h-[6px] rounded-full cursor-help ${pMeta.tone === 'good' ? 'bg-emerald-400' : pMeta.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`} /> : null}
+        </span>
+        <span className={`inline-block align-baseline text-[9px] font-bold tabular-nums px-1 py-[1px] rounded border ml-1 w-[22px] md:w-[26px] text-center ${cnfBadgeCls(p.cnf)}`}>{p.cnf}</span>
+        <span className={`text-[11px] tabular-nums font-semibold inline-block w-[54px] md:w-[62px] text-right ${p.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{p.chg >= 0 ? '+' : ''}{p.chg.toFixed(2)}%</span>
+        <span className={`text-[11px] tabular-nums font-semibold inline-block w-[42px] md:w-[48px] text-right ml-2 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? rv.toFixed(2) : ''}</span>
+        <span className={`text-[11px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-2 ${isDash ? 'text-transparent' : 'text-slate-400'}`}>{isDash ? '' : p.vol}</span>
+        <span className={`text-[11px] tabular-nums inline-block w-[42px] md:w-[48px] text-right ml-1 ${dIsDash ? 'text-transparent' : 'text-slate-300'}`}>{dIsDash ? '' : p.dvol}</span>
+        <span className={`text-[9px] font-bold ml-1 inline-block w-[18px] text-center ${p.stage && p.stage !== '—' ? stageColor(p.stage) : 'text-transparent'}`}>{p.stage && p.stage !== '—' ? p.stage : ''}</span>
+        <span className={`text-[11px] tabular-nums font-semibold inline-block w-[22px] md:w-[26px] text-right ml-0.5 ${p.rs != null ? rsColor(p.rs) : 'text-transparent'}`}>{p.rs != null ? p.rs : ''}</span>
+        {p.newsCount >= 1 && p.newsUrl ? (
+          <a href={p.newsUrl} target="_blank" rel="noopener noreferrer" title={p.newsTip || ''} onClick={(e) => e.stopPropagation()}
+            className={`inline-block w-[14px] md:w-[16px] text-center ${p.newsCount >= 2 ? 'text-amber-400' : 'text-slate-500'} hover:brightness-125 font-bold text-[7px] leading-none cursor-pointer transition-all ml-0.5`}>{'★'.repeat(p.newsCount)}</a>
+        ) : (
+          <span className="inline-block w-[14px] md:w-[16px] text-center text-slate-700 text-[7px] ml-0.5">—</span>
+        )}
+        {p.setup && (() => { const b = SETUP_BADGES[p.setup]; return b ? <span className={`text-[9px] font-bold px-1 py-[1px] rounded border ml-0.5 ${b.cls}`}>{b.label}</span> : <span className="text-[9px] font-bold text-violet-400 bg-violet-500/10 border border-violet-500/20 px-1 py-[1px] rounded ml-0.5">{p.setup}</span>; })()}
+        {extraEls}
+      </div>
+    </div>
+  );
+};
+
+type ParsedEventRow = {
+  marker: string;
+  time: string;
+  event: string;
+  act: string | null;
+  est: string | null;
+  prev: string | null;
+};
+
+const parseEventLine = (line: string): ParsedEventRow | null => {
+  const t = line.trim();
+  const m = t.match(/^([▸∅])\s+(?:(\d{1,2}:\d{2}\s(?:AM|PM))\s+)?(.+)$/);
+  if (!m) return null;
+  const marker = m[1];
+  const time = m[2] || '';
+  let rest = m[3];
+  let act: string | null = null;
+  let est: string | null = null;
+  let prev: string | null = null;
+  const prevM = rest.match(/\s+prev\s+(\S+)$/);
+  if (prevM) { prev = prevM[1]; rest = rest.slice(0, prevM.index); }
+  const estM = rest.match(/\s+est\s+(\S+)$/);
+  if (estM) { est = estM[1]; rest = rest.slice(0, estM.index); }
+  const actM = rest.match(/\s+act\s+(\S+)$/);
+  if (actM) { act = actM[1]; rest = rest.slice(0, actM.index); }
+  return { marker, time, event: rest.trim(), act, est, prev };
+};
+
+const renderEventRow = (p: ParsedEventRow, idx: number): React.ReactNode => {
+  const pending = p.marker === '▸';
+  return (
+    <div key={idx} className={scrollRowCls} style={scrollRowStyle}>
+      <div className="flex items-center whitespace-nowrap py-[3px]">
+        <span className={`inline-block w-[10px] text-[10px] ${pending ? 'text-amber-400' : 'text-slate-600'}`}>{p.marker}</span>
+        <span className="inline-block w-[62px] md:w-[68px] text-[11px] tabular-nums font-semibold text-slate-400 ml-1">{p.time}</span>
+        <span className={`inline-block w-[180px] md:w-[240px] text-[11px] font-medium truncate ${pending ? 'text-slate-200' : 'text-slate-400'}`}>{p.event}</span>
+        <span className={`inline-block w-[52px] md:w-[60px] text-[11px] tabular-nums font-semibold text-right ml-3 ${p.act ? 'text-emerald-400' : 'text-slate-600'}`}>{p.act || '—'}</span>
+        <span className={`inline-block w-[52px] md:w-[60px] text-[11px] tabular-nums font-semibold text-right ml-1 ${p.est ? 'text-slate-300' : 'text-slate-600'}`}>{p.est || '—'}</span>
+        <span className={`inline-block w-[52px] md:w-[60px] text-[11px] tabular-nums font-semibold text-right ml-1 ${p.prev ? 'text-slate-500' : 'text-slate-600'}`}>{p.prev || '—'}</span>
+      </div>
+    </div>
+  );
+};
+
+type ParsedEarningsRow = {
+  pending: boolean;
+  ticker: string;
+  beat: boolean | null;
+  epsActual: string | null;
+  epsEst: string | null;
+  surprise: string;
+  rev: string;
+};
+
+const parseEarningsLine = (line: string): ParsedEarningsRow | null => {
+  const t = line.trim();
+  const pending = t.startsWith('▸');
+  const rest = pending ? t.slice(1).trim() : t;
+  const m = rest.match(/^([A-Z]{1,5})\s+—\s+(.+)$/);
+  if (!m) return null;
+  const ticker = m[1];
+  const info = m[2];
+  const beatM = info.match(/^(BEAT|MISS)\s+(\S+)\s+vs\s+(\S+)(.*)$/);
+  if (beatM) {
+    const surprise = beatM[4].trim();
+    return { pending, ticker, beat: beatM[1] === 'BEAT', epsActual: beatM[2], epsEst: beatM[3], surprise, rev: '' };
+  }
+  const estM = info.match(/^est\s+(\S+)\s+EPS(.*)$/);
+  if (estM) {
+    const rev = estM[2].replace(/^\s*·?\s*/, '').trim();
+    return { pending, ticker, beat: null, epsActual: null, epsEst: estM[1], surprise: '', rev };
+  }
+  return null;
+};
+
+const renderEarningsRow = (p: ParsedEarningsRow, idx: number): React.ReactNode => {
+  return (
+    <div key={idx} className={scrollRowCls} style={scrollRowStyle}>
+      <div className="flex items-center whitespace-nowrap py-[3px]">
+        <span className={`inline-block w-[10px] text-[10px] ${p.pending ? 'text-amber-400' : 'text-transparent'}`}>{p.pending ? '▸' : ''}</span>
+        <TickerChartHover symbol={p.ticker}><span className={`${TICKER_CHIP_BASE} w-[48px] md:w-[56px]`}>{p.ticker}</span></TickerChartHover>
+        {p.beat != null ? (
+          <>
+            <span className={`inline-block w-[34px] text-[9px] font-bold tracking-wider uppercase ml-2 ${p.beat ? 'text-emerald-400' : 'text-rose-400'}`}>{p.beat ? 'BEAT' : 'MISS'}</span>
+            <span className="text-[11px] tabular-nums font-semibold text-slate-200 inline-block w-[42px] text-right ml-1">{p.epsActual}</span>
+            <span className="text-[10px] text-slate-600 ml-1">vs</span>
+            <span className="text-[11px] tabular-nums font-semibold text-slate-400 inline-block w-[42px] text-right ml-1">{p.epsEst}</span>
+            {p.surprise && <span className={`text-[10px] tabular-nums font-medium ml-1 ${p.beat ? 'text-emerald-400/70' : 'text-rose-400/70'}`}>{p.surprise}</span>}
+          </>
+        ) : (
+          <>
+            <span className="text-[10px] text-slate-500 ml-2">est</span>
+            <span className="text-[11px] tabular-nums font-semibold text-slate-300 inline-block w-[42px] text-right ml-1">{p.epsEst}</span>
+            <span className="text-[10px] text-slate-500 ml-1">EPS</span>
+            {p.rev && <span className="text-[10px] text-slate-500 ml-2">{p.rev}</span>}
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const renderBodyLine = (line: string, li: number, aligned: boolean, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>): React.ReactNode => {
   if (aligned) {
+    const parsed = parseStdLine(line);
+    if (parsed) return renderStdRow(parsed, li, gradeMap, dotMap, postureMap, avoidSet, true);
+    const evParsed = parseEventLine(line);
+    if (evParsed) return renderEventRow(evParsed, li);
+    const earnParsed = parseEarningsLine(line);
+    if (earnParsed) return renderEarningsRow(earnParsed, li);
     return (
       <div key={li} className={scrollRowCls} style={scrollRowStyle}>
-        <p className={`${rowText} text-slate-300 leading-relaxed font-medium whitespace-nowrap`}>
-          {renderBriefingText(line, true)}
+        <p className="text-[11px] text-slate-400 leading-relaxed font-medium whitespace-nowrap">
+          {renderBriefingText(line, true, gradeMap, dotMap, postureMap, avoidSet)}
         </p>
       </div>
     );
   }
   return (
-    <p key={li} className={`${rowText} text-slate-300 leading-relaxed font-medium`}>
-      {renderBriefingText(line, false)}
+    <p key={li} className="text-[11px] text-slate-400 leading-relaxed font-medium">
+      {renderBriefingText(line, false, gradeMap, dotMap, postureMap, avoidSet)}
     </p>
   );
 };
@@ -1973,6 +2387,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: '10/21 Thesis', color: 'violet', blurb: 'Top-ranked names split by holding period. The two percentages are distance from the 21 and the 10 EMA, followed by the posture read. Leveraged and inverse ETFs excluded. A name tagged BELOW 21, EXTENDED, or RED DOT ranks on tape action — it is not at an entry.' },
   { label: 'VCP Thesis', color: 'teal', blurb: 'Volatility Contraction Patterns — bases of successively shallower pullbacks on lighter volume, which is supply being absorbed. TR is the pivot (the high of the final contraction) and ST its low, so the stop is the pattern\'s own invalidation rather than a volatility rule. T3 means three contractions; three or four is the sweet spot. Names that already cleared the pivot and ran are excluded, not ranked last.' },
   { label: 'EP9M Thesis', color: 'rose', blurb: 'Abnormal 9M+ share volume — institutional footprints. Left column beat its own 60-day volume record; right column has no headline out yet, which is the case worth researching.' },
+  { label: '100-Bagger Thesis', color: 'fuchsia', blurb: 'Fundamental compounders — stocks passing hard gates on revenue growth (≥10%) and ROIC (≥10%), scored on six attributes. Grade A = 70+, B = 50+. RS is the IBD-style percentile rating.' },
   { label: 'Industry Heat', color: 'amber', blurb: 'Sector rotation — where money is flowing in and where it is leaving. Wide dispersion = stock-picker tape.' },
   { label: 'ETF Flow', color: 'indigo', blurb: 'Heaviest ETF dollar volume and the advancing/declining split — shows where leveraged money is betting.' },
   { label: 'Money Flow', color: 'rose', blurb: 'Total tracked dollar volume across the scanned universe — who is buying, where dollars concentrate, and the advancing share.' },
@@ -1988,14 +2403,38 @@ const sectionStyles = (color: string) => {
     case 'amber': return { border: 'border-amber-500', badge: 'text-amber-400 bg-amber-500/10 border-amber-500/20', bg: 'bg-amber-500/[0.04]' };
     case 'rose': return { border: 'border-rose-500', badge: 'text-rose-400 bg-rose-500/10 border-rose-500/20', bg: 'bg-rose-500/[0.04]' };
     case 'violet': return { border: 'border-violet-500', badge: 'text-violet-400 bg-violet-500/10 border-violet-500/20', bg: 'bg-violet-500/[0.04]' };
+    case 'fuchsia': return { border: 'border-fuchsia-500', badge: 'text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/20', bg: 'bg-fuchsia-500/[0.04]' };
     case 'indigo': default: return { border: 'border-indigo-500', badge: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20', bg: 'bg-indigo-500/[0.04]' };
   }
+};
+
+const STD_HEADERS = ['', 'TICKER', '', 'CNF', 'CHG%', '', 'RVOL', 'VOL', '$VOL', 'STG', 'RS', 'N'];
+const SECTION_HEADERS: Record<string, string[]> = {
+  'Top Movers': STD_HEADERS,
+  'SIPs Thesis': STD_HEADERS,
+  'Daily Setups Thesis': STD_HEADERS,
+  '10/21 Thesis': STD_HEADERS,
+  'EP9M Thesis': STD_HEADERS,
+  '100-Bagger Thesis': STD_HEADERS,
+  'VCP Thesis': STD_HEADERS,
+  'ETF Flow': STD_HEADERS,
+  'Money Flow': STD_HEADERS,
 };
 
 const splitBriefingSection = (para: string): { label: string | null; color: string; blurb: string; body: string } => {
   for (const sec of BRIEFING_SECTIONS) {
     if (para.startsWith(`${sec.label}:`)) {
-      return { label: sec.label, color: sec.color, blurb: sec.blurb, body: para.slice(sec.label.length + 1).trim() };
+      let body = para.slice(sec.label.length + 1).trim();
+      let blurb = sec.blurb;
+      if (sec.label === '100-Bagger Thesis') {
+        const lines = body.split('\n');
+        const firstLine = lines[0] || '';
+        if (/^\d+A\s*\//.test(firstLine)) {
+          blurb = `${blurb}\n${firstLine}`;
+          body = lines.slice(1).join('\n').trim();
+        }
+      }
+      return { label: sec.label, color: sec.color, blurb, body };
     }
   }
   return { label: null, color: 'indigo', blurb: '', body: para };
@@ -2037,6 +2476,61 @@ function SectionCopyButton({ tickers }: { tickers: string[] }) {
   );
 }
 
+type SortKey = 'cnf' | 'chg' | 'rvol' | 'vol' | 'dvol' | 'stg' | 'rs';
+type SortDir = 'asc' | 'desc';
+type SectionSort = { key: SortKey; dir: SortDir };
+
+function sortParsedRows(rows: ParsedStdRow[], key: SortKey, dir: SortDir): ParsedStdRow[] {
+  const sorted = [...rows];
+  sorted.sort((a, b) => {
+    let av: number, bv: number;
+    switch (key) {
+      case 'cnf': av = a.cnf; bv = b.cnf; break;
+      case 'chg': av = a.chg; bv = b.chg; break;
+      case 'rvol': av = a.rvol ?? 0; bv = b.rvol ?? 0; break;
+      case 'vol': { const pv = (s: string) => { if (s === '—') return 0; const n = parseFloat(s); return s.endsWith('M') ? n * 1e6 : s.endsWith('K') ? n * 1e3 : n; }; av = pv(a.vol); bv = pv(b.vol); break; }
+      case 'dvol': { const pd = (s: string) => { if (s === '—') return 0; const n = parseFloat(s.replace('$', '')); return s.endsWith('B') ? n * 1e9 : s.endsWith('M') ? n * 1e6 : s.endsWith('K') ? n * 1e3 : n; }; av = pd(a.dvol); bv = pd(b.dvol); break; }
+      case 'stg': av = parseFloat(a.stage) || 0; bv = parseFloat(b.stage) || 0; break;
+      case 'rs': av = a.rs ?? 0; bv = b.rs ?? 0; break;
+    }
+    const primary = dir === 'desc' ? bv - av : av - bv;
+    if (primary !== 0 || key === 'rs') return primary;
+    return (b.rs ?? 0) - (a.rs ?? 0);
+  });
+  return sorted;
+}
+
+function SortableHeader({ sortKey, sortDir, onSort, isVcp }: { sortKey: SortKey | null; sortDir: SortDir; onSort: (k: SortKey) => void; isVcp?: boolean }) {
+  const hCls = 'cursor-pointer hover:text-slate-400 transition-colors select-none';
+  const arrow = (k: SortKey) => sortKey === k ? (sortDir === 'desc' ? ' ↓' : ' ↑') : '';
+  return (
+    <div className={scrollRowCls} style={scrollRowStyle}>
+      <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
+        <span className="inline-block w-[14px]" />
+        <span className="inline-block w-[48px] md:w-[56px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
+        <span className="inline-block w-[9px]" />
+        <span className="inline-block w-[8px]" />
+        <span className="inline-block w-[8px]" />
+        <span className={`inline-block w-[22px] md:w-[26px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1 ${hCls}`} onClick={() => onSort('cnf')}>CNF{arrow('cnf')}</span>
+        <span className={`inline-block w-[54px] md:w-[62px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ${hCls}`} onClick={() => onSort('chg')}>CHG%{arrow('chg')}</span>
+        <span className={`inline-block w-[42px] md:w-[48px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 ${hCls}`} onClick={() => onSort('rvol')}>RVOL{arrow('rvol')}</span>
+        <span className={`inline-block w-[36px] md:w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 ${hCls}`} onClick={() => onSort('vol')}>VOL{arrow('vol')}</span>
+        <span className={`inline-block w-[42px] md:w-[48px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1 ${hCls}`} onClick={() => onSort('dvol')}>$VOL{arrow('dvol')}</span>
+        <span className={`inline-block w-[18px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1 ${hCls}`} onClick={() => onSort('stg')}>STG{arrow('stg')}</span>
+        <span className={`inline-block w-[22px] md:w-[26px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-0.5 ${hCls}`} onClick={() => onSort('rs')}>RS{arrow('rs')}</span>
+        <span className="inline-block w-[14px] md:w-[16px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-0.5">N</span>
+        {isVcp && (
+          <>
+            <span className="inline-block w-[22px] md:w-[26px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">T#</span>
+            <span className="inline-block w-[42px] md:w-[50px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">TR</span>
+            <span className="inline-block w-[42px] md:w-[50px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">ST</span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function MarketSummary() {
   const [data, setData] = useState<SummaryData | null>(null);
   const [macroInsights, setMacroInsights] = useState<MacroInsights | null>(null);
@@ -2044,6 +2538,17 @@ export default function MarketSummary() {
   const [session, setSession] = useState<MarketSession>('Closed');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
+  const [sectionSorts, setSectionSorts] = useState<Record<string, SectionSort>>({});
+  const handleSectionSort = useCallback((sectionLabel: string, key: SortKey) => {
+    setSectionSorts(prev => {
+      const cur = prev[sectionLabel];
+      if (cur?.key === key) {
+        if (cur.dir === 'desc') return { ...prev, [sectionLabel]: { key, dir: 'asc' } };
+        const next = { ...prev }; delete next[sectionLabel]; return next;
+      }
+      return { ...prev, [sectionLabel]: { key, dir: 'desc' } };
+    });
+  }, []);
   /* Collapse state is keyed by section LABEL, not index. Sections appear and
      disappear between scans — EP9M is empty before volume builds, Key Events
      is empty on a quiet calendar — and an index-keyed set would silently
@@ -2069,107 +2574,67 @@ export default function MarketSummary() {
       if (isMounted) setSession(getMarketSession());
 
       try {
-        const narrativeRes = await fetch('/api/market-summary', { cache: 'no-store' });
-        if (!narrativeRes.ok) {
-          if (narrativeRes.status === 404 && isMounted) {
-            setData({ morning: null, midday: null, closing: null, actionableEvents: [] });
-          } else {
-            throw new Error(`Narrative API returned status: ${narrativeRes.status}`);
-          }
-        } else {
-          const payload: SummaryData = await narrativeRes.json();
-          if (isMounted) {
-            const estTime = getCurrentEstDecimal();
-            setData({
-              morning: (estTime >= BLOCK_WINDOWS.morning.opens || isWeekend) ? (payload.morning || null) : null,
-              midday: (estTime >= BLOCK_WINDOWS.midday.opens || isWeekend) ? (payload.midday || null) : null,
-              closing: (estTime >= BLOCK_WINDOWS.closing.opens || isWeekend) ? (payload.closing || null) : null,
-              actionableEvents: payload.actionableEvents || [],
-            });
-          }
+        const snapshotRes = await fetch(`/api/claude/snapshot/${Date.now()}?extras=1&limit=50`, { cache: 'no-store' });
+        if (!snapshotRes.ok) throw new Error(`Snapshot API returned status: ${snapshotRes.status}`);
+        const snapshot = await snapshotRes.json();
+        const sd = snapshot?.data ?? {};
+
+        // Narrative blocks
+        const narrative = sd.marketSummary;
+        if (isMounted && narrative) {
+          const estTime = getCurrentEstDecimal();
+          setData({
+            morning: (estTime >= BLOCK_WINDOWS.morning.opens || isWeekend) ? (narrative.morning || null) : null,
+            midday: (estTime >= BLOCK_WINDOWS.midday.opens || isWeekend) ? (narrative.midday || null) : null,
+            closing: (estTime >= BLOCK_WINDOWS.closing.opens || isWeekend) ? (narrative.closing || null) : null,
+            actionableEvents: narrative.actionableEvents || [],
+          });
+        } else if (isMounted) {
+          setData({ morning: null, midday: null, closing: null, actionableEvents: [] });
         }
-      } catch (error) {
-        console.error('Narrative Sync Error:', error);
-      }
 
-      try {
-        const [scannerRes, ep9mRes, econRes, earningsRes, swingRes, consolRes, vcpRes] = await Promise.all([
-          fetch('/api/scanner/latest', { cache: 'no-store' }),
-          fetch(`/api/ep9m/latest?t=${Date.now()}`, { cache: 'no-store' }).catch(() => null),
-          fetch('/api/econ', { cache: 'no-store' }).catch(() => null),
-          fetch('/api/earnings', { cache: 'no-store' }).catch(() => null),
-          fetch(`/api/swing-candidates/latest?t=${Date.now()}`, { cache: 'no-store' }).catch(() => null),
-          fetch(`/api/consolidation/latest?t=${Date.now()}`, { cache: 'no-store' }).catch(() => null),
-          fetch(`/api/vcp/latest?t=${Date.now()}`, { cache: 'no-store' }).catch(() => null),
-        ]);
-        if (!scannerRes.ok) throw new Error(`Scanner API returned status: ${scannerRes.status}`);
+        // Scanner data
+        const scannerData = sd.stocksInPlay;
+        if (!scannerData) throw new Error('No scanner data in snapshot');
 
-        const scannerData = await scannerRes.json();
-
-        let ep9mList: any[] = [];
-        try {
-          if (ep9mRes && ep9mRes.ok) {
-            const ep9mData = await ep9mRes.json();
-            if (ep9mData && Array.isArray(ep9mData.candidates)) ep9mList = ep9mData.candidates;
-          }
-        } catch { /* ep9m is optional */ }
-
-        let econList: EconEvent[] = [];
-        try {
-          if (econRes && econRes.ok) {
-            const d = await econRes.json();
-            if (Array.isArray(d)) econList = d;
-          }
-        } catch { /* econ is optional */ }
+        const ep9mList: any[] = sd.ep9m?.candidates ?? [];
+        const econList: EconEvent[] = Array.isArray(sd.econ) ? sd.econ : [];
 
         let earningsList: EarningsEvent[] = [];
-        try {
-          if (earningsRes && earningsRes.ok) {
-            const d = await earningsRes.json();
-            const raw: any[] = Array.isArray(d) ? d : (d && Array.isArray(d.events) ? d.events : []);
-            earningsList = raw.map((e: any) => {
-              const cap = e.mktCap ?? 0;
-              const imp = cap >= 100e9 ? 10 : cap >= 20e9 ? 7 : cap >= 5e9 ? 5 : 2;
-              return { ...e, importance: imp };
-            });
-          }
-        } catch { /* earnings is optional */ }
+        const earningsRaw = sd.earnings;
+        if (earningsRaw) {
+          const raw: any[] = Array.isArray(earningsRaw) ? earningsRaw : (earningsRaw?.events ?? []);
+          earningsList = raw.map((e: any) => {
+            const cap = e.mktCap ?? 0;
+            const imp = cap >= 100e9 ? 10 : cap >= 20e9 ? 7 : cap >= 5e9 ? 5 : 2;
+            return { ...e, importance: imp };
+          });
+        }
 
-        let swingList: any[] = [];
-        try {
-          if (swingRes && swingRes.ok) {
-            const d = await swingRes.json();
-            if (d && Array.isArray(d.candidates)) swingList = d.candidates;
-          }
-        } catch { /* swing is optional */ }
-
-        let consolList: any[] = [];
-        try {
-          if (consolRes && consolRes.ok) {
-            const d = await consolRes.json();
-            if (d && Array.isArray(d.candidates)) consolList = d.candidates;
-          }
-        } catch { /* consolidation is optional */ }
-
-        /* VCP is optional in the strongest sense: the scan runs once daily
-           and legitimately returns nothing when the market has no bases,
-           which on a trending or falling tape is the normal result rather
-           than a fault. An empty list produces no section at all. */
-        let vcpList: any[] = [];
-        try {
-          if (vcpRes && vcpRes.ok) {
-            const d = await vcpRes.json();
-            if (d && Array.isArray(d.candidates)) vcpList = d.candidates;
-          }
-        } catch { /* vcp is optional */ }
+        const swingList: any[] = sd.swingCandidates?.candidates ?? [];
+        const consolList: any[] = sd.consolidation1021?.candidates ?? [];
+        const vcpList: any[] = sd.vcp?.candidates ?? [];
+        const mbList: any[] = sd.multibagger?.candidates ?? [];
 
         if (isMounted) {
-          const local = buildLocalInsights(scannerData, ep9mList, econList, earningsList, swingList, consolList, vcpList, scannerData?.liveChgMap ?? null);
+          const local = buildLocalInsights(scannerData, ep9mList, econList, earningsList, swingList, consolList, vcpList, mbList, scannerData?.liveChgMap ?? null);
           if (local) setMacroInsights(local);
           else if (scannerData.macroInsights) setMacroInsights(scannerData.macroInsights);
+
+          try {
+            const briefRes = await fetch('/api/analyst/brief', { cache: 'no-store' });
+            if (briefRes.ok) {
+              const brief = await briefRes.json();
+              const avoidSection = brief?.sections?.find((s: any) => s.section === 'Top Avoid');
+              if (avoidSection?.stocks?.length) {
+                const avoidTickers = new Set<string>(avoidSection.stocks.map((s: any) => s.ticker));
+                setMacroInsights(prev => prev ? { ...prev, avoidSet: avoidTickers } : prev);
+              }
+            }
+          } catch { /* analyst brief optional */ }
         }
       } catch (error) {
-        console.error('Scanner Macro Sync Error:', error);
+        console.error('Snapshot Sync Error:', error);
       }
 
       if (isMounted) {
@@ -2210,6 +2675,7 @@ export default function MarketSummary() {
       .replace(/(10\/21 Thesis:)/gi, '\n\n$1')
       .replace(/(VCP Thesis:)/gi, '\n\n$1')
       .replace(/(EP9M Thesis:)/gi, '\n\n$1')
+      .replace(/(100-Bagger Thesis:)/gi, '\n\n$1')
       .replace(/(Industry Heat:)/gi, '\n\n$1')
       .replace(/(ETF Flow:)/gi, '\n\n$1')
       .replace(/(Money Flow:)/gi, '\n\n$1')
@@ -2248,7 +2714,7 @@ export default function MarketSummary() {
         <div className="space-y-3 mb-5">
           {block.paragraphs.map((p, idx) => (
             <p key={idx} className={`${rowText} text-slate-400 leading-relaxed border-l-[2px] border-slate-500/30 pl-2.5 md:pl-3.5`}>
-              {renderBriefingText(p)}
+              {renderBriefingText(p, false, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet)}
             </p>
           ))}
         </div>
@@ -2270,7 +2736,7 @@ export default function MarketSummary() {
   };
 
   return (
-    <div className="bg-[#101623] border border-white/10 rounded-2xl p-3 sm:p-6 md:p-8 relative overflow-hidden shadow-2xl w-full">
+    <div className="bg-[#101623] border border-white/10 rounded-2xl p-3 sm:p-6 md:p-8 relative overflow-x-auto shadow-2xl w-full" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}>
       <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-500 via-emerald-500 to-indigo-500 opacity-40"></div>
 
       <div
@@ -2304,44 +2770,13 @@ export default function MarketSummary() {
             <div className="mb-6 md:mb-8 bg-[#161c2a]/60 border border-cyan-500/20 rounded-xl p-3 sm:p-5 md:p-6 relative overflow-hidden shadow-[0_0_15px_rgba(34,211,238,0.03)]">
               <div className="absolute right-0 top-0 w-64 h-64 bg-cyan-500/10 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
 
-              <div className="flex items-center gap-2 sm:gap-3 mb-3 relative z-10 flex-wrap">
+              <div className="flex items-center gap-2 sm:gap-3 mb-3 relative z-10">
                 <span className="text-[9px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2 sm:px-3 py-1 rounded tracking-widest uppercase flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
                   MARKET BRIEFING
                 </span>
-                <span className="text-[13px] sm:text-sm md:text-base font-black text-white tracking-wide">{macroInsights.theme}</span>
               </div>
 
-              {(() => {
-                const cats = (macroInsights.topCatalysts && macroInsights.topCatalysts.length)
-                  ? macroInsights.topCatalysts
-                  : (macroInsights.topCatalyst ? [macroInsights.topCatalyst] : []);
-                if (!cats.length) return null;
-                return (
-                  <div className="mb-5 md:mb-6 relative z-10 flex flex-col gap-2">
-                    {cats.map((cat, ci) => (
-                      <div key={ci} className="border-l-[3px] border-amber-500 bg-amber-500/[0.04] rounded-r-xl px-2.5 md:px-4 py-3">
-                        <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
-                          <span className="text-[8px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded shrink-0">{ci === 0 ? 'TOP CATALYST' : 'CATALYST'}</span>
-                          <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider shrink-0">{cat.ticker}</span>
-                          {cat.url ? (
-                            <a href={cat.url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-slate-300 font-medium hover:text-cyan-300 transition-colors hover:underline">
-                              {cat.headline}
-                            </a>
-                          ) : (
-                            <span className="text-[11px] text-slate-300 font-medium">{cat.headline}</span>
-                          )}
-                        </div>
-                        {cat.brief && (
-                          <p className="text-[11px] text-slate-400 font-medium leading-relaxed mt-2">
-                            {renderBriefingText(cat.brief)}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
 
               <div className="relative z-10 flex flex-col gap-6 md:gap-8">
                 {(() => {
@@ -2367,6 +2802,37 @@ export default function MarketSummary() {
                           </button>
                         )}
                       </div>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-3 px-1">
+                        <span className="flex items-center gap-1.5 text-[9px] text-slate-500 font-bold tracking-wider uppercase cursor-help" title="Grade A = CNF 70+, Grade B = CNF 50–69">
+                          <span className="text-emerald-400 font-black">A</span>
+                          <span className="text-amber-400 font-black">B</span>
+                          GRADE
+                        </span>
+                        <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-800/60 border border-white/5">
+                          <span className="text-[8px] font-bold tracking-wider uppercase text-slate-500">10/21</span>
+                          <span className="inline-block w-[6px] h-[6px] rounded-full bg-emerald-400" />
+                          <span className="text-[8px] text-slate-400 font-medium cursor-help" title="Stacked: above both EMAs, trend intact. First Touch: pulled back to 10 EMA, holding above 21.">STACKED</span>
+                          <span className="inline-block w-[6px] h-[6px] rounded-full bg-amber-400" />
+                          <span className="text-[8px] text-slate-400 font-medium cursor-help" title="Pre-Cross: below 21 EMA but 10 and 21 converging — potential trend change, not confirmed.">PRE-CROSS</span>
+                          <span className="inline-block w-[6px] h-[6px] rounded-full bg-rose-400" />
+                          <span className="text-[8px] text-slate-400 font-medium cursor-help" title="Extended: too far above moving averages, poor risk/reward. Below 21: trend is down or broken.">EXT / BELOW</span>
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          {Object.entries(SETUP_BADGES).filter(([k]) => !k.includes('and')).map(([k, v]) => (
+                            <span key={k} title={k} className={`inline-block text-[7px] font-bold tracking-wider uppercase px-1 py-[0.5px] rounded border cursor-help ${v.cls}`}>{v.label}</span>
+                          ))}
+                        </span>
+                        <span title="Trap — stock looks exciting on the surface but the structure is broken (late-stage base, failed breakout, or relief rally in a downtrend). Avoid." className="inline-block text-[7px] font-bold tracking-wider uppercase px-1 py-[0.5px] rounded border cursor-help text-rose-200 bg-rose-950 border-rose-500/20">TRAP</span>
+                        <span title="Blue Dot reversal — oversold stochastic reset fired on the daily" className="text-sky-400 text-[9px] cursor-help">{BLUE_DOT_GLYPH}</span>
+                        <span className="flex items-center gap-1.5 text-[9px] text-slate-500 font-bold tracking-wider uppercase">
+                          <span className="text-slate-500 font-bold text-[7px] cursor-help" title="Has a news article linked to this ticker">★</span>
+                          <span className="cursor-help" title="1 star = news article linked">NEWS</span>
+                        </span>
+                        <span className="flex items-center gap-1.5 text-[9px] text-slate-500 font-bold tracking-wider uppercase">
+                          <span className="text-amber-400 font-bold text-[7px] cursor-help" title="Strong fundamental catalyst — earnings, FDA, M&A, analyst action, or other material event">★★</span>
+                          <span className="cursor-help" title="2 stars = strong fundamental catalyst">CATALYST</span>
+                        </span>
+                      </div>
                       <div className="flex flex-col gap-3">
                         {sections.map((sec, idx) => {
                           const { label, color, blurb, body, key } = sec;
@@ -2387,7 +2853,6 @@ export default function MarketSummary() {
                                       title={isOpen ? 'Collapse this section' : 'Expand this section'}
                                       className="flex items-center gap-2 group/sec"
                                     >
-                                      <span className={`text-[8px] text-slate-500 group-hover/sec:text-slate-300 transition-all duration-200 ${isOpen ? 'rotate-90' : ''}`}>▸</span>
                                       <span className={`inline-block text-[8px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border ${st.badge}`}>
                                         {label}
                                       </span>
@@ -2399,9 +2864,10 @@ export default function MarketSummary() {
                                       </span>
                                     )}
                                   </div>
-                                  {isOpen && blurb && <p className="text-[10px] text-slate-500 font-medium mt-1.5 leading-snug">{blurb}</p>}
+                                  {isOpen && blurb && <p className="text-[10px] text-slate-500 font-medium mt-1.5 leading-snug">{blurb.split('\n').map((line, i, arr) => <React.Fragment key={i}>{line}{i < arr.length - 1 && <br/>}</React.Fragment>)}</p>}
                                 </div>
                               )}
+                              {/* Header for single-column aligned sections is now rendered inside the body block below */}
                               {isOpen && (
                                 body.includes('|||') ? (
                                   (() => {
@@ -2418,12 +2884,36 @@ export default function MarketSummary() {
                                       <>
                                         {topBlock && (
                                           <div className="space-y-1.5 mb-4 pb-3 border-b border-white/5">
-                                            {topBlock.split('\n').filter(Boolean).map((line, li) => {
-                                              const tLines = line.trim().split('\n').filter(Boolean);
-                                              const isHead = tLines.length === 1 && line.trim().endsWith(':');
-                                              if (isHead) return <p key={li} className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5">{line.replace(/:$/, '')}</p>;
-                                              return renderBodyLine(line, li, sectionAligns && isRowLine(line));
-                                            })}
+                                            {(() => {
+                                              const tbLines = topBlock.split('\n').filter(Boolean);
+                                              const isKeyEvents = label === 'Key Events';
+                                              let headerInserted = false;
+                                              return tbLines.map((line, li) => {
+                                                const isHead = line.trim().endsWith(':');
+                                                if (isHead) {
+                                                  headerInserted = false;
+                                                  return <p key={li} className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5">{line.replace(/:$/, '')}</p>;
+                                                }
+                                                const els: React.ReactNode[] = [];
+                                                if (isKeyEvents && !headerInserted) {
+                                                  headerInserted = true;
+                                                  els.push(
+                                                    <div key={`eh-${li}`} className={scrollRowCls} style={scrollRowStyle}>
+                                                      <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
+                                                        <span className="inline-block w-[10px]" />
+                                                        <span className="inline-block w-[62px] md:w-[68px] text-[7px] font-bold tracking-widest uppercase text-slate-600 ml-1">TIME</span>
+                                                        <span className="inline-block w-[180px] md:w-[240px] text-[7px] font-bold tracking-widest uppercase text-slate-600">EVENT</span>
+                                                        <span className="inline-block w-[52px] md:w-[60px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-3">ACT</span>
+                                                        <span className="inline-block w-[52px] md:w-[60px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">EST</span>
+                                                        <span className="inline-block w-[52px] md:w-[60px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">PREV</span>
+                                                      </div>
+                                                    </div>
+                                                  );
+                                                }
+                                                els.push(renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet));
+                                                return els;
+                                              });
+                                            })()}
                                           </div>
                                         )}
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
@@ -2432,41 +2922,127 @@ export default function MarketSummary() {
                                             const [heading, ...rows] = colLines;
                                             const isHeading = heading && heading.trim().endsWith(':');
                                             const render = (line: string, li: number) =>
-                                              renderBodyLine(line, li, sectionAligns && isRowLine(line));
+                                              renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet);
+                                            const isVcp = label === 'VCP Thesis';
+                                            const isKeyEv = label === 'Key Events';
+                                            const colSortKey = `${label}-${ci}`;
+                                            const colSort = sectionSorts[colSortKey] ?? null;
+                                            const inlineHeader = isKeyEv ? (
+                                              <div className={scrollRowCls} style={scrollRowStyle}>
+                                                <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
+                                                  <span className="inline-block w-[10px]" />
+                                                  <span className="inline-block w-[48px] md:w-[56px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
+                                                  <span className="inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600 ml-2">EPS</span>
+                                                </div>
+                                              </div>
+                                            ) : sectionAligns && SECTION_HEADERS[label!] ? (
+                                              <SortableHeader sortKey={colSort?.key ?? 'cnf'} sortDir={colSort?.dir ?? 'desc'} onSort={(k) => handleSectionSort(colSortKey, k)} isVcp={isVcp} />
+                                            ) : null;
+                                            const sortedRender = (lines: string[]) => {
+                                              if (!sectionAligns) return lines.map(render);
+                                              const activeSort = colSort ?? { key: 'cnf' as SortKey, dir: 'desc' as SortDir };
+                                              const stockLines: string[] = [];
+                                              const stockParsed: ParsedStdRow[] = [];
+                                              const nonStockRendered: React.ReactNode[] = [];
+                                              lines.forEach((l, i) => {
+                                                const p = parseStdLine(l);
+                                                if (p) { stockLines.push(l); stockParsed.push(p); }
+                                                else nonStockRendered.push(render(l, i));
+                                              });
+                                              const sortedIdxs = sortParsedRows(stockParsed, activeSort.key, activeSort.dir)
+                                                .map(sr => stockParsed.indexOf(sr));
+                                              return [...nonStockRendered, ...sortedIdxs.map((idx, i) => render(stockLines[idx], 1000 + i))];
+                                            };
+                                            const renderWithSubHeadings = (lines: string[]) => {
+                                              const groups: { heading: string | null; rows: string[] }[] = [];
+                                              let cur: { heading: string | null; rows: string[] } = { heading: null, rows: [] };
+                                              lines.forEach(l => {
+                                                if (l.trim().endsWith(':')) {
+                                                  if (cur.rows.length > 0 || cur.heading) groups.push(cur);
+                                                  cur = { heading: l.trim().replace(/:$/, ''), rows: [] };
+                                                } else {
+                                                  cur.rows.push(l);
+                                                }
+                                              });
+                                              if (cur.rows.length > 0 || cur.heading) groups.push(cur);
+                                              return groups.map((g, gi) => (
+                                                <React.Fragment key={gi}>
+                                                  {g.heading && <p className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5 pt-1">{g.heading}</p>}
+                                                  {g.rows.length > 0 && inlineHeader}
+                                                  {sortedRender(g.rows)}
+                                                </React.Fragment>
+                                              ));
+                                            };
                                             return (
                                               <div key={ci} className="space-y-1.5">
-                                                {isHeading ? (
+                                                {isHeading ? renderWithSubHeadings(rows) : (
                                                   <>
-                                                    <p className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5 border-b border-white/5">
-                                                      {heading.replace(/:$/, '')}
-                                                    </p>
-                                                    {rows.map(render)}
+                                                    {inlineHeader}
+                                                    {sortedRender(colLines)}
                                                   </>
-                                                ) : (
-                                                  colLines.map(render)
                                                 )}
                                               </div>
                                             );
                                           })}
                                         </div>
-                                        {afterCols && (
-                                          <div className="space-y-1.5 mt-4 pt-3 border-t border-white/5">
-                                            {afterCols.trim().split('\n').filter(Boolean).map((line, li) => (
-                                              <p key={li} className="text-[11px] text-slate-400 leading-relaxed font-medium">
-                                                {renderBriefingText(line)}
-                                              </p>
-                                            ))}
-                                          </div>
-                                        )}
+                                        {afterCols && (() => {
+                                          const acLines = afterCols.trim().split('\n').filter(Boolean);
+                                          const acRender = (line: string, li: number) =>
+                                            renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet);
+                                          const acHeader = sectionAligns && SECTION_HEADERS[label!] ? <SortableHeader sortKey={null} sortDir={'desc'} onSort={() => {}} isVcp={label === 'VCP Thesis'} /> : null;
+                                          const acGroups: { heading: string | null; rows: string[] }[] = [];
+                                          let acCur: { heading: string | null; rows: string[] } = { heading: null, rows: [] };
+                                          acLines.forEach(l => {
+                                            if (l.trim().endsWith(':')) {
+                                              if (acCur.rows.length > 0 || acCur.heading) acGroups.push(acCur);
+                                              acCur = { heading: l.trim().replace(/:$/, ''), rows: [] };
+                                            } else { acCur.rows.push(l); }
+                                          });
+                                          if (acCur.rows.length > 0 || acCur.heading) acGroups.push(acCur);
+                                          return (
+                                            <div className="space-y-1.5 mt-4 pt-3 border-t border-white/5">
+                                              {acGroups.map((g, gi) => (
+                                                <React.Fragment key={gi}>
+                                                  {g.heading && <p className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5 pt-1">{g.heading}</p>}
+                                                  {g.rows.length > 0 && g.rows.some(r => isRowLine(r)) && acHeader}
+                                                  {g.rows.map(acRender)}
+                                                </React.Fragment>
+                                              ))}
+                                            </div>
+                                          );
+                                        })()}
                                       </>
                                     );
                                   })()
                                 ) : (
-                                  <div className="space-y-2">
-                                    {body.split('\n').filter(Boolean).map((line, li) =>
-                                      renderBodyLine(line, li, sectionAligns && isRowLine(line))
-                                    )}
-                                  </div>
+                                  (() => {
+                                    const sk = `${label}-single`;
+                                    const ss = sectionSorts[sk] ?? null;
+                                    const bodyLines = body.split('\n').filter(Boolean);
+                                    const renderLine = (line: string, li: number) =>
+                                      renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet);
+                                    if (!sectionAligns) {
+                                      return <div className="space-y-2">{bodyLines.map(renderLine)}</div>;
+                                    }
+                                    const activeSort = ss ?? { key: 'cnf' as SortKey, dir: 'desc' as SortDir };
+                                    const stockLines: string[] = [];
+                                    const stockParsed: ParsedStdRow[] = [];
+                                    const nonStock: React.ReactNode[] = [];
+                                    bodyLines.forEach((l, i) => {
+                                      const p = parseStdLine(l);
+                                      if (p) { stockLines.push(l); stockParsed.push(p); }
+                                      else nonStock.push(renderLine(l, i));
+                                    });
+                                    const sortedIdxs = sortParsedRows(stockParsed, activeSort.key, activeSort.dir).map(sr => stockParsed.indexOf(sr));
+                                    const hasHeader = !!label && !!SECTION_HEADERS[label];
+                                    return (
+                                      <div className="space-y-1.5">
+                                        {nonStock.length > 0 && <div className="space-y-1 mb-1">{nonStock}</div>}
+                                        {hasHeader && <SortableHeader sortKey={ss?.key ?? 'cnf'} sortDir={ss?.dir ?? 'desc'} onSort={(k) => handleSectionSort(sk, k)} isVcp={label === 'VCP Thesis'} />}
+                                        {sortedIdxs.map((idx, i) => renderLine(stockLines[idx], 1000 + i))}
+                                      </div>
+                                    );
+                                  })()
                                 )
                               )}
                             </div>
@@ -2477,95 +3053,141 @@ export default function MarketSummary() {
                   );
                 })()}
 
-                <div className="border-t border-white/5 pt-5 md:pt-6">
-                  <h3 className="text-[8px] font-bold tracking-widest uppercase text-slate-500 mb-3">What To Watch &amp; Why</h3>
-                  <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                    {macroInsights.watching?.map((item, idx) => {
-                      const symbol = typeof item === 'string' ? item : item.symbol;
-                      const reason = typeof item === 'string' ? 'Momentum continuation and algorithmic confluence.' : item.reason;
-                      const catalyst = typeof item === 'string' ? null : item.catalyst;
-                      const catalystUrl = typeof item === 'string' ? null : item.catalystUrl;
-                      const pb = typeof item === 'string' ? null : (item.posture || null);
-                      const pMeta = pb ? POSTURE_META[pb] : null;
-                      const dk = typeof item === 'string' ? null : (item.dotKind || null);
-
-                      let parsedScore: number | undefined = undefined;
-                      if (typeof item === 'object' && item.score !== undefined && item.score !== null) {
-                        const n = Number(item.score.toString().replace(/\D/g, ''));
-                        if (!isNaN(n)) parsedScore = n;
-                      }
-
-                      return (
-                        <li key={idx} className={`flex flex-col gap-2 bg-[#161c2a]/60 p-3 md:p-3.5 rounded-xl border transition-colors ${
-                          dk === 'red' ? 'border-rose-500/25 hover:border-rose-500/40' : 'border-white/5 hover:border-cyan-500/20'
-                        }`}>
-                          <div className="flex items-center justify-between gap-2 flex-wrap">
-                            <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider">
-                              {symbol}
-                            </span>
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              {dk === 'red' && (
-                                <span className="text-[8px] font-bold px-1 py-0.5 rounded border tracking-wider uppercase text-rose-400 bg-rose-500/10 border-rose-500/20">
-                                  RD
-                                </span>
-                              )}
-                              {dk === 'blue' && (
-                                <span className="text-sky-400 text-[12px] leading-none" title="Blue Dot reversal">
-                                  {BLUE_DOT_GLYPH}
-                                </span>
-                              )}
-                              {pMeta && (
-                                <span className={`text-[8px] font-bold px-1 py-0.5 rounded border tracking-wider uppercase whitespace-nowrap ${postureChipCls(pMeta.tone)}`}>
-                                  {pMeta.short}
-                                </span>
-                              )}
-                              {parsedScore !== undefined && (
-                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border tracking-wide ${cnfBadgeCls(parsedScore)}`}>
-                                  {parsedScore}
-                                </span>
-                              )}
-                            </div>
-                          </div>
+                {(macroInsights.watching?.length > 0 || macroInsights.tomorrowWatch?.length > 0) && (
+                  <div className="border-t border-white/5 pt-5 md:pt-6 grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
+                    {macroInsights.watching?.length > 0 && (
+                      <div className="border-l-[3px] border-cyan-500 rounded-r-xl px-2.5 md:px-4 py-3 bg-cyan-500/[0.04]">
+                        <div className="flex items-center gap-3 mb-2">
+                          <span className="inline-block text-[8px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border text-cyan-400 bg-cyan-500/10 border-cyan-500/20">Top Setups</span>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(macroInsights.watching.map(w => w.symbol).join(','));
+                            }}
+                            className="text-[8px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border bg-[#161c2a] text-slate-500 border-white/5 hover:text-cyan-400 hover:border-cyan-500/30 transition-all"
+                          >
+                            Copy {macroInsights.watching.length}
+                          </button>
+                        </div>
+                        <div className="flex flex-col gap-0.5">
+                          <SortableHeader sortKey={sectionSorts['Top Setups']?.key ?? null} sortDir={sectionSorts['Top Setups']?.dir ?? 'desc'} onSort={(k) => handleSectionSort('Top Setups', k)} />
                           {(() => {
-                            const clauses = (reason || '').split(';').map((c) => c.trim()).filter(Boolean);
-                            if (clauses.length <= 1) {
-                              return (
-                                <p className={`${rowText} text-slate-300 font-medium leading-relaxed`}>
-                                  {renderBriefingText(reason)}
-                                </p>
-                              );
-                            }
+                            const ws = sectionSorts['Top Setups'];
+                            const items = ws ? [...macroInsights.watching].sort((a, b) => {
+                              let av = 0, bv = 0;
+                              switch (ws.key) {
+                                case 'cnf': av = Number(a.score) || 0; bv = Number(b.score) || 0; break;
+                                case 'chg': av = a.chg ?? 0; bv = b.chg ?? 0; break;
+                                case 'rvol': av = Number(a.rvol) || 0; bv = Number(b.rvol) || 0; break;
+                                case 'vol': av = a.vol ?? 0; bv = b.vol ?? 0; break;
+                                case 'dvol': av = a.dVol ?? 0; bv = b.dVol ?? 0; break;
+                                case 'rs': av = Number(a.rsRating) || 0; bv = Number(b.rsRating) || 0; break;
+                              }
+                              return ws.dir === 'desc' ? bv - av : av - bv;
+                            }) : macroInsights.watching;
+                            return items;
+                          })().map((item, idx) => {
+                            const s = typeof item === 'object' ? item : { symbol: item, chg: 0, rvol: null, vol: 0, dVol: 0, stage: '', grade: null, score: undefined, dotKind: null, posture: null, rsRating: null };
+                            const pb = s.posture || null;
+                            const pMeta = pb ? POSTURE_META[pb] : null;
+                            const rv = s.rvol != null ? Number(s.rvol) : null;
+                            const v = s.vol ?? 0;
+                            const dv = s.dVol ?? 0;
+                            const fmtV = v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(0) + 'K' : '';
+                            const fmtDv = dv >= 1e9 ? '$' + (dv / 1e9).toFixed(1) + 'B' : dv >= 1e6 ? '$' + (dv / 1e6).toFixed(0) + 'M' : dv > 0 ? '$' + (dv / 1e3).toFixed(0) + 'K' : '';
+                            const isAvoid = macroInsights.avoidSet?.has(s.symbol) || s.dotKind === 'red';
+                            const isBlueDot = s.dotKind === 'blue';
                             return (
-                              <div className="flex flex-col gap-1">
-                                <p className={`${rowText} text-slate-300 font-medium leading-relaxed`}>
-                                  {renderBriefingText(clauses[0])}
-                                </p>
-                                {clauses.slice(1).map((c, ci) => (
-                                  <p key={ci} className="text-[11px] text-slate-400 font-medium leading-relaxed">
-                                    {renderBriefingText(c)}
-                                  </p>
-                                ))}
+                              <div key={idx} className="flex items-center whitespace-nowrap py-[3px]">
+                                <span className={`inline-block w-[14px] text-center text-[9px] font-black ${s.grade === 'A' ? 'text-emerald-400' : 'text-amber-400'}`}>{s.grade}</span>
+                                <TickerChartHover symbol={s.symbol}><span className={`${isAvoid ? TICKER_CHIP_RED : TICKER_CHIP_BASE} w-[48px] md:w-[56px]`}>{s.symbol}</span></TickerChartHover>
+                                <span className="inline-block w-[9px] text-center leading-none shrink-0" />
+                                <span className="inline-block w-[8px] text-center shrink-0">
+                                  {isBlueDot && <span className="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)]" />}
+                                </span>
+                                <span className="inline-block w-[8px] text-center shrink-0">
+                                  {pMeta ? <span title={`${pMeta.short} — ${pMeta.tip}`} className={`inline-block w-[6px] h-[6px] rounded-full cursor-help ${pMeta.tone === 'good' ? 'bg-emerald-400' : pMeta.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`} /> : null}
+                                </span>
+                                <span className={`inline-block align-baseline text-[9px] font-bold tabular-nums px-1 py-[1px] rounded border ml-1 w-[22px] md:w-[26px] text-center ${s.score != null && !isNaN(Number(s.score)) ? cnfBadgeCls(Number(s.score)) : 'text-transparent'}`}>{s.score != null && !isNaN(Number(s.score)) ? Number(s.score) : ''}</span>
+                                <span className={`text-[11px] tabular-nums font-semibold inline-block w-[54px] md:w-[62px] text-right ${(s.chg ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(s.chg ?? 0) >= 0 ? '+' : ''}{(s.chg ?? 0).toFixed(2)}%</span>
+                                <span className={`text-[11px] tabular-nums font-semibold inline-block w-[42px] md:w-[48px] text-right ml-2 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? rv.toFixed(2) : ''}</span>
+                                <span className={`text-[11px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-2 ${fmtV ? 'text-slate-400' : 'text-transparent'}`}>{fmtV}</span>
+                                <span className={`text-[11px] tabular-nums inline-block w-[42px] md:w-[48px] text-right ml-1 ${fmtDv ? 'text-slate-300' : 'text-transparent'}`}>{fmtDv}</span>
+                                <span className={`text-[9px] font-bold ml-1 inline-block w-[18px] text-center ${s.stage ? stageColor(s.stage) : 'text-transparent'}`}>{s.stage || ''}</span>
+                                <span className={`text-[11px] tabular-nums font-semibold inline-block w-[22px] md:w-[26px] text-right ml-0.5 ${s.rsRating != null ? rsColor(Number(s.rsRating)) : 'text-transparent'}`}>{s.rsRating != null ? Number(s.rsRating) : ''}</span>
                               </div>
                             );
-                          })()}
+                          })}
+                        </div>
+                      </div>
+                    )}
 
-                          {catalyst && (
-                            <div className="flex items-start gap-2 pt-2 mt-0.5 border-t border-white/5">
-                              <span className="text-[8px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded shrink-0 mt-[1px]">NEWS</span>
-                              {catalystUrl ? (
-                                <a href={catalystUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-slate-400 font-medium leading-relaxed hover:text-cyan-300 hover:underline transition-colors">
-                                  {catalyst}
-                                </a>
-                              ) : (
-                                <span className="text-[11px] text-slate-400 font-medium leading-relaxed">{catalyst}</span>
-                              )}
-                            </div>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
+                    {macroInsights.tomorrowWatch?.length > 0 && (
+                      <div className="border-l-[3px] border-violet-500 rounded-r-xl px-2.5 md:px-4 py-3 bg-violet-500/[0.04]">
+                        <div className="flex items-center gap-3 mb-2">
+                          <span className="inline-block text-[8px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border text-violet-400 bg-violet-500/10 border-violet-500/20">Tomorrow&apos;s Watchlist</span>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(macroInsights.tomorrowWatch.map(w => w.symbol).join(','));
+                            }}
+                            className="text-[8px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border bg-[#161c2a] text-slate-500 border-white/5 hover:text-violet-400 hover:border-violet-500/30 transition-all"
+                          >
+                            Copy {macroInsights.tomorrowWatch.length}
+                          </button>
+                        </div>
+                        <div className="flex flex-col gap-0.5">
+                          <SortableHeader sortKey={sectionSorts['Tomorrow Watch']?.key ?? null} sortDir={sectionSorts['Tomorrow Watch']?.dir ?? 'desc'} onSort={(k) => handleSectionSort('Tomorrow Watch', k)} />
+                          {(() => {
+                            const ws = sectionSorts['Tomorrow Watch'];
+                            const items = ws ? [...macroInsights.tomorrowWatch].sort((a, b) => {
+                              let av = 0, bv = 0;
+                              switch (ws.key) {
+                                case 'cnf': av = Number(a.score) || 0; bv = Number(b.score) || 0; break;
+                                case 'chg': av = a.chg ?? 0; bv = b.chg ?? 0; break;
+                                case 'rvol': av = Number(a.rvol) || 0; bv = Number(b.rvol) || 0; break;
+                                case 'vol': av = a.vol ?? 0; bv = b.vol ?? 0; break;
+                                case 'dvol': av = a.dVol ?? 0; bv = b.dVol ?? 0; break;
+                                case 'rs': av = Number(a.rsRating) || 0; bv = Number(b.rsRating) || 0; break;
+                              }
+                              return ws.dir === 'desc' ? bv - av : av - bv;
+                            }) : macroInsights.tomorrowWatch;
+                            return items;
+                          })().map((item, idx) => {
+                            const pb = item.posture || null;
+                            const pMeta = pb ? POSTURE_META[pb] : null;
+                            const rv = item.rvol != null ? Number(item.rvol) : null;
+                            const v = item.vol ?? 0;
+                            const dv = item.dVol ?? 0;
+                            const fmtV = v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(0) + 'K' : '';
+                            const fmtDv = dv >= 1e9 ? '$' + (dv / 1e9).toFixed(1) + 'B' : dv >= 1e6 ? '$' + (dv / 1e6).toFixed(0) + 'M' : dv > 0 ? '$' + (dv / 1e3).toFixed(0) + 'K' : '';
+                            const isAvoid = macroInsights.avoidSet?.has(item.symbol) || item.dotKind === 'red';
+                            const isBlueDot = item.dotKind === 'blue';
+                            return (
+                              <div key={idx} className="flex items-center whitespace-nowrap py-[3px]">
+                                <span className={`inline-block w-[14px] text-center text-[9px] font-black ${item.grade === 'A' ? 'text-emerald-400' : 'text-amber-400'}`}>{item.grade}</span>
+                                <TickerChartHover symbol={item.symbol}><span className={`${isAvoid ? TICKER_CHIP_RED : TICKER_CHIP_BASE} w-[48px] md:w-[56px]`}>{item.symbol}</span></TickerChartHover>
+                                <span className="inline-block w-[9px] text-center leading-none shrink-0" />
+                                <span className="inline-block w-[8px] text-center shrink-0">
+                                  {isBlueDot && <span className="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)]" />}
+                                </span>
+                                <span className="inline-block w-[8px] text-center shrink-0">
+                                  {pMeta ? <span title={`${pMeta.short} — ${pMeta.tip}`} className={`inline-block w-[6px] h-[6px] rounded-full cursor-help ${pMeta.tone === 'good' ? 'bg-emerald-400' : pMeta.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`} /> : null}
+                                </span>
+                                <span className={`inline-block align-baseline text-[9px] font-bold tabular-nums px-1 py-[1px] rounded border ml-1 w-[22px] md:w-[26px] text-center ${item.score != null && !isNaN(Number(item.score)) ? cnfBadgeCls(Number(item.score)) : 'text-transparent'}`}>{item.score != null && !isNaN(Number(item.score)) ? Number(item.score) : ''}</span>
+                                <span className={`text-[11px] tabular-nums font-semibold inline-block w-[54px] md:w-[62px] text-right ${(item.chg ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(item.chg ?? 0) >= 0 ? '+' : ''}{(item.chg ?? 0).toFixed(2)}%</span>
+                                <span className={`text-[11px] tabular-nums font-semibold inline-block w-[42px] md:w-[48px] text-right ml-2 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? rv.toFixed(2) : ''}</span>
+                                <span className={`text-[11px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-2 ${fmtV ? 'text-slate-400' : 'text-transparent'}`}>{fmtV}</span>
+                                <span className={`text-[11px] tabular-nums inline-block w-[42px] md:w-[48px] text-right ml-1 ${fmtDv ? 'text-slate-300' : 'text-transparent'}`}>{fmtDv}</span>
+                                <span className={`text-[9px] font-bold ml-1 inline-block w-[18px] text-center ${item.stage ? stageColor(item.stage) : 'text-transparent'}`}>{item.stage || ''}</span>
+                                <span className={`text-[11px] tabular-nums font-semibold inline-block w-[22px] md:w-[26px] text-right ml-0.5 ${item.rsRating != null ? rsColor(Number(item.rsRating)) : 'text-transparent'}`}>{item.rsRating != null ? Number(item.rsRating) : ''}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
               </div>
             </div>
           )}

@@ -562,13 +562,13 @@ const buildToneNarrative = (
   // ---- 1. TAPE
   let s1 = '';
   if (down === 0 && up >= 2) {
-    s1 = `${lead}Broadly higher — S&P ${fmt(spy)}, Nasdaq ${fmt(qqq)}.`;
+    s1 = `${lead}Broadly higher | S&P ${fmt(spy)} | Nasdaq ${fmt(qqq)}.`;
   } else if (up === 0 && down >= 2) {
-    s1 = `${lead}Broadly lower — S&P ${fmt(spy)}, Nasdaq ${fmt(qqq)}.`;
+    s1 = `${lead}Broadly lower | S&P ${fmt(spy)} | Nasdaq ${fmt(qqq)}.`;
   } else if (idx.length >= 2) {
     const leader = idx.reduce((a, b) => (b.v > a.v ? b : a));
     const laggard = idx.reduce((a, b) => (b.v < a.v ? b : a));
-    s1 = `${lead}Mixed — ${names[leader.id]} ${fmt(leader.v)} leads, ${names[laggard.id]} ${fmt(laggard.v)} lags. Rotation, not direction.`;
+    s1 = `${lead}Mixed | ${names[leader.id]} ${fmt(leader.v)} leads | ${names[laggard.id]} ${fmt(laggard.v)} lags. Rotation, not direction.`;
   }
 
   // ---- 2. RISK
@@ -591,7 +591,7 @@ const buildToneNarrative = (
       btc !== null && btc >= 2 ? ' — risk appetite firm' :
       tlt !== null && gld !== null && tlt > 0.1 && gld > 0.1 ? ' — defensive bid' :
       '';
-    s2 = riskBits.join(', ') + tail + '.';
+    s2 = riskBits.join(' | ') + tail + '.';
   }
 
   // ---- 3. INTERNALS — measurement only, no verdict
@@ -605,7 +605,8 @@ const buildToneNarrative = (
       `${breadth.advancers.toLocaleString()} adv vs ${breadth.decliners.toLocaleString()} dec`,
     ];
     if (breadth.up4 >= 25 || breadth.down4 >= 25) {
-      bits.push(`${breadth.up4} up 4%+, ${breadth.down4} down 4%+`);
+      bits.push(`${breadth.up4} up 4%+`);
+      bits.push(`${breadth.down4} down 4%+`);
     }
     if (nh > 0 || nl > 0) bits.push(`${nh} highs vs ${nl} lows`);
     s3 = bits.join(' · ') + '.';
@@ -638,7 +639,7 @@ const buildToneNarrative = (
       t >= 85 ? 'Tighten stops — breakouts fail more often from here.' :
       t >= 70 ? 'Broad but late; the easy part of the move is behind us.' :
       hlCall;
-    s4 = `T2108 ${t.toFixed(0)} — ${regime}. ${action}`;
+    s4 = `T2108 | ${t.toFixed(0)} — ${regime}. ${action}`;
   } else if (nh > 0 || nl > 0) {
     s4 = hlCall;
   }
@@ -661,7 +662,7 @@ const nameChipCls = "inline-block align-baseline text-[10px] font-bold text-slat
 const valNum = "text-[12px] tabular-nums";
 
 const renderToneText = (text: string): React.ReactNode[] => {
-  const rx = /(VIX [+-]\d+(?:\.\d+)?%|T2108 \d+(?:\.\d+)?|S&P|Nasdaq|Dow|Bitcoin|VIX|[+-]\d+(?:\.\d+)?%|[Bb]readth \d\/6|[\d,]+ adv\b|[\d,]+ dec\b|\d+ (?:up|down) 4%\+|[\d,]+ highs|[\d,]+ lows)/g;
+  const rx = /(VIX [+-]\d+(?:\.\d+)?%|T2108 \| \d+(?:\.\d+)?|S&P|Nasdaq|Dow|Bitcoin|VIX|[+-]\d+(?:\.\d+)?%|[Bb]readth \d\/6|[\d,]+ adv\b|[\d,]+ dec\b|\d+ (?:up|down) 4%\+|[\d,]+ highs|[\d,]+ lows)/g;
   const parts = text.split(rx);
 
   return parts.map((part, i) => {
@@ -679,7 +680,7 @@ const renderToneText = (text: string): React.ReactNode[] => {
       );
     }
 
-    m = part.match(/^T2108 (\d+(?:\.\d+)?)$/);
+    m = part.match(/^T2108 \| (\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
       return (
@@ -1346,7 +1347,7 @@ export default function MacroScorecard() {
           {breadth && ((breadth.newHighs ?? 0) > 0 || (breadth.newLows ?? 0) > 0) && (
             <div
               className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border border-white/5 bg-[#161c2a]/40 rounded-xl px-4 py-3 relative z-10 cursor-help"
-              title={`ATHI/ATLO — ${breadth.newHighs ?? 0} stocks within 1% of 52-week high vs ${breadth.newLows ?? 0} near 52-week low (${highsPct.toFixed(0)}% near highs). Above 60% = structural strength. Below 40% = defensive tape. H/L ratio: ${(breadth.newLows ?? 0) > 0 ? ((breadth.newHighs ?? 0) / (breadth.newLows ?? 0)).toFixed(2) : '∞'}.`}
+              title={`ATHI/ATLO — ${breadth.newHighs ?? 0} at 52-week high vs ${breadth.newLows ?? 0} at 52-week low across US equities (${highsPct.toFixed(0)}% highs). Above 60% = structural strength. Below 40% = defensive tape. H/L ratio: ${(breadth.newLows ?? 0) > 0 ? ((breadth.newHighs ?? 0) / (breadth.newLows ?? 0)).toFixed(2) : '∞'}.`}
             >
               <span className={`flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 ${STRIP_LABEL_W}`}>
                 <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa] shrink-0"></span>
@@ -1372,7 +1373,7 @@ export default function MacroScorecard() {
                 </span>
                 <ProportionalBar
                   pct={highsPct}
-                  leftTitle={`${(breadth.newHighs ?? 0).toLocaleString()} near 52-week highs`}
+                  leftTitle={`${(breadth.newHighs ?? 0).toLocaleString()} at 52-week highs`}
                   rightTitle={`${highsPct.toFixed(0)}% making new highs`}
                 />
                 <span className={`text-[11px] font-bold text-rose-400 tabular-nums whitespace-nowrap sm:text-right ${STRIP_SIDE_W}`}>

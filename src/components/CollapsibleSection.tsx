@@ -14,7 +14,7 @@ export default function CollapsibleSection({
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2" data-chart-section>
       <button 
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center justify-between w-full px-5 py-3 bg-[#101623] hover:bg-[#161c2a] border border-white/5 hover:border-indigo-500/30 rounded-xl transition-all group cursor-pointer"

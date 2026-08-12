@@ -38,6 +38,8 @@ const SOURCES: SourceDef[] = [
   { name: 'swingCandidates', path: '/api/swing-candidates/latest' },
   { name: 'consolidation1021', path: '/api/consolidation/latest' },
   { name: 'ep9m', path: '/api/ep9m/latest' },
+  { name: 'multibagger', path: '/api/multibagger/latest' },
+  { name: 'vcp', path: '/api/vcp/latest' },
   { name: 'news', path: '/api/news', extra: true },
   { name: 'earnings', path: '/api/earnings', extra: true },
   { name: 'econ', path: '/api/econ', extra: true },

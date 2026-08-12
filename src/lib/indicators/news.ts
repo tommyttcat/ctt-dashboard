@@ -105,25 +105,40 @@ const PUBLISHER_PRESS = new Set([
   'forbes', 'fortune', 'business insider', 'seeking alpha',
 ]);
 
-const PUBLISHER_AGGREGATOR = new Set([
-  'zacks investment research', 'zacks', 'the motley fool', 'motley fool',
-  'simply wall st', 'simply wall street', 'investorplace', '24/7 wall st',
-  '24/7 wall street', 'gurufocus', 'insider monkey', 'validea',
-  'stocknews.com', 'stocknews', 'talkmarkets', 'invezz', 'the street',
-  'thestreet', 'kiplinger', 'nasdaq', 'quiverquant',
+/* BLOCKED publishers produce content that looks like catalyst coverage but
+   is structurally incapable of being one: opinion listicles, "why did it
+   move" rehashes, valuation takes, and "should you buy" framing. They pass
+   the causal test because their headlines are engineered to sound causal,
+   but they are never the REASON a stock moved — they are commentary ABOUT
+   the move, published hours later and dressed in SEO keywords. Blocked
+   publishers are rejected unconditionally regardless of headline quality. */
+const PUBLISHER_BLOCKED = new Set([
+  'the motley fool', 'motley fool', 'fool.com',
+  'simply wall st', 'simply wall street',
+  'insider monkey', 'validea',
+  'talkmarkets', 'invezz',
+  'stocknews.com', 'stocknews',
+  'quiverquant',
+  '24/7 wall st', '24/7 wall street',
 ]);
 
-type PublisherTier = 'primary' | 'press' | 'unknown' | 'aggregator';
+const PUBLISHER_AGGREGATOR = new Set([
+  'zacks investment research', 'zacks',
+  'investorplace', 'gurufocus',
+  'the street', 'thestreet', 'kiplinger', 'nasdaq',
+]);
+
+type PublisherTier = 'primary' | 'press' | 'unknown' | 'aggregator' | 'blocked';
 
 const publisherTier = (name: string): PublisherTier => {
   const n = name.toLowerCase().trim();
   if (!n) return 'unknown';
+  if (PUBLISHER_BLOCKED.has(n)) return 'blocked';
   if (PUBLISHER_PRIMARY.has(n)) return 'primary';
   if (PUBLISHER_PRESS.has(n)) return 'press';
   if (PUBLISHER_AGGREGATOR.has(n)) return 'aggregator';
 
-  // Substring fallback — publisher strings vary ("Zacks" vs "Zacks
-  // Investment Research" vs "Zacks Equity Research").
+  for (const p of PUBLISHER_BLOCKED) if (n.includes(p)) return 'blocked';
   for (const p of PUBLISHER_PRIMARY) if (n.includes(p)) return 'primary';
   for (const p of PUBLISHER_AGGREGATOR) if (n.includes(p)) return 'aggregator';
   for (const p of PUBLISHER_PRESS) if (n.includes(p)) return 'press';
@@ -142,7 +157,7 @@ const RX_LISTICLE = /^\s*(?:the\s+)?(?:top\s+)?\d+\s+(?:best\s+|top\s+|cheap\s+|
 const RX_ALGO_CONTENT = /\b(?:intrinsic value|fair value estimate|is (?:it|this stock) (?:over|under)valued|dcf (?:model|valuation)|zacks rank|style scores?|value score|momentum score|earnings esp|analyst blog highlights|new strong buy|added to (?:the )?zacks)\b/i;
 
 // Opinion and advice framing rather than event reporting.
-const RX_OPINION = /\b(?:should you (?:buy|sell|own)|is (?:it|now) (?:a|the) (?:good )?time to buy|here'?s why (?:i|we) (?:would|wouldn'?t)|my top pick|better buy|bull (?:vs\.?|versus) bear|prediction:|where will .{1,30} be in \d+ years?)\b/i;
+const RX_OPINION = /\b(?:should you (?:buy|sell|own)|should (?:investors?|you) (?:consider|worry|care)|is (?:it|now) (?:a|the) (?:good )?time to buy|here(?:'?s| is) (?:why|what)|what (?:investors?|you) (?:need|should|must) (?:to )?know|my top pick|better buy|bull (?:vs\.?|versus) bear|prediction:|where will .{1,30} be in \d+ years?|is under pressure|could (?:be|make)|(?:will|can) .{1,30} keep (?:rising|falling|going)|how to (?:play|trade|invest)|worth (?:buying|selling|watching)|the case (?:for|against)|reasons? to (?:buy|sell|own|avoid)|still a buy|is it too late)\b/i;
 
 // Legal solicitation. Carried over from the WIIM spam filter — these flood
 // any feed and describe a lawsuit being organised, not a company event.
@@ -336,6 +351,18 @@ export function pickBestNews(
     const tickers = Array.isArray(item.tickers) ? item.tickers : [];
     if (tickers.length > MAX_TICKERS) continue;
 
+    // --- relevance: is this article actually ABOUT this symbol? ---
+    // Polygon tags every ticker mentioned anywhere in the article body.
+    // An article about Nxera Pharma that namedrops "Eli Lilly" gets tagged
+    // LLY — but it's not about LLY and should not appear on that row.
+    // If the article covers multiple tickers and this symbol isn't in the
+    // title or the first-listed ticker, it's background noise.
+    const symUpper = symbol.toUpperCase();
+    const titleUpper = title.toUpperCase();
+    const isFirstTicker = tickers.length > 0 && String(tickers[0]).toUpperCase().includes(symUpper);
+    const inTitle = titleUpper.includes(symUpper);
+    if (tickers.length > 1 && !inTitle && !isFirstTicker) continue;
+
     // --- age ---
     const pub = item.published_utc ? new Date(item.published_utc).getTime() : 0;
     if (!pub) continue;
@@ -345,11 +372,8 @@ export function pickBestNews(
     const publisher = (item.publisher?.name || '').trim();
     const pubTier = publisherTier(publisher);
 
-    /* AGGREGATOR CONTENT IS REJECTED OUTRIGHT WHEN IT IS NOT CAUSAL. A Zacks
-       or Fool piece that does explain a move can stay — occasionally they
-       report something real — but the far more common case is a headline
-       restating the price action, and from those publishers that is exactly
-       the filler this module exists to keep off the row. */
+    if (pubTier === 'blocked') continue;
+
     const causal = isCausal(title);
     if (pubTier === 'aggregator' && !causal) continue;
 

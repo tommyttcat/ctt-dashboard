@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" fill="none">
+  <!-- Outer white chevron -->
+  <polygon points="120,5 235,145 195,145 120,42 45,145 5,145" fill="white"/>
+  <!-- Inner gray chevron -->
+  <polygon points="120,38 185,145 160,145 120,78 80,145 55,145" fill="#808080"/>
+</svg>

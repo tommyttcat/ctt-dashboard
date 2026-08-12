@@ -1,1 +1,24 @@
-{}
+{
+  "crons": [
+    {
+      "path": "/api/email/briefing?phase=pre",
+      "schedule": "30 11 * * 1-5"
+    },
+    {
+      "path": "/api/email/briefing?phase=morning",
+      "schedule": "30 14 * * 1-5"
+    },
+    {
+      "path": "/api/email/briefing?phase=midday",
+      "schedule": "0 18 * * 1-5"
+    },
+    {
+      "path": "/api/email/briefing?phase=closing",
+      "schedule": "30 20 * * 1-5"
+    },
+    {
+      "path": "/api/email/weekly",
+      "schedule": "30 21 * * 5"
+    }
+  ]
+}

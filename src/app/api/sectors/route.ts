@@ -1,24 +1,32 @@
-// Deploy to: app/api/sectors/route.ts
+// /api/sectors — Polygon-backed Sector Performance & Money Flow
 //
-// Server-side, KV-cached Sector Flow data. Collapses the per-tab FMP load
-// (snapshot every 5 min + an ETF call on every tab click) into ~one refresh
-// every 5 min for ALL clients, and pre-fetches all four ETFs so tab-switching
-// costs zero FMP calls.
-//
-// Hardened: every FMP call fires in PARALLEL (no slow sequential date loop),
-// maxDuration is raised so the cold/uncached call can finish, and if FMP
-// returns nothing we serve the last good cache instead of blanking the panel.
+// Uses Polygon snapshot for SPDR sector ETFs to get real-time price change
+// and volume. Computes a volume-weighted money flow metric per sector.
+// One Polygon call for snapshots, cached in KV for 5 min.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
-export const maxDuration = 60; // let the cold (uncached) fetch finish
+export const maxDuration = 30;
 
-const ETF_TICKERS = ['SPY', 'QQQ', 'DIA', 'IWM'];
-const CACHE_KEY = 'sector_flow_v1';
-const CACHE_TTL_MS = 290 * 1000; // ~5 min
+const CACHE_KEY = 'sector_flow_v2';
+const CACHE_TTL_MS = 290 * 1000;
+
+const SECTOR_ETFS: { ticker: string; sector: string }[] = [
+  { ticker: 'XLK', sector: 'Technology' },
+  { ticker: 'XLF', sector: 'Financials' },
+  { ticker: 'XLE', sector: 'Energy' },
+  { ticker: 'XLV', sector: 'Health Care' },
+  { ticker: 'XLI', sector: 'Industrials' },
+  { ticker: 'XLC', sector: 'Communication Services' },
+  { ticker: 'XLY', sector: 'Consumer Discretionary' },
+  { ticker: 'XLP', sector: 'Consumer Staples' },
+  { ticker: 'XLRE', sector: 'Real Estate' },
+  { ticker: 'XLU', sector: 'Utilities' },
+  { ticker: 'XLB', sector: 'Materials' },
+];
 
 const getMarketSession = (): string => {
   const est = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
@@ -31,26 +39,6 @@ const getMarketSession = (): string => {
   return 'Closed';
 };
 
-const isoDate = (d: Date) => {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-};
-
-// Recent weekdays to try (handles weekends / pre-open with no data yet).
-const getFallbackDates = (): string[] => {
-  const dates: string[] = [];
-  const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  for (let i = 0; i < 3; i++) {
-    if (d.getDay() === 0) d.setDate(d.getDate() - 2);
-    if (d.getDay() === 6) d.setDate(d.getDate() - 1);
-    dates.push(isoDate(d));
-    d.setDate(d.getDate() - 1);
-  }
-  return dates;
-};
-
 const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 8000) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
@@ -59,17 +47,16 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 8000) => {
     clearTimeout(id);
     if (!res.ok) return fallback;
     return await res.json();
-  } catch (e) {
+  } catch {
     clearTimeout(id);
     return fallback;
   }
 };
 
 export async function GET() {
-  const fmpApiKey = (process.env.FMP_API_KEY || process.env.NEXT_PUBLIC_FMP_API_KEY || '').trim();
-  if (!fmpApiKey) return NextResponse.json({ error: 'Missing FMP key' }, { status: 500 });
+  const polygonKey = (process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '').trim();
+  if (!polygonKey) return NextResponse.json({ error: 'Missing Polygon key' }, { status: 500 });
 
-  // Serve fresh cache without touching FMP. Hold onto stale cache as a fallback.
   let stale: any = null;
   try {
     const cached = await kv.get<any>(CACHE_KEY);
@@ -79,99 +66,64 @@ export async function GET() {
         return NextResponse.json({ ...cached, cached: true });
       }
     }
-  } catch (e) {
-    // fall through and fetch fresh
+  } catch {
+    // fall through
   }
 
   const session = getMarketSession();
-  const tryDates = getFallbackDates();
+  const tickers = SECTOR_ETFS.map(e => e.ticker).join(',');
+  const snapshotUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers}&apiKey=${polygonKey}`;
 
-  // Fire ALL snapshot dates AND all ETF weightings in parallel — one round trip.
-  const [dateResults, etfResultsArr] = await Promise.all([
-    Promise.all(
-      tryDates.map(async (date) => {
-        const [sData, iData] = await Promise.all([
-          fetchSafeJson(`https://financialmodelingprep.com/stable/sector-performance-snapshot?date=${date}&apikey=${fmpApiKey}`, []),
-          fetchSafeJson(`https://financialmodelingprep.com/stable/industry-performance-snapshot?date=${date}&apikey=${fmpApiKey}`, []),
-        ]);
-        return {
-          date,
-          sData: Array.isArray(sData) ? sData : [],
-          iData: Array.isArray(iData) ? iData : [],
-        };
-      })
-    ),
-    Promise.all(
-      ETF_TICKERS.map(async (ticker) => {
-        const data = await fetchSafeJson(`https://financialmodelingprep.com/stable/etf/sector-weightings?symbol=${ticker}&apikey=${fmpApiKey}`, []);
-        return { ticker, data: Array.isArray(data) ? data : [] };
-      })
-    ),
-  ]);
+  const snap = await fetchSafeJson(snapshotUrl, { tickers: [] });
+  const tickerData: any[] = Array.isArray(snap?.tickers) ? snap.tickers : [];
 
-  // Pick the most recent date (in order) that actually has non-zero data.
-  let finalSectors: any[] = [];
-  let finalIndustries: any[] = [];
-  for (const r of dateResults) {
-    const hasReal = r.sData.some((s: any) => {
-      const pct = s.averageChange ?? s.changesPercentage ?? 0;
-      return parseFloat(pct) !== 0 && !isNaN(parseFloat(pct));
+  const tickerMap = new Map<string, any>();
+  for (const t of tickerData) {
+    if (t?.ticker) tickerMap.set(t.ticker, t);
+  }
+
+  const sectors: {
+    sector: string;
+    etf: string;
+    changesPercentage: number;
+    volume: number;
+    dollarVolume: number;
+    moneyFlow: number;
+  }[] = [];
+
+  for (const { ticker, sector } of SECTOR_ETFS) {
+    const t = tickerMap.get(ticker);
+    if (!t) continue;
+
+    const changePct = t.todaysChangePerc ?? 0;
+    const vol = t.day?.v ?? t.day?.volume ?? 0;
+    const vwap = t.day?.vw ?? t.day?.vwap ?? t.day?.c ?? 0;
+    const dollarVol = vol * vwap;
+    // Money flow: dollar volume * direction of change (positive = inflow, negative = outflow)
+    const flow = changePct >= 0 ? dollarVol : -dollarVol;
+
+    sectors.push({
+      sector,
+      etf: ticker,
+      changesPercentage: Math.round(changePct * 100) / 100,
+      volume: vol,
+      dollarVolume: Math.round(dollarVol),
+      moneyFlow: Math.round(flow),
     });
-    if (hasReal) {
-      finalSectors = r.sData;
-      finalIndustries = r.iData;
-      break;
-    }
   }
 
-  // FMP's snapshot returns one row per (sector, exchange) — e.g. Technology
-  // appears once for NASDAQ, NYSE, AMEX. Collapse to one row per sector by
-  // averaging across exchanges so we render a clean set, not duplicates.
-  const aggSectors = new Map<string, number[]>();
-  for (const s of finalSectors) {
-    const name = s.sector;
-    const pct = parseFloat(s.averageChange ?? s.changesPercentage ?? 0);
-    if (!name || isNaN(pct)) continue;
-    if (!aggSectors.has(name)) aggSectors.set(name, []);
-    aggSectors.get(name)!.push(pct);
-  }
-  const sectors = Array.from(aggSectors.entries())
-    .map(([sector, vals]) => ({ sector, changesPercentage: vals.reduce((a, b) => a + b, 0) / vals.length }))
-    .sort((a, b) => b.changesPercentage - a.changesPercentage)
-    .slice(0, 11);
+  sectors.sort((a, b) => b.changesPercentage - a.changesPercentage);
 
-  const aggIndustries = new Map<string, number[]>();
-  for (const i of finalIndustries) {
-    const name = i.industry;
-    const pct = parseFloat(i.averageChange ?? i.changesPercentage ?? 0);
-    if (!name || isNaN(pct)) continue;
-    if (!aggIndustries.has(name)) aggIndustries.set(name, []);
-    aggIndustries.get(name)!.push(pct);
-  }
-  const industries = Array.from(aggIndustries.entries())
-    .map(([industry, vals]) => ({ industry, changesPercentage: vals.reduce((a, b) => a + b, 0) / vals.length }))
-    .sort((a, b) => b.changesPercentage - a.changesPercentage)
-    .slice(0, 10);
-
-  const etfWeights: Record<string, any[]> = {};
-  for (const r of etfResultsArr) {
-    etfWeights[r.ticker] = r.data
-      .map((item: any) => ({ sector: item.sector, weightPercentage: parseFloat(String(item.weightPercentage).replace('%', '')) || 0 }))
-      .sort((a, b) => b.weightPercentage - a.weightPercentage)
-      .slice(0, 8);
-  }
-
-  // If FMP gave us nothing this round, don't blank the panel — serve last good cache.
-  if (sectors.length === 0 && stale && Array.isArray(stale.sectors) && stale.sectors.length > 0) {
+  if (sectors.length === 0 && stale?.sectors?.length > 0) {
     return NextResponse.json({ ...stale, cached: true, stale: true });
   }
 
-  const payload = { session, updatedAt: Date.now(), sectors, industries, etfWeights };
+  const payload = { session, updatedAt: Date.now(), sectors };
 
   if (sectors.length > 0) {
     try {
       await kv.set(CACHE_KEY, payload);
-    } catch (e) {
+    } catch {
       // non-fatal
     }
   }

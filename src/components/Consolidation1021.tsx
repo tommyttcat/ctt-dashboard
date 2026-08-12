@@ -101,8 +101,10 @@ import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { stateOf, stateTooltip, stateLegend } from '@/lib/indicators/state';
 import { rsColor, rsTooltip } from '@/lib/indicators/rs';
+import { newsStarCount } from '@/lib/newsStars';
 import { CONSOL_META, COLUMN_NOTES } from '@/lib/scanConfig';
 import MetricsKey from './MetricsKey';
+import TickerChartHover from './TickerChartHover';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The blue dot marks an oversold stochastic reset firing on the daily.' },
@@ -238,6 +240,7 @@ interface ConsolidationCandidate {
   newsPublisher?: string | null;
   newsAge?: string | null;
   newsSentiment?: 'positive' | 'negative' | 'neutral' | null;
+  newsCausal?: boolean | null;
   cnfBreakdown?: Record<string, number> | null;
   cnfCeiling?: number | null;
   cnfCeilingReason?: string | null;
@@ -1154,6 +1157,7 @@ export default function Consolidation1021() {
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
+                  <th className={`${thBase} w-[3%]`}>N</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
@@ -1164,7 +1168,7 @@ export default function Consolidation1021() {
 
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
-                  <tr><td colSpan={19} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No consolidations in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
+                  <tr><td colSpan={20} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No consolidations in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
                 ) : (
                   filteredAndSorted.map((row) => {
                     const isPositive = (row.changePct ?? 0) >= 0;
@@ -1188,24 +1192,7 @@ export default function Consolidation1021() {
                         <tr className="hover:bg-white/[0.02] transition-colors group">
                           <td className={tdBase}>
                             <div className="flex items-center justify-center gap-1.5">
-                              <span title={row.name || row.symbol} className="inline-block bg-indigo-500/10 text-[#7c8bfa] text-[11px] font-bold px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-help">{row.symbol}</span>
-                              {/* Fixed-width whether or not there is news, so
-                                  the dots that follow sit at the same x on
-                                  every row. */}
-                              <span className="inline-block w-[9px] text-center leading-none shrink-0">
-                                {hasNews(row) && (
-                                  <a
-                                    href={catUrl!}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    title={newsTooltip(row)}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="text-amber-400/90 hover:text-amber-300 font-bold text-[11px] cursor-pointer transition-colors"
-                                  >
-                                    *
-                                  </a>
-                                )}
-                              </span>
+                              <TickerChartHover symbol={row.symbol}><span title={row.name || row.symbol} className="inline-block bg-slate-500/10 text-slate-300 text-[11px] font-bold px-1.5 py-0.5 rounded border border-white/10">{row.symbol}</span></TickerChartHover>
                               {row.blueDot && <BlueDot />}
                             </div>
                           </td>
@@ -1276,6 +1263,7 @@ export default function Consolidation1021() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums cursor-help ${rsColor(row.rsRating)}`} title={rsTooltip(row.rsRating)}>
                             {row.rsRating ?? '—'}
                           </td>
+                          <td className={`${tdBase} text-[7px] font-bold whitespace-nowrap`}>{(() => { const n = newsStarCount(row); const url = row.catalystUrl; if (n === 0) return <span className="text-slate-700">&mdash;</span>; const cls = n >= 2 ? 'text-amber-400' : 'text-slate-500'; const s = <span className={`leading-none ${cls}`}>{'★'.repeat(n)}</span>; return url ? <a href={url} target="_blank" rel="noopener noreferrer" className="hover:brightness-125 transition-all">{s}</a> : s; })()}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`}>
                             {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
@@ -1293,8 +1281,8 @@ export default function Consolidation1021() {
                             <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: colSpan 17 covers TICKER..MCAP, then STAGE
-                            and SECTOR get their own cells — 19 total, matching
+                        {/* Sub-row: colSpan 18 covers TICKER..MCAP, then STAGE
+                            and SECTOR get their own cells — 20 total, matching
                             the header.
 
                             Levels sit under the ticker where the setup name
@@ -1302,7 +1290,7 @@ export default function Consolidation1021() {
                             show here — every row is a coil — so the trigger
                             leads instead. */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td colSpan={17} className="pb-1.5 pt-1 pr-3">
+                          <td colSpan={18} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
                               {plan?.tradeable && plan.trigger != null ? (
                                 <span

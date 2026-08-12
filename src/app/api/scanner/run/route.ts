@@ -272,50 +272,7 @@ const resolveEtfSector = (sym: string, apiSector: string | undefined, apiName: s
   return apiSector || 'Other';
 };
 
-const cleanSectorDescription = (sic: string | undefined, sector: string | undefined, industry: string | undefined) => {
-  const ind = (industry || '').toLowerCase();
-  const sicTxt = (sic || '').toLowerCase();
-  const blob = `${ind} ${sicTxt}`;
-
-  if (/nuclear|uranium/.test(blob)) return 'Nuclear';
-  if (/solar|photovoltaic/.test(blob)) return 'Solar';
-  if (/electric vehicle|auto manufacturer|motor vehicle|passenger car/.test(blob)) return 'EV';
-  if (/biotechnolog|biological product|in vitro|medicinal chem/.test(blob)) return 'Biotech';
-  if (/semiconductor/.test(blob)) return "Semi's";
-  if (/artificial intelligence/.test(blob)) return 'AI';
-  if (/cybersecurity|security software/.test(blob)) return 'Cyber';
-  if (/fintech|financial technology/.test(blob)) return 'Fintech';
-  if (/aerospace|\bdefense\b|aircraft|guided missile|space vehicle/.test(blob)) return 'Aerospace';
-
-  if (sicTxt) {
-    if (/software|prepackaged|computer program|data processing|information retrieval|computer integrated|computer communication|electronic computer|computer peripheral|computer storage|computer terminal|electronic component|printed circuit/.test(sicTxt)) return 'IT';
-    if (/pharmaceutical|drug|medicinal|surgical|\bmedical\b|\bhealth\b|dental|hospital|diagnostic|laborator/.test(sicTxt)) return 'Healthcare';
-    if (/crude petroleum|natural gas|petroleum|drilling|\boil\b|\bcoal\b|\benergy\b/.test(sicTxt)) return 'Energy';
-    if (/\bbank\b|savings instit|credit institution|insurance|investment office|securities broker|security broker|personal credit|holding compan|fire, marine/.test(sicTxt)) return 'Financials';
-    if (/real estate|land subdivid|operators of apartment|operators of nonresident/.test(sicTxt)) return 'Real Estate';
-    if (/electric services|gas & other|water supply|cogeneration|electric & other services/.test(sicTxt)) return 'Utilities';
-    if (/telephone|telecommunic|radio|television|broadcast|cable|motion picture|advertising|publishing|newspaper|periodical|entertainment/.test(sicTxt)) return 'Comm Serv';
-    if (/retail|catalog|mail-order|eating place|restaurant|apparel|footwear|hotel|department store|grocery|variety store|jewelry/.test(sicTxt)) return 'Con Disc';
-    if (/beverage|\bfood\b|tobacco|soap|cosmetic|household|dairy|bakery/.test(sicTxt)) return 'Con Staples';
-    if (/gold mining|metal mining|steel|aluminum|chemical|industrial inorganic|plastics material|paper mill|fertilizer|\bmining\b/.test(sicTxt)) return 'Materials';
-    if (/aircraft|machinery|industrial|construction|engineering|electrical industrial|transportation|railroad|trucking|air transport/.test(sicTxt)) return 'Industrials';
-  }
-
-  const sec = (sector || '').toLowerCase();
-  if (sec.includes('technology')) return 'IT';
-  if (sec.includes('healthcare') || sec.includes('health care')) return 'Healthcare';
-  if (sec.includes('financial')) return 'Financials';
-  if (sec.includes('consumer discretionary')) return 'Con Disc';
-  if (sec.includes('consumer staples')) return 'Con Staples';
-  if (sec.includes('energy')) return 'Energy';
-  if (sec.includes('materials')) return 'Materials';
-  if (sec.includes('industrials')) return 'Industrials';
-  if (sec.includes('real estate')) return 'Real Estate';
-  if (sec.includes('utilities')) return 'Utilities';
-  if (sec.includes('communication')) return 'Comm Serv';
-
-  return 'Other';
-};
+import { cleanSectorDescription } from '@/lib/sectors';
 
 const deriveTradeType = (setupName: string | null | undefined): string => {
   if (!setupName) return '';
@@ -696,21 +653,25 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
   const collapsed = i.surfaced.filter((t: any) => t.plan?.collapsed).length;
   const choppy = i.surfaced.filter((t: any) => t.chop14 != null && t.chop14 >= CHOP_CHOP_MIN).length;
 
-  const yieldBits: string[] = [
-    `${i.surfaced.length} name${i.surfaced.length === 1 ? '' : 's'} cleared the setup gates`,
-  ];
-  if (i.surfaced.length > 0) {
-    yieldBits.push(`${gradeA} grade A and ${gradeB} grade B`);
-    if (blueDots + redDots > 0) yieldBits.push(`${blueDots} blue dot${blueDots === 1 ? '' : 's'} vs ${redDots} red`);
-    if (breakouts + reversals > 0) yieldBits.push(`${breakouts} breakout-family vs ${reversals} reversal-family`);
-    if (unnamed > 0) yieldBits.push(`${unnamed} matched no pattern`);
-    yieldBits.push(`${planned} have a definable entry, ${clearRunway} with 2R clear of overhead`);
-    if (collapsed > 0) yieldBits.push(`${collapsed} have fallen off their own averages`);
-    if (choppy > 0) yieldBits.push(`${choppy} are in a chop regime on their own 14-day range`);
-    if (extended > 0) yieldBits.push(`${extended} already extended`);
-    if (capped > 0) yieldBits.push(`${capped} grade-capped`);
-    yieldBits.push(`${ready} flagged Ready`);
+  const actionable = i.surfaced
+    .filter((t: any) => t.plan?.tradeable && t.plan.clear && !t.extended)
+    .sort((a: any, b: any) => (b.cnfScore ?? 0) - (a.cnfScore ?? 0));
+  const actionNames = actionable.slice(0, 5).map((t: any) => t.ticker).join(' ');
+  const yieldBits: string[] = [];
+  if (actionable.length > 0) {
+    yieldBits.push(`${actionable.length} actionable with a defined entry and room — ${actionNames}`);
+  } else if (planned > 0) {
+    yieldBits.push(`${planned} have an entry but none have 2R of clear air above the trigger`);
+  } else {
+    yieldBits.push('Nothing on the board has a defined entry right now');
   }
+  if (breakouts + reversals > 0) {
+    const lean = breakouts > reversals ? 'breakout-heavy' : reversals > breakouts ? 'pullback-heavy' : 'evenly split';
+    yieldBits.push(`setup mix is ${lean} (${breakouts} breakout, ${reversals} reversal)`);
+  }
+  if (blueDots > 0) yieldBits.push(`${blueDots} blue dot${blueDots === 1 ? '' : 's'} firing`);
+  if (extended > 0) yieldBits.push(`${extended} extended — wait for pullback`);
+  if (choppy > 0) yieldBits.push(`${choppy} in chop`);
   sentences.push(`${yieldBits.join(', ')}.`);
 
   let posture: string;
@@ -1145,8 +1106,14 @@ async function runScan(request: Request) {
       }
     }
 
+    // Breadth counts use the FULL snapshot (all US equities >= $1 with
+    // standard ticker format) so the A/D and ATHI/ATLO readings match
+    // market-wide indices rather than the scanner's filtered universe.
+    const breadthUniverse = processedSnapshot.filter((t: any) =>
+      t._livePrice >= 1 && /^[A-Z]{1,5}$/.test(t.ticker)
+    );
     let advancers = 0, decliners = 0, up4 = 0, down4 = 0;
-    for (const t of viableSetups) {
+    for (const t of breadthUniverse) {
       const chg = t._liveChg || 0;
       if (chg > 0) advancers++; else if (chg < 0) decliners++;
       if (chg >= 4) up4++; else if (chg <= -4) down4++;
@@ -1172,8 +1139,9 @@ async function runScan(request: Request) {
     } catch (e) { console.error('breadth persist failed', e); }
 
     let newHighs = 0, newLows = 0;
+    let mkmValue: number | null = null, mkmSignal: number | null = null, mkmRising = false;
     try {
-      const viableSet = new Set(viableSetups.map((t: any) => t.ticker));
+      const breadthTickerSet = new Set(breadthUniverse.map((t: any) => t.ticker));
       const hi52Map = new Map<string, number>();
       const lo52Map = new Map<string, number>();
 
@@ -1199,7 +1167,7 @@ async function runScan(request: Request) {
           if (r.status !== 'fulfilled' || !r.value?.results) continue;
           for (const bar of r.value.results) {
             const sym = bar.T;
-            if (!viableSet.has(sym)) continue;
+            if (!breadthTickerSet.has(sym)) continue;
             const prevHi = hi52Map.get(sym);
             if (!prevHi || bar.h > prevHi) hi52Map.set(sym, bar.h);
             const prevLo = lo52Map.get(sym);
@@ -1208,17 +1176,71 @@ async function runScan(request: Request) {
         }
       }
 
-      for (const t of viableSetups) {
+      for (const t of breadthUniverse) {
         const price = t._livePrice;
         if (!price || price <= 0) continue;
         const hi = hi52Map.get(t.ticker);
         const lo = lo52Map.get(t.ticker);
-        if (hi && hi > 0 && ((price - hi) / hi) * 100 >= -1) newHighs++;
-        if (lo && lo > 0 && ((price - lo) / lo) * 100 <= 1) newLows++;
+        if (hi && hi > 0 && price >= hi) newHighs++;
+        if (lo && lo > 0 && price <= lo) newLows++;
       }
 
+      // --- MKM: Market Momentum (McClellan-style oscillator on ATHI/ATLO history) ---
+      // ATHI/ATLO history is seeded from TradingView (ATHI.US / ATLO.US).
+      // Use those values for display instead of the Polygon approximation.
+      try {
+        const histRaw = await kv.get<{ entries: { t: number; h: number; l: number }[] }>('athi_atlo_history');
+        const entries = histRaw?.entries ?? [];
+
+        if (entries.length > 0) {
+          const latest = entries[entries.length - 1];
+          newHighs = latest.h;
+          newLows = latest.l;
+        }
+
+        if (entries.length >= 22) {
+          const emaCalc = (data: number[], period: number): number[] => {
+            const k = 2 / (period + 1);
+            const r = [data[0]];
+            for (let i = 1; i < data.length; i++) r.push(data[i] * k + r[i - 1] * (1 - k));
+            return r;
+          };
+
+          const raw = entries.map(e => {
+            const total = e.h + e.l + 1e-10;
+            return ((e.h - e.l) / total) * 1000;
+          });
+          const fastEma = emaCalc(raw, 10);
+          const slowEma = emaCalc(raw, 21);
+          const momentum = fastEma.map((f, i) => f - slowEma[i]);
+
+          const scaleLen = 500;
+          const n = momentum.length;
+          const rFinalSeries: number[] = [];
+          for (let i = 0; i < n; i++) {
+            const start = Math.max(0, i - scaleLen + 1);
+            let mH = -Infinity, mL = Infinity;
+            for (let j = start; j <= i; j++) {
+              if (momentum[j] > mH) mH = momentum[j];
+              if (momentum[j] < mL) mL = momentum[j];
+            }
+            rFinalSeries.push((mH - mL) === 0 ? 50 : 100 * (momentum[i] - mL) / (mH - mL));
+          }
+
+          const sigEma = emaCalc(rFinalSeries, 9);
+          mkmValue = Math.round(rFinalSeries[n - 1] * 10) / 10;
+          mkmSignal = Math.round(sigEma[n - 1] * 10) / 10;
+          mkmRising = n >= 2 && rFinalSeries[n - 1] > rFinalSeries[n - 2];
+        }
+      } catch (e) { console.error('MKM computation failed (non-blocking):', e); }
+
       const prevBreadth = await kv.get<any>('market_breadth_v6');
-      if (prevBreadth) await kv.set('market_breadth_v6', { ...prevBreadth, newHighs, newLows });
+      if (prevBreadth) {
+        await kv.set('market_breadth_v6', {
+          ...prevBreadth, newHighs, newLows,
+          ...(mkmValue != null ? { mkm: mkmValue, mkmSignal, mkmRising } : {}),
+        });
+      }
     } catch (e) { console.error('ATHI/ATLO failed (non-blocking):', e); }
 
     const dailyCandidates = [...viableSetups]

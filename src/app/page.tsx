@@ -4,7 +4,9 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 import React, { Suspense } from 'react';
-import { MarketDataProvider } from '../components/MarketDataContext'; 
+import { MarketDataProvider } from '../components/MarketDataContext';
+import { ThemeToggle } from '../components/ThemeProvider';
+import { ActiveChartProvider } from '../components/TickerChartHover';
 
 import Scorecard from '../components/Scorecard';
 import DailySetupsComponent from '../components/DailySetups';
@@ -15,8 +17,9 @@ import EarningsCalendar from '../components/EarningsCalendar';
 import MarketSummary from '../components/MarketSummary';
 import TopMovers from '../components/TopMovers';
 import SwingCandidates from '../components/SwingCandidates';
-import Ep9m from '../components/Ep9m'; 
+import Ep9m from '../components/Ep9m';
 import Vcp from '../components/Vcp';
+import Multibagger from '../components/Multibagger';
 
 
 export default function DailySetupsPage() {
@@ -25,14 +28,26 @@ export default function DailySetupsPage() {
       <Suspense fallback={<div className="flex h-screen w-full items-center justify-center text-slate-500 font-bold tracking-widest uppercase">Loading Workspace...</div>}>
         
         <MarketDataProvider>
-          
+          <ActiveChartProvider>
           <div className="w-full max-w-[1200px] bg-[#0b101a] md:rounded-[2rem] border-x md:border border-white/5 overflow-hidden shadow-2xl relative pb-20">
             
             {/* Header */}
             <div className="px-6 md:px-10 pt-8 pb-6 border-b border-white/5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-              <div>
-                <h2 className="text-2xl md:text-4xl font-extrabold text-slate-100 mb-2">Confluence Trading Tools</h2>
-                <p className="text-sm md:text-base text-slate-400">Stock Market Dashboard</p>
+              <div className="flex items-center gap-3 md:gap-4">
+                <img src="/logo.svg" alt="CTT" className="ctt-logo h-8 md:h-11 w-auto" />
+                <div>
+                  <h2 className="text-2xl md:text-4xl font-extrabold text-slate-100 mb-1">Confluence Trading Tools</h2>
+                  <p className="text-sm md:text-base text-slate-400">Stock Market Dashboard</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <ThemeToggle />
+                <a
+                  href="/analyst"
+                  className="px-4 py-2 rounded-lg text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shrink-0"
+                >
+                  Analyst Brief
+                </a>
               </div>
             </div>
 
@@ -46,7 +61,8 @@ export default function DailySetupsPage() {
               <SwingCandidates />
               <Consolidation1021 />
               <Vcp />
-              <Ep9m /> 
+              <Ep9m />
+              <Multibagger />
               <TechnicalsEcon />
               <EarningsCalendar />
               
@@ -58,6 +74,7 @@ export default function DailySetupsPage() {
               Confluence Trading Tools © {new Date().getFullYear()} • Not investment advice.
             </div>
           </div>
+          </ActiveChartProvider>
         </MarketDataProvider>
 
       </Suspense>
