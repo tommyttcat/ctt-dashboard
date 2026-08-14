@@ -237,7 +237,18 @@ async function main() {
     for await (const chunk of process.stdin) input += chunk;
     const briefStr = input.trim();
     // Validate JSON
-    JSON.parse(briefStr);
+    const parsed = JSON.parse(briefStr);
+    // This path writes straight to KV and bypasses /api/analyst/brief, so it has
+    // to repeat that route's guard. A brief carrying neither regimeDetail nor
+    // summary renders no regime cards on the dashboard and no conviction split
+    // in the email, and writing one here silently replaces a complete brief.
+    if (!parsed.regimeDetail && !parsed.summary) {
+      process.stderr.write(
+        'Refusing to write: brief has neither "regimeDetail" nor "summary". ' +
+        'That would overwrite a complete brief with an empty shell.\n'
+      );
+      process.exit(1);
+    }
     const cmd = BRIEF_TTL
       ? ['SET', BRIEF_KEY, briefStr, 'EX', String(BRIEF_TTL)]
       : ['SET', BRIEF_KEY, briefStr];
