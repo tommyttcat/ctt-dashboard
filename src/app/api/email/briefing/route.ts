@@ -476,6 +476,27 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
     </div>`;
   }
 
+  // What to Look For Tomorrow — summary.tomorrow is the forward-looking list
+  // (levels, scheduled prints, regime invalidations). The closing email is what
+  // it exists for, but render it on any phase that has it rather than dropping
+  // work the analyst already did.
+  const tomorrowItems: string[] = Array.isArray(summary.tomorrow) ? summary.tomorrow : [];
+  let tomorrowHtml = '';
+  if (tomorrowItems.length) {
+    const lis = tomorrowItems
+      .map(
+        (item) =>
+          `<li style="margin-bottom:8px;">${renderMarkdown(badgeTickers(String(item), knownTickers))}</li>`,
+      )
+      .join('');
+    tomorrowHtml = sectionCard(
+      phase === 'closing' ? 'What to Look For Tomorrow' : 'What to Look For Next',
+      '#818cf8',
+      '#818cf8',
+      `<ul style="margin:0;padding-left:18px;">${lis}</ul>`,
+    );
+  }
+
   // Updated time from brief
   const updatedTime = brief?.snapshotTime
     ? new Date(brief.snapshotTime).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
@@ -508,6 +529,8 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
     ${convictionHtml}
     ${watchlistHtml}
     ${trapsHtml}
+
+    ${tomorrowHtml}
 
     <div style="border-top:1px solid #ffffff10;padding-top:16px;margin-top:24px;">
       <div style="font-size:10px;color:#475569;text-align:center;">

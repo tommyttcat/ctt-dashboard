@@ -64,15 +64,39 @@ export async function POST(req: Request) {
     );
   }
 
+  // Both consumers read regimeDetail and summary off the stored object:
+  // AnalystBrief.tsx gates the regime cards on brief.regimeDetail, and the
+  // email builder pulls conviction tickers out of brief.summary.conviction to
+  // decide which trades are "Highest Conviction" vs "Watchlist". A body with
+  // neither field is a degenerate write — the schema requires both — and
+  // accepting it silently replaces a full brief with an empty-shell one.
+  if (!body.regimeDetail && !body.summary) {
+    return NextResponse.json(
+      {
+        error:
+          'Body must include "regimeDetail" and/or "summary". A brief with neither ' +
+          'renders no regime cards and no conviction split, and would overwrite a complete brief.',
+      },
+      { status: 400 },
+    );
+  }
+
   const brief = {
     generatedAt: new Date().toISOString(),
     generatedAtET: new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }),
     snapshotTime: body.snapshotTime || null,
     sections: body.sections,
+    regimeDetail: body.regimeDetail || null,
+    summary: body.summary || null,
   };
 
   try {
-    await kv.set(CACHE_KEY, brief, { ex: 1800 }); // 30 min TTL
+    // No TTL. The previous 30-minute expiry meant the brief vanished before the
+    // next analyst run, so the email crons (11:30/14:30/18:00/20:30 UTC) and the
+    // dashboard routinely fetched a 404 and rendered with no analyst content at
+    // all. scripts/analyst-loop.mjs already writes this key with BRIEF_TTL = null;
+    // this keeps the two write paths consistent and persists over weekends.
+    await kv.set(CACHE_KEY, brief);
     return NextResponse.json({ success: true, generatedAt: brief.generatedAtET });
   } catch (err: any) {
     return NextResponse.json(
