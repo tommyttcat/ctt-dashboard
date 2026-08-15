@@ -6,18 +6,13 @@
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
+import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 export const revalidate = 0;
 
 export async function GET() {
-  const noStoreHeaders = {
-    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-    'Pragma': 'no-cache',
-    'Expires': '0',
-  };
-
   try {
     const t = await kv.get<any>('t2108_v1');
     return NextResponse.json({
@@ -27,12 +22,12 @@ export async function GET() {
       above: t?.above ?? null,
       total: t?.total ?? null,
       updatedAt: t?.updatedAt ?? null,
-    }, { headers: noStoreHeaders });
+    }, { headers: cacheHeaders(CACHE.SCAN) });
   } catch (error: any) {
     console.error('T2108_LATEST_ERROR:', error);
     return NextResponse.json(
       { success: false, error: error.message, value: null },
-      { status: 500, headers: noStoreHeaders }
+      { status: 500, headers: noCacheHeaders() }
     );
   }
 }

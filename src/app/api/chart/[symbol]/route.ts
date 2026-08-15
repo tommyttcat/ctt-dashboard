@@ -44,7 +44,18 @@ export async function GET(
       volume: r.v,
     }));
 
-    return NextResponse.json({ bars }, {
+    let profile: { name?: string; sector?: string; industry?: string; mktCap?: number } | undefined;
+    try {
+      const detUrl = `https://api.polygon.io/v3/reference/tickers/${encodeURIComponent(symbol.toUpperCase())}?apiKey=${apiKey}`;
+      const detRes = await fetch(detUrl, { next: { revalidate: 86400 } });
+      if (detRes.ok) {
+        const det = await detRes.json();
+        const r = det.results;
+        if (r) profile = { name: r.name, sector: r.sic_description, industry: r.type === 'ETF' ? 'ETF' : undefined, mktCap: r.market_cap };
+      }
+    } catch {}
+
+    return NextResponse.json({ bars, profile }, {
       headers: { 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600' },
     });
   } catch (err: any) {

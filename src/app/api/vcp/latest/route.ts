@@ -12,6 +12,7 @@
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
+import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -38,19 +39,13 @@ export async function GET() {
         prefiltered: meta?.prefiltered ?? null,
         confirmed: meta?.confirmed ?? null,
       },
-      {
-        headers: {
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0',
-        },
-      }
+      { headers: cacheHeaders(CACHE.SCAN) }
     );
   } catch (error: any) {
     console.error('VCP_LATEST_ERROR:', error);
     return NextResponse.json(
       { success: false, error: error.message, candidates: [] },
-      { status: 500 }
+      { status: 500, headers: noCacheHeaders() }
     );
   }
 }

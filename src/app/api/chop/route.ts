@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
+import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 import { choppiness, CHOP_PERIOD_DEFAULT } from '@/lib/indicators/chop';
 
 /* CHOP regime route — v1.2
@@ -259,11 +260,14 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const refresh = searchParams.get('refresh') === 'true';
 
+  /* ?refresh=true recomputes both legs on purpose — never pin that at the edge. */
+  const headers = refresh ? noCacheHeaders() : cacheHeaders(CACHE.NARRATIVE);
+
   const apiKey = process.env.POLYGON_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
       { success: false, error: 'POLYGON_API_KEY is not configured' },
-      { status: 500 }
+      { status: 500, headers: noCacheHeaders() }
     );
   }
 
@@ -292,7 +296,7 @@ export async function GET(request: Request) {
     if (daily.blended == null && intraday.blended == null) {
       return NextResponse.json(
         { success: false, error: 'Insufficient bar data on either timeframe' },
-        { status: 502 }
+        { status: 502, headers: noCacheHeaders() }
       );
     }
 
@@ -349,11 +353,11 @@ export async function GET(request: Request) {
       // Cache write failure just means the next request recomputes.
     }
 
-    return NextResponse.json(payload);
+    return NextResponse.json(payload, { headers });
   } catch (err: any) {
     return NextResponse.json(
       { success: false, error: err?.message || 'CHOP computation failed' },
-      { status: 500 }
+      { status: 500, headers: noCacheHeaders() }
     );
   }
 }

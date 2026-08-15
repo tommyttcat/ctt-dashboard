@@ -122,7 +122,11 @@ import { computeDotDetail } from '@/lib/indicators/dots';
 import { computeTradePlan } from '@/lib/indicators/tradeplan';
 import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN, CHOP_TREND_MAX } from '@/lib/indicators/chop';
 import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
-import { pickBestNews, type NewsItem } from '@/lib/indicators/news';
+import { pickBestNews, fetchBenzingaNewsIndex, type NewsItem } from '@/lib/indicators/news';
+import {
+  computeCnfScore, atrsAboveAnchor, isBreakoutSetupName, isReversalSetupName,
+  EXT_HARD_ATRS, EXT_PARABOLIC_ATRS, EXT_HARD_PCT_NO_ATR, EXT_PARABOLIC_PCT_NO_ATR,
+} from '@/lib/indicators/confluence';
 import { SCANNER, SCANNER_SIP_META, SCANNER_DAILY_META, TOPMOVERS_META } from '@/lib/scanConfig';
 
 export const dynamic = 'force-dynamic';
@@ -285,242 +289,8 @@ const deriveTradeType = (setupName: string | null | undefined): string => {
   return 'Swing';
 };
 
-const isReversalSetupName = (setupName: string | null | undefined): boolean =>
-  /blue dot|ema pb|sqz building|inside day|reversal/.test((setupName || '').toLowerCase());
-
-const isBreakoutSetupName = (setupName: string | null | undefined): boolean =>
-  /gap & go|r2g|sqz fired|episodic|glb/.test((setupName || '').toLowerCase());
-
-// --- Absolute extension thresholds (v6.17) ---------------------------------
-// In ATRs above the 21 EMA. EXT_HARD reuses the same 3x the scanner's own
-// `extended` flag and tradeplan's `overextended` use — one number, one
-// meaning, three consumers.
-const EXT_HARD_ATRS = 3;
-const EXT_PARABOLIC_ATRS = 6;
-// Fallbacks in raw percent when ATR is unavailable.
-const EXT_HARD_PCT_NO_ATR = 25;
-const EXT_PARABOLIC_PCT_NO_ATR = 60;
-
-// --- Chop trap threshold (v6.18) -------------------------------------------
-// ADR at or above this WITH chop at or above CHOP_CHOP_MIN is the specific
-// combination the ADR floor cannot see: wide range, no direction. Reported in
-// catalystCoverage so the gate in a later version can be set on evidence
-// rather than on the textbook 61.8.
 const CHOP_TRAP_MIN_ADR = 5;
 
-const atrsAboveAnchor = (distToEma21: number | null, atrPct: number | null): number | null => {
-  if (distToEma21 == null || distToEma21 <= 0) return null;
-  if (atrPct != null && atrPct > 0) return distToEma21 / atrPct;
-  return null;
-};
-
-const computeCnfScore = (
-  rvol: number | null,
-  gapPct: number | null,
-  atrExpansion: number | null,
-  rsVsMkt: number | null,
-  q: {
-    catalystTier: 'strong' | 'neutral' | 'headline' | 'negative' | 'none';
-    hasEarnings: boolean;
-    scanStreak: number;
-    rme: number | null;
-    vwapStatus: string;
-    tradeType: string;
-    setupName: string | null;
-    breadthSignal: string;
-    spyAbove21: boolean | null;
-    inHotSector: boolean;
-    stageNum: number | null;
-    goldenCross: boolean | null;
-    pctOffHigh: number | null;
-    dotKind: 'blue' | 'red' | null;
-    dotBarsSince: number | null;
-    isBearInstrument: boolean;
-    aboveEma10: boolean | null;
-    planTradeable: boolean;
-    planResistanceR: number | null;
-    planClear: boolean;
-    planCollapsed: boolean;
-    distToEma21: number | null;
-    atrPct: number | null;
-  }
-): { score: number; grade: string; breakdown: Record<string, number>; ceiling: number; ceilingReason: string | null } => {
-  const b: Record<string, number> = {};
-
-  b.rvol = 0;
-  if (rvol != null) {
-    if (rvol >= 3) b.rvol = 30;
-    else if (rvol >= 2) b.rvol = 24;
-    else if (rvol >= 1.5) b.rvol = 18;
-    else if (rvol >= 1) b.rvol = 10;
-  }
-
-  b.gap = 0;
-  if (gapPct != null) {
-    const g = Math.abs(gapPct);
-    if (g >= 5) b.gap = 20;
-    else if (g >= 3) b.gap = 15;
-    else if (g >= 1.5) b.gap = 8;
-  }
-
-  b.rangeExpansion = 0;
-  if (atrExpansion != null) {
-    if (atrExpansion >= 2) b.rangeExpansion = 20;
-    else if (atrExpansion >= 1.5) b.rangeExpansion = 15;
-    else if (atrExpansion >= 1) b.rangeExpansion = 8;
-  }
-
-  b.relStrength = 0;
-  if (rsVsMkt != null) {
-    const d = Math.abs(rsVsMkt);
-    if (d >= 3) b.relStrength = 10;
-    else if (d >= 1.5) b.relStrength = 6;
-  }
-
-  b.catalyst = 0;
-  if (q.catalystTier === 'strong') b.catalyst = 18;
-  else if (q.catalystTier === 'neutral') b.catalyst = 10;
-  else if (q.catalystTier === 'headline') b.catalyst = 8;
-  else if (q.catalystTier === 'negative') b.catalyst = -15;
-
-  b.earnings = q.hasEarnings ? 5 : 0;
-
-  b.persistence = 0;
-  if (q.scanStreak >= 4) b.persistence = 10;
-  else if (q.scanStreak >= 3) b.persistence = 8;
-  else if (q.scanStreak === 2) b.persistence = 4;
-
-  // RME is a PERCENTILE and saturates. It cannot tell 7% above the anchor
-  // from 198% above — both read 100. The absolute ceiling below is what
-  // separates them.
-  b.extension = rmeScoreAdjustment(q.rme, isReversalSetupName(q.setupName));
-
-  b.vwap = q.vwapStatus === 'below' ? -(q.tradeType === 'Day Trade' ? 12 : 4) : 0;
-
-  b.regime = 0;
-  const isBreakout = isBreakoutSetupName(q.setupName);
-  const isReversal = isReversalSetupName(q.setupName);
-  if (q.breadthSignal === 'RED') {
-    if (isBreakout) b.regime -= 8;
-    if (isReversal) b.regime += 4;
-  } else if (q.breadthSignal === 'GREEN' && q.spyAbove21 !== false) {
-    if (isBreakout) b.regime += 4;
-  }
-
-  b.sector = q.inHotSector ? 5 : 0;
-
-  b.dot = 0;
-  if (q.dotKind === 'blue') b.dot = q.dotBarsSince === 0 ? 10 : 6;
-
-  b.reclaim = 0;
-  if (q.setupName === 'Reversal' && q.aboveEma10 === true) b.reclaim = 8;
-
-  // Runway, graded on distance to the nearest overhead level. A tradeable
-  // plan with no resistance reading scores 0 rather than a penalty — that is
-  // the overextended case from tradeplan v1.4, and the ceiling below handles
-  // it properly.
-  b.runway = 0;
-  if (q.planCollapsed) {
-    b.runway = -10;
-  } else if (q.planTradeable) {
-    if (q.planClear) b.runway = 8;
-    else if (q.planResistanceR == null) b.runway = 0;
-    else if (q.planResistanceR >= 1.0) b.runway = -2;
-    else if (q.planResistanceR >= 0.5) b.runway = -6;
-    else b.runway = -10;
-  }
-
-  // NOTE (v6.18): chop14 is deliberately NOT a component here. It is emitted
-  // on every row and reported in catalystCoverage, but folding it into the
-  // score would move every grade at once and make its effect impossible to
-  // isolate from the ceilings already in place. Score it in v6.19, once the
-  // distribution has been watched.
-
-  const raw = Object.values(b).reduce((s, v) => s + v, 0);
-
-  // --- CEILING 1: structural ----------------------------------------------
-  let structuralCeiling = 100;
-  let structuralReason: string | null = null;
-  const deepDrawdown = q.pctOffHigh != null && q.pctOffHigh <= -50;
-  const stage4 = q.stageNum === 4;
-  const deadCross = q.goldenCross === false;
-
-  if (stage4 && deadCross) {
-    structuralCeiling = isReversal ? 79 : 69;
-    structuralReason = 'Stage 4 with 50<200';
-  } else if (stage4 || deadCross) {
-    structuralCeiling = 84;
-    structuralReason = stage4 ? 'Stage 4' : '50<200';
-  }
-  if (deepDrawdown && (q.stageNum == null || q.stageNum >= 3)) {
-    if (59 < structuralCeiling) {
-      structuralCeiling = 59;
-      structuralReason = '50%+ off highs';
-    }
-  }
-
-  // --- CEILING 2: red dot -------------------------------------------------
-  let dotCeiling = 100;
-  let dotReason: string | null = null;
-  if (q.dotKind === 'red' && !q.isBearInstrument) {
-    const since = q.dotBarsSince ?? 0;
-    if (since === 0) { dotCeiling = 44; dotReason = 'red dot today'; }
-    else if (since === 1) { dotCeiling = 49; dotReason = 'red dot 1 bar ago'; }
-    else { dotCeiling = 59; dotReason = `red dot ${since} bars ago`; }
-  }
-
-  // --- CEILING 3: collapse ------------------------------------------------
-  let collapseCeiling = 100;
-  let collapseReason: string | null = null;
-  if (q.planCollapsed) {
-    collapseCeiling = 44;
-    collapseReason = 'price collapsed away from its own averages';
-  }
-
-  // --- CEILING 4: absolute extension (v6.17) ------------------------------
-  // The one RME could not express. PN at 198% above its 21 EMA and MA at 7%
-  // both scored extension -12 because the percentile saturates; this is the
-  // measure that separates them.
-  //
-  // No bear-instrument exemption here, unlike the red-dot ceiling. An inverse
-  // ETF 20 ATRs above its own anchor is exactly as un-enterable as a long
-  // one — the direction of the underlying does not make a vertical move
-  // buyable.
-  let extCeiling = 100;
-  let extReason: string | null = null;
-  const atrsAbove = atrsAboveAnchor(q.distToEma21, q.atrPct);
-
-  if (atrsAbove != null) {
-    if (atrsAbove > EXT_PARABOLIC_ATRS) {
-      extCeiling = 49;
-      extReason = `${atrsAbove.toFixed(1)} ATRs above the 21 EMA — parabolic`;
-    } else if (atrsAbove > EXT_HARD_ATRS) {
-      extCeiling = 69;
-      extReason = `${atrsAbove.toFixed(1)} ATRs above the 21 EMA — extended`;
-    }
-  } else if (q.distToEma21 != null && q.distToEma21 > 0) {
-    // No ATR to normalise against. Fall back to raw percent, bluntly.
-    if (q.distToEma21 > EXT_PARABOLIC_PCT_NO_ATR) {
-      extCeiling = 49;
-      extReason = `${q.distToEma21.toFixed(0)}% above the 21 EMA — parabolic`;
-    } else if (q.distToEma21 > EXT_HARD_PCT_NO_ATR) {
-      extCeiling = 69;
-      extReason = `${q.distToEma21.toFixed(0)}% above the 21 EMA — extended`;
-    }
-  }
-
-  const ceiling = Math.min(structuralCeiling, dotCeiling, collapseCeiling, extCeiling);
-  const ceilingReason =
-    ceiling === 100 ? null :
-    ceiling === collapseCeiling && collapseReason ? collapseReason :
-    ceiling === dotCeiling && dotReason ? dotReason :
-    ceiling === extCeiling && extReason ? extReason :
-    structuralReason;
-
-  const score = Math.max(0, Math.min(ceiling, Math.round(raw)));
-  const grade = score >= 70 ? 'A' : score >= 50 ? 'B' : 'C';
-  return { score, grade, breakdown: b, ceiling, ceilingReason };
-};
 
 const buildReadout = (t: any): string | null => {
   const parts: string[] = [];
@@ -1001,6 +771,10 @@ async function runScan(request: Request) {
   }
 
   const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
+  /* News only. Polygon's per-ticker feed is Motley Fool wall-to-wall on this
+     plan, and pickBestNews blocks that publisher — so every row's catalyst
+     came back null until Benzinga was put in front of it. */
+  const benzingaKey = (process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '').trim();
   if (!polygonApiKey) return NextResponse.json({ error: 'Missing API Key' }, { status: 500 });
 
   /* One lookup for the whole scan, loaded before any per-ticker work.
@@ -1129,17 +903,63 @@ async function runScan(request: Request) {
     if (ratio4 >= 0.6) breadthScore++;
     if (down4 < 50) breadthScore++;
     const breadthSignal = breadthScore >= 4 ? 'GREEN' : breadthScore <= 2 ? 'RED' : 'NEUTRAL';
+
+    /* ---- Stockbee Market Monitor -------------------------------------------
+       A SECOND, STRICTER UNIVERSE, deliberately not the one above. Stockbee's
+       monitor specifies close >= $3 and volume >= 100k precisely to exclude
+       the sub-$3 and illiquid names that dominate raw 4% counts — a $1.20
+       stock moving four cents clears a 4% move without meaning anything.
+
+       So mm4Up will read LOWER than the up4 beside it. That is the filter
+       working, not a discrepancy. The looser counts stay as they are because
+       A/D and ATHI/ATLO are meant to track market-wide indices. */
+    const MM_MIN_PRICE = 3.00;
+    const MM_MIN_VOLUME = 100_000;
+
+    const mmUniverse = processedSnapshot.filter((t: any) =>
+      t._livePrice >= MM_MIN_PRICE && t._liveVol >= MM_MIN_VOLUME && /^[A-Z]{1,5}$/.test(t.ticker)
+    );
+    let mm4Up = 0, mm4Down = 0;
+    for (const t of mmUniverse) {
+      const chg = t._liveChg || 0;
+      if (chg >= 4) mm4Up++; else if (chg <= -4) mm4Down++;
+    }
+
+    /* The 5-day ratio needs history the snapshot cannot provide, so the daily
+       counts are buffered here. Keyed by ET trading date and rewritten in
+       place, so several runs in one session update today rather than stacking
+       five copies of it into the window. */
+    let mm5Up: number | null = null, mm5Down: number | null = null, mm5Days = 0;
+    try {
+      const etToday = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
+        .toISOString().slice(0, 10);
+      const histRaw = await kv.get<{ entries: { d: string; up: number; down: number }[] }>('mm_4pct_history');
+      const entries = (histRaw?.entries ?? []).filter(e => e.d !== etToday);
+      entries.push({ d: etToday, up: mm4Up, down: mm4Down });
+      entries.sort((a, b) => a.d.localeCompare(b.d));
+      const kept = entries.slice(-20);
+      await kv.set('mm_4pct_history', { entries: kept });
+
+      const last5 = kept.slice(-5);
+      mm5Days = last5.length;
+      mm5Up = last5.reduce((a, e) => a + e.up, 0);
+      mm5Down = last5.reduce((a, e) => a + e.down, 0);
+    } catch (e) { console.error('MM history failed (non-blocking):', e); }
+
     try {
       await kv.set('market_breadth_v6', {
         score: breadthScore, signal: breadthSignal,
         advancers, decliners, up4, down4,
         pctAdv: Math.round(pctAdv * 1000) / 10,
+        mm4Up, mm4Down, mm5Up, mm5Down, mm5Days,
+        mmUniverseSize: mmUniverse.length,
         updatedAt: new Date().toISOString(),
       });
     } catch (e) { console.error('breadth persist failed', e); }
 
     let newHighs = 0, newLows = 0;
     let mkmValue: number | null = null, mkmSignal: number | null = null, mkmRising = false;
+    let mm25Quarter: number | null = null, mm25AsOf: string | null = null;
     try {
       const breadthTickerSet = new Set(breadthUniverse.map((t: any) => t.ticker));
       const hi52Map = new Map<string, number>();
@@ -1154,6 +974,12 @@ async function runScan(request: Request) {
       }
       const hlKept = hlDates.slice(-252);
 
+      /* Holidays come back empty from the grouped endpoint, so the calendar
+         dates above are not trading days. Recording which ones actually
+         returned bars gives a real session count to index off — needed for
+         the 65-session lookback below. */
+      const datesWithData: string[] = [];
+
       const HL_BATCH = 7;
       for (let i = 0; i < hlKept.length; i += HL_BATCH) {
         const chunk = hlKept.slice(i, i + HL_BATCH);
@@ -1163,8 +989,9 @@ async function runScan(request: Request) {
             { results: [] }, 15000
           )
         ));
-        for (const r of settled) {
-          if (r.status !== 'fulfilled' || !r.value?.results) continue;
+        settled.forEach((r, k) => {
+          if (r.status !== 'fulfilled' || !r.value?.results?.length) return;
+          datesWithData.push(chunk[k]);
           for (const bar of r.value.results) {
             const sym = bar.T;
             if (!breadthTickerSet.has(sym)) continue;
@@ -1173,7 +1000,7 @@ async function runScan(request: Request) {
             const prevLo = lo52Map.get(sym);
             if (!prevLo || bar.l < prevLo) lo52Map.set(sym, bar.l);
           }
-        }
+        });
       }
 
       for (const t of breadthUniverse) {
@@ -1184,6 +1011,34 @@ async function runScan(request: Request) {
         if (hi && hi > 0 && price >= hi) newHighs++;
         if (lo && lo > 0 && price <= lo) newLows++;
       }
+
+      /* ---- Market Monitor: 25%+ in a quarter -----------------------------
+         Stockbee's longer-horizon breadth leg — how many names are up 25% or
+         more over 65 sessions. One extra grouped call rather than a second
+         252-day sweep: the sessions are already enumerated above, so this
+         just re-reads the one date that sits 65 back. */
+      try {
+        const MM_QUARTER_SESSIONS = 65;
+        if (datesWithData.length > MM_QUARTER_SESSIONS) {
+          const targetDate = datesWithData[datesWithData.length - 1 - MM_QUARTER_SESSIONS];
+          const past = await fetchSafeJson(
+            `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonApiKey}`,
+            { results: [] }, 20000
+          );
+          const close65 = new Map<string, number>();
+          for (const bar of past?.results ?? []) {
+            if (bar.c > 0) close65.set(bar.T, bar.c);
+          }
+          let count = 0;
+          for (const t of mmUniverse) {
+            const then = close65.get(t.ticker);
+            if (!then) continue;
+            if ((t._livePrice - then) / then >= 0.25) count++;
+          }
+          mm25Quarter = count;
+          mm25AsOf = targetDate;
+        }
+      } catch (e) { console.error('MM 25%/quarter failed (non-blocking):', e); }
 
       // --- MKM: Market Momentum (McClellan-style oscillator on ATHI/ATLO history) ---
       // ATHI/ATLO history is seeded from TradingView (ATHI.US / ATLO.US).
@@ -1239,6 +1094,7 @@ async function runScan(request: Request) {
         await kv.set('market_breadth_v6', {
           ...prevBreadth, newHighs, newLows,
           ...(mkmValue != null ? { mkm: mkmValue, mkmSignal, mkmRising } : {}),
+          ...(mm25Quarter != null ? { mm25Quarter, mm25AsOf } : {}),
         });
       }
     } catch (e) { console.error('ATHI/ATLO failed (non-blocking):', e); }
@@ -1289,6 +1145,10 @@ async function runScan(request: Request) {
 
     const allCandidates = [...dailyCandidates, ...sipCandidates, ...megaCapsRaw, ...gainersRaw, ...losersRaw, ...etfGainersRaw, ...etfLosersRaw];
     const uniqueCandidates = Array.from(new Map(allCandidates.map(item => [item.ticker, item])).values());
+
+    /* One fetch for the whole scan, indexed by ticker — this plan's Benzinga
+       endpoint ignores per-ticker params, so filtering happens here. */
+    const bzIndex = await fetchBenzingaNewsIndex(benzingaKey);
 
     const enrichCandidate = async (t: any) => {
       const sym = t.ticker || t.single_ticker;
@@ -1500,7 +1360,10 @@ async function runScan(request: Request) {
          tier, whether the headline states a cause, category, focus and age
          together, and returns null when nothing qualifies — which is the
          common and correct outcome. */
-      const newsPick: NewsItem | null = pickBestNews(newsData?.results, sym);
+      const newsPick: NewsItem | null = pickBestNews(
+        [...(bzIndex.get(sym) ?? []), ...(newsData?.results ?? [])],
+        sym
+      );
 
       const round2 = (v: number | null): number | null =>
         v == null ? null : parseFloat(v.toFixed(2));
@@ -1779,6 +1642,7 @@ async function runScan(request: Request) {
     };
 
     let benchmark: any = null;
+    const benchmarks: any[] = [];
     try {
       const qqqTo = new Date().toISOString().split('T')[0];
       const dFromDate = new Date();
@@ -1820,6 +1684,31 @@ async function runScan(request: Request) {
           week: buildSet(weeklyBars, qqqPrice, [5, 10, 30, 50]),
         };
       }
+
+      /* SPY gets the same treatment as QQQ. `benchmark` stays QQQ-only so
+         nothing reading the old field changes behaviour; `benchmarks` is the
+         list the UI renders. */
+      const spyRes = await fetchSafeJson(
+        `https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day/${dFromDate.toISOString().split('T')[0]}/${qqqTo}?adjusted=true&sort=desc&limit=400&apiKey=${polygonApiKey}`,
+        { results: [] }
+      );
+      const spyDaily = (spyRes.results || []).sort((a: any, b: any) => b.t - a.t);
+      const spySeen = new Set<number>();
+      const spyWeekly: { c: number }[] = [];
+      for (const b of spyDaily) {
+        const wi = weekIndex(b.t);
+        if (!spySeen.has(wi)) { spySeen.add(wi); spyWeekly.push({ c: b.c }); }
+      }
+      if (spyDaily.length >= 10) {
+        const spyPrice = parseFloat(spyDaily[0].c.toFixed(2));
+        benchmarks.push({
+          symbol: 'SPY',
+          price: spyPrice,
+          day: buildSet(spyDaily, spyPrice, [10, 21, 30, 50]),
+          week: buildSet(spyWeekly, spyPrice, [5, 10, 30, 50]),
+        });
+      }
+      if (benchmark) benchmarks.unshift(benchmark);
     } catch (e) {
       benchmark = null;
     }
@@ -1844,14 +1733,12 @@ async function runScan(request: Request) {
       console.warn('Scan produced no movers; preserving previous KV snapshot.');
     }
 
-    // Always persist the live changePct map — even when scanners produce
-    // no movers the snapshot still has valid prices. TTL 2h so stale
-    // weekend data expires before Monday open.
     if (Object.keys(liveChgMap).length > 500) {
-      await kv.set('live_chg_map_v1', liveChgMap, { ex: 7200 });
+      await kv.set('live_chg_map_v1', liveChgMap);
     }
 
     if (benchmark) await kv.set('benchmark_v6', benchmark);
+    if (benchmarks.length) await kv.set('benchmarks_v1', benchmarks);
 
     let macroInsights: any = null;
     if (hasRealData) {
@@ -1887,6 +1774,7 @@ async function runScan(request: Request) {
       topMovers: finalTopMovers,
       macroInsights,
       benchmark,
+      benchmarks,
       sips: finalSip,
       dailySetups: finalDaily,
       scanMeta,

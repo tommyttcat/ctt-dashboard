@@ -60,10 +60,10 @@
 //       would let the eye take one without the other.
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { cachedJson } from '@/lib/scannerLatest';
 import { useMarketData } from './MarketDataContext';
-import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
+import { stageColor, stageShort, stageDescription, stageBadge } from '@/lib/indicators/stage';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
-import { stateOf, stateTooltip, stateLegend } from '@/lib/indicators/state';
 import {
   chopColor,
   chopTooltip,
@@ -71,16 +71,17 @@ import {
   CHOP_TREND_MAX,
   CHOP_CHOP_MIN,
 } from '@/lib/indicators/chop';
-import { EP9M_META, COLUMN_NOTES } from '@/lib/scanConfig';
-import MetricsKey from './MetricsKey';
+import { EP9M, COLUMN_NOTES, columnTip } from '@/lib/scanConfig';
 import TickerChartHover from './TickerChartHover';
-import { newsStarCount } from '@/lib/newsStars';
+import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews } from '@/lib/catalyst';
+import { displaySector } from '@/lib/sectors';
+import { adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, rvolColorHighFloor as getRvolColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: "Symbol. Hover shows the company name. Fuchsia dot = unprecedented (today's volume beat its own 60-day high); ★ = repeat EP9M offender. Hover the fuchsia dot on a choppy name — record volume inside a range that will not resolve is the most misread row on this table." },
   EP: {
-    what: 'Episodic Pivot score 0–100 — volume abnormality, vs-60-day-high, float turnover, catalyst, close strength, Money Flow, days-to-cover, and repeat-trigger history. Hover the badge for the per-row breakdown.',
-    colour: 'Green 70+ (A) · amber 50+ (B) · grey below (C).',
+    what: 'Episodic Pivot score 0–100 — volume abnormality, vs-60-day-high, float turnover, catalyst, close strength, Money Flow, days-to-cover, and repeat-trigger history. Hover the number for the per-row breakdown.',
+    colour: 'The grade is on the ticker, not here: green 70+ (A) · amber 50+ (B) · grey below (C).',
   },
   RTR: {
     what: 'Room to resistance. How far the nearest overhead level sits above the trigger, measured in stop-widths (R = trigger minus stop). This scan has no trend gate, so RTR is the column that separates abnormal volume you can trade from abnormal volume you cannot — and it is where over-extension shows up, since there is no posture filter on this table.',
@@ -138,11 +139,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   SECTOR: { what: 'Sector, cleaned of ticker prefixes.' },
 };
 
-const colTip = (key: string): string | undefined => {
-  const n = COLUMN_NOTES?.[key] ?? FALLBACK_NOTES[key];
-  if (!n) return undefined;
-  return n.colour ? `${n.what}\n\n${n.colour}` : n.what;
-};
+const colTip = (key: string): string | undefined => columnTip(key, FALLBACK_NOTES);
 
 interface TradePlanRow {
   family?: string;
@@ -311,22 +308,7 @@ const statePair = (rmv: number | null, rme: number | null): string => {
   return `${v}/${e}`;
 };
 
-const cleanSector = (sector: string | null | undefined, ticker?: string): string => {
-  if (!sector || sector === '—' || sector === '-') return '—';
-  let s = String(sector).trim();
-  if (ticker) {
-    const rx = new RegExp(`^${ticker}\\s*[-–—:]\\s*`, 'i');
-    s = s.replace(rx, '');
-  }
-  s = s.replace(/^[A-Z]{1,5}\s*[-–—:]\s*/, '');
-  return s.trim() || '—';
-};
 
-const isGenericCatalyst = (catalyst: string | null | undefined) => {
-  if (!catalyst) return true;
-  const c = catalyst.toLowerCase().trim();
-  return c.startsWith('technical momentum') || c === 'recent news' || c === 'news' || c === 'technical';
-};
 
 const catalystTagOf = (c: Ep9mCandidate): string | null => {
   if (isGenericCatalyst(c.catalyst)) return null;
@@ -347,24 +329,11 @@ const hasCatalyst = (c: Ep9mCandidate): boolean => catalystTagOf(c) != null || h
    because it is a control — an asterisk that opens nothing is worse than no
    asterisk, and the two questions are different enough to deserve different
    predicates rather than one loosened to cover both. */
-const hasNews = (c: Ep9mCandidate): boolean =>
-  !!(headlineOf(c) && c.catalystUrl);
+/* Mechanics live in @/lib/catalyst so all seven tables render a catalyst
+   the same way; only this scan's reading of the news stays local. */
+const NEGATIVE_NOTE = 'Reads negative — heavy volume against bad news is distribution, not accumulation.';
 
-/* One tooltip for the asterisk and the sub-row, so the two can never
-   describe the same article differently. */
-const newsTooltip = (c: Ep9mCandidate): string => {
-  const headline = headlineOf(c);
-  if (!headline) return '';
-  const meta = [c.catalyst, c.newsPublisher, c.newsAge].filter(Boolean).join(' · ');
-  const lines: string[] = [];
-  if (meta) { lines.push(meta); lines.push(''); }
-  lines.push(headline);
-  if (c.newsSentiment === 'negative') {
-    lines.push('');
-    lines.push('Reads negative — heavy volume against bad news is distribution, not accumulation.');
-  }
-  return lines.join('\n');
-};
+const newsTooltip = (row: Ep9mCandidate): string => catalystTooltip(row, { note: NEGATIVE_NOTE });
 
 const adrOf = (c: Ep9mCandidate): number | null =>
   c.adrPct == null || isNaN(Number(c.adrPct)) ? null : Number(c.adrPct);
@@ -572,8 +541,7 @@ export default function Ep9m() {
     let isMounted = true;
     const fetchCandidates = async () => {
       try {
-        const res = await fetch(`/api/ep9m/latest?t=${Date.now()}`, { cache: 'no-store' });
-        const data = await res.json();
+        const data = await cachedJson('/api/ep9m/latest');
 
         if (isMounted && data && data.success && Array.isArray(data.candidates)) {
           setCandidates(data.candidates);
@@ -713,6 +681,21 @@ export default function Ep9m() {
     setTimeout(() => setCopied(false), 1800);
   };
 
+  const [txtDone, setTxtDone] = useState(false);
+  const handleDownloadTxt = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const t = filteredAndSorted.map(c => c.ticker);
+    if (!t.length) return;
+    const blob = new Blob([t.join(',')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'watchlist.txt';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setTxtDone(true);
+    setTimeout(() => setTxtDone(false), 1800);
+  };
+
   const silentCount = useMemo(() => candidates.filter(c => !hasCatalyst(c)).length, [candidates]);
   const unprecedentedCount = useMemo(() => candidates.filter(c => c.unprecedented).length, [candidates]);
 
@@ -731,44 +714,12 @@ export default function Ep9m() {
   const getSortIcon = (columnKey: string) =>
     sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
-  const getScoreBadge = (score: number) => {
-    if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-    if (score >= 50) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-    return 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50';
-  };
-  const getRvolColor = (rvol: number | null | undefined) => {
-    if (!rvol) return 'text-slate-500';
-    if (rvol >= 10) return 'text-fuchsia-400';
-    if (rvol >= 7) return 'text-purple-400';
-    if (rvol >= 5) return 'text-emerald-400';
-    return 'text-lime-400';
-  };
   const getTurnColor = (t: number | null | undefined) => {
     if (t == null) return 'text-slate-500';
     if (t >= 1.0) return 'text-fuchsia-400';
     if (t >= 0.5) return 'text-purple-400';
     if (t >= 0.25) return 'text-emerald-400';
     if (t >= 0.10) return 'text-lime-400';
-    return 'text-slate-400';
-  };
-  const getDtcColor = (d: number | null | undefined) => {
-    if (d == null) return 'text-slate-500';
-    if (d >= 5) return 'text-purple-400';
-    if (d >= 3) return 'text-emerald-400';
-    if (d >= 1.5) return 'text-slate-300';
-    return 'text-slate-500';
-  };
-  const getAdrColor = (a: number | null) => {
-    if (a == null) return 'text-slate-500';
-    if (a >= 10) return 'text-purple-400';
-    if (a >= 5) return 'text-emerald-400';
-    if (a >= 3) return 'text-slate-300';
-    return 'text-slate-500';
-  };
-  const getStochColor = (k: number | null | undefined) => {
-    if (k == null) return 'text-slate-500';
-    if (k <= 20) return 'text-purple-400';
-    if (k <= 30) return 'text-emerald-400';
     return 'text-slate-400';
   };
   const getRsColor = (rs: number | null | undefined) => {
@@ -842,22 +793,6 @@ export default function Ep9m() {
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
             EP 9 MILLION
           </span>
-          {candidates.length > 0 && (
-            <span className="hidden md:flex items-center gap-2">
-              <span className="text-[10px] font-bold tracking-wider uppercase text-fuchsia-400 bg-fuchsia-500/10 border border-fuchsia-500/20 px-2 py-0.5 rounded">{unprecedentedCount} Unprecedented</span>
-              <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400 bg-white/[0.03] border border-white/5 px-2 py-0.5 rounded">{silentCount} Silent</span>
-              {/* Only when non-zero — a chip reading "0 In Chop" every quiet
-                  day is noise, and this one is meant to be noticed. */}
-              {unprecInChopCount > 0 && (
-                <span
-                  className="text-[10px] font-bold tracking-wider uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded cursor-help"
-                  title={`${unprecInChopCount} name${unprecInChopCount === 1 ? '' : 's'} printed record volume INSIDE a chop regime — the volume event is real and the range is not resolving it. Research these; do not chase the break.`}
-                >
-                  {unprecInChopCount} In Chop
-                </span>
-              )}
-            </span>
-          )}
           {filteredAndSorted.length > 0 && (
             <button
             onClick={handleCopyTickers}
@@ -874,8 +809,35 @@ export default function Ep9m() {
             {copied ? `✓ Copied ${filteredAndSorted.length}` : `Copy ${filteredAndSorted.length}`}
           </button>
           )}
-          <span className="relative z-40 inline-flex">
-            <MetricsKey meta={EP9M_META} liveGates={scanMeta?.gates} />
+          {filteredAndSorted.length > 0 && (
+            <button
+              onClick={handleDownloadTxt}
+              title={`Download ${filteredAndSorted.length} ticker${filteredAndSorted.length !== 1 ? 's' : ''} as .txt for TradingView import`}
+              className={`text-[10px] font-bold tracking-wider uppercase px-2 py-1 rounded border transition-all duration-200 ${
+                txtDone
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  : 'bg-[#161c2a] text-slate-400 border-white/5 hover:text-slate-200 hover:bg-white/[0.04]'
+              }`}
+            >
+              {txtDone ? '✓ TXT' : 'TXT'}
+            </button>
+          )}
+          {candidates.length > 0 && (
+            <span className="hidden md:flex basis-full items-center gap-1.5 mt-1">
+              <span className="text-[9px] font-bold tracking-wider uppercase text-fuchsia-400 bg-fuchsia-500/10 border border-fuchsia-500/20 px-1.5 py-0.5 rounded">{unprecedentedCount} Unprecedented</span>
+              <span className="text-[9px] font-bold tracking-wider uppercase text-slate-400 bg-white/[0.03] border border-white/5 px-1.5 py-0.5 rounded">{silentCount} Silent</span>
+              {unprecInChopCount > 0 && (
+                <span
+                  className="text-[9px] font-bold tracking-wider uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded cursor-help"
+                  title={`${unprecInChopCount} name${unprecInChopCount === 1 ? '' : 's'} printed record volume INSIDE a chop regime — the volume event is real and the range is not resolving it. Research these; do not chase the break.`}
+                >
+                  {unprecInChopCount} In Chop
+                </span>
+              )}
+            </span>
+          )}
+          <span className="hidden md:block basis-full text-[10px] font-bold tracking-wider uppercase text-slate-500 mt-1">
+            Top {filteredAndSorted.length} of {candidates.length} · {EP9M.minVolume >= 1e6 ? `${EP9M.minVolume/1e6}M` : `${EP9M.minVolume/1e3}K`}+ shares · {EP9M.minRvol}×+ RVOL · ${EP9M.minPrice}+ · ${EP9M.minDollarVol >= 1e6 ? `${EP9M.minDollarVol/1e6}M` : ''} $vol · common stock
           </span>
         </div>
         <div className="flex flex-col items-center gap-1.5">
@@ -1060,9 +1022,9 @@ export default function Ep9m() {
             <table className="w-full min-w-[960px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} w-[7%]`} title={colTip('TICKER')} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className={`${thBase} w-[7%] !text-left pl-1`} title={colTip('TICKER')} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('EP')} onClick={() => handleSort('score')}>EP{getSortIcon('score')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('RTR')} onClick={() => handleSort('planR')}>RTR{getSortIcon('planR')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('10/21')}>10/21</th>
@@ -1075,8 +1037,6 @@ export default function Ep9m() {
                       header cannot carry two sort keys. */}
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
-                  <th className={`${thBase} w-[3%]`}>N</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
@@ -1088,7 +1048,7 @@ export default function Ep9m() {
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
                   <tr>
-                    <td colSpan={19} className="py-12 text-center text-slate-500 text-sm font-medium">
+                    <td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium">
                       {status === 'Live'
                         ? (candidates.length > 0
                             ? 'No names match the current filters.'
@@ -1102,21 +1062,19 @@ export default function Ep9m() {
                   filteredAndSorted.map((row) => {
                     const tag = catalystTagOf(row);
                     const headline = headlineOf(row);
-                    const sectorText = cleanSector(row.sector, row.ticker);
+                    const sectorText = displaySector(row.sector, row.ticker);
                     const adr = adrOf(row);
                     const chop = chopOf(row);
-                    const rmv = rmvOf(row);
-                    const rme = rmeOf(row);
                     const mf = mfOf(row);
                     const vs60d = vs60dOf(row);
-                    const stateRes = stateOf(rmv, rme);
                     const plan = planOf(row);
                     return (
                       <React.Fragment key={row.ticker}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
                           <td className={tdBase}>
-                            <div className="flex items-center justify-center gap-1.5">
-                              <TickerChartHover symbol={row.ticker}><span title={row.name || row.ticker} className="inline-block bg-slate-500/10 text-slate-300 text-[11px] font-bold px-1.5 py-0.5 rounded border border-white/10">{row.ticker}</span></TickerChartHover>
+                            <div className="flex items-center justify-start gap-1.5">
+                              <TickerChartHover symbol={row.ticker}><span title={tickerTitle(row.name, row.ticker, row.score)} className={tickerChipForScore(row.score)}>{row.ticker}</span></TickerChartHover>
+                              <CatalystChip row={row} note={NEGATIVE_NOTE} />
                               {row.unprecedented && <UnprecedentedMark chop={chop} />}
                               {row.sugarBaby && <SugarBabyMark />}
                             </div>
@@ -1124,17 +1082,9 @@ export default function Ep9m() {
                           <td className={tdBase}>
                             <span
                               title={epTooltip(row)}
-                              className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border cursor-help ${getScoreBadge(row.score)}`}
+                              className={scoreCellCls(row.score)}
                             >
                               {row.score}
-                            </span>
-                          </td>
-                          <td className={tdBase}>
-                            <span
-                              title={planTooltip(row)}
-                              className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border cursor-help ${planBadge(row)}`}
-                            >
-                              {planShort(row)}
                             </span>
                           </td>
                           <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
@@ -1181,9 +1131,6 @@ export default function Ep9m() {
                               <span className={`text-xs font-bold ${getAdrColor(adr)}`}>
                                 {adr != null ? `${adr.toFixed(1)}%` : '—'}
                               </span>
-                              <span className={`text-[8px] font-semibold tracking-tight ${chopColor(chop)}`}>
-                                {chop != null ? `CHOP ${chop.toFixed(0)}` : ''}
-                              </span>
                             </div>
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={`Money Flow (21) — ${mfLabel(mf)}. Heavy volume with MF under 45 is distribution, however strong today's close. Arrow shows the 5-day direction.`}>
@@ -1192,7 +1139,6 @@ export default function Ep9m() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`} title={row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)} percentage points vs SPY over three months` : undefined}>
                             {formatRs(row.rsVsSpy)}
                           </td>
-                          <td className={`${tdBase} text-[7px] font-bold whitespace-nowrap`}>{(() => { const n = newsStarCount(row); const url = row.catalystUrl; if (n === 0) return <span className="text-slate-700">&mdash;</span>; const cls = n >= 2 ? 'text-amber-400' : 'text-slate-500'; const s = <span className={`leading-none ${cls}`}>{'★'.repeat(n)}</span>; return url ? <a href={url} target="_blank" rel="noopener noreferrer" className="hover:brightness-125 transition-all">{s}</a> : s; })()}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover — short interest divided by average daily volume. Squeeze fuel.">
                             {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
@@ -1201,7 +1147,7 @@ export default function Ep9m() {
                           <td className={`${tdStage} whitespace-nowrap border-l border-white/5`}>
                             <span
                               title={stageDescription(row.stage)}
-                              className={`text-[9px] font-bold tracking-wide cursor-help ${stageColor(row.stage)}`}
+                              className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums tracking-wide cursor-help ${stageBadge(row.stage)}`}
                             >
                               {stageShort(row.stage)}
                             </span>
@@ -1210,39 +1156,26 @@ export default function Ep9m() {
                             <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: colSpan 17 covers TICKER..MCAP, then STAGE
-                            and SECTOR get their own cells — 19 total, matching
-                            the header.
-
-                            Levels lead, same slot the setup name occupies on
+                        {/* Levels lead, same slot the setup name occupies on
                             SIPs and Daily, then VS60D, which is the signal this
-                            scan exists for. */}
+                            scan exists for.
+
+                            The STATE cell was removed to match the other
+                            scanners. UNPREC/SILENT STAYS: unlike Ready/Forming
+                            elsewhere it is not a readiness read, it is the
+                            signal this scan exists for, and it is the pairing
+                            called out in the v2.5 header. */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td colSpan={17} className="pb-1.5 pt-1 pr-3">
+                          {/* Empty cell under TICKER so the sub-row starts at CNF. An
+                              actual cell rather than a padding value, so the
+                              indent tracks the ticker column's real width
+                              instead of drifting from it. */}
+                          <td />
+                          {/* 1 + 17 = 18, the header count. This span was 17
+                              against 18 headers before the indent went in —
+                              the sub-row had been stopping one column early. */}
+                          <td colSpan={16} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
-                              {plan?.tradeable && plan.trigger != null ? (
-                                <span
-                                  title={planTooltip(row)}
-                                  className="shrink-0 flex items-baseline gap-2 pl-1 pr-2.5 cursor-help whitespace-nowrap"
-                                >
-                                  <span className="flex items-baseline gap-1">
-                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">TRIG</span>
-                                    <span className="text-[9px] font-bold tabular-nums text-slate-200">{formatLevel(plan.trigger)}</span>
-                                  </span>
-                                  <span className="flex items-baseline gap-1">
-                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">STOP</span>
-                                    <span className="text-[9px] font-bold tabular-nums text-rose-400/90">{formatLevel(plan.stop)}</span>
-                                  </span>
-                                  <span className="flex items-baseline gap-1">
-                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">TGT</span>
-                                    <span className="text-[9px] font-bold tabular-nums text-emerald-400/90">{formatLevel(plan.target)}</span>
-                                  </span>
-                                </span>
-                              ) : (
-                                <span className="shrink-0 pl-1 pr-2.5 text-[9px] font-semibold text-slate-600 italic whitespace-nowrap">
-                                  {plan?.collapsed ? 'no long plan' : plan?.note === 'trigger already passed' ? 'entry passed' : 'no plan'}
-                                </span>
-                              )}
                               <span
                                 className="shrink-0 flex items-baseline gap-1 pr-2.5 cursor-help whitespace-nowrap"
                                 title="Today's volume as a multiple of this stock's own 60-day volume high. Above 1.0× is unprecedented for this name — the purest expression of the EP9M signal, and what the UNPREC filter reads."
@@ -1281,24 +1214,9 @@ export default function Ep9m() {
                                   <span className="text-slate-600 italic">No headline yet — the volume is the signal. Research the story.</span>
                                 )}
                               </p>
-                              <span
-                                title={stateTooltip(rmv, rme)}
-                                className="shrink-0 flex items-baseline gap-1.5 cursor-help whitespace-nowrap"
-                              >
-                                <span className="text-[8px] font-bold tracking-[0.1em] uppercase text-slate-600">RMV/RME</span>
-                                <span className="text-[9px] font-semibold text-slate-500 tabular-nums">{statePair(rmv, rme)}</span>
-                              </span>
                             </div>
                           </td>
                           <td className="pb-1.5 pt-1 pl-1.5 text-left align-middle border-l border-white/5">
-                            <span
-                              title={stateLegend(rmv, rme)}
-                              className={`text-[8px] font-bold cursor-help whitespace-nowrap ${stateRes.color}`}
-                            >
-                              {stateRes.state === 'UNKNOWN' ? '—' : stateRes.state}
-                            </span>
-                          </td>
-                          <td className="pb-1.5 pt-1 pl-1.5 text-left align-middle">
                             {row.unprecedented ? (
                               <span className="text-[8px] font-semibold text-fuchsia-400 whitespace-nowrap">Unprec</span>
                             ) : !hasCatalyst(row) ? (

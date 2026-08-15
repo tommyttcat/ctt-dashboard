@@ -96,21 +96,23 @@
 //       looks at 60 days so it does not cover this).
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { cachedJson } from '@/lib/scannerLatest';
 import { useMarketData } from './MarketDataContext';
-import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
+import { stageColor, stageShort, stageDescription, stageBadge } from '@/lib/indicators/stage';
+import { rmeLabel } from '@/lib/indicators/rme';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
-import { stateOf, stateTooltip, stateLegend } from '@/lib/indicators/state';
-import { rsColor, rsTooltip } from '@/lib/indicators/rs';
-import { newsStarCount } from '@/lib/newsStars';
-import { CONSOL_META, COLUMN_NOTES } from '@/lib/scanConfig';
-import MetricsKey from './MetricsKey';
+import { rsColor, rsTooltip, rsBadge } from '@/lib/indicators/rs';
+import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews } from '@/lib/catalyst';
+import { displaySector } from '@/lib/sectors';
+import { CONSOL, COLUMN_NOTES, columnTip } from '@/lib/scanConfig';
 import TickerChartHover from './TickerChartHover';
+import { rvolColor as getRvolColor, adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The blue dot marks an oversold stochastic reset firing on the daily.' },
   CNF: {
-    what: 'Confluence score 0–100 — how many independent factors line up: RVOL, gap, range expansion, RS, catalyst quality, persistence, VWAP, regime, sector heat. Hover the badge for the per-row breakdown.',
-    colour: 'Green 70+ (A) · amber 50+ (B) · grey below (C).',
+    what: 'Confluence score 0–100 — how many independent factors line up: RVOL, gap, range expansion, RS, catalyst quality, persistence, VWAP, regime, sector heat. Hover the number for the per-row breakdown.',
+    colour: 'The grade is on the ticker, not here: green 70+ (A) · amber 50+ (B) · grey below (C).',
   },
   RDY: {
     what: 'Readiness 0–100 — base quality, not tape action. Combines breakout volume readiness (BVR), the 10/21 EMA gap, days in coil, and the prior move. CNF says whether it is moving; RDY says whether the base is ready. Hover a row badge for the breakdown.',
@@ -170,11 +172,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   SECTOR: { what: 'Sector, cleaned of ticker prefixes.' },
 };
 
-const colTip = (key: string): string | undefined => {
-  const n = COLUMN_NOTES?.[key] ?? FALLBACK_NOTES[key];
-  if (!n) return undefined;
-  return n.colour ? `${n.what}\n\n${n.colour}` : n.what;
-};
+const colTip = (key: string): string | undefined => columnTip(key, FALLBACK_NOTES);
 
 interface TradePlanRow {
   family?: string;
@@ -335,22 +333,7 @@ const BlueDot = ({ className = '' }: { className?: string }) => (
   />
 );
 
-const cleanSector = (sector: string | null | undefined, ticker?: string): string => {
-  if (!sector || sector === '—' || sector === '-') return '—';
-  let s = String(sector).trim();
-  if (ticker) {
-    const rx = new RegExp(`^${ticker}\\s*[-–—:]\\s*`, 'i');
-    s = s.replace(rx, '');
-  }
-  s = s.replace(/^[A-Z]{1,5}\s*[-–—:]\s*/, '');
-  return s.trim() || '—';
-};
 
-const isGenericCatalyst = (catalyst: string | null | undefined) => {
-  if (!catalyst) return true;
-  const c = catalyst.toLowerCase().trim();
-  return c.startsWith('technical momentum') || c === 'recent news' || c === 'news' || c === 'technical';
-};
 
 const catalystTagOf = (c: ConsolidationCandidate): string | null => {
   if (isGenericCatalyst(c.catalyst)) return null;
@@ -371,26 +354,12 @@ const catalystUrlOf = (c: ConsolidationCandidate): string | null => c.catalystUr
    component still supports the older payload shape where the headline
    arrived as `news` or `headline` — bypassing them would make the asterisk
    disagree with the sub-row on exactly those rows. */
-const hasNews = (c: ConsolidationCandidate): boolean =>
-  !!(headlineOf(c) && catalystUrlOf(c));
+/* Mechanics live in @/lib/catalyst so all seven tables render a catalyst
+   the same way; only this scan's reading of the news stays local. */
+const NEGATIVE_NOTE = 'Reads negative — on a coil that is often why the range is tightening downward.';
+const NEUTRAL_NOTE = 'Published while the base was forming, with no price reaction. Either the market has not priced it yet, or it decided this does not matter.';
 
-/* One tooltip for the asterisk and the sub-row, so the two can never
-   describe the same article differently. */
-const newsTooltip = (c: ConsolidationCandidate): string => {
-  const headline = headlineOf(c);
-  if (!headline) return '';
-  const meta = [c.catalyst, c.newsPublisher, c.newsAge].filter(Boolean).join(' · ');
-  const lines: string[] = [];
-  if (meta) { lines.push(meta); lines.push(''); }
-  lines.push(headline);
-  lines.push('');
-  lines.push(
-    c.newsSentiment === 'negative'
-      ? 'Reads negative — on a coil that is often why the range is tightening downward.'
-      : 'Published while the base was forming, with no price reaction. Either the market has not priced it yet, or it decided this does not matter.'
-  );
-  return lines.join('\n');
-};
+const newsTooltip = (row: ConsolidationCandidate): string => catalystTooltip(row, { note: NEGATIVE_NOTE, neutralNote: NEUTRAL_NOTE });
 
 const numField = (v: any): number | null => {
   if (v == null || isNaN(Number(v))) return null;
@@ -642,17 +611,6 @@ const coilStat = (c: ConsolidationCandidate): 'Coiled' | 'Setting Up' | null => 
   return null;
 };
 
-const rmeLabel = (rme: number | null): string => {
-  if (rme == null) return 'n/a';
-  if (rme >= 90) return 'at historical extension high';
-  if (rme >= 75) return 'heavily extended';
-  if (rme >= 60) return 'extended';
-  if (rme >= 25) return 'moderately above anchor';
-  if (rme > -25) return 'near anchor';
-  if (rme > -60) return 'moderately below anchor';
-  if (rme > -85) return 'deeply below anchor';
-  return 'at historical extension low';
-};
 
 const cnfTooltip = (c: ConsolidationCandidate): string => {
   const score = c.score;
@@ -723,8 +681,7 @@ export default function Consolidation1021() {
     let isMounted = true;
     const fetchCandidates = async () => {
       try {
-        const res = await fetch(`/api/consolidation/latest?t=${Date.now()}`, { cache: 'no-store' });
-        const data = await res.json();
+        const data = await cachedJson('/api/consolidation/latest');
 
         if (isMounted && data && data.success && Array.isArray(data.candidates)) {
           setCandidates(data.candidates);
@@ -770,6 +727,14 @@ export default function Consolidation1021() {
   const handleVolFilter = (val: VolFilterType) => setVolFilter(prev => prev === val ? 'All' : val);
   const handlePlanFilter = (val: PlanFilterType) => setPlanFilter(prev => prev === val ? 'All' : val);
   const handleCapFilter = (val: CapFilterType) => setMarketCapFilter(prev => prev === val ? 'All' : val);
+
+  /* Header counts, from the FULL scan rather than the filtered view, so they
+     answer "what did the scan find today" instead of restating the filters
+     already on screen. */
+  const { coiledCount, settingUpCount } = useMemo(() => ({
+    coiledCount: candidates.filter(c => coilStat(c) === 'Coiled').length,
+    settingUpCount: candidates.filter(c => coilStat(c) === 'Setting Up').length,
+  }), [candidates]);
 
   const filteredAndSorted = useMemo(() => {
     let filtered = [...candidates];
@@ -871,45 +836,29 @@ export default function Consolidation1021() {
     setTimeout(() => setCopied(false), 1800);
   };
 
+  const [txtDone, setTxtDone] = useState(false);
+  const handleDownloadTxt = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const t = filteredAndSorted.map(c => c.symbol);
+    if (!t.length) return;
+    const blob = new Blob([t.join(',')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'watchlist.txt';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setTxtDone(true);
+    setTimeout(() => setTxtDone(false), 1800);
+  };
+
   const getSortIcon = (columnKey: string) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
-  const getScoreBadge = (score: number) => {
-    if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-    if (score >= 50) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-    return 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50';
-  };
   const getRdyBadge = (score: number | null) => {
     if (score == null) return 'bg-zinc-800/50 text-zinc-500 border-zinc-700/50';
     if (score >= 75) return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
     if (score >= 55) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
     if (score >= 35) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
     return 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50';
-  };
-  const getRvolColor = (rvol: number | null | undefined) => {
-    if (!rvol) return 'text-slate-500';
-    if (rvol >= 2) return 'text-amber-400';
-    if (rvol >= 1.5) return 'text-emerald-400';
-    return 'text-slate-500';
-  };
-  const getAdrColor = (a: number | null) => {
-    if (a == null) return 'text-slate-500';
-    if (a >= 10) return 'text-purple-400';
-    if (a >= 5) return 'text-emerald-400';
-    if (a >= 3) return 'text-slate-300';
-    return 'text-slate-500';
-  };
-  const getDtcColor = (d: number | null | undefined) => {
-    if (d == null) return 'text-slate-500';
-    if (d >= 5) return 'text-purple-400';
-    if (d >= 3) return 'text-emerald-400';
-    if (d >= 1.5) return 'text-slate-300';
-    return 'text-slate-500';
-  };
-  const getStochColor = (k: number | null | undefined) => {
-    if (k == null) return 'text-slate-500';
-    if (k <= 20) return 'text-purple-400';
-    if (k <= 30) return 'text-emerald-400';
-    return 'text-slate-400';
   };
   const getCoilColor = (r: number | null) => {
     if (r == null) return 'text-slate-500';
@@ -977,8 +926,43 @@ export default function Consolidation1021() {
               {copied ? `✓ Copied ${filteredAndSorted.length}` : `Copy ${filteredAndSorted.length}`}
             </button>
           )}
-          <span className="relative z-40 inline-flex">
-            <MetricsKey meta={CONSOL_META} liveGates={scanMeta?.gates} />
+          {filteredAndSorted.length > 0 && (
+            <button
+              onClick={handleDownloadTxt}
+              title={`Download ${filteredAndSorted.length} ticker${filteredAndSorted.length !== 1 ? 's' : ''} as .txt for TradingView import`}
+              className={`text-[10px] font-bold tracking-wider uppercase px-2 py-1 rounded border transition-all duration-200 ${
+                txtDone
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  : 'bg-[#161c2a] text-slate-400 border-white/5 hover:text-slate-200 hover:bg-white/[0.04]'
+              }`}
+            >
+              {txtDone ? '✓ TXT' : 'TXT'}
+            </button>
+          )}
+          {(coiledCount > 0 || settingUpCount > 0) && (
+            <span className="hidden md:flex basis-full items-center gap-1.5 mt-1" onClick={e => e.stopPropagation()}>
+              {coiledCount > 0 && (
+                <button
+                  onClick={() => { setIsExpanded(true); handleStatFilter('Coiled'); }}
+                  title="Range at its tightest and the 10/21 pair converged — click to filter"
+                  className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-0.5 rounded border transition-all cursor-pointer ${statFilter === 'Coiled' ? 'text-emerald-300 bg-emerald-500/20 border-emerald-400/40 ring-1 ring-emerald-400/30' : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/20'}`}
+                >
+                  {coiledCount} Coiled
+                </button>
+              )}
+              {settingUpCount > 0 && (
+                <button
+                  onClick={() => { setIsExpanded(true); handleStatFilter('Setting Up'); }}
+                  title="Contracting but not yet at the tight end of its own range — click to filter"
+                  className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-0.5 rounded border transition-all cursor-pointer ${statFilter === 'Setting Up' ? 'text-amber-300 bg-amber-500/20 border-amber-400/40 ring-1 ring-amber-400/30' : 'text-amber-400 bg-amber-500/10 border-amber-500/20 hover:bg-amber-500/20'}`}
+                >
+                  {settingUpCount} Setting Up
+                </button>
+              )}
+            </span>
+          )}
+          <span className="hidden md:block basis-full text-[10px] font-bold tracking-wider uppercase text-slate-500 mt-1">
+            Top {filteredAndSorted.length} of {candidates.length} · ${CONSOL.minDollarVol >= 1e6 ? `${CONSOL.minDollarVol/1e6}M` : ''} avg $vol · ${CONSOL.minMarketCap >= 1e6 ? `${CONSOL.minMarketCap/1e6}M` : ''} cap · {CONSOL.minAdrPct}%+ ADR · above 50 &amp; 200 · coil ≤ {CONSOL.maxCoilRatio}× ATR
           </span>
         </div>
         <div className="flex flex-col items-center gap-1.5">
@@ -1143,10 +1127,10 @@ export default function Consolidation1021() {
             <table className="w-full min-w-[980px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} w-[7%]`} title={colTip('TICKER')} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
+                  <th className={`${thBase} w-[7%] !text-left pl-1`} title={colTip('TICKER')} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('CNF')} onClick={() => handleSort('score')}>CNF{getSortIcon('score')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('RDY')} onClick={() => handleSort('rdy')}>RDY{getSortIcon('rdy')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('RTR')} onClick={() => handleSort('planR')}>RTR{getSortIcon('planR')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('10/21')}>10/21</th>
@@ -1156,8 +1140,6 @@ export default function Consolidation1021() {
                   <th className={`${thBase} w-[6%]`} title={colTip('COIL')} onClick={() => handleSort('coilRatio')}>COIL{getSortIcon('coilRatio')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
-                  <th className={`${thBase} w-[3%]`}>N</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
@@ -1168,22 +1150,18 @@ export default function Consolidation1021() {
 
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
-                  <tr><td colSpan={20} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No consolidations in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
+                  <tr><td colSpan={18} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No consolidations in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
                 ) : (
                   filteredAndSorted.map((row) => {
                     const isPositive = (row.changePct ?? 0) >= 0;
                     const tag = catalystTagOf(row);
                     const headline = headlineOf(row);
                     const catUrl = catalystUrlOf(row);
-                    const sectorText = cleanSector(row.sector, row.symbol);
+                    const sectorText = displaySector(row.sector, row.symbol);
                     const adr = adrOf(row);
                     const mf = mfOf(row);
-                    const rmv = rmvOf(row);
-                    const rme = rmeOf(row);
-                    const stateRes = stateOf(rmv, rme);
                     const coilR = coilRatioOf(row);
                     const range10 = range10Of(row);
-                    const st = coilStat(row);
                     const rdy = rdyBySymbol.get(row.symbol) ?? computeRdy(row);
                     const plan = planOf(row);
                     const gap = gap1021Of(row);
@@ -1191,15 +1169,16 @@ export default function Consolidation1021() {
                       <React.Fragment key={row.symbol}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
                           <td className={tdBase}>
-                            <div className="flex items-center justify-center gap-1.5">
-                              <TickerChartHover symbol={row.symbol}><span title={row.name || row.symbol} className="inline-block bg-slate-500/10 text-slate-300 text-[11px] font-bold px-1.5 py-0.5 rounded border border-white/10">{row.symbol}</span></TickerChartHover>
+                            <div className="flex items-center justify-start gap-1.5">
+                              <TickerChartHover symbol={row.symbol}><span title={tickerTitle(row.name, row.symbol, row.score)} className={tickerChipForScore(row.score)}>{row.symbol}</span></TickerChartHover>
+                              <CatalystChip row={row} note={NEGATIVE_NOTE} neutralNote={NEUTRAL_NOTE} />
                               {row.blueDot && <BlueDot />}
                             </div>
                           </td>
                           <td className={tdBase}>
                             <span
                               title={cnfTooltip(row)}
-                              className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border cursor-help ${getScoreBadge(row.score)}`}
+                              className={scoreCellCls(row.score)}
                             >
                               {row.score}
                             </span>
@@ -1210,14 +1189,6 @@ export default function Consolidation1021() {
                               className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border cursor-help ${getRdyBadge(rdy.score)}`}
                             >
                               {rdy.score ?? '—'}
-                            </span>
-                          </td>
-                          <td className={tdBase}>
-                            <span
-                              title={planTooltip(row)}
-                              className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border cursor-help ${planBadge(row)}`}
-                            >
-                              {planShort(row)}
                             </span>
                           </td>
                           <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
@@ -1260,10 +1231,9 @@ export default function Consolidation1021() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={mf != null ? `Money Flow ${mf.toFixed(0)} — ${mfLabel(mf)}` : undefined}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums cursor-help ${rsColor(row.rsRating)}`} title={rsTooltip(row.rsRating)}>
-                            {row.rsRating ?? '—'}
+                          <td className={`${tdBase} whitespace-nowrap`} title={rsTooltip(row.rsRating)}>
+                            <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span>
                           </td>
-                          <td className={`${tdBase} text-[7px] font-bold whitespace-nowrap`}>{(() => { const n = newsStarCount(row); const url = row.catalystUrl; if (n === 0) return <span className="text-slate-700">&mdash;</span>; const cls = n >= 2 ? 'text-amber-400' : 'text-slate-500'; const s = <span className={`leading-none ${cls}`}>{'★'.repeat(n)}</span>; return url ? <a href={url} target="_blank" rel="noopener noreferrer" className="hover:brightness-125 transition-all">{s}</a> : s; })()}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`}>
                             {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
@@ -1272,7 +1242,7 @@ export default function Consolidation1021() {
                           <td className={`${tdStage} whitespace-nowrap border-l border-white/5`}>
                             <span
                               title={stageDescription(row.stage)}
-                              className={`text-[9px] font-bold tracking-wide cursor-help ${stageColor(row.stage)}`}
+                              className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums tracking-wide cursor-help ${stageBadge(row.stage)}`}
                             >
                               {stageShort(row.stage)}
                             </span>
@@ -1281,40 +1251,23 @@ export default function Consolidation1021() {
                             <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
                           </td>
                         </tr>
-                        {/* Sub-row: colSpan 18 covers TICKER..MCAP, then STAGE
-                            and SECTOR get their own cells — 20 total, matching
-                            the header.
-
-                            Levels sit under the ticker where the setup name
+                        {/* Levels sit under the ticker where the setup name
                             goes on the other tables. There is no setup name to
                             show here — every row is a coil — so the trigger
-                            leads instead. */}
+                            leads instead.
+
+                            The STATE and Coiled/Setting Up cells were removed to
+                            match the other scanners, so the row now spans the
+                            full table. STAT still filters on coilStat, it just
+                            is not printed per row. */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td colSpan={18} className="pb-1.5 pt-1 pr-3">
+                          {/* Empty cell under TICKER so the sub-row starts at CNF. An
+                              actual cell rather than a padding value, so the
+                              indent tracks the ticker column's real width
+                              instead of drifting from it. */}
+                          <td />
+                          <td colSpan={17} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
-                              {plan?.tradeable && plan.trigger != null ? (
-                                <span
-                                  title={planTooltip(row)}
-                                  className="shrink-0 flex items-baseline gap-2 pl-1 pr-2.5 cursor-help whitespace-nowrap"
-                                >
-                                  <span className="flex items-baseline gap-1">
-                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">TRIG</span>
-                                    <span className="text-[9px] font-bold tabular-nums text-slate-200">{formatLevel(plan.trigger)}</span>
-                                  </span>
-                                  <span className="flex items-baseline gap-1">
-                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">STOP</span>
-                                    <span className="text-[9px] font-bold tabular-nums text-rose-400/90">{formatLevel(plan.stop)}</span>
-                                  </span>
-                                  <span className="flex items-baseline gap-1">
-                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">TGT</span>
-                                    <span className="text-[9px] font-bold tabular-nums text-emerald-400/90">{formatLevel(plan.target)}</span>
-                                  </span>
-                                </span>
-                              ) : (
-                                <span className="shrink-0 pl-1 pr-2.5 text-[9px] font-semibold text-slate-600 italic whitespace-nowrap">
-                                  {plan?.collapsed ? 'no long plan' : plan?.note === 'trigger already passed' ? 'entry passed' : 'no plan'}
-                                </span>
-                              )}
                               <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={newsTooltip(row) || headline || undefined}>
                                 {headline || tag ? (
                                   <>
@@ -1347,29 +1300,7 @@ export default function Consolidation1021() {
                                   <span className="text-slate-600 italic">No news catalyst — technical setup only.</span>
                                 )}
                               </p>
-                              <span
-                                title={stateTooltip(rmv, rme)}
-                                className="shrink-0 flex items-baseline gap-1.5 cursor-help whitespace-nowrap"
-                              >
-                                <span className="text-[8px] font-bold tracking-[0.1em] uppercase text-slate-600">RMV/RME</span>
-                                <span className="text-[9px] font-semibold text-slate-500 tabular-nums">{statePair(rmv, rme)}</span>
-                              </span>
                             </div>
-                          </td>
-                          <td className="pb-1.5 pt-1 pl-1.5 text-left align-middle border-l border-white/5">
-                            <span
-                              title={stateLegend(rmv, rme)}
-                              className={`text-[8px] font-bold cursor-help whitespace-nowrap ${stateRes.color}`}
-                            >
-                              {stateRes.state === 'UNKNOWN' ? '—' : stateRes.state}
-                            </span>
-                          </td>
-                          <td className="pb-1.5 pt-1 pl-1.5 text-left align-middle">
-                            {st === 'Coiled' ? (
-                              <span className="text-[8px] font-semibold text-emerald-400 whitespace-nowrap">Coiled</span>
-                            ) : st === 'Setting Up' ? (
-                              <span className="text-[8px] font-semibold text-amber-400 whitespace-nowrap">Setting Up</span>
-                            ) : null}
                           </td>
                         </tr>
                       </React.Fragment>

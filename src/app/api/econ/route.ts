@@ -27,6 +27,7 @@
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
+import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -78,7 +79,7 @@ const fetchSafeJson = async (url: string, headers: Record<string, string>, fallb
 
 export async function GET(request: Request) {
   const token = (process.env.BENZINGA_API_KEY || process.env.NEXT_PUBLIC_BENZINGA_API_KEY || '').trim();
-  if (!token) return NextResponse.json({ error: 'Missing Benzinga key' }, { status: 500 });
+  if (!token) return NextResponse.json({ error: 'Missing Benzinga key' }, { status: 500, headers: noCacheHeaders() });
 
   const { searchParams } = new URL(request.url);
   // Default rolling window if the client doesn't pass one.
@@ -97,7 +98,7 @@ export async function GET(request: Request) {
   try {
     const cached = await kv.get<any>(cacheKey);
     if (cached && cached._t && Date.now() - cached._t < CACHE_TTL_MS) {
-      return NextResponse.json(cached.events);
+      return NextResponse.json(cached.events, { headers: cacheHeaders(CACHE.SLOW) });
     }
   } catch (e) {
     // fall through
@@ -157,5 +158,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json(events);
+  return NextResponse.json(events, { headers: cacheHeaders(CACHE.SLOW) });
 }

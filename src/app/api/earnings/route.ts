@@ -37,6 +37,7 @@
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
+import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -211,7 +212,7 @@ export async function GET(request: Request) {
   if (!FMP_KEY) {
     return NextResponse.json(
       { error: 'Missing FMP API key — set FMP_API_KEY in environment' },
-      { status: 500 },
+      { status: 500, headers: noCacheHeaders() },
     );
   }
 
@@ -226,7 +227,7 @@ export async function GET(request: Request) {
     try {
       const durable = await kv.get<any>(DURABLE_KEY);
       if (durable && durable.payload) {
-        return NextResponse.json(durable.payload);
+        return NextResponse.json(durable.payload, { headers: cacheHeaders(CACHE.SLOW) });
       }
     } catch {
       // Fall through — try a live fetch as last resort.
@@ -247,7 +248,7 @@ export async function GET(request: Request) {
   try {
     const cached = await kv.get<any>(cacheKey);
     if (cached && cached._t && Date.now() - cached._t < CACHE_TTL_MS) {
-      return NextResponse.json(cached.payload);
+      return NextResponse.json(cached.payload, { headers: cacheHeaders(CACHE.SLOW) });
     }
   } catch {
     // Fall through.
@@ -264,7 +265,7 @@ export async function GET(request: Request) {
       console.error(`EARNINGS_FMP: ${res.status} ${res.statusText}`);
       return NextResponse.json(
         { error: `FMP returned ${res.status}` },
-        { status: 502 },
+        { status: 502, headers: noCacheHeaders() },
       );
     }
     const body = await res.json();
@@ -273,7 +274,7 @@ export async function GET(request: Request) {
     console.error('EARNINGS_FMP_ERROR:', err?.message || err);
     return NextResponse.json(
       { error: err?.message || 'Earnings calendar fetch failed' },
-      { status: 500 },
+      { status: 500, headers: noCacheHeaders() },
     );
   }
 
@@ -332,5 +333,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json(payload);
+  return NextResponse.json(payload, { headers: cacheHeaders(CACHE.SLOW) });
 }

@@ -61,7 +61,27 @@
 //
 //   The result reads as one family without any bar claiming something false.
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import MacroScorecardPanel from './MacroScorecardPanel';
+import BenchmarkStrips from './BenchmarkStrip';
+import { getMarketSession } from '@/lib/indicators/marketScorecard';
+import {
+  type ChopMode,
+  type ChopBands,
+  CHOP_BANDS,
+  CHOP_MODES,
+  chopComposite,
+  chopZoneLabel,
+  chopTextColor as chopColor,
+  chopBadgeBg,
+  chopCellTone,
+  chopVerdict,
+  chopSpreadNote,
+  chopAllBandsNote,
+  divergenceOf,
+  CHOP_TREND_BAND,
+  INTRADAY_STALE_MINUTES,
+} from '@/lib/indicators/chopMarket';
 
 // Unified Asset Dictionary
 const MACRO_ASSETS = [
@@ -155,16 +175,6 @@ const BREADTH_TICK_LOW = 40;
 const BREADTH_TICK_HIGH = 60;
 
 // --- HELPERS ---
-const getMarketSession = (): MarketSession => {
-  const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const day = estDate.getDay();
-  const timeStr = estDate.getHours() + estDate.getMinutes() / 60;
-  if (day === 0 || day === 6) return 'Closed';
-  if (timeStr >= 4 && timeStr < 9.5) return 'Pre-Market';
-  if (timeStr >= 9.5 && timeStr < 16) return 'Open';
-  if (timeStr >= 16 && timeStr < 20) return 'Post-Market';
-  return 'Closed';
-};
 
 const formatTime = (date: Date) => {
   return date.toLocaleTimeString('en-US', {
@@ -252,55 +262,9 @@ const t2108ZoneLabel = (v: number | null, zone: string): string => {
    the five per-ticker tables keep fixed 61.8/38.2 thresholds. Those FILTER
    ROWS and need stable semantics — a name appearing or vanishing because of
    a display preference would be indefensible. */
-type ChopMode = 'asis' | 'med' | 'strong';
-
-interface ChopBands {
-  chop: number;
-  trend: number;
-  dead: number;
-  strongTrend: number;
-  label: string;
-  blurb: string;
-}
-
-const DEAD_OFFSET = 8;
-const STRONG_TREND_OFFSET = 8;
-
-const makeBands = (chop: number, trend: number, label: string, blurb: string): ChopBands => ({
-  chop,
-  trend,
-  dead: chop + DEAD_OFFSET,
-  strongTrend: trend - STRONG_TREND_OFFSET,
-  label,
-  blurb,
-});
-
-const CHOP_BANDS: Record<ChopMode, ChopBands> = {
-  asis: makeBands(
-    61.8,
-    38.2,
-    'AS IS',
-    'Textbook Fibonacci bands — 61.8 and 38.2, the thresholds the Choppiness Index shipped with. Conventional rather than derived.'
-  ),
-  med: makeBands(
-    55,
-    33,
-    'MED',
-    'Chop called at 55. On a 14-bar window that is roughly where price has travelled more than three times the ground it covered — the practical signature of a range handing back its moves.'
-  ),
-  strong: makeBands(
-    50,
-    28,
-    'STRONG',
-    'Chop called at dead centre. Above 50 the tape spends more effort than it gains, so anything not decisively directional reads as chop. Expect CHOPPY most days.'
-  ),
-};
-
-const CHOP_MODES: ChopMode[] = ['asis', 'med', 'strong'];
-
 /* ---- CHOP composite ------------------------------------------------------
-   The route hands over raw Choppiness Index. The two modifiers below exist
-   because raw CHOP on an index has one specific failure mode:
+   The route hands over raw Choppiness Index. Two modifiers adjust it, because
+   raw CHOP on an index has one specific failure mode:
 
    A ROTATION TAPE SCORES AS CHOP. When money rotates out of one group and
    into another, the index travels a lot of distance and covers no ground —
@@ -312,100 +276,39 @@ const CHOP_MODES: ChopMode[] = ['asis', 'med', 'strong'];
    winning: breadth sits pinned near the middle and new highs roughly equal
    new lows. In rotation, breadth and the high/low line both skew.
 
-   Both modifiers push the SAME direction: centred internals raise the score
-   toward chop, skewed internals pull it back toward trend. Each is capped at
-   +/-12, so together they can move the reading 24 points but never flip a
-   decisive raw print. They arbitrate the middle, which is the only place the
-   ambiguity lives.
-
-   THE SENSITIVITY SETTING DOES NOT TOUCH THIS. The composite is the
-   measurement; the bands are the interpretation. Letting the setting reach
-   into the modifier weights would mean the number itself changed when you
-   changed how you read it.
-
-   IT IS ALSO NOT APPLIED TO THE INTRADAY LEG. Breadth and the high/low line
-   are daily measures; using them to adjust a 3.5-hour reading would import
-   three weeks of context into a number whose entire job is to be current. */
-const CHOP_MODIFIER_CAP = 12;
-
-const chopComposite = (raw: number | null, breadth: BreadthData | null): number | null => {
-  if (raw == null) return null;
-
-  let adj = 0;
-
-  // Breadth centrality — 3/6 is dead centre and maximally uninformative.
-  if (breadth && typeof breadth.score === 'number') {
-    const centrality = 1 - Math.abs(breadth.score - 3) / 3;
-    adj += (centrality - 0.5) * 2 * CHOP_MODIFIER_CAP;
-  }
-
-  // High/low balance — highs ~ lows is the structural signature of churn.
-  const nh = breadth?.newHighs ?? 0;
-  const nl = breadth?.newLows ?? 0;
-  if (nh > 0 || nl > 0) {
-    const highsShare = (nh / (nh + nl)) * 100;
-    const balance = 1 - Math.abs(highsShare - 50) / 50;
-    adj += (balance - 0.5) * 2 * CHOP_MODIFIER_CAP;
-  }
-
-  return Math.max(0, Math.min(100, raw + adj));
-};
+   The math, the band presets and the zone vocabulary all live in
+   @/lib/indicators/chopMarket now. They used to live here, with cut-down
+   copies in AnalystBrief and the briefing email that carried a smaller
+   modifier cap and, in both cases, no high/low term at all — so the three
+   surfaces printed three different numbers from one payload. */
 
 /* A 14-day Choppiness Index moves in tenths of a point per session — the
    first live reading shifted 0.25 day-over-day. The original 0.5 dead-band
    was borrowed from the A/D strip, where the underlying ratio genuinely
    swings intraday, and applied to a metric with an order of magnitude less
    daily velocity. It would have printed flat every session. */
-const CHOP_TREND_BAND = 0.15;
 
 /* The QQQ/SPY spread is the rotation tell. 6 points is roughly where the two
    benchmarks stop describing the same market. Tooltip wording only. */
-const CHOP_SPREAD_NOTABLE = 6;
 
 /* How far apart the daily and intraday readings must sit before the gap is
    called a divergence rather than noise. 8 points is a little over half the
    width of the MIXED band at AS IS — wide enough that the two timeframes are
    genuinely disagreeing, narrow enough to catch a break on the session it
    starts. */
-const CHOP_DIVERGENCE_MIN = 8;
 
 /* The intraday reading is only interesting while it is current. Past this
    the marker still renders — a Friday-afternoon reading is real information
    on a Sunday — but it is dimmed and labelled rather than left to imply it
    is live. */
-const INTRADAY_STALE_MINUTES = 90;
 
-const chopZoneLabel = (v: number | null, b: ChopBands): string => {
-  if (v == null) return 'NO DATA';
-  if (v >= b.dead) return 'DEAD CHOP';
-  if (v >= b.chop) return 'CHOPPY';
-  if (v > b.trend) return 'MIXED';
-  if (v > b.strongTrend) return 'TRENDING';
-  return 'STRONG TREND';
-};
-
-const chopColor = (v: number | null, b: ChopBands): string => {
-  if (v == null) return 'text-slate-500';
-  if (v >= b.dead) return 'text-rose-400';
-  if (v >= b.chop) return 'text-amber-400';
-  if (v > b.trend) return 'text-slate-300';
-  if (v > b.strongTrend) return 'text-emerald-400';
-  return 'text-teal-300';
-};
-
+/* The bar marker is the one chop colour that stays local: it is a three-state
+   position indicator on a gradient, not the six-tier zone palette. */
 const chopMarkerBg = (v: number | null, b: ChopBands): string => {
   if (v == null) return 'bg-slate-500';
   if (v >= b.chop) return 'bg-amber-400';
   if (v <= b.trend) return 'bg-emerald-400';
   return 'bg-slate-300';
-};
-
-const chopBadgeBg = (v: number | null, b: ChopBands): string => {
-  if (v == null) return 'bg-slate-500/10 border-white/10';
-  if (v >= b.dead) return 'bg-rose-500/10 border-rose-500/20';
-  if (v >= b.chop) return 'bg-amber-500/10 border-amber-500/20';
-  if (v > b.trend) return 'bg-slate-500/10 border-white/10';
-  return 'bg-emerald-500/10 border-emerald-500/20';
 };
 
 const chopStripStyle = (v: number | null, b: ChopBands): string => {
@@ -418,116 +321,10 @@ const chopStripStyle = (v: number | null, b: ChopBands): string => {
 /* One line, tooltip only. This is the only place the chop reading gives an
    instruction — the strip itself is measurement, the same split the tone
    narrative uses. */
-const chopVerdict = (v: number | null, b: ChopBands): string => {
-  if (v == null) return '';
-  if (v >= b.dead) return 'Nothing is trending. Breakout triggers will fire and reverse — sit out or trade the range.';
-  if (v >= b.chop) return 'Consolidation regime. Expect failed breakouts; favour reversals at range edges.';
-  if (v > b.trend) return 'No clear regime edge. Setup quality has to carry the trade on its own.';
-  if (v > b.strongTrend) return 'Trending tape. Breakouts have follow-through — triggers are worth taking.';
-  return 'Strong trend. This is the regime breakout entries are built for.';
-};
 
-const chopSpreadNote = (qqq: number | null, spy: number | null): string => {
-  if (qqq == null || spy == null) return '';
-  const gap = spy - qqq;
-  const abs = Math.abs(gap).toFixed(1);
-  if (Math.abs(gap) < CHOP_SPREAD_NOTABLE) {
-    return `Benchmark spread ${abs} pts — QQQ and SPY describe the same tape.`;
-  }
-  return gap > 0
-    ? `Benchmark spread ${abs} pts — the Nasdaq is trending better than the broad market, which favours momentum names.`
-    : `Benchmark spread ${abs} pts — the broad market is trending better than the Nasdaq; growth leadership is the weaker side.`;
-};
 
-/* Every setting's verdict on the current composite, so the active one can
-   never hide what the others would say. A reading of 52 is MIXED at AS IS
-   and CHOPPY at STRONG — seeing that disagreement is how you work out which
-   setting you actually believe. */
-const chopAllBandsNote = (v: number | null, active: ChopMode): string => {
-  if (v == null) return '';
-  const lines: string[] = ['Same reading, all three settings:'];
-  for (const m of CHOP_MODES) {
-    const b = CHOP_BANDS[m];
-    const mark = m === active ? '▸' : ' ';
-    lines.push(`${mark} ${b.label.padEnd(6)} ${chopZoneLabel(v, b).padEnd(13)} (chop ≥ ${b.chop}, trend ≤ ${b.trend})`);
-  }
-  return lines.join('\n');
-};
 
-/* ---- Divergence ----------------------------------------------------------
-   The whole reason the intraday leg exists. Four states, and only one of
-   them is a call to act.
 
-   SIGN CONVENTION: positive gap means the DAILY reading is higher — the
-   three-week backdrop is choppier than the last few hours. That is the
-   range-starting-to-break case, so the interesting direction is positive. */
-interface DivergenceRead {
-  label: string;
-  detail: string;
-  tone: 'break' | 'digest' | 'aligned-chop' | 'aligned-trend' | 'none';
-}
-
-const divergenceOf = (
-  daily: number | null,
-  intra: number | null,
-  b: ChopBands
-): DivergenceRead => {
-  if (daily == null || intra == null) {
-    return { label: '', detail: '', tone: 'none' };
-  }
-
-  const dailyChoppy = daily >= b.chop;
-  const dailyTrending = daily <= b.trend;
-  const intraChoppy = intra >= b.chop;
-  const intraTrending = intra <= b.trend;
-  const gap = daily - intra;
-
-  if (dailyChoppy && intraTrending && gap >= CHOP_DIVERGENCE_MIN) {
-    return {
-      tone: 'break',
-      label: 'RANGE BREAKING',
-      detail: `The session is trending inside a backdrop that has not been. ${gap.toFixed(0)} points of separation — this is what a range starting to resolve looks like before the daily reading notices.`,
-    };
-  }
-
-  if (dailyTrending && intraChoppy && -gap >= CHOP_DIVERGENCE_MIN) {
-    return {
-      tone: 'digest',
-      label: 'DIGESTING',
-      detail: 'The trend is intact on the daily but today is going nowhere. Read the pause as consolidation inside a trend, not as failure — do not exit on the intraday reading alone.',
-    };
-  }
-
-  if (dailyChoppy && intraChoppy) {
-    return {
-      tone: 'aligned-chop',
-      label: 'BOTH CHOPPY',
-      detail: 'Neither timeframe is resolving. Nothing to press — this is the stand-down combination.',
-    };
-  }
-
-  if (dailyTrending && intraTrending) {
-    return {
-      tone: 'aligned-trend',
-      label: 'BOTH TRENDING',
-      detail: 'Backdrop and session agree. Breakout entries have both timeframes behind them.',
-    };
-  }
-
-  return {
-    tone: 'none',
-    label: 'NO DIVERGENCE',
-    detail: `Daily and intraday are ${Math.abs(gap).toFixed(0)} points apart — not enough separation to read anything into.`,
-  };
-};
-
-const divergenceColor = (tone: DivergenceRead['tone']): string => {
-  if (tone === 'break') return 'text-cyan-400';
-  if (tone === 'aligned-trend') return 'text-emerald-400';
-  if (tone === 'digest') return 'text-slate-300';
-  if (tone === 'aligned-chop') return 'text-amber-400';
-  return 'text-slate-600';
-};
 
 // Builds a data-driven market-tone read straight from the live quotes and
 // breadth internals — no AI call, so it costs nothing and updates every
@@ -809,7 +606,27 @@ export default function MacroScorecard() {
      the words mean rather than which rows appear, a forgotten one is
      invisible until it misleads. Defaulting to AS IS every session means the
      number always starts at the textbook interpretation. */
-  const [chopMode, setChopMode] = useState<ChopMode>('strong');
+  /* Persisted server-side so the briefing email reads the same bands the
+     dashboard is showing — see /api/settings/chop. */
+  const [chopMode, setChopModeState] = useState<ChopMode>('extreme');
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/settings/chop')
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled && d?.mode) setChopModeState(d.mode); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const setChopMode = useCallback((m: ChopMode) => {
+    setChopModeState(m);
+    fetch('/api/settings/chop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: m }),
+    }).catch(() => {});
+  }, []);
 
   // A/D trend: the feed only sends current counts, so direction is derived by
   // comparing the incoming ratio against the previous poll. Flat until the
@@ -950,7 +767,7 @@ export default function MacroScorecard() {
 
     const fetchT2108 = async () => {
       try {
-        const res = await fetch(`/api/t2108/latest?t=${Date.now()}`, { cache: 'no-store' });
+        const res = await fetch('/api/t2108/latest', { cache: 'no-store' });
         if (!res.ok) return;
         const data = await res.json();
         if (isMounted && data && data.success) {
@@ -988,7 +805,7 @@ export default function MacroScorecard() {
 
     const fetchChop = async () => {
       try {
-        const res = await fetch(`/api/chop?t=${Date.now()}`, { cache: 'no-store' });
+        const res = await fetch('/api/chop', { cache: 'no-store' });
         if (!res.ok) return;
         const data = await res.json();
         if (isMounted && data && data.success) {
@@ -1177,456 +994,59 @@ export default function MacroScorecard() {
       {/* HEADER CONTAINER */}
       <div
         onClick={() => setIsExpanded(!isExpanded)}
-        className={`flex justify-between items-center relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-6 border-b border-white/5 pb-4' : ''}`}
+        className={`relative z-10 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-6 border-b border-white/5 pb-4' : ''}`}
       >
-        <div className="flex items-center gap-3">
-          <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
+        <div className="flex justify-between items-center">
+          <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors shrink-0">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
             MACRO SCORECARD
           </span>
+
+          <div className="flex flex-col items-center gap-1.5">
+            <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
+              <span className={`text-[10px] font-bold tracking-widest uppercase ${stockStatus === 'LIVE' ? getSessionTextColor() : 'text-slate-500'}`}>
+                {stockStatus === 'LIVE' ? session : stockStatus === 'CONNECTING' ? 'Scouting...' : 'Offline'}
+              </span>
+            </div>
+            {lastUpdated && (
+               <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
+                 Updated: {formatTime(lastUpdated)} EST
+               </span>
+            )}
+          </div>
         </div>
 
-        <div className="hidden sm:flex absolute left-1/2 -translate-x-1/2 items-center gap-3">
-          <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${
-              marketTone === 'BULLISH' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-              marketTone === 'BEARISH' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
-              'bg-amber-500/10 text-amber-400 border-amber-500/20'
-            }`}
-          >
-            TONE: {marketTone}
-          </div>
-          {breadth && (
-            <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${
-                breadth.signal === 'GREEN' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                breadth.signal === 'RED' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
-                'bg-amber-500/10 text-amber-400 border-amber-500/20'
-              }`}
-              title={`Advancers ${breadth.advancers} / Decliners ${breadth.decliners} · +4%: ${breadth.up4} / -4%: ${breadth.down4}`}
-            >
-              BREADTH {breadth.score}/6
-            </div>
-          )}
-          {chopVal != null && (
-            <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${chopBadgeBg(chopVal, bands)} ${chopColor(chopVal, bands)}`}
-              title={`CHOP ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal, bands)} at the ${bands.label} setting. ${chopVerdict(chopVal, bands)}`}
-            >
-              {chopZoneLabel(chopVal, bands)} {chopVal.toFixed(0)}
-            </div>
-          )}
-          {tVal != null && (
-            <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${
-                tVal <= 20 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                tVal <= 35 ? 'bg-lime-500/10 text-lime-400 border-lime-500/20' :
-                tVal <= 65 ? 'bg-slate-500/10 text-slate-300 border-white/10' :
-                tVal <= 80 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-                'bg-rose-500/10 text-rose-400 border-rose-500/20'
-              }`}
-              title={`T2108 ${tVal.toFixed(0)}% of stocks above 40-day MA — ${t2108ZoneLabel(tVal, '')}`}
-            >
-              T2108 {t2108ZoneLabel(tVal, '')}
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-col items-center gap-1.5">
-          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${stockStatus === 'LIVE' ? getSessionTextColor() : 'text-slate-500'}`}>
-              {stockStatus === 'LIVE' ? session : stockStatus === 'CONNECTING' ? 'Scouting...' : 'Offline'}
-            </span>
-          </div>
-          {lastUpdated && (
-             <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
-               Updated: {formatTime(lastUpdated)} EST
-             </span>
-          )}
+        <div onClick={(e) => e.stopPropagation()} className="mt-2 overflow-x-auto" style={{ scrollbarWidth: 'none' } as React.CSSProperties}>
+          <BenchmarkStrips />
         </div>
       </div>
 
       {/* COLLAPSIBLE CONTENT */}
       {isExpanded && (
         <>
-          <div className="flex sm:hidden justify-center items-center gap-3 mb-6 relative z-10 flex-wrap">
-            <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${
-                marketTone === 'BULLISH' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                marketTone === 'BEARISH' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
-                'bg-amber-500/10 text-amber-400 border-amber-500/20'
-              }`}
-            >
-              TONE: {marketTone}
-            </div>
-            {chopVal != null && (
-              <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${chopBadgeBg(chopVal, bands)} ${chopColor(chopVal, bands)}`}>
-                {chopZoneLabel(chopVal, bands)} {chopVal.toFixed(0)}
-              </div>
-            )}
-            {tVal != null && (
-              <div className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-md border shadow-sm ${
-                  tVal <= 20 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                  tVal <= 35 ? 'bg-lime-500/10 text-lime-400 border-lime-500/20' :
-                  tVal <= 65 ? 'bg-slate-500/10 text-slate-300 border-white/10' :
-                  tVal <= 80 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-                  'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                }`}
-              >
-                T2108 {t2108ZoneLabel(tVal, '')}
-              </div>
-            )}
-          </div>
-
-          {narrative && (
-            <div className={`flex items-start gap-3 mb-4 border rounded-xl px-4 py-3 relative z-10 ${toneStyles.bg} ${toneStyles.border}`}>
-              <span className={`flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase mt-1 shrink-0 ${toneStyles.label}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${toneStyles.dot}`}></span>
-                Tone
-              </span>
-              <div className="space-y-2">
-                {narrative.split('\n').filter(Boolean).map((line, li) => (
-                  <p key={li} className="text-[13px] leading-relaxed text-slate-200">
-                    {renderToneText(line)}
-                  </p>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* INTERNALS — advance/decline. PROPORTIONAL bar: the fill boundary
-              is the measurement, so the gradient only adds depth within each
-              side. See the note above ProportionalBar. */}
-          {breadth && (
-            <div
-              className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border border-white/5 bg-[#161c2a]/40 rounded-xl px-4 py-3 relative z-10 cursor-help"
-              title={`Advance / Decline — ${breadth.advancers.toLocaleString()} advancing vs ${breadth.decliners.toLocaleString()} declining (${advPct.toFixed(0)}% advancing). Above 60% = buyers in control. Below 40% = sellers dominate.\n\n4% movers: ${breadth.up4} up / ${breadth.down4} down.\nA/D ratio: ${breadth.decliners > 0 ? (breadth.advancers / breadth.decliners).toFixed(2) : 'n/a'}.`}
-            >
-              <span className={`flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 ${STRIP_LABEL_W}`}>
-                <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa] shrink-0"></span>
-                Internals
-              </span>
-
-              <span
-                className={`text-sm font-bold leading-none ${STRIP_ARROW_W} ${
-                  adTrend === 'up' ? 'text-emerald-400' : adTrend === 'down' ? 'text-rose-400' : 'text-slate-600'
-                }`}
-                title={
-                  adTrend === 'up' ? 'A/D ratio improving since last refresh'
-                  : adTrend === 'down' ? 'A/D ratio deteriorating since last refresh'
-                  : 'A/D ratio unchanged'
-                }
-              >
-                {adTrend === 'up' ? '▲' : adTrend === 'down' ? '▼' : '–'}
-              </span>
-
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <span className={`text-[11px] font-bold text-emerald-400 tabular-nums whitespace-nowrap ${STRIP_SIDE_W}`}>
-                  ADV {breadth.advancers.toLocaleString()}
-                </span>
-                <ProportionalBar
-                  pct={advPct}
-                  leftTitle={`${breadth.advancers.toLocaleString()} advancing`}
-                  rightTitle={`${advPct.toFixed(0)}% advancing`}
-                />
-                <span className={`text-[11px] font-bold text-rose-400 tabular-nums whitespace-nowrap sm:text-right ${STRIP_SIDE_W}`}>
-                  DEC {breadth.decliners.toLocaleString()}
-                </span>
-              </div>
-
-              <div className={`flex items-center gap-4 ${STRIP_CLUSTER_W}`}>
-                <span className={`flex items-center gap-1.5 whitespace-nowrap ${STRIP_NOTE_W}`} title="A/D ratio">
-                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">A/D:</span>
-                  <span className={`text-[11px] font-bold tabular-nums ${breadth.decliners > 0 && breadth.advancers / breadth.decliners >= 1 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {breadth.decliners > 0 ? (breadth.advancers / breadth.decliners).toFixed(2) : '—'}
-                  </span>
-                </span>
-                <span className={`text-[10px] font-bold tabular-nums px-2 py-0.5 rounded border ${STRIP_BADGE_W} ${breadthPctBg(advPct)} ${breadthPctColor(advPct)}`}>
-                  {advPct.toFixed(0)}%
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* ATHI/ATLO — new highs vs new lows. Same proportional treatment. */}
-          {breadth && ((breadth.newHighs ?? 0) > 0 || (breadth.newLows ?? 0) > 0) && (
-            <div
-              className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border border-white/5 bg-[#161c2a]/40 rounded-xl px-4 py-3 relative z-10 cursor-help"
-              title={`ATHI/ATLO — ${breadth.newHighs ?? 0} at 52-week high vs ${breadth.newLows ?? 0} at 52-week low across US equities (${highsPct.toFixed(0)}% highs). Above 60% = structural strength. Below 40% = defensive tape. H/L ratio: ${(breadth.newLows ?? 0) > 0 ? ((breadth.newHighs ?? 0) / (breadth.newLows ?? 0)).toFixed(2) : '∞'}.`}
-            >
-              <span className={`flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 ${STRIP_LABEL_W}`}>
-                <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa] shrink-0"></span>
-                ATHI / ATLO
-              </span>
-
-              <span
-                className={`text-sm font-bold leading-none ${STRIP_ARROW_W} ${
-                  hlTrend === 'up' ? 'text-emerald-400' : hlTrend === 'down' ? 'text-rose-400' : 'text-slate-600'
-                }`}
-                title={
-                  hlTrend === 'up' ? 'H/L ratio improving since last refresh'
-                  : hlTrend === 'down' ? 'H/L ratio deteriorating since last refresh'
-                  : 'H/L ratio unchanged'
-                }
-              >
-                {hlTrend === 'up' ? '▲' : hlTrend === 'down' ? '▼' : '–'}
-              </span>
-
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <span className={`text-[11px] font-bold text-emerald-400 tabular-nums whitespace-nowrap ${STRIP_SIDE_W}`}>
-                  HIGHS {(breadth.newHighs ?? 0).toLocaleString()}
-                </span>
-                <ProportionalBar
-                  pct={highsPct}
-                  leftTitle={`${(breadth.newHighs ?? 0).toLocaleString()} at 52-week highs`}
-                  rightTitle={`${highsPct.toFixed(0)}% making new highs`}
-                />
-                <span className={`text-[11px] font-bold text-rose-400 tabular-nums whitespace-nowrap sm:text-right ${STRIP_SIDE_W}`}>
-                  LOWS {(breadth.newLows ?? 0).toLocaleString()}
-                </span>
-              </div>
-
-              <div className={`flex items-center gap-4 ${STRIP_CLUSTER_W}`}>
-                <span className={`flex items-center gap-1.5 whitespace-nowrap ${STRIP_NOTE_W}`} title="New Highs / New Lows ratio">
-                  <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">H/L:</span>
-                  <span className={`text-[11px] font-bold tabular-nums ${(breadth.newHighs ?? 0) >= (breadth.newLows ?? 0) ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {(breadth.newLows ?? 0) > 0 ? ((breadth.newHighs ?? 0) / (breadth.newLows ?? 0)).toFixed(2) : (breadth.newHighs ?? 0) > 0 ? '∞' : '—'}
-                  </span>
-                </span>
-                <span className={`text-[10px] font-bold tabular-nums px-2 py-0.5 rounded border ${STRIP_BADGE_W} ${breadthPctBg(highsPct)} ${breadthPctColor(highsPct)}`}>
-                  {highsPct.toFixed(0)}%
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* CHOP — regime strip, TWO STACKED TRACKS.
-
-              The tracks share thresholds, scale and width, and are vertically
-              aligned, so ONE MARKER LEFT OF THE OTHER IS THE DIVERGENCE. That
-              is the entire reason for stacking: v1.8 had the two readings as
-              numbers in the sub-row, which made the gap something you
-              computed rather than saw.
-
-              The bar is a SPECTRUM WITH A MARKER, not a proportional fill —
-              the opposite of the two strips above. CHOP is a single point on
-              a 0-100 scale; there is no left side and right side to fill. */}
-          {chopVal != null && (
-            <div className={`mb-6 border rounded-xl px-4 py-3 relative z-10 ${chopStripStyle(chopVal, bands)}`}>
-              <div
-                className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 cursor-help"
-                title={chopTooltipText}
-              >
-                <span className={`flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 ${STRIP_LABEL_W}`}>
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa] shrink-0"></span>
-                  Chop
-                </span>
-
-                <span
-                  className={`text-sm font-bold leading-none ${STRIP_ARROW_W} ${
-                    chopTrend === 'up' ? 'text-amber-400' : chopTrend === 'down' ? 'text-emerald-400' : 'text-slate-600'
-                  }`}
-                  title={
-                    chopDelta == null ? 'No prior bar to compare'
-                    : chopTrend === 'up' ? `Raw daily choppiness rising vs yesterday (+${chopDelta.toFixed(2)}) — conditions deteriorating for breakouts`
-                    : chopTrend === 'down' ? `Raw daily choppiness falling vs yesterday (${chopDelta.toFixed(2)}) — trend conditions improving`
-                    : `Raw daily choppiness flat vs yesterday (${chopDelta >= 0 ? '+' : ''}${chopDelta.toFixed(2)})`
-                  }
-                >
-                  {chopTrend === 'up' ? '▲' : chopTrend === 'down' ? '▼' : '–'}
-                </span>
-
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <span className={`text-[11px] font-bold text-emerald-400 tabular-nums whitespace-nowrap ${STRIP_SIDE_W}`}>
-                    TREND
-                  </span>
-
-                  <div className="flex-1 min-w-[80px] flex flex-col gap-2.5">
-                    {/* --- TRACK 1: DAILY --- */}
-                    <div className="flex items-center gap-1.5">
-                      <span className={`text-[8px] font-bold tracking-wider uppercase text-slate-600 text-right ${CHOP_TRACK_LABEL_W}`}>
-                        1D
-                      </span>
-                      <div className="flex-1 h-1.5 rounded-full relative overflow-hidden">
-                        <div className="absolute inset-0 flex transition-all duration-300" style={{ borderRadius: 'inherit' }}>
-                          <div className="h-full bg-teal-400/45" style={{ width: `${bands.strongTrend}%` }}></div>
-                          <div className="h-full bg-emerald-400/35" style={{ width: `${bands.trend - bands.strongTrend}%` }}></div>
-                          <div className="h-full bg-slate-400/20" style={{ width: `${bands.chop - bands.trend}%` }}></div>
-                          <div className="h-full bg-amber-400/35" style={{ width: `${bands.dead - bands.chop}%` }}></div>
-                          <div className="h-full bg-rose-400/35" style={{ width: `${100 - bands.dead}%` }}></div>
-                        </div>
-                        <div
-                          className="absolute top-[-2px] h-[9px] w-px bg-white/30 transition-all duration-300"
-                          style={{ left: `${bands.trend}%` }}
-                          title={`Trend threshold — ${bands.trend} (${bands.label})`}
-                        ></div>
-                        <div
-                          className="absolute top-[-2px] h-[9px] w-px bg-white/30 transition-all duration-300"
-                          style={{ left: `${bands.chop}%` }}
-                          title={`Chop threshold — ${bands.chop} (${bands.label})`}
-                        ></div>
-
-                        {chop?.qqq != null && (
-                          <div
-                            className="absolute top-[-1px] h-[7px] w-px bg-violet-400/70 transition-all duration-500"
-                            style={{ left: `${chop.qqq}%` }}
-                            title={`QQQ daily ${chop.qqq.toFixed(1)}`}
-                          ></div>
-                        )}
-                        {chop?.spy != null && (
-                          <div
-                            className="absolute top-[-1px] h-[7px] w-px bg-sky-400/70 transition-all duration-500"
-                            style={{ left: `${chop.spy}%` }}
-                            title={`SPY daily ${chop.spy.toFixed(1)}`}
-                          ></div>
-                        )}
-
-                        <div
-                          className={`absolute top-[-3px] h-[11px] w-[3px] rounded-sm transition-all duration-500 ${chopMarkerBg(chopVal, bands)}`}
-                          style={{ left: `calc(${chopVal}% - 1.5px)` }}
-                          title={`Daily composite ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal, bands)}`}
-                        ></div>
-                      </div>
-                      <span className={`text-[9px] font-bold tabular-nums w-[18px] text-right ${chopColor(chopVal, bands)}`}>
-                        {chopVal.toFixed(0)}
-                      </span>
-                    </div>
-
-                    {/* --- TRACK 2: INTRADAY ---
-                        Same width, same thresholds, same scale as the track
-                        above. Rendered dimmer throughout so the daily reading
-                        stays the headline — the intraday leg qualifies it
-                        rather than competing with it. */}
-                    {intraVal != null ? (
-                      <div className={`flex items-center gap-1.5 ${intraStale ? 'opacity-45' : ''}`}>
-                        <span className={`text-[8px] font-bold tracking-wider uppercase text-slate-600 text-right ${CHOP_TRACK_LABEL_W}`}>
-                          {chop?.intraday?.barMinutes ?? 15}M
-                        </span>
-                        <div className="flex-1 h-1.5 rounded-full relative overflow-hidden">
-                          <div className="absolute inset-0 flex transition-all duration-300" style={{ borderRadius: 'inherit' }}>
-                            <div className="h-full bg-teal-400/25" style={{ width: `${bands.strongTrend}%` }}></div>
-                            <div className="h-full bg-emerald-400/20" style={{ width: `${bands.trend - bands.strongTrend}%` }}></div>
-                            <div className="h-full bg-slate-400/12" style={{ width: `${bands.chop - bands.trend}%` }}></div>
-                            <div className="h-full bg-amber-400/20" style={{ width: `${bands.dead - bands.chop}%` }}></div>
-                            <div className="h-full bg-rose-400/20" style={{ width: `${100 - bands.dead}%` }}></div>
-                          </div>
-                          <div
-                            className="absolute top-[-2px] h-[9px] w-px bg-white/15 transition-all duration-300"
-                            style={{ left: `${bands.trend}%` }}
-                          ></div>
-                          <div
-                            className="absolute top-[-2px] h-[9px] w-px bg-white/15 transition-all duration-300"
-                            style={{ left: `${bands.chop}%` }}
-                          ></div>
-
-                          <div
-                            className={`absolute top-[-3px] h-[11px] w-[3px] rounded-sm transition-all duration-500 ${chopMarkerBg(intraVal, bands)}`}
-                            style={{ left: `calc(${intraVal}% - 1.5px)` }}
-                            title={
-                              `Intraday ${intraVal.toFixed(0)} — ${chopZoneLabel(intraVal, bands)}` +
-                              `\nLast ${chop?.intraday?.windowMinutes ?? 210} minutes, newest closed bar ${formatClockShort(intraLastBar)} EST` +
-                              (intraStale ? '\nNot current — this is the last session that traded.' : '')
-                            }
-                          ></div>
-                        </div>
-                        <span className={`text-[9px] font-bold tabular-nums w-[18px] text-right ${chopColor(intraVal, bands)}`}>
-                          {intraVal.toFixed(0)}
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1.5">
-                        <span className={`text-[8px] font-bold tracking-wider uppercase text-slate-700 text-right ${CHOP_TRACK_LABEL_W}`}>
-                          15M
-                        </span>
-                        <div className="flex-1 h-1.5 rounded-full bg-white/[0.03] border border-dashed border-white/5"></div>
-                        <span className="text-[9px] font-bold tabular-nums w-[18px] text-right text-slate-700">—</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <span className={`text-[11px] font-bold text-amber-400 tabular-nums whitespace-nowrap sm:text-right ${STRIP_SIDE_W}`}>
-                    CHOP
-                  </span>
-                </div>
-
-                {/* Zone word in the note slot, score in the badge — the same
-                    grammar as A/D 0.66 then 40%. Both describe the DAILY
-                    reading; the intraday number lives on its own track. */}
-                <div className={`flex items-center gap-4 ${STRIP_CLUSTER_W}`}>
-                  <span className={`flex items-center whitespace-nowrap ${STRIP_NOTE_W}`}>
-                    <span className={`text-[9px] font-bold tracking-widest uppercase ${chopColor(chopVal, bands)}`}>
-                      {chopZoneLabel(chopVal, bands)}
-                    </span>
-                  </span>
-                  <span className={`text-[10px] font-bold tabular-nums px-2 py-0.5 rounded border ${STRIP_BADGE_W} ${chopBadgeBg(chopVal, bands)} ${chopColor(chopVal, bands)}`}>
-                    {chopVal.toFixed(0)}
-                  </span>
-                </div>
-              </div>
-
-              {/* SUB-ROW: sensitivity left, divergence right. Indented to the
-                  label-slot width so it reads as belonging to this strip
-                  rather than as a fourth strip. */}
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-2.5 pt-2.5 border-t border-white/5 sm:pl-[100px]">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[8px] font-bold tracking-widest uppercase text-slate-600 mr-0.5">
-                    Sensitivity
-                  </span>
-                  {CHOP_MODES.map((m) => {
-                    const b = CHOP_BANDS[m];
-                    const active = m === chopMode;
-                    return (
-                      <button
-                        key={m}
-                        onClick={() => setChopMode(m)}
-                        title={`${b.blurb}\n\nChop called at ${b.chop} and above; trend at ${b.trend} and below.` +
-                          (chopVal != null ? `\n\nToday's ${chopVal.toFixed(0)} would read ${chopZoneLabel(chopVal, b)} here.` : '')}
-                        className={`text-[9px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border transition-all duration-200 ${
-                          active
-                            ? 'bg-[#1e293b] text-indigo-400 border-indigo-500/30'
-                            : 'bg-transparent text-slate-600 border-transparent hover:text-slate-400 hover:bg-white/[0.03]'
-                        }`}
-                      >
-                        {b.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {chopRaw != null && chopVal != null && Math.abs(chopVal - chopRaw) >= 2 && (
-                  <span
-                    className="flex items-center gap-1 whitespace-nowrap cursor-help"
-                    title={`Raw CHOP ${chopRaw.toFixed(1)} adjusted ${chopVal - chopRaw >= 0 ? '+' : ''}${(chopVal - chopRaw).toFixed(1)} by breadth centrality and high/low balance → composite ${chopVal.toFixed(1)}.\n\nCentred internals push toward chop; skewed internals pull toward trend.`}
-                  >
-                    <span className="text-[9px] font-medium tabular-nums text-slate-600">
-                      raw {chopRaw.toFixed(0)}
-                    </span>
-                    <span className={`text-[9px] font-bold tabular-nums ${chopVal - chopRaw > 0 ? 'text-amber-500/70' : 'text-emerald-500/70'}`}>
-                      {chopVal - chopRaw >= 0 ? '→+' : '→'}{(chopVal - chopRaw).toFixed(0)}
-                    </span>
-                  </span>
-                )}
-
-                {intraVal != null && divergence.label && (
-                  <span
-                    className="flex items-center gap-2 whitespace-nowrap cursor-help"
-                    title={`${divergence.detail}\n\nDaily ${chopVal.toFixed(0)} vs intraday ${intraVal.toFixed(0)} at the ${bands.label} setting.` +
-                      (intraStale ? '\n\nThe intraday leg is not current — treat this read as describing the last session that traded.' : '')}
-                  >
-                    <span className={`text-[9px] font-bold tracking-widest uppercase ${divergenceColor(divergence.tone)}`}>
-                      {divergence.label}
-                    </span>
-                    {intraStale && (
-                      <span className="text-[8px] font-bold tracking-wider uppercase text-slate-600">
-                        stale
-                      </span>
-                    )}
-                  </span>
-                )}
-
-                {intraVal == null && (
-                  <span className="text-[9px] font-medium text-slate-600 italic">
-                    Intraday leg unavailable — daily reading only.
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
+          <MacroScorecardPanel
+            marketTone={marketTone}
+            quotes={quotes}
+            breadth={breadth}
+            tVal={tVal}
+            chop={chop}
+            chopVal={chopVal}
+            chopRaw={chopRaw}
+            chopDelta={chopDelta}
+            chopTrend={chopTrend}
+            adTrend={adTrend}
+            hlTrend={hlTrend}
+            advPct={advPct}
+            highsPct={highsPct}
+            intraVal={intraVal}
+            intraStale={intraStale}
+            intraLastBar={intraLastBar}
+            chopTooltipText={chopTooltipText}
+            chopMode={chopMode}
+            setChopMode={setChopMode}
+            bands={bands}
+            divergence={divergence}
+          />
 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4 relative z-10">
             {MACRO_ASSETS.map((asset) => {

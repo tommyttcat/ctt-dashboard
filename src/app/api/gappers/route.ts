@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
+import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -46,13 +47,13 @@ function getMarketPhase(): 'pre' | 'open' | 'post' | 'closed' {
 
 export async function GET() {
   if (!POLYGON_KEY) {
-    return NextResponse.json({ error: 'Missing Polygon key' }, { status: 500 });
+    return NextResponse.json({ error: 'Missing Polygon key' }, { status: 500, headers: noCacheHeaders() });
   }
 
   try {
     const cached = await kv.get<any>(CACHE_KEY);
     if (cached && cached.updatedAt && Date.now() - cached.updatedAt < CACHE_TTL_MS) {
-      return NextResponse.json({ ...cached, cached: true });
+      return NextResponse.json({ ...cached, cached: true }, { headers: cacheHeaders(CACHE.SCAN) });
     }
   } catch { /* fall through */ }
 
@@ -64,7 +65,7 @@ export async function GET() {
   );
   const tickers = snapRes.tickers || [];
   if (tickers.length === 0) {
-    return NextResponse.json({ error: 'No snapshot data' }, { status: 500 });
+    return NextResponse.json({ error: 'No snapshot data' }, { status: 500, headers: noCacheHeaders() });
   }
 
   const gappers: any[] = [];
@@ -126,5 +127,5 @@ export async function GET() {
     await kv.set(CACHE_KEY, payload, { ex: 300 });
   } catch { /* non-fatal */ }
 
-  return NextResponse.json(payload);
+  return NextResponse.json(payload, { headers: cacheHeaders(CACHE.SCAN) });
 }

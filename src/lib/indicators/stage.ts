@@ -168,9 +168,17 @@ export function computeStage(
 }
 
 /**
- * Display helpers, shared so all five tables color stages identically.
+ * Display helpers, shared so every table colours stages identically.
+ *
+ * The ladder reads as a traffic signal around the trade:
+ *   1 blue   — basing. Not a trade yet, but the one worth watching.
+ *   2 green  — uptrend. Go.
+ *   3 amber  — topping.
+ *   4 rose   — decline.
+ *
  * 2C is deliberately amber rather than green: it IS Stage 2, but it's the
- * sub-stage where the trade has stopped working.
+ * sub-stage where the trade has stopped working. 4C gets orange for the same
+ * reason in reverse — still Stage 4, but the part where it may be turning.
  */
 export function stageColor(stage: string | null | undefined): string {
   if (!stage || stage === '-' || stage === '—') return 'text-slate-500';
@@ -186,8 +194,56 @@ export function stageColor(stage: string | null | undefined): string {
     return 'text-rose-400';
   }
   if (s.startsWith('3')) return 'text-amber-400';
-  if (s.startsWith('1')) return 'text-slate-400';
+  if (s.startsWith('1')) return 'text-sky-400';
   return 'text-slate-500';
+}
+
+/* Badge form — the tinted pill the tables render, matching rsBadge in
+   indicators/rs.ts and cnfBadgeCls in indicators/columnColors.ts. A pill gives
+   the column a constant footprint whatever the label's width, which is what
+   keeps STG and RS aligned down the table; bare text of varying length does
+   not.
+
+   ⚠️ Written out longhand rather than derived from stageColor's output.
+   Tailwind compiles the classes it can SEE as literal strings in the source,
+   so a template like `bg-${hue}-500/10` produces markup referencing CSS that
+   was never generated — the badge renders transparent and nothing errors.
+   Keep the two functions in step by hand. */
+export function stageBadge(stage: string | null | undefined): string {
+  if (!stage || stage === '-' || stage === '—') return 'bg-white/[0.02] text-slate-600 border-white/5';
+  const s = String(stage).replace(/Stage\s*/i, '').trim().toUpperCase();
+
+  if (s.startsWith('2')) {
+    if (s === '2C') return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+    if (s === '2B') return 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20';
+    return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+  }
+  if (s.startsWith('4')) {
+    if (s === '4C') return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
+    return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+  }
+  if (s.startsWith('3')) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+  if (s.startsWith('1')) return 'bg-sky-500/10 text-sky-400 border-sky-500/20';
+  return 'bg-white/[0.02] text-slate-600 border-white/5';
+}
+
+/** Hex equivalent of stageColor, for the email, which cannot use classes. */
+export function stageHex(stage: string | null | undefined): string {
+  if (!stage || stage === '-' || stage === '—') return '#64748b';
+  const s = String(stage).replace(/Stage\s*/i, '').trim().toUpperCase();
+
+  if (s.startsWith('2')) {
+    if (s === '2C') return '#fbbf24';
+    if (s === '2B') return '#6ee7b7';
+    return '#34d399';
+  }
+  if (s.startsWith('4')) {
+    if (s === '4C') return '#fb923c';
+    return '#fb7185';
+  }
+  if (s.startsWith('3')) return '#fbbf24';
+  if (s.startsWith('1')) return '#38bdf8';
+  return '#64748b';
 }
 
 /** "Stage 2C" -> "2C". Handles the legacy '-' sentinel. */

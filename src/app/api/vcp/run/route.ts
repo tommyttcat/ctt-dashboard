@@ -125,7 +125,7 @@ import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { computeStage } from '@/lib/indicators/stage';
 import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
 import { runInBackground, isDetachedRun, BG_HEADERS } from '@/lib/background';
-import { pickBestNews, polygonNewsPath, type NewsItem } from '@/lib/indicators/news';
+import { pickBestNews, polygonNewsPath, fetchBenzingaNewsIndex, type NewsItem } from '@/lib/indicators/news';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -133,7 +133,10 @@ export const revalidate = 0;
 export const maxDuration = 300;
 
 const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
-/* BENZINGA_KEY is gone — this route no longer touches Benzinga at all. */
+/* Benzinga is back for news only (v1.4). The v1.3 move to Polygon is what made
+   this column go dark: Polygon's per-ticker feed is Motley Fool wall-to-wall on
+   this plan, and pickBestNews blocks that publisher by design. */
+const BENZINGA_KEY = (process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '').trim();
 const BASE = 'https://api.polygon.io';
 
 /* ---- Gates --------------------------------------------------------------
@@ -574,6 +577,10 @@ async function runScan(request: Request) {
     const to = ymd(new Date());
     const from = ymd(dateDaysAgo(500));
 
+    /* One fetch for the whole scan, indexed by ticker — this plan's Benzinga
+       endpoint ignores per-ticker params, so filtering happens here. */
+    const bzIndex = await fetchBenzingaNewsIndex(BENZINGA_KEY);
+
     const confirmed = await inBatches(shortlist, ENRICH_CONCURRENCY, async ({ sym, rs }) => {
       const snap = snapMap.get(sym);
       if (!snap) return null;
@@ -626,7 +633,10 @@ async function runScan(request: Request) {
          outcome on most rows rather than a gap. What matters is that it is
          now null because nothing was published, not because the feed was
          dead. */
-      const news: NewsItem | null = pickBestNews(newsRes?.results, sym);
+      const news: NewsItem | null = pickBestNews(
+        [...(bzIndex.get(sym) ?? []), ...(newsRes?.results ?? [])],
+        sym
+      );
 
       const mktCap = details?.results?.market_cap || null;
       const float = details?.results?.share_class_shares_outstanding

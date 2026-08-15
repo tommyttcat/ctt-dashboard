@@ -53,8 +53,10 @@
 //   lib tiers publishers before choosing. Surfacing it here means the
 //   filtering is auditable rather than trusted.
 
-import { rsColor, rsTooltip } from '@/lib/indicators/rs';
-import { newsStarCount } from '@/lib/newsStars';
+import { rsBadge, rsTooltip } from '@/lib/indicators/rs';
+import { stageBadge, stageShort, stageDescription } from '@/lib/indicators/stage';
+import { fetchScannerLatest } from '@/lib/scannerLatest';
+import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews } from '@/lib/catalyst';
 
 // TopMovers — v1.3
 //
@@ -75,9 +77,9 @@ import { newsStarCount } from '@/lib/newsStars';
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
-import MetricsKey from './MetricsKey';
-import { TOPMOVERS_META } from '@/lib/scanConfig';
-import TickerChartHover from './TickerChartHover';
+import { SCANNER } from '@/lib/scanConfig';
+import TickerChartHover, { useFreezeWhileChartOpen } from './TickerChartHover';
+import { rvolColor as getRvolColor, dtcColor as getDtcColor, stochColor as getStochColor, floatColor as getFloatColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
 
 interface StockData {
   ticker: string;
@@ -122,25 +124,16 @@ const formatTime = (timestamp: number | Date) => { if (!timestamp) return ''; co
 const formatNumber = (num: number | null) => { if (num === null || num === 0 || isNaN(num)) return '\u2014'; if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B'; if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M'; if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K'; return num.toLocaleString(); };
 const formatCurrency = (num: number | null) => { if (num === null || num === 0 || isNaN(num)) return '\u2014'; if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B'; if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M'; return '$' + num.toLocaleString(); };
 const formatSetupName = (name: string | null) => { if (!name || name === '-' || name === '\u2014') return null; if (name.includes('BB SQZ')) return 'BB SQZ'; if (name === 'Blue Dot Rev') return 'BD Rev'; return name; };
-const isGenericCatalyst = (catalyst: string | null | undefined) => !catalyst || catalyst.toLowerCase().startsWith('technical momentum');
 
 /* A row counts as having news only when there is a HEADLINE, not merely a
    tag. "Earnings" with no article behind it comes from the earnings calendar
    rather than the news feed — real information, but nothing to click, and an
    asterisk that opens nothing is worse than no asterisk. */
-const hasNews = (row: StockData): boolean => !!(row.thesis && row.catalystUrl);
+/* Mechanics live in @/lib/catalyst so all seven tables render a catalyst
+   the same way; only this scan's reading of the news stays local. */
+const NEGATIVE_NOTE = 'Reads negative — the tag alone would not have told you that.';
 
-/* One tooltip, used by the asterisk and the catalyst cell, so the two can
-   never describe the same article differently. */
-const newsTooltip = (row: StockData): string => {
-  if (!row.thesis) return '';
-  const meta = [row.catalyst, row.newsPublisher, row.newsAge].filter(Boolean).join(' \u00b7 ');
-  const lines = [meta, '', row.thesis];
-  if (row.newsSentiment === 'negative') {
-    lines.push('', 'Reads negative \u2014 the tag alone would not have told you that.');
-  }
-  return lines.filter((l, i) => l !== '' || i > 0).join('\n');
-};
+const newsTooltip = (row: StockData): string => catalystTooltip(row, { note: NEGATIVE_NOTE });
 const cnfGradeOf = (score: number | null): CnfFilterType | null => { if (score == null) return null; if (score >= 70) return 'A'; if (score >= 50) return 'B'; return 'C'; };
 
 export default function TopMovers() {
@@ -152,7 +145,7 @@ export default function TopMovers() {
   const [benchmark, setBenchmark] = useState<Benchmark | null>(null);
   const [maTimeframe, setMaTimeframe] = useState<'day' | 'week'>('day');
   const [sortConfig, setSortConfig] = useState<{ key: keyof StockData; direction: SortDirection } | null>(null);
-  const [isExpanded, setIsExpanded] = useState<boolean>(true);
+  const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [marketCapFilter, setMarketCapFilter] = useState<string>('All');
   const [emaFilter, setEmaFilter] = useState<EmaFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
@@ -208,8 +201,7 @@ export default function TopMovers() {
     let isMounted = true;
     const fetchDatabaseSnapshot = async () => {
       try {
-        const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
-        const data = await res.json();
+        const data = await fetchScannerLatest();
         if (isMounted && data.success && data.topMovers) {
           const safeData: Record<TabType, StockData[]> = { 'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': [] };
           const categories: TabType[] = ['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'];
@@ -250,25 +242,51 @@ export default function TopMovers() {
   const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
 
-  const sortedStocks = useMemo(() => {
+  const computedMovers = useMemo(() => {
     let currentList = topMoversData[activeTab] || [];
     if (marketCapFilter !== 'All') { currentList = currentList.filter(s => { const mc = s.mktCap; if (!mc) return true; if (marketCapFilter === 'Mega') return mc >= 200e9; if (marketCapFilter === 'Large') return mc >= 10e9 && mc < 200e9; if (marketCapFilter === 'Mid') return mc >= 2e9 && mc < 10e9; if (marketCapFilter === 'Small') return mc >= 300e6 && mc < 2e9; if (marketCapFilter === 'Micro') return mc < 300e6; return true; }); }
     if (emaFilter !== 'All') { currentList = currentList.filter(s => { if (emaFilter === '>10') return s.aboveEma10 === true; if (emaFilter === '>21') return s.aboveEma21 === true; if (emaFilter === 'Both') return s.aboveEma10 === true && s.aboveEma21 === true; return true; }); }
     if (vwapFilter !== 'All') { currentList = currentList.filter(s => s.vwapStatus === vwapFilter); }
     if (cnfFilter !== 'All') { currentList = currentList.filter(s => cnfGradeOf(s.conviction) === cnfFilter); }
-    if (!sortConfig) return currentList.slice(0, 10);
+    /* Default ordering is CHG%, biggest move first. It used to fall through in
+       whatever order the API returned, so the top of a "Top Movers" list was
+       not actually the top mover. Losing tabs rank by the largest decline, so
+       they sort ascending. */
+    if (!sortConfig) {
+      const desc = !/Losers/i.test(activeTab);
+      return [...currentList]
+        .sort((a, b) => {
+          const av = a.changePct ?? 0;
+          const bv = b.changePct ?? 0;
+          return desc ? bv - av : av - bv;
+        })
+        .slice(0, 10);
+    }
     return [...currentList].sort((a, b) => { const aVal = a[sortConfig.key] as any; const bVal = b[sortConfig.key] as any; if (aVal === null || aVal === undefined) return 1; if (bVal === null || bVal === undefined) return -1; if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1; if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1; return 0; }).slice(0, 10);
   }, [topMoversData, activeTab, sortConfig, marketCapFilter, emaFilter, vwapFilter, cnfFilter]);
 
+  /* Held still while a chart is open — see useFreezeWhileChartOpen. */
+  const sortedStocks = useFreezeWhileChartOpen(computedMovers);
+
   const handleCopyTickers = async (e: React.MouseEvent) => { e.stopPropagation(); const tickers = sortedStocks.map(s => s.ticker).join(','); if (!tickers) return; try { await navigator.clipboard.writeText(tickers); } catch { const ta = document.createElement('textarea'); ta.value = tickers; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch {} document.body.removeChild(ta); } setCopied(true); setTimeout(() => setCopied(false), 1800); };
+
+  const [txtDone, setTxtDone] = useState(false);
+  const handleDownloadTxt = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const t = sortedStocks.map(s => s.ticker);
+    if (!t.length) return;
+    const blob = new Blob([t.join(',')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'watchlist.txt';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setTxtDone(true);
+    setTimeout(() => setTxtDone(false), 1800);
+  };
 
   const getSortIcon = (columnKey: keyof StockData) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' \u2191' : ' \u2193') : '';
   const getSessionTextColor = () => { if (status.includes('Err') || status.includes('Offline')) return 'text-rose-500'; if (status.includes('Syncing')) return 'text-amber-500'; if (session === 'Pre-Market') return 'text-amber-500'; if (session === 'Open') return 'text-[#00e676]'; if (session === 'Post-Market') return 'text-indigo-400'; return 'text-slate-500'; };
-  const getScoreBadge = (score: number | null) => { if (score == null) return 'bg-white/[0.02] text-slate-600 border-white/5'; if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'; if (score >= 50) return 'bg-amber-500/10 text-amber-400 border-amber-500/20'; return 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50'; };
-  const getRvolColor = (rvol: number | null) => { if (!rvol) return 'text-slate-500'; if (rvol >= 2) return 'text-amber-400'; if (rvol >= 1.5) return 'text-emerald-400'; return 'text-slate-500'; };
-  const getFloatColor = (float: number | null) => { if (!float) return 'text-slate-500'; if (float <= 20000000) return 'text-purple-400'; if (float <= 50000000) return 'text-emerald-400'; return 'text-slate-300'; };
-  const getDtcColor = (d: number | null) => { if (d == null) return 'text-slate-500'; if (d >= 5) return 'text-purple-400'; if (d >= 3) return 'text-emerald-400'; if (d >= 1.5) return 'text-slate-300'; return 'text-slate-500'; };
-  const getStochColor = (k: number | null) => { if (k == null) return 'text-slate-500'; if (k <= 20) return 'text-purple-400'; if (k <= 30) return 'text-emerald-400'; return 'text-slate-400'; };
   const emaDot = (state: boolean | null) => { if (state === null) return 'bg-slate-600'; return state ? 'bg-emerald-400' : 'bg-rose-500'; };
 
   const thBase = "px-3 py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 transition-colors text-center";
@@ -292,8 +310,21 @@ export default function TopMovers() {
               {copied ? `\u2713 Copied ${sortedStocks.length}` : `Copy ${sortedStocks.length}`}
             </button>
           )}
-          <span className="relative z-40 inline-flex">
-            <MetricsKey meta={TOPMOVERS_META} liveGates={scanMeta?.gates} />
+          {sortedStocks.length > 0 && (
+            <button
+              onClick={handleDownloadTxt}
+              title={`Download ${sortedStocks.length} ticker${sortedStocks.length !== 1 ? 's' : ''} as .txt for TradingView import`}
+              className={`text-[10px] font-bold tracking-wider uppercase px-2 py-1 rounded border transition-all duration-200 ${
+                txtDone
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  : 'bg-[#161c2a] text-slate-400 border-white/5 hover:text-slate-200 hover:bg-white/[0.04]'
+              }`}
+            >
+              {txtDone ? '\u2713 TXT' : 'TXT'}
+            </button>
+          )}
+          <span className="hidden md:block basis-full text-[10px] font-bold tracking-wider uppercase text-slate-500 mt-1">
+            Top {sortedStocks.length} of {rawCount} · ${SCANNER.minPrice}+ · {SCANNER.minVolume >= 1e6 ? `${SCANNER.minVolume/1e6}M` : `${SCANNER.minVolume/1e3}K`} vol · +{SCANNER.minChange}%+ · ${SCANNER.minMarketCap >= 1e6 ? `${SCANNER.minMarketCap/1e6}M` : ''} cap
           </span>
         </div>
         <div className="flex flex-col items-center gap-1.5">
@@ -349,33 +380,6 @@ export default function TopMovers() {
                   </button>
                 </div>
               </div>
-              {benchmark && (() => {
-                const activeMas = maTimeframe === 'day' ? (benchmark.day || benchmark.mas || []) : (benchmark.week || []);
-                const unit = maTimeframe === 'day' ? 'D' : 'W';
-                return (
-                  <div className={pillWrap}>
-                    <span className="text-[8px] font-bold tracking-widest uppercase text-[#7c8bfa]">{benchmark.symbol}</span>
-                    <div className="flex items-center bg-[#0b101a] border border-white/5 rounded-md p-0.5">
-                      {(['day', 'week'] as const).map((tf) => (
-                        <button key={tf} onClick={() => setMaTimeframe(tf)} className={`px-1.5 py-0.5 rounded text-[8px] font-bold tracking-widest uppercase transition-colors ${maTimeframe === tf ? 'bg-indigo-500/20 text-indigo-300' : 'text-slate-500 hover:text-slate-300'}`}>
-                          {tf === 'day' ? 'Day' : 'Week'}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      {activeMas.map((m, idx) => (
-                        <React.Fragment key={m.label}>
-                          {idx > 0 && <span className="text-[9px] text-slate-600">|</span>}
-                          <div className="flex items-center gap-1" title={`${benchmark.symbol} ${m.label}${unit} SMA: $${m.value.toFixed(2)} \u2014 ${m.above ? 'above' : 'below'}`}>
-                            <span className="text-[9px] font-medium text-slate-400">{m.label}</span>
-                            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${m.above ? 'bg-emerald-400' : 'bg-rose-500'}`}></div>
-                          </div>
-                        </React.Fragment>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
             </div>
           </div>
           
@@ -383,7 +387,7 @@ export default function TopMovers() {
             <table className="w-full min-w-[1250px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className={`${thBase} w-[7%] !text-left pl-1`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
@@ -393,11 +397,11 @@ export default function TopMovers() {
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
-                  <th className={`${thBase} w-[3%]`}>N</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className={`${thBase} w-[9%] border-l border-white/5`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className={`${thBase} w-[9%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                   <th className={`${thBase} w-[14%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
                 </tr>
               </thead>
@@ -417,10 +421,11 @@ export default function TopMovers() {
                     const isPositive = row.changePct >= 0;
                     return (
                       <tr key={i} className="hover:bg-white/[0.02] transition-colors group">
-                        <td className={tdBase}>
-                          <TickerChartHover symbol={row.ticker}><span className="inline-block bg-slate-500/10 text-slate-300 text-[11px] font-bold px-1.5 py-0.5 rounded border border-white/10" title={row.name || row.ticker}>{row.ticker}</span></TickerChartHover>
+                        <td className={`${tdBase} !text-left pl-1`}>
+                          <TickerChartHover symbol={row.ticker}><span className={tickerChipForScore(row.conviction)} title={tickerTitle(row.name, row.ticker, row.conviction)}>{row.ticker}</span></TickerChartHover>
+                          <CatalystChip row={row} note={NEGATIVE_NOTE} />
                         </td>
-                        <td className={tdBase}><span className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border ${getScoreBadge(row.conviction)}`}>{row.conviction != null ? row.conviction : '--'}</span></td>
+                        <td className={tdBase}><span className={scoreCellCls(row.conviction)}>{row.conviction != null ? row.conviction : '--'}</span></td>
                         <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}><div className="flex items-center justify-center gap-1.5">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div></td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
                         <td className={`${tdBase} whitespace-nowrap`}><div className="flex items-center justify-center gap-1.5"><div className="flex items-center gap-0.5"><span className="text-[9px] font-bold text-slate-500">10</span><div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} title={`10 EMA: ${row.aboveEma10 === null ? 'n/a' : row.aboveEma10 ? 'above' : 'below'}`}></div></div><div className="flex items-center gap-0.5"><span className="text-[9px] font-bold text-slate-500">21</span><div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma21)}`} title={`21 EMA: ${row.aboveEma21 === null ? 'n/a' : row.aboveEma21 ? 'above' : 'below'}`}></div></div></div></td>
@@ -428,12 +433,14 @@ export default function TopMovers() {
                         <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '\u2014'}</td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums cursor-help ${rsColor(row.rsRating)}`} title={rsTooltip(row.rsRating)}>{row.rsRating ?? '\u2014'}</td>
-                        <td className={`${tdBase} text-[7px] font-bold whitespace-nowrap`}>{(() => { const n = newsStarCount(row); const url = row.catalystUrl; if (n === 0) return <span className="text-slate-700">&mdash;</span>; const cls = n >= 2 ? 'text-amber-400' : 'text-slate-500'; const s = <span className={`leading-none ${cls}`}>{'★'.repeat(n)}</span>; return url ? <a href={url} target="_blank" rel="noopener noreferrer" className="hover:brightness-125 transition-all">{s}</a> : s; })()}</td>
+                        <td className={`${tdBase} whitespace-nowrap`} title={rsTooltip(row.rsRating)}><span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '\u2014'}</span></td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '\u2014'}</td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover \u2014 short interest divided by average daily volume.">{row.daysToCover != null ? row.daysToCover.toFixed(1) : '\u2014'}</td>
                         <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
-                        <td className={`${tdBase} border-l border-white/5`}><span className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{row.sector || '\u2014'}</span></td>
+                        <td className={`${tdBase} whitespace-nowrap border-l border-white/5`} title={stageDescription(row.stage)}>
+                          <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums tracking-wide cursor-help ${stageBadge(row.stage)}`}>{stageShort(row.stage)}</span>
+                        </td>
+                        <td className={tdBase}><span className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{row.sector || '\u2014'}</span></td>
                         <td className={`${tdBase} text-[10px] whitespace-normal break-words`}>
                           {!isGenericCatalyst(row.catalyst) ? (
                             <span className="flex flex-col leading-tight" title={newsTooltip(row) || undefined}>

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { getMarketSession } from '@/lib/indicators/marketScorecard';
 
 // ---------------------------------------------------------------------------
 // Economic Calendar — v1.2
@@ -41,16 +42,6 @@ type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
 type SortDirection = 'asc' | 'desc';
 
 // --- HELPERS ---
-const getMarketSession = (): MarketSession => {
-  const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const day = estDate.getDay();
-  const timeStr = estDate.getHours() + estDate.getMinutes() / 60;
-  if (day === 0 || day === 6) return 'Closed';
-  if (timeStr >= 4 && timeStr < 9.5) return 'Pre-Market';
-  if (timeStr >= 9.5 && timeStr < 16) return 'Open';
-  if (timeStr >= 16 && timeStr < 20) return 'Post-Market';
-  return 'Closed'; 
-};
 
 // Enforce EST timezone globally for the UI timestamp
 const formatTime = (date: Date) => {

@@ -448,3 +448,107 @@ export const newsUrlOf = (n: NewsItem | null): string | null => n?.url ?? null;
    (ep9m, vcp) need this; the scanner already has the call. */
 export const polygonNewsPath = (symbol: string, limit = 20): string =>
   `/v2/reference/news?ticker=${encodeURIComponent(symbol)}&limit=${limit}&order=desc&sort=published_utc`;
+
+/* ---------------------------------------------------------------------------
+   Benzinga as the primary per-ticker source.
+
+   Polygon's per-ticker feed on the current plan is almost entirely Motley Fool
+   with some GlobeNewswire — measured 2026-08-12 across CSCO/NBIS/SMCI, where
+   pickBestNews correctly returned null for all three because every candidate
+   was a blocked publisher. Worse, it lags: Cisco's newest Polygon article was
+   30 hours old on the day they reported.
+
+   Benzinga returns the same event at 0.2 hours, single-ticker and causal. It
+   doesn't cover everything though — thinner names like NBIS come back empty —
+   so Polygon stays as the fallback rather than being replaced. Items are mapped
+   into PolygonNewsRaw so every filter, tier and score below applies unchanged.
+   --------------------------------------------------------------------------- */
+
+const benzingaToRaw = (items: any[]): PolygonNewsRaw[] =>
+  (Array.isArray(items) ? items : []).map((it: any) => ({
+    id: String(it?.id ?? ''),
+    title: it?.title || '',
+    /* `teaser` is the abstract; the body is HTML and displayOutput=abstract
+       leaves it empty, so it is deliberately not used for classification. */
+    description: it?.teaser || '',
+    article_url: it?.url || '',
+    published_utc: it?.created ? new Date(it.created).toISOString() : '',
+    author: it?.author || '',
+    tickers: (it?.stocks || [])
+      .map((s: any) => String(s?.name || '').replace(/^\$/, '').toUpperCase())
+      .filter(Boolean),
+    keywords: (it?.channels || []).map((c: any) => c?.name).filter(Boolean),
+    publisher: { name: 'Benzinga' },
+  }));
+
+/* NOT per-ticker, deliberately. This plan's Benzinga endpoint ignores both
+   `tickers=` and `symbols=` — every such query returns the same unfiltered
+   global feed. That is an easy trap to miss: querying `tickers=CSCO` on an
+   earnings day looks filtered purely because Cisco dominates the feed, and a
+   single-ticker Cisco story returned under an SMCI query would sail past
+   pickBestNews's relevance guard (which only rejects MULTI-ticker articles)
+   and land on the wrong row.
+
+   So the feed is pulled once and indexed by the tickers each item declares.
+   One fetch per scan instead of one per symbol, and the coverage — whatever
+   has moved in the last ~10 hours — is exactly what a catalyst column wants. */
+export async function fetchBenzingaNewsIndex(
+  token: string,
+  /* 25 items/page. Six pages is ~20 hours of feed, which covers an overnight
+     gap plus the session that follows it — the window in which a catalyst is
+     still the reason a stock is moving. The pages go out in parallel, so this
+     costs one round trip per scan, not six. */
+  pages = 6,
+  timeoutMs = 8000
+): Promise<Map<string, PolygonNewsRaw[]>> {
+  const index = new Map<string, PolygonNewsRaw[]>();
+  if (!token) return index;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const generalPages = Array.from({ length: pages }, (_, p) =>
+      fetch(
+        `https://api.benzinga.com/api/v2/news?token=${token}` +
+          `&pageSize=25&page=${p}&displayOutput=abstract`,
+        { headers: { accept: 'application/json' }, signal: controller.signal as any, cache: 'no-store' }
+      )
+        .then(r => (r.ok ? r.json() : []))
+        .catch(() => [])
+    );
+    /* WIIM ("Why Is It Moving") is Benzinga's editorial desk that writes
+       per-ticker explanations for price moves. The general feed only carries
+       ~150 articles, so small-cap WIIM entries fall off the bottom. Fetching
+       the WIIM channel separately catches those — it's a smaller, more
+       targeted feed where each article IS a catalyst by definition. Falls
+       back silently when the key's entitlements don't include the channel
+       filter (the endpoint returns the same unfiltered feed). */
+    const wiimPages = Array.from({ length: 3 }, (_, p) =>
+      fetch(
+        `https://api.benzinga.com/api/v2/news?token=${token}` +
+          `&pageSize=25&page=${p}&displayOutput=abstract&channels=WIIM`,
+        { headers: { accept: 'application/json' }, signal: controller.signal as any, cache: 'no-store' }
+      )
+        .then(r => (r.ok ? r.json() : []))
+        .catch(() => [])
+    );
+    const responses = await Promise.all([...generalPages, ...wiimPages]);
+
+    const seen = new Set<string>();
+    for (const raw of benzingaToRaw(responses.flat().filter(Boolean))) {
+      if (raw.id && seen.has(raw.id)) continue;
+      if (raw.id) seen.add(raw.id);
+      for (const t of raw.tickers ?? []) {
+        const bucket = index.get(t);
+        if (bucket) bucket.push(raw);
+        else index.set(t, [raw]);
+      }
+    }
+    return index;
+  } catch {
+    /* A news miss must never fail the scan — rows just have no catalyst. */
+    return index;
+  } finally {
+    clearTimeout(timer);
+  }
+}

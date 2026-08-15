@@ -129,7 +129,9 @@ import { computeTradePlan } from '@/lib/indicators/tradeplan';
 import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN, CHOP_TREND_MAX } from '@/lib/indicators/chop';
 import { SWING, CONSOL, SWING_META, CONSOL_META } from '@/lib/scanConfig';
 import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
-import { pickBestNews, polygonNewsPath, type NewsItem } from '@/lib/indicators/news';
+import { cleanSectorDescription } from '@/lib/sectors';
+import { sma, ema, atr, adrPct, stochK } from '@/lib/indicators/marketMath';
+import { pickBestNews, polygonNewsPath, fetchBenzingaNewsIndex, type NewsItem } from '@/lib/indicators/news';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -354,114 +356,20 @@ function priorSwingHighOf(bars: Bar[]): number | null {
   return Math.max(...win.map(b => b.h));
 }
 
-function cleanSectorDescription(sic: string | undefined, sector: string | undefined, industry: string | undefined): string {
-  const ind = (industry || '').toLowerCase();
-  const sicTxt = (sic || '').toLowerCase();
-  const blob = `${ind} ${sicTxt}`;
 
-  if (/nuclear|uranium/.test(blob)) return 'Nuclear';
-  if (/solar|photovoltaic/.test(blob)) return 'Solar';
-  if (/electric vehicle|auto manufacturer|motor vehicle|passenger car/.test(blob)) return 'EV';
-  if (/biotechnolog|biological product|in vitro|medicinal chem/.test(blob)) return 'Biotech';
-  if (/semiconductor/.test(blob)) return "Semi's";
-  if (/artificial intelligence/.test(blob)) return 'AI';
-  if (/cybersecurity|security software/.test(blob)) return 'Cyber';
-  if (/fintech|financial technology/.test(blob)) return 'Fintech';
-  if (/aerospace|\bdefense\b|aircraft|guided missile|space vehicle/.test(blob)) return 'Aerospace';
 
-  if (sicTxt) {
-    if (/software|prepackaged|computer program|data processing|information retrieval|computer integrated|computer communication|electronic computer|computer peripheral|computer storage|computer terminal|electronic component|printed circuit/.test(sicTxt)) return 'IT';
-    if (/pharmaceutical|drug|medicinal|surgical|\bmedical\b|\bhealth\b|dental|hospital|diagnostic|laborator/.test(sicTxt)) return 'Healthcare';
-    if (/crude petroleum|natural gas|petroleum|drilling|\boil\b|\bcoal\b|\benergy\b/.test(sicTxt)) return 'Energy';
-    if (/\bbank\b|savings instit|credit institution|insurance|investment office|securities broker|security broker|personal credit|holding compan|fire, marine/.test(sicTxt)) return 'Financials';
-    if (/real estate|land subdivid|operators of apartment|operators of nonresident/.test(sicTxt)) return 'Real Estate';
-    if (/electric services|gas & other|water supply|cogeneration|electric & other services/.test(sicTxt)) return 'Utilities';
-    if (/telephone|telecommunic|radio|television|broadcast|cable|motion picture|advertising|publishing|newspaper|periodical|entertainment/.test(sicTxt)) return 'Comm Serv';
-    if (/retail|catalog|mail-order|eating place|restaurant|apparel|footwear|hotel|department store|grocery|variety store|jewelry/.test(sicTxt)) return 'Con Disc';
-    if (/beverage|\bfood\b|tobacco|soap|cosmetic|household|dairy|bakery/.test(sicTxt)) return 'Con Staples';
-    if (/gold mining|metal mining|steel|aluminum|chemical|industrial inorganic|plastics material|paper mill|fertilizer|\bmining\b/.test(sicTxt)) return 'Materials';
-    if (/aircraft|machinery|industrial|construction|engineering|electrical industrial|transportation|railroad|trucking|air transport/.test(sicTxt)) return 'Industrials';
-  }
 
-  const sec = (sector || '').toLowerCase();
-  if (sec.includes('technology')) return 'IT';
-  if (sec.includes('healthcare') || sec.includes('health care')) return 'Healthcare';
-  if (sec.includes('financial')) return 'Financials';
-  if (sec.includes('consumer discretionary')) return 'Con Disc';
-  if (sec.includes('consumer staples')) return 'Con Staples';
-  if (sec.includes('energy')) return 'Energy';
-  if (sec.includes('materials')) return 'Materials';
-  if (sec.includes('industrials')) return 'Industrials';
-  if (sec.includes('real estate')) return 'Real Estate';
-  if (sec.includes('utilities')) return 'Utilities';
-  if (sec.includes('communication')) return 'Comm Serv';
-
-  return 'Other';
-}
-
-function sma(values: number[], period: number): number | null {
-  if (values.length < period) return null;
-  return values.slice(-period).reduce((a, b) => a + b, 0) / period;
-}
-
-function ema(values: number[], period: number): number | null {
-  if (values.length < period) return null;
-  const k = 2 / (period + 1);
-  let e = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  for (let i = period; i < values.length; i++) e = values[i] * k + e * (1 - k);
-  return e;
-}
-
-function atr(bars: Bar[], period = 14): number | null {
-  if (bars.length < period + 1) return null;
-  const trs: number[] = [];
-  for (let i = 1; i < bars.length; i++) {
-    const pc = bars[i - 1].c;
-    trs.push(Math.max(bars[i].h - bars[i].l, Math.abs(bars[i].h - pc), Math.abs(bars[i].l - pc)));
-  }
-  let a = trs.slice(0, period).reduce((x, y) => x + y, 0) / period;
-  for (let i = period; i < trs.length; i++) a = (a * (period - 1) + trs[i]) / period;
-  return a;
-}
 
 // Average Daily Range % — the Minervini definition: SMA(High/Low) - 1.
 // Distinct from ATR: no gap component, so it measures how much intraday
 // room the stock actually gives you on a typical session. This is also the
 // stop basis in the trade plan, for exactly that reason.
-function adrPct(bars: Bar[], period = 20): number | null {
-  if (bars.length < period) return null;
-  const recent = bars.slice(-period);
-  let sum = 0;
-  let n = 0;
-  for (const b of recent) {
-    if (b.l > 0 && b.h > 0) { sum += b.h / b.l; n++; }
-  }
-  if (n === 0) return null;
-  return ((sum / n) - 1) * 100;
-}
 
-function stochK(bars: Bar[], length = 10, smooth = 4): number | null {
-  if (bars.length < length + smooth) return null;
-  const rawKs: number[] = [];
-  for (let i = length - 1; i < bars.length; i++) {
-    const win = bars.slice(i - length + 1, i + 1);
-    const hh = Math.max(...win.map(b => b.h));
-    const ll = Math.min(...win.map(b => b.l));
-    rawKs.push(hh === ll ? 50 : ((bars[i].c - ll) / (hh - ll)) * 100);
-  }
-  const lastN = rawKs.slice(-smooth);
-  return lastN.reduce((a, b) => a + b, 0) / lastN.length;
-}
 
 /* Currently unused — its only caller was the SPY benchmark return behind
    rsVsSpy, which v1.9 replaced with the shared RS Rating. Kept because it is
    a correct generic helper and the next thing needing a trailing return
    should not have to rewrite it. */
-function pctReturn(closes: number[], lookback: number): number | null {
-  if (closes.length < lookback + 1) return null;
-  const then = closes[closes.length - 1 - lookback];
-  return ((closes[closes.length - 1] - then) / then) * 100;
-}
 
 async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, SnapInfo>; snapMapAll: Map<string, SnapInfo> }> {
   const data = await polygon<{ tickers?: any[] }>(
@@ -1220,10 +1128,17 @@ async function runSwingScan() {
       ...consolKeep.map(c => c.symbol),
     ]));
 
+    /* Benzinga leads, Polygon backs it up — Polygon's per-ticker feed is Motley
+       Fool wall-to-wall on this plan and pickBestNews blocks that publisher,
+       which is why this map came back empty for every symbol. The Benzinga side
+       is one fetch for the whole scan because this plan's endpoint ignores
+       per-ticker params entirely; the index does the filtering. */
+    const bzIndex = await fetchBenzingaNewsIndex(BENZINGA_KEY);
+
     const newsMap = new Map<string, NewsItem | null>();
     await inBatches(newsSymbols, NEWS_CONCURRENCY, async (sym) => {
       const res = await polygonSafe<any>(polygonNewsPath(sym, 20), { results: [] });
-      newsMap.set(sym, pickBestNews(res?.results, sym));
+      newsMap.set(sym, pickBestNews([...(bzIndex.get(sym) ?? []), ...(res?.results ?? [])], sym));
       return sym;
     });
 

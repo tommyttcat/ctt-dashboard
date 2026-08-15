@@ -1,10 +1,13 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { getMarketSession } from '@/lib/indicators/marketScorecard';
+import { fetchScannerLatest } from '@/lib/scannerLatest';
 
 // --- INTERFACES ---
 interface MarketDataContextType {
   rawSnapshot: any[];
+  benchmarks: any[];
   topMovers: any[];
   sipsUniverse: any[]; 
   session: string;
@@ -15,6 +18,7 @@ interface MarketDataContextType {
 
 const MarketDataContext = createContext<MarketDataContextType>({
   rawSnapshot: [],
+  benchmarks: [],
   topMovers: [],
   sipsUniverse: [],
   session: 'Unknown',
@@ -26,21 +30,6 @@ const MarketDataContext = createContext<MarketDataContextType>({
 export const useMarketData = () => useContext(MarketDataContext);
 
 // --- HELPER: CALCULATE MARKET SESSION ---
-const getMarketSession = () => {
-  const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const day = estDate.getDay();
-  
-  if (day === 0 || day === 6) return 'Closed';
-
-  const hour = estDate.getHours();
-  const min = estDate.getMinutes();
-  const timeStr = hour + min / 60;
-
-  if (timeStr >= 4 && timeStr < 9.5) return 'Pre-Market';
-  if (timeStr >= 9.5 && timeStr < 16) return 'Open';
-  if (timeStr >= 16 && timeStr < 20) return 'Post-Market';
-  return 'Closed';
-};
 
 // --- HELPER: CALCULATE EFFECTIVE TRADING DATE ---
 const getEffectiveTradingDate = () => {
@@ -62,6 +51,7 @@ const getEffectiveTradingDate = () => {
 // --- THE PROVIDER COMPONENT ---
 export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
   const [rawSnapshot, setRawSnapshot] = useState<any[]>([]);
+  const [benchmarks, setBenchmarks] = useState<any[]>([]);
   const [topMovers, setTopMovers] = useState<any[]>([]);
   const [sipsUniverse, setSipsUniverse] = useState<any[]>([]);
   const [session, setSession] = useState<string>('Unknown');
@@ -78,11 +68,9 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
 
     const fetchMasterSnapshot = async () => {
       try {
-        const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
-        
-        if (!res.ok) throw new Error(`API Status ${res.status}`);
-        
-        const data = await res.json();
+        /* Shared de-duplicated fetch — see lib/scannerLatest. It throws on a
+           non-ok response, so the catch below behaves as it did before. */
+        const data = await fetchScannerLatest();
 
         if (isMounted && data.success) {
           
@@ -121,6 +109,7 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
 
           const masterList = Array.from(uniqueMoversMap.values());
 
+          setBenchmarks(data.benchmarks || (data.benchmark ? [data.benchmark] : []));
           setRawSnapshot(masterList);
           setTopMovers(masterList);
           setSipsUniverse(Array.from(uniqueAIMap.values()));
@@ -163,6 +152,7 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
     <MarketDataContext.Provider 
       value={{ 
         rawSnapshot, 
+        benchmarks,
         topMovers, 
         sipsUniverse, 
         session, 

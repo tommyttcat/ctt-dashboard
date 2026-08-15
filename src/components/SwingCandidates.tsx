@@ -120,27 +120,29 @@
 //       exists to prevent.
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { cachedJson } from '@/lib/scannerLatest';
 import { useMarketData } from './MarketDataContext';
-import { stageColor, stageShort, stageDescription } from '@/lib/indicators/stage';
+import { stageColor, stageShort, stageDescription, stageBadge } from '@/lib/indicators/stage';
+import { rmeLabel } from '@/lib/indicators/rme';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
-import { stateOf, stateTooltip, stateLegend, readinessTooltip } from '@/lib/indicators/state';
-import { rsColor, rsTooltip } from '@/lib/indicators/rs';
-import { newsStarCount } from '@/lib/newsStars';
+import { rsColor, rsTooltip, rsBadge } from '@/lib/indicators/rs';
+import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews } from '@/lib/catalyst';
+import { displaySector } from '@/lib/sectors';
 import {
   chopColor,
   chopTooltip,
   CHOP_TREND_MAX,
   CHOP_CHOP_MIN,
 } from '@/lib/indicators/chop';
-import { SWING_META, COLUMN_NOTES } from '@/lib/scanConfig';
-import MetricsKey from './MetricsKey';
+import { SWING, COLUMN_NOTES, columnTip } from '@/lib/scanConfig';
 import TickerChartHover from './TickerChartHover';
+import { rvolColor as getRvolColor, adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The setup name sits directly beneath it.' },
   CNF: {
     what: 'Swing score 0–100, built from four parts: RS Rating (35), pullback tightness — distance to the 21 EMA and how deep the stochastic has reset (30), volatility fit, which rewards an ATR near 3% and penalises both ends (20), and trend structure, 50 over 200 plus a rising 21 (15).\n\nRelative strength is the largest single component AND a hard gate: a name below RS 50 never reaches this table at all.',
-    colour: 'Green 70+ (A) · amber 50+ (B) · grey below (C).',
+    colour: 'The grade is on the ticker, not here: green 70+ (A) · amber 50+ (B) · grey below (C).',
   },
   RTR: {
     what: 'Room to resistance. How far the nearest overhead level sits above the trigger, measured in stop-widths (R = trigger minus stop). 2R+ means the target is reachable before anything blocks it. Trigger, stop and target prices are on the sub-row.',
@@ -192,11 +194,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   SECTOR: { what: 'Sector, cleaned of ticker prefixes.' },
 };
 
-const colTip = (key: string): string | undefined => {
-  const n = COLUMN_NOTES?.[key] ?? FALLBACK_NOTES[key];
-  if (!n) return undefined;
-  return n.colour ? `${n.what}\n\n${n.colour}` : n.what;
-};
+const colTip = (key: string): string | undefined => columnTip(key, FALLBACK_NOTES);
 
 interface TradePlanRow {
   family?: string;
@@ -391,22 +389,7 @@ const dotOf = (c: SwingCandidate): 'blue' | 'red' | null => {
   return null;
 };
 
-const cleanSector = (sector: string | null | undefined, ticker?: string): string => {
-  if (!sector || sector === '—' || sector === '-') return '—';
-  let s = String(sector).trim();
-  if (ticker) {
-    const rx = new RegExp(`^${ticker}\\s*[-–—:]\\s*`, 'i');
-    s = s.replace(rx, '');
-  }
-  s = s.replace(/^[A-Z]{1,5}\s*[-–—:]\s*/, '');
-  return s.trim() || '—';
-};
 
-const isGenericCatalyst = (catalyst: string | null | undefined) => {
-  if (!catalyst) return true;
-  const c = catalyst.toLowerCase().trim();
-  return c.startsWith('technical momentum') || c === 'recent news' || c === 'news' || c === 'technical';
-};
 
 const catalystTagOf = (c: SwingCandidate): string | null => {
   if (isGenericCatalyst(c.catalyst)) return null;
@@ -427,24 +410,11 @@ const catalystUrlOf = (c: SwingCandidate): string | null => c.catalystUrl ?? c.n
    directly, because this component still supports the older payload shape
    where the headline arrived as `news` or `headline` — bypassing them would
    make the asterisk disagree with the sub-row on exactly those rows. */
-const hasNews = (c: SwingCandidate): boolean =>
-  !!(headlineOf(c) && catalystUrlOf(c));
+/* Mechanics live in @/lib/catalyst so all seven tables render a catalyst
+   the same way; only this scan's reading of the news stays local. */
+const NEGATIVE_NOTE = 'Reads negative — on a pullback that is the difference between a rest and a breakdown.';
 
-/* One tooltip for the asterisk and the sub-row, so the two can never
-   describe the same article differently. */
-const newsTooltip = (c: SwingCandidate): string => {
-  const headline = headlineOf(c);
-  if (!headline) return '';
-  const meta = [c.catalyst, c.newsPublisher, c.newsAge].filter(Boolean).join(' · ');
-  const lines: string[] = [];
-  if (meta) { lines.push(meta); lines.push(''); }
-  lines.push(headline);
-  if (c.newsSentiment === 'negative') {
-    lines.push('');
-    lines.push('Reads negative — on a pullback that is the difference between a rest and a breakdown.');
-  }
-  return lines.join('\n');
-};
+const newsTooltip = (row: SwingCandidate): string => catalystTooltip(row, { note: NEGATIVE_NOTE });
 
 const adrOf = (c: SwingCandidate): number | null => {
   if (c.adrPct == null || isNaN(Number(c.adrPct))) return null;
@@ -471,17 +441,6 @@ const rmvOf = (c: SwingCandidate): number | null => {
   return Number(c.rmv);
 };
 
-const rmeLabel = (rme: number | null): string => {
-  if (rme == null) return 'n/a';
-  if (rme >= 90) return 'at historical extension high';
-  if (rme >= 75) return 'heavily extended';
-  if (rme >= 60) return 'extended';
-  if (rme >= 25) return 'moderately above anchor';
-  if (rme > -25) return 'near anchor';
-  if (rme > -60) return 'moderately below anchor';
-  if (rme > -85) return 'deeply below anchor';
-  return 'at historical extension low';
-};
 
 const tradeTypeLabel = (tradeType: string | null | undefined): string | null => {
   const t = (tradeType || 'swing').toLowerCase();
@@ -735,8 +694,7 @@ export default function SwingCandidates() {
     let isMounted = true;
     const fetchCandidates = async () => {
       try {
-        const res = await fetch(`/api/swing-candidates/latest?t=${Date.now()}`, { cache: 'no-store' });
-        const data = await res.json();
+        const data = await cachedJson('/api/swing-candidates/latest');
 
         if (isMounted && data && data.success && Array.isArray(data.candidates)) {
           setCandidates(data.candidates);
@@ -863,6 +821,11 @@ export default function SwingCandidates() {
     });
   }, [candidates, sortConfig, showReadyOnly, postureFilter, chopFilter, marketCapFilter, cnfFilter, adrFilter, vwapFilter, planFilter]);
 
+  /* Header count, from the FULL scan rather than the filtered view. Unlike
+     Daily and SIPs this table already has a readiness filter (STAT), so the
+     chip drives it rather than just reporting — the VCP pattern. */
+  const readyCount = useMemo(() => candidates.filter(isReady).length, [candidates]);
+
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
     const tickers = filteredAndSorted.map(c => c.symbol).join(',');
@@ -883,38 +846,22 @@ export default function SwingCandidates() {
     setTimeout(() => setCopied(false), 1800);
   };
 
-  const getSortIcon = (columnKey: string) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
+  const [txtDone, setTxtDone] = useState(false);
+  const handleDownloadTxt = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const t = filteredAndSorted.map(c => c.symbol);
+    if (!t.length) return;
+    const blob = new Blob([t.join(',')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'watchlist.txt';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setTxtDone(true);
+    setTimeout(() => setTxtDone(false), 1800);
+  };
 
-  const getScoreBadge = (score: number) => {
-    if (score >= 70) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-    if (score >= 50) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-    return 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50';
-  };
-  const getRvolColor = (rvol: number | null | undefined) => {
-    if (!rvol) return 'text-slate-500';
-    if (rvol >= 2) return 'text-amber-400';
-    if (rvol >= 1.5) return 'text-emerald-400';
-    return 'text-slate-500';
-  };
-  const getAdrColor = (a: number | null) => {
-    if (a == null) return 'text-slate-500';
-    if (a >= 10) return 'text-purple-400';
-    if (a >= 5) return 'text-emerald-400';
-    if (a >= 3) return 'text-slate-300';
-    return 'text-slate-500';
-  };
-  const getDtcColor = (d: number | null | undefined) => {
-    if (d == null) return 'text-slate-500';
-    if (d >= 5) return 'text-purple-400';
-    if (d >= 3) return 'text-emerald-400';
-    if (d >= 1.5) return 'text-slate-300';
-    return 'text-slate-500';
-  };
-  const getStochColor = (k: number) => {
-    if (k <= 20) return 'text-purple-400';
-    if (k <= 30) return 'text-emerald-400';
-    return 'text-slate-400';
-  };
+  const getSortIcon = (columnKey: string) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
   const emaDot = (state: boolean | null | undefined) => {
     if (state === null || state === undefined) return 'bg-slate-600';
@@ -964,6 +911,19 @@ export default function SwingCandidates() {
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
             REVERSAL / SWING
           </span>
+          {/* Clickable, because STAT already exists to filter on it. Only when
+              non-zero — a chip reading "0 Ready" every quiet day is noise. */}
+          {readyCount > 0 && (
+            <span className="hidden md:flex items-center gap-2">
+              <button
+                onClick={(e) => { e.stopPropagation(); setIsExpanded(true); setShowReadyOnly(!showReadyOnly); }}
+                title="Stochastic at or below 25 and within 2.5% of the 21 EMA, counted across the whole scan — click to filter"
+                className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border transition-all cursor-pointer ${showReadyOnly ? 'text-emerald-300 bg-emerald-500/20 border-emerald-400/40 ring-1 ring-emerald-400/30' : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/20'}`}
+              >
+                {readyCount} Ready
+              </button>
+            </span>
+          )}
           {spyReturn !== null && (
             <span className="hidden md:inline text-[10px] text-slate-500 font-medium tracking-wide">SPY 3M: {spyReturn >= 0 ? '+' : ''}{spyReturn.toFixed(1)}%</span>
           )}
@@ -980,8 +940,21 @@ export default function SwingCandidates() {
               {copied ? `✓ Copied ${filteredAndSorted.length}` : `Copy ${filteredAndSorted.length}`}
             </button>
           )}
-          <span className="relative z-40 inline-flex">
-            <MetricsKey meta={SWING_META} liveGates={scanMeta?.gates} />
+          {filteredAndSorted.length > 0 && (
+            <button
+              onClick={handleDownloadTxt}
+              title={`Download ${filteredAndSorted.length} ticker${filteredAndSorted.length !== 1 ? 's' : ''} as .txt for TradingView import`}
+              className={`text-[10px] font-bold tracking-wider uppercase px-2 py-1 rounded border transition-all duration-200 ${
+                txtDone
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  : 'bg-[#161c2a] text-slate-400 border-white/5 hover:text-slate-200 hover:bg-white/[0.04]'
+              }`}
+            >
+              {txtDone ? '✓ TXT' : 'TXT'}
+            </button>
+          )}
+          <span className="hidden md:block basis-full text-[10px] font-bold tracking-wider uppercase text-slate-500 mt-1">
+            Top {filteredAndSorted.length} of {candidates.length} · ${SWING.minPrice}–${SWING.maxPrice} · $50M avg $vol · RS 50+ · above 50 &amp; 200 SMA · stoch ≤ {SWING.maxStochK}
           </span>
         </div>
         <div className="flex flex-col items-center gap-1.5">
@@ -1152,9 +1125,9 @@ export default function SwingCandidates() {
             <table className="w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} w-[7%]`} title={colTip('TICKER')} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
+                  <th className={`${thBase} w-[7%] !text-left pl-1`} title={colTip('TICKER')} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('CNF')} onClick={() => handleSort('score')}>CNF{getSortIcon('score')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('RTR')} onClick={() => handleSort('planR')}>RTR{getSortIcon('planR')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('10/21')}>10/21</th>
@@ -1166,8 +1139,6 @@ export default function SwingCandidates() {
                       header cannot carry two sort keys. */}
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
-                  <th className={`${thBase} w-[3%]`}>N</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
@@ -1178,22 +1149,18 @@ export default function SwingCandidates() {
 
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
-                  <tr><td colSpan={18} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No candidates in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
+                  <tr><td colSpan={16} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No candidates in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
                 ) : (
                   filteredAndSorted.map((row) => {
                     const isPositive = (row.changePct ?? 0) >= 0;
                     const tag = catalystTagOf(row);
                     const headline = headlineOf(row);
                     const catUrl = catalystUrlOf(row);
-                    const sectorText = cleanSector(row.sector, row.symbol);
+                    const sectorText = displaySector(row.sector, row.symbol);
                     const bdRev = isBlueDotSetup(row.setupName);
                     const adr = adrOf(row);
                     const chop = chopOf(row);
                     const mf = mfOf(row);
-                    const rmv = rmvOf(row);
-                    const rme = rmeOf(row);
-                    const stateRes = stateOf(rmv, rme);
-                    const st = isReady(row) ? 'Ready' : 'Forming';
                     const dot = dotOf(row);
                     const plan = planOf(row);
                     const posture = postureOf(row);
@@ -1201,8 +1168,9 @@ export default function SwingCandidates() {
                       <React.Fragment key={row.symbol}>
                         <tr className="hover:bg-white/[0.02] transition-colors group">
                           <td className={tdBase}>
-                            <div className="flex items-center justify-center gap-1.5">
-                              <TickerChartHover symbol={row.symbol}><span title={row.name || row.symbol} className="inline-block bg-slate-500/10 text-slate-300 text-[11px] font-bold px-1.5 py-0.5 rounded border border-white/10">{row.symbol}</span></TickerChartHover>
+                            <div className="flex items-center justify-start gap-1.5">
+                              <TickerChartHover symbol={row.symbol}><span title={tickerTitle(row.name, row.symbol, row.score)} className={tickerChipForScore(row.score)}>{row.symbol}</span></TickerChartHover>
+                              <CatalystChip row={row} note={NEGATIVE_NOTE} />
                               {dot === 'blue' && <BlueDot />}
                               {dot === 'red' && <RedDot />}
                             </div>
@@ -1210,18 +1178,13 @@ export default function SwingCandidates() {
                           <td className={tdBase}>
                             <span
                               title={cnfTooltip(row)}
-                              className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border cursor-help ${getScoreBadge(row.score)}`}
+                              className={scoreCellCls(row.score)}
                             >
                               {row.score}
                             </span>
                           </td>
-                          <td className={tdBase}>
-                            <span
-                              title={planTooltip(row)}
-                              className={`inline-block whitespace-nowrap px-1.5 py-[2px] rounded text-[9px] font-bold border cursor-help ${planBadge(row)}`}
-                            >
-                              {planShort(row)}
-                            </span>
+                          <td className={`${tdBase} whitespace-nowrap`} title={rsTooltip(row.rsRating)}>
+                            <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span>
                           </td>
                           <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
                             <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus && row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div>
@@ -1261,18 +1224,11 @@ export default function SwingCandidates() {
                               <span className={`text-xs font-bold ${getAdrColor(adr)}`}>
                                 {adr != null ? `${adr.toFixed(1)}%` : '—'}
                               </span>
-                              <span className={`text-[8px] font-semibold tracking-tight ${chopColor(chop)}`}>
-                                {chop != null ? `CHOP ${chop.toFixed(0)}` : ''}
-                              </span>
                             </div>
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={mf != null ? `Money Flow ${mf.toFixed(0)} — ${mfLabel(mf)}` : undefined}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums cursor-help ${rsColor(row.rsRating)}`} title={rsTooltip(row.rsRating)}>
-                            {row.rsRating ?? '—'}
-                          </td>
-                          <td className={`${tdBase} text-[7px] font-bold whitespace-nowrap`}>{(() => { const n = newsStarCount(row); const url = row.catalystUrl; if (n === 0) return <span className="text-slate-700">&mdash;</span>; const cls = n >= 2 ? 'text-amber-400' : 'text-slate-500'; const s = <span className={`leading-none ${cls}`}>{'★'.repeat(n)}</span>; return url ? <a href={url} target="_blank" rel="noopener noreferrer" className="hover:brightness-125 transition-all">{s}</a> : s; })()}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK.toFixed(1)}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`}>
                             {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
@@ -1281,7 +1237,7 @@ export default function SwingCandidates() {
                           <td className={`${tdStage} whitespace-nowrap border-l border-white/5`}>
                             <span
                               title={stageDescription(row.stage)}
-                              className={`text-[9px] font-bold tracking-wide cursor-help ${stageColor(row.stage)}`}
+                              className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums tracking-wide cursor-help ${stageBadge(row.stage)}`}
                             >
                               {stageShort(row.stage)}
                             </span>
@@ -1294,36 +1250,24 @@ export default function SwingCandidates() {
                             directly under the ticker. Order down the left edge:
                             symbol, then what it is. Then the three levels you
                             would actually place, then the headline, then
-                            RMV/RME. DAY/SWING lives in the plan tooltip. */}
+                            RMV/RME. DAY/SWING lives in the plan tooltip.
+
+                            The STATE and Ready/Forming cells were removed, so
+                            the row spans the full table. STAT still filters on
+                            readiness, it just is not printed per row. The name
+                            slot is sized for TREND HOLD, the longest label that
+                            survives formatSetupName. */}
                         <tr className="bg-transparent border-t border-white/5">
-                          <td colSpan={16} className="pb-1.5 pt-1 pr-3">
+                          {/* Empty cell under TICKER so the sub-row starts at CNF. An
+                              actual cell rather than a padding value, so the
+                              indent tracks the ticker column's real width
+                              instead of drifting from it. */}
+                          <td />
+                          <td colSpan={15} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
-                              <span className="shrink-0 w-[64px] px-0.5 text-center text-[#7c8bfa]/90 font-bold text-[9px] tracking-[0.04em] uppercase leading-none truncate">
+                              <span className="shrink-0 w-[78px] px-0.5 text-center text-[#7c8bfa]/90 font-bold text-[9px] tracking-[0.04em] uppercase leading-none whitespace-nowrap">
                                 {bdRev ? <BlueDot /> : (formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : 'EMA PB')}
                               </span>
-                              {plan?.tradeable && plan.trigger != null ? (
-                                <span
-                                  title={planTooltip(row)}
-                                  className="shrink-0 flex items-baseline gap-2 pl-2 pr-2.5 cursor-help whitespace-nowrap"
-                                >
-                                  <span className="flex items-baseline gap-1">
-                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">TRIG</span>
-                                    <span className="text-[9px] font-bold tabular-nums text-slate-200">{formatLevel(plan.trigger)}</span>
-                                  </span>
-                                  <span className="flex items-baseline gap-1">
-                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">STOP</span>
-                                    <span className="text-[9px] font-bold tabular-nums text-rose-400/90">{formatLevel(plan.stop)}</span>
-                                  </span>
-                                  <span className="flex items-baseline gap-1">
-                                    <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">TGT</span>
-                                    <span className="text-[9px] font-bold tabular-nums text-emerald-400/90">{formatLevel(plan.target)}</span>
-                                  </span>
-                                </span>
-                              ) : (
-                                <span className="shrink-0 pl-2 pr-2.5 text-[9px] font-semibold text-slate-600 italic whitespace-nowrap">
-                                  {plan?.collapsed ? 'no long plan' : plan?.note === 'trigger already passed' ? 'entry passed' : 'no plan'}
-                                </span>
-                              )}
                               <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={newsTooltip(row) || headline || undefined}>
                                 {headline || tag ? (
                                   <>
@@ -1353,29 +1297,7 @@ export default function SwingCandidates() {
                                   <span className="text-slate-600 italic">No news catalyst — technical setup only.</span>
                                 )}
                               </p>
-                              <span
-                                title={stateTooltip(rmv, rme)}
-                                className="shrink-0 flex items-baseline gap-1.5 cursor-help whitespace-nowrap"
-                              >
-                                <span className="text-[8px] font-bold tracking-[0.1em] uppercase text-slate-600">RMV/RME</span>
-                                <span className="text-[9px] font-semibold text-slate-500 tabular-nums">{statePair(rmv, rme)}</span>
-                              </span>
                             </div>
-                          </td>
-                          <td className="pb-1.5 pt-1 pl-1.5 text-left align-middle border-l border-white/5">
-                            <span
-                              title={stateLegend(rmv, rme)}
-                              className={`text-[8px] font-bold cursor-help whitespace-nowrap ${stateRes.color}`}
-                            >
-                              {stateRes.state === 'UNKNOWN' ? '—' : stateRes.state}
-                            </span>
-                          </td>
-                          <td className="pb-1.5 pt-1 pl-1.5 text-left align-middle">
-                            {st === 'Ready' ? (
-                              <span title={readinessTooltip(st)} className="text-[8px] font-semibold text-emerald-400 cursor-help whitespace-nowrap">Ready</span>
-                            ) : (
-                              <span title={readinessTooltip(st)} className="text-[8px] font-semibold text-amber-400 cursor-help whitespace-nowrap">Forming</span>
-                            )}
                           </td>
                         </tr>
                       </React.Fragment>

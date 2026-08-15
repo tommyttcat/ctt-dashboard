@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { fetchScannerLatest } from '@/lib/scannerLatest';
 import TickerChartHover from './TickerChartHover';
 
 // --- INTERFACES ---
@@ -165,9 +166,10 @@ export default function NewsCatalysts() {
         if (isMounted) setStatus(prev => (prev === 'Live' ? prev : 'Loading Catalysts...'));
 
         // Primary: build the feed from scanner data (real WIIM headlines, no AI)
-        const res = await fetch(`/api/scanner/latest?t=${Date.now()}`, { cache: 'no-store' });
-        if (res.ok) {
-          const scan = await res.json();
+        /* Shared de-duplicated fetch — see lib/scannerLatest. It throws rather
+           than returning a non-ok response, so the ok-check moves to a try. */
+        const scan = await fetchScannerLatest().catch(() => null);
+        if (scan) {
           const feed = buildCatalystFeed(scan);
           if (feed.length > 0) {
             if (isMounted) {
@@ -180,7 +182,7 @@ export default function NewsCatalysts() {
         }
 
         // Fallback: legacy actionableEvents if the scan carried no news
-        const legacyRes = await fetch(`/api/market-summary?t=${Date.now()}`, { cache: 'no-store' });
+        const legacyRes = await fetch('/api/market-summary', { cache: 'no-store' });
         if (legacyRes.ok) {
           const data = await legacyRes.json();
           const events = Array.isArray(data.actionableEvents) ? data.actionableEvents : [];

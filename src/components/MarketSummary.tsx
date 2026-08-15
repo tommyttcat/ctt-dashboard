@@ -101,8 +101,14 @@
    sideways to read one. */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { cachedJson, fetchScannerLatest } from '@/lib/scannerLatest';
 import TickerChartHover, { ActiveChartProvider } from './TickerChartHover';
 import { newsStarCount } from '@/lib/newsStars';
+import { rsColor, rsBadge } from '@/lib/indicators/rs';
+import { toCanonicalSector, isEtfSector, industryHeat } from '@/lib/sectors';
+import { stageColor, stageBadge } from '@/lib/indicators/stage';
+import { rvolColor, stochColor } from '@/lib/indicators/columnColors';
+import { getMarketSession } from '@/lib/indicators/marketScorecard';
 
 /* ActionableEvent and the actionableEvents field are retained because
    /api/market-summary returns them and the fetch assigns them. The SECTION
@@ -154,6 +160,7 @@ interface WatchItem {
   dVol?: number;
   stage?: string;
   rsRating?: number | null;
+  price?: number | null;
 }
 
 interface TopCatalyst {
@@ -172,9 +179,11 @@ interface MacroInsights {
   gradeMap?: Record<string, 'A' | 'B'>;
   dotMap?: Record<string, 'blue' | 'red'>;
   postureMap?: Record<string, PostureBucket>;
+  priceMap?: Record<string, number>;
   avoidSet?: Set<string>;
   topCatalyst?: TopCatalyst | null;
   topCatalysts?: TopCatalyst[];
+  setupPool?: any[];
 }
 
 interface EconEvent {
@@ -201,7 +210,6 @@ interface EarningsEvent {
 
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
 type BlockKey = 'morning' | 'midday' | 'closing';
-type Direction = 'up' | 'down' | 'neutral';
 
 const getEstDateInfo = () =>
   new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
@@ -216,56 +224,10 @@ const isWeekendNow = () => {
   return day === 0 || day === 6;
 };
 
-const getMarketSession = (): MarketSession => {
-  const est = getEstDateInfo();
-  const day = est.getDay();
-  const t = est.getHours() + est.getMinutes() / 60;
-  if (day === 0 || day === 6) return 'Closed';
-  if (t >= 4 && t < 9.5) return 'Pre-Market';
-  if (t >= 9.5 && t < 16) return 'Open';
-  if (t >= 16 && t < 20) return 'Post-Market';
-  return 'Closed';
-};
-
-/* ---- Session-block staleness ----
-   A block written for the 8:30 window is describing a tape that has moved on
-   by 11 AM. Blocks are marked, never hidden and never dimmed into
-   illegibility — an earlier pass used opacity-50 over text-slate-500, which
-   compounded into unreadable. The signal is color, not contrast. */
 const BLOCK_WINDOWS: Record<BlockKey, { opens: number; supersededAt: number; nextLabel: string }> = {
   morning: { opens: 4.0, supersededAt: 11.5, nextLabel: 'midday' },
   midday: { opens: 11.5, supersededAt: 15.5, nextLabel: 'closing' },
   closing: { opens: 15.5, supersededAt: 24, nextLabel: '' },
-};
-
-const isBlockStale = (key: BlockKey, weekend: boolean): boolean => {
-  if (weekend) return false;
-  return getCurrentEstDecimal() >= BLOCK_WINDOWS[key].supersededAt;
-};
-
-/* ---- Directional accent ----
-   Accent tracks the direction of the tape the block describes, read out of
-   the block's own prose — colorTheme on the payload is effectively a constant
-   and was decorating rather than informing. Index NAME followed by a signed
-   percentage, so a mega-cap gapping in the same sentence is not counted.
-   Inside ±0.25% the move is noise and colorTheme stands. */
-const INDEX_MOVE_RX = /\b(S&P|Nasdaq|Dow|Russell|SPX|NDX)\b[^.]{0,40}?([+-]\d+(?:\.\d+)?)%/gi;
-const DIRECTION_NEUTRAL_BAND = 0.25;
-
-const deriveDirection = (block: UpdateBlock): Direction | null => {
-  const text = (block.paragraphs || []).join(' ');
-  if (!text) return null;
-  const moves: number[] = [];
-  INDEX_MOVE_RX.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = INDEX_MOVE_RX.exec(text)) !== null) {
-    const v = parseFloat(m[2]);
-    if (!Number.isNaN(v)) moves.push(v);
-  }
-  if (moves.length === 0) return null;
-  const avg = moves.reduce((a, b) => a + b, 0) / moves.length;
-  if (Math.abs(avg) < DIRECTION_NEUTRAL_BAND) return 'neutral';
-  return avg > 0 ? 'up' : 'down';
 };
 
 const formatTime = (date: Date) =>
@@ -418,6 +380,7 @@ type ParsedStdRow = {
   setup: string | null;
   blueDot: boolean;
   extraStr: string;
+  price: number | null;
 };
 
 const parseStdLine = (line: string): ParsedStdRow | null => {
@@ -469,7 +432,7 @@ const parseStdLine = (line: string): ParsedStdRow | null => {
   if (setup) extraStr = extraStr.replace(setupRx, '').trim();
   const blueDot = extraStr.includes('●');
   if (blueDot) extraStr = extraStr.replace(/●/g, '').trim();
-  return { ticker, newsUrl, newsTip, newsCount, cnf, chg, rvol, vol, dvol, stage, rs, setup, blueDot, extraStr };
+  return { ticker, newsUrl, newsTip, newsCount, cnf, chg, rvol, vol, dvol, stage, rs, setup, blueDot, extraStr, price: null };
 };
 
 /* ---- ● and REV are MUTUALLY EXCLUSIVE, and here is why -------------------
@@ -563,15 +526,12 @@ const dVolOf = (s: any): number => {
    values like "QQQ - Nasdaq", "SOXX - Semi's -3X". Leveraged/sector products,
    not industries — they belong in ETF Flow, not Industry Heat, and never in
    the 10/21 thesis. */
-const isEtfSector = (sec: string | null | undefined): boolean => {
-  if (!sec || sec === '—') return false;
-  const s = String(sec);
-  if (s === 'ETF' || s.includes('- ETF')) return true;
-  if (/^[A-Z]{2,5}\s*-\s/.test(s)) return true;
-  return false;
-};
-
 const priceOf = (s: any): number | null => numOrNull(s?.price ?? s?.last ?? s?.close);
+const fmtPrc = (p: number | null | undefined): string => {
+  if (p == null || p === 0) return '';
+  if (p >= 1000) return p.toFixed(0);
+  return p.toFixed(2);
+};
 const ema10Of = (s: any): number | null => numOrNull(s?.ema10 ?? s?.ema10d ?? s?.tenEma ?? s?.ma10 ?? s?.sma10);
 const ema21Of = (s: any): number | null => numOrNull(s?.ema21 ?? s?.ema21d ?? s?.twentyOneEma ?? s?.ma21 ?? s?.sma21);
 
@@ -840,58 +800,6 @@ const fmtPlanRow = (s: any): string => {
   return `${tickerOf(s)} ${bits.join(' ')}`;
 };
 
-const buildTradePlanPara = (pool: any[]): string => {
-  const seen = new Set<string>();
-  const deduped = pool.filter(s => {
-    const t = tickerOf(s);
-    if (!t || seen.has(t)) return false;
-    seen.add(t);
-    return true;
-  });
-
-  const planned = deduped.filter(s => livePlanOf(s));
-  const ready = deduped.filter(isSettingUp);
-
-  // The empty state is a DIAGNOSTIC, not an apology. "No setups" tells you
-  // nothing; the breakdown tells you whether the tape is offering entries
-  // without reward, reward without proximity, or neither — and whether the
-  // scan has even run since the plan fields were added.
-  if (ready.length === 0) {
-    if (deduped.length === 0) return '';
-    if (planned.length === 0) {
-      return 'Trade Plan: No row in the current scans carries a tradeable plan. Either the scans have not run since the plan fields were added, or every name is collapsed or too extended to size a stop.';
-    }
-    const nearTrigger = planned.filter(s => {
-      const r = reachInAdr(s);
-      return r != null && r <= PLAN_MAX_REACH_ADR;
-    }).length;
-    const roomy = planned.filter(s => rtrValue(s) >= PLAN_MIN_RTR).length;
-    return `Trade Plan: ${planned.length} name${planned.length === 1 ? '' : 's'} carry a live plan. ${nearTrigger} sit within one ADR of the trigger; ${roomy} have at least a stop-width of room before the first level overhead. None has both — every entry on offer is either out of reach or into resistance.`;
-  }
-
-  const byCnf = ready.slice().sort((a, b) => scoreOf(b) - scoreOf(a)).slice(0, 5);
-  const byRtr = ready.slice().sort((a, b) => rtrValue(b) - rtrValue(a)).slice(0, 5);
-
-  const cnfCol = `Best tape — ranked by CNF:\n${byCnf.map(fmtPlanRow).join('\n')}`;
-  const rtrCol = `Most room — ranked by RTR:\n${byRtr.map(fmtPlanRow).join('\n')}`;
-
-  const footer: string[] = [];
-
-  const cnfSet = new Set(byCnf.map(tickerOf));
-  const both = byRtr.filter(s => cnfSet.has(tickerOf(s))).map(tickerOf).filter(Boolean) as string[];
-  if (both.length) {
-    footer.push(`${both.join(', ')} rank${both.length === 1 ? 's' : ''} in both columns — scoring well with room to be paid.`);
-  } else {
-    footer.push('No name ranks in both columns today — the best-scoring setups and the roomiest ones are different names.');
-  }
-
-  const reds = ready.filter(s => dotOf(s) === 'red').map(tickerOf).filter(Boolean) as string[];
-  if (reds.length) {
-    footer.push(`${reds.join(', ')} carr${reds.length === 1 ? 'ies' : 'y'} an active red dot — a defined entry does not cancel an overbought reversal.`);
-  }
-
-  return `Trade Plan: ${twoCol(cnfCol, rtrCol, footer)}`;
-};
 
 /* ---- Key Events — the only forward-looking macro section ----------------
    Every other section is REACTIVE. A 2:00 PM rate decision produces nothing
@@ -950,7 +858,7 @@ const buildKeyEventsPara = (econ: EconEvent[], earnings: EarningsEvent[]): strin
   const earnRows = earnings
     .filter(e => {
       const { dayKey } = parseEtDateTime(e.date);
-      return (dayKey === today || dayKey === tomorrow) && (e.importance ?? 0) >= 10;
+      return (dayKey === today || dayKey === tomorrow) && (e.importance ?? 0) >= 7;
     })
     .sort((a, b) => a.date.localeCompare(b.date) || a.symbol.localeCompare(b.symbol));
 
@@ -997,7 +905,7 @@ const buildKeyEventsPara = (econ: EconEvent[], earnings: EarningsEvent[]): strin
   const fmtEarnReported = (e: EarningsEvent): string => {
     const beat = e.epsEstimated != null && e.epsActual != null && e.epsActual >= e.epsEstimated;
     const pct = e.epsSurprisePct != null ? ` (${e.epsSurprisePct > 0 ? '+' : ''}${e.epsSurprisePct.toFixed(1)}%)` : '';
-    return `${e.symbol} — ${beat ? 'BEAT' : 'MISS'} ${fmtEps(e.epsActual)} vs ${fmtEps(e.epsEstimated)}${pct}`;
+    return `${e.symbol} — ${beat ? 'BEAT' : 'MISS'} ${fmtEps(e.epsActual)} vs ${fmtEps(e.epsEstimated)}${pct}${fmtRev(e.revenueEstimated)}`;
   };
 
   const todayEarn = earnRows.filter(e => parseEtDateTime(e.date).dayKey === today);
@@ -1015,14 +923,14 @@ const buildKeyEventsPara = (econ: EconEvent[], earnings: EarningsEvent[]): strin
     todayCol.push(todayPending.length ? 'Reported:' : 'Today — all reported:');
     todayCol.push(...todayReported.map(fmtEarnReported));
   }
-  if (!todayCol.length) todayCol.push('Today:\nNo mega-cap prints.');
+  if (!todayCol.length) todayCol.push('Today:\nNo large-cap prints.');
 
   const tmrwCol: string[] = [];
   if (tmrwPending.length) {
     tmrwCol.push(`Tomorrow — ${tmrwPending.length} pending:`);
     tmrwCol.push(...tmrwPending.map(fmtEarnPending));
   }
-  if (!tmrwCol.length) tmrwCol.push('Tomorrow:\nNo mega-cap prints.');
+  if (!tmrwCol.length) tmrwCol.push('Tomorrow:\nNo large-cap prints.');
 
   const footer: string[] = [];
   if (pending.filter(e => e.impact === 'High').length) {
@@ -1264,8 +1172,12 @@ const buildMoversPara = (movers: any): string => {
   const fmtMover = (s: any): string =>
     `${s.ticker} ${stdCols(s)}`;
 
-  const topG = gainers.slice().sort((a, b) => chgOf(b) - chgOf(a)).slice(0, 4);
-  const topL = losers.slice().sort((a, b) => chgOf(a) - chgOf(b)).slice(0, 3);
+  /* Ten each way. The scanner already caps Gainers and Losers at 10 apiece
+     (api/scanner/run), so this takes everything upstream provides rather than
+     the lopsided 4-up / 3-down it used to show. The briefing email slices to
+     the same depth — keep the two in step. */
+  const topG = gainers.slice().sort((a, b) => chgOf(b) - chgOf(a)).slice(0, 10);
+  const topL = losers.slice().sort((a, b) => chgOf(a) - chgOf(b)).slice(0, 10);
 
   if (topG.length) {
     const confirmed = topG.filter(s => (rvolOf(s) ?? 0) >= 1.5);
@@ -1445,6 +1357,43 @@ const buildMultibaggerPara = (mbList: any[]): string => {
   return `100-Bagger Thesis: ${gradeA.length}A / ${gradeB.length}B from ${rows.length} names passing Rev ≥10% + ROIC ≥10%.\n${topRows.map(fmtMb).join('\n')}`;
 };
 
+/* ---- $Vol Summary -------------------------------------------------------
+   Top 20 from the DVol screener, two columns of 10, sorted CNF desc with RS
+   tiebreak — the same default every table on the site uses. DVol rows carry
+   `cnfScore` / `changePct` / `vol` which stdCols reads through scoreOf /
+   chgOf / fmtVolStr, so no adapter is needed. */
+const buildDvolPara = (dvolRows: any[]): string => {
+  const rows = (Array.isArray(dvolRows) ? dvolRows : [])
+    .filter((r: any) => r?.ticker && r.cnfScore != null)
+    .slice()
+    .sort((a: any, b: any) => num(b.dvol) - num(a.dvol))
+    .slice(0, 20);
+
+  if (rows.length === 0) return '';
+
+  const fmtRow = (r: any): string => `${r.ticker} ${stdCols(r)}`;
+
+  const left = rows.slice(0, 10);
+  const right = rows.slice(10, 20);
+
+  const totalDvol = rows.reduce((a: number, r: any) => a + (num(r.dvol)), 0);
+  const advDvol = rows.filter((r: any) => num(r.changePct) > 0).reduce((a: number, r: any) => a + num(r.dvol), 0);
+  const advShare = totalDvol > 0 ? Math.round((advDvol / totalDvol) * 100) : 0;
+
+  const footer: string[] = [
+    `${fmtDollar(totalDvol)} across ${rows.length} names, ${advShare}% advancing.`,
+  ];
+
+  if (right.length) {
+    return `$Vol Summary: ${twoCol(
+      left.map(fmtRow).join('\n'),
+      right.map(fmtRow).join('\n'),
+      footer
+    )}`;
+  }
+  return `$Vol Summary: ${left.map(fmtRow).join('\n')}\n${footer.join('\n')}`;
+};
+
 const buildLocalInsights = (
   scan: any,
   ep9mList: any[] = [],
@@ -1454,7 +1403,7 @@ const buildLocalInsights = (
   consolList: any[] = [],
   vcpList: any[] = [],
   mbList: any[] = [],
-  liveChgMap: Record<string, [number, number]> | null = null,
+  dvolList: any[] = [],
 ): MacroInsights | null => {
   const sips: any[] = Array.isArray(scan?.stocksInPlay) ? scan.stocksInPlay : [];
   const daily: any[] = Array.isArray(scan?.dailySetups) ? scan.dailySetups : [];
@@ -1493,6 +1442,7 @@ const buildLocalInsights = (
       dVol: dVolOf(s),
       stage: stageOf(s),
       rsRating: s?.rsRating != null ? Number(s.rsRating) : null,
+      price: priceOf(s),
     }));
 
   const withNews = pool
@@ -1596,17 +1546,17 @@ const buildLocalInsights = (
 
   const ema1021Para = build1021Para(pool);
 
-  const heatAgg: Record<string, { sum: number; count: number }> = {};
-  flowNames.forEach(s => {
-    const sec = s?.sector && s.sector !== '—' && s.sector !== 'Other' && !isEtfSector(s.sector) ? String(s.sector) : null;
-    if (!sec) return;
-    if (!heatAgg[sec]) heatAgg[sec] = { sum: 0, count: 0 };
-    heatAgg[sec].sum += chgOf(s);
-    heatAgg[sec].count += 1;
-  });
-  const heat = Object.entries(heatAgg)
-    .map(([sector, v]) => ({ sector, avgChg: v.sum / v.count, count: v.count }))
-    .sort((a, b) => b.avgChg - a.avgChg);
+  /* Shared with the briefing page — see industryHeat in lib/sectors. */
+  const heat = industryHeat(flowNames, chgOf);
+
+  /* Sector Performance — the same aggregation Industry Heat lists, drawn as
+     bars instead. Emitted in the "Name +1.2%" shape the briefing page's
+     parseSectorItems already reads, so the two surfaces agree on the format
+     as well as the numbers. Every group, not just the top four: a bar chart
+     with four rows is a list with extra steps. */
+  const sectorBarsPara = heat.length >= 2
+    ? `Sector Performance: ${heat.map(h => `${h.sector} ${h.avgChg >= 0 ? '+' : ''}${h.avgChg.toFixed(2)}%`).join('\n')}`
+    : '';
 
   let heatPara = '';
   if (heat.length >= 2) {
@@ -1646,13 +1596,17 @@ const buildLocalInsights = (
     const upD = etfs.filter(e => chgOf(e) > 0).reduce((a, e) => a + dVolOf(e), 0);
     const totD = etfs.reduce((a, e) => a + dVolOf(e), 0);
     const upShare = totD > 0 ? Math.round((upD / totD) * 100) : 0;
-    const etfRows = etfs.slice(0, 4).map(e => `${e.ticker} ${stdCols(e)}`);
-    const etfLines: string[] = [`Heaviest dollar volume:\n${etfRows.join('\n')}`];
-    etfLines.push(upShare >= 60
-      ? `${upShare}% of ETF dollars are on the advancing side — money is chasing strength.`
-      : upShare <= 40
-        ? `Only ${upShare}% of ETF dollars are on the advancing side — flows favor the short/defensive vehicles.`
-        : `ETF dollars are split ${upShare}/${100 - upShare} between advancing and declining vehicles — no clean directional bet.`);
+    const etfRows = etfs.slice(0, 5).map(e => `${e.ticker} ${stdCols(e)}`);
+    /* Shaped exactly as the briefing page's FlowTable: one blurb line, then the
+       rows. The "Heaviest dollar volume:" heading went with it — a line ending
+       in a colon becomes a GROUP HEADING in the section parser, so it was
+       costing a full line to label the only table in the card. */
+    const etfLines: string[] = [
+      `${upShare}% of ETF dollars on the advancing side${
+        upShare >= 60 ? ' — chasing strength.' : upShare <= 40 ? ' — favoring defense.' : ' — no clean bet.'
+      }`,
+      etfRows.join('\n'),
+    ];
     etfPara = `ETF Flow: ${etfLines.join('\n')}`;
   }
 
@@ -1664,22 +1618,19 @@ const buildLocalInsights = (
     const magnets = flowNames
       .slice()
       .sort((a, b) => dVolOf(b) - dVolOf(a))
-      .slice(0, 3)
+      .slice(0, 5)
       .map(s => `${s.ticker} ${stdCols(s)}`);
 
-    const inflowAgg: Record<string, number> = {};
-    flowNames.filter(s => chgOf(s) > 0).forEach(s => {
-      const sec = s?.sector && s.sector !== '—' && s.sector !== 'Other' && !isEtfSector(s.sector) ? String(s.sector) : null;
-      if (sec) inflowAgg[sec] = (inflowAgg[sec] || 0) + dVolOf(s);
-    });
-    const topInflows = Object.entries(inflowAgg).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([sec]) => sec);
 
     const moneyLines: string[] = [
-      `${fmtDollar(totalD)} in tracked dollar volume, ${advShare}% riding the advancing side` +
-      (advShare >= 60 ? ' — buyers are paying up.' : advShare <= 40 ? ' — sellers control the tape\'s dollars.' : ' — a two-sided fight.'),
+      `${fmtDollar(totalD)} tracked, ${advShare}% advancing` +
+      (advShare >= 60 ? ' — buyers paying up.' : advShare <= 40 ? ' — sellers control.' : ' — two-sided fight.'),
     ];
-    if (magnets.length) moneyLines.push(`Dollar magnets:\n${magnets.join('\n')}`);
-    if (topInflows.length) moneyLines.push(`Inflows concentrate in ${topInflows.join(' & ')}.`);
+    /* Same shape as ETF Flow and as the briefing page: blurb, then rows. The
+       "Dollar magnets:" heading and the trailing inflows sentence are gone —
+       neither appears on the brief page, and the sector concentration they
+       reported is what Industry Heat is for. */
+    if (magnets.length) moneyLines.push(magnets.join('\n'));
     moneyPara = `Money Flow: ${moneyLines.join('\n')}`;
   }
 
@@ -1687,21 +1638,43 @@ const buildLocalInsights = (
   const moversPara = buildMoversPara(movers);
   const vcpPara = buildVcpPara(vcpList);
   const ep9mPara = buildEp9mPara(ep9m);
-  const patchedMb = liveChgMap ? mbList.map(c => {
-    const live = liveChgMap[c.ticker];
-    return live ? { ...c, changePct: live[0] } : c;
-  }) : mbList;
-  const mbPara = buildMultibaggerPara(patchedMb);
+  /* No client-side overlay: /api/multibagger/latest, /api/swing-candidates/latest
+     and /api/consolidation/latest all apply liveChgMap server-side now, so these
+     rows already carry live changePct/price. That is what let scanner/latest stop
+     shipping the 235 KB map to every browser. */
+  const mbPara = buildMultibaggerPara(mbList);
+  const dvolPara = buildDvolPara(dvolList);
+
+  /* Setup pool: every name from every scan, tagged with source and deduped
+     by ticker (first occurrence wins — the order favours higher-signal scans).
+     The SetupSummary component renders them with interactive filter pills. */
+  const setupSeen = new Set<string>();
+  const tagAndDedup = (list: any[], source: string) =>
+    list.filter(s => {
+      const t = s?.ticker ?? s?.symbol;
+      if (!t || setupSeen.has(t)) return false;
+      setupSeen.add(t);
+      return true;
+    }).map(s => ({ ...s, ticker: s.ticker ?? s.symbol, _source: source }));
+
+  const setupPool = [
+    ...tagAndDedup(sips, 'sip'),
+    ...tagAndDedup(daily, 'daily'),
+    ...tagAndDedup(ep9m, 'ep9m'),
+    ...tagAndDedup(swingList, 'swing'),
+    ...tagAndDedup(vcpList, 'vcp'),
+    ...tagAndDedup(mbList, 'mb'),
+  ];
+  const setupsPara = setupPool.length > 0 ? 'Setups Summary: interactive' : '';
 
   const sipsFinal = sipsPara || (sips.length === 0 && (daily.length || ep9m.length) ? 'SIPs Thesis: No stocks in play in the current scan.' : '');
-  const dailyFinal = dailyPara || (daily.length === 0 && (sips.length || ep9m.length) ? 'Daily Setups Thesis: No daily setups on the board right now.' : '');
   const ep9mFinal = ep9mPara || (ep9m.length === 0 && (sips.length || daily.length) ? 'EP9M Thesis: No names trading abnormal 9M+ size yet — this fills in as session volume builds.' : '');
   const mbFinal = mbPara || '100-Bagger Thesis: No candidates — awaiting scan.';
 
   const orderedParas = [
-    moversPara, sipsFinal, dailyFinal, ema1021Para,
+    setupsPara, moversPara, sipsFinal, dvolPara, ema1021Para,
     vcpPara, ep9mFinal, mbFinal,
-    heatPara, etfPara, moneyPara, keyEventsPara,
+    sectorBarsPara, heatPara, etfPara, moneyPara, keyEventsPara,
   ];
 
   // Tomorrow's watchlist: swing candidates, consolidation patterns, and
@@ -1711,11 +1684,7 @@ const buildLocalInsights = (
     ...(Array.isArray(swingList) ? swingList : []),
     ...(Array.isArray(consolList) ? consolList : []),
   ]
-    .map(s => {
-      const t = tickerOf(s);
-      const live = t && liveChgMap ? liveChgMap[t] : undefined;
-      return { ...s, ticker: t, ...(live ? { changePct: live[0], price: live[1] } : {}) };
-    })
+    .map(s => ({ ...s, ticker: tickerOf(s) }))
     .filter(s => s.ticker && scoreOf(s) >= 50)
     .sort((a, b) => blendedScore(b) - blendedScore(a))
     .filter(s => {
@@ -1743,11 +1712,13 @@ const buildLocalInsights = (
     dVol: dVolOf(s),
     stage: stageOf(s),
     rsRating: s?.rsRating != null ? Number(s.rsRating) : null,
+    price: priceOf(s),
   }));
 
   const gradeMap: Record<string, 'A' | 'B'> = {};
   const dotMap: Record<string, 'blue' | 'red'> = {};
   const postureMap: Record<string, PostureBucket> = {};
+  const priceMap: Record<string, number> = {};
   for (const s of pool) {
     const t = s?.ticker;
     if (!t || gradeMap[t]) continue;
@@ -1758,6 +1729,17 @@ const buildLocalInsights = (
     if (d) dotMap[t] = d;
     const p = posture(s);
     if (p) postureMap[t] = p;
+    const prc = priceOf(s);
+    if (prc != null) priceMap[t] = prc;
+  }
+  for (const arr of [...Object.values(movers), swingList, consolList, vcpList, mbList, dvolList]) {
+    if (!Array.isArray(arr)) continue;
+    for (const s of arr) {
+      const t = s?.ticker || s?.symbol;
+      if (!t || priceMap[t]) continue;
+      const prc = priceOf(s);
+      if (prc != null) priceMap[t] = prc;
+    }
   }
 
   return {
@@ -1769,8 +1751,10 @@ const buildLocalInsights = (
     gradeMap,
     dotMap,
     postureMap,
+    priceMap,
     topCatalyst,
     topCatalysts,
+    setupPool,
   };
 };
 
@@ -1838,32 +1822,50 @@ const CATALYST_TAGS_SET = new Set(CATALYST_TAGS.split('|'));
    56px fits five characters at 9px bold with tracking-wider plus padding and
    border, with a little slack. Tickers here are matched by [A-Z]{1,5} so
    five is the ceiling and nothing can overflow it. */
-const TICKER_CHIP_BASE = "inline-block align-baseline text-[9px] font-bold text-slate-300 bg-slate-500/10 px-1 md:px-1.5 py-[1px] rounded border border-white/10 tracking-wider mx-0.5 text-center";
-const TICKER_CHIP_RED = "inline-block align-baseline text-[9px] font-bold text-rose-200 bg-rose-950 px-1 md:px-1.5 py-[1px] rounded border border-rose-500/20 tracking-wider mx-0.5 text-center";
-const tickerChipCls = `${TICKER_CHIP_BASE} min-w-[38px] md:min-w-[44px]`;
-const tickerChipAlignedCls = `${TICKER_CHIP_BASE} w-[48px] md:w-[56px]`;
-const valNum = "text-[11px] tabular-nums";
+const TICKER_CHIP_BASE = "inline-block align-baseline text-[7px] font-bold text-slate-300 bg-slate-500/10 px-1 py-[1px] rounded border border-white/10 tracking-wider mx-0.5 text-center";
+const TICKER_CHIP_RED = "inline-block align-baseline text-[7px] font-bold text-rose-200 bg-rose-950 px-1 py-[1px] rounded border border-rose-500/20 tracking-wider mx-0.5 text-center";
+const TICKER_CHIP_A = "inline-block align-baseline text-[7px] font-bold text-emerald-300 bg-emerald-500/10 px-1 py-[1px] rounded border border-emerald-400/30 tracking-wider mx-0.5 text-center";
+const TICKER_CHIP_B = "inline-block align-baseline text-[7px] font-bold text-amber-300 bg-amber-500/10 px-1 py-[1px] rounded border border-amber-400/30 tracking-wider mx-0.5 text-center";
+
+/* The grade used to occupy its own 14px column to the left of the ticker. It
+   is a property of the ticker, so it now colours the chip itself and that
+   column is gone — every row starts 14px further left.
+
+   Red still wins over any grade: an avoid or an active red dot is a warning,
+   and a good grade must not paint over it. */
+const gradeChipCls = (grade: 'A' | 'B' | null | undefined, isAvoid: boolean): string =>
+  isAvoid ? TICKER_CHIP_RED
+    : grade === 'A' ? TICKER_CHIP_A
+    : grade === 'B' ? TICKER_CHIP_B
+    : TICKER_CHIP_BASE;
+const tickerChipCls = `${TICKER_CHIP_BASE} min-w-[24px] md:min-w-[28px]`;
+const tickerChipAlignedCls = `${TICKER_CHIP_BASE} w-[30px] md:w-[34px]`;
+
+const PROSE_CHIP_BASE = "inline-block align-baseline text-[7px] font-bold text-slate-300 bg-slate-500/10 px-1 py-[1px] rounded border border-white/10 tracking-wider mx-0.5 text-center min-w-[28px]";
+const PROSE_CHIP_RED = "inline-block align-baseline text-[7px] font-bold text-rose-200 bg-rose-950 px-1 py-[1px] rounded border border-rose-500/20 tracking-wider mx-0.5 text-center min-w-[28px]";
+const PROSE_CHIP_A = "inline-block align-baseline text-[7px] font-bold text-emerald-300 bg-emerald-500/10 px-1 py-[1px] rounded border border-emerald-400/30 tracking-wider mx-0.5 text-center min-w-[28px]";
+const PROSE_CHIP_B = "inline-block align-baseline text-[7px] font-bold text-amber-300 bg-amber-500/10 px-1 py-[1px] rounded border border-amber-400/30 tracking-wider mx-0.5 text-center min-w-[28px]";
+const proseChipCls = (grade: 'A' | 'B' | null | undefined, isAvoid: boolean): string =>
+  isAvoid ? PROSE_CHIP_RED : grade === 'A' ? PROSE_CHIP_A : grade === 'B' ? PROSE_CHIP_B : PROSE_CHIP_BASE;
+const valNum = "text-[10px] tabular-nums";
 const rowText = "text-[12px]";
 
 /* Aligned rows scroll rather than clip. The scrollbar is suppressed because
    on a touch device it is an overlay that never appears, and on desktop
    these rows fit and never scroll — a visible track would be pure noise. */
-const scrollRowCls = "overflow-x-auto -mx-0.5 px-0.5";
+/* `overflow-y-hidden` is load-bearing, not decoration. CSS promotes the other
+   axis from `visible` to `auto` as soon as one axis scrolls, so `overflow-x-auto`
+   alone quietly made every row a *vertical* scroller as well. The chips carry
+   18px of touch padding on mobile, which pushes the row's content taller than
+   its box — so a swipe scrolled those few pixels inside the row instead of
+   scrolling the page: the line slid up and nothing else moved. Pinning the y
+   axis keeps the horizontal scroll and hands vertical swipes back to the page. */
+const scrollRowCls = "overflow-x-auto overflow-y-hidden -mx-0.5 px-0.5";
 const scrollRowStyle: React.CSSProperties = { scrollbarWidth: 'none', msOverflowStyle: 'none' };
 
-const rvolColor = (v: number) => (v >= 2 ? 'text-amber-400' : v >= 1.5 ? 'text-emerald-400' : 'text-slate-400');
-const stageColor = (st: string) => {
-  if (st.includes('1')) return 'text-slate-400';
-  if (st.includes('2')) return 'text-emerald-400';
-  if (st.includes('3')) return 'text-amber-400';
-  if (st.includes('4')) return 'text-rose-400';
-  return 'text-slate-400';
-};
-const stochColor = (k: number) => (k <= 20 ? 'text-purple-400' : k <= 30 ? 'text-emerald-400' : 'text-slate-400');
 /* Percentile thresholds, matching @/lib/indicators/rs. Not imported from
    there because this file colours inline prose tokens rather than table
    cells and takes a bare number, but the ladder is identical on purpose. */
-const rsColor = (rs: number) => (rs >= 90 ? 'text-purple-400' : rs >= 80 ? 'text-emerald-400' : rs >= 70 ? 'text-slate-300' : 'text-rose-400');
 const reachColor = (v: number) => (v <= 0.5 ? 'text-emerald-400' : v <= 1 ? 'text-slate-300' : 'text-amber-400');
 
 const rtrBadgeCls = (v: number): string => {
@@ -1888,9 +1890,21 @@ const postureChipCls = (tone: 'good' | 'warn' | 'bad'): string => {
 /* Sections whose bodies contain rows. The per-LINE test below decides which
    lines inside them actually get column widths — a section can hold both
    rows and prose, and Money Flow does exactly that. */
+/* The only two sections that share a row. They are adjacent in the section
+   order and both read as short context blocks, so pairing them costs no
+   reordering and saves a full section's height. */
+/* Which sections share a row, in pairs that are meant to be read across:
+   the sector bars beside Industry Heat (the same groups drawn and listed),
+   then ETF Flow beside Money Flow (the two halves of where the dollars went).
+
+   PAIRING IS POSITIONAL — a paired section drops its `lg:col-span-2` and the
+   grid fills in order, so partners must be ADJACENT in orderedParas. Moving
+   one without the other silently re-pairs it with whatever lands next. */
+const PAIRED_SECTIONS = new Set(['Sector Performance', 'Industry Heat', 'ETF Flow', 'Money Flow']);
+
 const ALIGNED_SECTIONS = new Set([
-  'Top Movers', 'SIPs Thesis', 'Daily Setups Thesis',
-  '10/21 Thesis', 'VCP Thesis', 'EP9M Thesis', '100-Bagger Thesis', 'Industry Heat', 'ETF Flow', 'Money Flow',
+  'Top Movers', 'SIPs Thesis', '$Vol Summary',
+  '10/21 Thesis', 'VCP Thesis', 'EP9M Thesis', '100-Bagger Thesis', 'Setups Summary', 'Industry Heat', 'ETF Flow', 'Money Flow',
   'Key Events',
 ]);
 
@@ -1925,13 +1939,13 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
   );
   const parts = text.split(rx);
 
-  const chgW = align ? 'inline-block min-w-[46px] md:min-w-[54px] text-right' : '';
-  const cnfW = align ? 'min-w-[22px] md:min-w-[26px] text-center' : '';
-  const rtrW = align ? 'min-w-[32px] md:min-w-[38px] text-center' : '';
-  const rvolW = align ? 'inline-block min-w-[28px] md:min-w-[30px] text-right' : '';
-  const volW = align ? 'inline-block min-w-[36px] md:min-w-[40px] text-right ml-2' : '';
-  const lvlValW = align ? 'inline-block min-w-[30px] md:min-w-[36px] text-right' : '';
-  const dvolW = align ? 'inline-block min-w-[42px] md:min-w-[48px] text-right ml-1' : '';
+  const chgW = align ? 'inline-block min-w-[38px] md:min-w-[44px] text-right' : '';
+  const cnfW = align ? 'min-w-[18px] md:min-w-[20px] text-center' : '';
+  const rtrW = align ? 'min-w-[24px] md:min-w-[28px] text-center' : '';
+  const rvolW = align ? 'inline-block min-w-[22px] md:min-w-[26px] text-right' : '';
+  const volW = align ? 'inline-block min-w-[28px] md:min-w-[34px] text-right ml-1' : '';
+  const lvlValW = align ? 'inline-block min-w-[24px] md:min-w-[28px] text-right' : '';
+  const dvolW = align ? 'inline-block min-w-[34px] md:min-w-[40px] text-right ml-1' : '';
 
   /* v2.3 — VCP row slots.
 
@@ -1943,8 +1957,8 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
 
      The leg count had no token at all and fell through as plain text, so
      T3 and T4 sat wherever the preceding column left them. */
-  const rsValW = align ? 'inline-block min-w-[18px] md:min-w-[20px] text-right' : '';
-  const legW = align ? 'min-w-[20px] md:min-w-[24px] text-center' : '';
+  const rsValW = align ? 'inline-block min-w-[16px] md:min-w-[18px] text-right' : '';
+  const legW = align ? 'min-w-[18px] md:min-w-[20px] text-center' : '';
 
   const newsW = align ? 'inline-block w-[10px] md:w-[12px] text-center' : 'inline-block';
   const newsEndW = align ? 'inline-block min-w-[14px] md:min-w-[16px] text-center' : 'inline-block';
@@ -1969,7 +1983,7 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
       );
     }
     if (part === 'RED DOT') return <span key={i} className="text-rose-400 font-bold tracking-wide text-[10px]">RED DOT</span>;
-    if (part === 'BLUE DOT') return <span key={i} className="text-cyan-400 font-bold tracking-wide text-[11px]">BLUE DOT</span>;
+    if (part === 'BLUE DOT') return <span key={i} className="text-cyan-400 font-bold tracking-wide text-[10px]">BLUE DOT</span>;
 
     if (part === '∅') {
       return <span key={i} className={newsW} aria-hidden="true" />;
@@ -2027,7 +2041,7 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
       const v = isDash ? 0 : parseFloat(m[1]);
       return (
         <span key={i} className={align ? 'ml-1 md:ml-1.5' : ''}>
-          <span className="text-slate-500 text-[9px]">RVOL</span>{' '}
+          <span className="text-slate-500 text-[7px]">RVOL</span>{' '}
           <span className={`${valNum} ${isDash ? 'text-slate-600' : rvolColor(v)} ${rvolW}`}>{m[1]}</span>
         </span>
       );
@@ -2041,7 +2055,7 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
     if (m) {
       return (
         <span key={i} className={align ? 'inline-block ml-1.5' : ''}>
-          <span className="text-slate-500 text-[8px] tracking-tight">{m[1]}</span>{' '}
+          <span className="text-slate-500 text-[7px] tracking-tight">{m[1]}</span>{' '}
           <span className={`${valNum} text-slate-200 ${align ? 'inline-block min-w-[28px] md:min-w-[32px] text-right' : ''}`}>{m[2]}</span>
         </span>
       );
@@ -2052,7 +2066,7 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
       return (
         <span
           key={i}
-          className={`inline-block align-baseline text-[9px] font-bold tabular-nums px-1 py-[1px] rounded border mx-0.5 ${cnfW} ${cnfBadgeCls(v)}`}
+          className={`inline-block align-baseline text-[7px] font-bold tabular-nums px-1 py-[1px] rounded border mx-0.5 ${cnfW} ${cnfBadgeCls(v)}`}
         >
           {m[1]}
         </span>
@@ -2073,7 +2087,7 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
       const v = parseInt(m[1], 10);
       return (
         <span key={i} className={align ? 'ml-1 md:ml-1.5' : ''}>
-          <span className="text-slate-500 text-[9px]">RS</span>{' '}
+          <span className="text-slate-500 text-[7px]">RS</span>{' '}
           <span className={`${valNum} ${rsColor(v)} ${rsValW}`}>{m[1]}</span>
         </span>
       );
@@ -2099,7 +2113,7 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
         <span
           key={i}
           title={`${n} contractions in the base — three or four is the sweet spot: enough repetitions to prove supply is thinning, not so many that the base has stalled into a range.`}
-          className={`inline-block align-baseline text-[9px] font-bold tabular-nums px-1 py-[1px] rounded border mx-0.5 cursor-help ${legW} ${cls}`}
+          className={`inline-block align-baseline text-[7px] font-bold tabular-nums px-1 py-[1px] rounded border mx-0.5 cursor-help ${legW} ${cls}`}
         >
           {part}
         </span>
@@ -2112,7 +2126,7 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
       const tone = m[1] === 'ST' ? 'text-rose-400' : m[1] === 'TG' ? 'text-emerald-400' : 'text-slate-200';
       return (
         <span key={i} className={align ? 'inline-block ml-1 md:ml-2' : ''}>
-          <span className="text-slate-500 text-[8px] tracking-tight">{m[1]}</span>
+          <span className="text-slate-500 text-[7px] tracking-tight">{m[1]}</span>
           <span className={`${valNum} ${tone} ${lvlValW}`}>{m[2]}</span>
         </span>
       );
@@ -2120,7 +2134,7 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
     m = part.match(/^(\d+(?:\.\d+)?)x ADR$/);
     if (m) {
       const v = parseFloat(m[1]);
-      return <span key={i}><span className={`${valNum} ${reachColor(v)}`}>{m[1]}×</span> <span className="text-slate-500 text-[9px]">ADR</span></span>;
+      return <span key={i}><span className={`${valNum} ${reachColor(v)}`}>{m[1]}×</span> <span className="text-slate-500 text-[7px]">ADR</span></span>;
     }
     m = part.match(/^(\d+(?:\.\d+)?)R(\+?)$/);
     if (m) {
@@ -2128,7 +2142,7 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
       return (
         <span
           key={i}
-          className={`inline-block align-baseline text-[9px] font-bold tabular-nums px-1 py-[1px] rounded border mx-0.5 ${rtrW} ${rtrBadgeCls(v)}`}
+          className={`inline-block align-baseline text-[7px] font-bold tabular-nums px-1 py-[1px] rounded border mx-0.5 ${rtrW} ${rtrBadgeCls(v)}`}
         >
           {part}
         </span>
@@ -2136,17 +2150,17 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
     }
     if (new RegExp(`^(?:${CATALYST_TAGS})$`).test(part)) {
       return (
-        <span key={i} className={`text-[9px] font-bold tracking-wider uppercase text-amber-400/80 ${align ? 'ml-1' : ''}`}>
+        <span key={i} className={`text-[7px] font-bold tracking-wider uppercase text-amber-400/80 ${align ? 'ml-1' : ''}`}>
           {part}
         </span>
       );
     }
-    if (part === 'EP') return <span key={i} className="inline-block align-baseline text-[9px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 text-rose-400 bg-rose-500/10 border-rose-500/20">EP</span>;
-    if (part === 'R2G') return <span key={i} className="inline-block align-baseline text-[9px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 text-emerald-400 bg-emerald-500/10 border-emerald-500/20">R2G</span>;
-    if (part === 'PB') return <span key={i} className="inline-block align-baseline text-[9px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 text-violet-400 bg-violet-500/10 border-violet-500/20">PB</span>;
+    if (part === 'EP') return <span key={i} className="inline-block align-baseline text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 text-rose-400 bg-rose-500/10 border-rose-500/20">EP</span>;
+    if (part === 'R2G') return <span key={i} className="inline-block align-baseline text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 text-emerald-400 bg-emerald-500/10 border-emerald-500/20">R2G</span>;
+    if (part === 'PB') return <span key={i} className="inline-block align-baseline text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 text-violet-400 bg-violet-500/10 border-violet-500/20">PB</span>;
     if (part === '10/21') return <span key={i} className={`${valNum} text-violet-400 font-bold`}>10/21</span>;
     if (part === 'S&P' || part === 'Nasdaq' || part === 'Dow' || part === 'Bitcoin') {
-      return <span key={i} className={align ? tickerChipAlignedCls : tickerChipCls}>{part}</span>;
+      return <span key={i} className={align ? tickerChipAlignedCls : PROSE_CHIP_BASE}>{part}</span>;
     }
     if (/^\$\d+(?:\.\d+)?[BMK]$/.test(part)) return <span key={i} className={`${valNum} text-slate-200 ${dvolW}`}>{part}</span>;
     if (/^[+]\d+(?:\.\d+)?%$/.test(part)) return <span key={i} className={`${valNum} text-emerald-400 ${chgW}`}>{part}</span>;
@@ -2155,7 +2169,7 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
     if (part === 'SWING') return <span key={i} className="text-cyan-400">SWING</span>;
     const setupBadge = SETUP_BADGES[part];
     if (setupBadge) {
-      return <span key={i} className={`inline-block align-baseline text-[9px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 ${setupBadge.cls}`}>{setupBadge.label}</span>;
+      return <span key={i} className={`inline-block align-baseline text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 ${setupBadge.cls}`}>{setupBadge.label}</span>;
     }
     if (/^[A-Z]{2,5}$/.test(part) && !TICKER_STOPWORDS.has(part)) {
       const grade = gradeMap?.[part];
@@ -2163,10 +2177,11 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
       const pMeta = pb ? POSTURE_META[pb] : null;
       const isAvoid = avoidSet?.has(part) || dotMap?.[part] === 'red';
       if (dotMap?.[part] === 'blue') hasBlueDot = true;
-      const chipCls = isAvoid ? TICKER_CHIP_RED : (align ? tickerChipAlignedCls : tickerChipCls);
+      /* Grade colours the chip here too, so the letter and its 10px slot are
+         gone — the same rule as the aligned rows. */
+      const chipCls = align ? `${gradeChipCls(grade, isAvoid)} w-[38px] md:w-[44px]` : proseChipCls(grade, isAvoid);
       return (
         <React.Fragment key={i}>
-          {grade ? <span className={`inline-block align-baseline text-[9px] font-black w-[10px] text-center ${grade === 'A' ? 'text-emerald-400' : 'text-amber-400'}`}>{grade}</span> : <span className="inline-block w-[10px]">&nbsp;</span>}
           <TickerChartHover symbol={part}><span className={chipCls}>{part}</span></TickerChartHover>
           {pMeta && <span title={`${pMeta.short} — ${pMeta.tip}`} className={`inline-block w-[6px] h-[6px] rounded-full align-middle ml-0.5 cursor-help ${pMeta.tone === 'good' ? 'bg-emerald-400' : pMeta.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`} />}
         </React.Fragment>
@@ -2185,8 +2200,10 @@ const EXTRA_TOKEN_RX = new RegExp(
   'g'
 );
 
-const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>, chartHover?: boolean): React.ReactNode => {
-  const grade = gradeMap?.[p.ticker] ?? null;
+const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>, chartHover?: boolean, priceMap?: Record<string, number>): React.ReactNode => {
+  const mapGrade = gradeMap?.[p.ticker] ?? null;
+  const cnfGrade: 'A' | 'B' | null = p.cnf >= 70 ? 'A' : p.cnf >= 50 ? 'B' : null;
+  const grade = cnfGrade === 'A' ? 'A' : mapGrade ?? cnfGrade;
   const dot = dotMap?.[p.ticker] ?? null;
   const isAvoid = avoidSet?.has(p.ticker) ?? false;
   const pb = postureMap?.[p.ticker] ?? null;
@@ -2194,9 +2211,13 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
   const rv = p.rvol;
   const isDash = p.vol === '—';
   const dIsDash = p.dvol === '—';
-  const chipBase = (isAvoid || dot === 'red') ? TICKER_CHIP_RED : TICKER_CHIP_BASE;
+  const chipBase = gradeChipCls(grade, isAvoid || dot === 'red');
 
   const extraEls: React.ReactNode[] = [];
+  /* T# is a COLUMN, not a trailing extra — it belongs beside the other
+     per-row numbers rather than after the news star. TR and ST are gone from
+     this summary entirely; the levels live in the plan tooltip. */
+  let tNum: string | null = null;
   if (p.extraStr) {
     const tokens = p.extraStr.match(EXTRA_TOKEN_RX) || [];
     tokens.forEach((ex, ei) => {
@@ -2205,15 +2226,13 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
       } else if (ex === 'RED DOT') {
         extraEls.push(<span key={`ex${ei}`} className="text-rose-400 text-[10px] align-baseline ml-0.5" title="Active red dot — grade-capped on the long side">{BLUE_DOT_GLYPH}</span>);
       } else if (/^T[2-9]$/.test(ex)) {
-        extraEls.push(<span key={`ex${ei}`} className="text-[11px] tabular-nums font-semibold text-slate-300 inline-block w-[22px] md:w-[26px] text-center ml-1">{ex}</span>);
-      } else if (/^TR \d/.test(ex)) {
-        extraEls.push(<span key={`ex${ei}`} className="text-[11px] tabular-nums font-medium text-emerald-400 inline-block w-[42px] md:w-[50px] text-right ml-1">{ex.slice(3)}</span>);
-      } else if (/^ST \d/.test(ex)) {
-        extraEls.push(<span key={`ex${ei}`} className="text-[11px] tabular-nums font-medium text-rose-400 inline-block w-[42px] md:w-[50px] text-right ml-1">{ex.slice(3)}</span>);
+        tNum = ex;
+      } else if (/^TR \d/.test(ex) || /^ST \d/.test(ex)) {
+        // removed from the summary — trigger and stop live in the plan tooltip
       } else if (CATALYST_TAGS_SET.has(ex)) {
-        extraEls.push(<span key={`ex${ei}`} className="text-[9px] font-medium text-amber-400/80 ml-1">{ex}</span>);
+        extraEls.push(<span key={`ex${ei}`} className="text-[7px] font-medium text-amber-400/80 ml-1">{ex}</span>);
       } else if (ex && ex !== '∅') {
-        extraEls.push(<span key={`ex${ei}`} className="text-[9px] text-slate-500 ml-1">{ex}</span>);
+        extraEls.push(<span key={`ex${ei}`} className="text-[7px] text-slate-500 ml-1">{ex}</span>);
       }
     });
   }
@@ -2221,11 +2240,10 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
   return (
     <div key={idx} className={scrollRowCls} style={scrollRowStyle}>
       <div className="flex items-center whitespace-nowrap py-[3px]">
-        <span className={`inline-block w-[14px] shrink-0 text-center text-[9px] font-black ${grade === 'A' ? 'text-emerald-400' : grade === 'B' ? 'text-amber-400' : 'text-transparent'}`}>{grade || ' '}</span>
         {chartHover ? (
-          <TickerChartHover symbol={p.ticker}><span className={`${chipBase} w-[48px] md:w-[56px]`}>{p.ticker}</span></TickerChartHover>
+          <TickerChartHover symbol={p.ticker}><span className={`${chipBase} w-[38px] md:w-[44px]`}>{p.ticker}</span></TickerChartHover>
         ) : (
-          <TickerChartHover symbol={p.ticker}><span className={`${chipBase} w-[48px] md:w-[56px]`}>{p.ticker}</span></TickerChartHover>
+          <TickerChartHover symbol={p.ticker}><span className={`${chipBase} w-[38px] md:w-[44px]`}>{p.ticker}</span></TickerChartHover>
         )}
         <span className="inline-block w-[9px] text-center leading-none shrink-0" />
         <span className="inline-block w-[8px] text-center shrink-0">
@@ -2234,20 +2252,22 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
         <span className="inline-block w-[8px] text-center shrink-0">
           {pMeta ? <span title={`${pMeta.short} — ${pMeta.tip}`} className={`inline-block w-[6px] h-[6px] rounded-full cursor-help ${pMeta.tone === 'good' ? 'bg-emerald-400' : pMeta.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`} /> : null}
         </span>
-        <span className={`inline-block align-baseline text-[9px] font-bold tabular-nums px-1 py-[1px] rounded border ml-1 w-[22px] md:w-[26px] text-center ${cnfBadgeCls(p.cnf)}`}>{p.cnf}</span>
-        <span className={`text-[11px] tabular-nums font-semibold inline-block w-[54px] md:w-[62px] text-right ${p.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{p.chg >= 0 ? '+' : ''}{p.chg.toFixed(2)}%</span>
-        <span className={`text-[11px] tabular-nums font-semibold inline-block w-[42px] md:w-[48px] text-right ml-2 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? rv.toFixed(2) : ''}</span>
-        <span className={`text-[11px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-2 ${isDash ? 'text-transparent' : 'text-slate-400'}`}>{isDash ? '' : p.vol}</span>
-        <span className={`text-[11px] tabular-nums inline-block w-[42px] md:w-[48px] text-right ml-1 ${dIsDash ? 'text-transparent' : 'text-slate-300'}`}>{dIsDash ? '' : p.dvol}</span>
-        <span className={`text-[9px] font-bold ml-1 inline-block w-[18px] text-center ${p.stage && p.stage !== '—' ? stageColor(p.stage) : 'text-transparent'}`}>{p.stage && p.stage !== '—' ? p.stage : ''}</span>
-        <span className={`text-[11px] tabular-nums font-semibold inline-block w-[22px] md:w-[26px] text-right ml-0.5 ${p.rs != null ? rsColor(p.rs) : 'text-transparent'}`}>{p.rs != null ? p.rs : ''}</span>
+        <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${cnfBadgeCls(p.cnf)}`}>{p.cnf}</span>
+        <span className={`text-[10px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ${p.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{p.chg >= 0 ? '+' : ''}{p.chg.toFixed(2)}%</span>
+        <span className="text-[10px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-1">{fmtPrc(p.price ?? priceMap?.[p.ticker])}</span>
+        <span className={`text-[10px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? rv.toFixed(2) : ''}</span>
+        <span className={`text-[10px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-1 ${isDash ? 'text-transparent' : 'text-slate-400'}`}>{isDash ? '' : p.vol}</span>
+        <span className={`text-[10px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-1 ${dIsDash ? 'text-transparent' : 'text-slate-300'}`}>{dIsDash ? '' : p.dvol}</span>
+        {tNum && <span className="text-[10px] tabular-nums font-semibold text-slate-300 inline-block w-[20px] md:w-[24px] text-center ml-1">{tNum}</span>}
+        <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{p.rs != null ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(p.rs)}`}>{p.rs}</span> : null}</span>
+        <span className="inline-block w-[22px] md:w-[24px] text-center ml-0.5">{p.stage && p.stage !== '—' ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(p.stage)}`}>{p.stage}</span> : null}</span>
         {p.newsCount >= 1 && p.newsUrl ? (
           <a href={p.newsUrl} target="_blank" rel="noopener noreferrer" title={p.newsTip || ''} onClick={(e) => e.stopPropagation()}
             className={`inline-block w-[14px] md:w-[16px] text-center ${p.newsCount >= 2 ? 'text-amber-400' : 'text-slate-500'} hover:brightness-125 font-bold text-[7px] leading-none cursor-pointer transition-all ml-0.5`}>{'★'.repeat(p.newsCount)}</a>
         ) : (
           <span className="inline-block w-[14px] md:w-[16px] text-center text-slate-700 text-[7px] ml-0.5">—</span>
         )}
-        {p.setup && (() => { const b = SETUP_BADGES[p.setup]; return b ? <span className={`text-[9px] font-bold px-1 py-[1px] rounded border ml-0.5 ${b.cls}`}>{b.label}</span> : <span className="text-[9px] font-bold text-violet-400 bg-violet-500/10 border border-violet-500/20 px-1 py-[1px] rounded ml-0.5">{p.setup}</span>; })()}
+        {p.setup && (() => { const b = SETUP_BADGES[p.setup]; return b ? <span className={`text-[7px] font-bold px-1 py-[1px] rounded border ml-0.5 ${b.cls}`}>{b.label}</span> : <span className="text-[7px] font-bold text-violet-400 bg-violet-500/10 border border-violet-500/20 px-1 py-[1px] rounded ml-0.5">{p.setup}</span>; })()}
         {extraEls}
       </div>
     </div>
@@ -2318,8 +2338,11 @@ const parseEarningsLine = (line: string): ParsedEarningsRow | null => {
   const info = m[2];
   const beatM = info.match(/^(BEAT|MISS)\s+(\S+)\s+vs\s+(\S+)(.*)$/);
   if (beatM) {
-    const surprise = beatM[4].trim();
-    return { pending, ticker, beat: beatM[1] === 'BEAT', epsActual: beatM[2], epsEst: beatM[3], surprise, rev: '' };
+    const rest2 = beatM[4].trim();
+    const revM = rest2.match(/·\s*(rev\s+\S+)/);
+    const rev = revM ? revM[1] : '';
+    const surprise = rest2.replace(/\s*·\s*rev\s+\S+/, '').trim();
+    return { pending, ticker, beat: beatM[1] === 'BEAT', epsActual: beatM[2], epsEst: beatM[3], surprise, rev };
   }
   const estM = info.match(/^est\s+(\S+)\s+EPS(.*)$/);
   if (estM) {
@@ -2332,34 +2355,37 @@ const parseEarningsLine = (line: string): ParsedEarningsRow | null => {
 const renderEarningsRow = (p: ParsedEarningsRow, idx: number): React.ReactNode => {
   return (
     <div key={idx} className={scrollRowCls} style={scrollRowStyle}>
-      <div className="flex items-center whitespace-nowrap py-[3px]">
+      <div className="flex items-center whitespace-nowrap py-[1px] min-w-[344px]">
         <span className={`inline-block w-[10px] text-[10px] ${p.pending ? 'text-amber-400' : 'text-transparent'}`}>{p.pending ? '▸' : ''}</span>
-        <TickerChartHover symbol={p.ticker}><span className={`${TICKER_CHIP_BASE} w-[48px] md:w-[56px]`}>{p.ticker}</span></TickerChartHover>
-        {p.beat != null ? (
-          <>
-            <span className={`inline-block w-[34px] text-[9px] font-bold tracking-wider uppercase ml-2 ${p.beat ? 'text-emerald-400' : 'text-rose-400'}`}>{p.beat ? 'BEAT' : 'MISS'}</span>
-            <span className="text-[11px] tabular-nums font-semibold text-slate-200 inline-block w-[42px] text-right ml-1">{p.epsActual}</span>
-            <span className="text-[10px] text-slate-600 ml-1">vs</span>
-            <span className="text-[11px] tabular-nums font-semibold text-slate-400 inline-block w-[42px] text-right ml-1">{p.epsEst}</span>
-            {p.surprise && <span className={`text-[10px] tabular-nums font-medium ml-1 ${p.beat ? 'text-emerald-400/70' : 'text-rose-400/70'}`}>{p.surprise}</span>}
-          </>
-        ) : (
-          <>
-            <span className="text-[10px] text-slate-500 ml-2">est</span>
-            <span className="text-[11px] tabular-nums font-semibold text-slate-300 inline-block w-[42px] text-right ml-1">{p.epsEst}</span>
-            <span className="text-[10px] text-slate-500 ml-1">EPS</span>
-            {p.rev && <span className="text-[10px] text-slate-500 ml-2">{p.rev}</span>}
-          </>
-        )}
+        <span className="inline-block w-[56px] md:w-[64px]">
+          <TickerChartHover symbol={p.ticker}><span className={`${TICKER_CHIP_BASE} w-[38px] md:w-[44px]`}>{p.ticker}</span></TickerChartHover>
+        </span>
+        <span className="inline-block w-[44px] text-center">
+          {p.beat != null && (
+            <span className={`inline-block text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border ${p.beat ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-rose-400 bg-rose-500/10 border-rose-500/20'}`}>{p.beat ? 'Beat' : 'Miss'}</span>
+          )}
+        </span>
+        <span className={`inline-block w-[52px] text-right text-[10px] tabular-nums font-semibold ${p.beat != null ? 'text-slate-200' : 'text-slate-300'}`}>
+          {p.beat != null ? p.epsActual : (p.epsEst || '—')}
+        </span>
+        <span className={`inline-block w-[46px] text-right text-[10px] tabular-nums font-semibold ${p.beat != null ? 'text-slate-400' : 'text-slate-600'}`}>
+          {p.beat != null ? (p.epsEst || '—') : 'est'}
+        </span>
+        <span className={`inline-block w-[54px] text-right text-[10px] tabular-nums font-medium ${p.beat ? 'text-emerald-400/70' : 'text-rose-400/70'}`}>
+          {p.beat != null ? p.surprise : ''}
+        </span>
+        <span className="inline-block w-[68px] text-right text-[10px] text-slate-500">
+          {p.rev || ''}
+        </span>
       </div>
     </div>
   );
 };
 
-const renderBodyLine = (line: string, li: number, aligned: boolean, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>): React.ReactNode => {
+const renderBodyLine = (line: string, li: number, aligned: boolean, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>, priceMap?: Record<string, number>): React.ReactNode => {
   if (aligned) {
     const parsed = parseStdLine(line);
-    if (parsed) return renderStdRow(parsed, li, gradeMap, dotMap, postureMap, avoidSet, true);
+    if (parsed) return renderStdRow(parsed, li, gradeMap, dotMap, postureMap, avoidSet, true, priceMap);
     const evParsed = parseEventLine(line);
     if (evParsed) return renderEventRow(evParsed, li);
     const earnParsed = parseEarningsLine(line);
@@ -2367,7 +2393,7 @@ const renderBodyLine = (line: string, li: number, aligned: boolean, gradeMap?: R
     return (
       <div key={li} className={scrollRowCls} style={scrollRowStyle}>
         <p className="text-[11px] text-slate-400 leading-relaxed font-medium whitespace-nowrap">
-          {renderBriefingText(line, true, gradeMap, dotMap, postureMap, avoidSet)}
+          {renderBriefingText(line, false, gradeMap, dotMap, postureMap, avoidSet)}
         </p>
       </div>
     );
@@ -2379,19 +2405,322 @@ const renderBodyLine = (line: string, li: number, aligned: boolean, gradeMap?: R
   );
 };
 
+/* The glyph key for every ticker row: grade letters, the 10/21 posture dots,
+   the setup badges, TRAP, the blue dot and the news stars.
+
+   RENDERED PER CARD rather than once at the top of the briefing. It began as a
+   single strip above the whole panel, which is fine while you are reading top
+   to bottom and useless the moment you collapse eight sections and look only
+   at 10/21 — the key had scrolled away from the only rows still on screen.
+   Each card carrying its own means the legend is always adjacent to the marks
+   it explains. */
+/* NO SETUP BADGES (GNG / TH / PB / SQZ / EP) — they are getting a dedicated
+   filter card of their own, and a key for marks that live somewhere else is
+   just clutter here. TRAP and the blue dot stay: those are warnings on the
+   rows this strip sits above, not setup names. */
+type SortKey = 'cnf' | 'chg' | 'rvol' | 'vol' | 'dvol' | 'stg' | 'rs';
+type SortDir = 'asc' | 'desc';
+
+type ScanFilterKey = 'A' | 'B' | 'CNF' | 'RS' | '2A' | 'stacked' | 'first-touch' | 'pre-cross' | 'extended' | 'below-21' | null;
+
+const ALL_SCAN_KEYS = ['A','B','CNF','RS','2A','stacked','first-touch','pre-cross','extended','below-21'];
+const SCAN_FILTER_KEY = 'ctt-scan-filter';
+const loadSavedFilter = (): ScanFilterKey => {
+  if (typeof window === 'undefined') return null;
+  const v = localStorage.getItem(SCAN_FILTER_KEY);
+  if (v && ALL_SCAN_KEYS.includes(v)) return v as ScanFilterKey;
+  return null;
+};
+
+type ScanFilterCtx = {
+  gradeMap?: Record<string, 'A' | 'B'>;
+  postureMap?: Record<string, PostureBucket>;
+  avoidSet?: Set<string>;
+  dotMap?: Record<string, 'blue' | 'red'>;
+};
+
+const passesScanFilter = (key: ScanFilterKey, row: { cnf: number; rs: number | null; stage: string; ticker: string; newsCount: number }, ctx: ScanFilterCtx) => {
+  if (!key) return true;
+  const t = row.ticker;
+  const g = ctx.gradeMap?.[t];
+  switch (key) {
+    case 'A': return g === 'A' || (g == null && row.cnf >= 70);
+    case 'B': return g === 'B' || (g == null && row.cnf >= 50 && row.cnf < 70);
+    case 'CNF': return row.cnf >= 50;
+    case 'RS': return row.rs != null && row.rs >= 80;
+    case '2A': return row.stage === '2A';
+    case 'stacked': case 'first-touch': case 'pre-cross': case 'extended': case 'below-21':
+      return ctx.postureMap?.[t] === key;
+  }
+};
+
+const passesPoolFilter = (key: ScanFilterKey, item: any) => {
+  if (!key) return true;
+  switch (key) {
+    case 'A': return item.grade === 'A' || scoreOf(item) >= 70;
+    case 'B': return item.grade === 'B' || (scoreOf(item) >= 50 && scoreOf(item) < 70);
+    case 'CNF': return scoreOf(item) >= 50;
+    case 'RS': { const r = num(item.rsRating); return r >= 80; }
+    case '2A': return String(item.stage ?? '').trim() === '2A';
+    case 'stacked': case 'first-touch': case 'pre-cross': case 'extended': case 'below-21':
+      return (item.posture || null) === key;
+  }
+};
+
+/* ---- Setups Summary — the one-stop-shop card ----------------------------
+   Every filter pill is single-select. Click one to isolate that group, click
+   it again to go back to ALL. Two rows of pills: setup patterns (from the
+   scanner's setupName) and scan sources (tagged by buildLocalInsights). */
+type SetupFilter = { key: string; label: string; cls: string; match: (s: any) => boolean };
+
+const SETUP_PATTERN_FILTERS: SetupFilter[] = [
+  { key: 'gng',  label: 'GNG', cls: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+    match: s => { const su = setupOf(s); return su === 'Gap & Go' || su === 'Gap and Go'; } },
+  { key: 'th',   label: 'TH',  cls: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
+    match: s => setupOf(s) === 'Trend Hold' },
+  { key: 'pb',   label: 'PB',  cls: 'text-violet-400 bg-violet-500/10 border-violet-500/20',
+    match: s => setupOf(s) === '20 EMA PB' },
+  { key: 'sqz',  label: 'SQZ', cls: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
+    match: s => setupOf(s) === 'BB SQZ' },
+  { key: 'ep',   label: 'EP',  cls: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
+    match: s => setupOf(s) === 'EP' },
+];
+
+const SETUP_SOURCE_FILTERS: SetupFilter[] = [
+  { key: 'day',   label: 'DAY',   cls: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+    match: s => isDayName(s) },
+  { key: 'swing', label: 'SWING', cls: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
+    match: s => s._source === 'swing' || (!isDayName(s) && (s._source === 'daily' || s._source === 'sip')) },
+  { key: 'vcp',   label: 'VCP',   cls: 'text-teal-400 bg-teal-500/10 border-teal-500/20',
+    match: s => s._source === 'vcp' },
+  { key: 'ep9',   label: 'EP9',   cls: 'text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/20',
+    match: s => s._source === 'ep9m' },
+  { key: '1021',  label: '10/21', cls: 'text-violet-400 bg-violet-500/10 border-violet-500/20',
+    match: s => posture(s) != null && posture(s) !== 'below-21' && posture(s) !== 'extended' },
+  { key: 'mb',    label: '100',   cls: 'text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/20',
+    match: s => s._source === 'mb' },
+];
+
+const ALL_SETUP_FILTERS = [...SETUP_PATTERN_FILTERS, ...SETUP_SOURCE_FILTERS];
+
+const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter: sf }: {
+  pool: any[];
+  gradeMap?: Record<string, 'A' | 'B'>;
+  dotMap?: Record<string, 'blue' | 'red'>;
+  postureMap?: Record<string, PostureBucket>;
+  avoidSet?: Set<string>;
+  scanFilter?: ScanFilterKey;
+}) => {
+  const [activeKey, setActiveKey] = React.useState<string | null>(null);
+  const [sortKey, setSortKey] = React.useState<SortKey>('cnf');
+  const [sortDir, setSortDir] = React.useState<SortDir>('desc');
+
+  const handleSort = (k: SortKey) => {
+    if (sortKey === k) {
+      if (sortDir === 'desc') setSortDir('asc');
+      else { setSortKey('cnf'); setSortDir('desc'); }
+    } else {
+      setSortKey(k); setSortDir('desc');
+    }
+  };
+
+  const toggle = (key: string) => {
+    setActiveKey(prev => prev === key ? null : key);
+  };
+
+  const filtered = React.useMemo(() => {
+    const activeFilter = activeKey ? ALL_SETUP_FILTERS.find(f => f.key === activeKey) : null;
+    let base = activeFilter ? pool.filter(activeFilter.match) : pool;
+    if (sf) {
+      base = base.filter(item => passesPoolFilter(sf, item));
+    }
+    const cmp = (a: any, b: any) => {
+      let av = 0, bv = 0;
+      switch (sortKey) {
+        case 'cnf': av = scoreOf(a); bv = scoreOf(b); break;
+        case 'chg': av = chgOf(a); bv = chgOf(b); break;
+        case 'rvol': av = rvolOf(a) ?? 0; bv = rvolOf(b) ?? 0; break;
+        case 'vol': av = num(a.vol); bv = num(b.vol); break;
+        case 'dvol': av = dVolOf(a); bv = dVolOf(b); break;
+        case 'rs': av = num(a.rsRating); bv = num(b.rsRating); break;
+        case 'stg': av = num(a.stage); bv = num(b.stage); break;
+      }
+      return sortDir === 'desc' ? bv - av : av - bv;
+    };
+    return [...base].sort(cmp).slice(0, 20);
+  }, [pool, activeKey, sortKey, sortDir, sf]);
+
+  const tickers = filtered.map(s => s.ticker).filter(Boolean);
+
+  if (pool.length === 0) return null;
+
+  const pills = (filters: SetupFilter[]) =>
+    filters.map(f => {
+      const on = activeKey === f.key;
+      const count = pool.filter(f.match).length;
+      return (
+        <button
+          key={f.key}
+          onClick={() => count > 0 ? toggle(f.key) : undefined}
+          className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border transition-all duration-150 ${
+            count === 0 ? 'text-slate-700 bg-transparent border-white/[0.03] cursor-default'
+              : on ? f.cls : activeKey == null ? f.cls : 'text-slate-600 bg-transparent border-white/5'
+          }`}
+        >
+          {f.label} {count}
+        </button>
+      );
+    });
+
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 flex-wrap mb-2">
+        {pills(SETUP_SOURCE_FILTERS)}
+        {pills(SETUP_PATTERN_FILTERS)}
+      </div>
+      {filtered.length === 0 ? (
+        <p className="text-[10px] text-slate-500 font-medium">No names match the active filter.</p>
+      ) : (
+        <>
+          <SortableHeader sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+            <div className="space-y-0">
+              {filtered.slice(0, 10).map((s, i) => {
+                const line = `${s.ticker} ${stdCols(s)}`;
+                const parsed = parseStdLine(line);
+                if (parsed) parsed.price = priceOf(s);
+                return parsed ? renderStdRow(parsed, i, gradeMap, dotMap, postureMap, avoidSet, true) : null;
+              })}
+            </div>
+            <div className="space-y-0">
+              {filtered.slice(10, 20).map((s, i) => {
+                const line = `${s.ticker} ${stdCols(s)}`;
+                const parsed = parseStdLine(line);
+                if (parsed) parsed.price = priceOf(s);
+                return parsed ? renderStdRow(parsed, 100 + i, gradeMap, dotMap, postureMap, avoidSet, true) : null;
+              })}
+            </div>
+          </div>
+          <p className="text-[10px] text-slate-500 font-medium mt-2">
+            {filtered.length} name{filtered.length !== 1 ? 's' : ''}{activeKey ? ` — ${ALL_SETUP_FILTERS.find(f => f.key === activeKey)?.label ?? activeKey}` : ' — all scans'}.
+          </p>
+        </>
+      )}
+    </div>
+  );
+};
+
+/* Horizontal bars growing from a centre line, matching the briefing page's
+   SectorSection. Green right, red left, the leader and the laggard brightest,
+   and the spread called out — the spread is the number that says whether this
+   is a stock-picker's tape or a market-driven one. */
+const SectorBars = ({ body }: { body: string }) => {
+  const items: { name: string; pct: number }[] = [];
+  const re = /([A-Za-z][A-Za-z\s&'-]*?)\s*\(?([+-]\d+(?:\.\d+)?)%\)?/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body)) !== null) {
+    items.push({ name: m[1].trim().replace(/^[,\s]+/, ''), pct: parseFloat(m[2]) });
+  }
+  if (items.length < 2) return null;
+
+  const maxAbs = Math.max(...items.map(s => Math.abs(s.pct)), 0.01);
+  const spread = items[0].pct - items[items.length - 1].pct;
+
+  return (
+    <div>
+      <div className="flex items-center justify-end pb-0.5 pt-1">
+        <span className="text-[9px] text-slate-600 tabular-nums">Spread {spread.toFixed(2)}%</span>
+      </div>
+      <div className="overflow-hidden px-1.5 py-1.5">
+        {items.map((s, i) => {
+          const w = (Math.abs(s.pct) / maxAbs) * 42;
+          const pos = s.pct >= 0;
+          const first = i === 0;
+          const last = i === items.length - 1;
+          return (
+            <div key={i} className="flex items-center px-1.5 py-[2px]">
+              <span className={`text-[10px] w-[104px] md:w-[124px] text-right shrink-0 pr-2.5 truncate ${
+                first ? 'text-emerald-300/90 font-medium' : last ? 'text-rose-300/90 font-medium' : 'text-slate-400'
+              }`}>{s.name}</span>
+              <div className="flex-1 h-[16px] relative">
+                <div className="absolute left-1/2 top-[2px] bottom-[2px] w-px bg-slate-700/40" />
+                <div
+                  className={`absolute top-[2px] bottom-[2px] ${pos ? 'left-1/2 rounded-r-[3px]' : 'right-1/2 rounded-l-[3px]'}`}
+                  style={{
+                    width: `${w}%`,
+                    background: pos
+                      ? `linear-gradient(90deg, rgba(16,185,129,${first ? 0.3 : 0.2}) 0%, rgba(16,185,129,${first ? 0.85 : 0.55}) 100%)`
+                      : `linear-gradient(270deg, rgba(244,63,94,${last ? 0.3 : 0.2}) 0%, rgba(244,63,94,${last ? 0.85 : 0.55}) 100%)`,
+                  }}
+                />
+              </div>
+              <span className={`text-[10px] font-semibold tabular-nums w-[46px] text-right shrink-0 pl-1.5 ${pos ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {pos ? '+' : ''}{s.pct.toFixed(2)}%
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const ScanLegend = ({ activeFilter, onFilterChange }: { activeFilter?: ScanFilterKey; onFilterChange?: (k: ScanFilterKey) => void }) => {
+  const cur = activeFilter ?? null;
+  const toggle = (k: ScanFilterKey) => onFilterChange?.(cur === k ? null : k);
+  const base = 'text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border transition-all duration-150 cursor-pointer';
+  const off = 'text-slate-500 bg-white/[0.03] border-white/[0.08] hover:text-slate-300 hover:border-white/15 hover:bg-white/[0.06]';
+  return (
+    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+      <button onClick={() => toggle('A')} title="Grade A — CNF 70+" className={`${base} ${cur === 'A' ? 'text-emerald-300 bg-emerald-500/20 border-emerald-400/40' : 'text-emerald-400/70 bg-emerald-500/[0.08] border-emerald-500/15 hover:bg-emerald-500/15 hover:border-emerald-400/30'}`}>A</button>
+      <button onClick={() => toggle('B')} title="Grade B — CNF 50–69" className={`${base} ${cur === 'B' ? 'text-amber-300 bg-amber-500/20 border-amber-400/40' : 'text-amber-400/70 bg-amber-500/[0.08] border-amber-500/15 hover:bg-amber-500/15 hover:border-amber-400/30'}`}>B</button>
+      <button onClick={() => toggle('CNF')} title="CNF 50+ (all graded)" className={`${base} ${cur === 'CNF' ? 'text-slate-200 bg-white/15 border-white/25' : off}`}>CNF</button>
+      <button onClick={() => toggle('RS')} title="RS 80+ (green + fuchsia)" className={`${base} ${cur === 'RS' ? 'text-purple-300 bg-purple-500/20 border-purple-400/40' : 'text-purple-400/70 bg-purple-500/[0.08] border-purple-500/15 hover:bg-purple-500/15 hover:border-purple-400/30'}`}>RS</button>
+      <button onClick={() => toggle('2A')} title="Stage 2A — advancing base" className={`${base} ${cur === '2A' ? 'text-slate-200 bg-white/15 border-white/25' : off}`}>2A</button>
+      <span className="w-px h-3 bg-white/10" />
+      <button onClick={() => toggle('stacked')} title="Above both EMAs, trend intact" className={`${base} flex items-center gap-1 ${cur === 'stacked' ? 'text-emerald-300 bg-emerald-500/20 border-emerald-400/40' : off}`}>
+        <span className="inline-block w-[5px] h-[5px] rounded-full bg-emerald-400" />STACKED
+      </button>
+      <button onClick={() => toggle('first-touch')} title="Pulled back to 10 EMA, holding above 21" className={`${base} flex items-center gap-1 ${cur === 'first-touch' ? 'text-emerald-300 bg-emerald-500/20 border-emerald-400/40' : off}`}>
+        <span className="inline-block w-[5px] h-[5px] rounded-full bg-emerald-400" />1ST TOUCH
+      </button>
+      <button onClick={() => toggle('pre-cross')} title="10 and 21 converging — potential trend change" className={`${base} flex items-center gap-1 ${cur === 'pre-cross' ? 'text-amber-300 bg-amber-500/20 border-amber-400/40' : off}`}>
+        <span className="inline-block w-[5px] h-[5px] rounded-full bg-amber-400" />PRE-CROSS
+      </button>
+      <button onClick={() => toggle('extended')} title="Too far above MAs, poor risk/reward" className={`${base} flex items-center gap-1 ${cur === 'extended' ? 'text-rose-300 bg-rose-500/20 border-rose-400/40' : off}`}>
+        <span className="inline-block w-[5px] h-[5px] rounded-full bg-rose-400" />EXT
+      </button>
+      <button onClick={() => toggle('below-21')} title="Below 21 EMA — trend down or broken" className={`${base} flex items-center gap-1 ${cur === 'below-21' ? 'text-rose-300 bg-rose-500/20 border-rose-400/40' : off}`}>
+        <span className="inline-block w-[5px] h-[5px] rounded-full bg-rose-400" />BELOW
+      </button>
+      {cur && (
+        <button onClick={() => onFilterChange?.(null)} className={`${base} text-rose-400 bg-rose-500/10 border-rose-500/20 hover:bg-rose-500/20`}>CLEAR</button>
+      )}
+      <span className="w-px h-3 bg-white/10" />
+      <span title="Avoid list — names flagged as traps: thin floats with no follow-through, crowded shorts squeezing into resistance, or patterns that look right but fail on closer inspection." className="cursor-help text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border text-rose-300/60 bg-rose-950/50 border-rose-500/10">TRAP</span>
+      <span title="Blue Dot — structural reversal. Price is up today but still under the 21 EMA with no prior blue-dot setup. A contrarian signal, not a trend-following one." className="cursor-help inline-flex items-center gap-1 text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border text-slate-500 bg-white/[0.03] border-white/[0.08]"><span className="inline-block w-[6px] h-[6px] rounded-full bg-blue-500 shrink-0" />BLUE DOT</span>
+      <span title="One star = a news headline exists for this ticker today. Two stars = a material catalyst is driving the move (earnings beat, M&A, FDA approval)." className="cursor-help text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border text-amber-400/60 bg-amber-500/[0.06] border-amber-500/10">★ NEWS</span>
+    </div>
+  );
+};
+
 const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
-  { label: 'Trade Plan', color: 'teal', blurb: 'Names with a defined entry that can realistically fire next session — trigger within one average daily range of price, and at least one stop-width of room before the first level overhead. TR is the alert, ST the exit, TG a fixed 2R. The R badge is room-to-resistance in stop-widths, coloured as on the tables. Collapsed and over-extended names are excluded, not ranked last.' },
-  { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves right now. Volume-confirmed names are tradeable; thin gaps are fade candidates.' },
-  { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, who has news, and who is grinding on air.' },
-  { label: 'Daily Setups Thesis', color: 'emerald', blurb: 'Structured setups from the daily scan. SWING holds for days; DAY is intraday momentum only. ● is a Blue Dot reversal — the oversold stochastic reset fired; REV is a reversal by structure with no dot behind it.' },
-  { label: '10/21 Thesis', color: 'violet', blurb: 'Top-ranked names split by holding period. The two percentages are distance from the 21 and the 10 EMA, followed by the posture read. Leveraged and inverse ETFs excluded. A name tagged BELOW 21, EXTENDED, or RED DOT ranks on tape action — it is not at an entry.' },
-  { label: 'VCP Thesis', color: 'teal', blurb: 'Volatility Contraction Patterns — bases of successively shallower pullbacks on lighter volume, which is supply being absorbed. TR is the pivot (the high of the final contraction) and ST its low, so the stop is the pattern\'s own invalidation rather than a volatility rule. T3 means three contractions; three or four is the sweet spot. Names that already cleared the pivot and ran are excluded, not ranked last.' },
-  { label: 'EP9M Thesis', color: 'rose', blurb: 'Abnormal 9M+ share volume — institutional footprints. Left column beat its own 60-day volume record; right column has no headline out yet, which is the case worth researching.' },
-  { label: '100-Bagger Thesis', color: 'fuchsia', blurb: 'Fundamental compounders — stocks passing hard gates on revenue growth (≥10%) and ROIC (≥10%), scored on six attributes. Grade A = 70+, B = 50+. RS is the IBD-style percentile rating.' },
-  { label: 'Industry Heat', color: 'amber', blurb: 'Sector rotation — where money is flowing in and where it is leaving. Wide dispersion = stock-picker tape.' },
-  { label: 'ETF Flow', color: 'indigo', blurb: 'Heaviest ETF dollar volume and the advancing/declining split — shows where leveraged money is betting.' },
-  { label: 'Money Flow', color: 'rose', blurb: 'Total tracked dollar volume across the scanned universe — who is buying, where dollars concentrate, and the advancing share.' },
-  { label: 'Key Events', color: 'amber', blurb: 'Today\'s releases and mega-cap prints. ▸ marks what has not happened yet. The only forward-looking macro section.' },
+  /* Market Regime lives on the /analyst briefing page only — removed from the
+     dashboard to avoid duplicating a dense prose block that reads better in
+     its own space. The avoid-set still comes from the analyst brief. */
+  { label: 'Setups Summary', color: 'violet', blurb: 'All scans pooled — filter by source or setup pattern. One stop shop.' },
+  { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves now. Volume-confirmed is tradeable; a thin gap is a fade.' },
+  { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, and who is on air.' },
+  { label: '$Vol Summary', color: 'teal', blurb: 'Top 20 by dollar volume — where the money actually is today.' },
+  { label: '10/21 Thesis', color: 'violet', blurb: 'Top names by holding period. Percentages are distance from the 21 and 10 EMA.' },
+  { label: 'VCP Thesis', color: 'teal', blurb: 'Bases of shallower pullbacks on lighter volume — supply drying up.' },
+  { label: 'EP9M Thesis', color: 'rose', blurb: 'Abnormal 9M+ volume. Left beat its own 60-day record; right has no headline yet.' },
+  { label: '100-Bagger Thesis', color: 'fuchsia', blurb: 'Compounders passing revenue growth and ROIC gates. A = 70+, B = 50+.' },
+  { label: 'Sector Performance', color: 'amber', blurb: 'Average move per group, best to worst.' },
+  { label: 'Industry Heat', color: 'amber', blurb: 'Sector rotation — where money is arriving and where it is leaving.' },
+  { label: 'ETF Flow', color: 'indigo', blurb: 'Heaviest ETF dollar volume and the advancing share.' },
+  { label: 'Money Flow', color: 'rose', blurb: 'Tracked dollar volume — who is buying and where it concentrates.' },
+  { label: 'Key Events', color: 'amber', blurb: 'Today\'s releases and large-cap prints. ▸ marks what has not happened yet.' },
   { label: 'Sector Flow', color: 'indigo', blurb: '' },
 ];
 
@@ -2408,11 +2737,12 @@ const sectionStyles = (color: string) => {
   }
 };
 
-const STD_HEADERS = ['', 'TICKER', '', 'CNF', 'CHG%', '', 'RVOL', 'VOL', '$VOL', 'STG', 'RS', 'N'];
+const STD_HEADERS = ['', 'TICKER', '', 'CNF', 'CHG%', 'PRC', '', 'RVOL', 'VOL', '$VOL', 'RS', 'STG', 'N'];
 const SECTION_HEADERS: Record<string, string[]> = {
   'Top Movers': STD_HEADERS,
   'SIPs Thesis': STD_HEADERS,
-  'Daily Setups Thesis': STD_HEADERS,
+  '$Vol Summary': STD_HEADERS,
+  'Setups Summary': STD_HEADERS,
   '10/21 Thesis': STD_HEADERS,
   'EP9M Thesis': STD_HEADERS,
   '100-Bagger Thesis': STD_HEADERS,
@@ -2465,7 +2795,7 @@ function SectionCopyButton({ tickers }: { tickers: string[] }) {
     <button
       onClick={handleCopy}
       title={`Copy ${tickers.length} ticker${tickers.length !== 1 ? 's' : ''}: ${tickers.join(', ')}`}
-      className={`text-[8px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border transition-all duration-200 ${
+      className={`text-[7px] font-bold tracking-wider uppercase px-1.5 py-[1px] rounded border transition-all duration-200 ${
         copied
           ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
           : 'bg-[#161c2a] text-slate-500 border-white/5 hover:text-slate-300 hover:bg-white/[0.04]'
@@ -2476,8 +2806,38 @@ function SectionCopyButton({ tickers }: { tickers: string[] }) {
   );
 }
 
-type SortKey = 'cnf' | 'chg' | 'rvol' | 'vol' | 'dvol' | 'stg' | 'rs';
-type SortDir = 'asc' | 'desc';
+function SectionTxtButton({ tickers }: { tickers: string[] }) {
+  const [done, setDone] = React.useState(false);
+  const handleDownload = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!tickers.length) return;
+    const blob = new Blob([tickers.join(',')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'watchlist.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setDone(true);
+    setTimeout(() => setDone(false), 1800);
+  };
+  return (
+    <button
+      onClick={handleDownload}
+      title={`Download ${tickers.length} ticker${tickers.length !== 1 ? 's' : ''} as .txt for TradingView import`}
+      className={`text-[7px] font-bold tracking-wider uppercase px-1.5 py-[1px] rounded border transition-all duration-200 ${
+        done
+          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+          : 'bg-[#161c2a] text-slate-500 border-white/5 hover:text-slate-300 hover:bg-white/[0.04]'
+      }`}
+    >
+      {done ? '✓ TXT' : 'TXT'}
+    </button>
+  );
+}
+
 type SectionSort = { key: SortKey; dir: SortDir };
 
 function sortParsedRows(rows: ParsedStdRow[], key: SortKey, dir: SortDir): ParsedStdRow[] {
@@ -2506,26 +2866,20 @@ function SortableHeader({ sortKey, sortDir, onSort, isVcp }: { sortKey: SortKey 
   return (
     <div className={scrollRowCls} style={scrollRowStyle}>
       <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
-        <span className="inline-block w-[14px]" />
-        <span className="inline-block w-[48px] md:w-[56px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
+        <span className="inline-block w-[38px] md:w-[44px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
         <span className="inline-block w-[9px]" />
         <span className="inline-block w-[8px]" />
         <span className="inline-block w-[8px]" />
-        <span className={`inline-block w-[22px] md:w-[26px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1 ${hCls}`} onClick={() => onSort('cnf')}>CNF{arrow('cnf')}</span>
-        <span className={`inline-block w-[54px] md:w-[62px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ${hCls}`} onClick={() => onSort('chg')}>CHG%{arrow('chg')}</span>
-        <span className={`inline-block w-[42px] md:w-[48px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 ${hCls}`} onClick={() => onSort('rvol')}>RVOL{arrow('rvol')}</span>
-        <span className={`inline-block w-[36px] md:w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 ${hCls}`} onClick={() => onSort('vol')}>VOL{arrow('vol')}</span>
-        <span className={`inline-block w-[42px] md:w-[48px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1 ${hCls}`} onClick={() => onSort('dvol')}>$VOL{arrow('dvol')}</span>
-        <span className={`inline-block w-[18px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1 ${hCls}`} onClick={() => onSort('stg')}>STG{arrow('stg')}</span>
-        <span className={`inline-block w-[22px] md:w-[26px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-0.5 ${hCls}`} onClick={() => onSort('rs')}>RS{arrow('rs')}</span>
+        <span className={`inline-block w-[20px] md:w-[22px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1 ${hCls}`} onClick={() => onSort('cnf')}>CNF{arrow('cnf')}</span>
+        <span className={`inline-block w-[46px] md:w-[52px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ${hCls}`} onClick={() => onSort('chg')}>CHG%{arrow('chg')}</span>
+        <span className="inline-block w-[36px] md:w-[42px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">PRC</span>
+        <span className={`inline-block w-[36px] md:w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1 ${hCls}`} onClick={() => onSort('rvol')}>RVOL{arrow('rvol')}</span>
+        <span className={`inline-block w-[30px] md:w-[36px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1 ${hCls}`} onClick={() => onSort('vol')}>VOL{arrow('vol')}</span>
+        <span className={`inline-block w-[36px] md:w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1 ${hCls}`} onClick={() => onSort('dvol')}>$VOL{arrow('dvol')}</span>
+        {isVcp && <span className="inline-block w-[20px] md:w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">T#</span>}
+        <span className={`inline-block w-[22px] md:w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1 ${hCls}`} onClick={() => onSort('rs')}>RS{arrow('rs')}</span>
+        <span className={`inline-block w-[22px] md:w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-0.5 ${hCls}`} onClick={() => onSort('stg')}>STG{arrow('stg')}</span>
         <span className="inline-block w-[14px] md:w-[16px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-0.5">N</span>
-        {isVcp && (
-          <>
-            <span className="inline-block w-[22px] md:w-[26px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">T#</span>
-            <span className="inline-block w-[42px] md:w-[50px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">TR</span>
-            <span className="inline-block w-[42px] md:w-[50px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">ST</span>
-          </>
-        )}
       </div>
     </div>
   );
@@ -2554,6 +2908,14 @@ export default function MarketSummary() {
      is empty on a quiet calendar — and an index-keyed set would silently
      collapse whichever section slid into that slot. */
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const [scanFilter, setScanFilter] = useState<ScanFilterKey>(() => loadSavedFilter());
+  const handleScanFilter = useCallback((k: ScanFilterKey) => {
+    setScanFilter(k);
+    if (typeof window !== 'undefined') {
+      if (k) localStorage.setItem(SCAN_FILTER_KEY, k);
+      else localStorage.removeItem(SCAN_FILTER_KEY);
+    }
+  }, []);
 
   const toggleSection = (key: string) => {
     setCollapsedSections(prev => {
@@ -2574,13 +2936,47 @@ export default function MarketSummary() {
       if (isMounted) setSession(getMarketSession());
 
       try {
-        const snapshotRes = await fetch(`/api/claude/snapshot/${Date.now()}?extras=1&limit=50`, { cache: 'no-store' });
-        if (!snapshotRes.ok) throw new Error(`Snapshot API returned status: ${snapshotRes.status}`);
-        const snapshot = await snapshotRes.json();
-        const sd = snapshot?.data ?? {};
+        /* Sourced from the individual routes rather than /api/claude/snapshot.
+           That aggregator fans out server-side to 13 internal routes on every
+           call (~37 KV reads, a 467 KB response) and was on its own 60s timer,
+           which made this one poller ~58% of the entire site's KV load.
 
-        // Narrative blocks
-        const narrative = sd.marketSummary;
+           Nothing is lost by dropping it: six of the nine slices below are
+           already being fetched by sibling components on this same page, so
+           cachedJson serves them from the in-tab cache for free, and the other
+           three are edge-cached. It is also strictly more correct — the
+           aggregator compacts arrays to `limit` rows and appends a
+           `{_truncated: …}` sentinel object, so anything past row 50 never
+           reached buildLocalInsights and that sentinel was being counted as a
+           candidate.
+
+           /api/claude/snapshot itself stays — it exists for external analyst
+           (Claude) pulls, which is what it was built for. It just is not a UI
+           feed. */
+        const [
+          narrative,
+          scannerData,
+          ep9mRes,
+          econRes,
+          earningsRes,
+          swingRes,
+          consolRes,
+          vcpRes,
+          mbRes,
+          dvolRes,
+        ] = await Promise.all([
+          cachedJson('/api/market-summary').catch(() => null),
+          fetchScannerLatest().catch(() => null),
+          cachedJson('/api/ep9m/latest').catch(() => null),
+          cachedJson('/api/econ').catch(() => null),
+          cachedJson('/api/earnings').catch(() => null),
+          cachedJson('/api/swing-candidates/latest').catch(() => null),
+          cachedJson('/api/consolidation/latest').catch(() => null),
+          cachedJson('/api/vcp/latest').catch(() => null),
+          cachedJson('/api/multibagger/latest').catch(() => null),
+          cachedJson('/api/dvol/latest').catch(() => null),
+        ]);
+
         if (isMounted && narrative) {
           const estTime = getCurrentEstDecimal();
           setData({
@@ -2593,17 +2989,17 @@ export default function MarketSummary() {
           setData({ morning: null, midday: null, closing: null, actionableEvents: [] });
         }
 
-        // Scanner data
-        const scannerData = sd.stocksInPlay;
-        if (!scannerData) throw new Error('No scanner data in snapshot');
+        /* The scanner payload is the one hard dependency — everything else
+           degrades to an empty list. Same failure mode as before, just against
+           the real route instead of the aggregator's copy of it. */
+        if (!scannerData) throw new Error('No scanner data available');
 
-        const ep9mList: any[] = sd.ep9m?.candidates ?? [];
-        const econList: EconEvent[] = Array.isArray(sd.econ) ? sd.econ : [];
+        const ep9mList: any[] = ep9mRes?.candidates ?? [];
+        const econList: EconEvent[] = Array.isArray(econRes) ? econRes : [];
 
         let earningsList: EarningsEvent[] = [];
-        const earningsRaw = sd.earnings;
-        if (earningsRaw) {
-          const raw: any[] = Array.isArray(earningsRaw) ? earningsRaw : (earningsRaw?.events ?? []);
+        if (earningsRes) {
+          const raw: any[] = Array.isArray(earningsRes) ? earningsRes : (earningsRes?.events ?? []);
           earningsList = raw.map((e: any) => {
             const cap = e.mktCap ?? 0;
             const imp = cap >= 100e9 ? 10 : cap >= 20e9 ? 7 : cap >= 5e9 ? 5 : 2;
@@ -2611,24 +3007,37 @@ export default function MarketSummary() {
           });
         }
 
-        const swingList: any[] = sd.swingCandidates?.candidates ?? [];
-        const consolList: any[] = sd.consolidation1021?.candidates ?? [];
-        const vcpList: any[] = sd.vcp?.candidates ?? [];
-        const mbList: any[] = sd.multibagger?.candidates ?? [];
+        const swingList: any[] = swingRes?.candidates ?? [];
+        const consolList: any[] = consolRes?.candidates ?? [];
+        const vcpList: any[] = vcpRes?.candidates ?? [];
+        const mbList: any[] = mbRes?.candidates ?? [];
+        const dvolList: any[] = Array.isArray(dvolRes?.rows) ? dvolRes.rows : [];
 
         if (isMounted) {
-          const local = buildLocalInsights(scannerData, ep9mList, econList, earningsList, swingList, consolList, vcpList, mbList, scannerData?.liveChgMap ?? null);
+          const local = buildLocalInsights(scannerData, ep9mList, econList, earningsList, swingList, consolList, vcpList, mbList, dvolList);
           if (local) setMacroInsights(local);
           else if (scannerData.macroInsights) setMacroInsights(scannerData.macroInsights);
 
+          /* The AI analyst brief feeds this page two ways: the avoid set marks
+             tickers across every rendered row, and the regime read becomes the
+             leading section of the briefing. Both are optional — the analyst
+             only runs 4 AM – 8 PM ET, and everything here degrades to the
+             locally-built briefing when it hasn't. */
           try {
-            const briefRes = await fetch('/api/analyst/brief', { cache: 'no-store' });
-            if (briefRes.ok) {
-              const brief = await briefRes.json();
+            /* Shared with AnalystBrief's own poller — see lib/scannerLatest. */
+            const brief = await cachedJson('/api/analyst/brief').catch(() => null);
+            if (brief) {
+
               const avoidSection = brief?.sections?.find((s: any) => s.section === 'Top Avoid');
-              if (avoidSection?.stocks?.length) {
-                const avoidTickers = new Set<string>(avoidSection.stocks.map((s: any) => s.ticker));
-                setMacroInsights(prev => prev ? { ...prev, avoidSet: avoidTickers } : prev);
+              const avoidTickers = avoidSection?.stocks?.length
+                ? new Set<string>(avoidSection.stocks.map((s: any) => s.ticker))
+                : null;
+
+              if (avoidTickers) {
+                setMacroInsights(prev => {
+                  if (!prev) return prev;
+                  return { ...prev, avoidSet: avoidTickers };
+                });
               }
             }
           } catch { /* analyst brief optional */ }
@@ -2648,15 +3057,6 @@ export default function MarketSummary() {
     return () => { isMounted = false; clearInterval(interval); };
   }, [isWeekend]);
 
-  const getThemeStyles = (theme: string) => {
-    switch (theme) {
-      case 'cyan': return { bg: 'bg-cyan-500/5', text: 'text-cyan-400', boxBg: 'bg-cyan-500/10', boxBorder: 'border-cyan-500', boxText: 'text-cyan-100/90' };
-      case 'emerald': return { bg: 'bg-emerald-500/5', text: 'text-emerald-400', boxBg: 'bg-emerald-500/10', boxBorder: 'border-emerald-500', boxText: 'text-emerald-100/90' };
-      case 'rose': return { bg: 'bg-rose-500/5', text: 'text-rose-400', boxBg: 'bg-rose-500/10', boxBorder: 'border-rose-500', boxText: 'text-rose-100/90' };
-      case 'amber': return { bg: 'bg-amber-500/5', text: 'text-amber-400', boxBg: 'bg-amber-500/10', boxBorder: 'border-amber-500', boxText: 'text-amber-100/90' };
-      case 'indigo': default: return { bg: 'bg-indigo-500/5', text: 'text-indigo-400', boxBg: 'bg-indigo-500/10', boxBorder: 'border-indigo-500', boxText: 'text-indigo-100/90' };
-    }
-  };
 
   const getSessionTextColor = () => {
     if (session === 'Pre-Market') return 'text-amber-500';
@@ -2668,9 +3068,10 @@ export default function MarketSummary() {
   const formatBriefing = (text: string) => {
     if (!text) return '';
     return text
-      .replace(/(Trade Plan:)/gi, '\n\n$1')
       .replace(/(Top Movers:)/gi, '\n\n$1')
       .replace(/(SIPs Thesis:)/gi, '\n\n$1')
+      .replace(/(\$Vol Summary:)/gi, '\n\n$1')
+      .replace(/(Setups Summary:)/gi, '\n\n$1')
       .replace(/(Daily Setups Thesis:)/gi, '\n\n$1')
       .replace(/(10\/21 Thesis:)/gi, '\n\n$1')
       .replace(/(VCP Thesis:)/gi, '\n\n$1')
@@ -2680,63 +3081,14 @@ export default function MarketSummary() {
       .replace(/(ETF Flow:)/gi, '\n\n$1')
       .replace(/(Money Flow:)/gi, '\n\n$1')
       .replace(/(Key Events:)/gi, '\n\n$1')
+      .replace(/(Sector Performance:)/gi, '\n\n$1')
       .replace(/(Sector Flow:)/gi, '\n\n$1');
   };
 
-  const renderSingleUpdateBlock = (block: UpdateBlock | null, key: BlockKey) => {
-    if (!block) return null;
-    const stale = isBlockStale(key, isWeekend);
-    const direction = stale ? null : deriveDirection(block);
-    const themeKey =
-      direction === 'up' ? 'emerald' :
-      direction === 'down' ? 'rose' :
-      block.colorTheme;
-    const styles = getThemeStyles(themeKey);
-    const nextLabel = BLOCK_WINDOWS[key].nextLabel;
 
-    return (
-      <div className="bg-[#161c2a]/60 border border-white/5 rounded-xl p-3 sm:p-5 md:p-6 mt-3">
-        <div className="flex items-center gap-2 sm:gap-3 mb-4 flex-wrap">
-          <div className={`w-2 h-2 rounded-full border border-current ${stale ? 'bg-slate-500/10 text-slate-500' : `${styles.bg} ${styles.text}`}`}></div>
-          <h4 className={`text-[10px] font-bold tracking-widest uppercase ${stale ? 'text-slate-400' : styles.text}`}>
-            {block.phase}
-          </h4>
-          <span className="text-[8px] text-slate-500 font-medium tracking-wider px-2 py-0.5 bg-black/20 border border-white/5 rounded">
-            {block.timestamp}
-          </span>
-          {stale && (
-            <span className="text-[8px] font-bold tracking-widest uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
-              Superseded
-            </span>
-          )}
-        </div>
-
-        <div className="space-y-3 mb-5">
-          {block.paragraphs.map((p, idx) => (
-            <p key={idx} className={`${rowText} text-slate-400 leading-relaxed border-l-[2px] border-slate-500/30 pl-2.5 md:pl-3.5`}>
-              {renderBriefingText(p, false, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet)}
-            </p>
-          ))}
-        </div>
-
-        <div className={`border-l-[4px] p-3 md:p-4 rounded-r-xl transition-colors duration-300 ${stale ? 'bg-slate-500/[0.07] border-slate-500' : `${styles.boxBg} ${styles.boxBorder}`}`}>
-          <p className={`${rowText} leading-relaxed ${stale ? 'text-slate-300' : styles.boxText}`}>
-            {block.takeaway}
-          </p>
-        </div>
-
-        {stale && (
-          <p className="text-[10px] text-amber-400/90 font-medium mt-3 leading-snug">
-            Written for the {block.phase.toLowerCase()} window — the tape has moved past this read.
-            {nextLabel ? ` Treat it as history until the ${nextLabel} update posts.` : ''}
-          </p>
-        )}
-      </div>
-    );
-  };
 
   return (
-    <div className="bg-[#101623] border border-white/10 rounded-2xl p-3 sm:p-6 md:p-8 relative overflow-x-auto shadow-2xl w-full" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}>
+    <div className="bg-[#101623] border border-white/10 rounded-2xl p-1 sm:p-6 md:p-8 relative overflow-x-auto shadow-2xl w-full" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}>
       <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-500 via-emerald-500 to-indigo-500 opacity-40"></div>
 
       <div
@@ -2767,8 +3119,8 @@ export default function MarketSummary() {
       {isExpanded && (
         <>
           {macroInsights && (
-            <div className="mb-6 md:mb-8 bg-[#161c2a]/60 border border-cyan-500/20 rounded-xl p-3 sm:p-5 md:p-6 relative overflow-hidden shadow-[0_0_15px_rgba(34,211,238,0.03)]">
-              <div className="absolute right-0 top-0 w-64 h-64 bg-cyan-500/10 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
+            <div className="mb-6 md:mb-8 bg-[#161c2a]/60 border border-cyan-500/20 rounded-xl p-1 sm:p-5 md:p-6 relative overflow-hidden shadow-[0_0_15px_rgba(34,211,238,0.03)]">
+              <div className="hidden md:block absolute right-0 top-0 w-64 h-64 bg-cyan-500/10 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
 
               <div className="flex items-center gap-2 sm:gap-3 mb-3 relative z-10">
                 <span className="text-[9px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2 sm:px-3 py-1 rounded tracking-widest uppercase flex items-center gap-2">
@@ -2796,68 +3148,72 @@ export default function MarketSummary() {
                         {collapsibleKeys.length > 1 && (
                           <button
                             onClick={() => setCollapsedSections(everyCollapsed ? new Set() : new Set(collapsibleKeys))}
-                            className="text-[8px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border bg-[#161c2a] text-slate-500 border-white/5 hover:text-slate-300 hover:bg-white/[0.04] transition-all duration-200"
+                            className="text-[7px] font-bold tracking-wider uppercase px-1.5 py-[1px] rounded border bg-[#161c2a] text-slate-500 border-white/5 hover:text-slate-300 hover:bg-white/[0.04] transition-all duration-200"
                           >
                             {everyCollapsed ? 'Expand all' : 'Collapse all'}
                           </button>
                         )}
                       </div>
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-3 px-1">
-                        <span className="flex items-center gap-1.5 text-[9px] text-slate-500 font-bold tracking-wider uppercase cursor-help" title="Grade A = CNF 70+, Grade B = CNF 50–69">
-                          <span className="text-emerald-400 font-black">A</span>
-                          <span className="text-amber-400 font-black">B</span>
-                          GRADE
-                        </span>
-                        <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-800/60 border border-white/5">
-                          <span className="text-[8px] font-bold tracking-wider uppercase text-slate-500">10/21</span>
-                          <span className="inline-block w-[6px] h-[6px] rounded-full bg-emerald-400" />
-                          <span className="text-[8px] text-slate-400 font-medium cursor-help" title="Stacked: above both EMAs, trend intact. First Touch: pulled back to 10 EMA, holding above 21.">STACKED</span>
-                          <span className="inline-block w-[6px] h-[6px] rounded-full bg-amber-400" />
-                          <span className="text-[8px] text-slate-400 font-medium cursor-help" title="Pre-Cross: below 21 EMA but 10 and 21 converging — potential trend change, not confirmed.">PRE-CROSS</span>
-                          <span className="inline-block w-[6px] h-[6px] rounded-full bg-rose-400" />
-                          <span className="text-[8px] text-slate-400 font-medium cursor-help" title="Extended: too far above moving averages, poor risk/reward. Below 21: trend is down or broken.">EXT / BELOW</span>
-                        </span>
-                        <span className="flex items-center gap-1.5">
-                          {Object.entries(SETUP_BADGES).filter(([k]) => !k.includes('and')).map(([k, v]) => (
-                            <span key={k} title={k} className={`inline-block text-[7px] font-bold tracking-wider uppercase px-1 py-[0.5px] rounded border cursor-help ${v.cls}`}>{v.label}</span>
-                          ))}
-                        </span>
-                        <span title="Trap — stock looks exciting on the surface but the structure is broken (late-stage base, failed breakout, or relief rally in a downtrend). Avoid." className="inline-block text-[7px] font-bold tracking-wider uppercase px-1 py-[0.5px] rounded border cursor-help text-rose-200 bg-rose-950 border-rose-500/20">TRAP</span>
-                        <span title="Blue Dot reversal — oversold stochastic reset fired on the daily" className="text-sky-400 text-[9px] cursor-help">{BLUE_DOT_GLYPH}</span>
-                        <span className="flex items-center gap-1.5 text-[9px] text-slate-500 font-bold tracking-wider uppercase">
-                          <span className="text-slate-500 font-bold text-[7px] cursor-help" title="Has a news article linked to this ticker">★</span>
-                          <span className="cursor-help" title="1 star = news article linked">NEWS</span>
-                        </span>
-                        <span className="flex items-center gap-1.5 text-[9px] text-slate-500 font-bold tracking-wider uppercase">
-                          <span className="text-amber-400 font-bold text-[7px] cursor-help" title="Strong fundamental catalyst — earnings, FDA, M&A, analyst action, or other material event">★★</span>
-                          <span className="cursor-help" title="2 stars = strong fundamental catalyst">CATALYST</span>
-                        </span>
-                      </div>
-                      <div className="flex flex-col gap-3">
+                      {/* A grid rather than a column so ETF Flow and Money Flow can pair
+                          up. Every other section spans both tracks, so the stack reads
+                          exactly as before — only those two share a row, and only once
+                          there is width for it. */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                         {sections.map((sec, idx) => {
                           const { label, color, blurb, body, key } = sec;
                           const st = sectionStyles(color);
-                          const bodyTickers = Array.from(new Set(
-                            (body.match(/\b[A-Z]{2,5}\b/g) || []).filter(t => !TICKER_STOPWORDS.has(t))
-                          ));
-                          const isOpen = !label || !collapsedSections.has(key);
+                          const bodyTickers = label === 'Setups Summary'
+                            ? (macroInsights?.setupPool ?? []).map((s: any) => s.ticker).filter(Boolean)
+                            : Array.from(new Set(
+                                (body.match(/\b[A-Z]{2,5}\b/g) || []).filter(t => !TICKER_STOPWORDS.has(t))
+                              ));
                           const sectionAligns = !!label && ALIGNED_SECTIONS.has(label);
+                          const filterEmpty = scanFilter && !!label && !!SECTION_HEADERS[label] && (() => {
+                            if (label === 'Setups Summary') {
+                              return !(macroInsights?.setupPool ?? []).some((item: any) => passesPoolFilter(scanFilter, item));
+                            }
+                            const ctx: ScanFilterCtx = { gradeMap: macroInsights?.gradeMap, postureMap: macroInsights?.postureMap, avoidSet: macroInsights?.avoidSet, dotMap: macroInsights?.dotMap };
+                            const allLines = body.replace(/\|\|\|/g, '\n').split('\n').filter(Boolean);
+                            return !allLines.some(l => { const p = parseStdLine(l); return p && passesScanFilter(scanFilter, p, ctx); });
+                          })();
+                          const isOpen = !label || (scanFilter && !!SECTION_HEADERS[label ?? ''] ? !filterEmpty : !collapsedSections.has(key));
+
+                          /* The key sits in the GAP ABOVE the card rather than
+                             inside it — same information, none of the card's
+                             vertical budget, and it reads as a rule between
+                             sections instead of a header on each one.
+
+                             Only where the ticker-row grid is (SECTION_HEADERS
+                             is the test: Market Regime names tickers in prose
+                             but has no glyphs), and only once for a paired row
+                             — ETF Flow leads that pair, so Money Flow does not
+                             emit a second strip beside it. */
+                          const wantsLegend =
+                            isOpen && !!label && !!SECTION_HEADERS[label] && label !== 'Money Flow';
 
                           return (
-                            <div key={idx} className={`border-l-[3px] rounded-r-xl px-2.5 md:px-4 py-3 ${st.border} ${st.bg}`}>
+                            <React.Fragment key={idx}>
+                            {wantsLegend && (
+                              <div className="lg:col-span-2 px-1 pt-1 pb-0.5">
+                                <ScanLegend activeFilter={scanFilter} onFilterChange={handleScanFilter} />
+                              </div>
+                            )}
+                            <div className={`border-l-[3px] rounded-r-xl px-2.5 md:px-4 py-3 ${st.border} ${st.bg} ${label && PAIRED_SECTIONS.has(label) ? '' : 'lg:col-span-2'} ${label === 'Industry Heat' ? 'flex flex-col' : ''}`}>
                               {label && (
                                 <div className={isOpen ? 'mb-2' : ''}>
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <button
-                                      onClick={() => toggleSection(key)}
-                                      title={isOpen ? 'Collapse this section' : 'Expand this section'}
-                                      className="flex items-center gap-2 group/sec"
-                                    >
-                                      <span className={`inline-block text-[8px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border ${st.badge}`}>
+                                  <div
+                                    className="flex items-center gap-2 flex-wrap cursor-pointer select-none"
+                                    onClick={() => toggleSection(key)}
+                                    title={isOpen ? 'Collapse this section' : 'Expand this section'}
+                                  >
+                                    <div className="flex items-center gap-1.5">
+                                      <span className={`text-[9px] transition-transform duration-200 ${isOpen ? 'rotate-90' : ''} text-slate-500`}>&#9654;</span>
+                                      <span className={`inline-block text-[7px] font-bold tracking-widest uppercase px-1.5 py-[1px] rounded border ${st.badge}`}>
                                         {label}
                                       </span>
-                                    </button>
-                                    {isOpen && bodyTickers.length > 0 && <SectionCopyButton tickers={bodyTickers} />}
+                                    </div>
+                                    {isOpen && bodyTickers.length > 0 && label !== 'Key Events' && label !== 'Market Regime' && <SectionCopyButton tickers={bodyTickers} />}
+                                    {isOpen && bodyTickers.length > 0 && label !== 'Key Events' && label !== 'Market Regime' && <SectionTxtButton tickers={bodyTickers} />}
                                     {!isOpen && bodyTickers.length > 0 && (
                                       <span className="text-[9px] text-slate-600 font-medium">
                                         {bodyTickers.length} name{bodyTickers.length === 1 ? '' : 's'}
@@ -2868,11 +3224,43 @@ export default function MarketSummary() {
                                 </div>
                               )}
                               {/* Header for single-column aligned sections is now rendered inside the body block below */}
-                              {isOpen && (
+                              {/* Industry Heat's rows start a hair higher than the
+                                  bars beside it, because SectorBars puts its first
+                                  bar inside a padded panel. This nudges the rows
+                                  down so "+43.0% Financials" lines up with the
+                                  "Financials" bar across the gap. Paired sections
+                                  are read ACROSS, so the rows have to agree. */}
+                              {isOpen && label === 'Setups Summary' ? (
+                                <SetupSummary
+                                  pool={macroInsights?.setupPool ?? []}
+                                  gradeMap={macroInsights?.gradeMap}
+                                  dotMap={macroInsights?.dotMap}
+                                  postureMap={macroInsights?.postureMap}
+                                  scanFilter={scanFilter}
+                                  avoidSet={macroInsights?.avoidSet}
+                                />
+                              ) : isOpen && label === 'Sector Performance' ? (
+                                <SectorBars body={body} />
+                              ) : isOpen && label === 'Industry Heat' ? (
+                                /* CENTRED, not top-aligned. The grid stretches this
+                                   card to the height of the Sector Performance bars
+                                   beside it, and a four-group day left most of that
+                                   height empty below the rows. flex-1 takes the
+                                   leftover space, justify-center puts the block in
+                                   the middle of it. */
+                                <div className="flex-1 flex flex-col justify-center">
+                                  {body.split('\n').filter(Boolean).map((line, li) =>
+                                    line.trim().endsWith(':')
+                                      ? <p key={li} className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5 pt-1">{line.trim().replace(/:$/, '')}</p>
+                                      : renderBodyLine(line, li, false, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap)
+                                  )}
+                                </div>
+                              ) : isOpen && (
                                 body.includes('|||') ? (
                                   (() => {
                                     let topBlock = '';
                                     let colBody = body;
+                                    const isKeyEv = label === 'Key Events';
                                     if (body.includes('^^^')) {
                                       const [above, below] = body.split('^^^');
                                       topBlock = above.trim();
@@ -2880,13 +3268,115 @@ export default function MarketSummary() {
                                     }
                                     const parts = colBody.split('|||');
                                     const afterCols = parts.length > 2 ? parts.slice(2).join('\n') : '';
+
+                                    if (isKeyEv && topBlock) {
+                                      const renderEconBlock = () => {
+                                        const tbLines = topBlock.split('\n').filter(Boolean);
+                                        let headerInserted = false;
+                                        return tbLines.map((line, li) => {
+                                          const isHead = line.trim().endsWith(':');
+                                          if (isHead) {
+                                            headerInserted = false;
+                                            return <p key={li} className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5">{line.replace(/:$/, '')}</p>;
+                                          }
+                                          const els: React.ReactNode[] = [];
+                                          if (!headerInserted) {
+                                            headerInserted = true;
+                                            els.push(
+                                              <div key={`eh-${li}`} className={scrollRowCls} style={scrollRowStyle}>
+                                                <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
+                                                  <span className="inline-block w-[10px]" />
+                                                  <span className="inline-block w-[62px] md:w-[68px] text-[7px] font-bold tracking-widest uppercase text-slate-600 ml-1">TIME</span>
+                                                  <span className="inline-block w-[180px] md:w-[240px] text-[7px] font-bold tracking-widest uppercase text-slate-600">EVENT</span>
+                                                  <span className="inline-block w-[52px] md:w-[60px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-3">ACT</span>
+                                                  <span className="inline-block w-[52px] md:w-[60px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">EST</span>
+                                                  <span className="inline-block w-[52px] md:w-[60px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">PREV</span>
+                                                </div>
+                                              </div>
+                                            );
+                                          }
+                                          els.push(renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap));
+                                          return els;
+                                        });
+                                      };
+                                      const renderEarnBlock = () => {
+                                        return parts.slice(0, 2).map((col, ci) => {
+                                          const colLines = col.trim().split('\n').filter(Boolean);
+                                          const [heading, ...rows] = colLines;
+                                          const isHeading = heading && heading.trim().endsWith(':');
+                                          const render = (line: string, li: number) =>
+                                            renderBodyLine(line, li, true, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap);
+                                          const earnHeader = (
+                                            <div className={scrollRowCls} style={scrollRowStyle}>
+                                              <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5 min-w-[344px]">
+                                                <span className="inline-block w-[10px]" />
+                                                <span className="inline-block w-[56px] md:w-[64px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
+                                                <span className="inline-block w-[44px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center" />
+                                                <span className="inline-block w-[52px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right">EPS</span>
+                                                <span className="inline-block w-[46px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right">EST</span>
+                                                <span className="inline-block w-[54px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right">SURP</span>
+                                                <span className="inline-block w-[68px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right">REV</span>
+                                              </div>
+                                            </div>
+                                          );
+                                          const renderWithSub = (lines: string[]) => {
+                                            const groups: { heading: string | null; rows: string[] }[] = [];
+                                            let cur: { heading: string | null; rows: string[] } = { heading: null, rows: [] };
+                                            lines.forEach(l => {
+                                              if (l.trim().endsWith(':')) {
+                                                if (cur.rows.length > 0 || cur.heading) groups.push(cur);
+                                                cur = { heading: l.trim().replace(/:$/, ''), rows: [] };
+                                              } else { cur.rows.push(l); }
+                                            });
+                                            if (cur.rows.length > 0 || cur.heading) groups.push(cur);
+                                            return groups.map((g, gi) => (
+                                              <React.Fragment key={gi}>
+                                                {g.heading && <p className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5 pt-1">{g.heading}</p>}
+                                                {g.rows.length > 0 && earnHeader}
+                                                {g.rows.map(render)}
+                                              </React.Fragment>
+                                            ));
+                                          };
+                                          return (
+                                            <div key={ci} className="space-y-1.5">
+                                              {isHeading ? renderWithSub(rows) : (
+                                                <>{earnHeader}{colLines.map(render)}</>
+                                              )}
+                                            </div>
+                                          );
+                                        });
+                                      };
+                                      return (
+                                        <>
+                                          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-y-5">
+                                            <div className="space-y-1.5 overflow-x-auto pr-4">
+                                              {renderEconBlock()}
+                                            </div>
+                                            <div className="hidden md:block w-px bg-white/10 self-stretch" />
+                                            <div className="space-y-4 pl-4">
+                                              {renderEarnBlock()}
+                                            </div>
+                                          </div>
+                                          {afterCols && (() => {
+                                            const acLines = afterCols.trim().split('\n').filter(Boolean);
+                                            return (
+                                              <div className="space-y-1.5 mt-4 pt-3 border-t border-white/5">
+                                                {acLines.map((line, li) =>
+                                                  renderBodyLine(line, li, false, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap)
+                                                )}
+                                              </div>
+                                            );
+                                          })()}
+                                        </>
+                                      );
+                                    }
+
                                     return (
                                       <>
                                         {topBlock && (
                                           <div className="space-y-1.5 mb-4 pb-3 border-b border-white/5">
                                             {(() => {
                                               const tbLines = topBlock.split('\n').filter(Boolean);
-                                              const isKeyEvents = label === 'Key Events';
                                               let headerInserted = false;
                                               return tbLines.map((line, li) => {
                                                 const isHead = line.trim().endsWith(':');
@@ -2895,22 +3385,7 @@ export default function MarketSummary() {
                                                   return <p key={li} className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5">{line.replace(/:$/, '')}</p>;
                                                 }
                                                 const els: React.ReactNode[] = [];
-                                                if (isKeyEvents && !headerInserted) {
-                                                  headerInserted = true;
-                                                  els.push(
-                                                    <div key={`eh-${li}`} className={scrollRowCls} style={scrollRowStyle}>
-                                                      <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
-                                                        <span className="inline-block w-[10px]" />
-                                                        <span className="inline-block w-[62px] md:w-[68px] text-[7px] font-bold tracking-widest uppercase text-slate-600 ml-1">TIME</span>
-                                                        <span className="inline-block w-[180px] md:w-[240px] text-[7px] font-bold tracking-widest uppercase text-slate-600">EVENT</span>
-                                                        <span className="inline-block w-[52px] md:w-[60px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-3">ACT</span>
-                                                        <span className="inline-block w-[52px] md:w-[60px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">EST</span>
-                                                        <span className="inline-block w-[52px] md:w-[60px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">PREV</span>
-                                                      </div>
-                                                    </div>
-                                                  );
-                                                }
-                                                els.push(renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet));
+                                                els.push(renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap));
                                                 return els;
                                               });
                                             })()}
@@ -2922,17 +3397,21 @@ export default function MarketSummary() {
                                             const [heading, ...rows] = colLines;
                                             const isHeading = heading && heading.trim().endsWith(':');
                                             const render = (line: string, li: number) =>
-                                              renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet);
+                                              renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap);
                                             const isVcp = label === 'VCP Thesis';
                                             const isKeyEv = label === 'Key Events';
                                             const colSortKey = `${label}-${ci}`;
                                             const colSort = sectionSorts[colSortKey] ?? null;
                                             const inlineHeader = isKeyEv ? (
                                               <div className={scrollRowCls} style={scrollRowStyle}>
-                                                <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
+                                                <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5 min-w-[344px]">
                                                   <span className="inline-block w-[10px]" />
-                                                  <span className="inline-block w-[48px] md:w-[56px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
-                                                  <span className="inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600 ml-2">EPS</span>
+                                                  <span className="inline-block w-[56px] md:w-[64px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
+                                                  <span className="inline-block w-[44px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center" />
+                                                  <span className="inline-block w-[52px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right">EPS</span>
+                                                  <span className="inline-block w-[46px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right">EST</span>
+                                                  <span className="inline-block w-[54px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right">SURP</span>
+                                                  <span className="inline-block w-[68px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right">REV</span>
                                                 </div>
                                               </div>
                                             ) : sectionAligns && SECTION_HEADERS[label!] ? (
@@ -2949,9 +3428,10 @@ export default function MarketSummary() {
                                                 if (p) { stockLines.push(l); stockParsed.push(p); }
                                                 else nonStockRendered.push(render(l, i));
                                               });
-                                              const sortedIdxs = sortParsedRows(stockParsed, activeSort.key, activeSort.dir)
-                                                .map(sr => stockParsed.indexOf(sr));
-                                              return [...nonStockRendered, ...sortedIdxs.map((idx, i) => render(stockLines[idx], 1000 + i))];
+                                              const filt = stockParsed.map((p, i) => ({ p, i })).filter(({ p }) => passesScanFilter(scanFilter, p, { gradeMap: macroInsights?.gradeMap, postureMap: macroInsights?.postureMap, avoidSet: macroInsights?.avoidSet, dotMap: macroInsights?.dotMap }));
+                                              const sortedFiltered = sortParsedRows(filt.map(ff => ff.p), activeSort.key, activeSort.dir)
+                                                .map(sr => filt[filt.map(ff => ff.p).indexOf(sr)].i);
+                                              return [...nonStockRendered, ...sortedFiltered.map((idx, i) => render(stockLines[idx], 1000 + i))];
                                             };
                                             const renderWithSubHeadings = (lines: string[]) => {
                                               const groups: { heading: string | null; rows: string[] }[] = [];
@@ -2988,7 +3468,7 @@ export default function MarketSummary() {
                                         {afterCols && (() => {
                                           const acLines = afterCols.trim().split('\n').filter(Boolean);
                                           const acRender = (line: string, li: number) =>
-                                            renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet);
+                                            renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap);
                                           const acHeader = sectionAligns && SECTION_HEADERS[label!] ? <SortableHeader sortKey={null} sortDir={'desc'} onSort={() => {}} isVcp={label === 'VCP Thesis'} /> : null;
                                           const acGroups: { heading: string | null; rows: string[] }[] = [];
                                           let acCur: { heading: string | null; rows: string[] } = { heading: null, rows: [] };
@@ -3004,7 +3484,13 @@ export default function MarketSummary() {
                                               {acGroups.map((g, gi) => (
                                                 <React.Fragment key={gi}>
                                                   {g.heading && <p className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5 pt-1">{g.heading}</p>}
-                                                  {g.rows.length > 0 && g.rows.some(r => isRowLine(r)) && acHeader}
+                                                  {/* A header above a SINGLE row is more header
+                                                      than data — on a phone VCP and EP9M split
+                                                      into one-row groups and the column strip
+                                                      repeated above every name. Two or more
+                                                      rows still get one, because that is where
+                                                      a column key earns its line. */}
+                                                  {g.rows.filter(isRowLine).length > 1 && acHeader}
                                                   {g.rows.map(acRender)}
                                                 </React.Fragment>
                                               ))}
@@ -3020,7 +3506,7 @@ export default function MarketSummary() {
                                     const ss = sectionSorts[sk] ?? null;
                                     const bodyLines = body.split('\n').filter(Boolean);
                                     const renderLine = (line: string, li: number) =>
-                                      renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet);
+                                      renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap);
                                     if (!sectionAligns) {
                                       return <div className="space-y-2">{bodyLines.map(renderLine)}</div>;
                                     }
@@ -3033,19 +3519,21 @@ export default function MarketSummary() {
                                       if (p) { stockLines.push(l); stockParsed.push(p); }
                                       else nonStock.push(renderLine(l, i));
                                     });
-                                    const sortedIdxs = sortParsedRows(stockParsed, activeSort.key, activeSort.dir).map(sr => stockParsed.indexOf(sr));
+                                    const filt = stockParsed.map((p, i) => ({ p, i })).filter(({ p }) => passesScanFilter(scanFilter, p, { gradeMap: macroInsights?.gradeMap, postureMap: macroInsights?.postureMap, avoidSet: macroInsights?.avoidSet, dotMap: macroInsights?.dotMap }));
+                                    const sortedFiltered = sortParsedRows(filt.map(ff => ff.p), activeSort.key, activeSort.dir).map(sr => filt[filt.map(ff => ff.p).indexOf(sr)].i);
                                     const hasHeader = !!label && !!SECTION_HEADERS[label];
                                     return (
                                       <div className="space-y-1.5">
                                         {nonStock.length > 0 && <div className="space-y-1 mb-1">{nonStock}</div>}
                                         {hasHeader && <SortableHeader sortKey={ss?.key ?? 'cnf'} sortDir={ss?.dir ?? 'desc'} onSort={(k) => handleSectionSort(sk, k)} isVcp={label === 'VCP Thesis'} />}
-                                        {sortedIdxs.map((idx, i) => renderLine(stockLines[idx], 1000 + i))}
+                                        {sortedFiltered.map((idx, i) => renderLine(stockLines[idx], 1000 + i))}
                                       </div>
                                     );
                                   })()
                                 )
                               )}
                             </div>
+                            </React.Fragment>
                           );
                         })}
                       </div>
@@ -3053,20 +3541,23 @@ export default function MarketSummary() {
                   );
                 })()}
 
+                {/* Top Setups and Tomorrow render outside the section loop, so
+                    they need their own strip — they carry the same grade
+                    chips, dots and stars every other row grid does. */}
                 {(macroInsights.watching?.length > 0 || macroInsights.tomorrowWatch?.length > 0) && (
-                  <div className="border-t border-white/5 pt-5 md:pt-6 grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
+                  <div className="border-t border-white/5 pt-5 md:pt-6 px-1 pb-1">
+                    <ScanLegend activeFilter={scanFilter} onFilterChange={handleScanFilter} />
+                  </div>
+                )}
+
+                {(macroInsights.watching?.length > 0 || macroInsights.tomorrowWatch?.length > 0) && (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
                     {macroInsights.watching?.length > 0 && (
                       <div className="border-l-[3px] border-cyan-500 rounded-r-xl px-2.5 md:px-4 py-3 bg-cyan-500/[0.04]">
                         <div className="flex items-center gap-3 mb-2">
-                          <span className="inline-block text-[8px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border text-cyan-400 bg-cyan-500/10 border-cyan-500/20">Top Setups</span>
-                          <button
-                            onClick={() => {
-                              navigator.clipboard.writeText(macroInsights.watching.map(w => w.symbol).join(','));
-                            }}
-                            className="text-[8px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border bg-[#161c2a] text-slate-500 border-white/5 hover:text-cyan-400 hover:border-cyan-500/30 transition-all"
-                          >
-                            Copy {macroInsights.watching.length}
-                          </button>
+                          <span className="inline-block text-[7px] font-bold tracking-widest uppercase px-1.5 py-[1px] rounded border text-cyan-400 bg-cyan-500/10 border-cyan-500/20">Top Setups</span>
+                          <SectionCopyButton tickers={macroInsights.watching.map(w => w.symbol)} />
+                          <SectionTxtButton tickers={macroInsights.watching.map(w => w.symbol)} />
                         </div>
                         <div className="flex flex-col gap-0.5">
                           <SortableHeader sortKey={sectionSorts['Top Setups']?.key ?? null} sortDir={sectionSorts['Top Setups']?.dir ?? 'desc'} onSort={(k) => handleSectionSort('Top Setups', k)} />
@@ -3085,8 +3576,8 @@ export default function MarketSummary() {
                               return ws.dir === 'desc' ? bv - av : av - bv;
                             }) : macroInsights.watching;
                             return items;
-                          })().map((item, idx) => {
-                            const s = typeof item === 'object' ? item : { symbol: item, chg: 0, rvol: null, vol: 0, dVol: 0, stage: '', grade: null, score: undefined, dotKind: null, posture: null, rsRating: null };
+                          })().filter((item: any) => passesPoolFilter(scanFilter, item)).map((item, idx) => {
+                            const s = typeof item === 'object' ? item : { symbol: item as never, chg: 0, rvol: null, vol: 0, dVol: 0, stage: '', grade: null, score: undefined, dotKind: null, posture: null, rsRating: null, price: null as number | null };
                             const pb = s.posture || null;
                             const pMeta = pb ? POSTURE_META[pb] : null;
                             const rv = s.rvol != null ? Number(s.rvol) : null;
@@ -3098,8 +3589,7 @@ export default function MarketSummary() {
                             const isBlueDot = s.dotKind === 'blue';
                             return (
                               <div key={idx} className="flex items-center whitespace-nowrap py-[3px]">
-                                <span className={`inline-block w-[14px] text-center text-[9px] font-black ${s.grade === 'A' ? 'text-emerald-400' : 'text-amber-400'}`}>{s.grade}</span>
-                                <TickerChartHover symbol={s.symbol}><span className={`${isAvoid ? TICKER_CHIP_RED : TICKER_CHIP_BASE} w-[48px] md:w-[56px]`}>{s.symbol}</span></TickerChartHover>
+                                <TickerChartHover symbol={s.symbol}><span className={`${gradeChipCls(s.grade, isAvoid)} w-[38px] md:w-[44px]`}>{s.symbol}</span></TickerChartHover>
                                 <span className="inline-block w-[9px] text-center leading-none shrink-0" />
                                 <span className="inline-block w-[8px] text-center shrink-0">
                                   {isBlueDot && <span className="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)]" />}
@@ -3107,13 +3597,14 @@ export default function MarketSummary() {
                                 <span className="inline-block w-[8px] text-center shrink-0">
                                   {pMeta ? <span title={`${pMeta.short} — ${pMeta.tip}`} className={`inline-block w-[6px] h-[6px] rounded-full cursor-help ${pMeta.tone === 'good' ? 'bg-emerald-400' : pMeta.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`} /> : null}
                                 </span>
-                                <span className={`inline-block align-baseline text-[9px] font-bold tabular-nums px-1 py-[1px] rounded border ml-1 w-[22px] md:w-[26px] text-center ${s.score != null && !isNaN(Number(s.score)) ? cnfBadgeCls(Number(s.score)) : 'text-transparent'}`}>{s.score != null && !isNaN(Number(s.score)) ? Number(s.score) : ''}</span>
-                                <span className={`text-[11px] tabular-nums font-semibold inline-block w-[54px] md:w-[62px] text-right ${(s.chg ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(s.chg ?? 0) >= 0 ? '+' : ''}{(s.chg ?? 0).toFixed(2)}%</span>
-                                <span className={`text-[11px] tabular-nums font-semibold inline-block w-[42px] md:w-[48px] text-right ml-2 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? rv.toFixed(2) : ''}</span>
-                                <span className={`text-[11px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-2 ${fmtV ? 'text-slate-400' : 'text-transparent'}`}>{fmtV}</span>
-                                <span className={`text-[11px] tabular-nums inline-block w-[42px] md:w-[48px] text-right ml-1 ${fmtDv ? 'text-slate-300' : 'text-transparent'}`}>{fmtDv}</span>
-                                <span className={`text-[9px] font-bold ml-1 inline-block w-[18px] text-center ${s.stage ? stageColor(s.stage) : 'text-transparent'}`}>{s.stage || ''}</span>
-                                <span className={`text-[11px] tabular-nums font-semibold inline-block w-[22px] md:w-[26px] text-right ml-0.5 ${s.rsRating != null ? rsColor(Number(s.rsRating)) : 'text-transparent'}`}>{s.rsRating != null ? Number(s.rsRating) : ''}</span>
+                                <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${s.score != null && !isNaN(Number(s.score)) ? cnfBadgeCls(Number(s.score)) : 'text-transparent'}`}>{s.score != null && !isNaN(Number(s.score)) ? Number(s.score) : ''}</span>
+                                <span className={`text-[10px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ${(s.chg ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(s.chg ?? 0) >= 0 ? '+' : ''}{(s.chg ?? 0).toFixed(2)}%</span>
+                                <span className="text-[10px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-1">{fmtPrc(s.price)}</span>
+                                <span className={`text-[10px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? rv.toFixed(2) : ''}</span>
+                                <span className={`text-[10px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-1 ${fmtV ? 'text-slate-400' : 'text-transparent'}`}>{fmtV}</span>
+                                <span className={`text-[10px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-1 ${fmtDv ? 'text-slate-300' : 'text-transparent'}`}>{fmtDv}</span>
+                                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{s.rsRating != null ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(Number(s.rsRating))}`}>{Number(s.rsRating)}</span> : null}</span>
+                                <span className="inline-block w-[22px] md:w-[24px] text-center ml-0.5">{s.stage ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(s.stage)}`}>{s.stage}</span> : null}</span>
                               </div>
                             );
                           })}
@@ -3124,15 +3615,9 @@ export default function MarketSummary() {
                     {macroInsights.tomorrowWatch?.length > 0 && (
                       <div className="border-l-[3px] border-violet-500 rounded-r-xl px-2.5 md:px-4 py-3 bg-violet-500/[0.04]">
                         <div className="flex items-center gap-3 mb-2">
-                          <span className="inline-block text-[8px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border text-violet-400 bg-violet-500/10 border-violet-500/20">Tomorrow&apos;s Watchlist</span>
-                          <button
-                            onClick={() => {
-                              navigator.clipboard.writeText(macroInsights.tomorrowWatch.map(w => w.symbol).join(','));
-                            }}
-                            className="text-[8px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border bg-[#161c2a] text-slate-500 border-white/5 hover:text-violet-400 hover:border-violet-500/30 transition-all"
-                          >
-                            Copy {macroInsights.tomorrowWatch.length}
-                          </button>
+                          <span className="inline-block text-[7px] font-bold tracking-widest uppercase px-1.5 py-[1px] rounded border text-violet-400 bg-violet-500/10 border-violet-500/20">Tomorrow&apos;s Watchlist</span>
+                          <SectionCopyButton tickers={macroInsights.tomorrowWatch.map(w => w.symbol)} />
+                          <SectionTxtButton tickers={macroInsights.tomorrowWatch.map(w => w.symbol)} />
                         </div>
                         <div className="flex flex-col gap-0.5">
                           <SortableHeader sortKey={sectionSorts['Tomorrow Watch']?.key ?? null} sortDir={sectionSorts['Tomorrow Watch']?.dir ?? 'desc'} onSort={(k) => handleSectionSort('Tomorrow Watch', k)} />
@@ -3151,7 +3636,7 @@ export default function MarketSummary() {
                               return ws.dir === 'desc' ? bv - av : av - bv;
                             }) : macroInsights.tomorrowWatch;
                             return items;
-                          })().map((item, idx) => {
+                          })().filter((item: any) => passesPoolFilter(scanFilter, item)).map((item, idx) => {
                             const pb = item.posture || null;
                             const pMeta = pb ? POSTURE_META[pb] : null;
                             const rv = item.rvol != null ? Number(item.rvol) : null;
@@ -3163,8 +3648,7 @@ export default function MarketSummary() {
                             const isBlueDot = item.dotKind === 'blue';
                             return (
                               <div key={idx} className="flex items-center whitespace-nowrap py-[3px]">
-                                <span className={`inline-block w-[14px] text-center text-[9px] font-black ${item.grade === 'A' ? 'text-emerald-400' : 'text-amber-400'}`}>{item.grade}</span>
-                                <TickerChartHover symbol={item.symbol}><span className={`${isAvoid ? TICKER_CHIP_RED : TICKER_CHIP_BASE} w-[48px] md:w-[56px]`}>{item.symbol}</span></TickerChartHover>
+                                <TickerChartHover symbol={item.symbol}><span className={`${gradeChipCls(item.grade, isAvoid)} w-[38px] md:w-[44px]`}>{item.symbol}</span></TickerChartHover>
                                 <span className="inline-block w-[9px] text-center leading-none shrink-0" />
                                 <span className="inline-block w-[8px] text-center shrink-0">
                                   {isBlueDot && <span className="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)]" />}
@@ -3172,13 +3656,14 @@ export default function MarketSummary() {
                                 <span className="inline-block w-[8px] text-center shrink-0">
                                   {pMeta ? <span title={`${pMeta.short} — ${pMeta.tip}`} className={`inline-block w-[6px] h-[6px] rounded-full cursor-help ${pMeta.tone === 'good' ? 'bg-emerald-400' : pMeta.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`} /> : null}
                                 </span>
-                                <span className={`inline-block align-baseline text-[9px] font-bold tabular-nums px-1 py-[1px] rounded border ml-1 w-[22px] md:w-[26px] text-center ${item.score != null && !isNaN(Number(item.score)) ? cnfBadgeCls(Number(item.score)) : 'text-transparent'}`}>{item.score != null && !isNaN(Number(item.score)) ? Number(item.score) : ''}</span>
-                                <span className={`text-[11px] tabular-nums font-semibold inline-block w-[54px] md:w-[62px] text-right ${(item.chg ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(item.chg ?? 0) >= 0 ? '+' : ''}{(item.chg ?? 0).toFixed(2)}%</span>
-                                <span className={`text-[11px] tabular-nums font-semibold inline-block w-[42px] md:w-[48px] text-right ml-2 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? rv.toFixed(2) : ''}</span>
-                                <span className={`text-[11px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-2 ${fmtV ? 'text-slate-400' : 'text-transparent'}`}>{fmtV}</span>
-                                <span className={`text-[11px] tabular-nums inline-block w-[42px] md:w-[48px] text-right ml-1 ${fmtDv ? 'text-slate-300' : 'text-transparent'}`}>{fmtDv}</span>
-                                <span className={`text-[9px] font-bold ml-1 inline-block w-[18px] text-center ${item.stage ? stageColor(item.stage) : 'text-transparent'}`}>{item.stage || ''}</span>
-                                <span className={`text-[11px] tabular-nums font-semibold inline-block w-[22px] md:w-[26px] text-right ml-0.5 ${item.rsRating != null ? rsColor(Number(item.rsRating)) : 'text-transparent'}`}>{item.rsRating != null ? Number(item.rsRating) : ''}</span>
+                                <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${item.score != null && !isNaN(Number(item.score)) ? cnfBadgeCls(Number(item.score)) : 'text-transparent'}`}>{item.score != null && !isNaN(Number(item.score)) ? Number(item.score) : ''}</span>
+                                <span className={`text-[10px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ${(item.chg ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(item.chg ?? 0) >= 0 ? '+' : ''}{(item.chg ?? 0).toFixed(2)}%</span>
+                                <span className="text-[10px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-1">{fmtPrc(item.price)}</span>
+                                <span className={`text-[10px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? rv.toFixed(2) : ''}</span>
+                                <span className={`text-[10px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-1 ${fmtV ? 'text-slate-400' : 'text-transparent'}`}>{fmtV}</span>
+                                <span className={`text-[10px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-1 ${fmtDv ? 'text-slate-300' : 'text-transparent'}`}>{fmtDv}</span>
+                                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{item.rsRating != null ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(Number(item.rsRating))}`}>{Number(item.rsRating)}</span> : null}</span>
+                                <span className="inline-block w-[22px] md:w-[24px] text-center ml-0.5">{item.stage && item.stage !== '—' ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(item.stage)}`}>{item.stage}</span> : null}</span>
                               </div>
                             );
                           })}
@@ -3192,32 +3677,6 @@ export default function MarketSummary() {
             </div>
           )}
 
-          <div className="border-t border-white/5 pt-5 md:pt-6 mt-4">
-            <span className="inline-flex text-[10px] sm:text-xs md:text-sm font-bold border px-2.5 sm:px-4 py-1.5 rounded-lg tracking-widest uppercase items-center gap-2 text-[#7c8bfa] bg-[#161c2a]/40 border-white/5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
-              LIVE SESSION UPDATES
-            </span>
-            {status === 'Loading' && !data ? (
-              <div className="animate-pulse bg-[#161c2a]/40 border border-white/5 rounded-xl p-3 sm:p-5 md:p-6 mt-3">
-                <div className="h-3 bg-white/5 rounded w-1/4 mb-4"></div>
-                <div className="h-3 bg-white/5 rounded w-full mb-2"></div>
-                <div className="h-3 bg-white/5 rounded w-11/12 mb-6"></div>
-                <div className="h-12 bg-white/5 border-l-[4px] border-white/10 rounded-r-xl w-full"></div>
-              </div>
-            ) : (
-              <div className="animate-in fade-in duration-500 flex flex-col gap-2">
-                {data?.morning && renderSingleUpdateBlock(data.morning, 'morning')}
-                {data?.midday && renderSingleUpdateBlock(data.midday, 'midday')}
-                {data?.closing && renderSingleUpdateBlock(data.closing, 'closing')}
-
-                {!data?.morning && !data?.midday && !data?.closing && (
-                  <div className="text-center py-8 text-slate-500 text-sm font-medium border border-dashed border-white/10 rounded-xl mt-3">
-                    Awaiting pre-market data ingestion...
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
         </>
       )}
     </div>

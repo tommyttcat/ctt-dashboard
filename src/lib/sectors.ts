@@ -1,3 +1,89 @@
+/* ---------------------------------------------------------------------------
+   TWO LEVELS, deliberately.
+
+   cleanSectorDescription below returns a THEMATIC label — Semi's, Fintech,
+   Biotech, Aerospace — and that granularity is worth keeping: "Semi's" tells
+   you more on a momentum table than "Technology" does.
+
+   What was missing is a canonical level underneath it. /api/sectors speaks
+   GICS-11 ("Technology", "Health Care", "Communication Services") while scan
+   rows spoke a different vocabulary entirely — measured live on 2026-08-12:
+   IT, Other, Aerospace, Fintech, Semi's, and free text that had leaked through
+   like "SPCX - Aerospace 2X", "DRAM - Memory ETF" and "EWY - South Korea 3X".
+   Nothing could be grouped or filtered across cards because no two surfaces
+   agreed on what a sector was called.
+
+   toCanonicalSector maps anything — theme, abbreviation, GICS name, or leaked
+   ETF string — onto the same eleven words the sector card uses. Themes still
+   display; they now also roll up.
+   --------------------------------------------------------------------------- */
+
+export const SECTORS = [
+  'Technology', 'Financials', 'Energy', 'Health Care', 'Industrials',
+  'Communication Services', 'Consumer Discretionary', 'Consumer Staples',
+  'Real Estate', 'Utilities', 'Materials',
+] as const;
+
+export type CanonicalSector = (typeof SECTORS)[number] | 'Other';
+
+/* Leading "TICKER - " and leveraged/inverse suffixes are artefacts of ETF
+   names arriving in the sector field, not sector information. Stripped before
+   any matching so "SOXX - Semi's 3X" and "Semi's" resolve identically. */
+export const stripSectorNoise = (raw: string | null | undefined, ticker?: string): string => {
+  if (!raw) return '';
+  let s = String(raw).trim();
+  if (ticker) s = s.replace(new RegExp(`^${ticker}\\s*[-–—:]\\s*`, 'i'), '');
+  s = s.replace(/^[A-Z]{1,5}\s*[-–—:]\s*/, '');
+  s = s.replace(/\s*\b[23]X\b\s*$/i, '');
+  s = s.replace(/\s*\bETF\b\s*$/i, '');
+  return s.trim();
+};
+
+/* Display form: noise stripped, theme preserved, em dash when there is
+   nothing to show. This is the shared version of the cleanSector helper that
+   had been copy-pasted into six components — one of which (Vcp) took no
+   ticker argument and therefore never stripped the prefix at all. */
+export const displaySector = (raw: string | null | undefined, ticker?: string): string => {
+  if (!raw || raw === '—' || raw === '-') return '—';
+  return stripSectorNoise(raw, ticker) || '—';
+};
+
+const THEME_TO_SECTOR: [RegExp, CanonicalSector][] = [
+  [/^semi|semiconduct/i,               'Technology'],
+  [/^it$|^tech|software|^ai$|cyber/i,  'Technology'],
+  [/memory|dram|nand|storage|quantum/i,'Technology'],
+  [/fintech/i,                         'Financials'],
+  [/crypto|bitcoin|blockchain/i,       'Financials'],
+  [/^financ|bank|insur/i,              'Financials'],
+  [/biotech|^health|pharma|medical/i,  'Health Care'],
+  [/aerospace|defen[cs]e|industrial|space|shipping|tanker|airline/i, 'Industrials'],
+  /* Nuclear, uranium and solar sit under Energy here rather than being split
+     between Utilities and Technology — on this dashboard they are traded as
+     energy themes, and splitting them would put related names on opposite
+     sides of a sector filter. */
+  [/nuclear|uranium|solar|^energy|\boil\b|\bgas\b/i, 'Energy'],
+  [/^ev$|auto|^con disc|consumer discretionary|retail/i, 'Consumer Discretionary'],
+  [/^con staples|consumer staples|food|beverage/i,      'Consumer Staples'],
+  [/^comm serv|communication|media|telecom/i,           'Communication Services'],
+  [/real estate|reit/i,                                 'Real Estate'],
+  [/utilit/i,                                           'Utilities'],
+  [/material|mining|chemical|steel/i,                   'Materials'],
+];
+
+export const toCanonicalSector = (
+  raw: string | null | undefined,
+  ticker?: string
+): CanonicalSector => {
+  const s = stripSectorNoise(raw, ticker);
+  if (!s) return 'Other';
+
+  const exact = SECTORS.find(x => x.toLowerCase() === s.toLowerCase());
+  if (exact) return exact;
+
+  for (const [rx, sector] of THEME_TO_SECTOR) if (rx.test(s)) return sector;
+  return 'Other';
+};
+
 export const cleanSectorDescription = (
   sic: string | undefined,
   sector: string | undefined,
@@ -51,3 +137,48 @@ export const cleanSectorDescription = (
 
   return 'Other';
 };
+
+/* ---- Industry heat -------------------------------------------------------
+
+   Average change per sector across a pool of rows, best group first — the
+   aggregation behind both the dashboard's Industry Heat list and the Sector
+   Performance bars, and now the briefing page's copies of the same.
+
+   IT LIVES HERE SO THE TWO PAGES CANNOT DISAGREE. The dashboard computed this
+   inline and the briefing page would have needed its own; that is exactly how
+   parseSectorItems ended up in three files with two behaviours. The POOL is
+   still the caller's choice — the two surfaces feed it different row sets —
+   but the grouping, the exclusions and the ordering are one implementation.
+
+   Grouped on the CANONICAL sector, not the raw label: raw values are thematic
+   and inconsistent (IT, Semi's, Fintech and "SMCI - IT" each counted as their
+   own sector), which split one group's heat across several rows and
+   understated every count. */
+
+export const isEtfSector = (sec: string | null | undefined): boolean => {
+  if (!sec || sec === '—') return false;
+  const s = String(sec);
+  if (s === 'ETF' || s.includes('- ETF')) return true;
+  if (/^[A-Z]{2,5}\s*-\s/.test(s)) return true;
+  return false;
+};
+
+export interface SectorHeat { sector: string; avgChg: number; count: number }
+
+export function industryHeat(
+  rows: any[],
+  chg: (row: any) => number = (r) => Number(r?.change ?? r?.changePct) || 0,
+): SectorHeat[] {
+  const agg: Record<string, { sum: number; count: number }> = {};
+  (rows ?? []).forEach((s) => {
+    const canon = toCanonicalSector(s?.sector, s?.ticker);
+    const sec = s?.sector && s.sector !== '—' && canon !== 'Other' && !isEtfSector(s.sector) ? canon : null;
+    if (!sec) return;
+    if (!agg[sec]) agg[sec] = { sum: 0, count: 0 };
+    agg[sec].sum += chg(s);
+    agg[sec].count += 1;
+  });
+  return Object.entries(agg)
+    .map(([sector, v]) => ({ sector, avgChg: v.sum / v.count, count: v.count }))
+    .sort((a, b) => b.avgChg - a.avgChg);
+}

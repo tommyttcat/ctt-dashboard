@@ -94,7 +94,7 @@ function analyzePriceAction(bars: DailyBar[], ticker: string): string {
   lines.push(`${ticker} DAILY BARS (Mon-Fri):`);
   for (const b of bars) {
     const dayPct = ((b.c - b.o) / b.o * 100);
-    lines.push(`  ${b.date}: O ${b.o.toFixed(2)} H ${b.h.toFixed(2)} L ${b.l.toFixed(2)} C ${b.c.toFixed(2)} Vol ${(b.v / 1e6).toFixed(1)}M (${fmtPct(dayPct)})`);
+    lines.push(`  ${b.date}: O ${b.o.toFixed(2)} H ${b.h.toFixed(2)} L ${b.l.toFixed(2)} C ${b.c.toFixed(2)} Vol ${(b.v / 1e6).toFixed(1)}M ${fmtPct(dayPct)}`);
   }
 
   // Distribution days: down >0.2% on higher volume than prior day
@@ -632,13 +632,18 @@ function buildEmail(
         .sort((a: any, b: any) => (b.mktCap || 0) - (a.mktCap || 0)).slice(0, 8);
       if (!big.length) return '';
       const rows = big.map((e: any) => {
-        const beat = e.epsActual > (e.epsEstimated || 0);
+        /* A missing estimate is not a beat. Coercing it to 0 meant every
+           company with a positive EPS and no published consensus printed
+           BEAT — which was most of them. */
+        const beat = e.epsEstimated != null ? e.epsActual >= e.epsEstimated : null;
         const surprise = e.epsSurprisePct ? `${e.epsSurprisePct > 0 ? '+' : ''}${e.epsSurprisePct.toFixed(1)}%` : '';
-        const beatClr = beat ? '#34d399' : '#fb7185';
+        const beatClr = beat == null ? '#94a3b8' : beat ? '#34d399' : '#fb7185';
+        const verdict = beat == null ? '—' : beat ? 'BEAT' : 'MISS';
+        const est = e.epsEstimated != null ? `$${e.epsEstimated.toFixed(2)}` : 'no est';
         return `<tr style="border-bottom:1px solid #ffffff05;">
           <td style="padding:5px 8px;font-weight:700;color:#e2e8f0;font-size:12px;">${tk(e.symbol)}</td>
-          <td style="padding:5px 8px;text-align:right;font-size:12px;font-weight:700;color:${beatClr};">${beat ? 'BEAT' : 'MISS'}</td>
-          <td style="padding:5px 8px;text-align:right;font-size:11px;color:#cbd5e1;">$${e.epsActual} vs $${(e.epsEstimated || 0).toFixed(2)}</td>
+          <td style="padding:5px 8px;text-align:right;font-size:12px;font-weight:700;color:${beatClr};">${verdict}</td>
+          <td style="padding:5px 8px;text-align:right;font-size:11px;color:#cbd5e1;">$${e.epsActual} vs ${est}</td>
           <td style="padding:5px 8px;text-align:right;font-size:11px;color:${beatClr};">${surprise}</td>
         </tr>`;
       }).join('');
@@ -740,7 +745,9 @@ export async function GET(req: Request) {
     qqqDaily, spyDaily,
     weeklyNews,
   ] = await Promise.all([
-    fetchJson(`${origin}/api/claude/snapshot/${Date.now()}`),
+    /* full=1 or every scan list arrives capped at 25 rows — the weekly was
+       summarising a truncated board while the daily briefing saw all of it. */
+    fetchJson(`${origin}/api/claude/snapshot/${Date.now()}?full=1`),
     fetchJson(`${origin}/api/econ?from=${nmStr}&to=${nfStr}`),
     fetchJson(`${origin}/api/econ?from=${mStr}&to=${fStr}`),
     fetchJson(`${origin}/api/earnings?from=${nmStr}&to=${nfStr}`),
@@ -803,15 +810,20 @@ export async function GET(req: Request) {
   const earningsEvents = Array.isArray(earningsThisWeek)
     ? earningsThisWeek
     : (earningsThisWeek as any)?.events || [];
+  /* Same $20B floor the rendered table uses. These were 10e9 and 20e9
+     respectively, so the narrative could discuss companies the table below it
+     did not list. */
   const thisWeekEarnings = earningsEvents
-    .filter((e: any) => e.mktCap > 10e9 && e.epsActual != null)
+    .filter((e: any) => e.mktCap > 20e9 && e.epsActual != null)
     .sort((a: any, b: any) => (b.mktCap || 0) - (a.mktCap || 0))
     .slice(0, 15)
     .map((e: any) => {
-      const beat = e.epsActual > (e.epsEstimated || 0);
+      const beat = e.epsEstimated != null ? e.epsActual >= e.epsEstimated : null;
+      const verdict = beat == null ? 'no estimate' : beat ? 'BEAT' : 'MISS';
+      const est = e.epsEstimated != null ? `$${e.epsEstimated.toFixed(2)} est` : 'no est';
       const surprise = e.epsSurprisePct ? `${e.epsSurprisePct > 0 ? '+' : ''}${e.epsSurprisePct.toFixed(1)}%` : '';
       const rev = e.revenueEstimated ? `Rev est $${(e.revenueEstimated / 1e9).toFixed(2)}B` : '';
-      return `${e.symbol}: EPS $${e.epsActual} vs $${(e.epsEstimated || 0).toFixed(2)} est (${beat ? 'BEAT' : 'MISS'} ${surprise}) | ${rev} | MCap $${(e.mktCap / 1e9).toFixed(0)}B`;
+      return `${e.symbol}: EPS $${e.epsActual} vs ${est} (${verdict} ${surprise}) | ${rev} | MCap $${(e.mktCap / 1e9).toFixed(0)}B`;
     }).join('\n');
 
   // Build the data payload for Claude analysis

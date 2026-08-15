@@ -319,14 +319,32 @@ export interface ColumnNote {
   colour?: string;
 }
 
+/* One resolver for every "?" hover on every scan table.
+
+   colTip was copy-pasted into six components. Five read the shared glossary
+   below and fell back to a local map; Vcp read ONLY a local map and never
+   consulted this file at all, so the same column could explain itself two
+   different ways depending on which table you were looking at.
+
+   Per-scan overrides still work — pass them as `fallback` — but they now sit
+   UNDER the shared glossary rather than replacing it. */
+export const columnTip = (
+  key: string,
+  fallback?: Record<string, ColumnNote>
+): string | undefined => {
+  const n = COLUMN_NOTES?.[key] ?? fallback?.[key];
+  if (!n) return undefined;
+  return n.colour ? `${n.what}\n\n${n.colour}` : n.what;
+};
+
 export const COLUMN_NOTES: Record<string, ColumnNote> = {
   CNF: {
-    what: 'Confluence score, 0-100. The unified read \u2014 volume, gap, range expansion, relative strength, extension, catalyst quality, scan persistence, market regime and sector heat, all deterministic. Hover the badge for the point-by-point breakdown.',
-    colour: 'Green \u2265 70 (A) \u00b7 amber \u2265 50 (B) \u00b7 grey below (C).',
+    what: 'Confluence score, 0-100. The unified read \u2014 volume, gap, range expansion, relative strength, extension, catalyst quality, scan persistence, market regime and sector heat, all deterministic. Hover the number for the point-by-point breakdown.',
+    colour: 'The grade is on the ticker, not here: green \u2265 70 (A) \u00b7 amber \u2265 50 (B) \u00b7 grey below (C).',
   },
   EP: {
     what: 'EP9M score, 0-100. Volume abnormality carries half the weight because it IS the setup; the rest is float turnover, catalyst quality, close strength, money flow and days to cover. Hover for the breakdown.',
-    colour: 'Green \u2265 70 (A) \u00b7 amber \u2265 50 (B) \u00b7 grey below (C).',
+    colour: 'The grade is on the ticker, not here: green \u2265 70 (A) \u00b7 amber \u2265 50 (B) \u00b7 grey below (C).',
   },
   PRICE: {
     what: 'Last trade. The dot beside it is VWAP position.',

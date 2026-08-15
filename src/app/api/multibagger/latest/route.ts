@@ -7,18 +7,13 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { MULTIBAGGER_META } from '@/lib/scanConfig';
+import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 export const revalidate = 0;
 
 export async function GET() {
-  const noStoreHeaders = {
-    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-    'Pragma': 'no-cache',
-    'Expires': '0',
-  };
-
   try {
     const [candidates, lastScanTime, meta, liveChgMap] = await Promise.all([
       kv.get<any[]>('multibagger_v1'),
@@ -46,12 +41,13 @@ export async function GET() {
       mcapFiltered: meta?.mcapFiltered ?? null,
       scored: meta?.scored ?? null,
       scanMeta,
-    }, { headers: noStoreHeaders });
+      // LIVE rather than SCAN: the rows above are overlaid with liveChgMap.
+    }, { headers: cacheHeaders(CACHE.LIVE) });
   } catch (error: any) {
     console.error('MULTIBAGGER_LATEST_ERROR:', error);
     return NextResponse.json(
       { success: false, error: error.message, candidates: [] },
-      { status: 500, headers: noStoreHeaders },
+      { status: 500, headers: noCacheHeaders() },
     );
   }
 }

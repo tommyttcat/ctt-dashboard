@@ -7,10 +7,14 @@
 // and cash generation. Updated daily from SEC filings.
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { MULTIBAGGER_META } from '@/lib/scanConfig';
-import MetricsKey from './MetricsKey';
+import { cachedJson } from '@/lib/scannerLatest';
+import { MULTIBAGGER } from '@/lib/scanConfig';
+import { rsBadge } from '@/lib/indicators/rs';
+
 import { useMarketData } from './MarketDataContext';
 import TickerChartHover from './TickerChartHover';
+import { stageColor as stgColor } from '@/lib/indicators/stage';
+import { rvolColorLowFloor as rvolColor, tickerChipCls, scoreCellCls } from '@/lib/indicators/columnColors';
 
 const ATTR_LABELS: Record<string, string> = {
   revenueGrowth: 'Revenue Growth',
@@ -28,18 +32,6 @@ const ATTR_MAX: Record<string, number> = {
   marketCap: 20,
   valuation: 10,
   cashGeneration: 10,
-};
-
-const gradeColor = (grade: string): string => {
-  if (grade === 'A') return 'text-emerald-400';
-  if (grade === 'B') return 'text-amber-400';
-  return 'text-slate-500';
-};
-
-const gradeBg = (grade: string): string => {
-  if (grade === 'A') return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
-  if (grade === 'B') return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
-  return 'bg-slate-700/30 text-slate-500 border-slate-600/30';
 };
 
 const attrStatus = (val: number, max: number): { passed: boolean; pct: number } => {
@@ -153,37 +145,6 @@ const chgColor = (v: number): string => {
   return 'text-red-500';
 };
 
-const rvolColor = (v: number | null | undefined): string => {
-  if (v == null) return 'text-slate-500';
-  if (v >= 3) return 'text-fuchsia-400';
-  if (v >= 2) return 'text-emerald-400';
-  if (v >= 1.5) return 'text-lime-400';
-  if (v >= 1) return 'text-slate-300';
-  return 'text-slate-500';
-};
-
-const stgColor = (s: string | null | undefined): string => {
-  if (!s || s === '—') return 'text-slate-500';
-  const n = s.replace(/Stage\s*/i, '').trim().toUpperCase();
-  if (n.startsWith('2')) {
-    if (n === '2C') return 'text-amber-400';
-    if (n === '2B') return 'text-emerald-300';
-    return 'text-emerald-400';
-  }
-  if (n.startsWith('4')) return 'text-rose-400';
-  if (n.startsWith('3')) return 'text-amber-400';
-  if (n.startsWith('1')) return 'text-slate-400';
-  return 'text-slate-500';
-};
-
-const rsColor = (v: number | null | undefined): string => {
-  if (v == null) return 'text-slate-500';
-  if (v >= 90) return 'text-fuchsia-400';
-  if (v >= 80) return 'text-emerald-400';
-  if (v >= 70) return 'text-slate-300';
-  if (v >= 50) return 'text-slate-400';
-  return 'text-red-400';
-};
 
 const fmtVol = (v: number): string => {
   if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
@@ -207,7 +168,7 @@ const MCAP_BUCKETS: McapFilter[] = ['Micro', 'Small', 'Mid'];
 
 const COLUMN_TIPS: Record<string, string> = {
   TICKER: 'Symbol. Hover for company name.',
-  SCORE: 'Multibagger score 0–100. Sum of six fundamental attributes: Revenue Growth (25), Return on Capital (20), Low Debt (15), Market Cap (20), Valuation (10), Cash Generation (10). Hover the badge for the breakdown.',
+  SCORE: 'Multibagger score 0–100. Sum of six fundamental attributes: Revenue Growth (25), Return on Capital (20), Low Debt (15), Market Cap (20), Valuation (10), Cash Generation (10). Hover the number for the breakdown.',
   'CHG%': 'Today\'s price change percentage from Polygon snapshot.',
   VOL: 'Today\'s trading volume.',
   DVOL: 'Dollar volume — price × volume. Measures liquidity in dollar terms.',
@@ -254,9 +215,9 @@ export default function Multibagger() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch(`/api/multibagger/latest?t=${Date.now()}`, { cache: 'no-store' });
-        if (!res.ok) throw new Error(`API ${res.status}`);
-        const data = await res.json();
+        /* Shared TTL cache — see lib/scannerLatest. Throws on non-ok, so the
+           explicit status check it replaced is preserved. */
+        const data = await cachedJson('/api/multibagger/latest');
         if (data.success) {
           setCandidates(data.candidates || []);
           setLastScanTime(data.lastScanTime);
@@ -281,6 +242,32 @@ export default function Multibagger() {
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortKey(key); setSortDir('desc'); }
+  };
+
+  const [copied, setCopied] = useState(false);
+  const handleCopyTickers = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const tickers = filtered.map(c => c.ticker).join(',');
+    if (!tickers) return;
+    try { await navigator.clipboard.writeText(tickers); } catch {
+      const ta = document.createElement('textarea'); ta.value = tickers; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch {} document.body.removeChild(ta);
+    }
+    setCopied(true); setTimeout(() => setCopied(false), 1800);
+  };
+
+  const [txtDone, setTxtDone] = useState(false);
+  const handleDownloadTxt = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const t = filtered.map(c => c.ticker);
+    if (!t.length) return;
+    const blob = new Blob([t.join(',')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'watchlist.txt';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setTxtDone(true); setTimeout(() => setTxtDone(false), 1800);
   };
 
   const filtered = useMemo(() => {
@@ -378,39 +365,65 @@ export default function Multibagger() {
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
             100-BAGGER SCORECARD
           </span>
+          {filtered.length > 0 && (
+            <button
+              onClick={handleCopyTickers}
+              title={`Copy ${filtered.length} ticker${filtered.length !== 1 ? 's' : ''} for TradingView`}
+              className={`text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded border transition-all duration-200 ${
+                copied
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  : 'bg-[#161c2a] text-slate-400 border-white/5 hover:text-slate-200 hover:bg-white/[0.04]'
+              }`}
+            >
+              {copied ? `✓ Copied ${filtered.length}` : `Copy ${filtered.length}`}
+            </button>
+          )}
+          {filtered.length > 0 && (
+            <button
+              onClick={handleDownloadTxt}
+              title={`Download ${filtered.length} ticker${filtered.length !== 1 ? 's' : ''} as .txt for TradingView import`}
+              className={`text-[10px] font-bold tracking-wider uppercase px-2 py-1 rounded border transition-all duration-200 ${
+                txtDone
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  : 'bg-[#161c2a] text-slate-400 border-white/5 hover:text-slate-200 hover:bg-white/[0.04]'
+              }`}
+            >
+              {txtDone ? '✓ TXT' : 'TXT'}
+            </button>
+          )}
           {!isLoading && candidates.length > 0 && (
-            <span className="hidden md:flex items-center gap-2" onClick={e => e.stopPropagation()}>
+            <span className="hidden md:flex basis-full items-center gap-1.5 mt-1" onClick={e => e.stopPropagation()}>
               <button
                 onClick={() => { setGradeFilter(gradeFilter === 'A' ? 'All' : 'A'); setIsExpanded(true); }}
-                className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded cursor-pointer transition-all ${
+                className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-0.5 rounded border transition-all cursor-pointer ${
                   gradeFilter === 'A'
-                    ? 'text-emerald-300 bg-emerald-500/20 border border-emerald-400/40 ring-1 ring-emerald-500/30'
-                    : 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20'
+                    ? 'text-emerald-300 bg-emerald-500/20 border-emerald-400/40 ring-1 ring-emerald-500/30'
+                    : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/20'
                 }`}
               >{gradeACount} Grade A</button>
               <button
                 onClick={() => { setGradeFilter(gradeFilter === 'B' ? 'All' : 'B'); setIsExpanded(true); }}
-                className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded cursor-pointer transition-all ${
+                className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-0.5 rounded border transition-all cursor-pointer ${
                   gradeFilter === 'B'
-                    ? 'text-amber-300 bg-amber-500/20 border border-amber-400/40 ring-1 ring-amber-500/30'
-                    : 'text-amber-400 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20'
+                    ? 'text-amber-300 bg-amber-500/20 border-amber-400/40 ring-1 ring-amber-500/30'
+                    : 'text-amber-400 bg-amber-500/10 border-amber-500/20 hover:bg-amber-500/20'
                 }`}
               >{gradeBCount} Grade B</button>
               {stage2Count > 0 && (
                 <button
                   onClick={() => { setHideDecline(true); setIsExpanded(true); }}
-                  className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded cursor-pointer transition-all ${
+                  className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-0.5 rounded border transition-all cursor-pointer ${
                     hideDecline
-                      ? 'text-slate-300 bg-white/[0.06] border border-white/10 ring-1 ring-white/10'
-                      : 'text-slate-400 bg-white/[0.03] border border-white/5 hover:bg-white/[0.06]'
+                      ? 'text-slate-300 bg-white/[0.06] border-white/10 ring-1 ring-white/10'
+                      : 'text-slate-400 bg-white/[0.03] border-white/5 hover:bg-white/[0.06]'
                   }`}
                 >{stage2Count} Stage 2</button>
               )}
             </span>
           )}
-          {!isLoading && (
-            <span className="relative z-40 inline-flex" onClick={e => e.stopPropagation()}>
-              <MetricsKey meta={scanMeta || MULTIBAGGER_META} />
+          {!isLoading && candidates.length > 0 && (
+            <span className="hidden md:block basis-full text-[10px] font-bold tracking-wider uppercase text-slate-500 mt-1">
+              Top {filtered.length} of {candidates.length} · ${MULTIBAGGER.minMarketCap >= 1e6 ? `${MULTIBAGGER.minMarketCap/1e6}M` : ''}–${MULTIBAGGER.maxMarketCap >= 1e9 ? `${MULTIBAGGER.maxMarketCap/1e9}B` : ''} cap · ${MULTIBAGGER.minPrice}+ · 10%+ rev growth · 10%+ ROIC
             </span>
           )}
         </div>
@@ -511,6 +524,9 @@ export default function Multibagger() {
                   <th className="px-2 py-2.5 text-center font-bold cursor-pointer select-none" title={COLUMN_TIPS.SCORE} onClick={() => toggleSort('score')}>
                     Score<SortArrow col="score" />
                   </th>
+                  <th className="px-2 py-2.5 text-right font-bold cursor-pointer select-none" title={COLUMN_TIPS.RS} onClick={() => toggleSort('rs')}>
+                    RS<SortArrow col="rs" />
+                  </th>
                   <th className="px-2 py-2.5 text-right font-bold cursor-pointer select-none" title={COLUMN_TIPS['CHG%']} onClick={() => toggleSort('chg')}>
                     Chg%<SortArrow col="chg" />
                   </th>
@@ -522,12 +538,6 @@ export default function Multibagger() {
                   </th>
                   <th className="px-2 py-2.5 text-right font-bold cursor-pointer select-none" title={COLUMN_TIPS.RVOL} onClick={() => toggleSort('rvol')}>
                     RVol<SortArrow col="rvol" />
-                  </th>
-                  <th className="px-2 py-2.5 text-right font-bold cursor-pointer select-none" title={COLUMN_TIPS.RS} onClick={() => toggleSort('rs')}>
-                    RS<SortArrow col="rs" />
-                  </th>
-                  <th className="px-2 py-2.5 text-center font-bold cursor-pointer select-none" title={COLUMN_TIPS.STAGE} onClick={() => toggleSort('stage')}>
-                    Stage<SortArrow col="stage" />
                   </th>
                   <th className="px-2 py-2.5 text-right font-bold cursor-pointer select-none" title={COLUMN_TIPS['REV%']} onClick={() => toggleSort('revGrowth')}>
                     Rev%<SortArrow col="revGrowth" />
@@ -547,6 +557,9 @@ export default function Multibagger() {
                   <th className="px-2 py-2.5 text-right font-bold cursor-pointer select-none" title={COLUMN_TIPS['FCF%']} onClick={() => toggleSort('fcf')}>
                     FCF%<SortArrow col="fcf" />
                   </th>
+                  <th className="px-2 py-2.5 pl-3 text-center font-bold border-l border-white/5 cursor-pointer select-none" title={COLUMN_TIPS.STAGE} onClick={() => toggleSort('stage')}>
+                    Stage<SortArrow col="stage" />
+                  </th>
                   <th className="px-3 py-2.5 text-left font-bold hidden md:table-cell" title={COLUMN_TIPS.SECTOR}>Sector</th>
                 </tr>
               </thead>
@@ -563,17 +576,22 @@ export default function Multibagger() {
                       >
                         {/* Ticker */}
                         <td className="px-3 py-2 text-left">
-                          <TickerChartHover symbol={c.ticker}><span className="inline-block bg-slate-500/10 text-slate-300 text-[11px] font-bold px-1.5 py-0.5 rounded border border-white/10" title={c.name}>{c.ticker}</span></TickerChartHover>
+                          <TickerChartHover symbol={c.ticker}><span className={tickerChipCls(c.grade)} title={`${c.name} — Grade ${c.grade} (${c.score})`}>{c.ticker}</span></TickerChartHover>
                         </td>
 
                         {/* Score Badge */}
                         <td className="px-2 py-2.5 text-center">
                           <span
-                            className={`inline-flex items-center justify-center px-1.5 py-[2px] rounded text-[9px] font-bold tabular-nums border ${gradeBg(c.grade)}`}
+                            className={scoreCellCls(c.score)}
                             title={buildBreakdownTip(c)}
                           >
                             {c.score}
                           </span>
+                        </td>
+
+                        {/* RS */}
+                        <td className="px-2 py-2.5 text-right">
+                          <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums ${rsBadge(c.rs)}`}>{c.rs != null ? c.rs : '—'}</span>
                         </td>
 
                         {/* Change % */}
@@ -594,16 +612,6 @@ export default function Multibagger() {
                         {/* RVol */}
                         <td className={`px-2 py-2.5 text-right tabular-nums font-semibold ${rvolColor(c.rvol)}`}>
                           {c.rvol != null ? `${c.rvol.toFixed(1)}x` : '—'}
-                        </td>
-
-                        {/* RS */}
-                        <td className={`px-2 py-2.5 text-right tabular-nums font-semibold ${rsColor(c.rs)}`}>
-                          {c.rs != null ? c.rs : '—'}
-                        </td>
-
-                        {/* Stage */}
-                        <td className={`px-2 py-2.5 text-center tabular-nums font-semibold ${stgColor(c.stageShort)}`}>
-                          {c.stageShort || '—'}
                         </td>
 
                         {/* Revenue Growth */}
@@ -644,6 +652,11 @@ export default function Multibagger() {
                         {/* FCF Yield */}
                         <td className={`px-2 py-2.5 text-right tabular-nums font-semibold ${fcfColor(c.attrs.fcfYield)}`}>
                           {c.attrs.fcfYield != null ? `${c.attrs.fcfYield.toFixed(1)}%` : '—'}
+                        </td>
+
+                        {/* Stage */}
+                        <td className={`px-2 py-2.5 pl-3 border-l border-white/5 text-center tabular-nums font-semibold ${stgColor(c.stageShort)}`}>
+                          {c.stageShort || '—'}
                         </td>
 
                         {/* Sector */}

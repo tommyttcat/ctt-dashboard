@@ -7,6 +7,8 @@
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
+import { getMarketSession } from '@/lib/indicators/marketScorecard';
+import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -28,16 +30,6 @@ const STOCK_SYMBOLS = [
 const CACHE_KEY = 'macro_quotes_v1';
 const CACHE_TTL_MS = 55 * 1000; // serve cache for ~1 min before hitting FMP again
 
-const getMarketSession = (): string => {
-  const est = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const day = est.getDay();
-  const t = est.getHours() + est.getMinutes() / 60;
-  if (day === 0 || day === 6) return 'Closed';
-  if (t >= 4 && t < 9.5) return 'Pre-Market';
-  if (t >= 9.5 && t < 16) return 'Open';
-  if (t >= 16 && t < 20) return 'Post-Market';
-  return 'Closed';
-};
 
 const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 10000) => {
   const controller = new AbortController();
@@ -55,7 +47,7 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 10000) => {
 
 export async function GET() {
   const fmpApiKey = (process.env.FMP_API_KEY || process.env.NEXT_PUBLIC_FMP_API_KEY || '').trim();
-  if (!fmpApiKey) return NextResponse.json({ error: 'Missing FMP key' }, { status: 500 });
+  if (!fmpApiKey) return NextResponse.json({ error: 'Missing FMP key' }, { status: 500, headers: noCacheHeaders() });
 
   // Market breadth / GMI-style regime is computed by the scanner and cached in
   // its own KV key; read it fresh on every call (cheap) and attach it.
@@ -67,7 +59,7 @@ export async function GET() {
   try {
     const cached = await kv.get<any>(CACHE_KEY);
     if (cached && cached.updatedAt && Date.now() - cached.updatedAt < CACHE_TTL_MS) {
-      return NextResponse.json({ ...cached, breadth, cached: true });
+      return NextResponse.json({ ...cached, breadth, cached: true }, { headers: cacheHeaders(CACHE.LIVE) });
     }
   } catch (e) {
     // KV miss/error — fall through and fetch fresh.
@@ -128,5 +120,5 @@ export async function GET() {
     }
   }
 
-  return NextResponse.json({ ...payload, breadth });
+  return NextResponse.json({ ...payload, breadth }, { headers: cacheHeaders(CACHE.LIVE) });
 }

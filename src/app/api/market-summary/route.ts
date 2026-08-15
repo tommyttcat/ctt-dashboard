@@ -15,6 +15,7 @@
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
+import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -313,6 +314,11 @@ export async function GET(request: Request) {
   const dateParam = searchParams.get('date');
   const forceRefresh = searchParams.get('refresh') === 'true';
 
+  /* ?refresh=true deliberately busts the KV narrative, so it must never be
+     pinned at the edge — otherwise a manual regenerate would be served back
+     from cache for the rest of the TTL. */
+  const headers = forceRefresh ? noCacheHeaders() : cacheHeaders(CACHE.NARRATIVE);
+
   const estStr = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
   const est = new Date(estStr);
   const currentHourDecimal = est.getHours() + est.getMinutes() / 60;
@@ -332,7 +338,7 @@ export async function GET(request: Request) {
       await kv.del(`market_narrative_${targetDate}`);
     } else {
       const cachedSummary = await kv.get(`market_narrative_${targetDate}`);
-      if (cachedSummary) return NextResponse.json(cachedSummary);
+      if (cachedSummary) return NextResponse.json(cachedSummary, { headers });
     }
 
     const polygonKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY;
@@ -452,7 +458,7 @@ export async function GET(request: Request) {
 
     // If we have neither tape nor news, there's genuinely nothing to report.
     if (Object.keys(quotes).length === 0 && actionableEvents.length === 0) {
-      return NextResponse.json({ status: 404, message: "No market data recorded yet." }, { status: 404 });
+      return NextResponse.json({ status: 404, message: "No market data recorded yet." }, { status: 404, headers: noCacheHeaders() });
     }
 
     // 5. Deterministic session blocks from the assembled data
@@ -478,7 +484,7 @@ export async function GET(request: Request) {
     await kv.set(`market_narrative_${targetDate}`, generatedSummary, { ex: cacheExpiration });
     try { await kv.set(`market_narrative_lastgood_${targetDate}`, generatedSummary, { ex: 86400 }); } catch {}
 
-    return NextResponse.json(generatedSummary);
+    return NextResponse.json(generatedSummary, { headers });
 
   } catch (error: any) {
     // FAILURE THROTTLE — unchanged pattern: serve last good, cool down 10 min.
@@ -491,6 +497,6 @@ export async function GET(request: Request) {
     try {
       await kv.set(`market_narrative_${targetDate}`, payload, { ex: 600 });
     } catch {}
-    return NextResponse.json(payload);
+    return NextResponse.json(payload, { headers: noCacheHeaders() });
   }
 }

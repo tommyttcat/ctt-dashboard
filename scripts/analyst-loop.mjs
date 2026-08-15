@@ -236,11 +236,24 @@ async function main() {
     process.stdin.setEncoding('utf8');
     for await (const chunk of process.stdin) input += chunk;
     const briefStr = input.trim();
-    // Validate JSON
-    JSON.parse(briefStr);
+    const parsed = JSON.parse(briefStr);
+    if (!parsed.regimeDetail && !parsed.summary) {
+      process.stderr.write(
+        'Refusing to write: brief has neither "regimeDetail" nor "summary". ' +
+        'That would overwrite a complete brief with an empty shell.\n'
+      );
+      process.exit(1);
+    }
+    const wrapped = {
+      generatedAt: new Date().toISOString(),
+      generatedAtET: new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }),
+      generatedBy: 'ai-analyst',
+      ...parsed,
+    };
+    const wrappedStr = JSON.stringify(wrapped);
     const cmd = BRIEF_TTL
-      ? ['SET', BRIEF_KEY, briefStr, 'EX', String(BRIEF_TTL)]
-      : ['SET', BRIEF_KEY, briefStr];
+      ? ['SET', BRIEF_KEY, wrappedStr, 'EX', String(BRIEF_TTL)]
+      : ['SET', BRIEF_KEY, wrappedStr];
     const result = await kvPost([cmd]);
     process.stdout.write(JSON.stringify({ success: true, result }));
 

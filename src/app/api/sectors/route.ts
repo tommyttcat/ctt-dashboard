@@ -6,6 +6,8 @@
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
+import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
+import { getMarketSession } from '@/lib/indicators/marketScorecard';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -28,16 +30,6 @@ const SECTOR_ETFS: { ticker: string; sector: string }[] = [
   { ticker: 'XLB', sector: 'Materials' },
 ];
 
-const getMarketSession = (): string => {
-  const est = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const day = est.getDay();
-  const t = est.getHours() + est.getMinutes() / 60;
-  if (day === 0 || day === 6) return 'Closed';
-  if (t >= 4 && t < 9.5) return 'Pre-Market';
-  if (t >= 9.5 && t < 16) return 'Open';
-  if (t >= 16 && t < 20) return 'Post-Market';
-  return 'Closed';
-};
 
 const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 8000) => {
   const controller = new AbortController();
@@ -55,7 +47,7 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 8000) => {
 
 export async function GET() {
   const polygonKey = (process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '').trim();
-  if (!polygonKey) return NextResponse.json({ error: 'Missing Polygon key' }, { status: 500 });
+  if (!polygonKey) return NextResponse.json({ error: 'Missing Polygon key' }, { status: 500, headers: noCacheHeaders() });
 
   let stale: any = null;
   try {
@@ -63,7 +55,7 @@ export async function GET() {
     if (cached) {
       stale = cached;
       if (cached.updatedAt && Date.now() - cached.updatedAt < CACHE_TTL_MS) {
-        return NextResponse.json({ ...cached, cached: true });
+        return NextResponse.json({ ...cached, cached: true }, { headers: cacheHeaders(CACHE.SCAN) });
       }
     }
   } catch {
@@ -115,7 +107,7 @@ export async function GET() {
   sectors.sort((a, b) => b.changesPercentage - a.changesPercentage);
 
   if (sectors.length === 0 && stale?.sectors?.length > 0) {
-    return NextResponse.json({ ...stale, cached: true, stale: true });
+    return NextResponse.json({ ...stale, cached: true, stale: true }, { headers: cacheHeaders(CACHE.SCAN) });
   }
 
   const payload = { session, updatedAt: Date.now(), sectors };
@@ -128,5 +120,5 @@ export async function GET() {
     }
   }
 
-  return NextResponse.json(payload);
+  return NextResponse.json(payload, { headers: cacheHeaders(CACHE.SCAN) });
 }

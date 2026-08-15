@@ -13,19 +13,13 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { EP9M_META } from '@/lib/scanConfig';
+import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 export const revalidate = 0;
 
 export async function GET() {
-  const noStoreHeaders = {
-    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-    'Pragma': 'no-cache',
-    'Expires': '0',
-    'Surrogate-Control': 'no-store',
-  };
-
   try {
     const [candidates, lastScanTime, meta, registry] = await Promise.all([
       kv.get<any[]>('ep9m_v1'),
@@ -53,12 +47,12 @@ export async function GET() {
       minVolume: meta?.minVolume ?? null,
       registrySize: Array.isArray(registry) ? registry.length : 0,
       scanMeta,
-    }, { headers: noStoreHeaders });
+    }, { headers: cacheHeaders(CACHE.SCAN) });
   } catch (error: any) {
     console.error('EP9M_LATEST_ERROR:', error);
     return NextResponse.json(
       { success: false, error: error.message, candidates: [] },
-      { status: 500, headers: noStoreHeaders }
+      { status: 500, headers: noCacheHeaders() }
     );
   }
 }

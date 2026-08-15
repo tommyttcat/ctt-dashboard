@@ -142,8 +142,10 @@ import { computeTradePlan } from '@/lib/indicators/tradeplan';
 import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN, CHOP_TREND_MAX } from '@/lib/indicators/chop';
 import { EP9M, EP9M_META } from '@/lib/scanConfig';
 import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
+import { cleanSectorDescription } from '@/lib/sectors';
+import { sma, ema, atr, adrPct, stochK, pctReturn } from '@/lib/indicators/marketMath';
 import { runInBackground, isDetachedRun, BG_HEADERS } from '@/lib/background';
-import { pickBestNews, polygonNewsPath, type NewsItem } from '@/lib/indicators/news';
+import { pickBestNews, polygonNewsPath, fetchBenzingaNewsIndex, type NewsItem } from '@/lib/indicators/news';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -151,8 +153,10 @@ export const revalidate = 0;
 export const maxDuration = 300;
 
 const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
-/* BENZINGA_KEY is gone — this route no longer touches Benzinga at all.
-   Polygon covers news, and the earnings calendar this scan never used. */
+/* Benzinga is back, for news only — never the earnings calendar, which is what
+   was actually dead when it got pulled. Polygon's per-ticker news is Motley
+   Fool wall-to-wall on this plan, so it now serves as the fallback source. */
+const BENZINGA_KEY = (process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '').trim();
 const BASE = 'https://api.polygon.io';
 
 // Fetch-window mechanics, not scan gates — these stay local rather than
@@ -356,114 +360,22 @@ function priorSwingHighOf(bars: Bar[]): number | null {
   return Math.max(...win.map(b => b.h));
 }
 
-function cleanSectorDescription(sic: string | undefined, sector: string | undefined, industry: string | undefined): string {
-  const ind = (industry || '').toLowerCase();
-  const sicTxt = (sic || '').toLowerCase();
-  const blob = `${ind} ${sicTxt}`;
 
-  if (/nuclear|uranium/.test(blob)) return 'Nuclear';
-  if (/solar|photovoltaic/.test(blob)) return 'Solar';
-  if (/electric vehicle|auto manufacturer|motor vehicle|passenger car/.test(blob)) return 'EV';
-  if (/biotechnolog|biological product|in vitro|medicinal chem/.test(blob)) return 'Biotech';
-  if (/semiconductor/.test(blob)) return "Semi's";
-  if (/artificial intelligence/.test(blob)) return 'AI';
-  if (/cybersecurity|security software/.test(blob)) return 'Cyber';
-  if (/fintech|financial technology/.test(blob)) return 'Fintech';
-  if (/aerospace|\bdefense\b|aircraft|guided missile|space vehicle/.test(blob)) return 'Aerospace';
 
-  if (sicTxt) {
-    if (/software|prepackaged|computer program|data processing|information retrieval|computer integrated|computer communication|electronic computer|computer peripheral|computer storage|computer terminal|electronic component|printed circuit/.test(sicTxt)) return 'IT';
-    if (/pharmaceutical|drug|medicinal|surgical|\bmedical\b|\bhealth\b|dental|hospital|diagnostic|laborator/.test(sicTxt)) return 'Healthcare';
-    if (/crude petroleum|natural gas|petroleum|drilling|\boil\b|\bcoal\b|\benergy\b/.test(sicTxt)) return 'Energy';
-    if (/\bbank\b|savings instit|credit institution|insurance|investment office|securities broker|security broker|personal credit|holding compan|fire, marine/.test(sicTxt)) return 'Financials';
-    if (/real estate|land subdivid|operators of apartment|operators of nonresident/.test(sicTxt)) return 'Real Estate';
-    if (/electric services|gas & other|water supply|cogeneration|electric & other services/.test(sicTxt)) return 'Utilities';
-    if (/telephone|telecommunic|radio|television|broadcast|cable|motion picture|advertising|publishing|newspaper|periodical|entertainment/.test(sicTxt)) return 'Comm Serv';
-    if (/retail|catalog|mail-order|eating place|restaurant|apparel|footwear|hotel|department store|grocery|variety store|jewelry/.test(sicTxt)) return 'Con Disc';
-    if (/beverage|\bfood\b|tobacco|soap|cosmetic|household|dairy|bakery/.test(sicTxt)) return 'Con Staples';
-    if (/gold mining|metal mining|steel|aluminum|chemical|industrial inorganic|plastics material|paper mill|fertilizer|\bmining\b/.test(sicTxt)) return 'Materials';
-    if (/aircraft|machinery|industrial|construction|engineering|electrical industrial|transportation|railroad|trucking|air transport/.test(sicTxt)) return 'Industrials';
-  }
 
-  const sec = (sector || '').toLowerCase();
-  if (sec.includes('technology')) return 'IT';
-  if (sec.includes('healthcare') || sec.includes('health care')) return 'Healthcare';
-  if (sec.includes('financial')) return 'Financials';
-  if (sec.includes('consumer discretionary')) return 'Con Disc';
-  if (sec.includes('consumer staples')) return 'Con Staples';
-  if (sec.includes('energy')) return 'Energy';
-  if (sec.includes('materials')) return 'Materials';
-  if (sec.includes('industrials')) return 'Industrials';
-  if (sec.includes('real estate')) return 'Real Estate';
-  if (sec.includes('utilities')) return 'Utilities';
-  if (sec.includes('communication')) return 'Comm Serv';
-
-  return 'Other';
-}
-
-function sma(values: number[], period: number): number | null {
-  if (values.length < period) return null;
-  return values.slice(-period).reduce((a, b) => a + b, 0) / period;
-}
-
-function ema(values: number[], period: number): number | null {
-  if (values.length < period) return null;
-  const k = 2 / (period + 1);
-  let e = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  for (let i = period; i < values.length; i++) e = values[i] * k + e * (1 - k);
-  return e;
-}
-
-function atr(bars: Bar[], period = 14): number | null {
-  if (bars.length < period + 1) return null;
-  const trs: number[] = [];
-  for (let i = 1; i < bars.length; i++) {
-    const pc = bars[i - 1].c;
-    trs.push(Math.max(bars[i].h - bars[i].l, Math.abs(bars[i].h - pc), Math.abs(bars[i].l - pc)));
-  }
-  let a = trs.slice(0, period).reduce((x, y) => x + y, 0) / period;
-  for (let i = period; i < trs.length; i++) a = (a * (period - 1) + trs[i]) / period;
-  return a;
-}
 
 // Average Daily Range % — no gap component, so it measures the intraday room
 // a typical session offers. This is the stop basis in the trade plan, for
 // exactly that reason.
-function adrPct(bars: Bar[], period = 20): number | null {
-  if (bars.length < period) return null;
-  const recent = bars.slice(-period);
-  let sum = 0;
-  let n = 0;
-  for (const b of recent) {
-    if (b.l > 0 && b.h > 0) { sum += b.h / b.l; n++; }
-  }
-  if (n === 0) return null;
-  return ((sum / n) - 1) * 100;
-}
 
 // Stochastic %K(period) — where today's close sits within the period's
 // high/low range. Low readings near a rising 21 EMA are the Blue Dot
 // precondition. Returns null when the window is too short or flat.
-function stochasticK(bars: Bar[], period = 10): number | null {
-  if (bars.length < period) return null;
-  const window = bars.slice(-period);
-  const highestHigh = Math.max(...window.map(b => b.h));
-  const lowestLow = Math.min(...window.map(b => b.l));
-  const close = bars[bars.length - 1].c;
-  const range = highestHigh - lowestLow;
-  if (range <= 0) return null;
-  return Math.round(((close - lowestLow) / range) * 100 * 10) / 10;
-}
 
 /* Currently unused — its only caller was the SPY benchmark return behind
    rsVsSpy, which v1.7 replaced with the shared RS Rating. Kept because it is
    a correct, generic helper and the next thing that needs a trailing return
    should not have to rewrite it. */
-function pctReturn(closes: number[], lookback: number): number | null {
-  if (closes.length < lookback + 1) return null;
-  const then = closes[closes.length - 1 - lookback];
-  return then > 0 ? ((closes[closes.length - 1] - then) / then) * 100 : null;
-}
 
 // ---------------------------------------------------------------
 // Stage 1: universe from the full-market snapshot (1 call)
@@ -784,6 +696,10 @@ async function runScan(request: Request) {
       priorCounts.set(e.ticker, (priorCounts.get(e.ticker) || 0) + 1);
     }
 
+    /* One fetch for the whole scan, indexed by ticker — this plan's Benzinga
+       endpoint ignores per-ticker params, so filtering happens here. */
+    const bzIndex = await fetchBenzingaNewsIndex(BENZINGA_KEY);
+
     const enriched = await inBatches(shortlist, WINDOW.concurrency, async (ab) => {
       const sym = ab.sym;
       const snap = snapMap.get(sym);
@@ -835,7 +751,7 @@ async function runScan(request: Request) {
       // distribution, however good today's single-day print looks.
       const mf = computeMoneyFlow(bars, { length: 21 });
       const mfTrend = moneyFlowTrend(bars, { length: 21, lookback: 5 });
-      const stochK = stochasticK(bars, 10);
+      const stochKVal = stochK(bars, 10);
 
       const e10 = ema(closes, 10);
       const e21 = ema(closes, 21);
@@ -924,7 +840,7 @@ async function runScan(request: Request) {
           rmv,
           mf,
           mfTrend,
-          stochK,
+          stochK: stochKVal,
           rme: rmeDetail.rme,
           chop14,
           aboveEma10: e10 != null ? price >= e10 : null,
@@ -943,7 +859,7 @@ async function runScan(request: Request) {
           dayLow: snap.dayLow ?? bars[bars.length - 1]?.l ?? null,
           priorSwingHigh,
           plan: serialisePlan(plan),
-          news: pickBestNews(newsRes?.results, sym),
+          news: pickBestNews([...(bzIndex.get(sym) ?? []), ...(newsRes?.results ?? [])], sym),
         },
       };
     });

@@ -1,12 +1,28 @@
 {
   "crons": [
     {
+      "path": "/api/rs/run",
+      "schedule": "0 12 * * 1-5"
+    },
+    {
+      "path": "/api/confluence/run",
+      "schedule": "30 13,19 * * 1-5"
+    },
+    {
+      "path": "/api/analyst/generate",
+      "schedule": "*/30 8-23 * * 1-5"
+    },
+    {
+      "path": "/api/analyst/generate",
+      "schedule": "0,30 0 * * 2-6"
+    },
+    {
       "path": "/api/email/briefing?phase=pre",
-      "schedule": "30 11 * * 1-5"
+      "schedule": "0 12 * * 1-5"
     },
     {
       "path": "/api/email/briefing?phase=morning",
-      "schedule": "30 14 * * 1-5"
+      "schedule": "0 14 * * 1-5"
     },
     {
       "path": "/api/email/briefing?phase=midday",
@@ -14,11 +30,11 @@
     },
     {
       "path": "/api/email/briefing?phase=closing",
-      "schedule": "30 20 * * 1-5"
+      "schedule": "0 21 * * 1-5"
     },
     {
       "path": "/api/email/weekly",
-      "schedule": "30 21 * * 5"
+      "schedule": "30 21 * * 0"
     }
   ]
 }

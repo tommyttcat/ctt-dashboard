@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import TickerChartHover from './TickerChartHover';
+import { getMarketSession } from '@/lib/indicators/marketScorecard';
 
 // ---------------------------------------------------------------------------
 // Earnings Calendar — v3.1
@@ -85,16 +86,6 @@ const passesCapFilter = (cap: number | null, f: CapFilter): boolean => {
 };
 
 // --- HELPERS ---
-const getMarketSession = (): MarketSession => {
-  const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const day = estDate.getDay();
-  const timeStr = estDate.getHours() + estDate.getMinutes() / 60;
-  if (day === 0 || day === 6) return 'Closed';
-  if (timeStr >= 4 && timeStr < 9.5) return 'Pre-Market';
-  if (timeStr >= 9.5 && timeStr < 16) return 'Open';
-  if (timeStr >= 16 && timeStr < 20) return 'Post-Market';
-  return 'Closed';
-};
 
 const formatTime = (date: Date) =>
   date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });

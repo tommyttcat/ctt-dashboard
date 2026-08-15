@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { SCANNER_SIP_META, SCANNER_DAILY_META, TOPMOVERS_META } from '@/lib/scanConfig';
+import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 
-// ABSOLUTE CACHE ANNIHILATION
+// The function itself stays dynamic — every cache MISS reads KV fresh. What
+// changed is that the response is now cacheable at the edge, so N concurrent
+// users cost one KV read per TTL instead of nine reads each. See lib/httpCache.
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
@@ -18,18 +21,18 @@ export async function GET() {
       topMovers,
       macroInsights,
       benchmark,
+      benchmarks,
       lastScanTime,
       storedMeta,
-      liveChgMap,
     ] = await Promise.all([
       kv.get('daily_setups_v6'),
       kv.get('stocks_in_play_v6'),
       kv.get('top_movers_v6'),
       kv.get('macro_insights_v6'),
       kv.get('benchmark_v6'),
+      kv.get('benchmarks_v1'),
       kv.get('last_scan_time_v6'),
       kv.get<any>('scan_meta_v6'),
-      kv.get<Record<string, [number, number]>>('live_chg_map_v1'),
     ]);
 
     // Scan-gate metadata for the on-screen "?" key. Prefer whatever the last
@@ -40,31 +43,43 @@ export async function GET() {
       ? storedMeta
       : { sip: SCANNER_SIP_META, daily: SCANNER_DAILY_META, topMovers: TOPMOVERS_META };
 
-    // FORCE BROWSER TO NEVER CACHE THIS RESPONSE
-    return NextResponse.json({ 
+    /* PAYLOAD SIZE — this is the most-fetched route in the app, so what is NOT
+       here matters as much as what is. Two fields were removed on 13 Aug 2026,
+       taking the response from 394 KB to ~140 KB:
+
+         liveChgMap  235 KB / 60% — the full live change map, 12,122 tickers, of
+                     which only ~63 appeared anywhere else in this payload. Its
+                     only consumer was MarketSummary, which used it to overlay
+                     price onto multibagger / swing / consolidation rows. Those
+                     routes now apply the overlay server-side themselves, the
+                     way multibagger/latest and dvol/latest already did.
+         sips         20 KB / 5% — a byte-identical duplicate of stocksInPlay.
+                     Every consumer reads `stocksInPlay || sips`, so the alias
+                     was pure weight on the wire.
+
+       Do not reintroduce either without measuring first. Bandwidth here is paid
+       per user per poll — it is the one cost the CDN cache does not flatten. */
+    return NextResponse.json({
       success: true,
       lastScanTime: lastScanTime || Date.now(),
-      dailySetups: dailySetups || [], 
-      stocksInPlay: stocksInPlay || [],   
-      sips: stocksInPlay || [],           
+      dailySetups: dailySetups || [],
+      stocksInPlay: stocksInPlay || [],
       topMovers: topMovers || {
         'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': []
       },
       macroInsights: macroInsights || null,
       benchmark: benchmark || null,
-      liveChgMap: liveChgMap || null,
+      benchmarks: benchmarks || (benchmark ? [benchmark] : []),
       scanMeta,
     }, {
-      headers: {
-        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0',
-        'Surrogate-Control': 'no-store'
-      }
+      headers: cacheHeaders(CACHE.LIVE),
     });
-    
+
   } catch (error: any) {
     console.error("CRITICAL_LATEST_ROUTE_ERROR:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: error.message }, {
+      status: 500,
+      headers: noCacheHeaders(),
+    });
   }
 }
