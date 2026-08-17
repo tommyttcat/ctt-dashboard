@@ -98,33 +98,51 @@ function stockTableMarkdown(stocks: any[], cols: { key: string; label: string; f
   ];
 }
 
-function captionedImage(src: string, caption?: string): any {
-  const node: any = {
+function captionedImage(src: string): any {
+  return {
     type: 'captionedImage',
-    attrs: { src, fullscreen: false, imageSize: 'normal' },
+    content: [{
+      type: 'image2',
+      attrs: {
+        src,
+        fullscreen: false,
+        imageSize: 'small',
+        alt: 'CTT Market Brief',
+      },
+    }],
   };
-  if (caption) {
-    node.content = [{
-      type: 'captionedImageCaption',
-      content: [text(caption)],
-    }];
+}
+
+async function uploadImageToSubstack(
+  pubUrl: string,
+  session: string,
+  imageUrl: string,
+): Promise<string | null> {
+  const res = await fetch(`${pubUrl}/api/v1/image`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Cookie: `substack.sid=${session}`,
+    },
+    body: `image=${encodeURIComponent(imageUrl)}`,
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`upload-url ${res.status}: ${errText.slice(0, 200)}`);
   }
-  return node;
+  const data = await res.json();
+  return data.url || null;
 }
 
 /* ── Build ProseMirror doc from brief ── */
 
-function formatForSubstack(brief: any, imageUrl?: string): any {
+function formatForSubstack(brief: any): any {
   const sections: any[] = brief?.sections || [];
   const summary = brief?.summary || {};
   const rd = brief?.regimeDetail || {};
   const sectionByName = (rx: RegExp) => sections.find((s: any) => rx.test(s.section));
 
   const nodes: any[] = [];
-
-  if (imageUrl) {
-    nodes.push(captionedImage(imageUrl));
-  }
 
   /* ── Regime: the lead — 2 sentences max ── */
   if (rd.regime) {
@@ -157,7 +175,7 @@ function formatForSubstack(brief: any, imageUrl?: string): any {
     nodes.push(hr());
   }
 
-  /* ── Sectors — 2 sentences ── */
+  /* ── Sectors — image + 2 sentences ── */
   const sectorSec = sectionByName(/Sectors.*Money Flow/i);
   if (sectorSec?.analysis) {
     nodes.push(heading(2, 'Sectors'));
@@ -175,11 +193,11 @@ function formatForSubstack(brief: any, imageUrl?: string): any {
     nodes.push(hr());
   }
 
-  /* ── Top Trades ── */
+  /* ── Top Trades — image then text ── */
   const tradesSec = sectionByName(/Top Trades/i);
   const trades: any[] = tradesSec?.stocks || [];
   if (trades.length) {
-    nodes.push(heading(2, 'Trade Ideas'));
+    nodes.push(heading(2, 'VCP Trade Ideas'));
     trades.forEach((s: any, i: number) => {
       const label = i < 2 ? 'CONVICTION' : 'WATCH';
       const thesis = s.thesis ? trimAnalysis(s.thesis, 1) : '';
@@ -203,7 +221,7 @@ function formatForSubstack(brief: any, imageUrl?: string): any {
     nodes.push(hr());
   }
 
-  /* ── Names to Avoid ── */
+  /* ── Names to Avoid — image then text ── */
   const avoidSec = sectionByName(/Top Avoid/i);
   const avoids: any[] = avoidSec?.stocks || [];
   if (avoids.length) {
@@ -420,9 +438,6 @@ export async function GET(req: Request) {
     });
   }
 
-  const imageUrl = `${origin}/api/og/brief`;
-  const bodyJson = formatForSubstack(brief, imageUrl);
-
   const pubUrl = process.env.SUBSTACK_PUB_URL;
   const session = process.env.SUBSTACK_SESSION;
   if (!pubUrl || !session) {
@@ -430,6 +445,8 @@ export async function GET(req: Request) {
       error: 'Missing SUBSTACK_PUB_URL or SUBSTACK_SESSION env vars',
     }, { status: 500 });
   }
+
+  const bodyJson = formatForSubstack(brief);
 
   const draft = await substackCreateDraft(pubUrl, session, title, subtitle, bodyJson);
   if (draft.error) {
