@@ -126,7 +126,7 @@ import { stageColor, stageShort, stageDescription, stageBadge } from '@/lib/indi
 import { rmeLabel } from '@/lib/indicators/rme';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { rsColor, rsTooltip, rsBadge } from '@/lib/indicators/rs';
-import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews } from '@/lib/catalyst';
+import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews, NewsStars } from '@/lib/catalyst';
 import { displaySector } from '@/lib/sectors';
 import {
   chopColor,
@@ -136,7 +136,7 @@ import {
 } from '@/lib/indicators/chop';
 import { SWING, COLUMN_NOTES, columnTip } from '@/lib/scanConfig';
 import TickerChartHover from './TickerChartHover';
-import { rvolColor as getRvolColor, adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
+import { rvolColor as getRvolColor, adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, floatColor as getFloatColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The setup name sits directly beneath it.' },
@@ -271,7 +271,7 @@ interface SwingCandidate {
 
 type SortDirection = 'asc' | 'desc';
 type CnfFilterType = 'All' | 'A' | 'B';
-type VwapFilterType = 'All' | 'above';
+type VwapFilterType = 'All' | 'above' | 'below';
 type AdrFilterType = 'All' | '5' | '10';
 type PlanFilterType = 'All' | '1R' | '2R';
 type CapFilterType = 'All' | 'Small' | 'Large';
@@ -726,7 +726,7 @@ export default function SwingCandidates() {
   // already means all, and a second click gets you there.
   const handleAdrFilter = (val: AdrFilterType) => setAdrFilter(prev => prev === val ? 'All' : val);
   const handleChopFilter = (val: ChopFilterType) => setChopFilter(prev => prev === val ? 'All' : val);
-  const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
+  const toggleVwap = (status: 'above' | 'below') => setVwapFilter(prev => prev === status ? 'All' : status);
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
   const handlePlanFilter = (val: PlanFilterType) => setPlanFilter(prev => prev === val ? 'All' : val);
   const handleCapFilter = (val: CapFilterType) => setMarketCapFilter(prev => prev === val ? 'All' : val);
@@ -970,7 +970,7 @@ export default function SwingCandidates() {
           {/* FILTERS bar stays z-10 — below the header (z-30) so the ? panel
               covers it cleanly, still above the table. */}
           <div className="flex flex-col gap-3 mb-4 relative z-10" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-center">
+            <div className="flex justify-center items-center gap-4">
               <button
                 onClick={() => setShowFilters(!showFilters)}
                 className={`px-4 py-1.5 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 flex items-center gap-2 ${
@@ -982,6 +982,10 @@ export default function SwingCandidates() {
                 <span className={`inline-block transition-transform duration-200 ${showFilters ? 'rotate-90' : ''}`}>▸</span>
                 Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
               </button>
+              <div className="flex items-center gap-2.5 text-[9px] font-semibold text-slate-500">
+                <span onClick={() => toggleVwap('above')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'above' ? 'text-emerald-400' : ''}`} title={vwapFilter === 'above' ? 'Filtering above VWAP — click to show all' : 'Click to filter above VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 ${vwapFilter === 'above' ? 'ring-1 ring-white/40' : ''}`}></span>Above VWAP</span>
+                <span onClick={() => toggleVwap('below')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'below' ? 'text-rose-400' : ''}`} title={vwapFilter === 'below' ? 'Filtering below VWAP — click to show all' : 'Click to filter below VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-rose-500 ${vwapFilter === 'below' ? 'ring-1 ring-white/40' : ''}`}></span>Below</span>
+              </div>
             </div>
             {showFilters && (
               <div className="flex flex-wrap justify-center items-center gap-3 w-full">
@@ -1104,28 +1108,17 @@ export default function SwingCandidates() {
                     ))}
                   </div>
                 </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>VWAP</span>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleVwapFilter('above')}
-                      title="Only names trading above VWAP. Below-VWAP names still show their red dot in the price cell."
-                      className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}
-                    >
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
-                    </button>
-                  </div>
-                </div>
               </div>
             )}
           </div>
 
           <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            {/* min-w 940 to fit RTR; widths match SIPs v3.0 minus FLOAT. */}
+            {/* min-w 940 to fit RTR; widths match SIPs v3.0. */}
             <table className="w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%] !text-left pl-1`} title={colTip('TICKER')} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
+                  <th className={`${thBase} w-[2%]`} title="News — ★ has an article, ★★ has a causal catalyst from a primary source">N</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('CNF')} onClick={() => handleSort('score')}>CNF{getSortIcon('score')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
@@ -1134,6 +1127,7 @@ export default function SwingCandidates() {
                   <th className={`${thBase} w-[6%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('FLOAT')} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   {/* One header, two stacked readings. Clicking sorts by ADR;
                       CHOP is filtered rather than sorted, since a single
                       header cannot carry two sort keys. */}
@@ -1149,7 +1143,7 @@ export default function SwingCandidates() {
 
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
-                  <tr><td colSpan={16} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No candidates in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
+                  <tr><td colSpan={18} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No candidates in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
                 ) : (
                   filteredAndSorted.map((row) => {
                     const isPositive = (row.changePct ?? 0) >= 0;
@@ -1175,6 +1169,7 @@ export default function SwingCandidates() {
                               {dot === 'red' && <RedDot />}
                             </div>
                           </td>
+                          <td className={tdBase}><NewsStars row={row} /></td>
                           <td className={tdBase}>
                             <span
                               title={cnfTooltip(row)}
@@ -1187,7 +1182,7 @@ export default function SwingCandidates() {
                             <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span>
                           </td>
                           <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
-                            <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus && row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div>
+                            <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus && row.vwapStatus !== 'neutral' && (<div onClick={(e) => { e.stopPropagation(); toggleVwap(row.vwapStatus as 'above' | 'below'); }} className={`w-1.5 h-1.5 rounded-full shrink-0 cursor-pointer ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'} ${vwapFilter === row.vwapStatus ? 'ring-1 ring-white/40' : ''}`} title={`VWAP: ${row.vwapStatus} — click to filter`}></div>)}</div>
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{row.changePct != null ? `${isPositive ? '+' : ''}${row.changePct.toFixed(2)}%` : '—'}</td>
                           {/* The 10/21 dots ARE the posture read — above 21
@@ -1212,6 +1207,7 @@ export default function SwingCandidates() {
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{row.dVol ? formatCurrency(row.dVol) : (row.avgDollarVolM ? `$${row.avgDollarVolM}M` : '—')}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
                           {/* ADR over CHOP, one cell. On this table the pair
                               is the read: a wide-range name that never goes
                               anywhere looks like the best pullback candidate
@@ -1263,7 +1259,8 @@ export default function SwingCandidates() {
                               indent tracks the ticker column's real width
                               instead of drifting from it. */}
                           <td />
-                          <td colSpan={15} className="pb-1.5 pt-1 pr-3">
+                          <td />
+                          <td colSpan={16} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
                               <span className="shrink-0 w-[78px] px-0.5 text-center text-[#7c8bfa]/90 font-bold text-[9px] tracking-[0.04em] uppercase leading-none whitespace-nowrap">
                                 {bdRev ? <BlueDot /> : (formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : 'EMA PB')}

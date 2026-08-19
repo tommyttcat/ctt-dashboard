@@ -10,7 +10,7 @@ export async function GET(
 ) {
   const { symbol } = await params;
   const tf = request.nextUrl.searchParams.get('tf') || 'daily';
-  const apiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
+  const apiKey = process.env.POLYGON_API_KEY || '';
   if (!apiKey) return NextResponse.json({ error: 'Missing Polygon key' }, { status: 500 });
 
   const timespan = tf === 'monthly' ? 'month' : tf === 'weekly' ? 'week' : 'day';

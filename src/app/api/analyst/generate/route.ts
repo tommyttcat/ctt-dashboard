@@ -65,6 +65,7 @@ function extractStocks(snapshot: any): any[] {
         grade: s.cnfGrade ?? null,
         rs: s.rsRating ?? s.rs ?? null,
         catalyst: s.catalyst || null,
+        thesis: s.thesis || null,
         dotKind: s.dotKind || null,
         sentiment: null,
         sources: source ? [source] : [],
@@ -252,16 +253,48 @@ function buildSectorSection(snapshot: any): { section: string; analysis: string 
   return { section: 'Top Sectors & Money Flow', analysis: `**Leading:** ${leading.join(', ')}. **Lagging:** ${lagging.join(', ')}.` };
 }
 
-function buildNewsSection(news: any[]): { section: string; analysis: string } {
-  if (!Array.isArray(news) || !news.length) return { section: 'Key News & Catalysts', analysis: 'No significant news.' };
-  const items = news.slice(0, 8).map((n: any) => {
-    const tickers = (n.tickers || []).slice(0, 3).join(', ');
+function buildNewsSection(news: any[], stocks: any[]): { section: string; analysis: string } {
+  const isGeneric = (c: string | null | undefined) => {
+    if (!c) return true;
+    const l = c.toLowerCase().trim();
+    return l.startsWith('technical momentum') || l === 'recent news' || l === 'news';
+  };
+
+  const catalystItems: string[] = [];
+  const seenTickers = new Set<string>();
+
+  const withCatalyst = stocks
+    .filter(s => s.ticker && !isGeneric(s.catalyst) && (s.thesis || s.catalyst))
+    .map(s => {
+      const rv = s.rvol ?? 0;
+      const chg = Math.abs(s.changePct ?? 0);
+      const rank = (rv >= 2 || chg >= 10 ? 2000 : rv >= 1.2 || chg >= 5 ? 1000 : 0) + rv * 50 + chg;
+      return { ...s, _impactRank: rank };
+    })
+    .sort((a, b) => b._impactRank - a._impactRank)
+    .slice(0, 12);
+
+  for (const s of withCatalyst) {
+    if (seenTickers.has(s.ticker)) continue;
+    seenTickers.add(s.ticker);
+    const tag = s.catalyst && s.catalyst !== s.thesis ? `[${s.catalyst}] ` : '';
+    const headline = s.thesis || s.catalyst || '';
+    catalystItems.push(`**${s.ticker}** ${fmtPct(s.changePct)} ${tag}${headline}`);
+  }
+
+  const feedItems: any[] = Array.isArray(news) ? news : [];
+  for (const n of feedItems) {
+    if (catalystItems.length >= 10) break;
+    const tickers: string[] = (n.tickers || []).slice(0, 3);
+    if (tickers.every(t => seenTickers.has(t))) continue;
+    tickers.forEach(t => seenTickers.add(t));
+    const tickerStr = tickers.join(', ');
     const tag = n.aiTag && n.aiTag !== 'TECH MOMENTUM' ? `[${n.aiTag}] ` : '';
-    /* cleanHeadline first: it's the length-capped form, and Benzinga's WIIM
-       copy is long enough to swallow a slot if the raw title wins here. */
-    return `${tickers ? `**${tickers}** ` : ''}${tag}${n.cleanHeadline || n.title || ''}`;
-  });
-  return { section: 'Key News & Catalysts', analysis: items.join('\n\n') };
+    catalystItems.push(`${tickerStr ? `**${tickerStr}** ` : ''}${tag}${n.cleanHeadline || n.title || ''}`);
+  }
+
+  if (!catalystItems.length) return { section: 'Key News & Catalysts', analysis: 'No significant news.' };
+  return { section: 'Key News & Catalysts', analysis: catalystItems.join('\n\n') };
 }
 
 function buildEconSection(econ: any[]): { section: string; analysis: string } | null {
@@ -386,14 +419,16 @@ function buildBrief(snapshot: any, chop: any, news: any, earnings: any, econ: an
 
   const convictions: string[] = [];
   if (topStocks[0]) {
-    convictions.push(`**${topStocks[0].ticker}** top-ranked — ${topStocks[0].setup || 'strong confluence'}${topStocks[0].rvol ? `, RVOL ${topStocks[0].rvol.toFixed(1)}` : ''}.`);
+    const cat0 = topStocks[0].thesis || topStocks[0].catalyst;
+    convictions.push(`**${topStocks[0].ticker}** top-ranked — ${cat0 || topStocks[0].setup || 'strong confluence'}${topStocks[0].rvol ? `, RVOL ${topStocks[0].rvol.toFixed(1)}` : ''}.`);
   }
   if (topStocks[1]) {
-    convictions.push(`**${topStocks[1].ticker}** showing strength${topStocks[1].catalyst ? ` — ${topStocks[1].catalyst}` : ''}.`);
+    const cat1 = topStocks[1].thesis || topStocks[1].catalyst;
+    convictions.push(`**${topStocks[1].ticker}** showing strength${cat1 ? ` — ${cat1}` : ''}.`);
   }
 
   const watchlist = topStocks.slice(2, 5).map(s =>
-    `**${s.ticker}** — ${s.setup || 'potential breakout'}${s.rs ? `, RS ${s.rs}` : ''}`
+    `**${s.ticker}** — ${s.thesis || s.setup || 'potential breakout'}${s.rs ? `, RS ${s.rs}` : ''}`
   );
   const traps = avoidStocks.slice(0, 3).map(s =>
     `**${s.ticker}** ${fmtPct(s.changePct)}${s.stage ? ` Stage ${s.stage}` : ''} — avoid`
@@ -402,9 +437,7 @@ function buildBrief(snapshot: any, chop: any, news: any, earnings: any, econ: an
   const sections: any[] = [
     buildMacroSection(snapshot, chop),
     buildBreadthSection(snapshot),
-    /* /api/news answers with { results: [...] }, never a bare array — reading
-       it as one is why this section read "No significant news" every run. */
-    buildNewsSection(Array.isArray(news) ? news : (news?.results ?? [])),
+    buildNewsSection(Array.isArray(news) ? news : (news?.results ?? []), allStocks),
     buildSectorSection(snapshot),
   ];
 
@@ -445,27 +478,25 @@ export async function GET(req: Request) {
     return NextResponse.json({ skipped: true, reason: 'Outside 4 AM – 8 PM ET window' });
   }
 
-  if (!force) {
-    const existing = await kv.get<any>(CACHE_KEY);
-    if (existing?.generatedBy === 'ai-analyst') {
-      const genDate = new Date(existing.generatedAt);
-      const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-      const genET = new Date(genDate.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-      const sameDay = nowET.getFullYear() === genET.getFullYear()
-        && nowET.getMonth() === genET.getMonth()
-        && nowET.getDate() === genET.getDate();
-      if (sameDay) {
-        return NextResponse.json({ skipped: true, reason: 'AI-generated brief exists for today — deterministic fallback will not overwrite' });
-      }
-    }
+  const existing = await kv.get<any>(CACHE_KEY);
+  const isAiBrief = existing?.generatedBy === 'ai-analyst';
+  const isSameDay = (() => {
+    if (!existing?.generatedAt) return false;
+    const genDate = new Date(existing.generatedAt);
+    const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const genET = new Date(genDate.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    return nowET.getFullYear() === genET.getFullYear()
+      && nowET.getMonth() === genET.getMonth()
+      && nowET.getDate() === genET.getDate();
+  })();
+
+  if (!force && isAiBrief && isSameDay) {
+    return NextResponse.json({ skipped: true, reason: 'AI-generated brief exists for today — deterministic fallback will not overwrite' });
   }
 
   const origin = resolveOrigin(req);
 
   const [snapshot, chop, news, earnings, econ] = await Promise.all([
-    /* full=1 matters as much as extras=1 here: without it every scan list is
-       cut to 25 rows, so the regime counts and the "top" picks below were
-       derived from a truncated board. */
     fetchJson(`${origin}/api/claude/snapshot?extras=1&full=1`),
     fetchJson(`${origin}/api/chop`),
     fetchJson(`${origin}/api/news`),
@@ -480,12 +511,40 @@ export async function GET(req: Request) {
   const allStocks = extractStocks(snapshot);
 
   try {
-    const brief = buildBrief(snapshot, chop, news, earnings, econ, allStocks);
+    const detBrief = buildBrief(snapshot, chop, news, earnings, econ, allStocks);
+
+    const MERGE_SECTIONS = new Set([
+      'Key News & Catalysts', 'Futures & Macro Snapshot', 'Sentiment & Market Breadth',
+      'Top Sectors & Money Flow', 'Economic Calendar', 'Earnings',
+    ]);
+
+    let brief: any;
+    if (isAiBrief && isSameDay && existing) {
+      const aiSections: any[] = existing.sections || [];
+      const merged = aiSections.map((s: any) => {
+        if (MERGE_SECTIONS.has(s.section)) {
+          const fresh = detBrief.sections.find((d: any) => d.section === s.section);
+          return fresh || s;
+        }
+        return s;
+      });
+      for (const ds of detBrief.sections) {
+        if (MERGE_SECTIONS.has(ds.section) && !merged.some((m: any) => m.section === ds.section)) {
+          merged.push(ds);
+        }
+      }
+      brief = { ...existing, sections: merged };
+      brief.mergedAt = new Date().toISOString();
+    } else {
+      brief = detBrief;
+    }
+
     await kv.set(CACHE_KEY, brief);
 
     return NextResponse.json({
       success: true,
-      generatedAt: brief.generatedAtET,
+      generatedAt: brief.generatedAtET || brief.generatedAt,
+      mode: isAiBrief && isSameDay ? 'merged' : 'full',
       sectionsCount: brief.sections.length,
       stockCount: allStocks.length,
     });

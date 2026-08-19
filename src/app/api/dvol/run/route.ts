@@ -38,8 +38,10 @@ import { kv } from '@vercel/kv';
 import { runInBackground, isDetachedRun, BG_HEADERS } from '@/lib/background';
 import { computeStage } from '@/lib/indicators/stage';
 import { loadRsRatings } from '@/lib/indicators/rs';
+import { rawRsScore, percentileRank } from '@/lib/indicators/vcp';
 import { fetchBenzingaNewsIndex, pickBestNews } from '@/lib/indicators/news';
 import { fromAscending } from '@/lib/indicators/barMetrics';
+import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { computeCnfScore } from '@/lib/indicators/confluence';
 import { cleanSectorDescription } from '@/lib/sectors';
 
@@ -48,7 +50,7 @@ export const fetchCache = 'force-no-store';
 export const revalidate = 0;
 export const maxDuration = 300;
 
-const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
+const POLYGON_KEY = process.env.POLYGON_API_KEY || '';
 const BENZINGA_KEY = (process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '').trim();
 
 const KV_ROWS = 'dvol_rows_v1';
@@ -236,6 +238,8 @@ async function runScan(req: Request) {
         avgVol,
         rvol: avgVol && avgVol > 0 ? vol / avgVol : null,
         adrPct,
+        mf: null as number | null,
+        mfTrend: 0,
         changePct: pc && pc > 0 ? ((close - pc) / pc) * 100 : null,
         /* Where the close sits inside the day's range. A name printing huge
            dollar volume at the low of its range is a very different fact from
@@ -308,7 +312,7 @@ async function runScan(req: Request) {
     const rs = await loadRsRatings();
 
     /* News for the slice, from the one global Benzinga fetch. */
-    const bzIndex = await fetchBenzingaNewsIndex(BENZINGA_KEY);
+    const bzIndex = await fetchBenzingaNewsIndex(POLYGON_KEY);
     let newsResolved = 0;
 
     const barsFrom = new Date(Date.now() - 400 * 86400e3).toISOString().split('T')[0];
@@ -364,6 +368,16 @@ async function runScan(req: Request) {
           if (row.stage) stagesResolved++;
         }
         row.rsRating = rs.get(row.ticker);
+        if (row.rsRating == null && bars.length >= 63 && rs.sortedRaws.length > 0) {
+          const n = bars.length;
+          const p0c = bars[n - 1]?.c;
+          const p63c = bars[n - 1 - Math.min(63, n - 1)]?.c;
+          const p126c = n > 126 ? bars[n - 1 - 126]?.c : null;
+          const p189c = n > 189 ? bars[n - 1 - 189]?.c : null;
+          const p252c = n > 252 ? bars[n - 1 - 252]?.c : null;
+          const raw = rawRsScore({ p0: p0c, p63: p63c, p126: p126c, p189: p189c, p252: p252c });
+          if (raw != null) row.rsRating = percentileRank(raw, rs.sortedRaws);
+        }
 
         /* The 10/21, STOCH and CNF columns, off the bars already in hand —
            these cost no extra request. Polygon returns ascending. */
@@ -375,6 +389,11 @@ async function runScan(req: Request) {
         row.atrPct = m.atrPct;
         row.pctOffHigh = m.pctOffHigh;
         row.goldenCross = m.goldenCross;
+
+        if (bars.length >= 21) {
+          row.mf = computeMoneyFlow(bars as any[], { order: 'asc', length: 21 });
+          row.mfTrend = moneyFlowTrend(bars as any[], { order: 'asc', length: 21, lookback: 5 });
+        }
 
         const pick = pickBestNews(bzIndex.get(row.ticker) ?? [], row.ticker);
         if (pick) {

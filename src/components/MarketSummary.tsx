@@ -152,6 +152,7 @@ interface WatchItem {
   reason: string;
   catalyst?: string | null;
   catalystUrl?: string | null;
+  newsCausal?: boolean | null;
   posture?: PostureBucket | null;
   dotKind?: 'blue' | 'red' | null;
   chg?: number;
@@ -180,10 +181,15 @@ interface MacroInsights {
   dotMap?: Record<string, 'blue' | 'red'>;
   postureMap?: Record<string, PostureBucket>;
   priceMap?: Record<string, number>;
+  rsMap?: Record<string, number>;
+  stageMap?: Record<string, string>;
   avoidSet?: Set<string>;
   topCatalyst?: TopCatalyst | null;
   topCatalysts?: TopCatalyst[];
   setupPool?: any[];
+  sectorHeat?: { sector: string; avgChg: number; count: number }[];
+  econEvents?: EconEvent[];
+  earningsEvents?: EarningsEvent[];
 }
 
 interface EconEvent {
@@ -308,22 +314,14 @@ const twoCol = (left: string, right: string, footer: string[] = []): string =>
    not, and past that the denominator is the story. Null means every consumer
    treats it as "no reading" rather than as a very large one.
 
-   NULL IS PRINTED, NOT SKIPPED. FCUV came through the EP9M scan with the
-   guard tripped, and because the old formatter dropped the field entirely
-   the row rendered one column short — every value after it shifted left and
-   lined up under the wrong heading. A row with a missing reading has to keep
+   NULL IS PRINTED, NOT SKIPPED. A row with a missing reading has to keep
    the slot and show a dash. */
-const MIN_AVG_VOL_FOR_RVOL = 25_000;
-const MAX_PLAUSIBLE_RVOL = 40;
 
 const rvolOf = (s: any): number | null => {
   const raw = s?.rvol;
   if (raw == null || isNaN(Number(raw))) return null;
   const v = Number(raw);
   if (v <= 0) return null;
-  const avg = numOrNull(s?.avgVol);
-  if (avg != null && avg < MIN_AVG_VOL_FOR_RVOL) return null;
-  if (v > MAX_PLAUSIBLE_RVOL) return null;
   return v;
 };
 
@@ -1306,33 +1304,29 @@ const buildEp9mPara = (ep9m: any[]): string => {
     return `${s.ticker} ${stdCols(s)}${tag ? ` ${tag}` : ''}`;
   };
 
-  const unprec = rows.filter(ep9mUnprec).sort((a, b) => (ep9mVs60dOf(b) ?? 0) - (ep9mVs60dOf(a) ?? 0));
-  const silent = rows.filter(ep9mSilent).sort((a, b) => (rvolOf(b) ?? 0) - (rvolOf(a) ?? 0));
-  const news = rows.filter(hasRealCatalyst).sort((a, b) => scoreOf(b) - scoreOf(a));
+  const sorted = [...rows].sort((a, b) => {
+    const aCat = hasRealCatalyst(a) ? 1 : 0;
+    const bCat = hasRealCatalyst(b) ? 1 : 0;
+    if (bCat !== aCat) return bCat - aCat;
+    return scoreOf(b) - scoreOf(a);
+  });
+  const half = Math.ceil(sorted.length / 2);
+  const left = sorted.slice(0, half);
+  const right = sorted.slice(half);
 
-  const footer: string[] = [];
-  if (news.length) footer.push(`With a catalyst already out: ${news.slice(0, 4).map(s => s.ticker).join(', ')}.`);
-
-  if (unprec.length && silent.length) {
+  if (right.length) {
     return `EP9M Thesis: ${twoCol(
-      `Unprecedented (beat 60d vol high):\n${unprec.slice(0, 5).map(fmtEp).join('\n')}`,
-      `Silent (no headline yet):\n${silent.slice(0, 5).map(fmtEp).join('\n')}`,
-      footer
+      left.map(fmtEp).join('\n'),
+      right.map(fmtEp).join('\n'),
     )}`;
   }
-  if (unprec.length) {
-    return `EP9M Thesis: Unprecedented volume (today beats their own 60-day record):\n${unprec.slice(0, 5).map(fmtEp).join('\n')}${footer.length ? `\n${footer.join('\n')}` : ''}`;
-  }
-  if (silent.length) {
-    return `EP9M Thesis: Silent — heavy volume, no headline yet:\n${silent.slice(0, 5).map(fmtEp).join('\n')}${footer.length ? `\n${footer.join('\n')}` : ''}`;
-  }
-  return `EP9M Thesis: ${rows.length} name${rows.length !== 1 ? 's' : ''} trading abnormal size:\n${rows.slice(0, 6).map(fmtEp).join('\n')}`;
+  return `EP9M Thesis: ${sorted.map(fmtEp).join('\n')}`;
 };
 
 /* ---- 100-Bagger Scorecard ------------------------------------------------
    Compact summary of the multibagger scan. Shows grade-A names first, then
    a count of what passed the must-pass gates. Each row: ticker, score/grade,
-   change, RS, stage, and sector — enough to decide whether to scroll down. */
+   change, RS, and stage — enough to decide whether to scroll down. */
 const buildMultibaggerPara = (mbList: any[]): string => {
   const rows = (Array.isArray(mbList) ? mbList : [])
     .filter((c: any) => c?.ticker)
@@ -1349,11 +1343,21 @@ const buildMultibaggerPara = (mbList: any[]): string => {
     const vol = c.vol ? `VOL ${c.vol >= 1e6 ? (c.vol / 1e6).toFixed(1) + 'M' : c.vol >= 1e3 ? Math.round(c.vol / 1e3) + 'K' : c.vol}` : 'VOL —';
     const dvol = c.dvol ? `$${c.dvol >= 1e9 ? (c.dvol / 1e9).toFixed(1) + 'B' : c.dvol >= 1e6 ? Math.round(c.dvol / 1e6) + 'M' : Math.round(c.dvol / 1e3) + 'K'}` : '';
     const rs = c.rs != null ? `RS ${c.rs}` : '';
-    return `${c.ticker} ∅ SCR ${c.score} ${chg} ${rvol} ${vol} ${dvol} Stage ${stg} ${rs} ${c.sector || ''}`.trim();
+    return `${c.ticker} ∅ SCR ${c.score} ${chg} ${rvol} ${vol} ${dvol} Stage ${stg} ${rs}`.trim();
   };
 
-  const topRows = [...gradeA, ...gradeB.slice(0, Math.max(0, 6 - gradeA.length))].slice(0, 6);
+  const topRows = [...gradeA, ...gradeB.slice(0, Math.max(0, 8 - gradeA.length))].slice(0, 8);
 
+  const half = Math.ceil(topRows.length / 2);
+  const left = topRows.slice(0, half);
+  const right = topRows.slice(half);
+
+  if (right.length) {
+    return `100-Bagger Thesis: ${gradeA.length}A / ${gradeB.length}B from ${rows.length} names passing Rev ≥10% + ROIC ≥10%.\n${twoCol(
+      left.map(fmtMb).join('\n'),
+      right.map(fmtMb).join('\n'),
+    )}`;
+  }
   return `100-Bagger Thesis: ${gradeA.length}A / ${gradeB.length}B from ${rows.length} names passing Rev ≥10% + ROIC ≥10%.\n${topRows.map(fmtMb).join('\n')}`;
 };
 
@@ -1434,6 +1438,7 @@ const buildLocalInsights = (
       reason: buildWatchReason(s),
       catalyst: catalystTextOf(s),
       catalystUrl: s?.catalystUrl || null,
+      newsCausal: s?.newsCausal ?? null,
       posture: posture(s),
       dotKind: dotOf(s),
       chg: chgOf(s),
@@ -1546,8 +1551,14 @@ const buildLocalInsights = (
 
   const ema1021Para = build1021Para(pool);
 
-  /* Shared with the briefing page — see industryHeat in lib/sectors. */
-  const heat = industryHeat(flowNames, chgOf);
+  /* Match the briefing page: heat is computed from the movers pool only
+     (Gainers + Losers + Mega Caps), not the full stock universe. */
+  const moverPool = (() => {
+    const seen = new Set<string>();
+    return [...(movers['Gainers'] || []), ...(movers['Losers'] || []), ...(movers['Mega Caps'] || [])]
+      .filter(s => { if (!s?.ticker || seen.has(s.ticker)) return false; seen.add(s.ticker); return true; });
+  })();
+  const heat = industryHeat(moverPool, chgOf);
 
   /* Sector Performance — the same aggregation Industry Heat lists, drawn as
      bars instead. Emitted in the "Name +1.2%" shape the briefing page's
@@ -1611,11 +1622,11 @@ const buildLocalInsights = (
   }
 
   let moneyPara = '';
-  const totalD = flowNames.reduce((a, s) => a + dVolOf(s), 0);
+  const totalD = moverPool.reduce((a, s) => a + dVolOf(s), 0);
   if (totalD > 0) {
-    const advD = flowNames.filter(s => chgOf(s) > 0).reduce((a, s) => a + dVolOf(s), 0);
+    const advD = moverPool.filter(s => chgOf(s) > 0).reduce((a, s) => a + dVolOf(s), 0);
     const advShare = Math.round((advD / totalD) * 100);
-    const magnets = flowNames
+    const magnets = moverPool
       .slice()
       .sort((a, b) => dVolOf(b) - dVolOf(a))
       .slice(0, 5)
@@ -1704,6 +1715,7 @@ const buildLocalInsights = (
     reason: buildWatchReason(s),
     catalyst: catalystTextOf(s),
     catalystUrl: s?.catalystUrl || null,
+    newsCausal: s?.newsCausal ?? null,
     posture: posture(s),
     dotKind: dotOf(s),
     chg: chgOf(s),
@@ -1719,6 +1731,8 @@ const buildLocalInsights = (
   const dotMap: Record<string, 'blue' | 'red'> = {};
   const postureMap: Record<string, PostureBucket> = {};
   const priceMap: Record<string, number> = {};
+  const rsMap: Record<string, number> = {};
+  const stageMap: Record<string, string> = {};
   for (const s of pool) {
     const t = s?.ticker;
     if (!t || gradeMap[t]) continue;
@@ -1731,14 +1745,19 @@ const buildLocalInsights = (
     if (p) postureMap[t] = p;
     const prc = priceOf(s);
     if (prc != null) priceMap[t] = prc;
+    const rs = s?.rsRating != null ? Number(s.rsRating) : null;
+    if (rs != null && isFinite(rs) && !rsMap[t]) rsMap[t] = rs;
+    const st = stageOf(s);
+    if (st && st !== '—' && !stageMap[t]) stageMap[t] = st;
   }
   for (const arr of [...Object.values(movers), swingList, consolList, vcpList, mbList, dvolList]) {
     if (!Array.isArray(arr)) continue;
     for (const s of arr) {
       const t = s?.ticker || s?.symbol;
-      if (!t || priceMap[t]) continue;
-      const prc = priceOf(s);
-      if (prc != null) priceMap[t] = prc;
+      if (!t) continue;
+      if (!priceMap[t]) { const prc = priceOf(s); if (prc != null) priceMap[t] = prc; }
+      if (!rsMap[t]) { const rs = s?.rsRating != null ? Number(s.rsRating) : null; if (rs != null && isFinite(rs)) rsMap[t] = rs; }
+      if (!stageMap[t]) { const st = stageOf(s); if (st && st !== '—') stageMap[t] = st; }
     }
   }
 
@@ -1752,9 +1771,14 @@ const buildLocalInsights = (
     dotMap,
     postureMap,
     priceMap,
+    rsMap,
+    stageMap,
     topCatalyst,
     topCatalysts,
     setupPool,
+    sectorHeat: heat,
+    econEvents: econList,
+    earningsEvents: earningsList,
   };
 };
 
@@ -2150,14 +2174,14 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
     }
     if (new RegExp(`^(?:${CATALYST_TAGS})$`).test(part)) {
       return (
-        <span key={i} className={`text-[7px] font-bold tracking-wider uppercase text-amber-400/80 ${align ? 'ml-1' : ''}`}>
+        <span key={i} className={`hidden md:inline text-[7px] font-bold tracking-wider uppercase text-amber-400/80 ${align ? 'ml-1' : ''}`}>
           {part}
         </span>
       );
     }
-    if (part === 'EP') return <span key={i} className="inline-block align-baseline text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 text-rose-400 bg-rose-500/10 border-rose-500/20">EP</span>;
-    if (part === 'R2G') return <span key={i} className="inline-block align-baseline text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 text-emerald-400 bg-emerald-500/10 border-emerald-500/20">R2G</span>;
-    if (part === 'PB') return <span key={i} className="inline-block align-baseline text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 text-violet-400 bg-violet-500/10 border-violet-500/20">PB</span>;
+    if (part === 'EP') return <span key={i} className="hidden md:inline-block align-baseline text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 text-rose-400 bg-rose-500/10 border-rose-500/20">EP</span>;
+    if (part === 'R2G') return <span key={i} className="hidden md:inline-block align-baseline text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 text-emerald-400 bg-emerald-500/10 border-emerald-500/20">R2G</span>;
+    if (part === 'PB') return <span key={i} className="hidden md:inline-block align-baseline text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 text-violet-400 bg-violet-500/10 border-violet-500/20">PB</span>;
     if (part === '10/21') return <span key={i} className={`${valNum} text-violet-400 font-bold`}>10/21</span>;
     if (part === 'S&P' || part === 'Nasdaq' || part === 'Dow' || part === 'Bitcoin') {
       return <span key={i} className={align ? tickerChipAlignedCls : PROSE_CHIP_BASE}>{part}</span>;
@@ -2169,7 +2193,7 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
     if (part === 'SWING') return <span key={i} className="text-cyan-400">SWING</span>;
     const setupBadge = SETUP_BADGES[part];
     if (setupBadge) {
-      return <span key={i} className={`inline-block align-baseline text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 ${setupBadge.cls}`}>{setupBadge.label}</span>;
+      return <span key={i} className={`hidden md:inline-block align-baseline text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border mx-0.5 ${setupBadge.cls}`}>{setupBadge.label}</span>;
     }
     if (/^[A-Z]{2,5}$/.test(part) && !TICKER_STOPWORDS.has(part)) {
       const grade = gradeMap?.[part];
@@ -2200,7 +2224,7 @@ const EXTRA_TOKEN_RX = new RegExp(
   'g'
 );
 
-const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>, chartHover?: boolean, priceMap?: Record<string, number>): React.ReactNode => {
+const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>, chartHover?: boolean, priceMap?: Record<string, number>, rsMap?: Record<string, number>, stageMap?: Record<string, string>): React.ReactNode => {
   const mapGrade = gradeMap?.[p.ticker] ?? null;
   const cnfGrade: 'A' | 'B' | null = p.cnf >= 70 ? 'A' : p.cnf >= 50 ? 'B' : null;
   const grade = cnfGrade === 'A' ? 'A' : mapGrade ?? cnfGrade;
@@ -2208,6 +2232,8 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
   const isAvoid = avoidSet?.has(p.ticker) ?? false;
   const pb = postureMap?.[p.ticker] ?? null;
   const pMeta = pb ? POSTURE_META[pb] : null;
+  if (p.rs == null && rsMap?.[p.ticker] != null) p = { ...p, rs: rsMap[p.ticker] };
+  if ((!p.stage || p.stage === '—') && stageMap?.[p.ticker]) p = { ...p, stage: stageMap[p.ticker] };
   const rv = p.rvol;
   const isDash = p.vol === '—';
   const dIsDash = p.dvol === '—';
@@ -2230,7 +2256,7 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
       } else if (/^TR \d/.test(ex) || /^ST \d/.test(ex)) {
         // removed from the summary — trigger and stop live in the plan tooltip
       } else if (CATALYST_TAGS_SET.has(ex)) {
-        extraEls.push(<span key={`ex${ei}`} className="text-[7px] font-medium text-amber-400/80 ml-1">{ex}</span>);
+        extraEls.push(<span key={`ex${ei}`} className="hidden md:inline text-[7px] font-medium text-amber-400/80 ml-1">{ex}</span>);
       } else if (ex && ex !== '∅') {
         extraEls.push(<span key={`ex${ei}`} className="text-[7px] text-slate-500 ml-1">{ex}</span>);
       }
@@ -2239,7 +2265,7 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
 
   return (
     <div key={idx} className={scrollRowCls} style={scrollRowStyle}>
-      <div className="flex items-center whitespace-nowrap py-[3px]">
+      <div className="flex items-center whitespace-nowrap py-[1px]">
         {chartHover ? (
           <TickerChartHover symbol={p.ticker}><span className={`${chipBase} w-[38px] md:w-[44px]`}>{p.ticker}</span></TickerChartHover>
         ) : (
@@ -2259,15 +2285,15 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
         <span className={`text-[10px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-1 ${isDash ? 'text-transparent' : 'text-slate-400'}`}>{isDash ? '' : p.vol}</span>
         <span className={`text-[10px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-1 ${dIsDash ? 'text-transparent' : 'text-slate-300'}`}>{dIsDash ? '' : p.dvol}</span>
         {tNum && <span className="text-[10px] tabular-nums font-semibold text-slate-300 inline-block w-[20px] md:w-[24px] text-center ml-1">{tNum}</span>}
-        <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{p.rs != null ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(p.rs)}`}>{p.rs}</span> : null}</span>
-        <span className="inline-block w-[22px] md:w-[24px] text-center ml-0.5">{p.stage && p.stage !== '—' ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(p.stage)}`}>{p.stage}</span> : null}</span>
+        <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{p.rs != null ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(p.rs)}`}>{p.rs}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
+        <span className="inline-block w-[22px] md:w-[24px] text-center ml-0.5">{p.stage && p.stage !== '—' ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(p.stage)}`}>{p.stage}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
         {p.newsCount >= 1 && p.newsUrl ? (
           <a href={p.newsUrl} target="_blank" rel="noopener noreferrer" title={p.newsTip || ''} onClick={(e) => e.stopPropagation()}
             className={`inline-block w-[14px] md:w-[16px] text-center ${p.newsCount >= 2 ? 'text-amber-400' : 'text-slate-500'} hover:brightness-125 font-bold text-[7px] leading-none cursor-pointer transition-all ml-0.5`}>{'★'.repeat(p.newsCount)}</a>
         ) : (
           <span className="inline-block w-[14px] md:w-[16px] text-center text-slate-700 text-[7px] ml-0.5">—</span>
         )}
-        {p.setup && (() => { const b = SETUP_BADGES[p.setup]; return b ? <span className={`text-[7px] font-bold px-1 py-[1px] rounded border ml-0.5 ${b.cls}`}>{b.label}</span> : <span className="text-[7px] font-bold text-violet-400 bg-violet-500/10 border border-violet-500/20 px-1 py-[1px] rounded ml-0.5">{p.setup}</span>; })()}
+        {/* setup badges (REV, etc.) removed — N is the last column */}
         {extraEls}
       </div>
     </div>
@@ -2306,7 +2332,7 @@ const renderEventRow = (p: ParsedEventRow, idx: number): React.ReactNode => {
   const pending = p.marker === '▸';
   return (
     <div key={idx} className={scrollRowCls} style={scrollRowStyle}>
-      <div className="flex items-center whitespace-nowrap py-[3px]">
+      <div className="flex items-center whitespace-nowrap py-[1px]">
         <span className={`inline-block w-[10px] text-[10px] ${pending ? 'text-amber-400' : 'text-slate-600'}`}>{p.marker}</span>
         <span className="inline-block w-[62px] md:w-[68px] text-[11px] tabular-nums font-semibold text-slate-400 ml-1">{p.time}</span>
         <span className={`inline-block w-[180px] md:w-[240px] text-[11px] font-medium truncate ${pending ? 'text-slate-200' : 'text-slate-400'}`}>{p.event}</span>
@@ -2382,10 +2408,10 @@ const renderEarningsRow = (p: ParsedEarningsRow, idx: number): React.ReactNode =
   );
 };
 
-const renderBodyLine = (line: string, li: number, aligned: boolean, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>, priceMap?: Record<string, number>): React.ReactNode => {
+const renderBodyLine = (line: string, li: number, aligned: boolean, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>, priceMap?: Record<string, number>, rsMap?: Record<string, number>, stageMap?: Record<string, string>): React.ReactNode => {
   if (aligned) {
     const parsed = parseStdLine(line);
-    if (parsed) return renderStdRow(parsed, li, gradeMap, dotMap, postureMap, avoidSet, true, priceMap);
+    if (parsed) return renderStdRow(parsed, li, gradeMap, dotMap, postureMap, avoidSet, true, priceMap, rsMap, stageMap);
     const evParsed = parseEventLine(line);
     if (evParsed) return renderEventRow(evParsed, li);
     const earnParsed = parseEarningsLine(line);
@@ -2421,9 +2447,9 @@ const renderBodyLine = (line: string, li: number, aligned: boolean, gradeMap?: R
 type SortKey = 'cnf' | 'chg' | 'rvol' | 'vol' | 'dvol' | 'stg' | 'rs';
 type SortDir = 'asc' | 'desc';
 
-type ScanFilterKey = 'A' | 'B' | 'CNF' | 'RS' | '2A' | 'stacked' | 'first-touch' | 'pre-cross' | 'extended' | 'below-21' | null;
+type ScanFilterKey = 'A' | 'B' | 'CNF' | 'RS' | '2A' | 'stacked' | 'first-touch' | 'pre-cross' | 'extended' | 'below-21' | 'trap' | 'bluedot' | 'news' | null;
 
-const ALL_SCAN_KEYS = ['A','B','CNF','RS','2A','stacked','first-touch','pre-cross','extended','below-21'];
+const ALL_SCAN_KEYS = ['A','B','CNF','RS','2A','stacked','first-touch','pre-cross','extended','below-21','trap','bluedot','news'];
 const SCAN_FILTER_KEY = 'ctt-scan-filter';
 const loadSavedFilter = (): ScanFilterKey => {
   if (typeof window === 'undefined') return null;
@@ -2451,6 +2477,9 @@ const passesScanFilter = (key: ScanFilterKey, row: { cnf: number; rs: number | n
     case '2A': return row.stage === '2A';
     case 'stacked': case 'first-touch': case 'pre-cross': case 'extended': case 'below-21':
       return ctx.postureMap?.[t] === key;
+    case 'trap': return ctx.avoidSet?.has(t) || ctx.dotMap?.[t] === 'red';
+    case 'bluedot': return ctx.dotMap?.[t] === 'blue';
+    case 'news': return row.newsCount > 0;
   }
 };
 
@@ -2464,6 +2493,9 @@ const passesPoolFilter = (key: ScanFilterKey, item: any) => {
     case '2A': return String(item.stage ?? '').trim() === '2A';
     case 'stacked': case 'first-touch': case 'pre-cross': case 'extended': case 'below-21':
       return (item.posture || null) === key;
+    case 'trap': return item.dotKind === 'red';
+    case 'bluedot': return item.dotKind === 'blue';
+    case 'news': return !!(item.catalystUrl || (item.catalyst && item.catalyst !== 'Technical Momentum'));
   }
 };
 
@@ -2482,8 +2514,6 @@ const SETUP_PATTERN_FILTERS: SetupFilter[] = [
     match: s => setupOf(s) === '20 EMA PB' },
   { key: 'sqz',  label: 'SQZ', cls: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
     match: s => setupOf(s) === 'BB SQZ' },
-  { key: 'ep',   label: 'EP',  cls: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
-    match: s => setupOf(s) === 'EP' },
 ];
 
 const SETUP_SOURCE_FILTERS: SetupFilter[] = [
@@ -2494,7 +2524,7 @@ const SETUP_SOURCE_FILTERS: SetupFilter[] = [
   { key: 'vcp',   label: 'VCP',   cls: 'text-teal-400 bg-teal-500/10 border-teal-500/20',
     match: s => s._source === 'vcp' },
   { key: 'ep9',   label: 'EP9',   cls: 'text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/20',
-    match: s => s._source === 'ep9m' },
+    match: s => s._source === 'ep9m' || setupOf(s) === 'EP' },
   { key: '1021',  label: '10/21', cls: 'text-violet-400 bg-violet-500/10 border-violet-500/20',
     match: s => posture(s) != null && posture(s) !== 'below-21' && posture(s) !== 'extended' },
   { key: 'mb',    label: '100',   cls: 'text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/20',
@@ -2503,13 +2533,15 @@ const SETUP_SOURCE_FILTERS: SetupFilter[] = [
 
 const ALL_SETUP_FILTERS = [...SETUP_PATTERN_FILTERS, ...SETUP_SOURCE_FILTERS];
 
-const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter: sf }: {
+const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter: sf, rsMap, stageMap }: {
   pool: any[];
   gradeMap?: Record<string, 'A' | 'B'>;
   dotMap?: Record<string, 'blue' | 'red'>;
   postureMap?: Record<string, PostureBucket>;
   avoidSet?: Set<string>;
   scanFilter?: ScanFilterKey;
+  rsMap?: Record<string, number>;
+  stageMap?: Record<string, string>;
 }) => {
   const [activeKey, setActiveKey] = React.useState<string | null>(null);
   const [sortKey, setSortKey] = React.useState<SortKey>('cnf');
@@ -2589,7 +2621,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
                 const line = `${s.ticker} ${stdCols(s)}`;
                 const parsed = parseStdLine(line);
                 if (parsed) parsed.price = priceOf(s);
-                return parsed ? renderStdRow(parsed, i, gradeMap, dotMap, postureMap, avoidSet, true) : null;
+                return parsed ? renderStdRow(parsed, i, gradeMap, dotMap, postureMap, avoidSet, true, undefined, rsMap, stageMap) : null;
               })}
             </div>
             <div className="space-y-0">
@@ -2597,7 +2629,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
                 const line = `${s.ticker} ${stdCols(s)}`;
                 const parsed = parseStdLine(line);
                 if (parsed) parsed.price = priceOf(s);
-                return parsed ? renderStdRow(parsed, 100 + i, gradeMap, dotMap, postureMap, avoidSet, true) : null;
+                return parsed ? renderStdRow(parsed, 100 + i, gradeMap, dotMap, postureMap, avoidSet, true, undefined, rsMap, stageMap) : null;
               })}
             </div>
           </div>
@@ -2610,16 +2642,149 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
   );
 };
 
+const KeyEventsPanel = ({ econ, earnings }: { econ: EconEvent[]; earnings: EarningsEvent[] }) => {
+  const today = etDayKey(0);
+  const tomorrow = etDayKey(1);
+  const now = getEstDateInfo();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+
+  const econRows = econ
+    .map(e => { const { dayKey, minutes } = parseEtDateTime(e.date); return { ...e, dayKey, minutes }; })
+    .filter(e => e.dayKey === today && e.impact !== 'Low')
+    .sort((a, b) => (a.minutes ?? 0) - (b.minutes ?? 0));
+
+  const fmtTime = (min: number | null) => {
+    if (min == null) return '';
+    const h = Math.floor(min / 60) % 12 || 12;
+    return `${h}:${String(min % 60).padStart(2, '0')} ${min >= 720 ? 'PM' : 'AM'}`;
+  };
+  const fmtNum = (v: any) => {
+    if (v == null) return '—';
+    const n = Number(v);
+    if (isNaN(n)) return String(v);
+    const a = Math.abs(n);
+    if (a >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+    if (a >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+    if (a >= 1e3) return `${(n / 1e3).toFixed(0)}K`;
+    return String(n);
+  };
+  const fmtRev = (v: number | null | undefined) => {
+    if (v == null) return '';
+    if (v >= 1e9) return `rev ${(v / 1e9).toFixed(1)}B`;
+    if (v >= 1e6) return `rev ${(v / 1e6).toFixed(0)}M`;
+    return '';
+  };
+
+  const bigEarn = earnings.filter(e => {
+    const dk = String(e.date || '').slice(0, 10);
+    return (dk === today || dk === tomorrow) && (e.importance ?? 0) >= 7;
+  }).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const todayE = bigEarn.filter(e => String(e.date).slice(0, 10) === today);
+  const tmrwE = bigEarn.filter(e => String(e.date).slice(0, 10) === tomorrow);
+  const aheadCount = econRows.filter(e => (e.minutes ?? 0) > nowMin).length;
+
+  const econHdr = econRows.length
+    ? `Economic — ${aheadCount ? `${aheadCount} still ahead` : 'all printed'}`
+    : 'Economic';
+
+  const earnCol = (label: string, list: typeof bigEarn) => {
+    const pending = list.filter(e => e.epsActual == null);
+    const reported = list.filter(e => e.epsActual != null);
+    const hdr = pending.length ? `${label} — ${pending.length} pending` : reported.length ? `${label} — all reported` : label;
+    return (
+      <div>
+        <p className="text-[9px] font-bold tracking-wider uppercase text-slate-500 mb-1">{hdr}</p>
+        <div className="border-b border-white/5 mb-1 flex items-center gap-0 py-[2px]">
+          <span className="w-[10px]" />
+          <span className="w-[56px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center">Ticker</span>
+          <span className="w-[52px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right">EPS</span>
+          <span className="w-[46px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right">EST</span>
+          <span className="w-[54px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right">SURP</span>
+          <span className="w-[68px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right">REV</span>
+        </div>
+        {list.length === 0 && <p className="text-[10px] text-slate-600 mt-1">No large-cap prints.</p>}
+        {list.map((e, i) => {
+          const beat = e.epsActual != null && e.epsEstimated != null ? e.epsActual >= e.epsEstimated : null;
+          const surp = e.epsSurprisePct != null ? `${e.epsSurprisePct > 0 ? '+' : ''}${e.epsSurprisePct.toFixed(1)}%` : '';
+          return (
+            <div key={i} className="flex items-center py-[1px]">
+              <span className={`w-[10px] text-[10px] ${e.epsActual == null ? 'text-amber-400' : 'text-transparent'}`}>{e.epsActual == null ? '▸' : ''}</span>
+              <span className="w-[56px]">
+                <TickerChartHover symbol={e.symbol}><span className={`${TICKER_CHIP_BASE} w-[38px] md:w-[44px]`}>{e.symbol}</span></TickerChartHover>
+              </span>
+              <span className={`w-[52px] text-right text-[10px] tabular-nums font-semibold ${beat != null ? 'text-slate-200' : 'text-slate-300'}`}>
+                {beat != null ? e.epsActual?.toFixed(2) : (e.epsEstimated?.toFixed(2) ?? '—')}
+              </span>
+              <span className={`w-[46px] text-right text-[10px] tabular-nums ${beat != null ? 'text-slate-400' : 'text-slate-600'}`}>
+                {beat != null ? (e.epsEstimated?.toFixed(2) ?? '—') : 'est'}
+              </span>
+              <span className={`w-[54px] text-right text-[10px] tabular-nums font-medium ${beat === true ? 'text-emerald-400/70' : beat === false ? 'text-rose-400/70' : ''}`}>
+                {beat != null ? surp : ''}
+              </span>
+              <span className="w-[68px] text-right text-[10px] text-slate-500">{fmtRev(e.revenueEstimated)}</span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-y-5">
+      <div className="pr-4">
+        <p className="text-[9px] font-bold tracking-wider uppercase text-slate-500 mb-1">{econHdr}</p>
+        {econRows.length === 0 ? (
+          <p className="text-[10px] text-slate-600 mt-1">Nothing scheduled today.</p>
+        ) : (
+          <>
+            <div className="border-b border-white/5 mb-1 flex items-center gap-0 py-[2px]">
+              <span className="w-[10px]" />
+              <span className="w-[62px] text-[7px] font-bold tracking-widest uppercase text-slate-600">TIME</span>
+              <span className="flex-1 text-[7px] font-bold tracking-widest uppercase text-slate-600">EVENT</span>
+              <span className="w-[52px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right">ACT</span>
+              <span className="w-[52px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">EST</span>
+              <span className="w-[52px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">PREV</span>
+            </div>
+            {econRows.map((e, i) => {
+              const pending = (e.minutes ?? 0) > nowMin && e.actual == null;
+              return (
+                <div key={i} className="flex items-center py-[1px]">
+                  <span className={`w-[10px] text-[10px] ${pending ? 'text-amber-400' : 'text-transparent'}`}>{pending ? '▸' : ''}</span>
+                  <span className="w-[62px] text-[10px] text-slate-500 tabular-nums">{fmtTime(e.minutes)}</span>
+                  <span className="flex-1 text-[10px] text-slate-300 truncate">{e.event}</span>
+                  <span className={`w-[52px] text-right text-[10px] tabular-nums font-semibold ${e.actual != null ? 'text-emerald-400' : 'text-slate-600'}`}>{e.actual != null ? fmtNum(e.actual) : '—'}</span>
+                  <span className="w-[52px] text-right text-[10px] tabular-nums text-slate-400 ml-1">{e.estimate != null ? fmtNum(e.estimate) : '—'}</span>
+                  <span className="w-[52px] text-right text-[10px] tabular-nums text-slate-600 ml-1">{e.previous != null ? fmtNum(e.previous) : '—'}</span>
+                </div>
+              );
+            })}
+          </>
+        )}
+      </div>
+      <div className="hidden md:block w-px bg-white/10 self-stretch" />
+      <div className="space-y-4 pl-4">
+        {earnCol(todayE.length ? 'Today' : 'Today', todayE)}
+        {earnCol('Tomorrow', tmrwE)}
+      </div>
+    </div>
+  );
+};
+
 /* Horizontal bars growing from a centre line, matching the briefing page's
    SectorSection. Green right, red left, the leader and the laggard brightest,
    and the spread called out — the spread is the number that says whether this
    is a stock-picker's tape or a market-driven one. */
-const SectorBars = ({ body }: { body: string }) => {
-  const items: { name: string; pct: number }[] = [];
-  const re = /([A-Za-z][A-Za-z\s&'-]*?)\s*\(?([+-]\d+(?:\.\d+)?)%\)?/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(body)) !== null) {
-    items.push({ name: m[1].trim().replace(/^[,\s]+/, ''), pct: parseFloat(m[2]) });
+const SectorBars = ({ body, heat }: { body: string; heat?: { sector: string; avgChg: number; count: number }[] }) => {
+  let items: { name: string; pct: number }[];
+  if (heat && heat.length >= 2) {
+    items = heat.map(h => ({ name: h.sector, pct: h.avgChg }));
+  } else {
+    items = [];
+    const re = /([A-Za-z][A-Za-z\s&'-]*?)\s*\(?([+-]\d+(?:\.\d+)?)%\)?/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(body)) !== null) {
+      items.push({ name: m[1].trim().replace(/^[,\s]+/, ''), pct: parseFloat(m[2]) });
+    }
   }
   if (items.length < 2) return null;
 
@@ -2639,7 +2804,7 @@ const SectorBars = ({ body }: { body: string }) => {
           const last = i === items.length - 1;
           return (
             <div key={i} className="flex items-center px-1.5 py-[2px]">
-              <span className={`text-[10px] w-[104px] md:w-[124px] text-right shrink-0 pr-2.5 truncate ${
+              <span className={`text-[10px] w-[130px] md:w-[150px] text-right shrink-0 pr-2.5 truncate ${
                 first ? 'text-emerald-300/90 font-medium' : last ? 'text-rose-300/90 font-medium' : 'text-slate-400'
               }`}>{s.name}</span>
               <div className="flex-1 h-[16px] relative">
@@ -2697,9 +2862,9 @@ const ScanLegend = ({ activeFilter, onFilterChange }: { activeFilter?: ScanFilte
         <button onClick={() => onFilterChange?.(null)} className={`${base} text-rose-400 bg-rose-500/10 border-rose-500/20 hover:bg-rose-500/20`}>CLEAR</button>
       )}
       <span className="w-px h-3 bg-white/10" />
-      <span title="Avoid list — names flagged as traps: thin floats with no follow-through, crowded shorts squeezing into resistance, or patterns that look right but fail on closer inspection." className="cursor-help text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border text-rose-300/60 bg-rose-950/50 border-rose-500/10">TRAP</span>
-      <span title="Blue Dot — structural reversal. Price is up today but still under the 21 EMA with no prior blue-dot setup. A contrarian signal, not a trend-following one." className="cursor-help inline-flex items-center gap-1 text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border text-slate-500 bg-white/[0.03] border-white/[0.08]"><span className="inline-block w-[6px] h-[6px] rounded-full bg-blue-500 shrink-0" />BLUE DOT</span>
-      <span title="One star = a news headline exists for this ticker today. Two stars = a material catalyst is driving the move (earnings beat, M&A, FDA approval)." className="cursor-help text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border text-amber-400/60 bg-amber-500/[0.06] border-amber-500/10">★ NEWS</span>
+      <button onClick={() => toggle('trap')} title="Avoid list — names flagged as traps" className={`${base} ${cur === 'trap' ? 'text-rose-200 bg-rose-500/20 border-rose-400/40' : 'text-rose-300/60 bg-rose-950/50 border-rose-500/10 hover:text-rose-200 hover:border-rose-400/30'}`}>TRAP</button>
+      <button onClick={() => toggle('bluedot')} title="Structural reversal — up today but still under 21 EMA" className={`${base} inline-flex items-center gap-1 ${cur === 'bluedot' ? 'text-blue-300 bg-blue-500/20 border-blue-400/40' : 'text-slate-500 bg-white/[0.03] border-white/[0.08] hover:text-blue-300 hover:border-blue-400/30'}`}><span className="inline-block w-[6px] h-[6px] rounded-full bg-blue-500 shrink-0" />BLUE DOT</button>
+      <button onClick={() => toggle('news')} title="Has a news headline or material catalyst today" className={`${base} ${cur === 'news' ? 'text-amber-300 bg-amber-500/20 border-amber-400/40' : 'text-amber-400/60 bg-amber-500/[0.06] border-amber-500/10 hover:text-amber-300 hover:border-amber-400/30'}`}>★ NEWS</button>
     </div>
   );
 };
@@ -2714,7 +2879,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: '$Vol Summary', color: 'teal', blurb: 'Top 20 by dollar volume — where the money actually is today.' },
   { label: '10/21 Thesis', color: 'violet', blurb: 'Top names by holding period. Percentages are distance from the 21 and 10 EMA.' },
   { label: 'VCP Thesis', color: 'teal', blurb: 'Bases of shallower pullbacks on lighter volume — supply drying up.' },
-  { label: 'EP9M Thesis', color: 'rose', blurb: 'Abnormal 9M+ volume. Left beat its own 60-day record; right has no headline yet.' },
+  { label: 'EP9M Thesis', color: 'rose', blurb: 'Abnormal 9M+ volume. Left = unprecedented or catalyst-driven; right = no headline yet.' },
   { label: '100-Bagger Thesis', color: 'fuchsia', blurb: 'Compounders passing revenue growth and ROIC gates. A = 70+, B = 50+.' },
   { label: 'Sector Performance', color: 'amber', blurb: 'Average move per group, best to worst.' },
   { label: 'Industry Heat', color: 'amber', blurb: 'Sector rotation — where money is arriving and where it is leaving.' },
@@ -3122,11 +3287,21 @@ export default function MarketSummary() {
             <div className="mb-6 md:mb-8 bg-[#161c2a]/60 border border-cyan-500/20 rounded-xl p-1 sm:p-5 md:p-6 relative overflow-hidden shadow-[0_0_15px_rgba(34,211,238,0.03)]">
               <div className="hidden md:block absolute right-0 top-0 w-64 h-64 bg-cyan-500/10 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
 
-              <div className="flex items-center gap-2 sm:gap-3 mb-3 relative z-10">
-                <span className="text-[9px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2 sm:px-3 py-1 rounded tracking-widest uppercase flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-                  MARKET BRIEFING
-                </span>
+              <div className="flex flex-col gap-2 mb-3 relative z-10">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <span className="text-[9px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2 sm:px-3 py-1 rounded tracking-widest uppercase flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                    MARKET BRIEFING
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-slate-500 leading-snug">
+                  <span className="cursor-help" title="CNF grade. A = 70+ (high conviction), B = 50–69. Combines RVOL, gap size, range expansion, relative strength, and catalyst quality."><span className="text-emerald-400 font-bold">A</span> 70+ <span className="text-amber-400 font-bold">B</span> 50&ndash;69</span>
+                  <span className="cursor-help" title="10/21 EMA posture. Green = price above both EMAs, trend intact. Amber = 10 and 21 converging, potential trend change. Rose = extended above or broken below the 21 EMA."><span className="inline-block w-[5px] h-[5px] rounded-full bg-emerald-400 relative top-[-1px]" /> stacked <span className="inline-block w-[5px] h-[5px] rounded-full bg-amber-400 relative top-[-1px]" /> pre-cross <span className="inline-block w-[5px] h-[5px] rounded-full bg-rose-400 relative top-[-1px]" /> ext/below</span>
+                  <span className="cursor-help" title="Analyst-flagged avoid: thin floats with no follow-through, crowded shorts squeezing into resistance, or patterns that look right but fail on closer inspection."><span className="text-rose-300 font-bold">TRAP</span> avoid</span>
+                  <span className="cursor-help" title="Structural reversal. Price is up today but still under the 21 EMA with no prior blue-dot setup. A contrarian signal, not a trend-following one."><span className="inline-block w-[5px] h-[5px] rounded-full bg-blue-500 relative top-[-1px]" /> blue dot</span>
+                  <span className="cursor-help" title="One star = a news headline exists today (earnings, FDA, upgrade, etc.). Two stars = a material catalyst is driving the move — higher conviction."><span className="text-slate-500">★</span> news <span className="text-amber-400">★★</span> catalyst</span>
+                  <span className="cursor-help" title="CNF = confluence score (0–100). RVOL = relative volume vs 20-day average. RS = relative strength percentile (0–99). STG = Weinstein stage (1B–4C)."><span className="font-semibold text-slate-400">CNF</span> score <span className="font-semibold text-slate-400">RVOL</span> vs avg <span className="font-semibold text-slate-400">RS</span> rel str <span className="font-semibold text-slate-400">STG</span> stage</span>
+                </div>
               </div>
 
 
@@ -3238,23 +3413,25 @@ export default function MarketSummary() {
                                   postureMap={macroInsights?.postureMap}
                                   scanFilter={scanFilter}
                                   avoidSet={macroInsights?.avoidSet}
+                                  rsMap={macroInsights?.rsMap}
+                                  stageMap={macroInsights?.stageMap}
                                 />
                               ) : isOpen && label === 'Sector Performance' ? (
-                                <SectorBars body={body} />
-                              ) : isOpen && label === 'Industry Heat' ? (
-                                /* CENTRED, not top-aligned. The grid stretches this
-                                   card to the height of the Sector Performance bars
-                                   beside it, and a four-group day left most of that
-                                   height empty below the rows. flex-1 takes the
-                                   leftover space, justify-center puts the block in
-                                   the middle of it. */
+                                <SectorBars body={body} heat={macroInsights?.sectorHeat} />
+                              ) : isOpen && label === 'Industry Heat' && (macroInsights?.sectorHeat?.length ?? 0) >= 2 ? (
                                 <div className="flex-1 flex flex-col justify-center">
-                                  {body.split('\n').filter(Boolean).map((line, li) =>
-                                    line.trim().endsWith(':')
-                                      ? <p key={li} className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5 pt-1">{line.trim().replace(/:$/, '')}</p>
-                                      : renderBodyLine(line, li, false, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap)
-                                  )}
+                                  {macroInsights!.sectorHeat!.slice(0, 8).map((h, i) => (
+                                    <div key={i} className="flex items-center gap-2 py-[2px] text-[11px] tabular-nums">
+                                      <span className={`font-semibold w-[52px] text-right shrink-0 ${h.avgChg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                        {h.avgChg >= 0 ? '+' : ''}{h.avgChg.toFixed(1)}%
+                                      </span>
+                                      <span className="text-slate-300 truncate">{h.sector}</span>
+                                      <span className="text-slate-600 text-[10px]">({h.count})</span>
+                                    </div>
+                                  ))}
                                 </div>
+                              ) : isOpen && label === 'Key Events' && macroInsights?.econEvents && macroInsights?.earningsEvents ? (
+                                <KeyEventsPanel econ={macroInsights.econEvents} earnings={macroInsights.earningsEvents} />
                               ) : isOpen && (
                                 body.includes('|||') ? (
                                   (() => {
@@ -3305,7 +3482,7 @@ export default function MarketSummary() {
                                           const [heading, ...rows] = colLines;
                                           const isHeading = heading && heading.trim().endsWith(':');
                                           const render = (line: string, li: number) =>
-                                            renderBodyLine(line, li, true, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap);
+                                            renderBodyLine(line, li, true, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap);
                                           const earnHeader = (
                                             <div className={scrollRowCls} style={scrollRowStyle}>
                                               <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5 min-w-[344px]">
@@ -3391,17 +3568,45 @@ export default function MarketSummary() {
                                             })()}
                                           </div>
                                         )}
+                                        {/* Merged two-column: collect all stock rows, sort together, split evenly */}
+                                        {sectionAligns && label === 'SIPs Thesis' ? (() => {
+                                          const allStockLines: string[] = [];
+                                          parts.slice(0, 2).forEach(col => {
+                                            col.trim().split('\n').filter(Boolean).forEach(l => {
+                                              if (!l.trim().endsWith(':')) allStockLines.push(l);
+                                            });
+                                          });
+                                          const secSortKey = label;
+                                          const secSort = sectionSorts[secSortKey] ?? { key: 'cnf' as SortKey, dir: 'desc' as SortDir };
+                                          const parsed = allStockLines.map((l, i) => ({ line: l, idx: i, p: parseStdLine(l) })).filter(x => x.p);
+                                          const ctx = { gradeMap: macroInsights?.gradeMap, postureMap: macroInsights?.postureMap, avoidSet: macroInsights?.avoidSet, dotMap: macroInsights?.dotMap };
+                                          const filtered = parsed.filter(x => passesScanFilter(scanFilter, x.p!, ctx));
+                                          const sorted = sortParsedRows(filtered.map(x => x.p!), secSort.key, secSort.dir);
+                                          const sortedLines = sorted.map(sr => filtered.find(x => x.p === sr)!.line);
+                                          const leftLines = sortedLines.slice(0, Math.ceil(sortedLines.length / 2));
+                                          const rightLines = sortedLines.slice(Math.ceil(sortedLines.length / 2));
+                                          const render = (line: string, li: number) =>
+                                            renderBodyLine(line, li, true, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap);
+                                          const hdr = <SortableHeader sortKey={secSort.key} sortDir={secSort.dir} onSort={(k) => handleSectionSort(secSortKey, k)} />;
+                                          return (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                                              <div className="space-y-0">{hdr}{leftLines.map((l, i) => render(l, i))}</div>
+                                              <div className="space-y-0">{hdr}{rightLines.map((l, i) => render(l, 500 + i))}</div>
+                                            </div>
+                                          );
+                                        })() : (
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
                                           {parts.slice(0, 2).map((col, ci) => {
                                             const colLines = col.trim().split('\n').filter(Boolean);
                                             const [heading, ...rows] = colLines;
                                             const isHeading = heading && heading.trim().endsWith(':');
                                             const render = (line: string, li: number) =>
-                                              renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap);
+                                              renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap);
                                             const isVcp = label === 'VCP Thesis';
                                             const isKeyEv = label === 'Key Events';
                                             const colSortKey = `${label}-${ci}`;
                                             const colSort = sectionSorts[colSortKey] ?? null;
+                                            const defaultSortKey: SortKey = label === 'Top Movers' ? 'chg' : 'cnf';
                                             const inlineHeader = isKeyEv ? (
                                               <div className={scrollRowCls} style={scrollRowStyle}>
                                                 <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5 min-w-[344px]">
@@ -3415,11 +3620,11 @@ export default function MarketSummary() {
                                                 </div>
                                               </div>
                                             ) : sectionAligns && SECTION_HEADERS[label!] ? (
-                                              <SortableHeader sortKey={colSort?.key ?? 'cnf'} sortDir={colSort?.dir ?? 'desc'} onSort={(k) => handleSectionSort(colSortKey, k)} isVcp={isVcp} />
+                                              <SortableHeader sortKey={colSort?.key ?? defaultSortKey} sortDir={colSort?.dir ?? 'desc'} onSort={(k) => handleSectionSort(colSortKey, k)} isVcp={isVcp} />
                                             ) : null;
                                             const sortedRender = (lines: string[]) => {
                                               if (!sectionAligns) return lines.map(render);
-                                              const activeSort = colSort ?? { key: 'cnf' as SortKey, dir: 'desc' as SortDir };
+                                              const activeSort = colSort ?? { key: defaultSortKey, dir: 'desc' as SortDir };
                                               const stockLines: string[] = [];
                                               const stockParsed: ParsedStdRow[] = [];
                                               const nonStockRendered: React.ReactNode[] = [];
@@ -3465,10 +3670,11 @@ export default function MarketSummary() {
                                             );
                                           })}
                                         </div>
+                                        )}
                                         {afterCols && (() => {
                                           const acLines = afterCols.trim().split('\n').filter(Boolean);
                                           const acRender = (line: string, li: number) =>
-                                            renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap);
+                                            renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap);
                                           const acHeader = sectionAligns && SECTION_HEADERS[label!] ? <SortableHeader sortKey={null} sortDir={'desc'} onSort={() => {}} isVcp={label === 'VCP Thesis'} /> : null;
                                           const acGroups: { heading: string | null; rows: string[] }[] = [];
                                           let acCur: { heading: string | null; rows: string[] } = { heading: null, rows: [] };
@@ -3506,7 +3712,7 @@ export default function MarketSummary() {
                                     const ss = sectionSorts[sk] ?? null;
                                     const bodyLines = body.split('\n').filter(Boolean);
                                     const renderLine = (line: string, li: number) =>
-                                      renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap);
+                                      renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap);
                                     if (!sectionAligns) {
                                       return <div className="space-y-2">{bodyLines.map(renderLine)}</div>;
                                     }
@@ -3555,11 +3761,17 @@ export default function MarketSummary() {
                     {macroInsights.watching?.length > 0 && (
                       <div className="border-l-[3px] border-cyan-500 rounded-r-xl px-2.5 md:px-4 py-3 bg-cyan-500/[0.04]">
                         <div className="flex items-center gap-3 mb-2">
-                          <span className="inline-block text-[7px] font-bold tracking-widest uppercase px-1.5 py-[1px] rounded border text-cyan-400 bg-cyan-500/10 border-cyan-500/20">Top Setups</span>
-                          <SectionCopyButton tickers={macroInsights.watching.map(w => w.symbol)} />
-                          <SectionTxtButton tickers={macroInsights.watching.map(w => w.symbol)} />
+                          <button onClick={() => toggleSection('topSetups')} className="inline-flex items-center gap-1.5 group" title={collapsedSections.has('topSetups') ? 'Expand' : 'Collapse'}>
+                            <span className={`text-[9px] transition-transform duration-200 ${collapsedSections.has('topSetups') ? '' : 'rotate-90'} text-slate-500`}>&#9654;</span>
+                            <span className="inline-block text-[7px] font-bold tracking-widest uppercase px-1.5 py-[1px] rounded border text-cyan-400 bg-cyan-500/10 border-cyan-500/20">Top Setups</span>
+                          </button>
+                          {!collapsedSections.has('topSetups') && <SectionCopyButton tickers={macroInsights.watching.map(w => w.symbol)} />}
+                          {!collapsedSections.has('topSetups') && <SectionTxtButton tickers={macroInsights.watching.map(w => w.symbol)} />}
+                          {collapsedSections.has('topSetups') && macroInsights.watching.length > 0 && (
+                            <span className="text-[8px] text-slate-600 font-medium">{macroInsights.watching.map(w => w.symbol).join(' · ')}</span>
+                          )}
                         </div>
-                        <div className="flex flex-col gap-0.5">
+                        {!collapsedSections.has('topSetups') && <div className="flex flex-col gap-0.5">
                           <SortableHeader sortKey={sectionSorts['Top Setups']?.key ?? null} sortDir={sectionSorts['Top Setups']?.dir ?? 'desc'} onSort={(k) => handleSectionSort('Top Setups', k)} />
                           {(() => {
                             const ws = sectionSorts['Top Setups'];
@@ -3577,7 +3789,8 @@ export default function MarketSummary() {
                             }) : macroInsights.watching;
                             return items;
                           })().filter((item: any) => passesPoolFilter(scanFilter, item)).map((item, idx) => {
-                            const s = typeof item === 'object' ? item : { symbol: item as never, chg: 0, rvol: null, vol: 0, dVol: 0, stage: '', grade: null, score: undefined, dotKind: null, posture: null, rsRating: null, price: null as number | null };
+                            const _s = typeof item === 'object' ? item : { symbol: item as never, chg: 0, rvol: null, vol: 0, dVol: 0, stage: '', grade: null, score: undefined, dotKind: null, posture: null, rsRating: null, price: null as number | null, catalyst: null as string | null, catalystUrl: null as string | null, newsCausal: null as boolean | null };
+                            const s = { ..._s, rsRating: _s.rsRating ?? macroInsights.rsMap?.[_s.symbol] ?? null, stage: _s.stage || macroInsights.stageMap?.[_s.symbol] || '' };
                             const pb = s.posture || null;
                             const pMeta = pb ? POSTURE_META[pb] : null;
                             const rv = s.rvol != null ? Number(s.rvol) : null;
@@ -3588,7 +3801,7 @@ export default function MarketSummary() {
                             const isAvoid = macroInsights.avoidSet?.has(s.symbol) || s.dotKind === 'red';
                             const isBlueDot = s.dotKind === 'blue';
                             return (
-                              <div key={idx} className="flex items-center whitespace-nowrap py-[3px]">
+                              <div key={idx} className="flex items-center whitespace-nowrap py-[1px]">
                                 <TickerChartHover symbol={s.symbol}><span className={`${gradeChipCls(s.grade, isAvoid)} w-[38px] md:w-[44px]`}>{s.symbol}</span></TickerChartHover>
                                 <span className="inline-block w-[9px] text-center leading-none shrink-0" />
                                 <span className="inline-block w-[8px] text-center shrink-0">
@@ -3597,29 +3810,40 @@ export default function MarketSummary() {
                                 <span className="inline-block w-[8px] text-center shrink-0">
                                   {pMeta ? <span title={`${pMeta.short} — ${pMeta.tip}`} className={`inline-block w-[6px] h-[6px] rounded-full cursor-help ${pMeta.tone === 'good' ? 'bg-emerald-400' : pMeta.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`} /> : null}
                                 </span>
-                                <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${s.score != null && !isNaN(Number(s.score)) ? cnfBadgeCls(Number(s.score)) : 'text-transparent'}`}>{s.score != null && !isNaN(Number(s.score)) ? Number(s.score) : ''}</span>
+                                <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${s.score != null && !isNaN(Number(s.score)) ? cnfBadgeCls(Number(s.score)) : 'text-slate-600 border-slate-700/40 bg-slate-800/30'}`}>{s.score != null && !isNaN(Number(s.score)) ? Number(s.score) : '-'}</span>
                                 <span className={`text-[10px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ${(s.chg ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(s.chg ?? 0) >= 0 ? '+' : ''}{(s.chg ?? 0).toFixed(2)}%</span>
                                 <span className="text-[10px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-1">{fmtPrc(s.price)}</span>
                                 <span className={`text-[10px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? rv.toFixed(2) : ''}</span>
                                 <span className={`text-[10px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-1 ${fmtV ? 'text-slate-400' : 'text-transparent'}`}>{fmtV}</span>
                                 <span className={`text-[10px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-1 ${fmtDv ? 'text-slate-300' : 'text-transparent'}`}>{fmtDv}</span>
-                                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{s.rsRating != null ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(Number(s.rsRating))}`}>{Number(s.rsRating)}</span> : null}</span>
-                                <span className="inline-block w-[22px] md:w-[24px] text-center ml-0.5">{s.stage ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(s.stage)}`}>{s.stage}</span> : null}</span>
+                                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{s.rsRating != null ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(Number(s.rsRating))}`}>{Number(s.rsRating)}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
+                                <span className="inline-block w-[22px] md:w-[24px] text-center ml-0.5">{s.stage ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(s.stage)}`}>{s.stage}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
+                                {(() => {
+                                  const nc = newsStarCount({ catalyst: s.catalyst, catalystUrl: s.catalystUrl, newsCausal: (s as any).newsCausal });
+                                  if (nc >= 1 && s.catalystUrl) return <a href={s.catalystUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={`inline-block w-[14px] md:w-[16px] text-center ${nc >= 2 ? 'text-amber-400' : 'text-slate-500'} hover:brightness-125 font-bold text-[7px] leading-none cursor-pointer transition-all ml-0.5`} title={s.catalyst || ''}>{'★'.repeat(nc)}</a>;
+                                  return <span className="inline-block w-[14px] md:w-[16px] text-center text-slate-700 text-[7px] ml-0.5">—</span>;
+                                })()}
                               </div>
                             );
                           })}
-                        </div>
+                        </div>}
                       </div>
                     )}
 
                     {macroInsights.tomorrowWatch?.length > 0 && (
                       <div className="border-l-[3px] border-violet-500 rounded-r-xl px-2.5 md:px-4 py-3 bg-violet-500/[0.04]">
                         <div className="flex items-center gap-3 mb-2">
-                          <span className="inline-block text-[7px] font-bold tracking-widest uppercase px-1.5 py-[1px] rounded border text-violet-400 bg-violet-500/10 border-violet-500/20">Tomorrow&apos;s Watchlist</span>
-                          <SectionCopyButton tickers={macroInsights.tomorrowWatch.map(w => w.symbol)} />
-                          <SectionTxtButton tickers={macroInsights.tomorrowWatch.map(w => w.symbol)} />
+                          <button onClick={() => toggleSection('tomorrowWatch')} className="inline-flex items-center gap-1.5 group" title={collapsedSections.has('tomorrowWatch') ? 'Expand' : 'Collapse'}>
+                            <span className={`text-[9px] transition-transform duration-200 ${collapsedSections.has('tomorrowWatch') ? '' : 'rotate-90'} text-slate-500`}>&#9654;</span>
+                            <span className="inline-block text-[7px] font-bold tracking-widest uppercase px-1.5 py-[1px] rounded border text-violet-400 bg-violet-500/10 border-violet-500/20">Tomorrow&apos;s Watchlist</span>
+                          </button>
+                          {!collapsedSections.has('tomorrowWatch') && <SectionCopyButton tickers={macroInsights.tomorrowWatch.map(w => w.symbol)} />}
+                          {!collapsedSections.has('tomorrowWatch') && <SectionTxtButton tickers={macroInsights.tomorrowWatch.map(w => w.symbol)} />}
+                          {collapsedSections.has('tomorrowWatch') && macroInsights.tomorrowWatch.length > 0 && (
+                            <span className="text-[8px] text-slate-600 font-medium">{macroInsights.tomorrowWatch.map(w => w.symbol).join(' · ')}</span>
+                          )}
                         </div>
-                        <div className="flex flex-col gap-0.5">
+                        {!collapsedSections.has('tomorrowWatch') && <div className="flex flex-col gap-0.5">
                           <SortableHeader sortKey={sectionSorts['Tomorrow Watch']?.key ?? null} sortDir={sectionSorts['Tomorrow Watch']?.dir ?? 'desc'} onSort={(k) => handleSectionSort('Tomorrow Watch', k)} />
                           {(() => {
                             const ws = sectionSorts['Tomorrow Watch'];
@@ -3636,7 +3860,8 @@ export default function MarketSummary() {
                               return ws.dir === 'desc' ? bv - av : av - bv;
                             }) : macroInsights.tomorrowWatch;
                             return items;
-                          })().filter((item: any) => passesPoolFilter(scanFilter, item)).map((item, idx) => {
+                          })().filter((item: any) => passesPoolFilter(scanFilter, item)).map((_item, idx) => {
+                            const item = { ..._item, rsRating: _item.rsRating ?? macroInsights.rsMap?.[_item.symbol] ?? null, stage: _item.stage || macroInsights.stageMap?.[_item.symbol] || '' };
                             const pb = item.posture || null;
                             const pMeta = pb ? POSTURE_META[pb] : null;
                             const rv = item.rvol != null ? Number(item.rvol) : null;
@@ -3647,7 +3872,7 @@ export default function MarketSummary() {
                             const isAvoid = macroInsights.avoidSet?.has(item.symbol) || item.dotKind === 'red';
                             const isBlueDot = item.dotKind === 'blue';
                             return (
-                              <div key={idx} className="flex items-center whitespace-nowrap py-[3px]">
+                              <div key={idx} className="flex items-center whitespace-nowrap py-[1px]">
                                 <TickerChartHover symbol={item.symbol}><span className={`${gradeChipCls(item.grade, isAvoid)} w-[38px] md:w-[44px]`}>{item.symbol}</span></TickerChartHover>
                                 <span className="inline-block w-[9px] text-center leading-none shrink-0" />
                                 <span className="inline-block w-[8px] text-center shrink-0">
@@ -3656,18 +3881,23 @@ export default function MarketSummary() {
                                 <span className="inline-block w-[8px] text-center shrink-0">
                                   {pMeta ? <span title={`${pMeta.short} — ${pMeta.tip}`} className={`inline-block w-[6px] h-[6px] rounded-full cursor-help ${pMeta.tone === 'good' ? 'bg-emerald-400' : pMeta.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`} /> : null}
                                 </span>
-                                <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${item.score != null && !isNaN(Number(item.score)) ? cnfBadgeCls(Number(item.score)) : 'text-transparent'}`}>{item.score != null && !isNaN(Number(item.score)) ? Number(item.score) : ''}</span>
+                                <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${item.score != null && !isNaN(Number(item.score)) ? cnfBadgeCls(Number(item.score)) : 'text-slate-600 border-slate-700/40 bg-slate-800/30'}`}>{item.score != null && !isNaN(Number(item.score)) ? Number(item.score) : '-'}</span>
                                 <span className={`text-[10px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ${(item.chg ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(item.chg ?? 0) >= 0 ? '+' : ''}{(item.chg ?? 0).toFixed(2)}%</span>
                                 <span className="text-[10px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-1">{fmtPrc(item.price)}</span>
                                 <span className={`text-[10px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? rv.toFixed(2) : ''}</span>
                                 <span className={`text-[10px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-1 ${fmtV ? 'text-slate-400' : 'text-transparent'}`}>{fmtV}</span>
                                 <span className={`text-[10px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-1 ${fmtDv ? 'text-slate-300' : 'text-transparent'}`}>{fmtDv}</span>
-                                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{item.rsRating != null ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(Number(item.rsRating))}`}>{Number(item.rsRating)}</span> : null}</span>
-                                <span className="inline-block w-[22px] md:w-[24px] text-center ml-0.5">{item.stage && item.stage !== '—' ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(item.stage)}`}>{item.stage}</span> : null}</span>
+                                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{item.rsRating != null ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(Number(item.rsRating))}`}>{Number(item.rsRating)}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
+                                <span className="inline-block w-[22px] md:w-[24px] text-center ml-0.5">{item.stage && item.stage !== '—' ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(item.stage)}`}>{item.stage}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
+                                {(() => {
+                                  const nc = newsStarCount({ catalyst: item.catalyst, catalystUrl: item.catalystUrl, newsCausal: (item as any).newsCausal });
+                                  if (nc >= 1 && item.catalystUrl) return <a href={item.catalystUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={`inline-block w-[14px] md:w-[16px] text-center ${nc >= 2 ? 'text-amber-400' : 'text-slate-500'} hover:brightness-125 font-bold text-[7px] leading-none cursor-pointer transition-all ml-0.5`} title={item.catalyst || ''}>{'★'.repeat(nc)}</a>;
+                                  return <span className="inline-block w-[14px] md:w-[16px] text-center text-slate-700 text-[7px] ml-0.5">—</span>;
+                                })()}
                               </div>
                             );
                           })}
-                        </div>
+                        </div>}
                       </div>
                     )}
                   </div>

@@ -464,78 +464,58 @@ export const polygonNewsPath = (symbol: string, limit = 20): string =>
    into PolygonNewsRaw so every filter, tier and score below applies unchanged.
    --------------------------------------------------------------------------- */
 
-const benzingaToRaw = (items: any[]): PolygonNewsRaw[] =>
+const MASSIVE_BASE = 'https://api.massive.com/benzinga/v2/news';
+
+const massiveToRaw = (items: any[]): PolygonNewsRaw[] =>
   (Array.isArray(items) ? items : []).map((it: any) => ({
-    id: String(it?.id ?? ''),
+    id: String(it?.benzinga_id ?? ''),
     title: it?.title || '',
-    /* `teaser` is the abstract; the body is HTML and displayOutput=abstract
-       leaves it empty, so it is deliberately not used for classification. */
     description: it?.teaser || '',
     article_url: it?.url || '',
-    published_utc: it?.created ? new Date(it.created).toISOString() : '',
+    published_utc: it?.published || '',
     author: it?.author || '',
-    tickers: (it?.stocks || [])
-      .map((s: any) => String(s?.name || '').replace(/^\$/, '').toUpperCase())
+    tickers: (it?.tickers || [])
+      .map((t: any) => String(t).replace(/^\$/, '').toUpperCase())
       .filter(Boolean),
-    keywords: (it?.channels || []).map((c: any) => c?.name).filter(Boolean),
+    keywords: (it?.channels || []).map((c: any) => String(c)).filter(Boolean),
     publisher: { name: 'Benzinga' },
   }));
 
-/* NOT per-ticker, deliberately. This plan's Benzinga endpoint ignores both
-   `tickers=` and `symbols=` — every such query returns the same unfiltered
-   global feed. That is an easy trap to miss: querying `tickers=CSCO` on an
-   earnings day looks filtered purely because Cisco dominates the feed, and a
-   single-ticker Cisco story returned under an SMCI query would sail past
-   pickBestNews's relevance guard (which only rejects MULTI-ticker articles)
-   and land on the wrong row.
+const fetchMassivePage = (
+  apiKey: string,
+  opts: { offset?: number; tags?: string; tickers?: string },
+  signal: AbortSignal,
+): Promise<any[]> =>
+  fetch(
+    `${MASSIVE_BASE}?apiKey=${apiKey}&limit=100&sort=published.desc` +
+      (opts.offset ? `&offset=${opts.offset}` : '') +
+      (opts.tags ? `&tags=${encodeURIComponent(opts.tags)}` : '') +
+      (opts.tickers ? `&tickers=${encodeURIComponent(opts.tickers)}` : ''),
+    { signal: signal as any, cache: 'no-store' }
+  )
+    .then(r => (r.ok ? r.json() : { results: [] }))
+    .then(d => d?.results || [])
+    .catch(() => []);
 
-   So the feed is pulled once and indexed by the tickers each item declares.
-   One fetch per scan instead of one per symbol, and the coverage — whatever
-   has moved in the last ~10 hours — is exactly what a catalyst column wants. */
 export async function fetchBenzingaNewsIndex(
-  token: string,
-  /* 25 items/page. Six pages is ~20 hours of feed, which covers an overnight
-     gap plus the session that follows it — the window in which a catalyst is
-     still the reason a stock is moving. The pages go out in parallel, so this
-     costs one round trip per scan, not six. */
-  pages = 6,
+  apiKey: string,
+  _pages = 6,
   timeoutMs = 8000
 ): Promise<Map<string, PolygonNewsRaw[]>> {
   const index = new Map<string, PolygonNewsRaw[]>();
-  if (!token) return index;
+  if (!apiKey) return index;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const generalPages = Array.from({ length: pages }, (_, p) =>
-      fetch(
-        `https://api.benzinga.com/api/v2/news?token=${token}` +
-          `&pageSize=25&page=${p}&displayOutput=abstract`,
-        { headers: { accept: 'application/json' }, signal: controller.signal as any, cache: 'no-store' }
-      )
-        .then(r => (r.ok ? r.json() : []))
-        .catch(() => [])
-    );
-    /* WIIM ("Why Is It Moving") is Benzinga's editorial desk that writes
-       per-ticker explanations for price moves. The general feed only carries
-       ~150 articles, so small-cap WIIM entries fall off the bottom. Fetching
-       the WIIM channel separately catches those — it's a smaller, more
-       targeted feed where each article IS a catalyst by definition. Falls
-       back silently when the key's entitlements don't include the channel
-       filter (the endpoint returns the same unfiltered feed). */
-    const wiimPages = Array.from({ length: 3 }, (_, p) =>
-      fetch(
-        `https://api.benzinga.com/api/v2/news?token=${token}` +
-          `&pageSize=25&page=${p}&displayOutput=abstract&channels=WIIM`,
-        { headers: { accept: 'application/json' }, signal: controller.signal as any, cache: 'no-store' }
-      )
-        .then(r => (r.ok ? r.json() : []))
-        .catch(() => [])
-    );
-    const responses = await Promise.all([...generalPages, ...wiimPages]);
+    const [general0, general1, wiim] = await Promise.all([
+      fetchMassivePage(apiKey, { offset: 0 }, controller.signal),
+      fetchMassivePage(apiKey, { offset: 100 }, controller.signal),
+      fetchMassivePage(apiKey, { tags: "why it's moving" }, controller.signal),
+    ]);
 
     const seen = new Set<string>();
-    for (const raw of benzingaToRaw(responses.flat().filter(Boolean))) {
+    for (const raw of massiveToRaw([...general0, ...general1, ...wiim])) {
       if (raw.id && seen.has(raw.id)) continue;
       if (raw.id) seen.add(raw.id);
       for (const t of raw.tickers ?? []) {
@@ -546,9 +526,57 @@ export async function fetchBenzingaNewsIndex(
     }
     return index;
   } catch {
-    /* A news miss must never fail the scan — rows just have no catalyst. */
     return index;
   } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* Per-ticker Benzinga lookup for candidates the general index missed.
+   The general feed (200 articles) covers ~24-36h of broad news. Ticker-specific
+   catalysts outside that window never reach pickBestNews. This batches the
+   missing tickers into comma-separated queries (15 per call, ~3-4 calls for a
+   typical 40-ticker scan) and merges results into the existing index. */
+export async function enrichBenzingaIndex(
+  index: Map<string, PolygonNewsRaw[]>,
+  tickers: string[],
+  apiKey: string,
+  timeoutMs = 8000,
+): Promise<void> {
+  if (!apiKey) return;
+  const missing = tickers.filter(t => !index.has(t));
+  if (missing.length === 0) return;
+
+  const BATCH = 15;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const batches: string[][] = [];
+    for (let i = 0; i < missing.length; i += BATCH) {
+      batches.push(missing.slice(i, i + BATCH));
+    }
+
+    const results = await Promise.all(
+      batches.map(batch =>
+        fetchMassivePage(apiKey, { tickers: batch.join(',') }, controller.signal)
+      ),
+    );
+
+    const seen = new Set<string>();
+    for (const existing of index.values()) {
+      for (const r of existing) if (r.id) seen.add(r.id);
+    }
+
+    for (const raw of massiveToRaw(results.flat())) {
+      if (raw.id && seen.has(raw.id)) continue;
+      if (raw.id) seen.add(raw.id);
+      for (const t of raw.tickers ?? []) {
+        const bucket = index.get(t);
+        if (bucket) bucket.push(raw);
+        else index.set(t, [raw]);
+      }
+    }
+  } catch { /* best-effort */ } finally {
     clearTimeout(timer);
   }
 }

@@ -167,17 +167,12 @@ export function chopBadgeBg(v: number | null, b: ChopBands): string {
   return 'bg-emerald-500/10 border-emerald-500/20';
 }
 
-/* Scorecard cell tone — a deliberately coarser read than the six-tier palette
-   above. DEAD CHOP and EXTREME collapse to the same red because on a bare
-   cell both mean the same thing: stop trading breakouts. Everything below the
-   chop line reads green, MIXED included, because the cell has no bar or
-   midpoint next to it to give a third colour any meaning. */
 export type CellTone = 'green' | 'amber' | 'red' | 'slate';
 
 export function chopCellTone(v: number | null, b: ChopBands): CellTone {
   if (v == null) return 'slate';
   if (v >= b.dead) return 'red';
-  if (v >= b.chop) return 'amber';
+  if (v > b.trend) return 'amber';
   return 'green';
 }
 

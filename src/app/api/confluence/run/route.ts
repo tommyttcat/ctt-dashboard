@@ -65,7 +65,7 @@ function sym(s: ScanStock): string { return s.ticker || s.symbol || ''; }
 
 // ---- timeframe analysis -----------------------------------------------------
 
-type Timeframe = 'Weekly' | 'Daily' | '4-Hour' | '2-Hour' | '1-Hour';
+type Timeframe = 'Weekly' | 'Daily';
 
 interface TfAnalysis {
   timeframe: Timeframe;
@@ -82,18 +82,16 @@ interface TfAnalysis {
 }
 
 function analyzeTf(bars: Bar[], tf: Timeframe): TfAnalysis | null {
-  const isIntraday = tf !== 'Weekly' && tf !== 'Daily';
-  const minBars = isIntraday ? 2 : 36;
-  if (!bars || bars.length < minBars) return null;
+  if (!bars || bars.length < 36) return null;
   const closes = bars.map(b => b.c);
   const price = closes[closes.length - 1];
 
-  const emaShort = isIntraday ? 8 : 21;
-  const emaLong = isIntraday ? 21 : 55;
-  const rsiPeriod = isIntraday ? 7 : 14;
-  const macdFast = isIntraday ? 5 : 12;
-  const macdSlow = isIntraday ? 13 : 26;
-  const macdSig = isIntraday ? 4 : 9;
+  const emaShort = 21;
+  const emaLong = 55;
+  const rsiPeriod = 14;
+  const macdFast = 12;
+  const macdSlow = 26;
+  const macdSig = 9;
 
   const e21 = ema(closes, emaShort);
   const e55 = ema(closes, emaLong);
@@ -242,7 +240,7 @@ function generateAiSummary(reports: any[]): AiSummary {
       : 'Mixed signals across timeframes — be selective, favor highest-confluence names only.');
 
   const sorted = [...reports].sort((a, b) => {
-    const sc = (r: any) => r.cnfScore * 2 + r.rsRating + (r.confluenceScore / r.confluenceMax) * 50;
+    const sc = (r: any) => r.cnfScore * 2 + r.rsRating + (r.biasScore / r.biasMax) * 50;
     return sc(b) - sc(a);
   });
 
@@ -322,7 +320,7 @@ export async function GET(request: Request) {
     }
   }
 
-  const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
+  const polygonApiKey = process.env.POLYGON_API_KEY || '';
   if (!polygonApiKey) return NextResponse.json({ error: 'Missing API Key' }, { status: 500 });
 
   try {
@@ -375,18 +373,14 @@ export async function GET(request: Request) {
     const toStr = now.toISOString().split('T')[0];
     const dailyFrom = new Date(now.getTime() - 365 * 86400000).toISOString().split('T')[0];
     const weeklyFrom = new Date(now.getTime() - 1460 * 86400000).toISOString().split('T')[0];
-    const intraFrom = new Date(now.getTime() - 90 * 86400000).toISOString().split('T')[0];
 
     const reports = [];
 
     for (const stock of top) {
       const ticker = sym(stock);
-      const [weeklyRes, dailyRes, h4Res, h2Res, h1Res] = await Promise.all([
+      const [weeklyRes, dailyRes] = await Promise.all([
         fetchSafeJson(`https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/week/${weeklyFrom}/${toStr}?adjusted=true&sort=asc&limit=200&apiKey=${polygonApiKey}`, { results: [] }),
         fetchSafeJson(`https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${dailyFrom}/${toStr}?adjusted=true&sort=asc&limit=400&apiKey=${polygonApiKey}`, { results: [] }),
-        fetchSafeJson(`https://api.polygon.io/v2/aggs/ticker/${ticker}/range/4/hour/${intraFrom}/${toStr}?adjusted=true&sort=asc&limit=500&apiKey=${polygonApiKey}`, { results: [] }),
-        fetchSafeJson(`https://api.polygon.io/v2/aggs/ticker/${ticker}/range/2/hour/${intraFrom}/${toStr}?adjusted=true&sort=asc&limit=500&apiKey=${polygonApiKey}`, { results: [] }),
-        fetchSafeJson(`https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/hour/${intraFrom}/${toStr}?adjusted=true&sort=asc&limit=500&apiKey=${polygonApiKey}`, { results: [] }),
       ]);
 
       const toBars = (res: any): Bar[] =>
@@ -394,25 +388,19 @@ export async function GET(request: Request) {
 
       const weeklyBars = toBars(weeklyRes);
       const dailyBars = toBars(dailyRes);
-      const h4Bars = toBars(h4Res);
-      const h2Bars = toBars(h2Res);
-      const h1Bars = toBars(h1Res);
 
-      console.log(`[CONFLUENCE] ${ticker}: weekly=${weeklyBars.length} daily=${dailyBars.length} 4h=${h4Bars.length} 2h=${h2Bars.length} 1h=${h1Bars.length}`);
+      console.log(`[CONFLUENCE] ${ticker}: weekly=${weeklyBars.length} daily=${dailyBars.length}`);
 
       const tfWeekly = analyzeTf(weeklyBars, 'Weekly');
       const tfDaily = analyzeTf(dailyBars, 'Daily');
-      const tf4h = analyzeTf(h4Bars, '4-Hour');
-      const tf2h = analyzeTf(h2Bars, '2-Hour');
-      const tf1h = analyzeTf(h1Bars, '1-Hour');
 
-      const timeframes = [tfWeekly, tfDaily, tf4h, tf2h, tf1h].filter(Boolean) as TfAnalysis[];
+      const timeframes = [tfWeekly, tfDaily].filter(Boolean) as TfAnalysis[];
 
-      // Confluence score: sum of bias scores across timeframes
+      // Confluence bias: average of per-timeframe bias scores (each 0-4), rounded
       const totalBias = timeframes.reduce((sum, tf) => sum + tf.biasScore, 0);
       const maxBias = timeframes.length * 4;
-      const confluenceScore = maxBias > 0 ? Math.round((totalBias / maxBias) * 4) : 0;
-      const confluenceLabel = confluenceScore >= 3 ? 'Bullish' : confluenceScore <= 1 ? 'Bearish' : 'Mixed';
+      const biasScore = maxBias > 0 ? Math.round((totalBias / maxBias) * 4) : 0;
+      const confluenceLabel = biasScore >= 3 ? 'Bullish' : biasScore <= 1 ? 'Bearish' : 'Mixed';
 
       // S/R from daily bars, filtered to within 25% of current price
       const rawLevels = dailyBars.length > 10 ? findSwingLevels(dailyBars) : { resistance: [], support: [] };
@@ -448,8 +436,10 @@ export async function GET(request: Request) {
         float: stock.float ?? null,
         mktCap: stock.mktCap ?? null,
         timeframes,
-        confluenceScore,
-        confluenceMax: timeframes.length,
+        biasScore,
+        biasMax: 4,
+        confluenceScore: stock.cnfScore ?? 0,
+        confluenceMax: 100,
         confluenceLabel,
         levels,
         tradeRec: rec,

@@ -73,8 +73,9 @@ import {
 } from '@/lib/indicators/chop';
 import { EP9M, COLUMN_NOTES, columnTip } from '@/lib/scanConfig';
 import TickerChartHover from './TickerChartHover';
-import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews } from '@/lib/catalyst';
+import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews, NewsStars } from '@/lib/catalyst';
 import { displaySector } from '@/lib/sectors';
+import { rsBadge, rsTooltip } from '@/lib/indicators/rs';
 import { adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, rvolColorHighFloor as getRvolColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
@@ -198,6 +199,7 @@ interface Ep9mCandidate {
   pctOffHigh?: number | null;
   stochK?: number | null;
   rsVsSpy?: number | null;
+  rsRating?: number | null;
   priorTriggers?: number;
   sugarBaby?: boolean;
   blueDot?: boolean;
@@ -217,7 +219,7 @@ type SortDirection = 'asc' | 'desc';
 type EpFilterType = 'All' | 'A' | 'B';
 type RvolFilterType = 'All' | '5';
 type CatalystFilterType = 'All' | 'News' | 'Silent';
-type VwapFilterType = 'All' | 'above';
+type VwapFilterType = 'All' | 'above' | 'below';
 type PlanFilterType = 'All' | '1R' | '2R';
 type CapFilterType = 'All' | 'Small' | 'Large';
 type ChopFilterType = 'All' | 'trend' | 'nochop';
@@ -576,7 +578,7 @@ export default function Ep9m() {
   const handleEpFilter = (val: EpFilterType) => setEpFilter(prev => prev === val ? 'All' : val);
   const handleRvolFilter = (val: RvolFilterType) => setRvolFilter(prev => prev === val ? 'All' : val);
   const handleCatalystFilter = (val: CatalystFilterType) => setCatalystFilter(prev => prev === val ? 'All' : val);
-  const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
+  const toggleVwap = (status: 'above' | 'below') => setVwapFilter(prev => prev === status ? 'All' : status);
   const handlePlanFilter = (val: PlanFilterType) => setPlanFilter(prev => prev === val ? 'All' : val);
   const handleCapFilter = (val: CapFilterType) => setMarketCapFilter(prev => prev === val ? 'All' : val);
   const handleChopFilter = (val: ChopFilterType) => setChopFilter(prev => prev === val ? 'All' : val);
@@ -824,8 +826,16 @@ export default function Ep9m() {
           )}
           {candidates.length > 0 && (
             <span className="hidden md:flex basis-full items-center gap-1.5 mt-1">
-              <span className="text-[9px] font-bold tracking-wider uppercase text-fuchsia-400 bg-fuchsia-500/10 border border-fuchsia-500/20 px-1.5 py-0.5 rounded">{unprecedentedCount} Unprecedented</span>
-              <span className="text-[9px] font-bold tracking-wider uppercase text-slate-400 bg-white/[0.03] border border-white/5 px-1.5 py-0.5 rounded">{silentCount} Silent</span>
+              <span
+                onClick={() => setShowUnprecedentedOnly(prev => !prev)}
+                className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-0.5 rounded cursor-pointer transition-all ${showUnprecedentedOnly ? 'text-fuchsia-300 bg-fuchsia-500/20 border border-fuchsia-400/40 ring-1 ring-fuchsia-400/30' : 'text-fuchsia-400 bg-fuchsia-500/10 border border-fuchsia-500/20 hover:bg-fuchsia-500/15'}`}
+                title={showUnprecedentedOnly ? 'Filtering unprecedented — click to show all' : 'Click to show only unprecedented volume'}
+              >{unprecedentedCount} Unprecedented</span>
+              <span
+                onClick={() => setCatalystFilter(prev => prev === 'Silent' ? 'All' : 'Silent')}
+                className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-0.5 rounded cursor-pointer transition-all ${catalystFilter === 'Silent' ? 'text-slate-200 bg-white/[0.08] border border-white/20 ring-1 ring-white/20' : 'text-slate-400 bg-white/[0.03] border border-white/5 hover:bg-white/[0.06]'}`}
+                title={catalystFilter === 'Silent' ? 'Filtering silent — click to show all' : 'Click to show only silent (no catalyst)'}
+              >{silentCount} Silent</span>
               {unprecInChopCount > 0 && (
                 <span
                   className="text-[9px] font-bold tracking-wider uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded cursor-help"
@@ -851,7 +861,7 @@ export default function Ep9m() {
       {isExpanded && (
         <>
           <div className="flex flex-col gap-3 mb-4 relative z-10" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-center">
+            <div className="flex justify-center items-center gap-4">
               <button
                 onClick={() => setShowFilters(!showFilters)}
                 className={`px-4 py-1.5 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 flex items-center gap-2 ${
@@ -863,6 +873,10 @@ export default function Ep9m() {
                 <span className={`inline-block transition-transform duration-200 ${showFilters ? 'rotate-90' : ''}`}>▸</span>
                 Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
               </button>
+              <div className="flex items-center gap-2.5 text-[9px] font-semibold text-slate-500">
+                <span onClick={() => toggleVwap('above')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'above' ? 'text-emerald-400' : ''}`} title={vwapFilter === 'above' ? 'Filtering above VWAP — click to show all' : 'Click to filter above VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 ${vwapFilter === 'above' ? 'ring-1 ring-white/40' : ''}`}></span>Above VWAP</span>
+                <span onClick={() => toggleVwap('below')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'below' ? 'text-rose-400' : ''}`} title={vwapFilter === 'below' ? 'Filtering below VWAP — click to show all' : 'Click to filter below VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-rose-500 ${vwapFilter === 'below' ? 'ring-1 ring-white/40' : ''}`}></span>Below</span>
+              </div>
             </div>
             {showFilters && (
               <div className="flex flex-wrap justify-center items-center gap-3 w-full">
@@ -1000,31 +1014,20 @@ export default function Ep9m() {
                     ))}
                   </div>
                 </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>VWAP</span>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleVwapFilter('above')}
-                      title="Only names holding above VWAP — on a heavy-volume day, whether the session is being bought or sold. Below-VWAP names still show their red dot in the price cell."
-                      className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}
-                    >
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
-                    </button>
-                  </div>
-                </div>
               </div>
             )}
           </div>
 
           <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            {/* 18 columns. RTR sits after EP, matching every other table.
+            {/* 18 columns (N added between TICKER and EP).
                 min-w 960; widths sum ~99. */}
             <table className="w-full min-w-[960px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%] !text-left pl-1`} title={colTip('TICKER')} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className={`${thBase} w-[2%]`} title="News — ★ has an article, ★★ has a causal catalyst from a primary source">N</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('EP')} onClick={() => handleSort('score')}>EP{getSortIcon('score')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('RS')} onClick={() => handleSort('rsVsSpy')}>RS{getSortIcon('rsVsSpy')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('10/21')}>10/21</th>
@@ -1048,7 +1051,7 @@ export default function Ep9m() {
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
                   <tr>
-                    <td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium">
+                    <td colSpan={18} className="py-12 text-center text-slate-500 text-sm font-medium">
                       {status === 'Live'
                         ? (candidates.length > 0
                             ? 'No names match the current filters.'
@@ -1079,6 +1082,7 @@ export default function Ep9m() {
                               {row.sugarBaby && <SugarBabyMark />}
                             </div>
                           </td>
+                          <td className={tdBase}><NewsStars row={row} /></td>
                           <td className={tdBase}>
                             <span
                               title={epTooltip(row)}
@@ -1087,8 +1091,11 @@ export default function Ep9m() {
                               {row.score}
                             </span>
                           </td>
+                          <td className={`${tdBase} whitespace-nowrap`} title={rsTooltip(row.rsRating)}>
+                            <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span>
+                          </td>
                           <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
-                            <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus && row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div>
+                            <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus && row.vwapStatus !== 'neutral' && (<div onClick={(e) => { e.stopPropagation(); toggleVwap(row.vwapStatus as 'above' | 'below'); }} className={`w-1.5 h-1.5 rounded-full shrink-0 cursor-pointer ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'} ${vwapFilter === row.vwapStatus ? 'ring-1 ring-white/40' : ''}`} title={`VWAP: ${row.vwapStatus} — click to filter`}></div>)}</div>
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getChgColor(row.changePct)}`}>
                             {row.changePct != null ? `${row.changePct >= 0 ? '+' : ''}${row.changePct.toFixed(2)}%` : '—'}
@@ -1136,9 +1143,6 @@ export default function Ep9m() {
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={`Money Flow (21) — ${mfLabel(mf)}. Heavy volume with MF under 45 is distribution, however strong today's close. Arrow shows the 5-day direction.`}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRsColor(row.rsVsSpy)}`} title={row.rsVsSpy != null ? `${row.rsVsSpy >= 0 ? '+' : ''}${row.rsVsSpy.toFixed(1)} percentage points vs SPY over three months` : undefined}>
-                            {formatRs(row.rsVsSpy)}
-                          </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover — short interest divided by average daily volume. Squeeze fuel.">
                             {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
@@ -1171,9 +1175,7 @@ export default function Ep9m() {
                               indent tracks the ticker column's real width
                               instead of drifting from it. */}
                           <td />
-                          {/* 1 + 17 = 18, the header count. This span was 17
-                              against 18 headers before the indent went in —
-                              the sub-row had been stopping one column early. */}
+                          <td />
                           <td colSpan={16} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
                               <span
@@ -1215,13 +1217,6 @@ export default function Ep9m() {
                                 )}
                               </p>
                             </div>
-                          </td>
-                          <td className="pb-1.5 pt-1 pl-1.5 text-left align-middle border-l border-white/5">
-                            {row.unprecedented ? (
-                              <span className="text-[8px] font-semibold text-fuchsia-400 whitespace-nowrap">Unprec</span>
-                            ) : !hasCatalyst(row) ? (
-                              <span className="text-[8px] font-semibold text-slate-500 whitespace-nowrap">Silent</span>
-                            ) : null}
                           </td>
                         </tr>
                       </React.Fragment>

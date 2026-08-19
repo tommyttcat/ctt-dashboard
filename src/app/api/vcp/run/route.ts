@@ -132,7 +132,7 @@ export const fetchCache = 'force-no-store';
 export const revalidate = 0;
 export const maxDuration = 300;
 
-const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
+const POLYGON_KEY = process.env.POLYGON_API_KEY || '';
 /* Benzinga is back for news only (v1.4). The v1.3 move to Polygon is what made
    this column go dark: Polygon's per-ticker feed is Motley Fool wall-to-wall on
    this plan, and pickBestNews blocks that publisher by design. */
@@ -149,6 +149,7 @@ const BASE = 'https://api.polygon.io';
    be invisible: the key would confidently document a threshold the scan had
    stopped enforcing. */
 import { VCP as VCP_GATES, VCP_META } from '@/lib/scanConfig';
+import { cleanSectorDescription } from '@/lib/sectors';
 export { VCP_GATES };
 
 const ENRICH_CONCURRENCY = 8;
@@ -239,6 +240,7 @@ interface VcpCandidate {
   newsPublisher: string | null;
   newsAge: string | null;
   newsSentiment: 'positive' | 'negative' | 'neutral' | null;
+  newsCausal: boolean | null;
 
   // Levels for the trade
   trigger: number | null;
@@ -424,37 +426,6 @@ function prefilterVcp(bars: VcpBar[]): boolean {
    inside @/lib/indicators/news, and keeping a local copy as a second opinion
    is how two classifiers drift apart on the same headline. */
 
-function cleanSector(sic: string | undefined, sector: string | undefined, industry: string | undefined): string {
-  const blob = `${(industry || '').toLowerCase()} ${(sic || '').toLowerCase()}`;
-  if (/nuclear|uranium/.test(blob)) return 'Nuclear';
-  if (/solar|photovoltaic/.test(blob)) return 'Solar';
-  if (/electric vehicle|motor vehicle/.test(blob)) return 'EV';
-  if (/biotechnolog|biological product|in vitro/.test(blob)) return 'Biotech';
-  if (/semiconductor/.test(blob)) return "Semi's";
-  if (/artificial intelligence/.test(blob)) return 'AI';
-  if (/cybersecurity|security software/.test(blob)) return 'Cyber';
-  if (/aerospace|\bdefense\b|aircraft|space vehicle/.test(blob)) return 'Aerospace';
-
-  const s = (sic || '').toLowerCase();
-  if (/software|prepackaged|data processing|computer/.test(s)) return 'IT';
-  if (/pharmaceutical|drug|medical|health|surgical/.test(s)) return 'Healthcare';
-  if (/petroleum|natural gas|drilling|\boil\b|energy/.test(s)) return 'Energy';
-  if (/\bbank\b|insurance|investment|securities broker/.test(s)) return 'Financials';
-  if (/real estate/.test(s)) return 'Real Estate';
-  if (/electric services|water supply/.test(s)) return 'Utilities';
-  if (/telephone|broadcast|publishing|entertainment/.test(s)) return 'Comm Serv';
-  if (/retail|restaurant|apparel|hotel/.test(s)) return 'Con Disc';
-  if (/beverage|\bfood\b|tobacco|household/.test(s)) return 'Con Staples';
-  if (/mining|steel|chemical|paper mill/.test(s)) return 'Materials';
-  if (/machinery|industrial|construction|transportation/.test(s)) return 'Industrials';
-
-  const sec = (sector || '').toLowerCase();
-  if (sec.includes('technology')) return 'IT';
-  if (sec.includes('health')) return 'Healthcare';
-  if (sec.includes('financial')) return 'Financials';
-  if (sec.includes('energy')) return 'Energy';
-  return 'Other';
-}
 
 const round2 = (v: number | null | undefined): number | null =>
   v == null || !Number.isFinite(v) ? null : parseFloat(v.toFixed(2));
@@ -579,7 +550,7 @@ async function runScan(request: Request) {
 
     /* One fetch for the whole scan, indexed by ticker — this plan's Benzinga
        endpoint ignores per-ticker params, so filtering happens here. */
-    const bzIndex = await fetchBenzingaNewsIndex(BENZINGA_KEY);
+    const bzIndex = await fetchBenzingaNewsIndex(POLYGON_KEY);
 
     const confirmed = await inBatches(shortlist, ENRICH_CONCURRENCY, async ({ sym, rs }) => {
       const snap = snapMap.get(sym);
@@ -648,7 +619,7 @@ async function runScan(request: Request) {
       const out: VcpCandidate = {
         symbol: sym,
         name: details?.results?.name || sym,
-        sector: cleanSector(
+        sector: cleanSectorDescription(
           details?.results?.sic_description,
           details?.results?.sector,
           details?.results?.industry
@@ -710,6 +681,7 @@ async function runScan(request: Request) {
         newsPublisher: news?.publisher ?? null,
         newsAge: news?.ageLabel ?? null,
         newsSentiment: news?.sentiment ?? null,
+        newsCausal: news?.causal ?? null,
 
         trigger: round2(levels.trigger),
         stop: round2(levels.stop),

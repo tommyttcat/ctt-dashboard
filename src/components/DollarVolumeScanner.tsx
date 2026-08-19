@@ -3,11 +3,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { cachedJson } from '@/lib/scannerLatest';
 import TickerChartHover, { useFreezeWhileChartOpen } from './TickerChartHover';
-import { CatalystChip } from '@/lib/catalyst';
+import { CatalystChip, NewsStars } from '@/lib/catalyst';
 import { rsBadge } from '@/lib/indicators/rs';
 import {
-  tickerChipForScore, cnfBadgeCls, stochColor, dtcColor, floatColor, rvolColor,
+  tickerChipForScore, cnfBadgeCls, stochColor, dtcColor, floatColor, rvolColor, adrColor,
 } from '@/lib/indicators/columnColors';
+import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { displaySector } from '@/lib/sectors';
 import { stageBadge, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { useMarketData } from './MarketDataContext';
@@ -38,6 +39,7 @@ const DVOL_BANDS = [
   { key: 100, label: '100M+', min: 100e6, max: Infinity },
 ] as const;
 type DvolStep = (typeof DVOL_BANDS)[number]['key'];
+type VwapFilterType = 'All' | 'above' | 'below';
 
 const CAP_BANDS = {
   Nano: { min: 0, max: 50e6 },
@@ -67,6 +69,8 @@ type Row = {
   mktCap: number | null;
   type: string | null;
   adrPct: number | null;
+  mf: number | null;
+  mfTrend: number;
   stage: string | null;
   rsRating: number | null;
   sector: string | null;
@@ -168,8 +172,8 @@ const bandLabel = (r: { mktCap: number | null; type: string | null }): string =>
    direction a first click should use — money and size want biggest-first,
    the ticker wants A-Z. */
 type SortKey =
-  | 'ticker' | 'cnf' | 'price' | 'changePct' | 'ema' | 'vol' | 'dvol' | 'rvol'
-  | 'float' | 'rsRating' | 'stoch' | 'dtc' | 'mktCap' | 'stage' | 'sector';
+  | 'ticker' | 'news' | 'cnf' | 'price' | 'changePct' | 'ema' | 'vol' | 'dvol' | 'rvol'
+  | 'float' | 'adr' | 'mf' | 'rsRating' | 'stoch' | 'dtc' | 'mktCap' | 'stage' | 'sector';
 
 const COLUMNS: {
   key: SortKey;
@@ -182,36 +186,42 @@ const COLUMNS: {
      the same divider SIPs puts before STAGE. */
   divider?: boolean;
 }[] = [
-  { key: 'ticker', label: 'Ticker', align: 'left', dir: 'asc', get: r => r.ticker,
+  { key: 'ticker', label: 'TICKER', align: 'left', dir: 'asc', get: r => r.ticker,
     tip: 'Symbol, tinted by CNF grade. Hover for the chart.' },
+  { key: 'news', label: 'N', align: 'left', dir: 'desc', get: r => r.catalystUrl ? 1 : 0,
+    tip: 'News — ★ has an article, ★★ has a causal catalyst from a primary source' },
   { key: 'cnf', label: 'CNF', align: 'right', dir: 'desc', get: r => r.cnfScore,
     tip: 'Confluence score 0-100, from the same scorer the daily scan grades with — so a stock on both boards carries one CNF, not two. This scan has no scan-streak, dot, trade-plan or sector-heat input, so those terms score neutral and a DVol CNF reads slightly conservative. Hover the number for the breakdown.' },
-  { key: 'price', label: 'Price', align: 'right', dir: 'desc', get: r => r.price,
+  { key: 'rsRating', label: 'RS', align: 'right', dir: 'desc', get: r => r.rsRating,
+    tip: 'Market-wide RS rating, the same percentile the other tables show — looked up from the shared job rather than recomputed here.' },
+  { key: 'price', label: 'PRICE', align: 'right', dir: 'desc', get: r => r.price,
     tip: 'Last close.' },
-  { key: 'changePct', label: 'Chg%', align: 'right', dir: 'desc', get: r => r.changePct,
+  { key: 'changePct', label: 'CHG%', align: 'right', dir: 'desc', get: r => r.changePct,
     tip: 'Change vs the prior close. This list only carries names at +4% and above.' },
   { key: 'ema', label: '10/21', align: 'right', dir: 'desc',
     get: r => (r.aboveEma10 ? 2 : 0) + (r.aboveEma21 ? 1 : 0),
     tip: 'Position against the 10 and 21 EMAs. Both green is stacked; above 21 and below 10 is a pullback into the first touch.' },
-  { key: 'vol', label: 'Vol', align: 'right', dir: 'desc', get: r => r.vol,
+  { key: 'vol', label: 'VOL', align: 'right', dir: 'desc', get: r => r.vol,
     tip: 'Shares traded. Gated at 5M.' },
-  { key: 'dvol', label: '$Vol', align: 'right', dir: 'desc', get: r => r.dvol,
+  { key: 'dvol', label: '$VOL', align: 'right', dir: 'desc', get: r => r.dvol,
     tip: 'Close x volume — the actual money that changed hands. This is the list\'s ranking metric.' },
-  { key: 'rvol', label: 'RVol', align: 'right', dir: 'desc', get: r => r.rvol,
+  { key: 'rvol', label: 'RVOL', align: 'right', dir: 'desc', get: r => r.rvol,
     tip: 'Volume vs this name\'s own 20-day average. Big dollar volume at RVol near 1 is just a big stock trading normally.' },
-  { key: 'float', label: 'Float', align: 'right', dir: 'asc', get: r => r.float,
+  { key: 'float', label: 'FLOAT', align: 'right', dir: 'asc', get: r => r.float,
     tip: 'Shares outstanding for the class — the closest figure the reference feed carries. Purple under 20M, green under 50M: a small float moves further on the same dollars.' },
-  { key: 'rsRating', label: 'RS', align: 'right', dir: 'desc', get: r => r.rsRating,
-    tip: 'Market-wide RS rating, the same percentile the other tables show — looked up from the shared job rather than recomputed here.' },
-  { key: 'stoch', label: 'Stoch', align: 'right', dir: 'asc', get: r => r.stochK,
+  { key: 'adr', label: 'ADR', align: 'right', dir: 'desc', get: r => r.adrPct,
+    tip: 'Average daily range as a percentage of price over the last 20 sessions.' },
+  { key: 'mf', label: 'MF', align: 'right', dir: 'desc', get: r => r.mf,
+    tip: 'Chaikin Money Flow — positive means accumulation, negative means distribution.' },
+  { key: 'stoch', label: 'STOCH', align: 'right', dir: 'asc', get: r => r.stochK,
     tip: 'Stochastic %K. Low is room to run, not weakness — purple at or under 20, green at or under 30.' },
   { key: 'dtc', label: 'DTC', align: 'right', dir: 'desc', get: r => r.daysToCover,
     tip: 'Days to cover — short interest divided by average volume. High means a crowded short with fuel behind a move.' },
-  { key: 'mktCap', label: 'MCap', align: 'right', dir: 'desc', get: r => r.mktCap,
+  { key: 'mktCap', label: 'MCAP', align: 'right', dir: 'desc', get: r => r.mktCap,
     tip: 'Market capitalisation. Funds have none by nature and show ETF rather than a dash.' },
-  { key: 'stage', label: 'Stage', align: 'left', dir: 'asc', divider: true, get: r => r.stage,
+  { key: 'stage', label: 'STAGE', align: 'left', dir: 'asc', divider: true, get: r => r.stage,
     tip: 'Weinstein stage from 400 days of daily bars. 2A is a strong advance, 4 a decline.' },
-  { key: 'sector', label: 'Sector', align: 'left', dir: 'asc', get: r => r.sector,
+  { key: 'sector', label: 'SECTOR', align: 'left', dir: 'asc', get: r => r.sector,
     tip: 'Thematic sector from the SIC description, named the way the other tables name it.' },
 ];
 
@@ -230,6 +240,7 @@ export default function DollarVolumeScanner() {
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'dvol', dir: 'desc' });
   const [copied, setCopied] = useState(false);
   const [txtDone, setTxtDone] = useState(false);
+  const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [lastScanTime, setLastScanTime] = useState<number | null>(null);
 
   const load = useCallback(async () => {
@@ -251,6 +262,7 @@ export default function DollarVolumeScanner() {
      pills answer is "show me the small-cap cohort", singular. Clicking the
      active band clears it. */
   const selectCap = (band: CapBand) => setCap(prev => (prev === band ? null : band));
+  const toggleVwap = (status: 'above' | 'below') => setVwapFilter(prev => prev === status ? 'All' : status);
 
   const handleSort = (key: SortKey) => {
     const col = COLUMNS.find(c => c.key === key)!;
@@ -265,13 +277,21 @@ export default function DollarVolumeScanner() {
      the rank column would stop meaning anything. */
   const computed = useMemo(() => {
     const dvolBand = DVOL_BANDS.find(b => b.key === minDvol)!;
-    const filtered = raw.filter(r => {
+    let filtered = raw.filter(r => {
       if (!(r.dvol >= dvolBand.min && r.dvol < dvolBand.max)) return false;
       if (cap == null) return true;
       /* Unknown caps are only excluded once a cap filter is on, so missing
          data never quietly shrinks the unfiltered list. */
       return capBandOf(r.mktCap) === cap;
     });
+
+    if (vwapFilter !== 'All') {
+      filtered = filtered.filter(r => {
+        if (r.vwap == null || r.vwap <= 0) return false;
+        const status = r.price >= r.vwap ? 'above' : 'below';
+        return status === vwapFilter;
+      });
+    }
 
     const ranked = [...filtered]
       .sort((a, b) => b.dvol - a.dvol)
@@ -295,7 +315,7 @@ export default function DollarVolumeScanner() {
       }
       return (av - bv) * mult;
     });
-  }, [raw, minDvol, cap, sort]);
+  }, [raw, minDvol, cap, vwapFilter, sort]);
 
   const rows = useFreezeWhileChartOpen(computed);
 
@@ -345,6 +365,7 @@ export default function DollarVolumeScanner() {
                 </TickerChartHover>
                 <CatalystChip row={row} note={NEGATIVE_NOTE} />
               </td>
+              <td className="px-0.5 pt-2.5 pb-1.5 text-left"><NewsStars row={row} /></td>
               <td className="px-0.5 pt-2.5 pb-1.5 text-right">
                 {row.cnfScore == null ? <span className="text-slate-600 text-[11px]">—</span> : (
                   <span
@@ -355,9 +376,12 @@ export default function DollarVolumeScanner() {
                   </span>
                 )}
               </td>
+              <td className="px-0.5 pt-2.5 pb-1.5 text-right">
+                <span className={`inline-block px-1 py-[1px] rounded border text-[7px] font-bold tabular-nums ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span>
+              </td>
               <td className="px-0.5 pt-2.5 pb-1.5 text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums">
                 <div className="flex items-center justify-end gap-1">${row.price.toFixed(2)}{row.vwap != null && row.vwap > 0 && (
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.price >= row.vwap ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.price >= row.vwap ? 'above' : 'below'}`} />
+                  <div onClick={(e) => { e.stopPropagation(); toggleVwap(row.price >= row.vwap! ? 'above' : 'below'); }} className={`w-1.5 h-1.5 rounded-full shrink-0 cursor-pointer ${row.price >= row.vwap ? 'bg-emerald-400' : 'bg-rose-500'} ${vwapFilter === (row.price >= row.vwap ? 'above' : 'below') ? 'ring-1 ring-white/40' : ''}`} title={`VWAP: ${row.price >= row.vwap ? 'above' : 'below'} — click to filter`}></div>
                 )}</div>
               </td>
               <td className={`px-0.5 pt-2.5 pb-1.5 text-right text-xs font-bold tabular-nums ${row.changePct == null ? 'text-slate-600' : up ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -379,8 +403,11 @@ export default function DollarVolumeScanner() {
               <td className={`px-0.5 pt-2.5 pb-1.5 text-right text-xs font-bold tabular-nums ${floatColor(row.float)}`}>
                 {fmtVol(row.float)}
               </td>
-              <td className="px-0.5 pt-2.5 pb-1.5 text-right">
-                <span className={`inline-block px-1 py-[1px] rounded border text-[7px] font-bold tabular-nums ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span>
+              <td className={`px-0.5 pt-2.5 pb-1.5 text-right text-xs font-bold tabular-nums ${row.adrPct != null ? adrColor(row.adrPct) : 'text-slate-600'}`}>
+                {row.adrPct != null ? `${row.adrPct.toFixed(1)}%` : '—'}
+              </td>
+              <td className={`px-0.5 pt-2.5 pb-1.5 text-right text-xs font-bold tabular-nums ${row.mf != null ? mfColor(row.mf) : 'text-slate-600'}`}>
+                {row.mf != null ? `${mfArrow(row.mfTrend)}${mfLabel(row.mf)}` : '—'}
               </td>
               <td className={`px-0.5 pt-2.5 pb-1.5 text-right text-xs font-bold tabular-nums ${stochColor(row.stochK)}`}>
                 {row.stochK != null ? row.stochK.toFixed(1) : '—'}
@@ -404,12 +431,8 @@ export default function DollarVolumeScanner() {
                 the other tables use when a row has none. */}
             <tr className="bg-transparent border-t border-white/5">
               <td />
+              <td />
               <td colSpan={14} className="pb-1.5 pt-0 pr-3">
-                {/* NO 78px name slot here, unlike the scan tables. Those
-                    reserve it for the setup name; this scan computes none, so
-                    the slot was pure indent and it pushed the catalyst out to
-                    the 10/21 column instead of starting it at CNF. The rule
-                    now sits on the column boundary itself. */}
                 <div className="flex items-center text-left gap-0 min-w-0">
                   <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={row.thesis || undefined}>
                     {row.thesis || row.catalyst ? (
@@ -436,6 +459,7 @@ export default function DollarVolumeScanner() {
                   </p>
                 </div>
               </td>
+              <td className="border-l border-white/5" colSpan={2}></td>
             </tr>
             </React.Fragment>
           );
@@ -555,6 +579,10 @@ export default function DollarVolumeScanner() {
                   Clear
                 </button>
               )}
+            </div>
+            <div className="flex items-center gap-2.5 text-[9px] font-semibold text-slate-500">
+              <span onClick={() => toggleVwap('above')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'above' ? 'text-emerald-400' : ''}`} title={vwapFilter === 'above' ? 'Filtering above VWAP — click to show all' : 'Click to filter above VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 ${vwapFilter === 'above' ? 'ring-1 ring-white/40' : ''}`}></span>Above VWAP</span>
+              <span onClick={() => toggleVwap('below')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'below' ? 'text-rose-400' : ''}`} title={vwapFilter === 'below' ? 'Filtering below VWAP — click to show all' : 'Click to filter below VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-rose-500 ${vwapFilter === 'below' ? 'ring-1 ring-white/40' : ''}`}></span>Below</span>
             </div>
           </div>
 

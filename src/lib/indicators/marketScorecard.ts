@@ -197,6 +197,14 @@ export function marketMonitorOf(raw: any): MarketMonitor | null {
   };
 }
 
+/** Today's up vs down — the card background color. */
+export function mmTodayTone(up: number | null, down: number | null): CellTone {
+  if (up == null || down == null) return 'slate';
+  if (up > down) return 'green';
+  if (down > up) return 'red';
+  return 'amber';
+}
+
 /* 1.0 is parity. The bands sit either side of it rather than at it, because a
    ratio hovering at exactly even is the least actionable reading there is. */
 export function mmCellTone(ratio: number | null): CellTone {
@@ -224,6 +232,9 @@ export function mkmCellTone(mkm: number, signal: number, rising: boolean): CellT
 
 export const vixCellTone = (price: number): CellTone =>
   price >= 25 ? 'red' : price >= 18 ? 'amber' : 'green';
+
+export const vixPctTone = (pct: number): CellTone =>
+  pct >= 0.5 ? 'red' : pct <= -0.5 ? 'green' : 'amber';
 
 /** Tickers where a rising price is a bearish signal. */
 export const INVERSE_TICKERS = new Set(['VIX', 'UVXY', 'SQQQ', 'SPXS', 'SDOW', 'SOXS']);

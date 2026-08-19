@@ -122,7 +122,8 @@ import { computeDotDetail } from '@/lib/indicators/dots';
 import { computeTradePlan } from '@/lib/indicators/tradeplan';
 import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN, CHOP_TREND_MAX } from '@/lib/indicators/chop';
 import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
-import { pickBestNews, fetchBenzingaNewsIndex, type NewsItem } from '@/lib/indicators/news';
+import { rawRsScore, percentileRank } from '@/lib/indicators/vcp';
+import { pickBestNews, fetchBenzingaNewsIndex, enrichBenzingaIndex, type NewsItem } from '@/lib/indicators/news';
 import {
   computeCnfScore, atrsAboveAnchor, isBreakoutSetupName, isReversalSetupName,
   EXT_HARD_ATRS, EXT_PARABOLIC_ATRS, EXT_HARD_PCT_NO_ATR, EXT_PARABOLIC_PCT_NO_ATR,
@@ -770,7 +771,7 @@ async function runScan(request: Request) {
     }
   }
 
-  const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
+  const polygonApiKey = process.env.POLYGON_API_KEY || '';
   /* News only. Polygon's per-ticker feed is Motley Fool wall-to-wall on this
      plan, and pickBestNews blocks that publisher — so every row's catalyst
      came back null until Benzinga was put in front of it. */
@@ -925,14 +926,21 @@ async function runScan(request: Request) {
       if (chg >= 4) mm4Up++; else if (chg <= -4) mm4Down++;
     }
 
-    /* The 5-day ratio needs history the snapshot cannot provide, so the daily
+    /* The weekly ratio needs history the snapshot cannot provide, so the daily
        counts are buffered here. Keyed by ET trading date and rewritten in
        place, so several runs in one session update today rather than stacking
-       five copies of it into the window. */
+       five copies of it into the window. The week starts on Monday — entries
+       before this week's Monday are excluded from the sum. */
     let mm5Up: number | null = null, mm5Down: number | null = null, mm5Days = 0;
     try {
-      const etToday = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
-        .toISOString().slice(0, 10);
+      const etNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const etToday = etNow.toISOString().slice(0, 10);
+      const dayOfWeek = etNow.getDay();
+      const daysBack = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      const monday = new Date(etNow);
+      monday.setDate(monday.getDate() - daysBack);
+      const mondayStr = monday.toISOString().slice(0, 10);
+
       const histRaw = await kv.get<{ entries: { d: string; up: number; down: number }[] }>('mm_4pct_history');
       const entries = (histRaw?.entries ?? []).filter(e => e.d !== etToday);
       entries.push({ d: etToday, up: mm4Up, down: mm4Down });
@@ -940,10 +948,10 @@ async function runScan(request: Request) {
       const kept = entries.slice(-20);
       await kv.set('mm_4pct_history', { entries: kept });
 
-      const last5 = kept.slice(-5);
-      mm5Days = last5.length;
-      mm5Up = last5.reduce((a, e) => a + e.up, 0);
-      mm5Down = last5.reduce((a, e) => a + e.down, 0);
+      const thisWeek = kept.filter(e => e.d >= mondayStr);
+      mm5Days = thisWeek.length;
+      mm5Up = thisWeek.reduce((a, e) => a + e.up, 0);
+      mm5Down = thisWeek.reduce((a, e) => a + e.down, 0);
     } catch (e) { console.error('MM history failed (non-blocking):', e); }
 
     try {
@@ -1146,9 +1154,11 @@ async function runScan(request: Request) {
     const allCandidates = [...dailyCandidates, ...sipCandidates, ...megaCapsRaw, ...gainersRaw, ...losersRaw, ...etfGainersRaw, ...etfLosersRaw];
     const uniqueCandidates = Array.from(new Map(allCandidates.map(item => [item.ticker, item])).values());
 
-    /* One fetch for the whole scan, indexed by ticker — this plan's Benzinga
-       endpoint ignores per-ticker params, so filtering happens here. */
-    const bzIndex = await fetchBenzingaNewsIndex(benzingaKey);
+    /* General Benzinga feed (200 articles) indexed by ticker, then enriched with
+       per-ticker lookups for candidates the general feed missed. */
+    const bzIndex = await fetchBenzingaNewsIndex(polygonApiKey);
+    const candidateTickers = uniqueCandidates.map((c: any) => c.ticker || c.single_ticker).filter(Boolean);
+    await enrichBenzingaIndex(bzIndex, candidateTickers, polygonApiKey);
 
     const enrichCandidate = async (t: any) => {
       const sym = t.ticker || t.single_ticker;
@@ -1300,12 +1310,16 @@ async function runScan(request: Request) {
         if (win.length > 0) priorSwingHigh = Math.max(...win.map((b: any) => b.h));
       }
 
-      /* A lookup, not a calculation. Null is common and benign: the name
-         sits below the ranking floor, or listed less than a quarter ago and
-         has no recent leg to weight. Null renders as an em-dash and drops
-         out of any RS filter, which is the honest outcome — a stale or
-         invented percentile would pass filters and get traded on. */
-      const rsRating = rsLookup.get(sym);
+      let rsRating = rsLookup.get(sym);
+      if (rsRating == null && dailyBars.length >= 63 && rsLookup.sortedRaws.length > 0) {
+        const p0c = dailyBars[0]?.c;
+        const p63c = dailyBars[Math.min(63, dailyBars.length - 1)]?.c;
+        const p126c = dailyBars.length > 126 ? dailyBars[126]?.c : null;
+        const p189c = dailyBars.length > 189 ? dailyBars[189]?.c : null;
+        const p252c = dailyBars.length > 252 ? dailyBars[252]?.c : null;
+        const raw = rawRsScore({ p0: p0c, p63: p63c, p126: p126c, p189: p189c, p252: p252c });
+        if (raw != null) rsRating = percentileRank(raw, rsLookup.sortedRaws);
+      }
 
       let gapPct: number | null = null;
       let atrExpansion: number | null = null;

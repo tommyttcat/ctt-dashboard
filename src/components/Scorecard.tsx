@@ -1105,10 +1105,15 @@ export default function MacroScorecard() {
                     </div>
                   </div>
 
-                  <div className="flex flex-col items-start mt-2">
+                  <div className="flex items-end justify-between mt-2">
                     <span className={`text-2xl font-semibold tracking-tight transition-colors duration-200 ${tickColor}`}>
                       {asset.type === 'crypto' && q.price > 100 ? q.price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : q.price.toFixed(2)}
                     </span>
+                    {q.isExtended && session === 'Pre-Market' && q.baseline > 0 && (
+                      <span className="text-[9px] text-slate-500 font-medium">
+                        Prev {q.baseline.toFixed(2)}
+                      </span>
+                    )}
                   </div>
 
                 </div>

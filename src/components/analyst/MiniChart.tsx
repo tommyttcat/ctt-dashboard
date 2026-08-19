@@ -101,6 +101,18 @@ function calcChannel(data: Bar[], period: number): { mid: LineData<Time>[]; uppe
   return { mid, upper, lower };
 }
 
+function calcATR(data: Bar[], period = 14): number | null {
+  if (data.length < period + 1) return null;
+  const recent = data.slice(-(period + 1));
+  let sum = 0;
+  for (let i = 1; i < recent.length; i++) {
+    const prev = recent[i - 1].close;
+    const tr = Math.max(recent[i].high - recent[i].low, Math.abs(recent[i].high - prev), Math.abs(recent[i].low - prev));
+    sum += tr;
+  }
+  return sum / period;
+}
+
 function calcSR(data: Bar[], maxLevels = 5): { price: number; type: 'S' | 'R'; touches: number }[] {
   if (data.length < 5) return [];
   const pivots: { price: number; type: 'S' | 'R' }[] = [];
@@ -552,6 +564,7 @@ export default function MiniChart({ symbol, mode = 'candle', showTrend = false, 
     const recent = bars.slice(-14);
     adr = recent.reduce((s, b) => s + ((b.high - b.low) / b.close) * 100, 0) / recent.length;
   }
+  const atr = calcATR(bars);
 
   const displayVol = vol ?? (last ? last.volume : null);
   const displayDvol = dvol ?? (last ? last.close * last.volume : null);
@@ -613,6 +626,7 @@ export default function MiniChart({ symbol, mode = 'candle', showTrend = false, 
             </span>
           ))}
           {adr != null && <span className="text-slate-400">ADR <span className="text-slate-300">{adr.toFixed(1)}%</span></span>}
+          {atr != null && <span className="text-slate-400">ATR <span className="text-slate-300">{atr >= 10 ? atr.toFixed(1) : atr.toFixed(2)}</span></span>}
           {displayVol != null && <span className="text-slate-400">VOL <span className="text-slate-300">{fmtVol(displayVol)}</span></span>}
           {displayDvol != null && <span className="text-slate-400">DVOL <span className="text-slate-300">${fmtVol(displayDvol)}</span></span>}
           {displayRvol != null && <span className={displayRvol >= 2 ? 'text-amber-400' : displayRvol >= 1.5 ? 'text-emerald-400' : 'text-slate-400'}>RVOL <span className="font-semibold">{displayRvol.toFixed(2)}</span></span>}

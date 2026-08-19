@@ -89,7 +89,7 @@ import { stageColor, stageShort, stageDescription, stageBadge } from '@/lib/indi
 import { rmeLabel } from '@/lib/indicators/rme';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { rsColor, rsTooltip, rsBadge } from '@/lib/indicators/rs';
-import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews } from '@/lib/catalyst';
+import { CatalystChip, NewsStars, catalystTooltip, isGenericCatalyst, hasNews } from '@/lib/catalyst';
 import { displaySector } from '@/lib/sectors';
 import {
   chopColor,
@@ -222,6 +222,8 @@ interface StockInPlay {
   cnfCeilingReason?: string | null;
   goldenCross?: boolean | null;
   ema21Rising?: boolean | null;
+  gapPct?: number | null;
+  scanStreak?: number | null;
   status?: string | null;
   dotKind?: 'blue' | 'red' | null;
   dotBarsSince?: number | null;
@@ -230,16 +232,21 @@ interface StockInPlay {
 
 type SortDirection = 'asc' | 'desc';
 type CnfFilterType = 'All' | 'A' | 'B';
-type VwapFilterType = 'All' | 'above';
+type VwapFilterType = 'All' | 'above' | 'below';
 type AdrFilterType = 'All' | '5' | '10';
 type PlanFilterType = 'All' | '1R' | '2R';
 type CapFilterType = 'All' | 'Small' | 'Large';
 type PostureFilterType = 'All' | 'first-touch' | 'stacked' | 'extended';
 type ChopFilterType = 'All' | 'trend' | 'nochop';
+type CatalystFilterType = 'All' | 'news' | 'earnings';
+type GapFilterType = 'All' | '7' | '10';
+type SqueezeFilterType = 'All' | 'squeeze';
 
 const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
 const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
+const GAP_BUCKETS: GapFilterType[] = ['7', '10'];
+const CATALYST_BUCKETS: CatalystFilterType[] = ['news', 'earnings'];
 const PLAN_BUCKETS: PlanFilterType[] = ['1R', '2R'];
 const CAP_BUCKETS: CapFilterType[] = ['Small', 'Large'];
 const POSTURE_BUCKETS: PostureFilterType[] = ['first-touch', 'stacked', 'extended'];
@@ -603,13 +610,13 @@ export default function StocksInPlay() {
   const [scanMeta, setScanMeta] = useState<any>(null);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
-  const [postureFilter, setPostureFilter] = useState<PostureFilterType>('All');
   const [marketCapFilter, setMarketCapFilter] = useState<CapFilterType>('All');
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [adrFilter, setAdrFilter] = useState<AdrFilterType>('All');
-  const [chopFilter, setChopFilter] = useState<ChopFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
-  const [planFilter, setPlanFilter] = useState<PlanFilterType>('All');
+  const [catalystFilter, setCatalystFilter] = useState<CatalystFilterType>('All');
+  const [gapFilter, setGapFilter] = useState<GapFilterType>('All');
+  const [squeezeFilter, setSqueezeFilter] = useState<SqueezeFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
 
@@ -665,6 +672,8 @@ export default function StocksInPlay() {
               cnfCeilingReason: item.cnfCeilingReason ?? null,
               goldenCross: item.goldenCross ?? null,
               ema21Rising: item.ema21Rising ?? null,
+              gapPct: item.gapPct ?? null,
+              scanStreak: item.scanStreak ?? null,
               status: item.status ?? null,
               dotKind: item.dotKind ?? null,
               dotBarsSince: item.dotBarsSince ?? null,
@@ -697,31 +706,15 @@ export default function StocksInPlay() {
   // already means all, and a second click gets you there.
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
   const handleAdrFilter = (val: AdrFilterType) => setAdrFilter(prev => prev === val ? 'All' : val);
-  const handleChopFilter = (val: ChopFilterType) => setChopFilter(prev => prev === val ? 'All' : val);
-  const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
-  const handlePlanFilter = (val: PlanFilterType) => setPlanFilter(prev => prev === val ? 'All' : val);
   const handleCapFilter = (val: CapFilterType) => setMarketCapFilter(prev => prev === val ? 'All' : val);
-  const handlePostureFilter = (val: PostureFilterType) => setPostureFilter(prev => prev === val ? 'All' : val);
-
-  /* Does ANY row carry a chop reading? Drives whether the CHOP group renders
-     at all. Until the scanner has run since v6.18 the field is absent on
-     every row, and a filter that empties the table rather than narrowing it
-     is worse than no filter. Flips to true on its own once the scan runs. */
-  const anyChop = useMemo(() => stocks.some(s => chopOf(s) != null), [stocks]);
-
-  // A hidden group must not keep filtering. Without this, selecting NO CHOP
-  // and then losing chop data on the next poll would leave an invisible
-  // filter holding the table empty with no control to clear it.
-  useEffect(() => {
-    if (!anyChop && chopFilter !== 'All') setChopFilter('All');
-  }, [anyChop, chopFilter]);
+  const handleCatalystFilter = (val: CatalystFilterType) => setCatalystFilter(prev => prev === val ? 'All' : val);
+  const handleGapFilter = (val: GapFilterType) => setGapFilter(prev => prev === val ? 'All' : val);
+  const handleSqueezeFilter = (val: SqueezeFilterType) => setSqueezeFilter(prev => prev === val ? 'All' : val);
+  const toggleVwap = (status: 'above' | 'below') => setVwapFilter(prev => prev === status ? 'All' : status);
 
   const computedStocks = useMemo(() => {
     let filtered = stocks.filter(s => s.changePct >= 4.0 && s.vol >= 500000 && s.mktCap !== null && s.mktCap >= 20000000);
 
-    if (postureFilter !== 'All') {
-      filtered = filtered.filter(s => postureOf(s) === postureFilter);
-    }
     if (marketCapFilter !== 'All') {
       filtered = filtered.filter(s => {
         const mc = s.mktCap;
@@ -742,34 +735,25 @@ export default function StocksInPlay() {
         return a != null && a >= minAdr;
       });
     }
-    /* CHOP. Rows with no reading fall OUT of either selection rather than
-       passing — a name with too few daily bars to score is not evidence of a
-       trend, and letting it through would quietly defeat the filter on
-       exactly the thin-history names most likely to churn. */
-    if (chopFilter !== 'All') {
-      filtered = filtered.filter(s => {
-        const c = chopOf(s);
-        if (c == null) return false;
-        return chopFilter === 'trend' ? c <= CHOP_TREND_MAX : c < CHOP_CHOP_MIN;
-      });
-    }
     if (vwapFilter !== 'All') {
       filtered = filtered.filter(s => s.vwapStatus === vwapFilter);
     }
-    /* Plan filter drops anything without a usable entry, then applies a
-       threshold in stop-widths.
-
-       `clear` rows carry no resistanceR at all — there is nothing overhead to
-       measure — so they satisfy BOTH levels rather than falling out of the
-       stricter one. */
-    if (planFilter !== 'All') {
-      const minR = planFilter === '2R' ? 2.0 : 1.0;
+    if (catalystFilter !== 'All') {
       filtered = filtered.filter(s => {
-        const p = planOf(s);
-        if (!p || p.tradeable !== true || p.collapsed || p.overextended) return false;
-        if (p.clear === true) return true;
-        return p.resistanceR != null && p.resistanceR >= minR;
+        const cat = (s.catalyst || '').toLowerCase();
+        if (catalystFilter === 'earnings') return cat.includes('earning');
+        return cat !== '' && cat !== 'technical momentum';
       });
+    }
+    if (gapFilter !== 'All') {
+      const minGap = Number(gapFilter);
+      filtered = filtered.filter(s => s.gapPct != null && s.gapPct >= minGap);
+    }
+    if (squeezeFilter !== 'All') {
+      filtered = filtered.filter(s =>
+        s.shortPct != null && s.shortPct >= 10 &&
+        s.daysToCover != null && s.daysToCover >= 3
+      );
     }
     if (!sortConfig) return filtered;
     return [...filtered].sort((a, b) => {
@@ -781,7 +765,7 @@ export default function StocksInPlay() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [stocks, sortConfig, postureFilter, marketCapFilter, cnfFilter, adrFilter, chopFilter, vwapFilter, planFilter]);
+  }, [stocks, sortConfig, marketCapFilter, cnfFilter, adrFilter, vwapFilter, catalystFilter, gapFilter, squeezeFilter]);
 
   /* Held still while a chart is open — see useFreezeWhileChartOpen. */
   const filteredAndSortedStocks = useFreezeWhileChartOpen(computedStocks);
@@ -865,13 +849,13 @@ export default function StocksInPlay() {
   const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
 
   const activeFilterCount =
-    (postureFilter !== 'All' ? 1 : 0) +
-    (chopFilter !== 'All' ? 1 : 0) +
     (marketCapFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
     (adrFilter !== 'All' ? 1 : 0) +
     (vwapFilter !== 'All' ? 1 : 0) +
-    (planFilter !== 'All' ? 1 : 0);
+    (catalystFilter !== 'All' ? 1 : 0) +
+    (gapFilter !== 'All' ? 1 : 0) +
+    (squeezeFilter !== 'All' ? 1 : 0);
 
   return (
     <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-visible shadow-xl w-full max-w-[1280px] mx-auto">
@@ -934,7 +918,7 @@ export default function StocksInPlay() {
       {isExpanded && (
         <>
           <div className="flex flex-col gap-3 mb-4 relative z-10" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-center">
+            <div className="flex justify-center items-center gap-4">
               <button
                 onClick={() => setShowFilters(!showFilters)}
                 className={`px-4 py-1.5 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 flex items-center gap-2 ${
@@ -946,61 +930,13 @@ export default function StocksInPlay() {
                 <span className={`inline-block transition-transform duration-200 ${showFilters ? 'rotate-90' : ''}`}>▸</span>
                 Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
               </button>
+              <div className="flex items-center gap-2.5 text-[9px] font-semibold text-slate-500">
+                <span onClick={() => toggleVwap('above')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'above' ? 'text-emerald-400' : ''}`} title={vwapFilter === 'above' ? 'Filtering above VWAP — click to show all' : 'Click to filter above VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 ${vwapFilter === 'above' ? 'ring-1 ring-white/40' : ''}`}></span>Above VWAP</span>
+                <span onClick={() => toggleVwap('below')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'below' ? 'text-rose-400' : ''}`} title={vwapFilter === 'below' ? 'Filtering below VWAP — click to show all' : 'Click to filter below VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-rose-500 ${vwapFilter === 'below' ? 'ring-1 ring-white/40' : ''}`}></span>Below</span>
+              </div>
             </div>
             {showFilters && (
               <div className="flex flex-wrap justify-center items-center gap-3 w-full">
-                {/* POSTURE and CHOP lead together — they are the two questions
-                    about whether a row is enterable at all. Posture asks where
-                    price sits; chop asks whether the range resolves. */}
-                <div className={pillWrap}>
-                  <span className={pillLabel}>POSTURE</span>
-                  <div className="flex items-center gap-1">
-                    {POSTURE_BUCKETS.map((opt) => (
-                      <button
-                        key={opt}
-                        onClick={() => handlePostureFilter(opt)}
-                        title={POSTURE_META[opt].title}
-                        className={`${pillBtn} ${postureFilter === opt ? filterBtnActive : filterBtnIdle}`}
-                      >
-                        {POSTURE_META[opt].label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                {anyChop && (
-                  <div className={pillWrap}>
-                    <span className={pillLabel}>CHOP</span>
-                    <div className="flex items-center gap-1">
-                      {CHOP_BUCKETS.map((opt) => (
-                        <button
-                          key={opt}
-                          onClick={() => handleChopFilter(opt)}
-                          title={CHOP_META[opt].title}
-                          className={`${pillBtn} ${chopFilter === opt ? filterBtnActive : filterBtnIdle}`}
-                        >
-                          {CHOP_META[opt].label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div className={pillWrap}>
-                  <span className={pillLabel}>PLAN</span>
-                  <div className="flex items-center gap-1">
-                    {PLAN_BUCKETS.map((opt) => (
-                      <button
-                        key={opt}
-                        onClick={() => handlePlanFilter(opt)}
-                        title={opt === '2R'
-                          ? 'At least two stop-widths to the nearest overhead level, or clear air above the trigger'
-                          : 'At least one stop-width to the nearest overhead level'}
-                        className={`${pillBtn} ${planFilter === opt ? filterBtnActive : filterBtnIdle}`}
-                      >
-                        {opt === '1R' ? '1R+' : '2R+'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
                 <div className={pillWrap}>
                   <span className={pillLabel}>CNF</span>
                   <div className="flex items-center gap-1">
@@ -1047,14 +983,44 @@ export default function StocksInPlay() {
                   </div>
                 </div>
                 <div className={pillWrap}>
-                  <span className={pillLabel}>VWAP</span>
+                  <span className={pillLabel}>CATALYST</span>
+                  <div className="flex items-center gap-1">
+                    {CATALYST_BUCKETS.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => handleCatalystFilter(opt)}
+                        title={opt === 'news' ? 'Only names with a real news catalyst — hides Technical Momentum rows' : 'Only earnings movers'}
+                        className={`${pillBtn} ${catalystFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {opt === 'news' ? 'NEWS' : 'EARNINGS'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>GAP</span>
+                  <div className="flex items-center gap-1">
+                    {GAP_BUCKETS.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => handleGapFilter(opt)}
+                        title={opt === '7' ? 'Gap 7%+ from prior close — the SiP floor for a clear surprise' : 'Gap 10%+ — strong surprise gap'}
+                        className={`${pillBtn} ${gapFilter === opt ? filterBtnActive : filterBtnIdle}`}
+                      >
+                        {opt}%+
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={pillWrap}>
+                  <span className={pillLabel}>SQUEEZE</span>
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={() => handleVwapFilter('above')}
-                      title="Only names trading above VWAP. Below-VWAP names still show their red dot in the price cell."
-                      className={`flex items-center gap-1.5 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}
+                      onClick={() => handleSqueezeFilter('squeeze')}
+                      title="Short interest 10%+ and 3+ days to cover — trapped shorts that have to buy"
+                      className={`${pillBtn} ${squeezeFilter === 'squeeze' ? filterBtnActive : filterBtnIdle}`}
                     >
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
+                      SI 10%+
                     </button>
                   </div>
                 </div>
@@ -1067,13 +1033,15 @@ export default function StocksInPlay() {
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%] !text-left pl-1`} title={colTip('TICKER')} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className={`${thBase} w-[2%]`} title="News — ★ has an article, ★★ has a causal catalyst from a primary source">N</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('CNF')} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
+                  <th className={`${thBase} w-[4%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('10/21')}>10/21</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} w-[5%]`} title="Gap from prior close — how far price opened away from yesterday. 7%+ is the SiP floor for a clear surprise." onClick={() => handleSort('gapPct')}>GAP%{getSortIcon('gapPct')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('10/21')}>10/21</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('FLOAT')} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   {/* One header, two stacked readings. Clicking sorts by ADR;
@@ -1091,7 +1059,7 @@ export default function StocksInPlay() {
 
               <tbody className="divide-y divide-white/5">
                 {filteredAndSortedStocks.length === 0 ? (
-                  <tr><td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium">{stocks.length > 0 ? 'No names match the current filters.' : 'No tracking instruments currently found matching criteria.'}</td></tr>
+                  <tr><td colSpan={19} className="py-12 text-center text-slate-500 text-sm font-medium">{stocks.length > 0 ? 'No names match the current filters.' : 'No tracking instruments currently found matching criteria.'}</td></tr>
                 ) : (
                   filteredAndSortedStocks.map((row, i) => {
                     const isPositive = row.changePct >= 0;
@@ -1115,6 +1083,7 @@ export default function StocksInPlay() {
                               {row.dotKind === 'red' && <RedDot />}
                             </div>
                           </td>
+                          <td className={tdBase}><NewsStars row={row} /></td>
                           <td className={tdBase}>
                             <span
                               title={cnfTooltip(row)}
@@ -1127,9 +1096,10 @@ export default function StocksInPlay() {
                             <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span>
                           </td>
                           <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
-                            <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div>
+                            <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div onClick={(e) => { e.stopPropagation(); toggleVwap(row.vwapStatus as 'above' | 'below'); }} className={`w-1.5 h-1.5 rounded-full shrink-0 cursor-pointer ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'} ${vwapFilter === row.vwapStatus ? 'ring-1 ring-white/40' : ''}`} title={`VWAP: ${row.vwapStatus} — click to filter`}></div>)}</div>
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${row.gapPct != null && row.gapPct >= 10 ? 'text-purple-400' : row.gapPct != null && row.gapPct >= 7 ? 'text-emerald-400' : 'text-slate-500'}`}>{row.gapPct != null ? `${row.gapPct >= 0 ? '+' : ''}${row.gapPct.toFixed(1)}%` : '—'}</td>
                           {/* The 10/21 dots ARE the posture read — above 21
                               and below 10 is a first touch, both green is
                               stacked. Hover states the bucket so the filter
@@ -1206,7 +1176,8 @@ export default function StocksInPlay() {
                               indent tracks the ticker column's real width
                               instead of drifting from it. */}
                           <td />
-                          <td colSpan={16} className="pb-1.5 pt-1 pr-3">
+                          <td />
+                          <td colSpan={15} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
                               <span className="shrink-0 w-[78px] px-0.5 text-center text-[#7c8bfa]/90 font-bold text-[9px] tracking-[0.04em] uppercase leading-none whitespace-nowrap">
                                 {bdRev ? <BlueDot /> : (formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—')}
@@ -1227,12 +1198,6 @@ export default function StocksInPlay() {
                                         <span className="text-slate-500 font-normal">{headline}</span>
                                       )
                                     )}
-                                    {/* Source and age, dimmer than the
-                                        headline. "Contract" is the same word
-                                        for a $2M reseller deal and a $200M
-                                        defence award; the publisher and how
-                                        long ago it landed are the cheapest
-                                        available discriminators. */}
                                     {(row.newsPublisher || row.newsAge) && (
                                       <span className="text-[8px] text-slate-600 font-medium ml-1.5 whitespace-nowrap">
                                         {[row.newsPublisher, row.newsAge].filter(Boolean).join(' · ')}
@@ -1244,6 +1209,16 @@ export default function StocksInPlay() {
                                 )}
                               </p>
                             </div>
+                          </td>
+                          <td className="pb-1.5 pt-1 pl-2.5 border-l border-white/5 align-middle" colSpan={2}>
+                            {row.shortPct != null && row.shortPct >= 10 && (
+                              <span
+                                className="text-[8px] font-bold tracking-wide text-purple-400/80 whitespace-nowrap"
+                                title={`Short interest ${row.shortPct.toFixed(1)}%${row.daysToCover != null ? ` · ${row.daysToCover.toFixed(1)} days to cover` : ''} — trapped shorts that have to buy`}
+                              >
+                                SQZ {row.shortPct.toFixed(0)}%
+                              </span>
+                            )}
                           </td>
                         </tr>
                       </React.Fragment>

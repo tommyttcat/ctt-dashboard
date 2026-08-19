@@ -106,16 +106,42 @@ export function computeStageDetail(
 
   const closesAsc = order === 'desc' ? raw.slice().reverse() : raw;
 
-  if (closesAsc.length < 210) return UNRESOLVED;
-  if (closesAsc.some(c => c == null || !isFinite(c))) return UNRESOLVED;
+  // Filter out any null/NaN closes rather than aborting entirely — a few
+  // bad bars in a 350-bar series shouldn't blank the stage column.
+  const cleanAsc = closesAsc.filter(c => c != null && isFinite(c));
+  if (cleanAsc.length < 60) return UNRESOLVED;
+  const closesClean = cleanAsc;
 
-  const px = price != null && isFinite(price) ? price : closesAsc[closesAsc.length - 1];
+  const px = price != null && isFinite(price) ? price : closesClean[closesClean.length - 1];
 
-  const sma150 = smaAt(closesAsc, 150, 0);
-  const sma150_20d = smaAt(closesAsc, 150, 20);
-  const sma150_60d = smaAt(closesAsc, 150, 60);
-  const sma50 = smaAt(closesAsc, 50, 0);
-  const sma30 = smaAt(closesAsc, 30, 0);
+  // Short-history fallback: use 50-SMA slope when <210 bars but >=60.
+  if (closesClean.length < 210) {
+    const sma50s = smaAt(closesClean, 50, 0);
+    const sma50s_10 = smaAt(closesClean, 50, 10);
+    const sma20s = smaAt(closesClean, 20, 0);
+    if (!sma50s || !sma50s_10 || !sma20s) return UNRESOLVED;
+    const slope50 = (sma50s - sma50s_10) / sma50s_10;
+    let stage = 0, sub = '';
+    if (slope50 > 0.01 && px > sma50s) {
+      stage = 2;
+      sub = px > sma20s ? 'A' : 'C';
+    } else if (slope50 < -0.01 && px < sma50s) {
+      stage = 4;
+      sub = px < sma20s ? 'B' : 'A';
+    } else if (slope50 >= 0) {
+      stage = 3; sub = px > sma50s ? 'A' : 'B';
+    } else {
+      stage = 1; sub = px < sma50s ? 'A' : 'B';
+    }
+    const short = `${stage}${sub}`;
+    return { stage, sub, label: `Stage ${short}`, short, description: DESCRIPTIONS[short] || `Stage ${short}`, slopePct: Math.round(slope50 * 10000) / 100 };
+  }
+
+  const sma150 = smaAt(closesClean, 150, 0);
+  const sma150_20d = smaAt(closesClean, 150, 20);
+  const sma150_60d = smaAt(closesClean, 150, 60);
+  const sma50 = smaAt(closesClean, 50, 0);
+  const sma30 = smaAt(closesClean, 30, 0);
 
   if (!sma150 || !sma150_20d || !sma150_60d || !sma50 || !sma30) return UNRESOLVED;
 

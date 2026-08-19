@@ -32,7 +32,7 @@ import {
   BREADTH_TICK_LOW,
   BREADTH_TICK_HIGH,
   toneCellTone,
-  vixCellTone,
+  vixPctTone,
   breadthSignalTone,
   advPct as advPctOf,
   advCellTone,
@@ -41,6 +41,7 @@ import {
   t2108CellTone,
   mkmCellTone,
   marketMonitorOf,
+  mmTodayTone,
   mmCellTone,
   mmRatioLabel,
 } from '@/lib/indicators/marketScorecard';
@@ -212,7 +213,7 @@ export default function MacroScorecardPanel({
           color === 'green' ? 'bg-emerald-500/8 border-emerald-500/20' : color === 'red' ? 'bg-rose-500/8 border-rose-500/20' : color === 'amber' ? 'bg-amber-500/8 border-amber-500/20' : 'bg-slate-500/8 border-white/10';
         const scValCls = (color: 'green' | 'amber' | 'red' | 'slate') =>
           color === 'green' ? 'text-emerald-400' : color === 'red' ? 'text-rose-400' : color === 'amber' ? 'text-amber-400' : 'text-slate-300';
-        type SC = { label: string; value: string; valueNode?: React.ReactNode; sub?: string; color: 'green' | 'amber' | 'red' | 'slate'; title?: string };
+        type SC = { label: string; value: string; valueNode?: React.ReactNode; sub?: string; color: 'green' | 'amber' | 'red' | 'slate'; subColor?: 'green' | 'amber' | 'red' | 'slate'; title?: string };
         const cells: SC[] = [];
 
         /* ---- Order is the reading order ---------------------------------
@@ -259,7 +260,8 @@ export default function MacroScorecardPanel({
             sub: mm.ratio5 != null
               ? `${mmRatioLabel(mm)}×${partial ? ` · ${mm.days}/5d` : ' 5d'}`
               : partial ? `${mm.days}/5d` : '',
-            color: mmCellTone(mm.ratio5),
+            color: mmTodayTone(mm.up4, mm.down4),
+            subColor: mmCellTone(mm.ratio5),
             title: [
               'Market Monitor — universe: close ≥ $3, volume ≥ 100k',
               '',
@@ -329,12 +331,14 @@ export default function MacroScorecardPanel({
 
         const vixQ = quotes['VIX'];
         if (vixQ?.price) {
-          const sign = vixQ.pct >= 0 ? '+' : '';
+          const vPct = Number(vixQ.pct);
+          const sign = vPct >= 0 ? '+' : '';
           cells.push({
             label: 'VIX',
             value: Number(vixQ.price).toFixed(2),
-            sub: `${sign}${Number(vixQ.pct).toFixed(2)}%`,
-            color: vixCellTone(Number(vixQ.price)),
+            sub: `${sign}${vPct.toFixed(2)}%`,
+            color: vixPctTone(vPct),
+            subColor: vixPctTone(vPct),
             title: 'CBOE Volatility Index — the market\'s 30-day expectation of movement.\n\nBelow 18 is calm, 18-25 is elevated, above 25 is stressed. Falling VIX into a rising tape is confirmation; rising VIX into a rising tape is a warning.',
           });
         }
@@ -361,7 +365,7 @@ export default function MacroScorecardPanel({
                     )}
                   </div>
                   <div className={`text-[15px] font-bold tabular-nums leading-tight ${scValCls(c.color)}`}>{c.valueNode ?? c.value}</div>
-                  {c.sub && <div className="text-[10px] text-slate-500 mt-0.5 truncate">{c.sub}</div>}
+                  {c.sub && <div className={`text-[10px] mt-0.5 truncate ${c.subColor ? scValCls(c.subColor) : 'text-slate-500'}`}>{c.sub}</div>}
                 </div>
               ))}
             </div>
@@ -513,7 +517,7 @@ export default function MacroScorecardPanel({
             </span>
 
             <div className="flex items-center gap-3 flex-1 min-w-0">
-              <span className={`text-[11px] font-bold text-emerald-400 tabular-nums whitespace-nowrap ${STRIP_SIDE_W}`}>
+              <span className={`text-[11px] font-bold tabular-nums whitespace-nowrap ${STRIP_SIDE_W} ${chopColor(chopVal, bands)}`}>
                 TREND
               </span>
 
@@ -620,7 +624,7 @@ export default function MacroScorecardPanel({
                 )}
               </div>
 
-              <span className={`text-[11px] font-bold text-amber-400 tabular-nums whitespace-nowrap sm:text-right ${STRIP_SIDE_W}`}>
+              <span className={`text-[11px] font-bold tabular-nums whitespace-nowrap sm:text-right ${STRIP_SIDE_W} ${chopColor(chopVal, bands)}`}>
                 CHOP
               </span>
             </div>

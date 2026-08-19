@@ -138,67 +138,58 @@ function capPerTicker(items: Normalized[]): Normalized[] {
   return out;
 }
 
-async function fetchBenzinga(token: string): Promise<Normalized[]> {
-  const generalPages = Array.from({ length: BENZINGA_PAGES }, (_, p) =>
-    fetch(
-      `https://api.benzinga.com/api/v2/news?token=${token}&pageSize=25&page=${p}&displayOutput=abstract`,
-      { headers: { accept: 'application/json' } }
-    )
-      .then(r => (r.ok ? r.json() : []))
-      .catch(() => [])
-  );
+async function fetchBenzinga(apiKey: string): Promise<Normalized[]> {
+  const massiveFetch = (extra = '') =>
+    fetch(`https://api.massive.com/benzinga/v2/news?apiKey=${apiKey}&limit=100&sort=published.desc${extra}`)
+      .then(r => (r.ok ? r.json() : { results: [] }))
+      .then(d => d?.results || [])
+      .catch(() => []);
 
-  const wiimPages = Array.from({ length: 4 }, (_, p) =>
-    fetch(
-      `https://api.benzinga.com/api/v2/news?token=${token}`
-        + `&pageSize=25&page=${p}&displayOutput=abstract&channels=WIIM`,
-      { headers: { accept: 'application/json' } }
-    )
-      .then(r => (r.ok ? r.json() : []))
-      .catch(() => [])
-  );
+  const [general, wiim] = await Promise.all([
+    massiveFetch(),
+    massiveFetch(`&tags=${encodeURIComponent("why it's moving")}`),
+  ]);
 
-  const generalResults = await Promise.all(generalPages);
-  const wiimResults = await Promise.all(wiimPages);
-
-  const raw: any[] = [...generalResults.flat(), ...wiimResults.flat()].filter(Boolean);
-  const byId = new Map<number, any>();
-  for (const it of raw) if (it?.id != null) byId.set(it.id, it);
+  const raw: any[] = [...general, ...wiim].filter(Boolean);
+  const byId = new Map<string, any>();
+  for (const it of raw) if (it?.benzinga_id != null) byId.set(String(it.benzinga_id), it);
 
   const normalized = [...byId.values()]
     .filter(it => {
-      const channels: string[] = (it.channels || []).map((c: any) => (c?.name || '').toLowerCase());
-      if (!it.stocks?.length) return false;
+      const channels: string[] = (it.channels || []).map((c: any) => String(c).toLowerCase());
+      if (!it.tickers?.length) return false;
       if (isSpamNews(it.title)) return false;
       if (channels.some(c => BLOCKED_CHANNELS.has(c))) return false;
       return true;
     })
     .map((it): Normalized => {
-      const channels: string[] = (it.channels || []).map((c: any) => c?.name || '').filter(Boolean);
-      const tickers: string[] = (it.stocks || [])
-        .map((s: any) => normalizeTicker(s?.name))
+      const channels: string[] = (it.channels || []).map((c: any) => String(c)).filter(Boolean);
+      const tags: string[] = (it.tags || []).map((t: any) => String(t)).filter(Boolean);
+      const isWiim = tags.some(t => /why it'?s moving/i.test(t));
+      const tickers: string[] = (it.tickers || [])
+        .map((t: any) => normalizeTicker(t))
         .filter(Boolean);
       return {
-        id: String(it.id),
+        id: String(it.benzinga_id),
         ticker: tickers[0] || '',
         tickers,
         title: it.title,
         originalTitle: it.title,
         cleanHeadline: shorten(it.title),
-        aiTag: deriveTag(it.title, channels),
+        aiTag: isWiim ? 'WIIM' : deriveTag(it.title, channels),
         url: it.url || '',
-        publishedUtc: it.created ? new Date(it.created).toISOString() : '',
+        publishedUtc: it.published || '',
         publisher: 'Benzinga',
       };
     })
     .sort((a, b) => (b.publishedUtc > a.publishedUtc ? 1 : -1));
 
-  const wiim = normalized.filter(n => n.aiTag === 'WIIM');
+  const wiimNorm = normalized.filter(n => n.aiTag === 'WIIM');
   const nonWiim = normalized.filter(n => n.aiTag !== 'WIIM');
   const WIIM_SLOTS = 5;
   const mainSlots = MAX_ITEMS - WIIM_SLOTS;
   const mainCapped = capPerTicker(nonWiim).slice(0, mainSlots);
-  const wiimCapped = capPerTicker(wiim).slice(0, WIIM_SLOTS);
+  const wiimCapped = capPerTicker(wiimNorm).slice(0, WIIM_SLOTS);
   const merged = [...mainCapped, ...wiimCapped]
     .sort((a, b) => (b.publishedUtc > a.publishedUtc ? 1 : -1));
 
@@ -241,7 +232,7 @@ export async function GET(req: Request) {
   const params = new URL(req.url).searchParams;
   const debug = params.get('debug') === '1';
   const probe = params.get('probe');
-  const polygonApiKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
+  const polygonApiKey = process.env.POLYGON_API_KEY || '';
   const benzingaKey = (process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '').trim();
 
   /* Diagnostic for the *other* news pipeline — the per-ticker Polygon feed
@@ -249,16 +240,16 @@ export async function GET(req: Request) {
      this reports what that feed actually returns for one symbol and whether
      pickBestNews can find anything usable in it. */
   if (probe) {
-    const bzProbe = benzingaKey ? await fetch(
-      `https://api.benzinga.com/api/v2/news?token=${benzingaKey}&pageSize=10&page=0&displayOutput=abstract&tickers=${probe}`,
-      { headers: { accept: 'application/json' } }
-    ).then(r => r.ok ? r.json() : []).catch(() => []) : [];
-    const bzArr = Array.isArray(bzProbe) ? bzProbe : [];
+    const bzProbe = polygonApiKey ? await fetch(
+      `https://api.massive.com/benzinga/v2/news?apiKey=${polygonApiKey}&limit=10&sort=published.desc&tickers=${probe}`,
+    ).then(r => r.ok ? r.json() : { results: [] }).catch(() => ({ results: [] })) : { results: [] };
+    const bzArr = Array.isArray(bzProbe?.results) ? bzProbe.results : [];
     const bzSample = bzArr.slice(0, 5).map((a: any) => ({
       title: (a.title || '').slice(0, 150),
-      stocks: (a.stocks || []).map((s: any) => s?.name),
-      channels: (a.channels || []).map((c: any) => c?.name),
-      created: a.created,
+      tickers: a.tickers || [],
+      channels: a.channels || [],
+      tags: a.tags || [],
+      published: a.published,
     }));
 
     const polyResult: any = {};
@@ -287,28 +278,22 @@ export async function GET(req: Request) {
     });
   }
 
-  if (!polygonApiKey && !benzingaKey) {
-    return NextResponse.json({ error: 'Missing API Keys' }, { status: 500, headers: noCacheHeaders() });
+  if (!polygonApiKey) {
+    return NextResponse.json({ error: 'Missing POLYGON_API_KEY' }, { status: 500, headers: noCacheHeaders() });
   }
 
   const sources: Record<string, number | string> = {};
   try {
     let results: Normalized[] = [];
 
-    if (benzingaKey) {
-      try {
-        results = await fetchBenzinga(benzingaKey);
-        sources.benzinga = results.length;
-      } catch (e: any) {
-        sources.benzinga = `error: ${e.message}`;
-      }
-    } else {
-      sources.benzinga = 'no key';
+    try {
+      results = await fetchBenzinga(polygonApiKey);
+      sources.benzinga = results.length;
+    } catch (e: any) {
+      sources.benzinga = `error: ${e.message}`;
     }
 
-    /* Polygon only runs when Benzinga came back empty, so a lapsed Benzinga
-       key degrades the section rather than blanking it. */
-    if (!results.length && polygonApiKey) {
+    if (!results.length) {
       results = await fetchPolygon(polygonApiKey);
       sources.polygon = results.length;
     }

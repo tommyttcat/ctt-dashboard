@@ -102,11 +102,11 @@ import { stageColor, stageShort, stageDescription, stageBadge } from '@/lib/indi
 import { rmeLabel } from '@/lib/indicators/rme';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { rsColor, rsTooltip, rsBadge } from '@/lib/indicators/rs';
-import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews } from '@/lib/catalyst';
+import { CatalystChip, NewsStars, catalystTooltip, isGenericCatalyst, hasNews } from '@/lib/catalyst';
 import { displaySector } from '@/lib/sectors';
 import { CONSOL, COLUMN_NOTES, columnTip } from '@/lib/scanConfig';
 import TickerChartHover from './TickerChartHover';
-import { rvolColor as getRvolColor, adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
+import { rvolColor as getRvolColor, adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, floatColor as getFloatColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The blue dot marks an oversold stochastic reset firing on the daily.' },
@@ -257,6 +257,7 @@ type StatFilterType = 'All' | 'Coiled' | 'Setting Up';
 type VolFilterType = 'All' | '20' | '50' | '100';
 type PlanFilterType = 'All' | '1R' | '2R';
 type CapFilterType = 'All' | 'Small' | 'Large';
+type VwapFilterType = 'All' | 'above' | 'below';
 
 const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
 const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
@@ -674,6 +675,7 @@ export default function Consolidation1021() {
   const [statFilter, setStatFilter] = useState<StatFilterType>('All');
   const [volFilter, setVolFilter] = useState<VolFilterType>('All');
   const [planFilter, setPlanFilter] = useState<PlanFilterType>('All');
+  const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
 
@@ -727,6 +729,7 @@ export default function Consolidation1021() {
   const handleVolFilter = (val: VolFilterType) => setVolFilter(prev => prev === val ? 'All' : val);
   const handlePlanFilter = (val: PlanFilterType) => setPlanFilter(prev => prev === val ? 'All' : val);
   const handleCapFilter = (val: CapFilterType) => setMarketCapFilter(prev => prev === val ? 'All' : val);
+  const toggleVwap = (status: 'above' | 'below') => setVwapFilter(prev => prev === status ? 'All' : status);
 
   /* Header counts, from the FULL scan rather than the filtered view, so they
      answer "what did the scan find today" instead of restating the filters
@@ -796,6 +799,9 @@ export default function Consolidation1021() {
         return p.resistanceR != null && p.resistanceR >= minR;
       });
     }
+    if (vwapFilter !== 'All') {
+      filtered = filtered.filter(c => c.vwapStatus === vwapFilter);
+    }
     if (!sortConfig) return filtered;
     return filtered.sort((a, b) => {
       const aVal = sortConfig.key === 'rdy'
@@ -814,7 +820,7 @@ export default function Consolidation1021() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, rdyBySymbol, sortConfig, showStage2Only, marketCapFilter, cnfFilter, rdyFilter, adrFilter, statFilter, volFilter, planFilter]);
+  }, [candidates, rdyBySymbol, sortConfig, showStage2Only, marketCapFilter, cnfFilter, rdyFilter, adrFilter, statFilter, volFilter, planFilter, vwapFilter]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -903,6 +909,7 @@ export default function Consolidation1021() {
     (volFilter !== 'All' ? 1 : 0) +
     (adrFilter !== 'All' ? 1 : 0) +
     (marketCapFilter !== 'All' ? 1 : 0) +
+    (vwapFilter !== 'All' ? 1 : 0) +
     (showStage2Only ? 1 : 0);
 
   return (
@@ -976,7 +983,7 @@ export default function Consolidation1021() {
       {isExpanded && (
         <>
           <div className="flex flex-col gap-3 mb-4 relative z-10" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-center">
+            <div className="flex justify-center items-center gap-4">
               <button
                 onClick={() => setShowFilters(!showFilters)}
                 className={`px-4 py-1.5 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 flex items-center gap-2 ${
@@ -988,6 +995,10 @@ export default function Consolidation1021() {
                 <span className={`inline-block transition-transform duration-200 ${showFilters ? 'rotate-90' : ''}`}>▸</span>
                 Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
               </button>
+              <div className="flex items-center gap-2.5 text-[9px] font-semibold text-slate-500">
+                <span onClick={() => toggleVwap('above')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'above' ? 'text-emerald-400' : ''}`}><span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 ${vwapFilter === 'above' ? 'ring-1 ring-white/40' : ''}`}></span>Above VWAP</span>
+                <span onClick={() => toggleVwap('below')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'below' ? 'text-rose-400' : ''}`}><span className={`w-1.5 h-1.5 rounded-full bg-rose-500 ${vwapFilter === 'below' ? 'ring-1 ring-white/40' : ''}`}></span>Below</span>
+              </div>
             </div>
             {showFilters && (
               <div className="flex flex-wrap justify-center items-center gap-3 w-full">
@@ -1123,11 +1134,12 @@ export default function Consolidation1021() {
           </div>
 
           <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            {/* 19 columns — min-w 980. */}
+            {/* 20 columns — min-w 980. */}
             <table className="w-full min-w-[980px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%] !text-left pl-1`} title={colTip('TICKER')} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
+                  <th className={`${thBase} w-[2%]`} title="News — ★ has an article, ★★ has a causal catalyst from a primary source">N</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('CNF')} onClick={() => handleSort('score')}>CNF{getSortIcon('score')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('RDY')} onClick={() => handleSort('rdy')}>RDY{getSortIcon('rdy')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
@@ -1137,6 +1149,7 @@ export default function Consolidation1021() {
                   <th className={`${thBase} w-[5%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('FLOAT')} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('COIL')} onClick={() => handleSort('coilRatio')}>COIL{getSortIcon('coilRatio')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
@@ -1150,7 +1163,7 @@ export default function Consolidation1021() {
 
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
-                  <tr><td colSpan={18} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No consolidations in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
+                  <tr><td colSpan={20} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No consolidations in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
                 ) : (
                   filteredAndSorted.map((row) => {
                     const isPositive = (row.changePct ?? 0) >= 0;
@@ -1175,6 +1188,7 @@ export default function Consolidation1021() {
                               {row.blueDot && <BlueDot />}
                             </div>
                           </td>
+                          <td className={tdBase}><NewsStars row={row} /></td>
                           <td className={tdBase}>
                             <span
                               title={cnfTooltip(row)}
@@ -1191,8 +1205,11 @@ export default function Consolidation1021() {
                               {rdy.score ?? '—'}
                             </span>
                           </td>
+                          <td className={tdBase} title={rsTooltip(row.rsRating)}>
+                            <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span>
+                          </td>
                           <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
-                            <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus && row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div>
+                            <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus && row.vwapStatus !== 'neutral' && (<div onClick={(e) => { e.stopPropagation(); toggleVwap(row.vwapStatus as 'above' | 'below'); }} className={`w-1.5 h-1.5 rounded-full shrink-0 cursor-pointer ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'} ${vwapFilter === row.vwapStatus ? 'ring-1 ring-white/40' : ''}`} title={`VWAP: ${row.vwapStatus} — click to filter`}></div>)}</div>
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{row.changePct != null ? `${isPositive ? '+' : ''}${row.changePct.toFixed(2)}%` : '—'}</td>
                           {/* The dots stay; the FILTER that read them is gone.
@@ -1219,6 +1236,7 @@ export default function Consolidation1021() {
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
                           <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{row.dVol ? formatCurrency(row.dVol) : (row.avgDollarVolM ? `$${row.avgDollarVolM}M` : '—')}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
                           <td className={`${tdBase} whitespace-nowrap tabular-nums ${getCoilColor(coilR)}`} title={coilR != null ? `10-day range normalized to ${coilR.toFixed(1)}× daily ATR` : undefined}>
                             <div className="flex flex-col leading-tight">
                               <span className="text-xs font-bold">{range10 != null ? `${range10.toFixed(1)}%` : '—'}</span>
@@ -1230,9 +1248,6 @@ export default function Consolidation1021() {
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={mf != null ? `Money Flow ${mf.toFixed(0)} — ${mfLabel(mf)}` : undefined}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
-                          </td>
-                          <td className={`${tdBase} whitespace-nowrap`} title={rsTooltip(row.rsRating)}>
-                            <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span>
                           </td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
                           <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`}>
@@ -1266,7 +1281,8 @@ export default function Consolidation1021() {
                               indent tracks the ticker column's real width
                               instead of drifting from it. */}
                           <td />
-                          <td colSpan={17} className="pb-1.5 pt-1 pr-3">
+                          <td />
+                          <td colSpan={18} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
                               <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={newsTooltip(row) || headline || undefined}>
                                 {headline || tag ? (

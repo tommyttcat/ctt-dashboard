@@ -46,7 +46,7 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 8000) => {
 };
 
 export async function GET() {
-  const polygonKey = (process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '').trim();
+  const polygonKey = (process.env.POLYGON_API_KEY || '').trim();
   if (!polygonKey) return NextResponse.json({ error: 'Missing Polygon key' }, { status: 500, headers: noCacheHeaders() });
 
   let stale: any = null;

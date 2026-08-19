@@ -563,7 +563,7 @@ export async function GET(request: Request) {
   const forceRefresh = searchParams.get('force') === 'true';
   const bg = searchParams.get('bg') === 'true' && !isDetachedRun(request);
 
-  const polygonKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
+  const polygonKey = process.env.POLYGON_API_KEY || '';
   if (!polygonKey) {
     return NextResponse.json({ error: 'Missing Polygon API key' }, { status: 500 });
   }

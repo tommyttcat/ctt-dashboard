@@ -66,7 +66,7 @@ export const fetchCache = 'force-no-store';
 export const revalidate = 0;
 export const maxDuration = 120;
 
-const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
+const POLYGON_KEY = process.env.POLYGON_API_KEY || '';
 const BASE = 'https://api.polygon.io';
 
 export const RS_KEY = 'rs_ratings_v1';
@@ -261,6 +261,7 @@ export async function GET(request: Request) {
         p252: byLeg.get(252)?.date ?? null,
       },
       ratings,
+      sortedRaws: sorted,
     };
 
     await kv.set(RS_KEY, payload);

@@ -13,7 +13,7 @@ import { rsBadge } from '@/lib/indicators/rs';
 
 import { useMarketData } from './MarketDataContext';
 import TickerChartHover from './TickerChartHover';
-import { stageColor as stgColor } from '@/lib/indicators/stage';
+import { stageColor as stgColor, stageBadge, stageShort as stgShort, stageDescription } from '@/lib/indicators/stage';
 import { rvolColorLowFloor as rvolColor, tickerChipCls, scoreCellCls } from '@/lib/indicators/columnColors';
 
 const ATTR_LABELS: Record<string, string> = {
@@ -124,6 +124,7 @@ interface Candidate {
   stage?: string | null;
   stageShort?: string;
   rs?: number | null;
+  vwapStatus?: 'above' | 'below' | 'neutral';
   score: number;
   grade: string;
   breakdown: Record<string, number>;
@@ -162,6 +163,7 @@ const fmtDvol = (v: number): string => {
 type SortKey = 'score' | 'chg' | 'vol' | 'dvol' | 'rvol' | 'rs' | 'stage' | 'revGrowth' | 'roic' | 'debt' | 'pe' | 'mcap' | 'fcf';
 type GradeFilter = 'All' | 'A' | 'B';
 type McapFilter = 'All' | 'Micro' | 'Small' | 'Mid';
+type VwapFilterType = 'All' | 'above' | 'below';
 
 const GRADE_BUCKETS: GradeFilter[] = ['A', 'B'];
 const MCAP_BUCKETS: McapFilter[] = ['Micro', 'Small', 'Mid'];
@@ -169,6 +171,7 @@ const MCAP_BUCKETS: McapFilter[] = ['Micro', 'Small', 'Mid'];
 const COLUMN_TIPS: Record<string, string> = {
   TICKER: 'Symbol. Hover for company name.',
   SCORE: 'Multibagger score 0–100. Sum of six fundamental attributes: Revenue Growth (25), Return on Capital (20), Low Debt (15), Market Cap (20), Valuation (10), Cash Generation (10). Hover the number for the breakdown.',
+  PRICE: 'Current price. Green/red dot = above/below VWAP — click to filter.',
   'CHG%': 'Today\'s price change percentage from Polygon snapshot.',
   VOL: 'Today\'s trading volume.',
   DVOL: 'Dollar volume — price × volume. Measures liquidity in dollar terms.',
@@ -204,6 +207,8 @@ export default function Multibagger() {
   const [minRvol, setMinRvol] = useState<number | null>(null);
   const [minRs, setMinRs] = useState<number | null>(null);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
+  const toggleVwap = (status: 'above' | 'below') => setVwapFilter(prev => prev === status ? 'All' : status);
 
   const gradeACount = useMemo(() => candidates.filter(c => c.grade === 'A').length, [candidates]);
   const gradeBCount = useMemo(() => candidates.filter(c => c.grade === 'B').length, [candidates]);
@@ -291,6 +296,9 @@ export default function Multibagger() {
     if (minRs != null) {
       rows = rows.filter(r => r.rs != null && r.rs >= minRs);
     }
+    if (vwapFilter !== 'All') {
+      rows = rows.filter(r => r.vwapStatus === vwapFilter);
+    }
 
     const dir = sortDir === 'desc' ? -1 : 1;
     rows.sort((a, b) => {
@@ -327,7 +335,7 @@ export default function Multibagger() {
     });
 
     return rows;
-  }, [candidates, gradeFilter, mcapFilter, hideDecline, minRvol, minRs, sortKey, sortDir]);
+  }, [candidates, gradeFilter, mcapFilter, hideDecline, minRvol, minRs, vwapFilter, sortKey, sortDir]);
 
   const buildBreakdownTip = (c: Candidate): string => {
     const lines = Object.entries(c.breakdown).map(([k, v]) => {
@@ -507,6 +515,10 @@ export default function Multibagger() {
                 />
               ))}
             </div>
+            <div className="flex items-center gap-2.5 text-[9px] font-semibold text-slate-500">
+              <span onClick={() => toggleVwap('above')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'above' ? 'text-emerald-400' : ''}`} title={vwapFilter === 'above' ? 'Filtering above VWAP — click to show all' : 'Click to filter above VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 ${vwapFilter === 'above' ? 'ring-1 ring-white/40' : ''}`}></span>Above VWAP</span>
+              <span onClick={() => toggleVwap('below')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'below' ? 'text-rose-400' : ''}`} title={vwapFilter === 'below' ? 'Filtering below VWAP — click to show all' : 'Click to filter below VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-rose-500 ${vwapFilter === 'below' ? 'ring-1 ring-white/40' : ''}`}></span>Below</span>
+            </div>
           </div>
         )}
 
@@ -527,6 +539,7 @@ export default function Multibagger() {
                   <th className="px-2 py-2.5 text-right font-bold cursor-pointer select-none" title={COLUMN_TIPS.RS} onClick={() => toggleSort('rs')}>
                     RS<SortArrow col="rs" />
                   </th>
+                  <th className="px-2 py-2.5 text-center font-bold" title={COLUMN_TIPS.PRICE}>Price</th>
                   <th className="px-2 py-2.5 text-right font-bold cursor-pointer select-none" title={COLUMN_TIPS['CHG%']} onClick={() => toggleSort('chg')}>
                     Chg%<SortArrow col="chg" />
                   </th>
@@ -594,6 +607,20 @@ export default function Multibagger() {
                           <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums ${rsBadge(c.rs)}`}>{c.rs != null ? c.rs : '—'}</span>
                         </td>
 
+                        {/* Price + VWAP dot */}
+                        <td className="px-2 py-2.5 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <span className="text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums">${c.price.toFixed(2)}</span>
+                            {c.vwapStatus && c.vwapStatus !== 'neutral' && (
+                              <div
+                                onClick={(e) => { e.stopPropagation(); toggleVwap(c.vwapStatus as 'above' | 'below'); }}
+                                className={`w-1.5 h-1.5 rounded-full shrink-0 cursor-pointer ${c.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'} ${vwapFilter === c.vwapStatus ? 'ring-1 ring-white/40' : ''}`}
+                                title={`VWAP: ${c.vwapStatus} — click to filter`}
+                              ></div>
+                            )}
+                          </div>
+                        </td>
+
                         {/* Change % */}
                         <td className={`px-2 py-2.5 text-right tabular-nums font-semibold ${chgColor(c.changePct)}`}>
                           {c.changePct >= 0 ? '+' : ''}{c.changePct.toFixed(2)}%
@@ -655,8 +682,13 @@ export default function Multibagger() {
                         </td>
 
                         {/* Stage */}
-                        <td className={`px-2 py-2.5 pl-3 border-l border-white/5 text-center tabular-nums font-semibold ${stgColor(c.stageShort)}`}>
-                          {c.stageShort || '—'}
+                        <td className="px-2 py-2.5 pl-3 border-l border-white/5 text-center whitespace-nowrap">
+                          <span
+                            title={stageDescription(c.stage)}
+                            className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums tracking-wide cursor-help ${stageBadge(c.stage)}`}
+                          >
+                            {stgShort(c.stage) || c.stageShort || '—'}
+                          </span>
                         </td>
 
                         {/* Sector */}
@@ -668,7 +700,7 @@ export default function Multibagger() {
                       {/* Expanded breakdown row */}
                       {isExpanded && (
                         <tr className="border-b border-white/[0.03]">
-                          <td colSpan={15} className="px-4 py-3 bg-[#0a0e18]">
+                          <td colSpan={16} className="px-4 py-3 bg-[#0a0e18]">
                             <div className="flex flex-wrap gap-4">
                               {/* Scorecard bars */}
                               <div className="flex-1 min-w-[280px]">

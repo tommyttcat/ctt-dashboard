@@ -1,9 +1,10 @@
 'use client';
 
-import React, { Suspense } from 'react';
+import React, { Suspense, useState } from 'react';
 import { MarketDataProvider } from './MarketDataContext';
 import { ThemeToggle } from './ThemeProvider';
 import { ActiveChartProvider } from './TickerChartHover';
+import HelpModal from './HelpModal';
 
 import Scorecard from './Scorecard';
 import DailySetupsComponent from './DailySetups';
@@ -21,6 +22,7 @@ import Multibagger from './Multibagger';
 
 
 export default function DailySetupsPage() {
+  const [helpOpen, setHelpOpen] = useState(false);
   return (
     <div className="min-h-screen bg-[#05080f] text-slate-300 font-sans md:py-10 flex justify-center">
       <Suspense fallback={<div className="flex h-screen w-full items-center justify-center text-slate-500 font-bold tracking-widest uppercase">Loading Workspace...</div>}>
@@ -56,6 +58,13 @@ export default function DailySetupsPage() {
                 >
                   Analyst Brief
                 </a>
+                <button
+                  onClick={() => setHelpOpen(true)}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold bg-slate-700/60 hover:bg-slate-600 text-slate-400 hover:text-slate-200 transition-colors shrink-0"
+                  title="Help"
+                >
+                  ?
+                </button>
               </div>
             </div>
 
@@ -87,6 +96,7 @@ export default function DailySetupsPage() {
         </MarketDataProvider>
 
       </Suspense>
+      <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
     </div>
   );
 }

@@ -6,11 +6,11 @@
     },
     {
       "path": "/api/confluence/run",
-      "schedule": "30 13,19 * * 1-5"
+      "schedule": "30 13-23 * * 1-5"
     },
     {
       "path": "/api/analyst/generate",
-      "schedule": "*/30 8-23 * * 1-5"
+      "schedule": "10,25,40,55 8-23 * * 1-5"
     },
     {
       "path": "/api/analyst/generate",
@@ -33,8 +33,40 @@
       "schedule": "0 21 * * 1-5"
     },
     {
+      "path": "/api/email/confluence",
+      "schedule": "35 13 * * 1-5"
+    },
+    {
+      "path": "/api/email/confluence",
+      "schedule": "5 19 * * 1-5"
+    },
+    {
       "path": "/api/email/weekly",
       "schedule": "30 21 * * 0"
+    },
+    {
+      "path": "/api/multibagger/run",
+      "schedule": "15 12,15,18,21 * * 1-5"
+    },
+    {
+      "path": "/api/scanner/run",
+      "schedule": "5,20,35,50 8-23 * * 1-5"
+    },
+    {
+      "path": "/api/ep9m/run",
+      "schedule": "7,22,37,52 13-21 * * 1-5"
+    },
+    {
+      "path": "/api/swing-candidates/run",
+      "schedule": "7,22,37,52 8-23 * * 1-5"
+    },
+    {
+      "path": "/api/vcp/run",
+      "schedule": "7,22,37,52 8-23 * * 1-5"
+    },
+    {
+      "path": "/api/dvol/run",
+      "schedule": "7,22,37,52 8-23 * * 1-5"
     }
   ]
 }

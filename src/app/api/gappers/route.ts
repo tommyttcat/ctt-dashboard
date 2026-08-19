@@ -7,7 +7,7 @@ export const revalidate = 0;
 export const maxDuration = 30;
 
 const POLYGON_KEY = (
-  process.env.NEXT_PUBLIC_POLYGON_API_KEY ||
+  process.env.POLYGON_API_KEY ||
   process.env.POLYGON_API_KEY ||
   ''
 ).trim();

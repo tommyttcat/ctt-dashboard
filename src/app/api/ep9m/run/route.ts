@@ -142,6 +142,7 @@ import { computeTradePlan } from '@/lib/indicators/tradeplan';
 import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN, CHOP_TREND_MAX } from '@/lib/indicators/chop';
 import { EP9M, EP9M_META } from '@/lib/scanConfig';
 import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
+import { rawRsScore, percentileRank } from '@/lib/indicators/vcp';
 import { cleanSectorDescription } from '@/lib/sectors';
 import { sma, ema, atr, adrPct, stochK, pctReturn } from '@/lib/indicators/marketMath';
 import { runInBackground, isDetachedRun, BG_HEADERS } from '@/lib/background';
@@ -152,7 +153,7 @@ export const fetchCache = 'force-no-store';
 export const revalidate = 0;
 export const maxDuration = 300;
 
-const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
+const POLYGON_KEY = process.env.POLYGON_API_KEY || '';
 /* Benzinga is back, for news only — never the earnings calendar, which is what
    was actually dead when it got pulled. Polygon's per-ticker news is Motley
    Fool wall-to-wall on this plan, so it now serves as the fallback source. */
@@ -274,6 +275,7 @@ interface Ep9mCandidate {
   newsPublisher: string | null;
   newsAge: string | null;
   newsSentiment: 'positive' | 'negative' | 'neutral' | null;
+  newsCausal: boolean | null;
   scoreBreakdown: Record<string, number>;
   // v1.5 — raw levels and the plan built from them.
   ema10: number | null;
@@ -698,7 +700,7 @@ async function runScan(request: Request) {
 
     /* One fetch for the whole scan, indexed by ticker — this plan's Benzinga
        endpoint ignores per-ticker params, so filtering happens here. */
-    const bzIndex = await fetchBenzingaNewsIndex(BENZINGA_KEY);
+    const bzIndex = await fetchBenzingaNewsIndex(POLYGON_KEY);
 
     const enriched = await inBatches(shortlist, WINDOW.concurrency, async (ab) => {
       const sym = ab.sym;
@@ -766,12 +768,17 @@ async function runScan(request: Request) {
       const hi52 = hiWindow.length ? Math.max(...hiWindow) : null;
       const pctOffHigh = hi52 && hi52 > 0 ? ((price - hi52) / hi52) * 100 : null;
 
-      /* A lookup, not a calculation. Null is common and benign — the name
-         sits below the ranking floor, or listed less than a quarter ago and
-         has no recent leg to weight. Null renders as an em-dash and drops
-         out of any RS filter, which is the honest outcome: a stale or
-         invented percentile would pass filters and get traded on. */
-      const rsRating = rsLookup.get(sym);
+      let rsRating = rsLookup.get(sym);
+      if (rsRating == null && bars.length >= 63 && rsLookup.sortedRaws.length > 0) {
+        const n = bars.length;
+        const p0c = bars[n - 1]?.c;
+        const p63c = bars[n - 1 - Math.min(63, n - 1)]?.c;
+        const p126c = n > 126 ? bars[n - 1 - 126]?.c : null;
+        const p189c = n > 189 ? bars[n - 1 - 189]?.c : null;
+        const p252c = n > 252 ? bars[n - 1 - 252]?.c : null;
+        const raw = rawRsScore({ p0: p0c, p63: p63c, p126: p126c, p189: p189c, p252: p252c });
+        if (raw != null) rsRating = percentileRank(raw, rsLookup.sortedRaws);
+      }
 
       const mktCap = details?.results?.market_cap || null;
       const float = details?.results?.share_class_shares_outstanding || (mktCap && price ? mktCap / price : null);
@@ -976,6 +983,7 @@ async function runScan(request: Request) {
         newsPublisher,
         newsAge,
         newsSentiment,
+        newsCausal: news?.causal ?? null,
         scoreBreakdown: scored.breakdown,
         ema10: round2(raw.ema10),
         ema21: round2(raw.ema21),

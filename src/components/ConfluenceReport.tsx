@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ThemeToggle } from './ThemeProvider';
 import TickerChartHover, { ActiveChartProvider } from './TickerChartHover';
+import HelpModal from './HelpModal';
 import { cnfBadgeCls } from '@/lib/indicators/columnColors';
 import { rsBadge } from '@/lib/indicators/rs';
 import { stageBadge } from '@/lib/indicators/stage';
@@ -53,6 +54,8 @@ interface Report {
   float: number | null;
   mktCap: number | null;
   timeframes: TfAnalysis[];
+  biasScore: number;
+  biasMax: number;
   confluenceScore: number;
   confluenceMax: number;
   confluenceLabel: string;
@@ -152,7 +155,7 @@ function TimeframeTable({ timeframes }: { timeframes: TfAnalysis[] }) {
 
 // ---- AI summary card --------------------------------------------------------
 
-function AiSummaryCard({ summary, reports }: { summary: AiSummary; reports: Report[] }) {
+function AiSummaryCard({ summary, reports, activeSector, onSectorFilter }: { summary: AiSummary; reports: Report[]; activeSector: string | null; onSectorFilter: (sector: string | null) => void }) {
   const biasCls = summary.overallBias === 'BULLISH' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
     : summary.overallBias === 'BEARISH' ? 'text-rose-400 bg-rose-500/10 border-rose-500/20'
     : 'text-amber-400 bg-amber-500/10 border-amber-500/20';
@@ -210,7 +213,7 @@ function AiSummaryCard({ summary, reports }: { summary: AiSummary; reports: Repo
     if (!tickerRe) return <>{text}</>;
     const parts = text.split(tickerRe);
     return <>{parts.map((seg, i) => gradeMap.has(seg)
-      ? <span key={i} className={`${chipForGrade(gradeOf(seg))} mx-0.5`}>{seg}</span>
+      ? <TickerChartHover key={i} symbol={seg}><span className={`${chipForGrade(gradeOf(seg))} mx-0.5 cursor-pointer`}>{seg}</span></TickerChartHover>
       : <span key={i}>{seg}</span>
     )}</>;
   };
@@ -231,18 +234,45 @@ function AiSummaryCard({ summary, reports }: { summary: AiSummary; reports: Repo
             {/* Top Picks */}
             {picks.length > 0 && (
               <div>
-                <div className={`${LABEL} text-indigo-400 mb-0.5`}>Top Picks</div>
-                <div className="space-y-0.5">
-                  {picks.map(p => (
-                    <div key={p.ticker} className="flex items-center gap-1 text-[10px] leading-snug">
-                      <span className={`${chipForGrade(p.grade)} w-[38px] shrink-0`}>{p.ticker}</span>
-                      <span className={`${CHIP_BASE} min-w-[20px] shrink-0 ${cnfBadgeCls(p.cnfScore)}`}>{p.cnfScore}</span>
-                      {p.rsRating > 0 && <span className={`${CHIP_BASE} min-w-[20px] shrink-0 ${rsBadge(p.rsRating)}`}>{p.rsRating}</span>}
-                      {p.stage && <span className={`${CHIP_BASE} shrink-0 ${stageBadge(p.stage)}`}>{p.stage}</span>}
-                      <span className="text-slate-500 ml-0.5">{p.reason}</span>
-                    </div>
-                  ))}
-                </div>
+                <div className={`${LABEL} text-indigo-400 mb-1`}>Top Picks</div>
+                <table className="text-[10px]" style={{ borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th className={`${LABEL} text-left py-0.5 pr-1.5`}>Ticker</th>
+                      <th className={`${LABEL} text-right py-0.5 pr-1.5`}>CHG%</th>
+                      <th className={`${LABEL} text-right py-0.5 pr-1.5`}>Price</th>
+                      <th className={`${LABEL} text-center py-0.5 pr-0.5`}>CNF</th>
+                      <th className={`${LABEL} text-center py-0.5 pr-0.5`}>Bias</th>
+                      <th className={`${LABEL} text-center py-0.5 pr-0.5`}>RS</th>
+                      <th className={`${LABEL} text-center py-0.5 pr-1.5`}>STG</th>
+                      <th className={`${LABEL} text-left py-0.5`}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {picks.map(p => {
+                      const rpt = reports.find(r => r.ticker === p.ticker);
+                      const chg = rpt?.changePct ?? 0;
+                      const prc = rpt?.price ?? 0;
+                      const stg = p.stage ? p.stage.replace(/^Stage\s*/i, '').trim() : '';
+                      return (
+                        <tr key={p.ticker}>
+                          <td className="py-0.5 pr-1.5">
+                            <TickerChartHover symbol={p.ticker}>
+                              <span className={`${chipForGrade(p.grade)} w-[38px] cursor-pointer`}>{p.ticker}</span>
+                            </TickerChartHover>
+                          </td>
+                          <td className={`py-0.5 pr-1.5 text-right tabular-nums font-semibold ${chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</td>
+                          <td className="py-0.5 pr-1.5 text-right tabular-nums text-slate-300">${fmtPrc(prc)}</td>
+                          <td className="py-0.5 pr-0.5 text-center"><span className={`${CHIP_BASE} min-w-[20px] ${cnfBadgeCls(p.cnfScore)}`}>{p.cnfScore}</span></td>
+                          <td className="py-0.5 pr-0.5 text-center">{rpt && <span className={`${CHIP_BASE} min-w-[20px] ${biasBadgeCls(rpt.biasScore)}`}>{rpt.biasScore}/{rpt.biasMax}</span>}</td>
+                          <td className="py-0.5 pr-0.5 text-center">{p.rsRating > 0 && <span className={`${CHIP_BASE} min-w-[20px] ${rsBadge(p.rsRating)}`}>{p.rsRating}</span>}</td>
+                          <td className="py-0.5 pr-1.5 text-center">{stg && <span className={`${CHIP_BASE} min-w-[20px] ${stageBadge(stg)}`}>{stg}</span>}</td>
+                          <td className="py-0.5 text-slate-500">{p.reason.replace(/Episodic Pivot/g, 'EP')}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
 
@@ -267,10 +297,10 @@ function AiSummaryCard({ summary, reports }: { summary: AiSummary; reports: Repo
                   <tbody>
                     {levels.map(l => (
                       <tr key={l.ticker}>
-                        <td className="pr-1.5 py-[1px]"><span className={`${chipForGrade(l.grade)} w-[38px]`}>{l.ticker}</span></td>
-                        <td className="pr-1 py-[1px] text-right"><span className="text-[7px] font-bold text-emerald-400">S</span></td>
-                        <td className="pr-3 py-[1px] text-slate-300">{l.support.length > 0 ? l.support.join(' / ') : '—'}</td>
-                        <td className="pr-1 py-[1px] text-right"><span className="text-[7px] font-bold text-rose-400">R</span></td>
+                        <td className="pr-1.5 py-[1px]"><TickerChartHover symbol={l.ticker}><span className={`${chipForGrade(l.grade)} w-[38px] cursor-pointer`}>{l.ticker}</span></TickerChartHover></td>
+                        <td className="pr-0.5 py-[1px] text-right"><span className="text-[7px] font-bold text-emerald-400">S</span></td>
+                        <td className="pr-2 py-[1px] text-slate-300">{l.support.length > 0 ? l.support.join(' / ') : '—'}</td>
+                        <td className="pr-0.5 py-[1px] text-right"><span className="text-[7px] font-bold text-rose-400">R</span></td>
                         <td className="py-[1px] text-slate-300">{l.resistance.length > 0 ? l.resistance.join(' / ') : '—'}</td>
                       </tr>
                     ))}
@@ -284,9 +314,23 @@ function AiSummaryCard({ summary, reports }: { summary: AiSummary; reports: Repo
               <div>
                 <div className={`${LABEL} text-indigo-400 mb-0.5`}>Sectors</div>
                 <div className="flex flex-wrap gap-1">
-                  {summary.sectorThemes.map(s => (
-                    <span key={s} className={`${CHIP_BASE} text-slate-300 bg-slate-700/40 border-white/10`}>{s}</span>
-                  ))}
+                  {summary.sectorThemes.map(s => {
+                    const sectorName = s.replace(/\s*\(.*\)$/, '');
+                    const isActive = activeSector === sectorName;
+                    return (
+                      <button
+                        key={s}
+                        onClick={() => onSectorFilter(isActive ? null : sectorName)}
+                        className={`${CHIP_BASE} cursor-pointer transition-colors ${isActive ? 'text-white bg-indigo-500/30 border-indigo-400/50' : 'text-slate-300 bg-slate-700/40 border-white/10 hover:border-white/20'}`}
+                      >{s}</button>
+                    );
+                  })}
+                  {activeSector && (
+                    <button
+                      onClick={() => onSectorFilter(null)}
+                      className={`${CHIP_BASE} cursor-pointer text-slate-500 bg-transparent border-white/5 hover:text-slate-300`}
+                    >Clear</button>
+                  )}
                 </div>
               </div>
             )}
@@ -296,7 +340,7 @@ function AiSummaryCard({ summary, reports }: { summary: AiSummary; reports: Repo
         {/* Action Plan */}
         <div className="mt-2 pt-2 border-t border-white/[0.06]">
           <div className={`${LABEL} text-emerald-400/70 mb-0.5`}>Action Plan</div>
-          <p className="text-[10px] text-slate-200 leading-snug font-medium">{summary.actionPlan}</p>
+          <p className="text-[10px] text-slate-200 leading-snug font-medium">{badgeText(summary.actionPlan)}</p>
         </div>
       </div>
     </div>
@@ -305,28 +349,58 @@ function AiSummaryCard({ summary, reports }: { summary: AiSummary; reports: Repo
 
 // ---- stock card -------------------------------------------------------------
 
+function stageNum(stage: string): string {
+  return (stage || '').replace(/^Stage\s*/i, '').trim();
+}
+
+function biasBadgeCls(score: number): string {
+  if (score >= 3) return 'text-emerald-300 bg-emerald-500/10 border-emerald-400/30';
+  if (score <= 1) return 'text-rose-300 bg-rose-500/10 border-rose-400/30';
+  return 'text-amber-300 bg-amber-500/10 border-amber-400/30';
+}
+
 function StockCard({ report }: { report: Report }) {
   const r = report;
   const chipCls = chipForGrade(r.cnfGrade);
+  const stg = stageNum(r.stage);
 
   return (
     <div className="bg-slate-900/60 border border-white/[0.06] rounded-lg overflow-hidden">
       {/* Header */}
-      <div className="px-3 md:px-5 py-3 md:py-4 border-b border-white/[0.06] flex items-center gap-3 flex-wrap">
-        <TickerChartHover symbol={r.ticker}>
-          <span className={`${chipCls} w-[44px] md:w-[50px] text-[9px]`}>{r.ticker}</span>
-        </TickerChartHover>
-        <span className="text-[12px] font-medium text-slate-300">{r.name}</span>
-        <span className={`${VAL} font-semibold ${r.changePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-          {r.changePct >= 0 ? '+' : ''}{r.changePct.toFixed(2)}%
-        </span>
-        <span className={`${VAL} text-slate-300`}>${fmtPrc(r.price)}</span>
-        <span className="ml-auto flex items-center gap-1.5">
-          {r.sector && <span className="text-[9px] text-slate-500">{r.sector}</span>}
-          <span className={`${CHIP_BASE} min-w-[20px] ${cnfBadgeCls(r.cnfScore)}`}>{r.cnfScore}</span>
-          {r.rsRating > 0 && <span className={`${CHIP_BASE} min-w-[20px] ${rsBadge(r.rsRating)}`}>{r.rsRating}</span>}
-          {r.stage && <span className={`${CHIP_BASE} min-w-[20px] ${stageBadge(r.stage)}`}>{r.stage}</span>}
-        </span>
+      <div className="px-3 md:px-5 py-3 md:py-4 border-b border-white/[0.06] flex items-center justify-between gap-3">
+        {/* Left: Ticker, Company, %CHG, Price, CNF, Bias */}
+        <div className="flex items-center gap-3 min-w-0">
+          <TickerChartHover symbol={r.ticker}>
+            <span className={`${chipCls} w-[44px] md:w-[50px] text-[9px]`}>{r.ticker}</span>
+          </TickerChartHover>
+          <span className={`${VAL} font-semibold shrink-0 ${r.changePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {r.changePct >= 0 ? '+' : ''}{r.changePct.toFixed(2)}%
+          </span>
+          <span className={`${VAL} text-slate-300 shrink-0`}>${fmtPrc(r.price)}</span>
+          <div className="text-center shrink-0">
+            <div className={`${LABEL} mb-0.5`}>CNF</div>
+            <span className={`${CHIP_BASE} min-w-[24px] ${cnfBadgeCls(r.cnfScore)}`} title={`Confluence Score: ${r.cnfScore}/100`}>{r.cnfScore}</span>
+          </div>
+          <div className="text-center shrink-0">
+            <div className={`${LABEL} mb-0.5`}>BIAS</div>
+            <span className={`${CHIP_BASE} min-w-[24px] ${biasBadgeCls(r.biasScore)}`} title={`Bias: ${r.biasScore}/${r.biasMax} ${r.confluenceLabel} (Weekly + Daily)`}>{r.biasScore}/{r.biasMax}</span>
+          </div>
+        </div>
+        {/* Right: RS, Stage */}
+        <div className="flex items-end gap-2 shrink-0">
+          {r.rsRating > 0 && (
+            <div className="text-center">
+              <div className={`${LABEL} mb-0.5`}>RS</div>
+              <span className={`${CHIP_BASE} min-w-[24px] ${rsBadge(r.rsRating)}`} title={`Relative Strength: ${r.rsRating}`}>{r.rsRating}</span>
+            </div>
+          )}
+          {stg && (
+            <div className="text-center">
+              <div className={`${LABEL} mb-0.5`}>STG</div>
+              <span className={`${CHIP_BASE} min-w-[24px] ${stageBadge(stg)}`}>{stg}</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Quick stats */}
@@ -338,7 +412,7 @@ function StockCard({ report }: { report: Report }) {
         {r.stochK != null && <span><span className="text-slate-500">Stoch</span> <span className={r.stochK <= 20 ? 'text-purple-400' : r.stochK <= 30 ? 'text-emerald-400' : 'text-slate-300'}>{r.stochK.toFixed(0)}</span></span>}
         {r.pctOffHigh != null && <span><span className="text-slate-500">Off High</span> <span className="text-slate-300">{r.pctOffHigh.toFixed(1)}%</span></span>}
         {r.float != null && <span><span className="text-slate-500">Float</span> <span className="text-slate-300">{fmtVol(r.float)}</span></span>}
-        {r.setupName && <span className={`${CHIP_BASE} text-violet-400 bg-violet-500/10 border-violet-500/20`}>{r.setupName}</span>}
+        {r.setupName && <span className={`${CHIP_BASE} text-violet-400 bg-violet-500/10 border-violet-500/20`}>{r.setupName === 'Episodic Pivot' ? 'EP' : r.setupName}</span>}
         {r.catalyst && <span className="text-amber-400/80 font-medium truncate max-w-[200px]">{r.catalyst}</span>}
       </div>
 
@@ -368,14 +442,6 @@ function StockCard({ report }: { report: Report }) {
           </div>
         </div>
       )}
-
-      {/* Confluence Score */}
-      <div className="px-3 md:px-5 py-2 border-t border-white/[0.06]">
-        <span className={`${SECTION_LABEL} text-cyan-400`}>Confluence Score: </span>
-        <span className={`text-[11px] font-bold ${biasColor(r.confluenceLabel === 'Bullish' ? 'BULLISH' : r.confluenceLabel === 'Bearish' ? 'BEARISH' : 'NEUTRAL')}`}>
-          {r.confluenceScore}/{r.confluenceMax} {r.confluenceLabel}
-        </span>
-      </div>
 
       {/* Trade Recommendation */}
       {r.tradeRec && (
@@ -415,6 +481,8 @@ export default function ConfluenceReport() {
   const [lastScan, setLastScan] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [aiSummary, setAiSummary] = useState<AiSummary | null>(null);
+  const [sectorFilter, setSectorFilter] = useState<string | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -453,6 +521,7 @@ export default function ConfluenceReport() {
   }, [reports]);
 
   return (
+    <>
     <ActiveChartProvider>
       <ChartLevelsCtx.Provider value={levelsMap}>
       <div className="min-h-screen bg-[var(--bg-primary)] text-slate-300 px-3 md:px-6 py-4 md:py-6 max-w-5xl mx-auto">
@@ -466,6 +535,11 @@ export default function ConfluenceReport() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {lastScan && (
+              <span className="text-[9px] text-slate-600 italic tabular-nums whitespace-nowrap">
+                Updated: {new Date(lastScan).toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })} ET
+              </span>
+            )}
             <ThemeToggle />
             <a href="/" className="text-[10px] font-bold tracking-wider uppercase px-3 py-1.5 rounded bg-slate-800 text-slate-400 hover:text-slate-200 border border-white/10 transition-colors">
               Dashboard
@@ -473,15 +547,13 @@ export default function ConfluenceReport() {
             <a href="/analyst" className="text-[10px] font-bold tracking-wider uppercase px-3 py-1.5 rounded bg-emerald-600 text-white hover:bg-emerald-500 transition-colors">
               Analyst Brief
             </a>
+            <button
+              onClick={() => setHelpOpen(true)}
+              className="w-7 h-7 flex items-center justify-center rounded text-[11px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border border-white/10 transition-colors shrink-0"
+              title="Help"
+            >?</button>
           </div>
         </div>
-
-        {/* Meta bar */}
-        {lastScan && (
-          <div className="text-[9px] text-slate-600 mb-3">
-            Last scan: {new Date(lastScan).toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true, month: 'short', day: 'numeric' })} ET
-          </div>
-        )}
 
         {/* Content */}
         {loading ? (
@@ -496,9 +568,9 @@ export default function ConfluenceReport() {
           </div>
         ) : (
           <>
-            {aiSummary && <AiSummaryCard summary={aiSummary} reports={reports} />}
+            {aiSummary && <AiSummaryCard summary={aiSummary} reports={reports} activeSector={sectorFilter} onSectorFilter={setSectorFilter} />}
             <div className="space-y-4">
-              {reports.map((r) => (
+              {(sectorFilter ? reports.filter(r => r.sector === sectorFilter) : reports).map((r) => (
                 <StockCard key={r.ticker} report={r} />
               ))}
             </div>
@@ -517,5 +589,7 @@ export default function ConfluenceReport() {
       </div>
       </ChartLevelsCtx.Provider>
     </ActiveChartProvider>
+    <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
+    </>
   );
 }

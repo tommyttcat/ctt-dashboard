@@ -17,20 +17,25 @@ import {
   advPct,
   highsPct,
   toneCellTone,
-  vixCellTone,
+  vixPctTone,
   breadthSignalTone,
   advCellTone,
   t2108CellTone,
   mkmCellTone,
   highsCellTone,
   marketMonitorOf,
+  mmTodayTone,
   mmCellTone,
   mmRatioLabel,
 } from '@/lib/indicators/marketScorecard';
 import { dedupeByTicker, chgOf, dVolOf, advancingDollarShare } from '@/lib/indicators/marketMath';
+import { postToBluesky } from '@/lib/bluesky';
+import { postToX } from '@/lib/twitter';
 import { stageHex as stageColor } from '@/lib/indicators/stage';
 import { cnfHex, rvolHex, rsHex } from '@/lib/indicators/columnColors';
 import { newsStarCount } from '@/lib/newsStars';
+import { industryHeat } from '@/lib/sectors';
+import { getEmailRecipients } from '@/lib/users';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -72,11 +77,36 @@ async function fetchJson(url: string) {
    whatever was last selected on the site. */
 
 const fmtPct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+const fmtPrice = (p: number | null | undefined) => p == null || p === 0 ? '' : p >= 1000 ? p.toFixed(0) : p.toFixed(2);
 const chgClr = (v: number) => v >= 0 ? '#34d399' : '#fb7185';
 // Stage 1 = basing (neutral), 2 = uptrend (green), 3 = topping (amber), 4 = decline (red) —
 // matches the brief's own "Stage 4B/4C = always bearish" rule, so a glance at STG tells the story.
 const fmtVol = (v: number) => v >= 1e9 ? '$' + (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? '$' + (v / 1e6).toFixed(0) + 'M' : v > 0 ? '$' + (v / 1e3).toFixed(0) + 'K' : '';
 const fmtVolShort = (v: number) => v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? Math.round(v / 1e3) + 'K' : '—';
+const stripStage = (s: string) => String(s || '').replace(/Stage\s*/i, '').trim() || '';
+
+const BADGE = 'display:inline-block;font-size:6px;font-weight:700;border-radius:3px;width:18px;line-height:12px;text-align:center;border:1px solid';
+function rsPillHtml(rs: number | null | undefined): string {
+  if (rs == null) return '';
+  const [bg, bc, tx] = rs >= 90 ? ['#3b0764','#6b21a8','#c084fc']
+    : rs >= 80 ? ['#042f2e','#065f46','#34d399']
+    : rs >= 70 ? ['#1e293b','#ffffff1a','#cbd5e1']
+    : ['#4c0519','#9f1239','#fb7185'];
+  return `<span style="${BADGE} ${bc};background:${bg};color:${tx};">${rs}</span>`;
+}
+function stagePillHtml(stage: string | null | undefined): string {
+  const s = stripStage(String(stage || ''));
+  if (!s || s === '—') return '';
+  const u = s.toUpperCase();
+  const [bg, bc, tx] = u.startsWith('2')
+    ? (u === '2C' ? ['#422006','#854d0e','#fbbf24'] : u === '2B' ? ['#042f2e','#065f46','#6ee7b7'] : ['#042f2e','#065f46','#34d399'])
+    : u.startsWith('4')
+    ? (u === '4C' ? ['#431407','#9a3412','#fb923c'] : ['#4c0519','#9f1239','#fb7185'])
+    : u.startsWith('3') ? ['#422006','#854d0e','#fbbf24']
+    : u.startsWith('1') ? ['#0c1a29','#0e4a6e','#38bdf8']
+    : ['#0f172a','#ffffff0d','#475569'];
+  return `<span style="${BADGE} ${bc};background:${bg};color:${tx};">${s}</span>`;
+}
 
 /* The page's palette (AnalystBrief SETUP_COLORS), not a second one. The email
    used to run EP indigo / VCP emerald / COIL lime against the page's EP rose /
@@ -129,10 +159,10 @@ function scorecardGrid(cells: ScoreCell[]): string {
   const items = cells.map((c) => {
     const col = CELL_COLORS[c.color] || CELL_COLORS.slate;
     return `<div style="display:inline-block;width:${pct}%;min-width:88px;padding:0 1.5px 3px;vertical-align:top;box-sizing:border-box;">
-      <div style="border-radius:6px;border:1px solid #ffffff12;background:#1e293b40;padding:6px 4px;text-align:center;">
-        <div style="font-size:7px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#64748b;margin-bottom:2px;white-space:nowrap;">${c.label}</div>
-        <div style="font-size:11px;font-weight:700;color:${col.text};line-height:1.15;white-space:nowrap;">${c.value}</div>
-        <div style="font-size:8px;color:#64748b;margin-top:2px;white-space:nowrap;">${c.sub || '&nbsp;'}</div>
+      <div style="border-radius:5px;border:1px solid ${col.border};background:${col.bg};padding:4px 3px;text-align:center;">
+        <div style="font-size:6px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#64748b;margin-bottom:1px;white-space:nowrap;">${c.label}</div>
+        <div style="font-size:9px;font-weight:700;color:${col.text};line-height:1.15;white-space:nowrap;">${c.value}</div>
+        <div style="font-size:7px;color:#64748b;margin-top:1px;white-space:nowrap;">${c.sub || '&nbsp;'}</div>
       </div>
     </div>`;
   }).join('');
@@ -143,14 +173,15 @@ function scorecardGrid(cells: ScoreCell[]): string {
    are slate-500/10 and rose-950 with translucent borders; mail clients
    (Outlook's Word engine in particular) drop rgba and 8-digit hex, so these
    are the same colours flattened onto the #0f172a card. */
-const tickerChip = (t: string) => `<span class="tk">${t}</span>`;
+const tickerChip = (t: string, grade?: string | null) =>
+  `<span class="tk${grade === 'A' ? ' a' : grade === 'B' ? ' b' : ''}">${t}</span>`;
 const tickerChipRed = (t: string) => `<span class="tk r">${t}</span>`;
 
 /* The N column. The page links the stars to the article; so does this. */
 function newsStarsHtml(row: any): string {
   const n = newsStarCount(row || {});
   if (!n) return '<span style="color:#334155;">&mdash;</span>';
-  const stars = `<span style="font-size:8px;color:${n >= 2 ? '#fbbf24' : '#64748b'};">${'&#9733;'.repeat(n)}</span>`;
+  const stars = `<span style="font-size:7px;color:${n >= 2 ? '#fbbf24' : '#64748b'};">${'&#9733;'.repeat(n)}</span>`;
   const url = row?.catalystUrl;
   return url ? `<a href="${url}" style="text-decoration:none;">${stars}</a>` : stars;
 }
@@ -169,21 +200,26 @@ function cnfPill(score: number | null | undefined, grade?: string | null): strin
 
 /* Percentages carry the sign colour everywhere on the page, so they do here
    too. Applied before ticker chipping so the chip markup is never scanned. */
+const INVERSE_TICKERS = new Set(['VIX', 'UVXY', 'SVXY']);
+
 function colorPctsHtml(text: string): string {
-  return text.replace(/([+-]?\d+(?:\.\d+)?)%/g, (whole, num) => {
+  return text.replace(/([+-]?\d+(?:\.\d+)?)%/g, (whole, num, offset) => {
     const v = parseFloat(num);
     if (isNaN(v)) return whole;
     const signed = /^[+-]/.test(num);
     if (!signed) return `<span style="font-weight:700;color:#cbd5e1;">${whole}</span>`;
-    return `<span style="font-weight:700;color:${v >= 0 ? '#34d399' : '#fb7185'};">${whole}</span>`;
+    const before = text.slice(Math.max(0, offset - 60), offset);
+    const nearTicker = before.match(/\b([A-Z]{2,5})\b(?!.*\b[A-Z]{2,5}\b)/);
+    const invert = nearTicker ? INVERSE_TICKERS.has(nearTicker[1]) : false;
+    const clr = invert ? (v >= 0 ? '#fb7185' : '#34d399') : (v >= 0 ? '#34d399' : '#fb7185');
+    return `<span style="font-weight:700;color:${clr};">${whole}</span>`;
   });
 }
 
 function richHtml(text: string, known: Set<string>): string {
   const stripped = String(text || '').replace(/\*\*/g, '');
   const colored = colorPctsHtml(stripped);
-  // Only chip tokens outside existing tags.
-  return colored.replace(/(^|[\s(,])([A-Z]{1,5})(?=$|[\s),.:;])/g, (m, pre, tok) =>
+  return colored.replace(/(^|[\s(,])([A-Z]{1,5})(?='s|$|[\s),.:;])/g, (m, pre, tok) =>
     known.has(tok) ? `${pre}${tickerChip(tok)}` : m
   );
 }
@@ -222,12 +258,12 @@ function noteBlocksHtml(arr: string[], known: Set<string>, color = '#cbd5e1'): s
           : `<strong style="color:#f1f5f9;">${richHtml(lead, known)}</strong>`;
       /* No space before a comma or full stop — the lead is mid-sentence. */
       const glue = leadHtml && rest && !/^[,.;:!?)]/.test(rest) ? ' ' : '';
-      return `<div style="${sep}font-size:11px;color:${color};line-height:1.6;">${leadHtml}${glue}${richHtml(rest || (lead ? '' : s), known)}</div>`;
+      return `<div style="${sep}font-size:9px;color:${color};line-height:1.6;">${leadHtml}${glue}${richHtml(rest || (lead ? '' : s), known)}</div>`;
     }
 
     return `<div style="${sep}">
-      <div style="font-size:11px;font-weight:700;color:#f1f5f9;line-height:1.5;">${richHtml(lead, known)}</div>
-      <div style="font-size:10.5px;color:${color};line-height:1.5;padding-left:14px;margin-top:6px;">${richHtml(rest, known)}</div>
+      <div style="font-size:9px;font-weight:700;color:#f1f5f9;line-height:1.5;">${richHtml(lead, known)}</div>
+      <div style="font-size:8px;color:${color};line-height:1.5;padding-left:12px;margin-top:4px;">${richHtml(rest, known)}</div>
     </div>`;
   }).join('');
 }
@@ -271,31 +307,29 @@ function formattedBlockHtml(text: string, known: Set<string>): string {
       }
     }
     return paras.map((p, i) =>
-      `<div style="${i > 0 ? 'border-top:1px solid #ffffff0d;padding-top:10px;margin-top:10px;' : ''}font-size:11px;color:#cbd5e1;line-height:1.7;">${richHtml(p, known)}</div>`
+      `<div style="${i > 0 ? 'border-top:1px solid #ffffff0d;padding-top:8px;margin-top:8px;' : ''}font-size:9px;color:#cbd5e1;line-height:1.6;">${richHtml(p, known)}</div>`
     ).join('');
   }
   return rows.map((r, i) =>
     `<div style="${i > 0 ? 'border-top:1px solid #ffffff0d;padding-top:10px;margin-top:10px;' : ''}">
-      <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#64748b;margin-bottom:6px;">${r.label}</div>
-      <div style="font-size:13px;color:#cbd5e1;line-height:1.8;">${richHtml(r.value, known)}</div>
-      ${r.detail ? `<div style="font-size:12px;color:#94a3b8;line-height:1.7;margin-top:6px;">${richHtml(r.detail.charAt(0).toUpperCase() + r.detail.slice(1), known)}</div>` : ''}
+      <div style="font-size:8px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#64748b;margin-bottom:4px;">${r.label}</div>
+      <div style="font-size:9px;color:#cbd5e1;line-height:1.7;">${richHtml(r.value, known)}</div>
+      ${r.detail ? `<div style="font-size:8px;color:#94a3b8;line-height:1.6;margin-top:4px;">${richHtml(r.detail.charAt(0).toUpperCase() + r.detail.slice(1), known)}</div>` : ''}
     </div>`
   ).join('');
 }
 
 /* Card shell matching the page's SectionCard: full border, rounded corners,
    indigo pill title with dot — mirrors AnalystBrief.tsx SectionCard. */
-function pageCard(title: string, _color: string, bodyHtml: string, _tint = '0a'): string {
+function pageCard(title: string, accent: string, bodyHtml: string, _tint = '0a'): string {
   if (!bodyHtml) return '';
-  return `<div style="margin-bottom:14px;border-radius:12px;border:1px solid #ffffff10;overflow:hidden;">
-    <div class="card" style="padding:12px 12px;">
-      <div style="margin-bottom:10px;border-bottom:1px solid #ffffff0d;padding-bottom:8px;">
-        <span style="display:inline-block;font-size:8px;font-weight:700;color:#7c8bfa;background:#161c2a66;border:1px solid #ffffff0d;padding:2px 8px;border-radius:4px;letter-spacing:0.14em;text-transform:uppercase;">
-          <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#7c8bfa;margin-right:6px;vertical-align:middle;"></span>${title}
+  return `<div style="margin-bottom:12px;border-radius:14px;border:1px solid #ffffff0f;padding:14px 16px;">
+      <div style="margin-bottom:10px;border-bottom:1px solid #ffffff08;padding-bottom:8px;">
+        <span style="display:inline-block;font-size:8px;font-weight:700;color:#7c8bfa;background:#161c2a;border:1px solid #ffffff0d;padding:3px 8px;border-radius:4px;letter-spacing:0.14em;text-transform:uppercase;">
+          <span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#7c8bfa;margin-right:6px;vertical-align:middle;"></span>${title}
         </span>
       </div>
       ${bodyHtml}
-    </div>
   </div>`;
 }
 
@@ -312,6 +346,33 @@ function parseSectorItems(raw: string): { name: string; pct: number }[] {
     out.push({ name: m[1].trim().replace(/^,\s*/, ''), pct: parseFloat(m[2]) });
   }
   return out;
+}
+
+function sectorBarsFromHeat(heat: { sector: string; avgChg: number; count: number }[]): string {
+  const all = heat.slice(0, 10).sort((a, b) => b.avgChg - a.avgChg);
+  if (!all.length) return '';
+  const maxAbs = Math.max(...all.map((s) => Math.abs(s.avgChg)), 0.01);
+  const spread = all[0].avgChg - all[all.length - 1].avgChg;
+
+  const rows = all.map((s) => {
+    const w = Math.max(2, Math.round((Math.abs(s.avgChg) / maxAbs) * 46));
+    const pos = s.avgChg >= 0;
+    const bar = pos
+      ? `<td width="50%" style="padding:0;"></td><td width="50%" style="padding:0;"><div style="width:${w * 2}%;height:14px;border-radius:3px;background:linear-gradient(90deg,#065f46,#34d399);"></div></td>`
+      : `<td width="50%" style="padding:0;text-align:right;"><div style="width:${w * 2}%;height:14px;border-radius:3px;background:linear-gradient(90deg,#fb7185,#7f1d3a);margin-left:auto;"></div></td><td width="50%" style="padding:0;"></td>`;
+    return `<tr>
+      <td width="26%" style="padding:3px 8px 3px 0;text-align:right;font-size:8px;color:${pos ? '#34d399' : '#cbd5e1'};">${s.sector}</td>
+      <td width="58%" style="padding:3px 0;"><table width="100%" style="border-collapse:collapse;"><tr>${bar}</tr></table></td>
+      <td width="16%" style="padding:3px 0 3px 8px;text-align:right;font-size:8px;font-weight:700;color:${pos ? '#34d399' : '#fb7185'};">${fmtPct(s.avgChg)}</td>
+    </tr>`;
+  }).join('');
+
+  return `<div style="padding:6px 8px;height:100%;box-sizing:border-box;border-left:3px solid #34d399;">
+    <table width="100%" style="border-collapse:collapse;margin:0 0 6px;"><tr>
+      <td style="text-align:right;font-size:8px;color:#475569;">Spread ${spread.toFixed(2)}%</td>
+    </tr></table>
+    <table width="100%" style="border-collapse:collapse;">${rows}</table>
+  </div>`;
 }
 
 /* Horizontal bars growing from a centre line, same as the page's sector chart. */
@@ -340,18 +401,15 @@ function sectorBarsHtml(text: string): string {
       ? `<td width="50%" style="padding:0;"></td><td width="50%" style="padding:0;"><div style="width:${w * 2}%;height:16px;border-radius:3px;background:linear-gradient(90deg,#065f46,#34d399);"></div></td>`
       : `<td width="50%" style="padding:0;text-align:right;"><div style="width:${w * 2}%;height:16px;border-radius:3px;background:linear-gradient(90deg,#fb7185,#7f1d3a);margin-left:auto;"></div></td><td width="50%" style="padding:0;"></td>`;
     return `<tr>
-      <td width="26%" style="padding:4px 10px 4px 0;text-align:right;font-size:11px;color:${pos ? '#34d399' : '#cbd5e1'};">${s.name}</td>
+      <td width="26%" style="padding:3px 8px 3px 0;text-align:right;font-size:8px;color:${pos ? '#34d399' : '#cbd5e1'};">${s.name}</td>
       <td width="58%" style="padding:4px 0;"><table width="100%" style="border-collapse:collapse;"><tr>${bar}</tr></table></td>
-      <td width="16%" style="padding:4px 0 4px 10px;text-align:right;font-size:11px;font-weight:700;color:${pos ? '#34d399' : '#fb7185'};">${fmtPct(s.pct)}</td>
+      <td width="16%" style="padding:3px 0 3px 8px;text-align:right;font-size:8px;font-weight:700;color:${pos ? '#34d399' : '#fb7185'};">${fmtPct(s.pct)}</td>
     </tr>`;
   }).join('');
 
-  /* Inner block only — the page nests this inside the Sectors & Money Flow
-     card alongside the two flow tables, so it must not carry a card of its
-     own. See sectorsCardHtml. */
-  return `<div style="border-radius:8px;background:#0b1424;border:1px solid #ffffff08;padding:10px 8px;margin-bottom:10px;">
-    <table width="100%" style="border-collapse:collapse;margin:0 8px 6px;"><tr>
-      <td style="text-align:right;font-size:10px;color:#475569;">Spread ${spread.toFixed(2)}%</td>
+  return `<div style="padding:6px 8px;height:100%;box-sizing:border-box;border-left:3px solid #34d399;">
+    <table width="100%" style="border-collapse:collapse;margin:0 0 6px;"><tr>
+      <td style="text-align:right;font-size:8px;color:#475569;">Spread ${spread.toFixed(2)}%</td>
     </tr></table>
     <table width="100%" style="border-collapse:collapse;">${rows}</table>
   </div>`;
@@ -384,7 +442,25 @@ function sectorsCardHtml(sectorText: string, snapshot: any): string {
   const mfShare = advancingDollarShare(flowAll);
   const totalDVol = flowAll.reduce((a: number, s: any) => a + dVolOf(s), 0);
 
-  const bars = sectorText ? sectorBarsHtml(sectorText) : '';
+  const heat = industryHeat(flowAll, chgOf);
+  const bars = heat.length >= 2 ? sectorBarsFromHeat(heat) : (sectorText ? sectorBarsHtml(sectorText) : '');
+  const heatHtml = heat.length >= 2 ? (() => {
+    const rows = heat.slice(0, 8).map((h: any) => {
+      const pos = h.avgChg >= 0;
+      return `<div style="display:flex;align-items:center;gap:6px;padding:1px 0;font-size:8px;">
+        <span style="font-weight:600;width:44px;text-align:right;flex-shrink:0;color:${pos ? '#34d399' : '#fb7185'};">${pos ? '+' : ''}${h.avgChg.toFixed(1)}%</span>
+        <span style="color:#cbd5e1;">${h.sector}</span>
+        <span style="color:#475569;font-size:8px;">(${h.count})</span>
+      </div>`;
+    }).join('');
+    return `<div style="padding:6px 12px;height:100%;box-sizing:border-box;border-left:3px solid #fbbf24;">
+      <div style="font-size:9px;font-weight:700;color:#fbbf24;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:4px;">Industry Heat</div>
+      <div style="font-size:8px;color:#64748b;margin-bottom:6px;">Sector rotation — where money is arriving and where it is leaving.</div>
+      ${rows}
+    </div>`;
+  })() : '';
+
+  const topRow = (bars || heatHtml) ? twoColHtml(bars, heatHtml) : '';
   const tables = twoColHtml(
     flowTableHtml('ETF Flow', '#818cf8',
       `${etfShare}% of ETF dollars on the advancing side${etfShare >= 60 ? ' — chasing strength.' : etfShare <= 40 ? ' — favoring defense.' : ' — no clean bet.'}`,
@@ -394,8 +470,8 @@ function sectorsCardHtml(sectorText: string, snapshot: any): string {
       flowRows),
   );
 
-  if (!bars && !tables) return '';
-  return pageCard('Sectors &amp; Money Flow', '#22d3ee', bars + tables);
+  if (!topRow && !tables) return '';
+  return pageCard('Sectors &amp; Money Flow', '#22d3ee', topRow + tables);
 }
 
 /* Every table on the page opens sorted by CNF descending — GapperSection,
@@ -420,33 +496,32 @@ function pageStockTable(stocks: any[], opts: { red?: boolean } = {}): string {
     const rv = s.rvol != null ? Number(s.rvol) : null;
     const dv = s.dVol ?? s.dvol ?? (s.price && (s.vol || s.volume) ? s.price * (s.vol || s.volume) : 0);
     const grade = s.grade || '';
-    const gradeClr = grade === 'A' ? '#34d399' : grade === 'B' ? '#fbbf24' : '#64748b';
-    const stage = String(s.stage || '').replace(/Stage\s*/i, '') || '';
+    const stage = stripStage(String(s.stage || ''));
     const rs = s.rs ?? s.rsRating ?? null;
     return `<tr>
-      <td class="d" style="padding-left:0;font-weight:800;color:${gradeClr};text-align:center;width:14px;font-size:9px;">${grade === 'A' || grade === 'B' ? grade : ''}</td>
-      <td class="d" style="white-space:nowrap;">${opts.red ? tickerChipRed(s.ticker) : tickerChip(s.ticker)}</td>
+      <td class="d" style="padding-left:0;white-space:nowrap;">${opts.red ? tickerChipRed(s.ticker) : tickerChip(s.ticker, grade)}</td>
       <td class="d" style="text-align:center;">${cnfPill(s.score, grade)}</td>
       <td class="d" style="text-align:right;font-weight:700;color:${chgClr(chg)};white-space:nowrap;">${fmtPct(chg)}</td>
+      <td class="d" style="text-align:right;color:#cbd5e1;">${fmtPrice(s.price)}</td>
       <td class="d" style="text-align:right;color:${rvolHex(rv)};font-weight:700;">${rv != null ? rv.toFixed(2) : ''}</td>
       <td class="d" style="text-align:right;color:#94a3b8;">${s.vol || s.volume ? fmtVolShort(s.vol || s.volume) : ''}</td>
       <td class="d" style="text-align:right;color:#cbd5e1;">${dv ? fmtVol(dv) : ''}</td>
-      <td class="d" style="text-align:center;color:${stageColor(stage)};font-weight:700;font-size:9px;">${stage}</td>
-      <td class="d" style="text-align:right;color:${rsHex(rs)};font-weight:700;">${rs ?? ''}</td>
+      <td class="d" style="text-align:center;">${rsPillHtml(rs)}</td>
+      <td class="d" style="text-align:center;">${stagePillHtml(stage)}</td>
       <td class="d" style="text-align:center;">${newsStarsHtml(s)}</td>
     </tr>`;
   }).join('');
   return `<table width="100%" style="border-collapse:collapse;">
     <tr>
-      <th class="h" style="padding-left:0;"></th>
       <th class="h" style="text-align:left;">Ticker</th>
       <th class="h" style="text-align:center;">CNF</th>
       <th class="h" style="text-align:right;">Chg%</th>
+      <th class="h" style="text-align:right;">PRC</th>
       <th class="h" style="text-align:right;">RVol</th>
       <th class="h" style="text-align:right;">Vol</th>
       <th class="h" style="text-align:right;">$Vol</th>
-      <th class="h" style="text-align:center;">Stg</th>
       <th class="h" style="text-align:right;">RS</th>
+      <th class="h" style="text-align:center;">Stg</th>
       <th class="h" style="text-align:center;">N</th>
     </tr>${rows}</table>`;
 }
@@ -462,43 +537,43 @@ function flowTableHtml(title: string, color: string, blurb: string, rows: any[])
   const body = rows.map((r: any) => {
     const chg = r.changePct || 0;
     const cnf = r.cnfScore ?? 0;
+    const grade = r.cnfGrade;
     const rs = r.rsRating || 0;
-    const stage = String(r.stage || '').replace(/^Stage\s*/i, '');
+    const stage = stripStage(String(r.stage || ''));
     const rvol = r.rvol || 0;
-    const chipClr = chg >= 0
-      ? { bg: '#0c2b21', border: '#1c5a45', text: '#6ee7b7' }
-      : { bg: '#3a121e', border: '#7f2337', text: '#fda4af' };
     const dot = r.dotKind === 'red' ? '<span style="color:#f43f5e;">&#9679;</span>'
       : r.dotKind === 'blue' ? '<span style="color:#3b82f6;">&#9679;</span>' : '';
     return `<tr>
       <td class="d" style="padding-left:0;white-space:nowrap;">
-        <span style="display:inline-block;background:${chipClr.bg};border:1px solid ${chipClr.border};border-radius:4px;padding:1px 7px;font-size:10px;font-weight:700;letter-spacing:0.06em;color:${chipClr.text};">${r.ticker}</span> ${dot}
+        ${tickerChip(r.ticker, grade)} ${dot}
       </td>
-      <td class="d" style="text-align:center;">${cnfPill(cnf, r.cnfGrade)}</td>
+      <td class="d" style="text-align:center;">${cnfPill(cnf, grade)}</td>
       <td class="d" style="text-align:right;font-weight:700;color:${chgClr(chg)};white-space:nowrap;">${fmtPct(chg)}</td>
+      <td class="d" style="text-align:right;color:#cbd5e1;">${fmtPrice(r.price)}</td>
       <td class="d" style="text-align:right;color:${rvol >= 2 ? '#34d399' : rvol >= 1 ? '#cbd5e1' : '#64748b'};font-weight:${rvol >= 2 ? '700' : '400'};">${rvol.toFixed(2)}</td>
       <td class="d" style="text-align:right;color:#94a3b8;">${fmtVolShort(r.vol || 0)}</td>
       <td class="d" style="text-align:right;color:#94a3b8;">${fmtVol(dVolOf(r))}</td>
-      <td class="d" style="text-align:center;font-size:10px;color:${/^[12]/.test(stage) ? '#34d399' : /^4/.test(stage) ? '#fb7185' : '#64748b'};">${stage}</td>
-      <td class="d" style="text-align:right;font-weight:700;color:${rs >= 80 ? '#34d399' : rs >= 50 ? '#cbd5e1' : rs > 0 ? '#fb7185' : '#475569'};">${rs || ''}</td>
+      <td class="d" style="text-align:center;">${rsPillHtml(rs || null)}</td>
+      <td class="d" style="text-align:center;">${stagePillHtml(stage)}</td>
       <td class="d" style="text-align:center;">${newsStarsHtml(r)}</td>
     </tr>`;
   }).join('');
 
   const borderClr = color === '#818cf8' ? '#6366f1' : '#f43f5e';
-  return `<div class="card" style="border-radius:0 6px 6px 0;padding:8px 10px;border-left:3px solid ${borderClr};background:#0a1220;">
-    <div style="font-size:9px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${borderClr};margin-bottom:4px;">${title}</div>
-    <div style="font-size:9px;color:#94a3b8;line-height:1.5;margin-bottom:6px;">${blurb}</div>
+  return `<div style="border-left:3px solid ${borderClr};padding:6px 12px;">
+    <div style="font-size:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${borderClr};margin-bottom:3px;">${title}</div>
+    <div style="font-size:8px;color:#94a3b8;line-height:1.5;margin-bottom:4px;">${blurb}</div>
     <table width="100%" style="border-collapse:collapse;">
       <tr>
         <th class="h" style="padding-left:0;text-align:left;">Ticker</th>
         <th class="h" style="text-align:center;">CNF</th>
         <th class="h" style="text-align:right;">Chg%</th>
+        <th class="h" style="text-align:right;">PRC</th>
         <th class="h" style="text-align:right;">RVol</th>
         <th class="h" style="text-align:right;">Vol</th>
         <th class="h" style="text-align:right;">$Vol</th>
-        <th class="h" style="text-align:center;">Stg</th>
         <th class="h" style="text-align:right;">RS</th>
+        <th class="h" style="text-align:center;">Stg</th>
         <th class="h" style="text-align:center;">N</th>
       </tr>${body}
     </table>
@@ -512,30 +587,28 @@ function twoColHtml(left: string, right: string): string {
   /* class="col" is the hook the stylesheet uses to stack these on a narrow
      viewport. Two ten-column tables cannot share 380px, and a mail client
      clips rather than scrolls — which is what cut the right-hand edge off. */
-  return `<table width="100%" style="border-collapse:separate;border-spacing:0;margin-bottom:10px;"><tr>
-    <td class="col" width="50%" style="padding-right:4px;vertical-align:top;">${left}</td>
-    <td class="col" width="50%" style="padding-left:4px;vertical-align:top;">${right}</td>
+  return `<table width="100%" style="border-collapse:separate;border-spacing:0;margin-bottom:10px;height:1px;"><tr>
+    <td class="col" width="50%" style="padding-right:4px;vertical-align:top;height:100%;">${left}</td>
+    <td class="col" width="50%" style="padding-left:4px;vertical-align:top;height:100%;">${right}</td>
   </tr></table>`;
 }
 
 function panel(title: string, color: string, bodyHtml: string): string {
   if (!bodyHtml) return '';
-  return `<div style="border-radius:0 6px 6px 0;background:#0a1220;overflow:hidden;height:100%;border-left:3px solid ${color};">
-    <div class="card" style="padding:8px 10px;">
-      <div style="font-size:9px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${color};margin-bottom:6px;">${title}</div>
+  return `<div style="overflow:hidden;height:100%;border-left:3px solid ${color};padding:6px 12px;">
+      <div style="font-size:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${color};margin-bottom:4px;">${title}</div>
       ${bodyHtml}
-    </div>
   </div>`;
 }
 
 function legendHtml(): string {
-  const dot = (c: string) => `<span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:${c};vertical-align:middle;margin-right:2px;"></span>`;
-  return `<div style="margin-bottom:14px;font-size:9px;color:#64748b;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;line-height:2.4;">
+  const dot = (c: string) => `<span style="display:inline-block;width:4px;height:4px;border-radius:50%;background:${c};vertical-align:middle;margin-right:2px;"></span>`;
+  return `<div style="margin-bottom:10px;font-size:7px;color:#64748b;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;line-height:2.2;">
     <span style="color:#34d399;">A</span> <span style="color:#fbbf24;">B</span> <span style="color:#64748b;">Grade</span>
     &nbsp;&nbsp;
-    <span style="display:inline-block;border:1px solid #ffffff14;background:#ffffff05;border-radius:3px;padding:1px 6px;color:#94a3b8;font-size:8px;">10/21 ${dot('#34d399')}Stacked ${dot('#fbbf24')}Pre-Cross ${dot('#fb7185')}Ext / Below</span>
+    <span style="display:inline-block;border:1px solid #ffffff14;background:#ffffff05;border-radius:3px;padding:1px 5px;color:#94a3b8;font-size:7px;">10/21 ${dot('#34d399')}Stacked ${dot('#fbbf24')}Pre-Cross ${dot('#fb7185')}Ext / Below</span>
     &nbsp;&nbsp;
-    <span style="display:inline-block;font-size:8px;font-weight:700;padding:1px 6px;border-radius:3px;background:#4c051918;color:#fecdd3;border:1px solid #fb718530;">Trap</span>
+    <span style="display:inline-block;font-size:7px;font-weight:700;padding:1px 5px;border-radius:3px;background:#4c051918;color:#fecdd3;border:1px solid #fb718530;">Trap</span>
     &nbsp;&nbsp;
     ${dot('#3b82f6')}<span style="color:#64748b;">Blue Dot</span>
     &nbsp;&nbsp;
@@ -611,7 +684,7 @@ function keyEventsHtml(econ: any[], earnings: any[]): string {
   }).join('');
 
   const econHtml = econList.length ? `
-    <div style="font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;margin-bottom:8px;">Economic${aheadCount ? ` — ${aheadCount} still ahead` : ''}</div>
+    <div style="font-size:7px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;margin-bottom:6px;">Economic${aheadCount ? ` — ${aheadCount} still ahead` : ''}</div>
     <table width="100%" style="border-collapse:collapse;margin-bottom:16px;">
       <tr>
         <th class="h" style="padding-left:0;"></th>
@@ -637,7 +710,7 @@ function keyEventsHtml(econ: any[], earnings: any[]): string {
       </tr>`;
     }).join('');
     const pending = list.filter((e: any) => e.epsActual == null).length;
-    return `<div style="font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;margin-bottom:8px;">${label}${pending ? ` — ${pending} pending` : ''}</div>
+    return `<div style="font-size:7px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;margin-bottom:6px;">${label}${pending ? ` — ${pending} pending` : ''}</div>
       <table width="100%" style="border-collapse:collapse;">
         <tr><th class="h" style="padding-left:0;"></th><th class="h" style="text-align:left;">Ticker</th><th class="h" style=""></th><th class="h" style="text-align:right;">EPS</th><th class="h" style=""></th><th class="h" style=""></th></tr>
         ${rows}
@@ -652,7 +725,7 @@ function keyEventsHtml(econ: any[], earnings: any[]): string {
     : '';
 
   return pageCard('Key Events', '#22d3ee',
-    `<div style="font-size:10px;color:#64748b;line-height:1.5;margin-bottom:16px;">Today&rsquo;s releases and large-cap prints. &#9656; marks what has not happened yet.</div>${econHtml}${earnHtml}`
+    `<div style="font-size:8px;color:#64748b;line-height:1.5;margin-bottom:12px;">Today&rsquo;s releases and large-cap prints. &#9656; marks what has not happened yet.</div>${econHtml}${earnHtml}`
   );
 }
 
@@ -700,7 +773,7 @@ function tomorrowHtml(brief: any, econ: any[], earnings: any[], knownTickers: Se
     </tr>`).join('');
 
   const econBlock = econList.length
-    ? `<div style="font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;margin-bottom:8px;">Economic Releases</div>
+    ? `<div style="font-size:7px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;margin-bottom:6px;">Economic Releases</div>
        <table width="100%" style="border-collapse:collapse;">
          <tr>
            <th class="h" style="padding-left:0;text-align:left;">Time</th>
@@ -719,7 +792,7 @@ function tomorrowHtml(brief: any, econ: any[], earnings: any[], knownTickers: Se
     </tr>`).join('');
 
   const earnBlock = earnList.length
-    ? `<div style="font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;margin-bottom:8px;">Large-Cap Prints</div>
+    ? `<div style="font-size:7px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;margin-bottom:6px;">Large-Cap Prints</div>
        <table width="100%" style="border-collapse:collapse;">
          <tr><th class="h" style="padding-left:0;text-align:left;">Ticker</th><th class="h" style=""></th><th class="h" style="text-align:right;">EPS</th><th class="h" style=""></th></tr>
          ${earnRows}
@@ -734,11 +807,62 @@ function tomorrowHtml(brief: any, econ: any[], earnings: any[], knownTickers: Se
     `<div style="font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;margin:16px 0 10px;">${t}</div>`;
 
   return pageCard('What to Look For Tomorrow', '#22d3ee',
-    `<div style="font-size:10px;color:#64748b;line-height:1.5;margin-bottom:16px;">The setups and scheduled events that carry into the next session. Levels are the analyst&rsquo;s; each directional call states what invalidates it.</div>` +
+    `<div style="font-size:8px;color:#64748b;line-height:1.5;margin-bottom:12px;">The setups and scheduled events that carry into the next session. Levels are the analyst&rsquo;s; each directional call states what invalidates it.</div>` +
     noteBlocksHtml(tomorrowArr, knownTickers) +
     (watchArr.length ? subLabel('Carried Watchlist') + noteBlocksHtml(watchArr, knownTickers) : '') +
     calendar
   );
+}
+
+/* Session Updates — the "tape readings" at the bottom of the brief page.
+   Each block carries a phase label, timestamp, narrative paragraphs, and a
+   highlighted takeaway. Direction is derived from index-move percentages in
+   the text, same as the page's deriveDirection. */
+const SESSION_THEME: Record<string, { dot: string; label: string; boxBg: string; boxBorder: string; boxText: string }> = {
+  emerald: { dot: '#34d399', label: '#34d399', boxBg: '#042f2e', boxBorder: '#34d399', boxText: '#d1fae5' },
+  rose:    { dot: '#fb7185', label: '#fb7185', boxBg: '#4c0519', boxBorder: '#fb7185', boxText: '#ffe4e6' },
+  cyan:    { dot: '#22d3ee', label: '#22d3ee', boxBg: '#083344', boxBorder: '#22d3ee', boxText: '#cffafe' },
+  amber:   { dot: '#fbbf24', label: '#fbbf24', boxBg: '#422006', boxBorder: '#fbbf24', boxText: '#fef3c7' },
+  indigo:  { dot: '#818cf8', label: '#818cf8', boxBg: '#1e1b4b', boxBorder: '#818cf8', boxText: '#e0e7ff' },
+};
+function deriveDir(paragraphs: string[]): 'up' | 'down' | null {
+  const text = paragraphs.join(' ');
+  const rx = /\b(?:S&P|Nasdaq|Dow|Russell|SPX|NDX)\b[^.]{0,40}?([+-]\d+(?:\.\d+)?)%/gi;
+  const moves: number[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = rx.exec(text)) !== null) { const v = parseFloat(m[1]); if (!isNaN(v)) moves.push(v); }
+  if (!moves.length) return null;
+  const avg = moves.reduce((a, b) => a + b, 0) / moves.length;
+  return Math.abs(avg) < 0.25 ? null : avg > 0 ? 'up' : 'down';
+}
+function sessionUpdatesHtml(brief: any, known: Set<string>): string {
+  const su = brief?.sessionUpdates;
+  if (!su) return '';
+  const blocks: { key: string; block: any }[] = [];
+  for (const key of ['morning', 'midday', 'closing']) {
+    if (su[key]) blocks.push({ key, block: su[key] });
+  }
+  if (!blocks.length) return '';
+  const rendered = blocks.map(({ block }) => {
+    const dir = deriveDir(block.paragraphs || []);
+    const themeKey = dir === 'up' ? 'emerald' : dir === 'down' ? 'rose' : (block.colorTheme || 'indigo');
+    const st = SESSION_THEME[themeKey] || SESSION_THEME.indigo;
+    const paras = (block.paragraphs || []).map((p: string) =>
+      `<div style="font-size:9px;color:#94a3b8;line-height:1.6;border-left:2px solid #334155;padding-left:8px;margin-bottom:6px;">${richHtml(p, known)}</div>`
+    ).join('');
+    return `<div style="border-left:3px solid ${st.dot};padding:6px 12px;margin-top:8px;">
+      <div style="margin-bottom:10px;">
+        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${st.dot};vertical-align:middle;margin-right:8px;"></span>
+        <span style="font-size:8px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:${st.label};vertical-align:middle;">${block.phase || ''}</span>
+        <span style="font-size:8px;color:#64748b;font-weight:500;letter-spacing:0.08em;padding:2px 8px;border:1px solid #ffffff0d;border-radius:3px;margin-left:8px;vertical-align:middle;">${block.timestamp || ''}</span>
+      </div>
+      ${paras}
+      <div style="border-left:4px solid ${st.boxBorder};padding:10px 12px;">
+        <div style="font-size:9px;line-height:1.6;color:${st.boxText};">${richHtml(block.takeaway || '', known)}</div>
+      </div>
+    </div>`;
+  }).join('');
+  return pageCard('Session Updates', '#818cf8', rendered);
 }
 
 /* GMAIL CLIPS A MESSAGE OVER ~102KB, hiding everything past the cut behind a
@@ -786,7 +910,7 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
       sub: mm.ratio5 != null
         ? `${mmRatioLabel(mm)}&times;${partial ? ` &middot; ${mm.days}/5d` : ' 5d'}`
         : partial ? `${mm.days}/5d` : '',
-      color: mmCellTone(mm.ratio5),
+      color: mmTodayTone(mm.up4, mm.down4),
     });
   }
   if (bData) {
@@ -816,7 +940,7 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
       label: 'VIX',
       value: Number(vixQ.price).toFixed(2),
       sub: `${sign}${Number(vixQ.pct ?? 0).toFixed(2)}%`,
-      color: vixCellTone(Number(vixQ.price)),
+      color: vixPctTone(Number(vixQ.pct ?? 0)),
     });
   }
   if (chopVal != null) {
@@ -845,11 +969,23 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
   const topTrades = sections.find((s: any) => s.section === 'Top Trades')?.stocks || [];
   const topAvoid = sections.find((s: any) => s.section === 'Top Avoid')?.stocks || [];
 
+  const proseTickers: string[] = [];
+  for (const arr of [summary.conviction, summary.watchlist, summary.traps, summary.tomorrow]) {
+    if (!Array.isArray(arr)) continue;
+    for (const s of arr) {
+      const bold = String(s || '').match(/\*\*([A-Z]{2,5})\*\*/);
+      if (bold) proseTickers.push(bold[1]);
+      const lead = String(s || '').match(/^([A-Z]{2,5})(?:\s|'s)/);
+      if (lead) proseTickers.push(lead[1]);
+    }
+  }
+
+  const allSectionStocks = sections.flatMap((s: any) => (s.stocks || []).map((st: any) => st.ticker));
   const knownTickers = new Set<string>([
-    ...topTrades.map((s: any) => s.ticker),
-    ...topAvoid.map((s: any) => s.ticker),
+    ...allSectionStocks,
     ...flowPool.map((s: any) => s.ticker),
     ...Object.keys(quotes),
+    ...proseTickers,
   ].filter(Boolean));
 
   const sectionByName = (rx: RegExp) => sections.find((s: any) => rx.test(s.section));
@@ -868,7 +1004,7 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
   const newsHtml = newsSec?.analysis
     ? pageCard('Key News &amp; Catalysts', '#22d3ee', formattedBlockHtml(newsSec.analysis, knownTickers))
     : briefMissing
-    ? pageCard('Key News &amp; Catalysts', '#22d3ee', '<div style="color:#f59e0b;font-size:12px;">Analyst brief unavailable when this email was built — news and sector sections are missing, not empty.</div>')
+    ? pageCard('Key News &amp; Catalysts', '#22d3ee', '<div style="color:#f59e0b;font-size:8px;">Analyst brief unavailable when this email was built — news and sector sections are missing, not empty.</div>')
     : '';
 
   /* ---- Market Regime — regime + Risk + Structure in ONE card ------------
@@ -919,7 +1055,7 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
           ? twoColHtml(pageStockTable(sipStocks.slice(0, sipMid)), pageStockTable(sipStocks.slice(sipMid)))
           : '') +
         (sipSec?.analysis
-          ? `<div style="font-size:12px;color:#cbd5e1;line-height:1.75;margin-top:12px;">${richHtml(sipSec.analysis, knownTickers)}</div>`
+          ? `<div style="font-size:9px;color:#cbd5e1;line-height:1.6;margin-top:10px;">${richHtml(sipSec.analysis, knownTickers)}</div>`
           : ''))
     : '';
 
@@ -951,20 +1087,20 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
   const trapMid = Math.ceil(traps.length / 2);
   const trapsBlock = (traps.length || trapsArr.length)
     ? panel('Traps to Avoid', '#f43f5e',
-        proseList(trapsArr, '#fb7185') +
         (traps.length
           ? twoColHtml(
               pageStockTable(traps.slice(0, trapMid), { red: true }),
               pageStockTable(traps.slice(trapMid), { red: true }),
             )
-          : ''))
+          : '') +
+        proseList(trapsArr, '#cbd5e1'))
     : '';
 
   const summaryHtml = (conviction.length || watchlistTrades.length || convictionArr.length || watchlistArr.length || trapsBlock)
     ? pageCard('Actionable Summary', '#22d3ee',
         twoColHtml(
-          panel('Highest Conviction', '#818cf8', proseList(convictionArr, '#cbd5e1') + pageStockTable(conviction)),
-          panel('Watchlist &mdash; Not Yet Actionable', '#d97706', proseList(watchlistArr, '#cbd5e1') + pageStockTable(watchlistTrades)),
+          panel('Highest Conviction', '#818cf8', pageStockTable(conviction) + proseList(convictionArr, '#cbd5e1')),
+          panel('Watchlist &mdash; Not Yet Actionable', '#d97706', pageStockTable(watchlistTrades) + proseList(watchlistArr, '#cbd5e1')),
         ) + trapsBlock)
     : '';
 
@@ -995,11 +1131,13 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
   /* Repeated cell/chip styling, hoisted out of the markup to keep the message
      under Gmail's clip threshold — see minify(). Colour and alignment stay
      inline so they survive a client that strips this block. */
-  .d { padding: 3px 2px; font-size: 10px; }
-  .h { padding: 3px 2px; font-size: 8px; color: #475569; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; border-bottom: 1px solid #ffffff10; }
-  .tk { display: inline-block; background: #1b2434; border: 1px solid #2a3446; border-radius: 4px; padding: 1px 6px; font-size: 9px; font-weight: 700; letter-spacing: .06em; color: #cbd5e1; }
+  .d { padding: 2px 2px; font-size: 8px; }
+  .h { padding: 2px 2px; font-size: 6px; color: #475569; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; border-bottom: 1px solid #ffffff10; }
+  .tk { display: inline-block; background: #1b2434; border: 1px solid #2a3446; border-radius: 3px; padding: 0px 3px; font-size: 6px; font-weight: 700; letter-spacing: .06em; color: #cbd5e1; }
+  .tk.a { background: #042f2e; border-color: #115e59; color: #6ee7b7; }
+  .tk.b { background: #422006; border-color: #854d0e; color: #fde68a; }
   .tk.r { background: #4c0519; border-color: #7f1d3a; color: #fecdd3; }
-  .p { display: inline-block; border-radius: 3px; padding: 1px 5px; font-size: 9px; font-weight: 700; }
+  .p { display: inline-block; border-radius: 3px; padding: 1px 4px; font-size: 8px; font-weight: 700; }
   /* 860, not 760: two ten-column tables need ~330px each plus card padding,
      so anything under about 860 has to stack rather than squeeze. */
   @media only screen and (max-width: 860px) {
@@ -1010,24 +1148,29 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
   }
 </style>
 </head>
-<body style="margin:0;padding:0;background:#05080f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-  <div class="shell" style="max-width:900px;margin:0 auto;padding:16px 8px;background:#0b101a;">
+<body style="margin:0;padding:0;background:#020408;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#020408;"><tr><td align="center" style="padding:0;">
+  <div class="shell" style="max-width:900px;margin:0 auto;background:#05080f;border-left:1px solid #0f1729;border-right:1px solid #0f1729;text-align:left;">
+    <table width="100%" cellpadding="0" cellspacing="0"><tr>
+      <td style="height:3px;background:#6366f1;"></td>
+    </tr></table>
+    <div style="padding:20px 16px;">
 
-    <div style="padding:12px 0 14px;border-bottom:1px solid #ffffff0d;margin-bottom:14px;">
+    <div style="padding:10px 0 12px;border-bottom:1px solid #ffffff0d;margin-bottom:14px;">
       <table width="100%" style="border-collapse:collapse;"><tr>
         <td style="padding:0;vertical-align:middle;">
-          <img src="https://ctt-dashboard.vercel.app/logo.svg" alt="CTT" style="height:28px;width:auto;vertical-align:middle;" />
-          <span style="font-size:15px;font-weight:800;color:#f1f5f9;vertical-align:middle;margin-left:8px;">Confluence Trading Tools</span>
-          <div style="font-size:9px;font-weight:600;color:#64748b;letter-spacing:0.22em;text-transform:uppercase;margin-top:4px;margin-left:36px;">Market Briefing</div>
+          <img src="https://ctt-dashboard.vercel.app/logo.svg" alt="CTT" style="height:24px;width:auto;vertical-align:middle;" />
+          <span style="font-size:11px;font-weight:800;color:#f1f5f9;vertical-align:middle;margin-left:8px;">Confluence Trading Tools</span>
+          <div style="font-size:8px;font-weight:600;color:#64748b;letter-spacing:0.22em;text-transform:uppercase;margin-top:3px;margin-left:32px;">Market Briefing</div>
         </td>
       </tr></table>
-      <div style="font-size:10px;color:#64748b;margin-top:8px;">${phaseLabel} &middot; ${now} ET${updatedTime ? ` &middot; Updated ${updatedTime} ET` : ''}</div>
+      <div style="font-size:8px;color:#64748b;margin-top:6px;">${phaseLabel} &middot; ${now} ET${updatedTime ? ` &middot; Updated ${updatedTime} ET` : ''}</div>
     </div>
 
-    <div style="margin-bottom:14px;border-radius:12px;border:1px solid #ffffff10;padding:12px;overflow:hidden;">
-      <div style="margin-bottom:10px;border-bottom:1px solid #ffffff0d;padding-bottom:8px;">
-        <span style="display:inline-block;font-size:8px;font-weight:700;color:#7c8bfa;background:#161c2a66;border:1px solid #ffffff0d;padding:2px 8px;border-radius:4px;letter-spacing:0.14em;text-transform:uppercase;">
-          <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#7c8bfa;margin-right:6px;vertical-align:middle;"></span>Macro Scorecard
+    <div style="margin-bottom:12px;border-radius:14px;border:1px solid #ffffff0f;padding:14px 16px;">
+      <div style="margin-bottom:10px;border-bottom:1px solid #ffffff08;padding-bottom:8px;">
+        <span style="display:inline-block;font-size:8px;font-weight:700;color:#7c8bfa;background:#161c2a;border:1px solid #ffffff0d;padding:3px 8px;border-radius:4px;letter-spacing:0.14em;text-transform:uppercase;">
+          <span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#7c8bfa;margin-right:6px;vertical-align:middle;"></span>Macro Scorecard
         </span>
       </div>
       ${scorecardHtml}
@@ -1044,13 +1187,16 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
     ${summaryHtml}
     ${eventsHtml}
     ${tomorrowSecHtml}
+    ${sessionUpdatesHtml(brief, knownTickers)}
 
     <div style="padding-top:14px;margin-top:18px;">
-      <div style="font-size:10px;color:#475569;text-align:center;">
+      <div style="font-size:8px;color:#475569;text-align:center;">
         Confluence Trading Tools &copy; ${new Date().getFullYear()} &bull; Not investment advice.
       </div>
     </div>
+    </div>
   </div>
+  </td></tr></table>
 </body>
 </html>`);
 }
@@ -1074,8 +1220,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'RESEND_API_KEY not configured' }, { status: 500 });
   }
 
-  const recipientEmail = process.env.BRIEFING_EMAIL || process.env.Email || 'thomasbeach@gmail.com';
   const origin = resolveOrigin(req);
+
+  const userRecipients = await getEmailRecipients('briefing', phase as any);
+  const fallback = process.env.BRIEFING_EMAIL || process.env.Email || 'thomasbeach@gmail.com';
+  const recipients = userRecipients.length > 0 ? userRecipients : [fallback];
 
   const [macro, chopData, t2108Data, brief, snapshotRes, chopSetting, econRes, earningsRes] = await Promise.all([
     fetchJson(`${origin}/api/macro`),
@@ -1110,20 +1259,71 @@ export async function GET(req: Request) {
   }
 
   const resend = new Resend(apiKey);
+  const subject = `CTT ${phaseLabel} Briefing — ${new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })}`;
 
   try {
-    const { data, error } = await resend.emails.send({
-      from: 'CTT Briefing <onboarding@resend.dev>',
-      to: recipientEmail,
-      subject: `CTT ${phaseLabel} Briefing — ${new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })}`,
-      html,
+    const results = await Promise.allSettled(
+      recipients.map((to) =>
+        resend.emails.send({
+          from: 'CTT <noreply@confluencetradingtools.com>',
+          to,
+          subject,
+          html,
+        }),
+      ),
+    );
+
+    const sent = results.filter((r) => r.status === 'fulfilled').length;
+    const failed = results.filter((r) => r.status === 'rejected').length;
+
+    try {
+      await fetch(`${origin}/api/email/substack?publish=1&phase=${phase}`, {
+        headers: cronSecret ? { Authorization: `Bearer ${cronSecret}` } : {},
+      });
+    } catch { /* Substack publish is best-effort */ }
+
+    let bskyResult: any = null;
+    let xResult: any = null;
+    try {
+      const su = brief?.sessionUpdates || {};
+      const block = su[phase] || su.morning || su.midday || su.closing;
+      const takeaway = block?.takeaway || '';
+      const regime = brief?.regimeDetail?.regime || '';
+
+      const blurb = (takeaway || regime).replace(/\*\*([^*]+)\*\*/g, '$1').trim();
+      if (blurb) {
+        const dashUrl = 'confluencetradingtools.com';
+        const header = `CTT ${PHASE_LABELS[phase]} Brief`;
+
+        const bskyMax = 300 - `${header}\n\n\n\n${dashUrl}`.length;
+        const bskyBlurb = blurb.length > bskyMax
+          ? blurb.slice(0, blurb.lastIndexOf(' ', bskyMax)).replace(/[,;:.\s]+$/, '') + '...'
+          : blurb;
+        const bskyText = `${header}\n\n${bskyBlurb}\n\n${dashUrl}`;
+        const linkStart = bskyText.indexOf(dashUrl);
+
+        const xMax = 280 - `${header}\n\n\n\nhttps://${dashUrl}`.length;
+        const xBlurb = blurb.length > xMax
+          ? blurb.slice(0, blurb.lastIndexOf(' ', xMax)).replace(/[,;:.\s]+$/, '') + '...'
+          : blurb;
+        const xText = `${header}\n\n${xBlurb}\n\nhttps://${dashUrl}`;
+
+        [bskyResult, xResult] = await Promise.allSettled([
+          postToBluesky(bskyText, [{
+            start: linkStart,
+            end: linkStart + dashUrl.length,
+            url: `https://${dashUrl}`,
+          }]),
+          postToX(xText),
+        ]).then(rs => rs.map(r => r.status === 'fulfilled' ? r.value : null));
+      }
+    } catch { /* Social posts are best-effort */ }
+
+    return NextResponse.json({
+      success: true, phase, sent, failed, recipients: recipients.length,
+      bluesky: bskyResult ? 'posted' : 'skipped',
+      x: xResult ? 'posted' : 'skipped',
     });
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    return NextResponse.json({ success: true, emailId: data?.id, phase, to: recipientEmail });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Send failed' }, { status: 500 });
   }

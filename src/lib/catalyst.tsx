@@ -109,6 +109,19 @@ export const catalystTooltip = (
   return lines.join('\n');
 };
 
+export function NewsStars({ row }: { row: CatalystRow }) {
+  const stars = newsStarCount(row);
+  if (stars === 0) return null;
+  return (
+    <span
+      className={`text-[9px] font-bold leading-none ${stars >= 2 ? 'text-amber-400' : 'text-amber-400/50'}`}
+      title={catalystTooltip(row)}
+    >
+      {stars >= 2 ? '★★' : '★'}
+    </span>
+  );
+}
+
 /* Replaces both the N star column and the catalyst text column. Renders null
    when there is no real catalyst, so a table full of technical-only names
    costs no width at all — which was the point of removing the column. */

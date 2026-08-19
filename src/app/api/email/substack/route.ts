@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 function resolveOrigin(req: Request): string {
   try {
@@ -32,8 +32,8 @@ function text(t: string, marks?: any[]): any {
   return node;
 }
 function bold(t: string): any { return text(t, [{ type: 'bold' }]); }
-
 function italic(t: string): any { return text(t, [{ type: 'italic' }]); }
+function link(t: string, href: string): any { return text(t, [{ type: 'link', attrs: { href } }]); }
 
 function parseInline(raw: string): any[] {
   const nodes: any[] = [];
@@ -77,10 +77,29 @@ function analysisToNodes(raw: string): any[] {
   return String(raw).split(/\n\n+/).filter(Boolean).map(p => paraText(p));
 }
 
-function trimAnalysis(raw: string, maxSentences = 3): string {
+function trimAnalysis(raw: string, maxSentences = 2, maxChars = 280): string {
   if (!raw) return '';
   const sentences = String(raw).split(/(?<=[.!])\s+/).filter(Boolean);
-  return sentences.slice(0, maxSentences).join(' ');
+  let result = '';
+  for (let i = 0; i < Math.min(sentences.length, maxSentences); i++) {
+    const next = result ? result + ' ' + sentences[i] : sentences[i];
+    if (next.length > maxChars) break;
+    result = next;
+  }
+  if (!result && sentences[0]) {
+    result = sentences[0].length > maxChars
+      ? sentences[0].slice(0, maxChars - 3) + '...'
+      : sentences[0];
+  }
+  return result;
+}
+
+function extractBullets(raw: string, maxBullets = 3, maxLen = 140): string[] {
+  if (!raw) return [];
+  const sentences = String(raw).split(/(?<=[.!])\s+/).filter(Boolean);
+  return sentences.slice(0, maxBullets).map(s =>
+    s.length > maxLen ? s.slice(0, maxLen - 3) + '...' : s
+  );
 }
 
 function stockTableMarkdown(stocks: any[], cols: { key: string; label: string; fmt?: (v: any) => string }[]): any[] {
@@ -98,7 +117,7 @@ function stockTableMarkdown(stocks: any[], cols: { key: string; label: string; f
   ];
 }
 
-function captionedImage(src: string): any {
+function captionedImage(src: string, size = 'normal'): any {
   return {
     type: 'captionedImage',
     content: [{
@@ -106,7 +125,7 @@ function captionedImage(src: string): any {
       attrs: {
         src,
         fullscreen: false,
-        imageSize: 'small',
+        imageSize: size,
         alt: 'CTT Market Brief',
       },
     }],
@@ -134,94 +153,119 @@ async function uploadImageToSubstack(
   return data.url || null;
 }
 
+async function uploadImageBytesToSubstack(
+  pubUrl: string,
+  session: string,
+  imageBuffer: ArrayBuffer,
+  filename = 'screenshot.png',
+): Promise<string | null> {
+  const boundary = '----SubstackUpload' + Date.now();
+  const header = `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="${filename}"\r\nContent-Type: image/png\r\n\r\n`;
+  const footer = `\r\n--${boundary}--\r\n`;
+
+  const headerBytes = new TextEncoder().encode(header);
+  const footerBytes = new TextEncoder().encode(footer);
+  const body = new Uint8Array(headerBytes.length + imageBuffer.byteLength + footerBytes.length);
+  body.set(headerBytes, 0);
+  body.set(new Uint8Array(imageBuffer), headerBytes.length);
+  body.set(footerBytes, headerBytes.length + imageBuffer.byteLength);
+
+  const res = await fetch(`${pubUrl}/api/v1/image`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      Cookie: `substack.sid=${session}`,
+    },
+    body,
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`upload-bytes ${res.status}: ${errText.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  return data.url || null;
+}
+
 /* ── Build ProseMirror doc from brief ── */
 
-function formatForSubstack(brief: any): any {
+function formatForSubstack(brief: any, dashScreenshotUrl?: string, phase?: string): any {
   const sections: any[] = brief?.sections || [];
   const summary = brief?.summary || {};
   const rd = brief?.regimeDetail || {};
+  const sessionUpdates = brief?.sessionUpdates || {};
   const sectionByName = (rx: RegExp) => sections.find((s: any) => rx.test(s.section));
 
   const nodes: any[] = [];
 
-  /* ── Regime: the lead — 2 sentences max ── */
+  /* ── Dashboard screenshot with link to site ── */
+  if (dashScreenshotUrl) {
+    nodes.push(captionedImage(dashScreenshotUrl, 'normal'));
+    nodes.push(para([link('View Full Dashboard →', 'https://app.confluencetradingtools.com')]));
+  }
+
+  /* ── Regime: the lead ── */
   if (rd.regime) {
-    nodes.push(paraText(trimAnalysis(rd.regime, 2)));
-    if (rd.posture) nodes.push(blockquote([paraText(trimAnalysis(rd.posture, 2))]));
+    nodes.push(blockquote([paraText(trimAnalysis(rd.regime, 1, 200))]));
+    if (rd.posture) {
+      const bullets = extractBullets(rd.posture);
+      if (bullets.length) nodes.push(bulletList(bullets));
+    }
     nodes.push(hr());
   }
 
-  /* ── Macro — 3 sentences ── */
+  /* ── Macro ── */
   const macroSec = sectionByName(/Futures.*Macro|Macro.*Snapshot/i);
   if (macroSec?.analysis) {
     nodes.push(heading(2, 'Macro'));
-    nodes.push(paraText(trimAnalysis(macroSec.analysis, 3)));
+    const bullets = extractBullets(macroSec.analysis);
+    if (bullets.length) nodes.push(bulletList(bullets));
+    else nodes.push(paraText(trimAnalysis(macroSec.analysis, 1, 200)));
     nodes.push(hr());
   }
 
-  /* ── News — 3 sentences ── */
+  /* ── News ── */
   const newsSec = sectionByName(/Key News/i);
   if (newsSec?.analysis) {
     nodes.push(heading(2, 'News & Catalysts'));
-    nodes.push(paraText(trimAnalysis(newsSec.analysis, 3)));
+    const bullets = extractBullets(newsSec.analysis);
+    if (bullets.length) nodes.push(bulletList(bullets));
+    else nodes.push(paraText(trimAnalysis(newsSec.analysis, 1, 200)));
     nodes.push(hr());
   }
 
-  /* ── Breadth — 2 sentences ── */
+  /* ── Breadth ── */
   const sentimentSec = sectionByName(/Sentiment.*Breadth/i);
   if (sentimentSec?.analysis) {
     nodes.push(heading(2, 'Breadth'));
-    nodes.push(paraText(trimAnalysis(sentimentSec.analysis, 2)));
+    const bullets = extractBullets(sentimentSec.analysis);
+    if (bullets.length) nodes.push(bulletList(bullets));
+    else nodes.push(paraText(trimAnalysis(sentimentSec.analysis, 1, 200)));
     nodes.push(hr());
   }
 
-  /* ── Sectors — image + 2 sentences ── */
+  /* ── Sectors ── */
   const sectorSec = sectionByName(/Sectors.*Money Flow/i);
   if (sectorSec?.analysis) {
     nodes.push(heading(2, 'Sectors'));
-    nodes.push(paraText(trimAnalysis(sectorSec.analysis, 2)));
+    const bullets = extractBullets(sectorSec.analysis);
+    if (bullets.length) nodes.push(bulletList(bullets));
+    else nodes.push(paraText(trimAnalysis(sectorSec.analysis, 1, 200)));
     nodes.push(hr());
   }
 
-  /* ── Calendar — 2 sentences each, combined ── */
+  /* ── Calendar ── */
   const econSec = sectionByName(/Economic Calendar/i);
   const earnSec = sectionByName(/^Earnings$/i);
   if (econSec?.analysis || earnSec?.analysis) {
     nodes.push(heading(2, 'Calendar'));
-    if (econSec?.analysis) nodes.push(paraText(trimAnalysis(econSec.analysis, 2)));
-    if (earnSec?.analysis) nodes.push(paraText(trimAnalysis(earnSec.analysis, 2)));
+    const calBullets: string[] = [];
+    if (econSec?.analysis) calBullets.push(trimAnalysis(econSec.analysis, 1, 140));
+    if (earnSec?.analysis) calBullets.push(trimAnalysis(earnSec.analysis, 1, 140));
+    if (calBullets.length) nodes.push(bulletList(calBullets));
     nodes.push(hr());
   }
 
-  /* ── Top Trades — image then text ── */
-  const tradesSec = sectionByName(/Top Trades/i);
-  const trades: any[] = tradesSec?.stocks || [];
-  if (trades.length) {
-    nodes.push(heading(2, 'VCP Trade Ideas'));
-    trades.forEach((s: any, i: number) => {
-      const label = i < 2 ? 'CONVICTION' : 'WATCH';
-      const thesis = s.thesis ? trimAnalysis(s.thesis, 1) : '';
-      const line = [
-        `**${s.ticker}** ${fmtPct(s.changePct ?? 0)}`,
-        label,
-        s.stage ? `Stage ${s.stage}` : null,
-        s.rs != null ? `RS ${s.rs}` : null,
-        s.setup || null,
-      ].filter(Boolean).join(' · ');
-      nodes.push(paraText(line));
-      if (thesis) nodes.push(paraText(thesis));
-      const levels = [
-        s.trigger != null ? `Entry ${s.trigger}` : null,
-        s.stop != null ? `Stop ${s.stop}` : null,
-        s.target != null ? `Target ${s.target}` : null,
-        s.rMultiple != null ? `${s.rMultiple}R` : null,
-      ].filter(Boolean).join(' | ');
-      if (levels) nodes.push(paraText(levels));
-    });
-    nodes.push(hr());
-  }
-
-  /* ── Names to Avoid — image then text ── */
+  /* ── Names to Avoid ── */
   const avoidSec = sectionByName(/Top Avoid/i);
   const avoids: any[] = avoidSec?.stocks || [];
   if (avoids.length) {
@@ -247,6 +291,21 @@ function formatForSubstack(brief: any): any {
   if (trapsArr.length) {
     nodes.push(heading(3, 'Traps'));
     nodes.push(bulletList(trapsArr));
+  }
+
+  /* ── Tape Reading ── */
+  const PHASE_ORDER = ['closing', 'midday', 'morning', 'pre'];
+  const phaseKey = phase && sessionUpdates[phase] ? phase : PHASE_ORDER.find(p => sessionUpdates[p]);
+  const tape = phaseKey ? sessionUpdates[phaseKey] : null;
+  if (tape) {
+    nodes.push(hr());
+    const tapeTitle = tape.phase || 'Tape Reading';
+    const tapeTime = tape.timestamp ? ` — ${tape.timestamp}` : '';
+    nodes.push(heading(2, `${tapeTitle}${tapeTime}`));
+    const paragraphs: string[] = tape.paragraphs || [];
+    for (const p of paragraphs) {
+      nodes.push(paraText(p));
+    }
   }
 
   /* ── Footer ── */
@@ -306,15 +365,22 @@ function formatPreviewHtml(brief: any): string {
   return parts.join('\n');
 }
 
-function buildTitle(brief: any): string {
+const PHASE_LABELS: Record<string, string> = {
+  pre: 'Pre-Market',
+  morning: 'Morning',
+  midday: 'Midday',
+  closing: 'Closing',
+};
+
+function buildTitle(brief: any, phase?: string): string {
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-US', {
     timeZone: 'America/New_York',
     month: 'short',
     day: 'numeric',
-    year: 'numeric',
   });
-  return `CTT Market Brief — ${dateStr}`;
+  const label = phase ? PHASE_LABELS[phase] || 'Market' : 'Market';
+  return `CTT AI Analyst ${label} Briefing — ${dateStr}`;
 }
 
 function buildSubtitle(brief: any): string {
@@ -343,13 +409,13 @@ async function substackGetUserId(pubUrl: string, session: string): Promise<{ id:
   return { id: null, debug: 'all endpoints failed' };
 }
 
-async function substackCreateDraft(pubUrl: string, session: string, title: string, subtitle: string, bodyJson: any): Promise<{ id?: number; error?: string }> {
+async function substackCreateDraft(pubUrl: string, session: string, title: string, subtitle: string, bodyJson: any, coverImageUrl?: string): Promise<{ id?: number; error?: string }> {
   const userResult = await substackGetUserId(pubUrl, session);
   if (!userResult.id) {
     return { error: `Could not fetch Substack user ID — ${userResult.debug || 'unknown error'}. Cookie length: ${session.length}` };
   }
 
-  const payload = {
+  const payload: any = {
     type: 'newsletter',
     draft_title: title,
     draft_subtitle: subtitle,
@@ -357,6 +423,10 @@ async function substackCreateDraft(pubUrl: string, session: string, title: strin
     draft_bylines: [{ id: userResult.id }],
     audience: 'everyone',
   };
+  if (coverImageUrl) {
+    payload.cover_image = coverImageUrl;
+    payload.social_image = coverImageUrl;
+  }
 
   const res = await fetch(`${pubUrl}/api/v1/drafts`, {
     method: 'POST',
@@ -409,6 +479,51 @@ export async function GET(req: Request) {
   }
 
   const origin = resolveOrigin(req);
+  const custom = url.searchParams.get('custom');
+
+  if (custom === 'intro') {
+    const pubUrl = process.env.SUBSTACK_PUB_URL;
+    const session = process.env.SUBSTACK_SESSION;
+    if (!pubUrl || !session) return NextResponse.json({ error: 'Missing env' }, { status: 500 });
+
+    let coverCdn: string | undefined;
+    try {
+      const logoUrl = `${origin}/api/og/brief?section=cover&phase=pre`;
+      coverCdn = await uploadImageToSubstack(pubUrl, session, logoUrl) || undefined;
+    } catch {}
+
+    const introBody = { type: 'doc', content: [
+      para([bold('Confluence Trading Tools'), text(' is a professional market intelligence platform built for serious traders who want institutional-grade analysis without the institutional price tag.')]),
+      para([text('I built CTT because I was tired of juggling 15 tabs every morning — one for breadth, one for internals, one for sector rotation, one for economic data, another for earnings, and so on. Every piece of the puzzle lived somewhere different, and by the time I stitched it together, the opening bell had already rung.')]),
+      heading(2, 'What CTT Does'),
+      bulletList([
+        '**Macro Scorecard** — A single-glance view of market tone, breadth, advance/decline, highs/lows, T2108, VIX, and CHOP. Color-coded so you know the regime in seconds.',
+        '**Market Internals** — Real-time advance/decline bars, ATHI/ATLO spreads, and the CHOP trend indicator that tells you whether the tape is trending or chopping.',
+        '**AI Analyst Briefings** — Four times a day (pre-market, morning, midday, closing), an AI analyst synthesizes all the data into a concise briefing with regime assessment, sector flows, and key catalysts.',
+        '**Custom TradingView Indicators** — Purpose-built Pine Script indicators for confluence signals, including CHOP Zone, Session Profiler, and more.',
+        '**Live Quote Grid** — SPY, QQQ, DIA, IWM, VIX, TLT, GLD, SLV, USO, BTC, ETH, and T2108 — all in one view with change percentages.',
+      ]),
+      heading(2, 'Why Substack?'),
+      para([text('This Substack delivers the AI Analyst briefings directly to your inbox — the same analysis that powers the dashboard, formatted for quick reading. Each post includes a live scorecard snapshot so you can see the tape at a glance.')]),
+      heading(2, 'Looking for Founding Members'),
+      para([text("CTT is in early access and I'm looking for founding members to test the platform and help shape the roadmap. If you're a trader who wants to influence what gets built next — the indicators, the dashboard features, the analysis — this is your chance to get in on the ground floor.")]),
+      para([link('Visit the Dashboard →', 'https://app.confluencetradingtools.com')]),
+      para([link('Join the Founders List →', 'https://confluencetradingtools.com')]),
+      hr(),
+      paraText('*Confluence Trading Tools. Analysis only. Not financial advice.*'),
+    ]};
+
+    const draft = await substackCreateDraft(pubUrl, session, 'Introducing Confluence Trading Tools', 'Professional market intelligence for serious traders — and why I built it.', introBody, coverCdn);
+    if (draft.error) return NextResponse.json({ error: draft.error }, { status: 502 });
+
+    if (publish && draft.id) {
+      const pub = await substackPublish(pubUrl, session, draft.id, send);
+      if (pub.error) return NextResponse.json({ draftId: draft.id, error: pub.error }, { status: 502 });
+      return NextResponse.json({ success: true, draftId: draft.id, published: true, sent: send });
+    }
+    return NextResponse.json({ success: true, draftId: draft.id, published: false });
+  }
+
   const brief = await fetchJson(`${origin}/api/analyst/brief`);
   if (!brief || brief.pending || brief.error) {
     return NextResponse.json(
@@ -417,12 +532,12 @@ export async function GET(req: Request) {
     );
   }
 
-  const title = buildTitle(brief);
+  const phase = url.searchParams.get('phase') || undefined;
+  const title = buildTitle(brief, phase);
   const subtitle = buildSubtitle(brief);
 
   if (preview) {
     const body = formatPreviewHtml(brief);
-    const imgTag = `<div style="margin:24px 0;text-align:center"><img src="${origin}/api/og/brief" alt="CTT Market Brief" style="max-width:100%;border-radius:8px;border:1px solid #334155" /></div>`;
     const previewHtml = `
       <html><head><meta charset="utf-8"><title>${title}</title>
       <style>body{max-width:680px;margin:40px auto;padding:0 20px;font-family:Georgia,serif;color:#e2e8f0;background:#0f172a;line-height:1.7}
@@ -432,7 +547,7 @@ export async function GET(req: Request) {
       th{background:#1e293b;font-weight:600;color:#94a3b8}blockquote{border-left:3px solid #334155;margin:16px 0;padding:8px 16px;color:#94a3b8}
       hr{border:none;border-top:1px solid #1e293b;margin:32px 0}a{color:#38bdf8}
       strong{color:#f1f5f9}em{color:#94a3b8}</style></head>
-      <body><h1>${title}</h1><p><em>${subtitle}</em></p>${imgTag}${body}</body></html>`;
+      <body><h1>${title}</h1><p><em>${subtitle}</em></p>${body}</body></html>`;
     return new Response(previewHtml, {
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
     });
@@ -446,9 +561,29 @@ export async function GET(req: Request) {
     }, { status: 500 });
   }
 
-  const bodyJson = formatForSubstack(brief);
+  let dashScreenshotCdn: string | undefined;
+  let coverImageUrl: string | undefined;
+  let coverDebug = '';
+  try {
+    const screenshotUrl = `${origin}/api/og/screenshot?force=1&w=1200&h=1200&clip=60,168,1080,1005`;
+    const imgRes = await fetch(screenshotUrl, { cache: 'no-store' });
+    if (!imgRes.ok) throw new Error(`screenshot ${imgRes.status}`);
+    const imgBuf = await imgRes.arrayBuffer();
+    const b64 = Buffer.from(imgBuf).toString('base64');
+    const dataUri = `data:image/png;base64,${b64}`;
+    const cdnUrl = await uploadImageToSubstack(pubUrl, session, dataUri);
+    if (cdnUrl) {
+      dashScreenshotCdn = cdnUrl;
+      coverImageUrl = cdnUrl;
+    }
+    coverDebug = cdnUrl ? `ok: ${cdnUrl}` : 'upload returned null';
+  } catch (e: any) {
+    coverDebug = `error: ${e.message || String(e)}`;
+  }
 
-  const draft = await substackCreateDraft(pubUrl, session, title, subtitle, bodyJson);
+  const bodyJson = formatForSubstack(brief, dashScreenshotCdn, phase);
+
+  const draft = await substackCreateDraft(pubUrl, session, title, subtitle, bodyJson, coverImageUrl);
   if (draft.error) {
     return NextResponse.json({ error: draft.error }, { status: 502 });
   }
@@ -468,6 +603,7 @@ export async function GET(req: Request) {
       published: true,
       sent: send,
       title,
+      coverDebug,
     });
   }
 
@@ -476,6 +612,7 @@ export async function GET(req: Request) {
     draftId: draft.id,
     published: false,
     title,
+    coverDebug,
     note: 'Draft created. Add ?publish=1 to publish and send to subscribers.',
   });
 }

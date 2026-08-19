@@ -43,17 +43,9 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 60;
 
-const FMP_KEY = (
-  process.env.FMP_API_KEY ||
-  process.env.NEXT_PUBLIC_FMP_API_KEY ||
-  ''
-).trim();
+const FMP_KEY = (process.env.FMP_API_KEY || '').trim();
 
-const POLYGON_KEY = (
-  process.env.NEXT_PUBLIC_POLYGON_API_KEY ||
-  process.env.POLYGON_API_KEY ||
-  ''
-).trim();
+const POLYGON_KEY = (process.env.POLYGON_API_KEY || '').trim();
 
 const MIN_MARKET_CAP = 1_000_000_000; // $1B
 

@@ -341,7 +341,7 @@ export async function GET(request: Request) {
       if (cachedSummary) return NextResponse.json(cachedSummary, { headers });
     }
 
-    const polygonKey = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY;
+    const polygonKey = process.env.POLYGON_API_KEY;
     if (!polygonKey) throw new Error('Missing Polygon API Key');
 
     const dateOffset = (base: string, days: number): string => {

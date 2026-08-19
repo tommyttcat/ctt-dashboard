@@ -24,6 +24,7 @@ export interface RsPayload {
   ranked: number;
   legDates: Record<string, string | null>;
   ratings: Record<string, number>;
+  sortedRaws?: number[];
 }
 
 /* How old the map may be before it is refused.
@@ -57,6 +58,7 @@ export interface RsLookup {
      five days old" call for different fixes, and a bare zero-count tells
      you neither. */
   reason: string | null;
+  sortedRaws: number[];
 }
 
 const EMPTY: RsLookup = {
@@ -66,6 +68,7 @@ const EMPTY: RsLookup = {
   ranked: 0,
   ageDays: null,
   reason: 'not loaded',
+  sortedRaws: [],
 };
 
 export async function loadRsRatings(): Promise<RsLookup> {
@@ -115,6 +118,7 @@ export async function loadRsRatings(): Promise<RsLookup> {
     ranked: payload.ranked ?? Object.keys(ratings).length,
     ageDays: +ageDays.toFixed(1),
     reason: null,
+    sortedRaws: Array.isArray(payload.sortedRaws) ? payload.sortedRaws : [],
   };
 }
 

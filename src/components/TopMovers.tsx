@@ -56,7 +56,7 @@
 import { rsBadge, rsTooltip } from '@/lib/indicators/rs';
 import { stageBadge, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { fetchScannerLatest } from '@/lib/scannerLatest';
-import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews } from '@/lib/catalyst';
+import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews, NewsStars } from '@/lib/catalyst';
 
 // TopMovers — v1.3
 //
@@ -79,7 +79,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 import { SCANNER } from '@/lib/scanConfig';
 import TickerChartHover, { useFreezeWhileChartOpen } from './TickerChartHover';
-import { rvolColor as getRvolColor, dtcColor as getDtcColor, stochColor as getStochColor, floatColor as getFloatColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
+import { rvolColor as getRvolColor, adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, floatColor as getFloatColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
+import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 
 interface StockData {
   ticker: string;
@@ -109,6 +110,9 @@ interface StockData {
   aboveEma21: boolean | null;
   stochK: number | null;
   rsRating: number | null;
+  adrPct: number | null;
+  mf: number | null;
+  mfTrend: number;
 }
 
 type TabType = 'Mega Caps' | 'Gainers' | 'Losers' | 'ETF Gainers' | 'ETF Losers';
@@ -239,7 +243,7 @@ export default function TopMovers() {
 
   const handleSort = (key: keyof StockData) => { let direction: SortDirection = 'desc'; if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc'; else if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') { setSortConfig(null); return; } setSortConfig({ key, direction }); };
   const handleEmaFilter = (val: EmaFilterType) => setEmaFilter(prev => prev === val ? 'All' : val);
-  const handleVwapFilter = (val: VwapFilterType) => setVwapFilter(prev => prev === val ? 'All' : val);
+  const toggleVwap = (status: 'above' | 'below') => setVwapFilter(prev => prev === status ? 'All' : status);
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
 
   const computedMovers = useMemo(() => {
@@ -340,11 +344,19 @@ export default function TopMovers() {
           <div className="flex flex-col gap-3 mb-6 relative z-0 pb-2">
             <div className="flex flex-wrap justify-center items-center gap-3 w-full">
               <div className="flex gap-3 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
-                {(['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'] as TabType[]).map((tab) => (
-                  <button key={tab} onClick={(e) => { e.stopPropagation(); setActiveTab(tab); }} className={`px-5 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all duration-300 ${activeTab === tab ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]' : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'}`}>
-                    {tab}
-                  </button>
-                ))}
+                {(['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'] as TabType[]).map((tab) => {
+                  const label = tab === 'Gainers' ? 'Movers Up' : tab === 'Losers' ? 'Movers Down' : tab;
+                  const accentCls = activeTab === tab
+                    ? tab === 'Gainers' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.1)]'
+                    : tab === 'Losers' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30 shadow-[0_0_10px_rgba(244,63,94,0.1)]'
+                    : 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]'
+                    : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]';
+                  return (
+                    <button key={tab} onClick={(e) => { e.stopPropagation(); setActiveTab(tab); }} className={`px-5 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all duration-300 ${accentCls}`}>
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
               <div className="flex items-center bg-[#161c2a] border border-white/5 rounded-xl p-0.5" onClick={(e) => e.stopPropagation()}>
                 {['All', 'Micro', 'Small', 'Mid', 'Large', 'Mega'].map((cap) => (
@@ -369,16 +381,9 @@ export default function TopMovers() {
                   ))}
                 </div>
               </div>
-              <div className={pillWrap}>
-                <span className={pillLabel}>VWAP</span>
-                <div className="flex items-center gap-0.5">
-                  <button onClick={() => handleVwapFilter('above')} className={`flex items-center gap-1 ${pillBtn} ${vwapFilter === 'above' ? filterBtnActive : filterBtnIdle}`}>
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>Above
-                  </button>
-                  <button onClick={() => handleVwapFilter('below')} className={`flex items-center gap-1 ${pillBtn} ${vwapFilter === 'below' ? filterBtnActive : filterBtnIdle}`}>
-                    <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>Below
-                  </button>
-                </div>
+              <div className="flex items-center gap-2.5 text-[9px] font-semibold text-slate-500">
+                <span onClick={() => toggleVwap('above')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'above' ? 'text-emerald-400' : ''}`} title={vwapFilter === 'above' ? 'Filtering above VWAP — click to show all' : 'Click to filter above VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 ${vwapFilter === 'above' ? 'ring-1 ring-white/40' : ''}`}></span>Above VWAP</span>
+                <span onClick={() => toggleVwap('below')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'below' ? 'text-rose-400' : ''}`} title={vwapFilter === 'below' ? 'Filtering below VWAP — click to show all' : 'Click to filter below VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-rose-500 ${vwapFilter === 'below' ? 'ring-1 ring-white/40' : ''}`}></span>Below</span>
               </div>
             </div>
           </div>
@@ -388,16 +393,19 @@ export default function TopMovers() {
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%] !text-left pl-1`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className={`${thBase} w-[2%]`} title="News — ★ has an article, ★★ has a causal catalyst from a primary source">N</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
                   <th className={`${thBase} w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   <th className={`${thBase} w-[6%]`}>10/21</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('adrPct' as any)}>ADR{getSortIcon('adrPct' as any)}</th>
+                  <th className={`${thBase} w-[4%]`} onClick={() => handleSort('mf' as any)}>MF{getSortIcon('mf' as any)}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thBase} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
@@ -407,10 +415,10 @@ export default function TopMovers() {
               </thead>
               <tbody className="divide-y divide-white/5">
                 {status.includes('Syncing') && topMoversData[activeTab].length === 0 ? (
-                  <tr><td colSpan={16} className="py-12 text-center"><div className="w-5 h-5 border-2 border-white/10 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
+                  <tr><td colSpan={19} className="py-12 text-center"><div className="w-5 h-5 border-2 border-white/10 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
                 ) : sortedStocks.length === 0 ? (
                   <tr>
-                    <td colSpan={16} className="py-12 px-8 text-center">
+                    <td colSpan={19} className="py-12 px-8 text-center">
                       <span className="block text-slate-500 text-sm font-medium max-w-[560px] mx-auto leading-relaxed">
                         {emptyStateText()}
                       </span>
@@ -425,15 +433,18 @@ export default function TopMovers() {
                           <TickerChartHover symbol={row.ticker}><span className={tickerChipForScore(row.conviction)} title={tickerTitle(row.name, row.ticker, row.conviction)}>{row.ticker}</span></TickerChartHover>
                           <CatalystChip row={row} note={NEGATIVE_NOTE} />
                         </td>
+                        <td className={tdBase}><NewsStars row={row} /></td>
                         <td className={tdBase}><span className={scoreCellCls(row.conviction)}>{row.conviction != null ? row.conviction : '--'}</span></td>
-                        <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}><div className="flex items-center justify-center gap-1.5">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>)}</div></td>
+                        <td className={`${tdBase} whitespace-nowrap`} title={rsTooltip(row.rsRating)}><span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span></td>
+                        <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}><div className="flex items-center justify-center gap-1.5">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div onClick={(e) => { e.stopPropagation(); toggleVwap(row.vwapStatus as 'above' | 'below'); }} className={`w-1.5 h-1.5 rounded-full shrink-0 cursor-pointer ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'} ${vwapFilter === row.vwapStatus ? 'ring-1 ring-white/40' : ''}`} title={`VWAP: ${row.vwapStatus} — click to filter`}></div>)}</div></td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
                         <td className={`${tdBase} whitespace-nowrap`}><div className="flex items-center justify-center gap-1.5"><div className="flex items-center gap-0.5"><span className="text-[9px] font-bold text-slate-500">10</span><div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} title={`10 EMA: ${row.aboveEma10 === null ? 'n/a' : row.aboveEma10 ? 'above' : 'below'}`}></div></div><div className="flex items-center gap-0.5"><span className="text-[9px] font-bold text-slate-500">21</span><div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma21)}`} title={`21 EMA: ${row.aboveEma21 === null ? 'n/a' : row.aboveEma21 ? 'above' : 'below'}`}></div></div></div></td>
                         <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
                         <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '\u2014'}</td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
-                        <td className={`${tdBase} whitespace-nowrap`} title={rsTooltip(row.rsRating)}><span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '\u2014'}</span></td>
+                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${row.adrPct != null ? getAdrColor(row.adrPct) : 'text-slate-600'}`}>{row.adrPct != null ? `${row.adrPct.toFixed(1)}%` : '\u2014'}</td>
+                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${row.mf != null ? mfColor(row.mf) : 'text-slate-600'}`}>{row.mf != null ? `${mfArrow(row.mfTrend)}${mfLabel(row.mf)}` : '\u2014'}</td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '\u2014'}</td>
                         <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover \u2014 short interest divided by average daily volume.">{row.daysToCover != null ? row.daysToCover.toFixed(1) : '\u2014'}</td>
                         <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>

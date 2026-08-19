@@ -79,7 +79,7 @@ import { rsColor, rsBadge } from '@/lib/indicators/rs';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { VCP, columnTip } from '@/lib/scanConfig';
 import TickerChartHover from './TickerChartHover';
-import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews } from '@/lib/catalyst';
+import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews, NewsStars } from '@/lib/catalyst';
 import { displaySector } from '@/lib/sectors';
 import { tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
 
@@ -204,6 +204,7 @@ type RsFilterType = 'All' | '80' | '90';
 type GradeFilterType = 'All' | 'A' | 'B';
 type TtFilterType = 'All' | 'perfect';
 type LegsFilterType = 'All' | 'sweet';
+type VwapFilterType = 'All' | 'above' | 'below';
 
 const RS_BUCKETS: RsFilterType[] = ['80', '90'];
 const GRADE_BUCKETS: GradeFilterType[] = ['A', 'B'];
@@ -483,6 +484,7 @@ export default function Vcp() {
   const [gradeFilter, setGradeFilter] = useState<GradeFilterType>('All');
   const [ttFilter, setTtFilter] = useState<TtFilterType>('All');
   const [legsFilter, setLegsFilter] = useState<LegsFilterType>('All');
+  const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
 
@@ -529,6 +531,7 @@ export default function Vcp() {
   const handleGradeFilter = (v: GradeFilterType) => setGradeFilter(p => p === v ? 'All' : v);
   const handleTtFilter = (v: TtFilterType) => setTtFilter(p => p === v ? 'All' : v);
   const handleLegsFilter = (v: LegsFilterType) => setLegsFilter(p => p === v ? 'All' : v);
+  const toggleVwap = (status: 'above' | 'below') => setVwapFilter(prev => prev === status ? 'All' : status);
 
   const filteredAndSorted = useMemo(() => {
     let list = [...candidates];
@@ -569,6 +572,10 @@ export default function Vcp() {
       list = list.filter(c => c.contractionCount === 3 || c.contractionCount === 4);
     }
 
+    if (vwapFilter !== 'All') {
+      list = list.filter(c => c.vwapStatus === vwapFilter);
+    }
+
     if (!sortConfig) return list;
     return list.sort((a, b) => {
       const aVal = (a as any)[sortConfig.key];
@@ -579,7 +586,7 @@ export default function Vcp() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, statusFilter, rsFilter, gradeFilter, ttFilter, legsFilter]);
+  }, [candidates, sortConfig, statusFilter, rsFilter, gradeFilter, ttFilter, legsFilter, vwapFilter]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -656,7 +663,8 @@ export default function Vcp() {
     (rsFilter !== 'All' ? 1 : 0) +
     (gradeFilter !== 'All' ? 1 : 0) +
     (ttFilter !== 'All' ? 1 : 0) +
-    (legsFilter !== 'All' ? 1 : 0);
+    (legsFilter !== 'All' ? 1 : 0) +
+    (vwapFilter !== 'All' ? 1 : 0);
 
   const funnelNote = funnel.universe != null && funnel.prefiltered != null
     ? `${funnel.universe.toLocaleString()} liquid names scanned · ${funnel.prefiltered} showed contraction structure · ${funnel.confirmed ?? 0} confirmed`
@@ -741,7 +749,7 @@ export default function Vcp() {
       {isExpanded && (
         <>
           <div className="flex flex-col gap-3 mb-4 relative z-10" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-center">
+            <div className="flex justify-center items-center gap-4">
               <button
                 onClick={() => setShowFilters(!showFilters)}
                 className={`px-4 py-1.5 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 flex items-center gap-2 ${
@@ -753,6 +761,10 @@ export default function Vcp() {
                 <span className={`inline-block transition-transform duration-200 ${showFilters ? 'rotate-90' : ''}`}>▸</span>
                 Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
               </button>
+              <div className="flex items-center gap-2.5 text-[9px] font-semibold text-slate-500">
+                <span onClick={() => toggleVwap('above')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'above' ? 'text-emerald-400' : ''}`}><span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 ${vwapFilter === 'above' ? 'ring-1 ring-white/40' : ''}`}></span>Above VWAP</span>
+                <span onClick={() => toggleVwap('below')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'below' ? 'text-rose-400' : ''}`}><span className={`w-1.5 h-1.5 rounded-full bg-rose-500 ${vwapFilter === 'below' ? 'ring-1 ring-white/40' : ''}`}></span>Below</span>
+              </div>
             </div>
             {showFilters && (
               <div className="flex flex-wrap justify-center items-center gap-3 w-full">
@@ -846,6 +858,7 @@ export default function Vcp() {
                     </button>
                   </div>
                 </div>
+
               </div>
             )}
           </div>
@@ -855,6 +868,7 @@ export default function Vcp() {
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[8%] !text-left pl-1`} title={colTip('TICKER')} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
+                  <th className={`${thBase} w-[2%]`} title="News — ★ has an article, ★★ has a causal catalyst from a primary source">N</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('VCP')} onClick={() => handleSort('score')}>VCP{getSortIcon('score')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
                   <th className={`${thBase} w-[7%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
@@ -862,6 +876,7 @@ export default function Vcp() {
                   {/* The signature column — the pattern itself, not a summary
                       of it. Wider than anything else for that reason. */}
                   <th className={`${thBase} w-[13%]`} title={colTip('CONTRACTIONS')} onClick={() => handleSort('contractionCount')}>CONTRACTIONS{getSortIcon('contractionCount')}</th>
+                  <th className={`${thBase} w-[4%]`} title="Number of contraction legs in the base (T2, T3, T4, etc.)" onClick={() => handleSort('contractionCount')}>LEGS{getSortIcon('contractionCount')}</th>
                   <th className={`${thBase} w-[9%]`} title={colTip('PIVOT')} onClick={() => handleSort('pctToPivot')}>PIVOT{getSortIcon('pctToPivot')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('BASE')} onClick={() => handleSort('baseLengthBars')}>BASE{getSortIcon('baseLengthBars')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('VOL')} onClick={() => handleSort('volumeDryingRatio')}>VOL{getSortIcon('volumeDryingRatio')}</th>
@@ -876,7 +891,7 @@ export default function Vcp() {
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
                   <tr>
-                    <td colSpan={14} className="py-12 text-center text-slate-500 text-sm font-medium">
+                    <td colSpan={16} className="py-12 text-center text-slate-500 text-sm font-medium">
                       {status === 'Live'
                         ? (candidates.length > 0
                             ? 'No bases match the current filters.'
@@ -901,12 +916,9 @@ export default function Vcp() {
                             <div className="flex items-center justify-start gap-1.5">
                               <TickerChartHover symbol={row.symbol}><span title={tickerTitle(row.name, row.symbol, row.score)} className={tickerChipForScore(row.score)}>{row.symbol}</span></TickerChartHover>
                               <CatalystChip row={row} note={NEGATIVE_NOTE} neutralNote={NEUTRAL_NOTE} />
-                              <span
-                                className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${meta.dot}`}
-                                title={`${meta.label} — ${meta.title}`}
-                              ></span>
                             </div>
                           </td>
+                          <td className={tdBase}><NewsStars row={row} /></td>
 
                           <td className={tdBase}>
                             <span
@@ -931,7 +943,7 @@ export default function Vcp() {
                             <div className="flex items-center justify-center gap-1">
                               ${row.price.toFixed(2)}
                               {row.vwapStatus && row.vwapStatus !== 'neutral' && (
-                                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${row.vwapStatus}`}></div>
+                                <div onClick={(e) => { e.stopPropagation(); toggleVwap(row.vwapStatus as 'above' | 'below'); }} className={`w-1.5 h-1.5 rounded-full shrink-0 cursor-pointer ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'} ${vwapFilter === row.vwapStatus ? 'ring-1 ring-white/40' : ''}`} title={`VWAP: ${row.vwapStatus} — click to filter`}></div>
                               )}
                             </div>
                           </td>
@@ -962,6 +974,11 @@ export default function Vcp() {
                                 ))
                               )}
                             </div>
+                          </td>
+
+                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums text-slate-400`}
+                            title={`${row.contractionCount} contraction${row.contractionCount === 1 ? '' : 's'} in the current base`}>
+                            T{row.contractionCount}
                           </td>
 
                           <td className={`${tdBase} whitespace-nowrap tabular-nums cursor-help`} title={planTooltip(row)}>
@@ -1027,10 +1044,8 @@ export default function Vcp() {
                               rather than a padding value, so the indent
                               follows the ticker column's real width. */}
                           <td />
-                          {/* 1 + 13 = 14, the header count. This was 12 against
-                              14 headers before the indent — the sub-row had
-                              been stopping two columns early. */}
-                          <td colSpan={13} className="pb-1.5 pt-1 pr-3">
+                          <td />
+                          <td colSpan={12} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
                               <span
                                 className={`shrink-0 w-[64px] px-0.5 text-center font-bold text-[9px] tracking-[0.04em] uppercase leading-none truncate cursor-help ${meta.text}`}
@@ -1055,12 +1070,6 @@ export default function Vcp() {
                                         <span className="text-slate-500 font-normal">{row.thesis}</span>
                                       )
                                     )}
-                                    {/* Source and age. Age carries real
-                                        weight on a base: a headline from
-                                        four days ago that price still has
-                                        not reacted to says something the
-                                        same headline this morning does
-                                        not. */}
                                     {(row.newsPublisher || row.newsAge) && (
                                       <span className="text-[8px] text-slate-600 font-medium ml-1.5 whitespace-nowrap">
                                         {[row.newsPublisher, row.newsAge].filter(Boolean).join(' · ')}
@@ -1071,35 +1080,9 @@ export default function Vcp() {
                                   <span className="text-slate-600 italic">No catalyst — the base is the thesis.</span>
                                 )}
                               </p>
-
-                              <span
-                                className="shrink-0 flex items-baseline gap-1.5 cursor-help whitespace-nowrap"
-                                title={row.priorMovePct != null
-                                  ? `The stock advanced ${row.priorMovePct.toFixed(0)}% into this base. That prior run is what creates the supply the contractions absorb — without it there is nothing to absorb and the base is just a quiet stock.`
-                                  : undefined}
-                              >
-                                <span className="text-[8px] font-bold tracking-[0.1em] uppercase text-slate-600">RUN-UP</span>
-                                <span className="text-[9px] font-semibold text-slate-500 tabular-nums">
-                                  {row.priorMovePct != null ? `+${row.priorMovePct.toFixed(0)}%` : '—'}
-                                </span>
-                              </span>
                             </div>
                           </td>
-
-                          <td className="pb-1.5 pt-1 pl-1.5 text-left align-middle border-l border-white/5">
-                            <span
-                              className="text-[8px] font-semibold text-slate-500 whitespace-nowrap cursor-help"
-                              title={`${row.contractionCount} contraction${row.contractionCount === 1 ? '' : 's'} in the current base`}
-                            >
-                              T{row.contractionCount}
-                            </span>
-                          </td>
-
-                          <td className="pb-1.5 pt-1 pl-1.5 text-left align-middle">
-                            <span className="text-[8px] font-semibold text-slate-600 whitespace-nowrap tabular-nums">
-                              {formatNumber(row.avgVol)}
-                            </span>
-                          </td>
+                          <td className="border-l border-white/5" colSpan={2}></td>
                         </tr>
                       </React.Fragment>
                     );

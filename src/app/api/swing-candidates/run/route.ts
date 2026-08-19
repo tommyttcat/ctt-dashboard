@@ -137,7 +137,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 300;
 
-const POLYGON_KEY = process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '';
+const POLYGON_KEY = process.env.POLYGON_API_KEY || '';
 const BENZINGA_KEY = process.env.NEXT_PUBLIC_BENZINGA_API_KEY || process.env.BENZINGA_API_KEY || '';
 const BASE = "https://api.polygon.io";
 
@@ -1133,7 +1133,7 @@ async function runSwingScan() {
        which is why this map came back empty for every symbol. The Benzinga side
        is one fetch for the whole scan because this plan's endpoint ignores
        per-ticker params entirely; the index does the filtering. */
-    const bzIndex = await fetchBenzingaNewsIndex(BENZINGA_KEY);
+    const bzIndex = await fetchBenzingaNewsIndex(POLYGON_KEY);
 
     const newsMap = new Map<string, NewsItem | null>();
     await inBatches(newsSymbols, NEWS_CONCURRENCY, async (sym) => {
@@ -1158,6 +1158,7 @@ async function runSwingScan() {
         c.newsPublisher = null;
         c.newsAge = null;
         c.newsSentiment = null;
+        (c as any).newsCausal = null;
         return;
       }
       c.catalyst = n.ageHours >= DELAYED_AGE_HOURS ? `${n.tag} (Delayed)` : n.tag;
@@ -1166,6 +1167,7 @@ async function runSwingScan() {
       c.newsPublisher = n.publisher;
       c.newsAge = n.ageLabel;
       c.newsSentiment = n.sentiment;
+      (c as any).newsCausal = n.causal;
     };
     candidates.forEach(attachCatalyst);
     consolKeep.forEach(attachCatalyst);

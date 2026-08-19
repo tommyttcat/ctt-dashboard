@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { fetchScannerLatest } from '@/lib/scannerLatest';
 import { ThemeToggle } from '../ThemeProvider';
+import HelpModal from '../HelpModal';
 import TickerChartHover, { ActiveChartCtx, ActiveChartProvider, autoScrollRef, scrollingRef, HOVER_DELAY_MS } from '../TickerChartHover';
 import { prefetchChart } from './MiniChart';
 import { newsStarCount as newsStars } from '@/lib/newsStars';
@@ -33,7 +34,7 @@ import {
   highsPct,
   highsCellTone,
   mkmCellTone as mkmColor,
-  vixCellTone,
+  vixPctTone,
   toneCellTone,
   getMarketSession,
   sessionTextColor,
@@ -366,7 +367,7 @@ function RegimeDetail({ detail, color, breadth }: { detail: RegimeBlock; color: 
   const caution = REGIME_COLORS.amber;
   return (
     <div className="space-y-3 md:space-y-5">
-      <div className={`border-l-[3px] ${rc.border} ${rc.bg} rounded-r-lg px-3 md:px-6 py-3 md:py-5`}>
+      <div className={`border-l-0 md:border-l-[3px] ${rc.border} ${rc.bg} rounded-r-lg px-1.5 md:px-6 py-3 md:py-5`}>
         <div className={`text-[9px] font-bold ${rc.label} tracking-wider uppercase mb-3`}>
           Regime Assessment
         </div>
@@ -376,7 +377,7 @@ function RegimeDetail({ detail, color, breadth }: { detail: RegimeBlock; color: 
       </div>
 
       {breadth && breadth.analysis && (
-        <div className="border-l-[3px] border-l-rose-400 bg-rose-500/[0.06] rounded-r-lg px-3 md:px-6 py-3 md:py-5">
+        <div className="border-l-0 md:border-l-[3px] border-l-rose-400 bg-rose-500/[0.06] rounded-r-lg px-1.5 md:px-6 py-3 md:py-5">
           <div className="text-[9px] font-bold text-rose-400 tracking-wider uppercase mb-3">
             Sentiment &amp; Market Breadth
           </div>
@@ -384,7 +385,7 @@ function RegimeDetail({ detail, color, breadth }: { detail: RegimeBlock; color: 
         </div>
       )}
 
-      <div className={`border-l-[3px] ${caution.border} ${caution.bg} rounded-r-lg px-3 md:px-6 py-3 md:py-5`}>
+      <div className={`border-l-0 md:border-l-[3px] ${caution.border} ${caution.bg} rounded-r-lg px-1.5 md:px-6 py-3 md:py-5`}>
         <div className={`text-[9px] font-bold ${caution.label} tracking-wider uppercase mb-3`}>
           Caution Flag
         </div>
@@ -589,7 +590,7 @@ function SummaryRow({ item, stock, showNote, red }: { item: SummaryItem; stock?:
   const rs = item.rs;
   return (
     <div className={scrollWrap} style={scrollStyle}>
-      <div className={`grid items-center gap-x-1 py-[3px] text-[11px] tabular-nums `} style={{ gridTemplateColumns: GRID_COLS }}>
+      <div className={`grid items-center gap-x-1 py-[1px] text-[11px] tabular-nums `} style={{ gridTemplateColumns: GRID_COLS }}>
         {stock ? <TickerChip stock={stock} red={red} /> : <TickerChartHover symbol={item.ticker}><span className={red ? TICKER_CHIP_RED : TICKER_CHIP}>{item.ticker}</span></TickerChartHover>}
         <span className="text-center">{item.score != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(Number(item.score) || 0)}`}>{item.score}</span> : ''}</span>
         <span className={`font-semibold text-right ${(item.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{item.changePct != null ? `${(item.changePct || 0) >= 0 ? '+' : ''}${item.changePct.toFixed(2)}%` : ''}</span>
@@ -607,7 +608,7 @@ function SummaryRow({ item, stock, showNote, red }: { item: SummaryItem; stock?:
 
 function TrapRow({ item, stock }: { item: SummaryItem; stock?: StockEntry }) {
   return (
-    <div className={`grid items-center gap-x-1 py-[3px] text-[11px] tabular-nums`} style={{ gridTemplateColumns: GRID_COLS_TRAP }}>
+    <div className={`grid items-center gap-x-1 py-[1px] text-[11px] tabular-nums`} style={{ gridTemplateColumns: GRID_COLS_TRAP }}>
       {stock ? <TickerChip stock={stock} red /> : <TickerChartHover symbol={item.ticker}><span className={TICKER_CHIP_RED}>{item.ticker}</span></TickerChartHover>}
       <span className={`font-semibold text-right ${(item.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{item.changePct != null ? `${(item.changePct || 0) >= 0 ? '+' : ''}${item.changePct.toFixed(2)}%` : ''}</span>
       <span className={`text-[9px] font-bold text-center ${item.stage ? stageColor(item.stage) : 'text-slate-600'}`}>{item.stage ? stripStage(item.stage) : ''}</span>
@@ -650,7 +651,7 @@ function ActionableSummary({ summary, trades, avoidStocks, sortKey, sortDir, onS
   return (
     <SectionCard title="Actionable Summary" accent="#34d399">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-4">
-        <div className="border-l-[3px] border-l-indigo-400 bg-[#0a1220] rounded-r-lg px-3 md:px-5 py-2 md:py-3">
+        <div className="border-l-0 md:border-l-[3px] border-l-indigo-400 bg-[#0a1220] rounded-r-lg px-1.5 md:px-5 py-2 md:py-3">
           <div className="text-[9px] font-bold text-slate-500 tracking-wider uppercase mb-2">
             Highest Conviction
           </div>
@@ -669,7 +670,7 @@ function ActionableSummary({ summary, trades, avoidStocks, sortKey, sortDir, onS
           )}
         </div>
 
-        <div className="border-l-[3px] border-l-amber-400/60 bg-[#0a1220] rounded-r-lg px-3 md:px-5 py-2 md:py-3">
+        <div className="border-l-0 md:border-l-[3px] border-l-amber-400/60 bg-[#0a1220] rounded-r-lg px-1.5 md:px-5 py-2 md:py-3">
           <div className="text-[9px] font-bold text-slate-500 tracking-wider uppercase mb-2">
             Watchlist — Not Yet Actionable
           </div>
@@ -690,7 +691,7 @@ function ActionableSummary({ summary, trades, avoidStocks, sortKey, sortDir, onS
       </div>
 
       {traps.length > 0 && (
-        <div className="border-l-[3px] border-l-rose-500/60 bg-[#0a1220] rounded-r-lg px-3 md:px-5 py-2 md:py-3 mt-4">
+        <div className="border-l-0 md:border-l-[3px] border-l-rose-500/60 bg-[#0a1220] rounded-r-lg px-1.5 md:px-5 py-2 md:py-3 mt-4">
           <div className="text-[9px] font-bold text-slate-500 tracking-wider uppercase mb-2">
             Traps to Avoid
           </div>
@@ -721,7 +722,7 @@ function AnalystCard({ stock, rank }: { stock: StockEntry; rank: number }) {
   const setupCls = stock.setup ? (SETUP_COLORS[stock.setup] || DEFAULT_SETUP_CLS) : '';
 
   return (
-    <div className={`border-l-[3px] ${borderColor} ${bgColor} rounded-r-xl px-2.5 md:px-5 py-3 md:py-4`}>
+    <div className={`border-l-0 md:border-l-[3px] ${borderColor} ${bgColor} rounded-r-xl px-1.5 md:px-5 py-3 md:py-4`}>
       <div className="flex items-center gap-2 md:gap-3 flex-wrap mb-2 md:mb-3">
         <TickerChartHover symbol={stock.ticker}><span className={isAvoid ? TICKER_CHIP_RED : TICKER_CHIP}>{stock.ticker}</span></TickerChartHover>
 
@@ -833,7 +834,7 @@ function GapperRow({ s, red }: { s: StockEntry; red?: boolean }) {
   const dolVol = s.dvol != null ? s.dvol : (s.price && s.vol) ? s.price * s.vol : null;
   return (
     <div className={scrollWrap} style={scrollStyle}>
-      <div className="grid items-center gap-x-1 py-[3px] text-[11px] tabular-nums " style={{ gridTemplateColumns: GRID_COLS_GAP }}>
+      <div className="grid items-center gap-x-1 py-[1px] text-[11px] tabular-nums " style={{ gridTemplateColumns: GRID_COLS_GAP }}>
         <TickerChip stock={s} red={red} />
         <span className="text-center">{s.score != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(Number(s.score) || 0)}`}>{s.score}</span> : ''}</span>
         <span className={`font-semibold text-right ${(s.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(s.changePct || 0) >= 0 ? '+' : ''}{s.changePct.toFixed(2)}%</span>
@@ -849,8 +850,8 @@ function GapperRow({ s, red }: { s: StockEntry; red?: boolean }) {
   );
 }
 
-function GapperSection({ section, gradeMap, avoidSet }: { section: SectionResult; gradeMap?: Record<string, 'A' | 'B'>; avoidSet?: Set<string> }) {
-  const [sk, setSk] = useState<SortKey | null>('cnf');
+function GapperSection({ section, gradeMap, avoidSet, scannerGainers, scannerLosers }: { section: SectionResult; gradeMap?: Record<string, 'A' | 'B'>; avoidSet?: Set<string>; scannerGainers?: StockEntry[]; scannerLosers?: StockEntry[] }) {
+  const [sk, setSk] = useState<SortKey | null>('chg');
   const [sd, setSd] = useState<SortDir>('desc');
   const handleSort = useCallback((key: SortKey) => {
     if (sk === key) { if (sd === 'desc') setSd('asc'); else { setSk(null); setSd('desc'); } }
@@ -858,17 +859,21 @@ function GapperSection({ section, gradeMap, avoidSet }: { section: SectionResult
   }, [sk, sd]);
 
   const stocks = section.stocks || [];
-  const rawUps = stocks.filter(s => (s as any).direction === 'up' || (s as any).direction === 'long' || (!['down','short'].includes((s as any).direction) && ((s as any).gapPct ?? (s as any).changePct ?? 0) > 0));
-  const rawDowns = stocks.filter(s => (s as any).direction === 'down' || (s as any).direction === 'short' || (!['up','long'].includes((s as any).direction) && ((s as any).gapPct ?? (s as any).changePct ?? 0) < 0));
-  const ups = (sk ? sortStocks(rawUps, sk, sd) : rawUps.sort((a, b) => (b.changePct || 0) - (a.changePct || 0))).slice(0, 5);
-  const downs = (sk ? sortStocks(rawDowns, sk, sd) : rawDowns.sort((a, b) => (a.changePct || 0) - (b.changePct || 0))).slice(0, 5);
+  const briefUps = stocks.filter(s => (s as any).direction === 'up' || (s as any).direction === 'long' || (!['down','short'].includes((s as any).direction) && ((s as any).gapPct ?? (s as any).changePct ?? 0) > 0));
+  const briefDowns = stocks.filter(s => (s as any).direction === 'down' || (s as any).direction === 'short' || (!['up','long'].includes((s as any).direction) && ((s as any).gapPct ?? (s as any).changePct ?? 0) < 0));
+  const seenUp = new Set(briefUps.map(s => s.ticker));
+  const seenDown = new Set(briefDowns.map(s => s.ticker));
+  const rawUps = [...briefUps, ...(scannerGainers || []).filter(s => !seenUp.has(s.ticker))];
+  const rawDowns = [...briefDowns, ...(scannerLosers || []).filter(s => !seenDown.has(s.ticker))];
+  const ups = (sk ? sortStocks(rawUps, sk, sd) : rawUps.sort((a, b) => (b.changePct || 0) - (a.changePct || 0))).slice(0, 10);
+  const downs = (sk ? sortStocks(rawDowns, sk, sd) : rawDowns.sort((a, b) => (a.changePct || 0) - (b.changePct || 0))).slice(0, 10);
 
   return (
     <SectionCard title="Top Movers" accent="#34d399">
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 md:gap-3">
 
       {ups.length > 0 && (
-        <div className="border-l-[3px] border-l-emerald-500 bg-[#0a1220] rounded-r-lg px-2.5 md:px-4 py-2 md:py-3">
+        <div className="border-l-0 md:border-l-[3px] border-l-emerald-500 bg-[#0a1220] rounded-r-lg px-1 md:px-4 py-2 md:py-3">
           <div className="text-[9px] font-bold text-emerald-400 tracking-wider uppercase mb-2">
             Movers Up
           </div>
@@ -877,7 +882,7 @@ function GapperSection({ section, gradeMap, avoidSet }: { section: SectionResult
         </div>
       )}
       {downs.length > 0 && (
-        <div className="border-l-[3px] border-l-rose-500 bg-[#0a1220] rounded-r-lg px-2.5 md:px-4 py-2 md:py-3">
+        <div className="border-l-0 md:border-l-[3px] border-l-rose-500 bg-[#0a1220] rounded-r-lg px-1 md:px-4 py-2 md:py-3">
           <div className="text-[9px] font-bold text-rose-400 tracking-wider uppercase mb-2">
             Movers Down
           </div>
@@ -919,7 +924,7 @@ function SIPSection({ section, gradeMap, avoidSet }: { section: SectionResult; g
           const dolVol = s.dvol != null ? s.dvol : (s.price && s.vol) ? s.price * s.vol : null;
           return (
             <div key={i} className={scrollWrap} style={scrollStyle}>
-              <div className="grid items-center gap-x-1 py-[3px] text-[11px] tabular-nums min-w-[420px]" style={{ gridTemplateColumns: GRID_COLS }}>
+              <div className="grid items-center gap-x-1 py-[1px] text-[11px] tabular-nums min-w-[420px]" style={{ gridTemplateColumns: GRID_COLS }}>
                 <TickerChip stock={s} red={avoidSet?.has(s.ticker)} />
                 <span className="text-center">{s.score != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(Number(s.score) || 0)}`}>{s.score}</span> : ''}</span>
                 <span className={`font-semibold text-right ${(s.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(s.changePct || 0) >= 0 ? '+' : ''}{s.changePct.toFixed(2)}%</span>
@@ -1334,7 +1339,7 @@ function BriefSection({ section }: { section: SectionResult }) {
   }
 
   return (
-    <div className={`border-l-[3px] ${style.border} bg-[#0a1220] rounded-r-lg px-5 py-4`}>
+    <div className={`border-l-0 md:border-l-[3px] ${style.border} bg-[#0a1220] rounded-r-lg px-5 py-4`}>
       <div className={`text-[9px] font-bold ${style.label} tracking-wider uppercase mb-3`}>
         {section.section}
       </div>
@@ -1408,7 +1413,7 @@ function SectorSection({ section, scannerData }: { section: SectionResult; scann
   const etfAll = dedupeByTicker([...(movers['ETF Gainers'] || []), ...(movers['ETF Losers'] || [])]);
   const etfRows = etfAll
     .filter((e: any) => dVolOf(e) > 0)
-    .sort((a: any, b: any) => dVolOf(b) - dVolOf(a))
+    .sort((a: any, b: any) => Math.abs(chgOf(b)) - Math.abs(chgOf(a)))
     .slice(0, 5);
 
   const flowAll = dedupeByTicker([
@@ -1458,7 +1463,7 @@ function SectorSection({ section, scannerData }: { section: SectionResult; scann
                 return (
                   <div
                     key={i}
-                    className="group flex items-center px-3 py-[3px] rounded transition-colors hover:bg-white/[0.02]"
+                    className="group flex items-center px-3 py-[1px] rounded transition-colors hover:bg-white/[0.02]"
                   >
                     <span className={`text-[11px] w-[140px] text-right shrink-0 pr-4 transition-colors ${isFirst ? 'text-emerald-300/90 font-medium' : isLast ? 'text-rose-300/90 font-medium' : 'text-slate-400 group-hover:text-slate-300'}`}>
                       {s.name}
@@ -1589,7 +1594,7 @@ function FlowTable({ title, color, blurb, rows }: { title: string; color: string
   const titleCls = color === 'indigo' ? 'text-indigo-400' : 'text-rose-400';
 
   return (
-    <div className={`border-l-[3px] ${borderCls} ${bgCls} rounded-r-lg px-2.5 md:px-4 py-2 md:py-3`}>
+    <div className={`border-l-0 md:border-l-[3px] ${borderCls} ${bgCls} rounded-r-lg px-1 md:px-4 py-2 md:py-3`}>
       <div className={`text-[9px] font-bold ${titleCls} tracking-wider uppercase mb-1.5`}>
         {title}
       </div>
@@ -1608,10 +1613,10 @@ function FlowTable({ title, color, blurb, rows }: { title: string; color: string
           const stars = newsStars(r);
           return (
             <div key={i} className={scrollWrap} style={scrollStyle}>
-              <div className="grid items-center gap-x-1 py-[3px] text-[11px] tabular-nums" style={{ gridTemplateColumns: GRID_COLS }}>
+              <div className="grid items-center gap-x-1 py-[1px] text-[11px] tabular-nums" style={{ gridTemplateColumns: GRID_COLS }}>
                 <span className="inline-flex items-center gap-1">
                   <ChartTooltip symbol={r.ticker}>
-                    <span className={`text-[10px] font-bold tracking-wider rounded px-1.5 py-[1px] text-center ${chg >= 0 ? 'text-emerald-300 bg-emerald-500/10 border border-emerald-500/20' : 'text-rose-300 bg-rose-500/10 border border-rose-500/20'}`}>
+                    <span className={`${gridChipCls(grade)} cursor-default`}>
                       {r.ticker}
                     </span>
                   </ChartTooltip>
@@ -1712,7 +1717,7 @@ function SectionCard({
   right?: React.ReactNode;
 }) {
   return (
-    <div className="border border-white/[0.06] rounded-2xl p-3 sm:p-6 md:p-8 relative overflow-hidden">
+    <div className="border border-white/[0.06] rounded-2xl p-2 sm:p-6 md:p-8 relative overflow-hidden">
       <div
         className="hidden md:block absolute right-0 top-0 w-64 h-64 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"
         style={{ backgroundColor: `${accent}0d` }}
@@ -1736,6 +1741,7 @@ interface ScorecardCell {
   value: string;
   sub?: string;
   color: 'green' | 'amber' | 'red' | 'slate';
+  subColor?: 'green' | 'amber' | 'red' | 'slate';
 }
 
 function MacroScorecard({ badges, raw, chopBands }: { badges: MacroBadges | null; raw: any; chopBands: ChopBands }) {
@@ -1748,7 +1754,7 @@ function MacroScorecard({ badges, raw, chopBands }: { badges: MacroBadges | null
   if (badges.vix) {
     const v = badges.vix;
     const sign = v.pct >= 0 ? '+' : '';
-    cells.push({ label: 'VIX', value: v.price.toFixed(2), sub: `${sign}${v.pct.toFixed(2)}%`, color: vixCellTone(v.price) });
+    cells.push({ label: 'VIX', value: v.price.toFixed(2), sub: `${sign}${v.pct.toFixed(2)}%`, color: vixPctTone(v.pct), subColor: vixPctTone(v.pct) });
   }
 
   if (badges.breadth) {
@@ -1806,7 +1812,7 @@ function MacroScorecard({ badges, raw, chopBands }: { badges: MacroBadges | null
           <div key={c.label} className={`rounded-lg border px-3 py-2.5 ${scorecardCellCls(c.color)}`}>
             <div className="text-[7px] font-bold uppercase tracking-wider text-slate-500 mb-1">{c.label}</div>
             <div className={`text-[13px] font-bold tabular-nums leading-tight ${scorecardValCls(c.color)}`}>{c.value}</div>
-            {c.sub && <div className="text-[9px] text-slate-500 mt-0.5 truncate">{c.sub}</div>}
+            {c.sub && <div className={`text-[9px] mt-0.5 truncate ${c.subColor ? scorecardValCls(c.subColor) : 'text-slate-500'}`}>{c.sub}</div>}
           </div>
         ))}
       </div>
@@ -1828,6 +1834,7 @@ export default function AnalystBrief() {
   const [scannerData, setScannerData] = useState<any>(null);
   const macro = useMacroScorecard();
   const [session, setSession] = useState(getMarketSession());
+  const [helpOpen, setHelpOpen] = useState(false);
 
   useEffect(() => {
     const id = setInterval(() => setSession(getMarketSession()), 30_000);
@@ -1941,11 +1948,26 @@ export default function AnalystBrief() {
     fetchMacro();
   }, []);
 
+  const [auxScanData, setAuxScanData] = useState<any[]>([]);
+
   useEffect(() => {
     /* Shared de-duplicated fetch — see lib/scannerLatest. */
     fetchScannerLatest()
       .then(d => { if (d) setScannerData(d); })
       .catch(() => {});
+    Promise.all([
+      fetch('/api/ep9m/latest').then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch('/api/vcp/latest').then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch('/api/swing-candidates/latest').then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([ep9m, vcp, swing]) => {
+      const rows: any[] = [
+        ...(ep9m?.candidates || []),
+        ...(vcp?.candidates || []),
+        ...(swing?.candidates || []),
+        ...(swing?.consolidation || []),
+      ];
+      if (rows.length) setAuxScanData(rows);
+    });
   }, []);
 
   const sessionBlocks = React.useMemo(() => {
@@ -1985,15 +2007,21 @@ export default function AnalystBrief() {
      'Market Regime' section here that the generator has never emitted. */
   const scannerLookup = React.useMemo<Record<string, any>>(() => {
     const map: Record<string, any> = {};
-    const movers = scannerData?.topMovers || {};
-    for (const group of Object.values(movers) as any[]) {
-      if (!Array.isArray(group)) continue;
+    const lists = [
+      ...(Array.isArray(scannerData?.dailySetups) ? [scannerData.dailySetups] : []),
+      ...(Array.isArray(scannerData?.stocksInPlay) ? [scannerData.stocksInPlay] : []),
+      ...Object.values(scannerData?.topMovers || {}).filter(Array.isArray) as any[][],
+    ];
+    for (const group of lists) {
       for (const r of group) {
         if (r?.ticker && !map[r.ticker]) map[r.ticker] = r;
       }
     }
+    for (const r of auxScanData) {
+      if (r?.ticker && !map[r.ticker]) map[r.ticker] = r;
+    }
     return map;
-  }, [scannerData]);
+  }, [scannerData, auxScanData]);
 
   const enrichStock = useCallback((s: StockEntry): StockEntry => {
     const sc = scannerLookup[s.ticker];
@@ -2009,7 +2037,13 @@ export default function AnalystBrief() {
       grade: s.grade ?? sc.cnfGrade ?? sc.grade ?? null,
       price: s.price || sc.price || 0,
       changePct: s.changePct || sc.changePct || 0,
-    };
+      catalyst: (s as any).catalyst || sc.catalyst || undefined,
+      catalystUrl: (s as any).catalystUrl || sc.catalystUrl || undefined,
+      newsPublisher: (s as any).newsPublisher || sc.newsPublisher || undefined,
+      newsAge: (s as any).newsAge || sc.newsAge || undefined,
+      newsSentiment: (s as any).newsSentiment || sc.newsSentiment || undefined,
+      newsCausal: (s as any).newsCausal ?? sc.newsCausal ?? undefined,
+    } as any;
   }, [scannerLookup]);
 
   const tradesRaw = brief?.sections.find(s => s.section === 'Top Trades');
@@ -2022,9 +2056,30 @@ export default function AnalystBrief() {
      for most of the trading day. */
   const preGapperRaw = brief?.sections.find(s => /Pre.*Gapper/i.test(s.section))
     || brief?.sections.find(s => /Gappers|Intraday Movers/i.test(s.section));
-  const gapperSection = preGapperRaw ? { ...preGapperRaw, stocks: normalizeStocks(preGapperRaw.stocks) } : undefined;
+  const gapperSection = preGapperRaw ? { ...preGapperRaw, stocks: normalizeStocks(preGapperRaw.stocks).map(enrichStock) } : undefined;
+
+  const scannerMoverGainers = React.useMemo<StockEntry[]>(() => {
+    const raw: any[] = scannerData?.topMovers?.['Gainers'] || [];
+    return raw.map(r => normalizeStock({
+      ticker: r.ticker, price: r.price || 0, changePct: r.changePct || 0,
+      rvol: r.rvol, vol: r.vol, dvol: r.dVol ?? r.dvol,
+      rs: r.rsRating ?? r.rs, stage: r.stage, score: r.cnfScore ?? r.score,
+      grade: r.cnfGrade ?? r.grade,
+    })).sort((a, b) => (b.changePct || 0) - (a.changePct || 0));
+  }, [scannerData]);
+
+  const scannerMoverLosers = React.useMemo<StockEntry[]>(() => {
+    const raw: any[] = scannerData?.topMovers?.['Losers'] || [];
+    return raw.map(r => normalizeStock({
+      ticker: r.ticker, price: r.price || 0, changePct: r.changePct || 0,
+      rvol: r.rvol, vol: r.vol, dvol: r.dVol ?? r.dvol,
+      rs: r.rsRating ?? r.rs, stage: r.stage, score: r.cnfScore ?? r.score,
+      grade: r.cnfGrade ?? r.grade,
+    })).sort((a, b) => (a.changePct || 0) - (b.changePct || 0));
+  }, [scannerData]);
+
   const sipRaw = brief?.sections.find(s => s.section === 'Stocks in Play Today');
-  const sipSection = sipRaw ? { ...sipRaw, stocks: normalizeStocks(sipRaw.stocks) } : undefined;
+  const sipSection = sipRaw ? { ...sipRaw, stocks: normalizeStocks(sipRaw.stocks).map(enrichStock) } : undefined;
 
   const isGapper = (s: SectionResult) => /Gappers/i.test(s.section);
   const postSipSections = brief?.sections.filter(s => {
@@ -2038,13 +2093,14 @@ export default function AnalystBrief() {
   const bgCls = color === 'emerald' ? 'bg-emerald-500/[0.06]' : color === 'rose' ? 'bg-rose-500/[0.06]' : 'bg-amber-500/[0.06]';
 
   return (
+    <>
     <ActiveChartProvider>
     {/* Same shell as the dashboard: centred rounded panel on the page ground,
         header rule, then a spaced stack of cards. */}
     <div className="min-h-screen bg-[#05080f] text-slate-300 font-sans md:py-10 flex justify-center">
       <div className="w-full max-w-[1200px] bg-[#0b101a] md:rounded-[2rem] border-x md:border border-white/5 overflow-hidden shadow-2xl relative pb-20">
 
-        <div className="px-3 md:px-10 pt-5 md:pt-8 pb-4 md:pb-6 border-b border-white/5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="px-4 md:px-10 pt-6 md:pt-8 pb-4 md:pb-6 border-b border-white/5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div className="flex items-center gap-3.5 md:gap-5">
             <img src="/logo.svg" alt="CTT" className="ctt-logo h-9 md:h-12 w-auto drop-shadow-[0_2px_10px_rgba(124,139,250,0.18)]" />
             <div className="leading-none">
@@ -2077,14 +2133,19 @@ export default function AnalystBrief() {
             >
               Dashboard
             </a>
+            <button
+              onClick={() => setHelpOpen(true)}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold bg-slate-700/60 hover:bg-slate-600 text-slate-400 hover:text-slate-200 transition-colors shrink-0"
+              title="Help"
+            >?</button>
           </div>
         </div>
 
-        <div className="px-2 md:px-10 py-4 md:py-6 space-y-4 md:space-y-6">
+        <div className="px-4 md:px-10 py-4 md:py-6 space-y-4 md:space-y-6">
 
         {/* Same card shell and header as the dashboard's Scorecard: label pill
             left, session and last-update right, indigo glow behind. */}
-        <div className="border border-white/[0.06] rounded-2xl p-3 sm:p-6 md:p-8 relative overflow-hidden">
+        <div className="border border-white/[0.06] rounded-2xl p-2 sm:p-6 md:p-8 relative overflow-hidden">
           <div className="hidden md:block absolute right-0 top-0 w-64 h-64 bg-indigo-500/5 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
           <div className="flex justify-between items-center relative z-10 mb-3 md:mb-6 border-b border-white/5 pb-2 md:pb-4">
             <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2">
@@ -2216,39 +2277,18 @@ export default function AnalystBrief() {
               return sectorSec ? <SectorSection section={sectorSec} scannerData={scannerData} /> : null;
             })()}
 
-            {/* Legend key — matches dashboard ScanLegend (display only) */}
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 text-[7px] font-bold tracking-wider uppercase">
-              <span className="inline-flex items-center gap-1 cursor-help" title="A = CNF 70+ (high conviction). B = CNF 50–69 (moderate). Grade combines RVOL, gap size, range expansion, relative strength, and catalyst quality into one score.">
-                <span className="text-emerald-400">A</span>
-                <span className="text-amber-400">B</span>
-                <span className="text-slate-500">GRADE</span>
-              </span>
-              <span className="inline-flex items-center gap-1.5 px-2 py-[2px] rounded border border-white/[0.08] bg-white/[0.02] text-slate-400 cursor-help" title="EMA posture: where price sits relative to the 10 and 21 EMA. Green (stacked) = above both, trend intact. Amber (pre-cross) = 10 and 21 converging, potential trend change. Rose (ext/below) = extended above or broken below the 21.">
-                10/21
-                <span className="inline-block w-[5px] h-[5px] rounded-full bg-emerald-400" />STACKED
-                <span className="inline-block w-[5px] h-[5px] rounded-full bg-amber-400" />PRE-CROSS
-                <span className="inline-block w-[5px] h-[5px] rounded-full bg-rose-400" />EXT / BELOW
-              </span>
-              <span className="inline-flex items-center gap-1 cursor-help" title="Avoid list — names flagged by the analyst as traps: thin floats with no follow-through, crowded shorts squeezing into resistance, or patterns that look right but fail on closer inspection.">
-                <span className="text-rose-200 bg-rose-950 border border-rose-500/20 rounded px-1.5 py-[1px]">TRAP</span>
-              </span>
-              <span className="inline-flex items-center gap-1 cursor-help" title="Blue Dot — structural reversal. Price is up today but still under the 21 EMA with no prior blue-dot setup. A contrarian signal, not a trend-following one.">
-                <span className="inline-block w-[7px] h-[7px] rounded-full bg-blue-500 shrink-0" />
-                <span className="text-slate-500">BLUE DOT</span>
-              </span>
-              <span className="inline-flex items-center gap-1 cursor-help" title="One star = a news headline exists for this ticker today (earnings, FDA, upgrade, etc.).">
-                <span className="text-slate-500">★</span>
-                <span className="text-slate-500">NEWS</span>
-              </span>
-              <span className="inline-flex items-center gap-1 cursor-help" title="Two stars = a material catalyst is driving the move (earnings beat, M&A, FDA approval). Higher conviction than a single news mention.">
-                <span className="text-amber-400">★★</span>
-                <span className="text-slate-500">CATALYST</span>
-              </span>
+            {/* Compact legend */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-slate-500 leading-snug">
+              <span className="cursor-help" title="CNF grade. A = 70+ (high conviction), B = 50–69. Combines RVOL, gap size, range expansion, relative strength, and catalyst quality."><span className="text-emerald-400 font-bold">A</span> 70+ <span className="text-amber-400 font-bold">B</span> 50&ndash;69</span>
+              <span className="cursor-help" title="10/21 EMA posture. Green = price above both EMAs, trend intact. Amber = 10 and 21 converging, potential trend change. Rose = extended above or broken below the 21 EMA."><span className="inline-block w-[5px] h-[5px] rounded-full bg-emerald-400 relative top-[-1px]" /> stacked <span className="inline-block w-[5px] h-[5px] rounded-full bg-amber-400 relative top-[-1px]" /> pre-cross <span className="inline-block w-[5px] h-[5px] rounded-full bg-rose-400 relative top-[-1px]" /> ext/below</span>
+              <span className="cursor-help" title="Analyst-flagged avoid: thin floats with no follow-through, crowded shorts squeezing into resistance, or patterns that look right but fail on closer inspection."><span className="text-rose-300 font-bold">TRAP</span> avoid</span>
+              <span className="cursor-help" title="Structural reversal. Price is up today but still under the 21 EMA with no prior blue-dot setup. A contrarian signal, not a trend-following one."><span className="inline-block w-[5px] h-[5px] rounded-full bg-blue-500 relative top-[-1px]" /> blue dot</span>
+              <span className="cursor-help" title="One star = a news headline exists today (earnings, FDA, upgrade, etc.). Two stars = a material catalyst is driving the move — higher conviction."><span className="text-slate-500">★</span> news <span className="text-amber-400">★★</span> catalyst</span>
+              <span className="cursor-help" title="CNF = confluence score (0–100). RVOL = relative volume vs 20-day average. RS = relative strength percentile (0–99). STG = Weinstein stage (1B–4C)."><span className="font-semibold text-slate-400">CNF</span> score <span className="font-semibold text-slate-400">RVOL</span> vs avg <span className="font-semibold text-slate-400">RS</span> rel str <span className="font-semibold text-slate-400">STG</span> stage</span>
             </div>
-            <hr className="border-white/10" />
 
             {/* Top Movers */}
-            {gapperSection && <GapperSection section={gapperSection} gradeMap={gradeMap} avoidSet={avoidSet} />}
+            {gapperSection && <GapperSection section={gapperSection} gradeMap={gradeMap} avoidSet={avoidSet} scannerGainers={scannerMoverGainers} scannerLosers={scannerMoverLosers} />}
 
             {/* Stocks in Play with full grid */}
             {sipSection && <SIPSection section={sipSection} gradeMap={gradeMap} avoidSet={avoidSet} />}
@@ -2328,5 +2368,7 @@ export default function AnalystBrief() {
       </div>
     </div>
     </ActiveChartProvider>
+    <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
+    </>
   );
 }

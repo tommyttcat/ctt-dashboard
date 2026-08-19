@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
+import { getEmailRecipients } from '@/lib/users';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -719,7 +720,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'RESEND_API_KEY not configured' }, { status: 500 });
   }
 
-  const polygonKey = (process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '').trim();
+  const polygonKey = (process.env.POLYGON_API_KEY || '').trim();
   const anthropicKey = (process.env.ANTHROPIC_API_KEY || '').trim();
   const origin = resolveOrigin(req);
 
@@ -895,18 +896,28 @@ export async function GET(req: Request) {
     return new Response(html, { headers: { 'Content-Type': 'text/html' } });
   }
 
-  const recipientEmail = process.env.BRIEFING_EMAIL || process.env.Email || 'thomasbeach@gmail.com';
+  const userRecipients = await getEmailRecipients('briefing', 'weekly');
+  const fallback = process.env.BRIEFING_EMAIL || process.env.Email || 'thomasbeach@gmail.com';
+  const recipients = userRecipients.length > 0 ? userRecipients : [fallback];
   const resend = new Resend(resendKey);
+  const subject = `CTT Weekly — ${new Date(mStr + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${new Date(fStr + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
 
   try {
-    const { data, error } = await resend.emails.send({
-      from: 'CTT Briefing <onboarding@resend.dev>',
-      to: recipientEmail,
-      subject: `CTT Weekly — ${new Date(mStr + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${new Date(fStr + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
-      html,
-    });
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ success: true, emailId: data?.id, to: recipientEmail });
+    const results = await Promise.allSettled(
+      recipients.map((to) =>
+        resend.emails.send({
+          from: 'CTT <noreply@confluencetradingtools.com>',
+          to,
+          subject,
+          html,
+        }),
+      ),
+    );
+
+    const sent = results.filter((r) => r.status === 'fulfilled').length;
+    const failed = results.filter((r) => r.status === 'rejected').length;
+
+    return NextResponse.json({ success: true, sent, failed, recipients: recipients.length });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Send failed' }, { status: 500 });
   }
