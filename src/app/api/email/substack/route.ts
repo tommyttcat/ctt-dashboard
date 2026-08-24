@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { kv } from '@vercel/kv';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -369,6 +370,7 @@ const PHASE_LABELS: Record<string, string> = {
   pre: 'Pre-Market',
   morning: 'Morning',
   midday: 'Midday',
+  power: 'Power Hour',
   closing: 'Closing',
 };
 
@@ -533,6 +535,17 @@ export async function GET(req: Request) {
   }
 
   const phase = url.searchParams.get('phase') || undefined;
+  const today = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York' }).replace(/\//g, '-');
+  const subKey = `substack_sent:${phase || 'default'}:${today}`;
+
+  if (publish && !force) {
+    const alreadyPublished = await kv.get(subKey);
+    if (alreadyPublished) {
+      return NextResponse.json({ skipped: true, phase, reason: `Substack ${phase || 'default'} already published today` });
+    }
+  }
+  // NX lock set right before publish (below) for atomicity
+
   const title = buildTitle(brief, phase);
   const subtitle = buildSubtitle(brief);
 
@@ -565,9 +578,22 @@ export async function GET(req: Request) {
   let coverImageUrl: string | undefined;
   let coverDebug = '';
   try {
-    const screenshotUrl = `${origin}/api/og/screenshot?force=1&w=1200&h=1200&clip=60,168,1080,1005`;
+    // Same tape-reading capture the briefing route posts to Bluesky/X: the
+    // #tape-<phase> session block on /analyst, not a full-dashboard clip.
+    // Falls back to the latest populated sessionUpdates phase (same resolution
+    // order the briefing route uses) when no phase param is passed.
+    const su = brief?.sessionUpdates || {};
+    const tapeKey = phase || ['closing', 'power', 'midday', 'morning', 'pre'].find(k => su[k]);
+    if (!tapeKey) throw new Error('no phase and no populated sessionUpdates for tape selector');
+    const screenshotUrl = `${origin}/api/og/screenshot?force=1`
+      + `&url=${encodeURIComponent('https://app.confluencetradingtools.com/analyst')}`
+      + `&selector=${encodeURIComponent(`#tape-${tapeKey}`)}`
+      + `&w=800&h=1200`;
     const imgRes = await fetch(screenshotUrl, { cache: 'no-store' });
-    if (!imgRes.ok) throw new Error(`screenshot ${imgRes.status}`);
+    if (!imgRes.ok) throw new Error(`tape screenshot ${imgRes.status}`);
+    if (!imgRes.headers.get('content-type')?.includes('image')) {
+      throw new Error(`tape screenshot returned ${imgRes.headers.get('content-type')}`);
+    }
     const imgBuf = await imgRes.arrayBuffer();
     const b64 = Buffer.from(imgBuf).toString('base64');
     const dataUri = `data:image/png;base64,${b64}`;
@@ -589,6 +615,14 @@ export async function GET(req: Request) {
   }
 
   if (publish && draft.id) {
+    if (!force) {
+      const locked = await kv.set(subKey, 1, { nx: true, ex: 86400 });
+      if (!locked) {
+        return NextResponse.json({ skipped: true, phase, reason: `Substack ${phase || 'default'} already published today` });
+      }
+    } else {
+      await kv.set(subKey, 1, { ex: 86400 });
+    }
     const pub = await substackPublish(pubUrl, session, draft.id, send);
     if (pub.error) {
       return NextResponse.json({

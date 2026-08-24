@@ -305,7 +305,8 @@ export async function GET(req: Request) {
   const quotes = macro?.quotes || {};
   const indices = ['SPY', 'QQQ', 'DIA', 'IWM'].map(t => ({
     ticker: t,
-    chg: quotes[t]?.changePct ?? 0,
+    // /api/macro returns `pct`; keep `changePct` as a fallback for other shapes.
+    chg: quotes[t]?.pct ?? quotes[t]?.changePct ?? 0,
   }));
 
   const now = new Date();

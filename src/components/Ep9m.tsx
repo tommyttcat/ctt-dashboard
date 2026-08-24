@@ -80,7 +80,7 @@ import { adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStoc
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: "Symbol. Hover shows the company name. Fuchsia dot = unprecedented (today's volume beat its own 60-day high); ★ = repeat EP9M offender. Hover the fuchsia dot on a choppy name — record volume inside a range that will not resolve is the most misread row on this table." },
-  EP: {
+  CNF: {
     what: 'Episodic Pivot score 0–100 — volume abnormality, vs-60-day-high, float turnover, catalyst, close strength, Money Flow, days-to-cover, and repeat-trigger history. Hover the number for the per-row breakdown.',
     colour: 'The grade is on the ticker, not here: green 70+ (A) · amber 50+ (B) · grey below (C).',
   },
@@ -538,6 +538,7 @@ export default function Ep9m() {
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
+  const [repeatPivots, setRepeatPivots] = useState<Record<string, { count: number; events: { date: string; price: number; vol: number; rvol: number; score: number }[] }>>({});
 
   useEffect(() => {
     let isMounted = true;
@@ -552,6 +553,7 @@ export default function Ep9m() {
           setShortlisted(data.shortlisted ?? null);
           if (data.scanMeta?.ep9m) setScanMeta(data.scanMeta.ep9m);
           else if (data.scanMeta) setScanMeta(data.scanMeta);
+          if (data.repeatPivots) setRepeatPivots(data.repeatPivots);
           setStatus('Live');
         } else if (isMounted && data?.error) {
           setStatus('Feed Error');
@@ -788,7 +790,7 @@ export default function Ep9m() {
     : null;
 
   return (
-    <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-visible shadow-xl w-full max-w-[1280px] mx-auto">
+    <div className="bg-[#101623] border-0 md:border md:border-white/5 md:rounded-2xl p-2 md:p-5 relative overflow-visible md:shadow-xl w-full max-w-[1280px] mx-auto">
       <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-30 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
@@ -881,7 +883,7 @@ export default function Ep9m() {
             {showFilters && (
               <div className="flex flex-wrap justify-center items-center gap-3 w-full">
                 <div className={pillWrap}>
-                  <span className={pillLabel}>EP</span>
+                  <span className={pillLabel}>CNF</span>
                   <div className="flex items-center gap-1">
                     {EP_BUCKETS.map((g) => (
                       <button
@@ -1021,18 +1023,19 @@ export default function Ep9m() {
           <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
             {/* 18 columns (N added between TICKER and EP).
                 min-w 960; widths sum ~99. */}
-            <table className="w-full min-w-[960px] table-fixed border-collapse">
+            <table className="w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%] !text-left pl-1`} title={colTip('TICKER')} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
                   <th className={`${thBase} w-[2%]`} title="News — ★ has an article, ★★ has a causal catalyst from a primary source">N</th>
-                  <th className={`${thBase} w-[4%]`} title={colTip('EP')} onClick={() => handleSort('score')}>EP{getSortIcon('score')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
+                  <th className={`${thBase} w-[3%]`} title="Repeat EP9M triggers in the last 90 days. Hover for dates and prices." onClick={() => handleSort('priorTriggers')}>RPT{getSortIcon('priorTriggers')}</th>
+                  <th className={`${thBase} w-[4%]`} title={colTip('CNF')} onClick={() => handleSort('score')}>CNF{getSortIcon('score')}</th>
+                  <th className={`${thBase} w-[4%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('10/21')}>10/21</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('10/21')}>10/21</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('TURN')} onClick={() => handleSort('floatTurnover')}>TURN{getSortIcon('floatTurnover')}</th>
                   {/* One header, two stacked readings. Clicking sorts by ADR;
@@ -1040,7 +1043,7 @@ export default function Ep9m() {
                       header cannot carry two sort keys. */}
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thStage} w-[5%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
@@ -1051,7 +1054,7 @@ export default function Ep9m() {
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
                   <tr>
-                    <td colSpan={18} className="py-12 text-center text-slate-500 text-sm font-medium">
+                    <td colSpan={19} className="py-12 text-center text-slate-500 text-sm font-medium">
                       {status === 'Live'
                         ? (candidates.length > 0
                             ? 'No names match the current filters.'
@@ -1084,6 +1087,26 @@ export default function Ep9m() {
                           </td>
                           <td className={tdBase}><NewsStars row={row} /></td>
                           <td className={tdBase}>
+                            {(() => {
+                              const rp = repeatPivots[row.ticker];
+                              const count = rp?.count ?? row.priorTriggers ?? 0;
+                              if (count === 0) return <span className="text-[10px] text-slate-600">—</span>;
+                              const tip = rp?.events
+                                ? rp.events.map(e => `${e.date}  $${e.price.toFixed(2)}  ${e.rvol.toFixed(1)}x  sc${e.score}`).join('\n')
+                                : `${count} trigger${count !== 1 ? 's' : ''} in 90d`;
+                              const cls = count >= 3
+                                ? 'text-fuchsia-300 bg-fuchsia-500/15 border-fuchsia-400/30'
+                                : count >= 2
+                                ? 'text-purple-300 bg-purple-500/15 border-purple-400/30'
+                                : 'text-slate-400 bg-slate-500/10 border-white/10';
+                              return (
+                                <span title={tip} className={`inline-block px-1.5 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${cls}`}>
+                                  {count}
+                                </span>
+                              );
+                            })()}
+                          </td>
+                          <td className={tdBase}>
                             <span
                               title={epTooltip(row)}
                               className={scoreCellCls(row.score)}
@@ -1094,10 +1117,10 @@ export default function Ep9m() {
                           <td className={`${tdBase} whitespace-nowrap`} title={rsTooltip(row.rsRating)}>
                             <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span>
                           </td>
-                          <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
+                          <td className={`${tdBase} text-[10px] text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
                             <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus && row.vwapStatus !== 'neutral' && (<div onClick={(e) => { e.stopPropagation(); toggleVwap(row.vwapStatus as 'above' | 'below'); }} className={`w-1.5 h-1.5 rounded-full shrink-0 cursor-pointer ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'} ${vwapFilter === row.vwapStatus ? 'ring-1 ring-white/40' : ''}`} title={`VWAP: ${row.vwapStatus} — click to filter`}></div>)}</div>
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getChgColor(row.changePct)}`}>
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getChgColor(row.changePct)}`}>
                             {row.changePct != null ? `${row.changePct >= 0 ? '+' : ''}${row.changePct.toFixed(2)}%` : '—'}
                           </td>
                           <td className={`${tdBase} whitespace-nowrap`}>
@@ -1116,14 +1139,14 @@ export default function Ep9m() {
                             className={`${tdBase} whitespace-nowrap tabular-nums`}
                             title={row.avgVol ? `20-day average: ${formatNumber(row.avgVol)}${row.volVs60dMax != null ? ` · ${row.volVs60dMax.toFixed(2)}x its 60-day volume high` : ''}` : undefined}
                           >
-                            <div className="text-xs font-bold leading-tight text-slate-200">{formatNumber(row.vol)}</div>
+                            <div className="text-[10px] font-bold leading-tight text-slate-200">{formatNumber(row.vol)}</div>
                             {row.avgVol ? (<div className="text-[9px] text-slate-500 font-medium leading-tight">avg {formatNumber(row.avgVol)}</div>) : null}
                           </td>
-                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`} title="Today's volume vs its own 20-day average">
-                            {row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}
+                          <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`} title="Today's volume vs its own 20-day average">
+                            {row.rvol ? `${row.rvol < 1 ? row.rvol.toFixed(1) : Math.round(row.rvol)}x` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getTurnColor(row.floatTurnover)}`} title="Float turnover — share of the tradeable float that changed hands today. Above 1.0x the entire float traded.">
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getTurnColor(row.floatTurnover)}`} title="Float turnover — share of the tradeable float that changed hands today. Above 1.0x the entire float traded.">
                             {row.floatTurnover != null ? `${row.floatTurnover.toFixed(2)}x` : '—'}
                           </td>
                           {/* ADR over CHOP, one cell. On this table CHOP is
@@ -1135,19 +1158,19 @@ export default function Ep9m() {
                             title={chopTooltip(chop, adr)}
                           >
                             <div className="flex flex-col leading-tight">
-                              <span className={`text-xs font-bold ${getAdrColor(adr)}`}>
+                              <span className={`text-[10px] font-bold ${getAdrColor(adr)}`}>
                                 {adr != null ? `${adr.toFixed(1)}%` : '—'}
                               </span>
                             </div>
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={`Money Flow (21) — ${mfLabel(mf)}. Heavy volume with MF under 45 is distribution, however strong today's close. Arrow shows the 5-day direction.`}>
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={`Money Flow (21) — ${mfLabel(mf)}. Heavy volume with MF under 45 is distribution, however strong today's close. Arrow shows the 5-day direction.`}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover — short interest divided by average daily volume. Squeeze fuel.">
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover — short interest divided by average daily volume. Squeeze fuel.">
                             {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
+                          <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
                           <td className={`${tdStage} whitespace-nowrap border-l border-white/5`}>
                             <span
                               title={stageDescription(row.stage)}
@@ -1176,7 +1199,7 @@ export default function Ep9m() {
                               instead of drifting from it. */}
                           <td />
                           <td />
-                          <td colSpan={16} className="pb-1.5 pt-1 pr-3">
+                          <td colSpan={17} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
                               <span
                                 className="shrink-0 flex items-baseline gap-1 pr-2.5 cursor-help whitespace-nowrap"

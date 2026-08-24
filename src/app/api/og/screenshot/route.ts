@@ -16,6 +16,11 @@ export async function GET(req: Request) {
   const w = parseInt(url.searchParams.get('w') || '1280');
   const h = parseInt(url.searchParams.get('h') || '900');
   const clip = url.searchParams.get('clip');
+  const selector = url.searchParams.get('selector');
+  // Min rendered text before a selector capture is considered ready.
+  // Header-only render of the tape card is ~33 chars; a real one is many hundreds.
+  // Pass minText=0 to opt a non-text element out of the check.
+  const minText = parseInt(url.searchParams.get('minText') || '120');
 
   const secret = process.env.CRON_SECRET;
   const force = url.searchParams.get('force') === '1';
@@ -39,19 +44,51 @@ export async function GET(req: Request) {
     const page = await browser.newPage();
     await page.goto(target, { waitUntil: 'networkidle2', timeout: 12000 });
     await page.waitForSelector('[data-loaded]', { timeout: 5000 }).catch(() => {});
+
+    // When targeting a specific element, require it to have actually painted
+    // content before capturing. Without this the [data-loaded] miss above is
+    // swallowed and we screenshot — and then publish — an empty card.
+    if (selector) {
+      try {
+        await page.waitForFunction(
+          (sel: string, min: number) => {
+            const el = document.querySelector(sel);
+            if (!el) return false;
+            const r = el.getBoundingClientRect();
+            if (r.width < 1 || r.height < 1) return false;
+            return (el.textContent || '').trim().length >= min;
+          },
+          { timeout: 10000, polling: 250 },
+          selector,
+          minText,
+        );
+      } catch {
+        return Response.json(
+          { error: `selector "${selector}" had no rendered content (>=${minText} chars) after 10s` },
+          { status: 504 },
+        );
+      }
+    }
+
     await page.addStyleTag({ content: 'body { filter: brightness(1.25) contrast(1.05); }' });
     await new Promise(r => setTimeout(r, 1000));
 
-    const screenshotOpts: any = { type: 'png' };
-    if (clip) {
-      const [x, y, cw, ch] = clip.split(',').map(Number);
-      screenshotOpts.clip = { x, y, width: cw, height: ch };
+    let buffer: Uint8Array;
+    if (selector) {
+      const el = await page.$(selector);
+      if (!el) return Response.json({ error: `selector "${selector}" not found` }, { status: 404 });
+      buffer = await el.screenshot({ type: 'png' }) as unknown as Uint8Array;
     } else {
-      screenshotOpts.fullPage = false;
+      const screenshotOpts: any = { type: 'png' };
+      if (clip) {
+        const [x, y, cw, ch] = clip.split(',').map(Number);
+        screenshotOpts.clip = { x, y, width: cw, height: ch };
+      } else {
+        screenshotOpts.fullPage = false;
+      }
+      buffer = await page.screenshot(screenshotOpts) as unknown as Uint8Array;
     }
-
-    const buffer = await page.screenshot(screenshotOpts);
-    return new Response(buffer, {
+    return new Response(buffer as unknown as BodyInit, {
       headers: {
         'Content-Type': 'image/png',
         'Cache-Control': 'no-store',

@@ -81,6 +81,8 @@ import { SCANNER } from '@/lib/scanConfig';
 import TickerChartHover, { useFreezeWhileChartOpen } from './TickerChartHover';
 import { rvolColor as getRvolColor, adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, floatColor as getFloatColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
+import { displaySector } from '@/lib/sectors';
+import { formatSetupName } from '@/lib/setupName';
 
 interface StockData {
   ticker: string;
@@ -127,7 +129,6 @@ interface Benchmark { symbol: string; price: number; day?: MovingAverage[]; week
 const formatTime = (timestamp: number | Date) => { if (!timestamp) return ''; const date = new Date(timestamp); return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' }); };
 const formatNumber = (num: number | null) => { if (num === null || num === 0 || isNaN(num)) return '\u2014'; if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B'; if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M'; if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K'; return num.toLocaleString(); };
 const formatCurrency = (num: number | null) => { if (num === null || num === 0 || isNaN(num)) return '\u2014'; if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B'; if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M'; return '$' + num.toLocaleString(); };
-const formatSetupName = (name: string | null) => { if (!name || name === '-' || name === '\u2014') return null; if (name.includes('BB SQZ')) return 'BB SQZ'; if (name === 'Blue Dot Rev') return 'BD Rev'; return name; };
 
 /* A row counts as having news only when there is a HEADLINE, not merely a
    tag. "Earnings" with no article behind it comes from the earnings calendar
@@ -226,6 +227,7 @@ export default function TopMovers() {
               conviction: item.conviction != null ? Number(item.conviction) : ((item.cnfScore ?? item.smbScore) ?? null),
               aboveEma10: item.aboveEma10 ?? null, aboveEma21: item.aboveEma21 ?? null,
               stochK: item.stochK ?? null, rsRating: item.rsRating ?? null,
+              adrPct: item.adrPct ?? null, mf: item.mf ?? null, mfTrend: item.mfTrend ?? 0,
             }));
           });
           setTopMoversData(safeData);
@@ -293,17 +295,21 @@ export default function TopMovers() {
   const getSessionTextColor = () => { if (status.includes('Err') || status.includes('Offline')) return 'text-rose-500'; if (status.includes('Syncing')) return 'text-amber-500'; if (session === 'Pre-Market') return 'text-amber-500'; if (session === 'Open') return 'text-[#00e676]'; if (session === 'Post-Market') return 'text-indigo-400'; return 'text-slate-500'; };
   const emaDot = (state: boolean | null) => { if (state === null) return 'bg-slate-600'; return state ? 'bg-emerald-400' : 'bg-rose-500'; };
 
-  const thBase = "px-3 py-3 text-[10px] text-slate-500 font-bold tracking-wider cursor-pointer hover:text-slate-300 transition-colors text-center";
-  const tdBase = "px-3 py-3 text-center";
+  const thBase = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
+  const tdBase = "px-0.5 pt-2.5 pb-1.5 text-center";
   const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
   const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
-  const pillWrap = "flex items-center gap-1.5 px-2 py-0.5 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
-  const pillLabel = "text-[8px] font-bold tracking-widest uppercase text-slate-500";
-  const pillBtn = "px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase transition-all duration-300 whitespace-nowrap";
+  const thStage = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
+  const tdStage = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
+  const thSector = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
+  const tdSector = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
+  const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
+  const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
+  const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
 
   return (
-    <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative overflow-visible shadow-xl w-full max-w-[1280px] mx-auto">
-      <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-30 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-6 border-b border-white/5 pb-4' : ''}`}>
+    <div className="bg-[#101623] border-0 md:border md:border-white/5 md:rounded-2xl p-2 md:p-5 relative overflow-visible md:shadow-xl w-full max-w-[1280px] mx-auto">
+      <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-30 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
@@ -389,36 +395,35 @@ export default function TopMovers() {
           </div>
           
           <div className="overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[1250px] table-fixed border-collapse">
+            <table className="w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%] !text-left pl-1`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
                   <th className={`${thBase} w-[2%]`} title="News — ★ has an article, ★★ has a causal catalyst from a primary source">N</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
-                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
-                  <th className={`${thBase} w-[7%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className={`${thBase} w-[6%]`}>10/21</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
+                  <th className={`${thBase} w-[4%]`} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
+                  <th className={`${thBase} w-[4%]`} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
+                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} w-[5%]`}>10/21</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('adrPct' as any)}>ADR{getSortIcon('adrPct' as any)}</th>
                   <th className={`${thBase} w-[4%]`} onClick={() => handleSort('mf' as any)}>MF{getSortIcon('mf' as any)}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
                   <th className={`${thBase} w-[5%]`} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
-                  <th className={`${thBase} w-[6%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className={`${thBase} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thBase} w-[9%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className={`${thBase} w-[14%]`} onClick={() => handleSort('catalyst')}>CATALYST{getSortIcon('catalyst')}</th>
+                  <th className={`${thBase} w-[5%]`} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
+                  <th className={`${thStage} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className={`${thSector} w-[7%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {status.includes('Syncing') && topMoversData[activeTab].length === 0 ? (
-                  <tr><td colSpan={19} className="py-12 text-center"><div className="w-5 h-5 border-2 border-white/10 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
+                  <tr><td colSpan={18} className="py-12 text-center"><div className="w-5 h-5 border-2 border-white/10 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
                 ) : sortedStocks.length === 0 ? (
                   <tr>
-                    <td colSpan={19} className="py-12 px-8 text-center">
+                    <td colSpan={18} className="py-12 px-8 text-center">
                       <span className="block text-slate-500 text-sm font-medium max-w-[560px] mx-auto leading-relaxed">
                         {emptyStateText()}
                       </span>
@@ -429,52 +434,31 @@ export default function TopMovers() {
                     const isPositive = row.changePct >= 0;
                     return (
                       <tr key={i} className="hover:bg-white/[0.02] transition-colors group">
-                        <td className={`${tdBase} !text-left pl-1`}>
-                          <TickerChartHover symbol={row.ticker}><span className={tickerChipForScore(row.conviction)} title={tickerTitle(row.name, row.ticker, row.conviction)}>{row.ticker}</span></TickerChartHover>
-                          <CatalystChip row={row} note={NEGATIVE_NOTE} />
+                        <td className={tdBase}>
+                          <div className="flex items-center justify-start gap-1.5">
+                            <TickerChartHover symbol={row.ticker}><span className={tickerChipForScore(row.conviction)} title={tickerTitle(row.name, row.ticker, row.conviction)}>{row.ticker}</span></TickerChartHover>
+                            <CatalystChip row={row} note={NEGATIVE_NOTE} />
+                          </div>
                         </td>
                         <td className={tdBase}><NewsStars row={row} /></td>
                         <td className={tdBase}><span className={scoreCellCls(row.conviction)}>{row.conviction != null ? row.conviction : '--'}</span></td>
                         <td className={`${tdBase} whitespace-nowrap`} title={rsTooltip(row.rsRating)}><span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span></td>
-                        <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}><div className="flex items-center justify-center gap-1.5">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div onClick={(e) => { e.stopPropagation(); toggleVwap(row.vwapStatus as 'above' | 'below'); }} className={`w-1.5 h-1.5 rounded-full shrink-0 cursor-pointer ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'} ${vwapFilter === row.vwapStatus ? 'ring-1 ring-white/40' : ''}`} title={`VWAP: ${row.vwapStatus} — click to filter`}></div>)}</div></td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
+                        <td className={`${tdBase} text-[10px] text-slate-300 font-medium whitespace-nowrap tabular-nums`}><div className="flex items-center justify-center gap-1.5">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div onClick={(e) => { e.stopPropagation(); toggleVwap(row.vwapStatus as 'above' | 'below'); }} className={`w-1.5 h-1.5 rounded-full shrink-0 cursor-pointer ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'} ${vwapFilter === row.vwapStatus ? 'ring-1 ring-white/40' : ''}`} title={`VWAP: ${row.vwapStatus} — click to filter`}></div>)}</div></td>
+                        <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
                         <td className={`${tdBase} whitespace-nowrap`}><div className="flex items-center justify-center gap-1.5"><div className="flex items-center gap-0.5"><span className="text-[9px] font-bold text-slate-500">10</span><div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} title={`10 EMA: ${row.aboveEma10 === null ? 'n/a' : row.aboveEma10 ? 'above' : 'below'}`}></div></div><div className="flex items-center gap-0.5"><span className="text-[9px] font-bold text-slate-500">21</span><div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma21)}`} title={`21 EMA: ${row.aboveEma21 === null ? 'n/a' : row.aboveEma21 ? 'above' : 'below'}`}></div></div></div></td>
-                        <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
-                        <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '\u2014'}</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${row.adrPct != null ? getAdrColor(row.adrPct) : 'text-slate-600'}`}>{row.adrPct != null ? `${row.adrPct.toFixed(1)}%` : '\u2014'}</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${row.mf != null ? mfColor(row.mf) : 'text-slate-600'}`}>{row.mf != null ? `${mfArrow(row.mfTrend)}${mfLabel(row.mf)}` : '\u2014'}</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '\u2014'}</td>
-                        <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover \u2014 short interest divided by average daily volume.">{row.daysToCover != null ? row.daysToCover.toFixed(1) : '\u2014'}</td>
-                        <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
-                        <td className={`${tdBase} whitespace-nowrap border-l border-white/5`} title={stageDescription(row.stage)}>
+                        <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
+                        <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
+                        <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol < 1 ? row.rvol.toFixed(1) : Math.round(row.rvol)}x` : '\u2014'}</td>
+                        <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
+                        <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${row.adrPct != null ? getAdrColor(row.adrPct) : 'text-slate-600'}`}>{row.adrPct != null ? `${row.adrPct.toFixed(1)}%` : '\u2014'}</td>
+                        <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${row.mf != null ? mfColor(row.mf) : 'text-slate-600'}`} title={row.mf != null ? `Money Flow ${row.mf.toFixed(0)} \u2014 ${mfLabel(row.mf)}` : undefined}>{row.mf != null ? `${row.mf.toFixed(0)}${mfArrow(row.mfTrend)}` : '\u2014'}</td>
+                        <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '\u2014'}</td>
+                        <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover \u2014 short interest divided by average daily volume.">{row.daysToCover != null ? row.daysToCover.toFixed(1) : '\u2014'}</td>
+                        <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
+                        <td className={`${tdStage} whitespace-nowrap border-l border-white/5`} title={stageDescription(row.stage)}>
                           <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums tracking-wide cursor-help ${stageBadge(row.stage)}`}>{stageShort(row.stage)}</span>
                         </td>
-                        <td className={tdBase}><span className="block truncate text-[10px] font-semibold tracking-wide uppercase text-slate-400">{row.sector || '\u2014'}</span></td>
-                        <td className={`${tdBase} text-[10px] whitespace-normal break-words`}>
-                          {!isGenericCatalyst(row.catalyst) ? (
-                            <span className="flex flex-col leading-tight" title={newsTooltip(row) || undefined}>
-                              {row.catalystUrl ? (
-                                <a href={row.catalystUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-300/90 font-medium hover:text-[#7c8bfa] transition-colors hover:underline">{row.catalyst}</a>
-                              ) : (
-                                <span className="text-indigo-300/90 font-medium">{row.catalyst}</span>
-                              )}
-                              {/* Publisher and age under the tag. "Contract" is
-                                  the same word for a $2M reseller deal and a
-                                  $200M defence award; the source and how long
-                                  ago it landed are the cheapest available
-                                  discriminators, and both fit on one line. */}
-                              {(row.newsPublisher || row.newsAge) && (
-                                <span className="text-[9px] text-slate-500 font-medium truncate">
-                                  {[row.newsPublisher, row.newsAge].filter(Boolean).join(' \u00b7 ')}
-                                </span>
-                              )}
-                            </span>
-                          ) : formatSetupName(row.setupName) ? (
-                            <span className="text-slate-400 font-medium whitespace-nowrap">{formatSetupName(row.setupName)}</span>
-                          ) : (<span className="text-slate-500 font-medium">Technical</span>)}
-                        </td>
+                        <td className={tdSector}><span className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{displaySector(row.sector, row.ticker)}</span></td>
                       </tr>
                     );
                   })

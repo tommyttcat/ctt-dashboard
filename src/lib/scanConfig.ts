@@ -244,6 +244,38 @@ export const VCP_META: ScanConfigMeta = {
 };
 
 /* ==========================================================================
+   HIDDEN RELATIVE STRENGTH
+   ========================================================================== */
+export const HRS = {
+  minPrice: 5,
+  minAvgVolume: 200_000,
+  minDollarVol: 10_000_000,
+  minRsRating: 60,
+  maxPctBelow52wHigh: 15,
+  minWeakDayOutperformPct: 60,
+  recentTradingDays: 30,
+  weakDayThreshold: -0.3,
+  finalSize: 30,
+} as const;
+
+export const HRS_META: ScanConfigMeta = {
+  title: 'Hidden Relative Strength',
+  premise:
+    'When the market sells off and a stock refuses to go down, it is not luck — institutions are absorbing the selling pressure to build a position. This scan activates during market weakness and surfaces names that held flat or green while QQQ made new lows, sitting near their highs with moving averages stacked. These are WATCHLIST candidates, not entries: the explosive move comes when the market turns, and these names lead.',
+  gates: [
+    { label: 'Market regime', value: 'QQQ in a weak period', why: 'The entire premise. Hidden relative strength is invisible on a green day because everything looks strong.' },
+    { label: 'Outperformance', value: `≥ ${HRS.minWeakDayOutperformPct}% of weak days`, why: 'Must beat QQQ on the majority of down days — one lucky day is not accumulation.' },
+    { label: '52-wk high', value: `within ${HRS.maxPctBelow52wHigh}%`, why: 'Proximity to highs is the "loaded spring". A stock holding up from 40% off highs is base-building, not hidden strength.' },
+    { label: 'SMA stack', value: '10 SMA > 20 SMA, both rising', why: 'Averages stacked and sloping up confirms the underlying trend is intact despite market weakness.' },
+    { label: 'RS Rating', value: `≥ ${HRS.minRsRating}`, why: 'Longer-term strength context. A stock holding up on weak days that also ranks in the top 40% of the market by trailing-year performance is a genuine leader.' },
+    { label: 'Price', value: `≥ ${usd(HRS.minPrice)}`, why: 'Institutional accumulation requires a stock worth accumulating.' },
+    { label: 'Avg volume', value: `≥ ${shares(HRS.minAvgVolume)} (20d)`, why: 'Institutions cannot build positions in illiquid names.' },
+    { label: '$ Volume', value: `≥ ${usd(HRS.minDollarVol)} (20d avg)`, why: 'Real money must be flowing through it.' },
+  ],
+  shows: `Top ${HRS.finalSize} by hidden RS score`,
+};
+
+/* ==========================================================================
    TOP MOVERS
    ========================================================================== */
 export const TOPMOVERS_META: ScanConfigMeta = {

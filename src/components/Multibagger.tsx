@@ -13,8 +13,10 @@ import { rsBadge } from '@/lib/indicators/rs';
 
 import { useMarketData } from './MarketDataContext';
 import TickerChartHover from './TickerChartHover';
+import { NewsStars } from '@/lib/catalyst';
 import { stageColor as stgColor, stageBadge, stageShort as stgShort, stageDescription } from '@/lib/indicators/stage';
 import { rvolColorLowFloor as rvolColor, tickerChipCls, scoreCellCls } from '@/lib/indicators/columnColors';
+import { displaySector } from '@/lib/sectors';
 
 const ATTR_LABELS: Record<string, string> = {
   revenueGrowth: 'Revenue Growth',
@@ -98,13 +100,8 @@ const fcfColor = (v: number | null): string => {
 
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
-  const d = new Date(timestamp);
-  return d.toLocaleString('en-US', {
-    timeZone: 'America/New_York',
-    month: 'short', day: 'numeric',
-    hour: 'numeric', minute: '2-digit',
-    hour12: true,
-  }) + ' ET';
+  const d = typeof timestamp === 'number' ? new Date(timestamp) : timestamp;
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
 };
 
 interface Candidate {
@@ -351,22 +348,28 @@ export default function Multibagger() {
     return <span className="ml-0.5 text-[8px]">{sortDir === 'desc' ? '▼' : '▲'}</span>;
   };
 
+  const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
+  const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
+  const pillBtnCls = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
   const Pill = ({ label, active, onClick, title }: { label: string; active: boolean; onClick: () => void; title?: string }) => (
     <button
       onClick={onClick}
       title={title}
-      className={`px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wide uppercase transition-all cursor-pointer ${
-        active
-          ? 'bg-indigo-500/25 text-indigo-300 ring-1 ring-indigo-500/40'
-          : 'bg-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-300'
-      }`}
+      className={`${pillBtnCls} ${active ? filterBtnActive : filterBtnIdle}`}
     >
       {label}
     </button>
   );
 
+  const thBase = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
+  const tdBase = "px-0.5 pt-2.5 pb-1.5 text-center";
+  const thStage = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
+  const tdStage = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
+  const thSector = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
+  const tdSector = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
+
   return (
-    <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-visible shadow-xl w-full max-w-[1280px] mx-auto">
+    <div className="bg-[#101623] border-0 md:border md:border-white/5 md:rounded-2xl p-2 md:p-5 relative overflow-visible md:shadow-xl w-full max-w-[1280px] mx-auto">
       <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-30 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
@@ -441,7 +444,7 @@ export default function Multibagger() {
           </div>
           {lastScanTime && (
             <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
-              Scanned: {formatTime(lastScanTime)}
+              Scanned: {formatTime(lastScanTime)} EST
             </span>
           )}
         </div>
@@ -454,13 +457,13 @@ export default function Multibagger() {
       )}
 
       {isExpanded && !isLoading && (
-        <div className="bg-[#0d1220] rounded-xl border border-white/5 overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div onClick={e => e.stopPropagation()}>
 
         {/* Filters */}
         {candidates.length > 0 && (
           <div className="px-5 py-2.5 border-b border-white/5 flex items-center gap-4 flex-wrap">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-slate-600 uppercase tracking-wider font-bold mr-1">Grade</span>
+            <div className="flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+              <span className="text-[11px] font-bold tracking-widest uppercase text-slate-400">Grade</span>
               {GRADE_BUCKETS.map(b => (
                 <Pill
                   key={b}
@@ -470,8 +473,8 @@ export default function Multibagger() {
                 />
               ))}
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-slate-600 uppercase tracking-wider font-bold mr-1">Stage</span>
+            <div className="flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+              <span className="text-[11px] font-bold tracking-widest uppercase text-slate-400">Stage</span>
               <Pill
                 label="Hide 3/4"
                 active={hideDecline}
@@ -479,8 +482,8 @@ export default function Multibagger() {
                 title="Hide Stage 3 (topping) and Stage 4 (declining) stocks"
               />
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-slate-600 uppercase tracking-wider font-bold mr-1">Cap</span>
+            <div className="flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+              <span className="text-[11px] font-bold tracking-widest uppercase text-slate-400">Cap</span>
               {MCAP_BUCKETS.map(b => (
                 <Pill
                   key={b}
@@ -491,8 +494,8 @@ export default function Multibagger() {
                 />
               ))}
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-slate-600 uppercase tracking-wider font-bold mr-1">RVol</span>
+            <div className="flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+              <span className="text-[11px] font-bold tracking-widest uppercase text-slate-400">RVol</span>
               {[1.5, 2].map(v => (
                 <Pill
                   key={v}
@@ -503,8 +506,8 @@ export default function Multibagger() {
                 />
               ))}
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-slate-600 uppercase tracking-wider font-bold mr-1">RS</span>
+            <div className="flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+              <span className="text-[11px] font-bold tracking-widest uppercase text-slate-400">RS</span>
               {[50, 70, 80].map(v => (
                 <Pill
                   key={v}
@@ -528,72 +531,76 @@ export default function Multibagger() {
             No data yet — run the scan at <code className="text-indigo-400">/api/multibagger/run?force=true</code>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+          <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
+            <table className="w-full min-w-[940px] table-fixed border-collapse">
               <thead>
-                <tr className="text-[10px] uppercase tracking-wider text-slate-500 border-b border-white/5">
-                  <th className="px-4 py-2.5 text-left font-bold" title={COLUMN_TIPS.TICKER}>Ticker</th>
-                  <th className="px-2 py-2.5 text-center font-bold cursor-pointer select-none" title={COLUMN_TIPS.SCORE} onClick={() => toggleSort('score')}>
-                    Score<SortArrow col="score" />
+                <tr className="border-b border-white/5 select-none">
+                  <th className={`${thBase} w-[7%] !text-left pl-1`} title={COLUMN_TIPS.TICKER}>TICKER</th>
+                  <th className={`${thBase} w-[2%]`} title="News — ★ has an article, ★★ has a causal catalyst">N</th>
+                  <th className={`${thBase} w-[4%]`} title={COLUMN_TIPS.SCORE} onClick={() => toggleSort('score')}>
+                    CNF<SortArrow col="score" />
                   </th>
-                  <th className="px-2 py-2.5 text-right font-bold cursor-pointer select-none" title={COLUMN_TIPS.RS} onClick={() => toggleSort('rs')}>
+                  <th className={`${thBase} w-[4%]`} title={COLUMN_TIPS.RS} onClick={() => toggleSort('rs')}>
                     RS<SortArrow col="rs" />
                   </th>
-                  <th className="px-2 py-2.5 text-center font-bold" title={COLUMN_TIPS.PRICE}>Price</th>
-                  <th className="px-2 py-2.5 text-right font-bold cursor-pointer select-none" title={COLUMN_TIPS['CHG%']} onClick={() => toggleSort('chg')}>
+                  <th className={`${thBase} w-[7%]`} title={COLUMN_TIPS.PRICE}>Price</th>
+                  <th className={`${thBase} w-[5%]`} title={COLUMN_TIPS['CHG%']} onClick={() => toggleSort('chg')}>
                     Chg%<SortArrow col="chg" />
                   </th>
-                  <th className="px-2 py-2.5 text-right font-bold cursor-pointer select-none hidden md:table-cell" title={COLUMN_TIPS.VOL} onClick={() => toggleSort('vol')}>
+                  <th className={`${thBase} w-[5%] hidden md:table-cell`} title={COLUMN_TIPS.VOL} onClick={() => toggleSort('vol')}>
                     Vol<SortArrow col="vol" />
                   </th>
-                  <th className="px-2 py-2.5 text-right font-bold cursor-pointer select-none hidden md:table-cell" title={COLUMN_TIPS.DVOL} onClick={() => toggleSort('dvol')}>
+                  <th className={`${thBase} w-[6%] hidden md:table-cell`} title={COLUMN_TIPS.DVOL} onClick={() => toggleSort('dvol')}>
                     DVol<SortArrow col="dvol" />
                   </th>
-                  <th className="px-2 py-2.5 text-right font-bold cursor-pointer select-none" title={COLUMN_TIPS.RVOL} onClick={() => toggleSort('rvol')}>
+                  <th className={`${thBase} w-[5%]`} title={COLUMN_TIPS.RVOL} onClick={() => toggleSort('rvol')}>
                     RVol<SortArrow col="rvol" />
                   </th>
-                  <th className="px-2 py-2.5 text-right font-bold cursor-pointer select-none" title={COLUMN_TIPS['REV%']} onClick={() => toggleSort('revGrowth')}>
+                  <th className={`${thBase} w-[6%]`} title={COLUMN_TIPS['REV%']} onClick={() => toggleSort('revGrowth')}>
                     Rev%<SortArrow col="revGrowth" />
                   </th>
-                  <th className="px-2 py-2.5 text-right font-bold cursor-pointer select-none" title={COLUMN_TIPS.ROIC} onClick={() => toggleSort('roic')}>
+                  <th className={`${thBase} w-[5%]`} title={COLUMN_TIPS.ROIC} onClick={() => toggleSort('roic')}>
                     ROIC<SortArrow col="roic" />
                   </th>
-                  <th className="px-2 py-2.5 text-right font-bold cursor-pointer select-none" title={COLUMN_TIPS['D/E']} onClick={() => toggleSort('debt')}>
+                  <th className={`${thBase} w-[5%]`} title={COLUMN_TIPS['D/E']} onClick={() => toggleSort('debt')}>
                     D/E<SortArrow col="debt" />
                   </th>
-                  <th className="px-2 py-2.5 text-right font-bold cursor-pointer select-none" title={COLUMN_TIPS.MCAP} onClick={() => toggleSort('mcap')}>
+                  <th className={`${thBase} w-[7%]`} title={COLUMN_TIPS.MCAP} onClick={() => toggleSort('mcap')}>
                     MCap<SortArrow col="mcap" />
                   </th>
-                  <th className="px-2 py-2.5 text-right font-bold cursor-pointer select-none" title={COLUMN_TIPS['P/E']} onClick={() => toggleSort('pe')}>
+                  <th className={`${thBase} w-[5%]`} title={COLUMN_TIPS['P/E']} onClick={() => toggleSort('pe')}>
                     P/E<SortArrow col="pe" />
                   </th>
-                  <th className="px-2 py-2.5 text-right font-bold cursor-pointer select-none" title={COLUMN_TIPS['FCF%']} onClick={() => toggleSort('fcf')}>
+                  <th className={`${thBase} w-[5%]`} title={COLUMN_TIPS['FCF%']} onClick={() => toggleSort('fcf')}>
                     FCF%<SortArrow col="fcf" />
                   </th>
-                  <th className="px-2 py-2.5 pl-3 text-center font-bold border-l border-white/5 cursor-pointer select-none" title={COLUMN_TIPS.STAGE} onClick={() => toggleSort('stage')}>
+                  <th className={`${thStage} w-[5%] border-l border-white/5`} title={COLUMN_TIPS.STAGE} onClick={() => toggleSort('stage')}>
                     Stage<SortArrow col="stage" />
                   </th>
-                  <th className="px-3 py-2.5 text-left font-bold hidden md:table-cell" title={COLUMN_TIPS.SECTOR}>Sector</th>
+                  <th className={`${thSector} w-[7%] hidden md:table-cell`} title={COLUMN_TIPS.SECTOR}>SECTOR</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-white/5">
                 {filtered.map((c, idx) => {
                   const isExpanded = expandedRow === c.ticker;
                   return (
                     <React.Fragment key={c.ticker}>
                       <tr
-                        className={`border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors cursor-pointer ${
-                          idx % 2 === 0 ? '' : 'bg-white/[0.01]'
-                        }`}
+                        className="hover:bg-white/[0.02] transition-colors cursor-pointer group"
                         onClick={() => setExpandedRow(isExpanded ? null : c.ticker)}
                       >
                         {/* Ticker */}
-                        <td className="px-3 py-2 text-left">
-                          <TickerChartHover symbol={c.ticker}><span className={tickerChipCls(c.grade)} title={`${c.name} — Grade ${c.grade} (${c.score})`}>{c.ticker}</span></TickerChartHover>
+                        <td className={tdBase}>
+                          <div className="flex items-center justify-start gap-1.5">
+                            <TickerChartHover symbol={c.ticker}><span className={tickerChipCls(c.grade)} title={`${c.name} — Grade ${c.grade} (${c.score})`}>{c.ticker}</span></TickerChartHover>
+                          </div>
                         </td>
 
+                        {/* News */}
+                        <td className={tdBase}><NewsStars row={c as any} /></td>
+
                         {/* Score Badge */}
-                        <td className="px-2 py-2.5 text-center">
+                        <td className={tdBase}>
                           <span
                             className={scoreCellCls(c.score)}
                             title={buildBreakdownTip(c)}
@@ -603,14 +610,14 @@ export default function Multibagger() {
                         </td>
 
                         {/* RS */}
-                        <td className="px-2 py-2.5 text-right">
+                        <td className={tdBase}>
                           <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums ${rsBadge(c.rs)}`}>{c.rs != null ? c.rs : '—'}</span>
                         </td>
 
                         {/* Price + VWAP dot */}
-                        <td className="px-2 py-2.5 text-center">
+                        <td className={tdBase}>
                           <div className="flex items-center justify-center gap-1">
-                            <span className="text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums">${c.price.toFixed(2)}</span>
+                            <span className="text-[10px] text-slate-300 font-medium whitespace-nowrap tabular-nums">${c.price.toFixed(2)}</span>
                             {c.vwapStatus && c.vwapStatus !== 'neutral' && (
                               <div
                                 onClick={(e) => { e.stopPropagation(); toggleVwap(c.vwapStatus as 'above' | 'below'); }}
@@ -622,27 +629,27 @@ export default function Multibagger() {
                         </td>
 
                         {/* Change % */}
-                        <td className={`px-2 py-2.5 text-right tabular-nums font-semibold ${chgColor(c.changePct)}`}>
+                        <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${chgColor(c.changePct)}`}>
                           {c.changePct >= 0 ? '+' : ''}{c.changePct.toFixed(2)}%
                         </td>
 
                         {/* Volume */}
-                        <td className="px-2 py-2.5 text-right tabular-nums text-slate-300 hidden md:table-cell">
+                        <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums hidden md:table-cell`}>
                           {fmtVol(c.vol)}
                         </td>
 
                         {/* Dollar Volume */}
-                        <td className="px-2 py-2.5 text-right tabular-nums text-slate-400 hidden md:table-cell">
+                        <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums hidden md:table-cell`}>
                           {fmtDvol(c.dvol)}
                         </td>
 
                         {/* RVol */}
-                        <td className={`px-2 py-2.5 text-right tabular-nums font-semibold ${rvolColor(c.rvol)}`}>
-                          {c.rvol != null ? `${c.rvol.toFixed(1)}x` : '—'}
+                        <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${rvolColor(c.rvol)}`}>
+                          {c.rvol != null ? `${c.rvol < 1 ? c.rvol.toFixed(1) : Math.round(c.rvol)}x` : '—'}
                         </td>
 
                         {/* Revenue Growth */}
-                        <td className={`px-2 py-2.5 text-right tabular-nums font-semibold ${revColor(c.attrs.revGrowthPct)}`}>
+                        <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${revColor(c.attrs.revGrowthPct)}`}>
                           {fmtPct(c.attrs.revGrowthPct)}
                           {c.attrs.revGrowthYears > 0 && (
                             <span className="text-[9px] text-slate-600 ml-0.5">{c.attrs.revGrowthYears}y</span>
@@ -650,39 +657,32 @@ export default function Multibagger() {
                         </td>
 
                         {/* ROIC */}
-                        <td className={`px-2 py-2.5 text-right tabular-nums font-semibold ${roicColor(c.attrs.roic)}`}>
+                        <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${roicColor(c.attrs.roic)}`}>
                           {c.attrs.roic != null ? `${c.attrs.roic.toFixed(1)}%` : '—'}
                         </td>
 
                         {/* Debt/Equity */}
-                        <td className={`px-2 py-2.5 text-right tabular-nums font-semibold ${debtColor(c.attrs.debtToEquity)}`}>
+                        <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${debtColor(c.attrs.debtToEquity)}`}>
                           {fmtRatio(c.attrs.debtToEquity)}
                         </td>
 
                         {/* Market Cap */}
-                        <td className="px-2 py-2.5 text-right">
-                          <div className="flex flex-col items-end">
-                            <span className={`font-semibold tabular-nums ${mcapColor(c.mcapTier)}`}>
-                              {c.marketCapFmt}
-                            </span>
-                            <span className={`text-[9px] ${mcapColor(c.mcapTier)}`}>
-                              {c.mcapTier}
-                            </span>
-                          </div>
+                        <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>
+                          {c.marketCapFmt}
                         </td>
 
                         {/* P/E */}
-                        <td className={`px-2 py-2.5 text-right tabular-nums font-semibold ${peColor(c.attrs.pe)}`}>
+                        <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${peColor(c.attrs.pe)}`}>
                           {fmtPe(c.attrs.pe)}
                         </td>
 
                         {/* FCF Yield */}
-                        <td className={`px-2 py-2.5 text-right tabular-nums font-semibold ${fcfColor(c.attrs.fcfYield)}`}>
+                        <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${fcfColor(c.attrs.fcfYield)}`}>
                           {c.attrs.fcfYield != null ? `${c.attrs.fcfYield.toFixed(1)}%` : '—'}
                         </td>
 
                         {/* Stage */}
-                        <td className="px-2 py-2.5 pl-3 border-l border-white/5 text-center whitespace-nowrap">
+                        <td className={`${tdStage} whitespace-nowrap border-l border-white/5`}>
                           <span
                             title={stageDescription(c.stage)}
                             className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums tracking-wide cursor-help ${stageBadge(c.stage)}`}
@@ -692,15 +692,15 @@ export default function Multibagger() {
                         </td>
 
                         {/* Sector */}
-                        <td className="px-3 py-2.5 text-left text-[10px] text-slate-500 truncate max-w-[160px] hidden md:table-cell">
-                          {c.sector}
+                        <td className={`${tdSector} hidden md:table-cell`}>
+                          <span className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{displaySector(c.sector, c.ticker)}</span>
                         </td>
                       </tr>
 
                       {/* Expanded breakdown row */}
                       {isExpanded && (
                         <tr className="border-b border-white/[0.03]">
-                          <td colSpan={16} className="px-4 py-3 bg-[#0a0e18]">
+                          <td colSpan={17} className="px-4 py-3 bg-[#0a0e18]">
                             <div className="flex flex-wrap gap-4">
                               {/* Scorecard bars */}
                               <div className="flex-1 min-w-[280px]">

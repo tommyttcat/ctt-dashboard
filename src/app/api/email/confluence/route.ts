@@ -106,7 +106,7 @@ function buildAiSummary(ai: any): string {
       </span>
       <span style="display:inline-block;font-size:7px;font-weight:700;padding:2px 6px;border-radius:3px;background:${bClr}1a;border:1px solid ${bClr}33;color:${bClr};">${ai.overallBias}</span>
     </div>
-    <div style="font-size:9px;color:#cbd5e1;line-height:1.6;margin-bottom:10px;">${ai.biasRationale || ''}</div>
+    <div style="font-size:10px;color:#cbd5e1;line-height:1.6;margin-bottom:10px;">${ai.biasRationale || ''}</div>
     ${picksHtml ? `<div style="margin-bottom:8px;">
       <div style="font-size:7px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#818cf8;margin-bottom:4px;">Top Picks</div>
       <table width="100%" style="border-collapse:collapse;">${picksHtml}</table>
@@ -128,7 +128,7 @@ function buildAiSummary(ai: any): string {
     </div>` : ''}
     ${ai.actionPlan ? `<div style="border-top:1px solid #ffffff0d;padding-top:8px;margin-top:8px;">
       <div style="font-size:7px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#34d39980;margin-bottom:4px;">Action Plan</div>
-      <div style="font-size:9px;color:#e2e8f0;line-height:1.5;font-weight:600;">${ai.actionPlan}</div>
+      <div style="font-size:10px;color:#e2e8f0;line-height:1.5;font-weight:600;">${ai.actionPlan}</div>
     </div>` : ''}
   </div>`;
 }
@@ -193,7 +193,7 @@ function buildStockCard(r: any): string {
     </div>
     <!-- Quick stats -->
     <div style="padding:6px 14px;border-bottom:1px solid #ffffff0d;font-size:9px;color:#94a3b8;">
-      <span style="color:#64748b;">RVOL</span> <span style="color:${rvolClr};font-weight:600;">${r.rvol?.toFixed(2) || '—'}</span>
+      <span style="color:#64748b;">RVOL</span> <span style="color:${rvolClr};font-weight:600;">${r.rvol != null ? (r.rvol < 1 ? r.rvol.toFixed(1) : Math.round(r.rvol)) + 'x' : '—'}</span>
       &nbsp;&nbsp;<span style="color:#64748b;">VOL</span> <span style="color:#cbd5e1;">${fmtVol(r.vol || 0)}</span>
       &nbsp;&nbsp;<span style="color:#64748b;">$VOL</span> <span style="color:#cbd5e1;">${fmtDvol(r.dVol || 0)}</span>
       ${r.adrPct != null ? `&nbsp;&nbsp;<span style="color:#64748b;">ADR</span> <span style="color:${r.adrPct >= 5 ? '#34d399' : '#cbd5e1'};">${r.adrPct.toFixed(1)}%</span>` : ''}

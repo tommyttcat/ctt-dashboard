@@ -6,6 +6,7 @@ export interface EmailPrefs {
   pre: boolean;
   morning: boolean;
   midday: boolean;
+  power: boolean;
   closing: boolean;
   confluence: boolean;
   weekly: boolean;
@@ -15,6 +16,7 @@ export const DEFAULT_EMAIL_PREFS: EmailPrefs = {
   pre: true,
   morning: true,
   midday: true,
+  power: true,
   closing: true,
   confluence: true,
   weekly: true,

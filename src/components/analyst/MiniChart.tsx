@@ -629,7 +629,7 @@ export default function MiniChart({ symbol, mode = 'candle', showTrend = false, 
           {atr != null && <span className="text-slate-400">ATR <span className="text-slate-300">{atr >= 10 ? atr.toFixed(1) : atr.toFixed(2)}</span></span>}
           {displayVol != null && <span className="text-slate-400">VOL <span className="text-slate-300">{fmtVol(displayVol)}</span></span>}
           {displayDvol != null && <span className="text-slate-400">DVOL <span className="text-slate-300">${fmtVol(displayDvol)}</span></span>}
-          {displayRvol != null && <span className={displayRvol >= 2 ? 'text-amber-400' : displayRvol >= 1.5 ? 'text-emerald-400' : 'text-slate-400'}>RVOL <span className="font-semibold">{displayRvol.toFixed(2)}</span></span>}
+          {displayRvol != null && <span className={displayRvol >= 2 ? 'text-amber-400' : displayRvol >= 1.5 ? 'text-emerald-400' : 'text-slate-400'}>RVOL <span className="font-semibold">{displayRvol < 1 ? displayRvol.toFixed(1) : Math.round(displayRvol)}</span></span>}
           {rs != null && <span className={rs >= 80 ? 'text-emerald-400' : rs >= 50 ? 'text-amber-400' : 'text-rose-400'}>RS <span className="font-semibold">{rs}</span></span>}
           {stage && <span className="text-violet-400">STG <span className="font-semibold">{stage.replace(/^stage\s*/i, '')}</span></span>}
         </div>

@@ -28,24 +28,32 @@ export async function GET() {
       kv.get<any[]>('ep9m_registry_v1'),
     ]);
 
-    // Scan-gate metadata for the on-screen key. Prefer what the last run
-    // persisted — that is the config the scan ACTUALLY enforced. Fall back to
-    // the static import so a cold KV still renders a key rather than nothing.
     const scanMeta = meta?.scanMeta ?? EP9M_META;
+
+    const regArr = Array.isArray(registry) ? registry : [];
+    const repeatMap: Record<string, { count: number; events: { date: string; price: number; vol: number; rvol: number; score: number }[] }> = {};
+    for (const e of regArr) {
+      const t = e.ticker;
+      if (!t) continue;
+      if (!repeatMap[t]) repeatMap[t] = { count: 0, events: [] };
+      repeatMap[t].count++;
+      repeatMap[t].events.push({ date: e.date, price: e.price, vol: e.vol, rvol: e.rvol, score: e.score });
+    }
+    for (const v of Object.values(repeatMap)) {
+      v.events.sort((a, b) => a.date.localeCompare(b.date));
+    }
 
     return NextResponse.json({
       success: true,
       candidates: Array.isArray(candidates) ? candidates : [],
       lastScanTime: lastScanTime || null,
-      // Funnel diagnostics — how many cleared 9M shares vs how many of those
-      // were actually abnormal. Surfaced in the header so a thin list reads as
-      // "the tape was quiet" rather than "the scan is broken".
       raw9m: meta?.raw9m ?? null,
       shortlisted: meta?.shortlisted ?? null,
       count: meta?.count ?? (Array.isArray(candidates) ? candidates.length : 0),
       minRvol: meta?.minRvol ?? null,
       minVolume: meta?.minVolume ?? null,
-      registrySize: Array.isArray(registry) ? registry.length : 0,
+      registrySize: regArr.length,
+      repeatPivots: repeatMap,
       scanMeta,
     }, { headers: cacheHeaders(CACHE.SCAN) });
   } catch (error: any) {

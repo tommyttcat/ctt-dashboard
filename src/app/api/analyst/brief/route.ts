@@ -77,9 +77,13 @@ export async function POST(req: Request) {
   }
 
   let mergedSessionUpdates: Record<string, any> | undefined;
+  let newTapePhase: string | null = null;
   if (body.sessionUpdate?.key && body.sessionUpdate?.block) {
     const existing = await kv.get<any>(CACHE_KEY);
     const prev = existing?.sessionUpdates || {};
+    if (!prev[body.sessionUpdate.key]) {
+      newTapePhase = body.sessionUpdate.key;
+    }
     mergedSessionUpdates = { ...prev, [body.sessionUpdate.key]: body.sessionUpdate.block };
   } else if (!body.sessionUpdates) {
     const existing = await kv.get<any>(CACHE_KEY);
@@ -101,7 +105,8 @@ export async function POST(req: Request) {
 
   try {
     await kv.set(CACHE_KEY, brief);
-    return NextResponse.json({ success: true, generatedAt: brief.generatedAtET });
+
+    return NextResponse.json({ success: true, generatedAt: brief.generatedAtET, newTapePhase });
   } catch (err: any) {
     return NextResponse.json(
       { error: `KV write failed: ${err.message}` },

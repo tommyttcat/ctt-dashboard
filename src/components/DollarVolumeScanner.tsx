@@ -6,9 +6,9 @@ import TickerChartHover, { useFreezeWhileChartOpen } from './TickerChartHover';
 import { CatalystChip, NewsStars } from '@/lib/catalyst';
 import { rsBadge } from '@/lib/indicators/rs';
 import {
-  tickerChipForScore, cnfBadgeCls, stochColor, dtcColor, floatColor, rvolColor, adrColor,
+  tickerChipForScore, scoreCellCls, stochColor, dtcColor, floatColor, rvolColor, adrColor,
 } from '@/lib/indicators/columnColors';
-import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
+import { mfColor, mfLabel, mfLabelShort, mfArrow } from '@/lib/indicators/moneyflow';
 import { displaySector } from '@/lib/sectors';
 import { stageBadge, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { useMarketData } from './MarketDataContext';
@@ -178,50 +178,49 @@ type SortKey =
 const COLUMNS: {
   key: SortKey;
   label: string;
-  align: 'left' | 'right';
+  align: 'left' | 'center';
   dir: 'asc' | 'desc';
   get: (r: Row) => number | string | null;
   tip: string;
-  /* Vertical rule to the LEFT of this column, closing off the numeric block —
-     the same divider SIPs puts before STAGE. */
+  w: string;
   divider?: boolean;
 }[] = [
-  { key: 'ticker', label: 'TICKER', align: 'left', dir: 'asc', get: r => r.ticker,
+  { key: 'ticker', label: 'TICKER', align: 'left', dir: 'asc', w: 'w-[7%]', get: r => r.ticker,
     tip: 'Symbol, tinted by CNF grade. Hover for the chart.' },
-  { key: 'news', label: 'N', align: 'left', dir: 'desc', get: r => r.catalystUrl ? 1 : 0,
+  { key: 'news', label: 'N', align: 'center', dir: 'desc', w: 'w-[2%]', get: r => r.catalystUrl ? 1 : 0,
     tip: 'News — ★ has an article, ★★ has a causal catalyst from a primary source' },
-  { key: 'cnf', label: 'CNF', align: 'right', dir: 'desc', get: r => r.cnfScore,
+  { key: 'cnf', label: 'CNF', align: 'center', dir: 'desc', w: 'w-[4%]', get: r => r.cnfScore,
     tip: 'Confluence score 0-100, from the same scorer the daily scan grades with — so a stock on both boards carries one CNF, not two. This scan has no scan-streak, dot, trade-plan or sector-heat input, so those terms score neutral and a DVol CNF reads slightly conservative. Hover the number for the breakdown.' },
-  { key: 'rsRating', label: 'RS', align: 'right', dir: 'desc', get: r => r.rsRating,
+  { key: 'rsRating', label: 'RS', align: 'center', dir: 'desc', w: 'w-[4%]', get: r => r.rsRating,
     tip: 'Market-wide RS rating, the same percentile the other tables show — looked up from the shared job rather than recomputed here.' },
-  { key: 'price', label: 'PRICE', align: 'right', dir: 'desc', get: r => r.price,
+  { key: 'price', label: 'PRICE', align: 'center', dir: 'desc', w: 'w-[6%]', get: r => r.price,
     tip: 'Last close.' },
-  { key: 'changePct', label: 'CHG%', align: 'right', dir: 'desc', get: r => r.changePct,
+  { key: 'changePct', label: 'CHG%', align: 'center', dir: 'desc', w: 'w-[5%]', get: r => r.changePct,
     tip: 'Change vs the prior close. This list only carries names at +4% and above.' },
-  { key: 'ema', label: '10/21', align: 'right', dir: 'desc',
+  { key: 'ema', label: '10/21', align: 'center', dir: 'desc', w: 'w-[5%]',
     get: r => (r.aboveEma10 ? 2 : 0) + (r.aboveEma21 ? 1 : 0),
     tip: 'Position against the 10 and 21 EMAs. Both green is stacked; above 21 and below 10 is a pullback into the first touch.' },
-  { key: 'vol', label: 'VOL', align: 'right', dir: 'desc', get: r => r.vol,
+  { key: 'vol', label: 'VOL', align: 'center', dir: 'desc', w: 'w-[5%]', get: r => r.vol,
     tip: 'Shares traded. Gated at 5M.' },
-  { key: 'dvol', label: '$VOL', align: 'right', dir: 'desc', get: r => r.dvol,
+  { key: 'dvol', label: '$VOL', align: 'center', dir: 'desc', w: 'w-[5%]', get: r => r.dvol,
     tip: 'Close x volume — the actual money that changed hands. This is the list\'s ranking metric.' },
-  { key: 'rvol', label: 'RVOL', align: 'right', dir: 'desc', get: r => r.rvol,
+  { key: 'rvol', label: 'RVOL', align: 'center', dir: 'desc', w: 'w-[5%]', get: r => r.rvol,
     tip: 'Volume vs this name\'s own 20-day average. Big dollar volume at RVol near 1 is just a big stock trading normally.' },
-  { key: 'float', label: 'FLOAT', align: 'right', dir: 'asc', get: r => r.float,
+  { key: 'float', label: 'FLOAT', align: 'center', dir: 'asc', w: 'w-[5%]', get: r => r.float,
     tip: 'Shares outstanding for the class — the closest figure the reference feed carries. Purple under 20M, green under 50M: a small float moves further on the same dollars.' },
-  { key: 'adr', label: 'ADR', align: 'right', dir: 'desc', get: r => r.adrPct,
+  { key: 'adr', label: 'ADR', align: 'center', dir: 'desc', w: 'w-[5%]', get: r => r.adrPct,
     tip: 'Average daily range as a percentage of price over the last 20 sessions.' },
-  { key: 'mf', label: 'MF', align: 'right', dir: 'desc', get: r => r.mf,
+  { key: 'mf', label: 'MF', align: 'center', dir: 'desc', w: 'w-[4%]', get: r => r.mf,
     tip: 'Chaikin Money Flow — positive means accumulation, negative means distribution.' },
-  { key: 'stoch', label: 'STOCH', align: 'right', dir: 'asc', get: r => r.stochK,
+  { key: 'stoch', label: 'STOCH', align: 'center', dir: 'asc', w: 'w-[5%]', get: r => r.stochK,
     tip: 'Stochastic %K. Low is room to run, not weakness — purple at or under 20, green at or under 30.' },
-  { key: 'dtc', label: 'DTC', align: 'right', dir: 'desc', get: r => r.daysToCover,
+  { key: 'dtc', label: 'DTC', align: 'center', dir: 'desc', w: 'w-[5%]', get: r => r.daysToCover,
     tip: 'Days to cover — short interest divided by average volume. High means a crowded short with fuel behind a move.' },
-  { key: 'mktCap', label: 'MCAP', align: 'right', dir: 'desc', get: r => r.mktCap,
+  { key: 'mktCap', label: 'MCAP', align: 'center', dir: 'desc', w: 'w-[5%]', get: r => r.mktCap,
     tip: 'Market capitalisation. Funds have none by nature and show ETF rather than a dash.' },
-  { key: 'stage', label: 'STAGE', align: 'left', dir: 'asc', divider: true, get: r => r.stage,
+  { key: 'stage', label: 'STAGE', align: 'left', dir: 'asc', w: 'w-[5%]', divider: true, get: r => r.stage,
     tip: 'Weinstein stage from 400 days of daily bars. 2A is a strong advance, 4 a decline.' },
-  { key: 'sector', label: 'SECTOR', align: 'left', dir: 'asc', get: r => r.sector,
+  { key: 'sector', label: 'SECTOR', align: 'left', dir: 'asc', w: 'w-[7%]', get: r => r.sector,
     tip: 'Thematic sector from the SIC description, named the way the other tables name it.' },
 ];
 
@@ -319,18 +318,23 @@ export default function DollarVolumeScanner() {
 
   const rows = useFreezeWhileChartOpen(computed);
 
-  const pill = (active: boolean) =>
-    `px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-widest uppercase whitespace-nowrap transition-all duration-200 border ${
-      active
-        ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
-        : 'bg-[#161c2a] text-slate-400 border-white/5 hover:text-slate-200 hover:bg-white/[0.04]'
-    }`;
+  const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
+  const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
+  const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
+  const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
+  const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
+  const thBase = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
+  const tdBase = "px-0.5 pt-2.5 pb-1.5 text-center";
+  const thStage = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
+  const tdStage = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
+  const thSector = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
+  const tdSector = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
 
   const sortIcon = (key: SortKey) =>
     sort.key === key ? <span className="text-indigo-400">{sort.dir === 'asc' ? ' ▲' : ' ▼'}</span> : null;
 
   const renderRows = (list: { row: Row; rank: number }[]) => (
-    <table className="w-full min-w-[900px] border-collapse">
+    <table className="w-full min-w-[940px] table-fixed border-collapse">
       <thead>
         <tr className="border-b border-white/5">
           {COLUMNS.map(c => (
@@ -338,8 +342,8 @@ export default function DollarVolumeScanner() {
               key={c.key}
               title={c.tip}
               onClick={() => handleSort(c.key)}
-              className={`px-0.5 py-2.5 text-[10px] font-bold tracking-wide leading-tight uppercase cursor-pointer select-none whitespace-nowrap transition-colors ${
-                c.align === 'left' ? 'text-left pl-1' : 'text-right'
+              className={`${c.w} px-0.5 py-2.5 text-[10px] font-bold tracking-wide leading-tight uppercase cursor-pointer select-none whitespace-nowrap transition-colors ${
+                c.align === 'left' ? (c.key === 'ticker' ? 'text-left pl-1' : 'text-left pl-1.5') : 'text-center'
               } ${c.divider ? 'border-l border-white/5 pl-1.5' : ''} ${
                 sort.key === c.key ? 'text-slate-300' : 'text-slate-500 hover:text-slate-300'
               }`}
@@ -359,70 +363,70 @@ export default function DollarVolumeScanner() {
                   than taking a column of its own — the requested column set
                   has no N, but a headline behind the move is the whole reason
                   some of these names are on the board. */}
-              <td className="px-0.5 pt-2.5 pb-1.5 pl-1 text-left whitespace-nowrap">
-                <TickerChartHover symbol={row.ticker}>
-                  <span className={tickerChipForScore(row.cnfScore)}>{row.ticker}</span>
-                </TickerChartHover>
-                <CatalystChip row={row} note={NEGATIVE_NOTE} />
+              <td className={tdBase}>
+                <div className="flex items-center justify-start gap-1.5">
+                  <TickerChartHover symbol={row.ticker}>
+                    <span className={tickerChipForScore(row.cnfScore)}>{row.ticker}</span>
+                  </TickerChartHover>
+                  <CatalystChip row={row} note={NEGATIVE_NOTE} />
+                </div>
               </td>
-              <td className="px-0.5 pt-2.5 pb-1.5 text-left"><NewsStars row={row} /></td>
-              <td className="px-0.5 pt-2.5 pb-1.5 text-right">
-                {row.cnfScore == null ? <span className="text-slate-600 text-[11px]">—</span> : (
-                  <span
-                    title={cnfTooltip(row)}
-                    className={`inline-block px-1 py-[1px] rounded border text-[7px] font-bold tabular-nums cursor-help ${cnfBadgeCls(row.cnfScore)}`}
-                  >
-                    {row.cnfScore}
-                  </span>
-                )}
+              <td className={tdBase}><NewsStars row={row} /></td>
+              <td className={tdBase}>
+                <span
+                  title={cnfTooltip(row)}
+                  className={scoreCellCls(row.cnfScore)}
+                >
+                  {row.cnfScore != null ? row.cnfScore : '--'}
+                </span>
               </td>
-              <td className="px-0.5 pt-2.5 pb-1.5 text-right">
-                <span className={`inline-block px-1 py-[1px] rounded border text-[7px] font-bold tabular-nums ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span>
+              <td className="px-0.5 pt-2.5 pb-1.5 text-center">
+                <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span>
               </td>
-              <td className="px-0.5 pt-2.5 pb-1.5 text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums">
-                <div className="flex items-center justify-end gap-1">${row.price.toFixed(2)}{row.vwap != null && row.vwap > 0 && (
+              <td className="px-0.5 pt-2.5 pb-1.5 text-center text-[10px] text-slate-300 font-medium whitespace-nowrap tabular-nums">
+                <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwap != null && row.vwap > 0 && (
                   <div onClick={(e) => { e.stopPropagation(); toggleVwap(row.price >= row.vwap! ? 'above' : 'below'); }} className={`w-1.5 h-1.5 rounded-full shrink-0 cursor-pointer ${row.price >= row.vwap ? 'bg-emerald-400' : 'bg-rose-500'} ${vwapFilter === (row.price >= row.vwap ? 'above' : 'below') ? 'ring-1 ring-white/40' : ''}`} title={`VWAP: ${row.price >= row.vwap ? 'above' : 'below'} — click to filter`}></div>
                 )}</div>
               </td>
-              <td className={`px-0.5 pt-2.5 pb-1.5 text-right text-xs font-bold tabular-nums ${row.changePct == null ? 'text-slate-600' : up ? 'text-emerald-400' : 'text-rose-400'}`}>
+              <td className={`px-0.5 pt-2.5 pb-1.5 text-center text-[10px] font-bold tabular-nums ${row.changePct == null ? 'text-slate-600' : up ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {row.changePct == null ? '—' : `${up ? '+' : ''}${row.changePct.toFixed(2)}%`}
               </td>
-              <td className="px-0.5 pt-2.5 pb-1.5 whitespace-nowrap">
-                <div className="flex items-center justify-end gap-1" title={emaTitle(row)}>
+              <td className="px-0.5 pt-2.5 pb-1.5 text-center whitespace-nowrap">
+                <div className="flex items-center justify-center gap-1" title={emaTitle(row)}>
                   <span className="text-[8px] font-bold text-slate-500">10</span>
                   <span className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} />
                   <span className="text-[8px] font-bold text-slate-500">21</span>
                   <span className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma21)}`} />
                 </div>
               </td>
-              <td className="px-0.5 pt-2.5 pb-1.5 text-right text-xs text-slate-400 font-medium tabular-nums">{fmtVol(row.vol)}</td>
-              <td className="px-0.5 pt-2.5 pb-1.5 text-right text-xs text-slate-400 font-medium tabular-nums">{fmtDvol(row.dvol)}</td>
-              <td className={`px-0.5 pt-2.5 pb-1.5 text-right text-xs font-bold tabular-nums ${rvolColor(row.rvol)}`}>
-                {row.rvol != null ? `${row.rvol.toFixed(1)}x` : '—'}
+              <td className="px-0.5 pt-2.5 pb-1.5 text-center text-[10px] text-slate-400 font-medium tabular-nums">{fmtVol(row.vol)}</td>
+              <td className="px-0.5 pt-2.5 pb-1.5 text-center text-[10px] text-slate-400 font-medium tabular-nums">{fmtDvol(row.dvol)}</td>
+              <td className={`px-0.5 pt-2.5 pb-1.5 text-center text-[10px] font-bold tabular-nums ${rvolColor(row.rvol)}`}>
+                {row.rvol != null ? `${row.rvol < 1 ? row.rvol.toFixed(1) : Math.round(row.rvol)}x` : '—'}
               </td>
-              <td className={`px-0.5 pt-2.5 pb-1.5 text-right text-xs font-bold tabular-nums ${floatColor(row.float)}`}>
+              <td className={`px-0.5 pt-2.5 pb-1.5 text-center text-[10px] font-bold tabular-nums ${floatColor(row.float)}`}>
                 {fmtVol(row.float)}
               </td>
-              <td className={`px-0.5 pt-2.5 pb-1.5 text-right text-xs font-bold tabular-nums ${row.adrPct != null ? adrColor(row.adrPct) : 'text-slate-600'}`}>
+              <td className={`px-0.5 pt-2.5 pb-1.5 text-center text-[10px] font-bold tabular-nums ${row.adrPct != null ? adrColor(row.adrPct) : 'text-slate-600'}`}>
                 {row.adrPct != null ? `${row.adrPct.toFixed(1)}%` : '—'}
               </td>
-              <td className={`px-0.5 pt-2.5 pb-1.5 text-right text-xs font-bold tabular-nums ${row.mf != null ? mfColor(row.mf) : 'text-slate-600'}`}>
-                {row.mf != null ? `${mfArrow(row.mfTrend)}${mfLabel(row.mf)}` : '—'}
+              <td className={`px-0.5 pt-2.5 pb-1.5 text-center text-[10px] font-bold tabular-nums whitespace-nowrap ${row.mf != null ? mfColor(row.mf) : 'text-slate-600'}`} title={row.mf != null ? `Money Flow ${row.mf.toFixed(0)} — ${mfLabel(row.mf)}` : undefined}>
+                {row.mf != null ? `${row.mf.toFixed(0)}${mfArrow(row.mfTrend)}` : '—'}
               </td>
-              <td className={`px-0.5 pt-2.5 pb-1.5 text-right text-xs font-bold tabular-nums ${stochColor(row.stochK)}`}>
+              <td className={`px-0.5 pt-2.5 pb-1.5 text-center text-[10px] font-bold tabular-nums ${stochColor(row.stochK)}`}>
                 {row.stochK != null ? row.stochK.toFixed(1) : '—'}
               </td>
-              <td className={`px-0.5 pt-2.5 pb-1.5 text-right text-xs font-bold tabular-nums ${dtcColor(row.daysToCover)}`}>
+              <td className={`px-0.5 pt-2.5 pb-1.5 text-center text-[10px] font-bold tabular-nums ${dtcColor(row.daysToCover)}`}>
                 {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
               </td>
-              <td className="px-0.5 pt-2.5 pb-1.5 text-right text-xs text-slate-400 font-medium tabular-nums">
+              <td className="px-0.5 pt-2.5 pb-1.5 text-center text-[10px] text-slate-400 font-medium tabular-nums">
                 {row.mktCap != null ? fmtCap(row.mktCap) : bandLabel(row)}
               </td>
-              <td className="px-0.5 pt-2.5 pb-1.5 pl-1.5 border-l border-white/5 text-left whitespace-nowrap" title={stageDescription(row.stage)}>
-                <span className={`inline-block px-1 py-[1px] rounded border text-[7px] font-bold tabular-nums tracking-wide cursor-help ${stageBadge(row.stage)}`}>{stageShort(row.stage)}</span>
+              <td className={`${tdStage} whitespace-nowrap border-l border-white/5`} title={stageDescription(row.stage)}>
+                <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums tracking-wide cursor-help ${stageBadge(row.stage)}`}>{stageShort(row.stage)}</span>
               </td>
-              <td className="px-0.5 pt-2.5 pb-1.5 pl-1.5 text-left text-[11px] text-slate-400 whitespace-nowrap max-w-[120px] truncate" title={row.sector || undefined}>
-                {displaySector(row.sector, row.ticker)}
+              <td className={tdSector}>
+                <span className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{displaySector(row.sector, row.ticker)}</span>
               </td>
             </tr>
             {/* Sub-row, same shape as the scan tables: an empty cell under
@@ -508,7 +512,7 @@ export default function DollarVolumeScanner() {
   const displaySession = ['Pre-Market', 'Open', 'Post-Market', 'Closed'].includes(session) ? session : 'Closed';
 
   return (
-    <div className="bg-[#101623] border border-white/5 rounded-2xl p-4 md:p-8 relative shadow-xl w-full max-w-[1280px] mx-auto">
+    <div className="bg-[#101623] border-0 md:border md:border-white/5 md:rounded-2xl p-2 md:p-5 relative overflow-visible md:shadow-xl w-full max-w-[1280px] mx-auto">
       <div
         onClick={() => setIsExpanded(!isExpanded)}
         className={`flex justify-between items-center cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}
@@ -559,18 +563,18 @@ export default function DollarVolumeScanner() {
       {isExpanded && (
         <>
           <div className="flex flex-wrap items-center gap-4 mb-4">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[8px] font-bold tracking-widest uppercase text-slate-500 mr-0.5">$Vol</span>
+            <div className={pillWrap}>
+              <span className={pillLabel}>$Vol</span>
               {DVOL_BANDS.map(b => (
-                <button key={b.key} onClick={() => setMinDvol(b.key)} className={pill(minDvol === b.key)}>
+                <button key={b.key} onClick={() => setMinDvol(b.key)} className={`${pillBtn} ${minDvol === b.key ? filterBtnActive : filterBtnIdle}`}>
                   {b.label}
                 </button>
               ))}
             </div>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[8px] font-bold tracking-widest uppercase text-slate-500 mr-0.5">Cap</span>
+            <div className={pillWrap}>
+              <span className={pillLabel}>Cap</span>
               {CAP_ORDER.map(band => (
-                <button key={band} onClick={() => selectCap(band)} className={pill(cap === band)}>
+                <button key={band} onClick={() => selectCap(band)} className={`${pillBtn} ${cap === band ? filterBtnActive : filterBtnIdle}`}>
                   {band}
                 </button>
               ))}

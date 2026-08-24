@@ -224,6 +224,113 @@ function useSidePosition(
   return left;
 }
 
+let earningsCache: Map<string, EarningsData> | null = null;
+let earningsFetch: Promise<Map<string, EarningsData>> | null = null;
+
+function fetchEarningsMap(): Promise<Map<string, EarningsData>> {
+  if (earningsCache) return Promise.resolve(earningsCache);
+  if (earningsFetch) return earningsFetch;
+  earningsFetch = (async () => {
+    const map = new Map<string, EarningsData>();
+    try {
+      const now = new Date();
+      const mon = new Date(now); mon.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+      const fri = new Date(mon); fri.setDate(mon.getDate() + 11);
+      const fmt = (d: Date) => d.toISOString().slice(0, 10);
+      const res = await fetch(`/api/earnings?from=${fmt(mon)}&to=${fmt(fri)}`);
+      if (!res.ok) return map;
+      const data = await res.json();
+      const today = fmt(now);
+      for (const e of data.events || []) {
+        const sym = (e.symbol || '').toUpperCase();
+        if (!sym) continue;
+        const reported = e.date < today || (e.date === today && !(e.when || '').toString().toUpperCase().includes('AMC'));
+        map.set(sym, {
+          date: e.date,
+          when: null,
+          reported,
+          epsEst: e.epsEstimated ?? null,
+          epsActual: e.epsActual ?? null,
+          revEst: e.revenueEstimated ?? null,
+          revActual: null,
+          surprise: e.epsSurprisePct ?? null,
+        });
+      }
+    } catch {}
+    earningsCache = map;
+    setTimeout(() => { earningsCache = null; earningsFetch = null; }, 4 * 60 * 60 * 1000);
+    return map;
+  })();
+  return earningsFetch;
+}
+
+const fmtRev = (n: number) => {
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `$${(n / 1e6).toFixed(0)}M`;
+  return `$${n.toLocaleString()}`;
+};
+
+const fmtEarningsDate = (dateStr: string, when: string | null) => {
+  const d = new Date(dateStr + 'T12:00:00');
+  const month = d.toLocaleString('en-US', { month: 'short' });
+  const day = d.getDate();
+  const timing = when ? ` ${when}` : '';
+  return `${month} ${day}${timing}`;
+};
+
+interface EarningsData {
+  date: string;
+  when: string | null;
+  reported: boolean;
+  epsEst: number | null;
+  epsActual: number | null;
+  revEst: number | null;
+  revActual: number | null;
+  surprise: number | null;
+}
+
+function EarningsStrip({ earnings }: { earnings: EarningsData }) {
+  const { date, when, reported, epsEst, epsActual, revEst, revActual, surprise } = earnings;
+
+  const hasBeat = surprise != null;
+  const beatColor = hasBeat
+    ? surprise! > 0 ? 'text-emerald-400' : surprise! < 0 ? 'text-red-400' : 'text-slate-400'
+    : '';
+  const beatLabel = hasBeat
+    ? surprise! > 0 ? 'BEAT' : surprise! < 0 ? 'MISS' : 'INLINE'
+    : '';
+
+  return (
+    <div className="mt-1.5 pt-1.5 border-t border-white/5 flex items-center gap-2 text-[10px] font-medium tracking-wide">
+      <span className="text-amber-400/80 font-bold shrink-0">EARNINGS</span>
+      <span className="text-slate-400">{fmtEarningsDate(date, when)}</span>
+      {reported && hasBeat && (
+        <>
+          <span className={`font-bold ${beatColor}`}>
+            {beatLabel} {surprise! > 0 ? '+' : ''}{surprise!.toFixed(1)}%
+          </span>
+          {epsActual != null && epsEst != null && (
+            <span className="text-slate-500">${epsActual.toFixed(2)} vs ${epsEst.toFixed(2)} est</span>
+          )}
+        </>
+      )}
+      {!reported && epsEst != null && (
+        <span className="text-slate-500">Est EPS ${epsEst.toFixed(2)}</span>
+      )}
+      {!reported && revEst != null && (
+        <span className="text-slate-500">Est Rev {fmtRev(revEst)}</span>
+      )}
+      {reported && !hasBeat && epsActual != null && (
+        <span className="text-slate-500">EPS ${epsActual.toFixed(2)}</span>
+      )}
+      {reported && revActual != null && (
+        <span className="text-slate-500">Rev {fmtRev(revActual)}</span>
+      )}
+    </div>
+  );
+}
+
 function ChartPopup({ symbol }: { symbol: string; triggerX: number }) {
   const { setActive, scheduleDismiss, cancelDismiss, triggerEl } = React.useContext(ActiveChartCtx);
   const popupRef = useRef<HTMLDivElement>(null);
@@ -231,6 +338,15 @@ function ChartPopup({ symbol }: { symbol: string; triggerX: number }) {
   const left = useSidePosition(triggerEl, popupRef, !isMobile);
   const [profile, setProfile] = useState<{ name?: string; sector?: string } | null>(null);
   const onProfile = useCallback((p: { name?: string; sector?: string }) => setProfile(p), []);
+
+  const [earnings, setEarnings] = useState<EarningsData | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchEarningsMap().then(map => {
+      if (!cancelled) setEarnings(map.get(symbol) || null);
+    });
+    return () => { cancelled = true; };
+  }, [symbol]);
   const prevSymbol = useRef(symbol);
   useEffect(() => {
     if (symbol !== prevSymbol.current) { setProfile(null); prevSymbol.current = symbol; }
@@ -297,6 +413,7 @@ function ChartPopup({ symbol }: { symbol: string; triggerX: number }) {
       <Suspense fallback={<div className="flex items-center justify-center h-[320px]"><div className="w-4 h-4 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" /></div>}>
         <MiniChart symbol={symbol} showTrend large onProfile={onProfile} />
       </Suspense>
+      {earnings && <EarningsStrip earnings={earnings} />}
     </div>
   );
 }

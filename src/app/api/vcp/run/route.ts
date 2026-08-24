@@ -149,6 +149,7 @@ const BASE = 'https://api.polygon.io';
    be invisible: the key would confidently document a threshold the scan had
    stopped enforcing. */
 import { VCP as VCP_GATES, VCP_META } from '@/lib/scanConfig';
+import { enrichWithFundamentals } from '@/lib/indicators/fundamentals';
 import { cleanSectorDescription } from '@/lib/sectors';
 export { VCP_GATES };
 
@@ -709,6 +710,21 @@ async function runScan(request: Request) {
       windowEnd: datesUsed[datesUsed.length - 1] ?? null,
       windowBars: datesUsed.length,
     };
+
+    // Enrich with fundamentals — cross-reference multibagger KV first, Polygon for the rest
+    try {
+      const mbData = await kv.get<any[]>('multibagger_v1');
+      const fundInput = finalList
+        .filter(c => c.symbol && c.price > 0)
+        .map(c => ({ ticker: c.symbol, price: c.price, marketCap: c.mktCap || undefined }));
+      if (fundInput.length > 0) {
+        const fundMap = await enrichWithFundamentals(fundInput, POLYGON_KEY, mbData ?? undefined);
+        for (const c of finalList) {
+          const f = fundMap.get((c.symbol ?? '').toUpperCase());
+          if (f) (c as any)._fund = f;
+        }
+      }
+    } catch (e) { console.error('[vcp] fundamental enrichment failed:', e); }
 
     await kv.set('vcp_v1', finalList);
     await kv.set('vcp_last_scan_v1', scanTime);

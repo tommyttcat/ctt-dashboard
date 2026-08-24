@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { fetchScannerLatest } from '@/lib/scannerLatest';
 import { ThemeToggle } from '../ThemeProvider';
 import HelpModal from '../HelpModal';
+import DashNav from '../DashNav';
 import TickerChartHover, { ActiveChartCtx, ActiveChartProvider, autoScrollRef, scrollingRef, HOVER_DELAY_MS } from '../TickerChartHover';
 import { prefetchChart } from './MiniChart';
 import { newsStarCount as newsStars } from '@/lib/newsStars';
@@ -12,6 +13,7 @@ import { rsColor, rsBadge } from '@/lib/indicators/rs';
 import { dedupeByTicker, chgOf, dVolOf, advancingDollarShare } from '@/lib/indicators/marketMath';
 import { industryHeat, type SectorHeat } from '@/lib/sectors';
 import MacroScorecardPanel from '../MacroScorecardPanel';
+import MacroEconPanel from '../MacroEconPanel';
 import { useMacroScorecard } from '../useMacroScorecard';
 import { rvolColor } from '@/lib/indicators/columnColors';
 import {
@@ -213,7 +215,7 @@ const NOT_TICKERS = new Set([
   'ETF','IPO','GDP','CPI','PPI','RSI','EMA','SMA','VCP','ADR','ATR','ATH','ATL',
   'AI','RVOL','VOL','AVG','PCT','VS','PE','EPS','CEO','CFO','COO','CTO','RS','CNF','STG',
   'USD','EUR','YTD','QTD','MTD','MOM','YOY','QOQ','EOD','IOT','UTC','UTC',
-  'FOMC','FED','SEC','ECB','BOJ','FDIC','OTC','FAQ','API',
+  'FOMC','FED','SEC','ECB','BOJ','FDIC','OTC','FAQ','API','FDA','ET',
   'MA','PM','AM','IV','OI','DTE','BP','RR','UI','IS','OR','AN','AS','AT','BY','DO','GO','IF','IN','IT','MY','NO','OF','ON','SO','TO','UP','WE',
 ]);
 const INDEX_TICKERS = new Set(['SPY','QQQ','DIA','IWM','VIX','TLT','GLD','SLV','USO','XLF','XLK','XLE','XLV','XLI','XLB','XLC','XLRE','XLU','XLP','XLY']);
@@ -344,9 +346,15 @@ function highlightBold(text: string, colorClass: string, pctColor?: boolean, tic
     if (match.index > last) {
       parts.push(...enrichSegment(text.slice(last, match.index), last, pctColor, tickers, gradeMap, avoidSet));
     }
-    parts.push(
-      <span key={match.index} className={`font-extrabold ${colorClass}`}>{match[1]}</span>
-    );
+    const inner = match[1];
+    const isTicker = tickers && /^[A-Z]{2,5}$/.test(inner) && !NOT_TICKERS.has(inner);
+    if (isTicker) {
+      parts.push(<TickerChartHover key={match.index} symbol={inner}><span className={briefChipCls(inner, gradeMap, avoidSet)}>{inner}</span></TickerChartHover>);
+    } else {
+      parts.push(
+        <span key={match.index} className={`font-extrabold ${colorClass}`}>{inner}</span>
+      );
+    }
     last = match.index + match[0].length;
   }
   if (last < text.length) {
@@ -367,7 +375,7 @@ function RegimeDetail({ detail, color, breadth }: { detail: RegimeBlock; color: 
   const caution = REGIME_COLORS.amber;
   return (
     <div className="space-y-3 md:space-y-5">
-      <div className={`border-l-0 md:border-l-[3px] ${rc.border} ${rc.bg} rounded-r-lg px-1.5 md:px-6 py-3 md:py-5`}>
+      <div className={`md:border-l-[3px] ${rc.border} ${rc.bg} rounded-r-lg px-1.5 md:px-6 py-3 md:py-5`}>
         <div className={`text-[9px] font-bold ${rc.label} tracking-wider uppercase mb-3`}>
           Regime Assessment
         </div>
@@ -377,7 +385,7 @@ function RegimeDetail({ detail, color, breadth }: { detail: RegimeBlock; color: 
       </div>
 
       {breadth && breadth.analysis && (
-        <div className="border-l-0 md:border-l-[3px] border-l-rose-400 bg-rose-500/[0.06] rounded-r-lg px-1.5 md:px-6 py-3 md:py-5">
+        <div className="md:border-l-[3px] border-l-rose-400 bg-rose-500/[0.06] rounded-r-lg px-1.5 md:px-6 py-3 md:py-5">
           <div className="text-[9px] font-bold text-rose-400 tracking-wider uppercase mb-3">
             Sentiment &amp; Market Breadth
           </div>
@@ -385,7 +393,7 @@ function RegimeDetail({ detail, color, breadth }: { detail: RegimeBlock; color: 
         </div>
       )}
 
-      <div className={`border-l-0 md:border-l-[3px] ${caution.border} ${caution.bg} rounded-r-lg px-1.5 md:px-6 py-3 md:py-5`}>
+      <div className={`md:border-l-[3px] ${caution.border} ${caution.bg} rounded-r-lg px-1.5 md:px-6 py-3 md:py-5`}>
         <div className={`text-[9px] font-bold ${caution.label} tracking-wider uppercase mb-3`}>
           Caution Flag
         </div>
@@ -423,6 +431,19 @@ const gridChipCls = (grade?: string | null, isAvoid?: boolean): string => {
   if (grade === 'A') return TICKER_CHIP_A_GRID;
   if (grade === 'B') return TICKER_CHIP_B_GRID;
   return TICKER_CHIP;
+};
+
+const SECTION_ACCENT: Record<string, string> = {
+  'SIPs Thesis': '#22d3ee',
+  '$Vol Summary': '#14b8a6',
+  'Setups Summary': '#8b5cf6',
+  '10/21 Thesis': '#8b5cf6',
+  'VCP Thesis': '#14b8a6',
+  'EP9M Thesis': '#f43f5e',
+  '100-Bagger Thesis': '#d946ef',
+  'ETF Flow': '#6366f1',
+  'Money Flow': '#f43f5e',
+  'Intraday Movers': '#34d399',
 };
 
 const SETUP_COLORS: Record<string, string> = {
@@ -486,7 +507,7 @@ const fmtPrice = (p: number | undefined | null): string => {
 };
 /* overflow-y-hidden is required, not cosmetic — see the note on
    `scrollRowCls` in MarketSummary. Without it these rows scroll vertically. */
-const scrollWrap = "overflow-x-auto overflow-y-hidden";
+const scrollWrap = "overflow-x-auto overflow-y-hidden -mx-0.5 px-0.5";
 const scrollStyle: React.CSSProperties = { scrollbarWidth: 'none', msOverflowStyle: 'none' };
 const GRID_COLS_TRAP = '42px 58px 20px 1fr';
 
@@ -510,11 +531,22 @@ function SummaryHeader({ trap, gapper, sortKey, sortDir, onSort }: {
       </div>
     );
   }
-  const cols = GRID_COLS;
   return (
     <div className={scrollWrap} style={scrollStyle}>
-      <div className="grid items-center gap-x-1 text-[7px] font-bold tracking-widest text-slate-600 uppercase pb-0.5 border-b border-white/5 mb-0.5" style={{ gridTemplateColumns: cols }}>
-        <span className="text-center">TICKER</span><span className={`text-center ${hdrCls}`} onClick={() => onSort?.('cnf')}>CNF<SortArrow active={sortKey === 'cnf'} dir={sortDir || 'desc'} /></span><span className={`text-right ${hdrCls}`} onClick={() => onSort?.('chg')}>CHG%<SortArrow active={sortKey === 'chg'} dir={sortDir || 'desc'} /></span><span className="text-right">PRC</span><span className={`text-right ${hdrCls}`} onClick={() => onSort?.('rvol')}>RVOL<SortArrow active={sortKey === 'rvol'} dir={sortDir || 'desc'} /></span><span className={`text-right ${hdrCls}`} onClick={() => onSort?.('vol')}>VOL<SortArrow active={sortKey === 'vol'} dir={sortDir || 'desc'} /></span><span className={`text-right ${hdrCls}`} onClick={() => onSort?.('dvol')}>$VOL<SortArrow active={sortKey === 'dvol'} dir={sortDir || 'desc'} /></span><span className={`text-center ${hdrCls}`} onClick={() => onSort?.('rs')}>RS<SortArrow active={sortKey === 'rs'} dir={sortDir || 'desc'} /></span><span className={`text-center ${hdrCls}`} onClick={() => onSort?.('stg')}>STG<SortArrow active={sortKey === 'stg'} dir={sortDir || 'desc'} /></span><span className="text-center">N</span>
+      <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
+        <span className="inline-block w-[44px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
+        <span className="hidden md:inline-block w-[12px]" />
+        <span className="inline-block w-[8px]" />
+        <span className="inline-block w-[8px]" />
+        <span className={`inline-block w-[22px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1 ${hdrCls}`} onClick={() => onSort?.('cnf')}>CNF<SortArrow active={sortKey === 'cnf'} dir={sortDir || 'desc'} /></span>
+        <span className={`inline-block w-[52px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1 ${hdrCls}`} onClick={() => onSort?.('chg')}>CHG%<SortArrow active={sortKey === 'chg'} dir={sortDir || 'desc'} /></span>
+        <span className="inline-block w-[42px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1">PRC</span>
+        <span className={`inline-block w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('rvol')}>RVOL<SortArrow active={sortKey === 'rvol'} dir={sortDir || 'desc'} /></span>
+        <span className={`inline-block w-[36px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('vol')}>VOL<SortArrow active={sortKey === 'vol'} dir={sortDir || 'desc'} /></span>
+        <span className={`inline-block w-[42px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('dvol')}>$VOL<SortArrow active={sortKey === 'dvol'} dir={sortDir || 'desc'} /></span>
+        <span className={`inline-block w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('rs')}>RS<SortArrow active={sortKey === 'rs'} dir={sortDir || 'desc'} /></span>
+        <span className={`inline-block w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('stg')}>STG<SortArrow active={sortKey === 'stg'} dir={sortDir || 'desc'} /></span>
+        <span className="inline-block w-[16px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1">N</span>
       </div>
     </div>
   );
@@ -577,7 +609,7 @@ function TickerChip({ stock, red }: { stock: StockEntry; red?: boolean }) {
       onMouseLeave={handleLeave}
       onClick={(e) => { e.stopPropagation(); activate(); }}
       onTouchEnd={handleTap}
-      className={`${gridChipCls(stock.grade, isAvoid)} cursor-default`}
+      className={`${gridChipCls(stock.grade, isAvoid)} cursor-default w-[38px] md:w-[44px]`}
     >
       {stock.ticker}
     </span>
@@ -590,17 +622,20 @@ function SummaryRow({ item, stock, showNote, red }: { item: SummaryItem; stock?:
   const rs = item.rs;
   return (
     <div className={scrollWrap} style={scrollStyle}>
-      <div className={`grid items-center gap-x-1 py-[1px] text-[11px] tabular-nums `} style={{ gridTemplateColumns: GRID_COLS }}>
-        {stock ? <TickerChip stock={stock} red={red} /> : <TickerChartHover symbol={item.ticker}><span className={red ? TICKER_CHIP_RED : TICKER_CHIP}>{item.ticker}</span></TickerChartHover>}
-        <span className="text-center">{item.score != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(Number(item.score) || 0)}`}>{item.score}</span> : ''}</span>
-        <span className={`font-semibold text-right ${(item.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{item.changePct != null ? `${(item.changePct || 0) >= 0 ? '+' : ''}${item.changePct.toFixed(2)}%` : ''}</span>
-        <span className="text-right text-slate-300">{fmtPrice(item.price)}</span>
-        <span className={`font-semibold text-right ${rv != null ? rvolColor(rv) : ''}`}>{rv != null ? rv.toFixed(2) : ''}</span>
-        <span className="text-slate-400 text-right">{item.vol != null ? formatVol(item.vol) : ''}</span>
-        <span className="text-slate-300 text-right">{dolVol != null ? `$${formatVol(dolVol)}` : ''}</span>
-        <span className="text-center">{rs != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${rsBadge(rs)}`}>{rs}</span> : ''}</span>
-        <span className="text-center">{item.stage ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${stageBadge(item.stage)}`}>{stripStage(item.stage)}</span> : ''}</span>
-        <span className="text-center"><NewsStars count={newsStars(stock || item as any)} url={(stock || item as any)?.catalystUrl} /></span>
+      <div className="flex items-center whitespace-nowrap py-[1px]">
+        {stock ? <TickerChip stock={stock} red={red} /> : <TickerChartHover symbol={item.ticker}><span className={`${red ? TICKER_CHIP_RED : TICKER_CHIP} w-[44px]`}>{item.ticker}</span></TickerChartHover>}
+        <span className="hidden md:inline-block w-[12px]" />
+        <span className="inline-block w-[8px]" />
+        <span className="inline-block w-[8px]" />
+        <span className="inline-block w-[22px] text-center ml-1">{item.score != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(Number(item.score) || 0)}`}>{item.score}</span> : ''}</span>
+        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[52px] text-right ml-1 ${(item.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{item.changePct != null ? `${(item.changePct || 0) >= 0 ? '+' : ''}${item.changePct.toFixed(2)}%` : ''}</span>
+        <span className="text-[9px] tabular-nums inline-block w-[42px] text-right text-slate-300 ml-2 md:ml-1">{fmtPrice(item.price)}</span>
+        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[40px] text-right ml-2 md:ml-1 ${rv != null ? rvolColor(rv) : ''}`}>{rv != null ? `${rv < 1 ? rv.toFixed(1) : Math.round(rv)}x` : ''}</span>
+        <span className={`text-[9px] tabular-nums inline-block w-[36px] text-right ml-2 md:ml-1 text-slate-400`}>{item.vol != null ? formatVol(item.vol) : ''}</span>
+        <span className={`text-[9px] tabular-nums inline-block w-[42px] text-right ml-2 md:ml-1 text-slate-300`}>{dolVol != null ? `$${formatVol(dolVol)}` : ''}</span>
+        <span className="inline-block w-[24px] text-center ml-2 md:ml-1">{rs != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${rsBadge(rs)}`}>{rs}</span> : ''}</span>
+        <span className="inline-block w-[24px] text-center ml-2 md:ml-1">{item.stage ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${stageBadge(item.stage)}`}>{stripStage(item.stage)}</span> : ''}</span>
+        <span className="inline-block w-[16px] text-center ml-2 md:ml-1"><NewsStars count={newsStars(stock || item as any)} url={(stock || item as any)?.catalystUrl} /></span>
       </div>
     </div>
   );
@@ -608,7 +643,7 @@ function SummaryRow({ item, stock, showNote, red }: { item: SummaryItem; stock?:
 
 function TrapRow({ item, stock }: { item: SummaryItem; stock?: StockEntry }) {
   return (
-    <div className={`grid items-center gap-x-1 py-[1px] text-[11px] tabular-nums`} style={{ gridTemplateColumns: GRID_COLS_TRAP }}>
+    <div className={`grid items-center gap-x-1 py-[1px] text-[9px] tabular-nums`} style={{ gridTemplateColumns: GRID_COLS_TRAP }}>
       {stock ? <TickerChip stock={stock} red /> : <TickerChartHover symbol={item.ticker}><span className={TICKER_CHIP_RED}>{item.ticker}</span></TickerChartHover>}
       <span className={`font-semibold text-right ${(item.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{item.changePct != null ? `${(item.changePct || 0) >= 0 ? '+' : ''}${item.changePct.toFixed(2)}%` : ''}</span>
       <span className={`text-[9px] font-bold text-center ${item.stage ? stageColor(item.stage) : 'text-slate-600'}`}>{item.stage ? stripStage(item.stage) : ''}</span>
@@ -650,8 +685,8 @@ function ActionableSummary({ summary, trades, avoidStocks, sortKey, sortDir, onS
 
   return (
     <SectionCard title="Actionable Summary" accent="#34d399">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-4">
-        <div className="border-l-0 md:border-l-[3px] border-l-indigo-400 bg-[#0a1220] rounded-r-lg px-1.5 md:px-5 py-2 md:py-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-4">
+        <div className="py-2 md:py-3">
           <div className="text-[9px] font-bold text-slate-500 tracking-wider uppercase mb-2">
             Highest Conviction
           </div>
@@ -670,7 +705,7 @@ function ActionableSummary({ summary, trades, avoidStocks, sortKey, sortDir, onS
           )}
         </div>
 
-        <div className="border-l-0 md:border-l-[3px] border-l-amber-400/60 bg-[#0a1220] rounded-r-lg px-1.5 md:px-5 py-2 md:py-3">
+        <div className="py-2 md:py-3">
           <div className="text-[9px] font-bold text-slate-500 tracking-wider uppercase mb-2">
             Watchlist — Not Yet Actionable
           </div>
@@ -691,7 +726,7 @@ function ActionableSummary({ summary, trades, avoidStocks, sortKey, sortDir, onS
       </div>
 
       {traps.length > 0 && (
-        <div className="border-l-0 md:border-l-[3px] border-l-rose-500/60 bg-[#0a1220] rounded-r-lg px-1.5 md:px-5 py-2 md:py-3 mt-4">
+        <div className="py-2 md:py-3 mt-4">
           <div className="text-[9px] font-bold text-slate-500 tracking-wider uppercase mb-2">
             Traps to Avoid
           </div>
@@ -722,7 +757,7 @@ function AnalystCard({ stock, rank }: { stock: StockEntry; rank: number }) {
   const setupCls = stock.setup ? (SETUP_COLORS[stock.setup] || DEFAULT_SETUP_CLS) : '';
 
   return (
-    <div className={`border-l-0 md:border-l-[3px] ${borderColor} ${bgColor} rounded-r-xl px-1.5 md:px-5 py-3 md:py-4`}>
+    <div className={`md:border-l-[3px] ${borderColor} ${bgColor} rounded-r-xl px-1.5 md:px-5 py-3 md:py-4`}>
       <div className="flex items-center gap-2 md:gap-3 flex-wrap mb-2 md:mb-3">
         <TickerChartHover symbol={stock.ticker}><span className={isAvoid ? TICKER_CHIP_RED : TICKER_CHIP}>{stock.ticker}</span></TickerChartHover>
 
@@ -737,42 +772,42 @@ function AnalystCard({ stock, rank }: { stock: StockEntry; rank: number }) {
           </span>
         )}
 
-        <span className={`text-[11px] font-semibold tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+        <span className={`text-[9px] font-semibold tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
           {isPositive ? '+' : ''}{stock.changePct.toFixed(2)}%
         </span>
 
         {stock.rvol != null && (
-          <span className="text-[11px] tabular-nums">
-            <span className="text-[8px] text-slate-500">RVOL</span> <span className={`font-semibold ${rvolColor(stock.rvol)}`}>{stock.rvol.toFixed(2)}</span>
+          <span className="text-[9px] tabular-nums">
+            <span className="text-[8px] text-slate-500">RVOL</span> <span className={`font-semibold ${rvolColor(stock.rvol)}`}>{stock.rvol < 1 ? stock.rvol.toFixed(1) : Math.round(stock.rvol)}x</span>
           </span>
         )}
 
         {stock.vol != null && formatVol(stock.vol) && (
-          <span className="text-[11px] text-slate-400 tabular-nums">
+          <span className="text-[9px] text-slate-400 tabular-nums">
             <span className="text-[8px] text-slate-500">Vol</span> <span className="text-slate-300 font-semibold">{formatVol(stock.vol)}</span>
           </span>
         )}
 
         {stock.dvol != null && (
-          <span className="text-[11px] text-slate-400 tabular-nums">
+          <span className="text-[9px] text-slate-400 tabular-nums">
             <span className="text-[8px] text-slate-500">$Vol</span> <span className="text-slate-300 font-semibold">${formatVol(stock.dvol)}</span>
           </span>
         )}
 
         {stock.stage && (
-          <span className="text-[11px] tabular-nums">
+          <span className="text-[9px] tabular-nums">
             <span className="text-[8px] text-slate-500">STG</span> <span className={`font-semibold ${stageColor(stock.stage)}`}>{stripStage(stock.stage)}</span>
           </span>
         )}
 
         {stock.rs != null && (
-          <span className="text-[11px] tabular-nums">
+          <span className="text-[9px] tabular-nums">
             <span className="text-[8px] text-slate-500">RS</span> <span className={`font-semibold ${rsColor(stock.rs)}`}>{stock.rs}</span>
           </span>
         )}
 
         {stock.adrPct != null && (
-          <span className="text-[11px] text-slate-400 tabular-nums">
+          <span className="text-[9px] text-slate-400 tabular-nums">
             <span className="text-[8px] text-slate-500">ADR</span> <span className="text-slate-300 font-semibold">{stock.adrPct.toFixed(1)}%</span>
           </span>
         )}
@@ -782,25 +817,25 @@ function AnalystCard({ stock, rank }: { stock: StockEntry; rank: number }) {
         {stock.thesis && (
           <div className="flex gap-3">
             <span className="text-[9px] font-bold text-slate-500 tracking-wider uppercase shrink-0 w-24 pt-0.5">Core Thesis</span>
-            <p className="text-[11px] text-slate-200 leading-relaxed">{renderTickerChips(stock.thesis, 0)}</p>
+            <p className="text-[10px] text-slate-200 leading-relaxed">{renderTickerChips(stock.thesis, 0)}</p>
           </div>
         )}
         {stock.risk && (
           <div className="flex gap-3">
             <span className="text-[9px] font-bold text-amber-500/70 tracking-wider uppercase shrink-0 w-24 pt-0.5">Risk</span>
-            <p className="text-[11px] text-slate-400 leading-relaxed">{stock.risk}</p>
+            <p className="text-[10px] text-slate-400 leading-relaxed">{stock.risk}</p>
           </div>
         )}
         {stock.invalidation && (
           <div className="flex gap-3">
             <span className="text-[9px] font-bold text-rose-500/70 tracking-wider uppercase shrink-0 w-24 pt-0.5">Invalidation</span>
-            <p className="text-[11px] text-slate-400 leading-relaxed">{stock.invalidation}</p>
+            <p className="text-[10px] text-slate-400 leading-relaxed">{stock.invalidation}</p>
           </div>
         )}
       </div>
 
       {(stock.trigger != null || stock.stop != null || stock.target != null) && (
-        <div className="flex items-center gap-4 mt-3 pt-2.5 border-t border-white/[0.04] text-[11px] tabular-nums">
+        <div className="flex items-center gap-4 mt-3 pt-2.5 border-t border-white/[0.04] text-[9px] tabular-nums">
           {stock.trigger != null && (
             <span className="text-slate-500">Trigger <span className="text-slate-200 font-semibold">${stock.trigger.toFixed(2)}</span></span>
           )}
@@ -824,6 +859,7 @@ const SECTION_STYLES: Record<string, { border: string; label: string }> = {
   'Key News & Catalysts': { border: 'border-l-violet-500', label: 'text-violet-400' },
   'Top Sectors & Money Flow': { border: 'border-l-amber-400', label: 'text-amber-400' },
   'Pre-Market Gappers': { border: 'border-l-emerald-500', label: 'text-emerald-400' },
+  'Intraday Movers': { border: 'border-l-emerald-500', label: 'text-emerald-400' },
   'Post-Market Gappers': { border: 'border-l-emerald-500', label: 'text-emerald-400' },
   'Stocks in Play Today': { border: 'border-l-indigo-400', label: 'text-indigo-400' },
   'Economic Data & Catalysts Today': { border: 'border-l-orange-400', label: 'text-orange-400' },
@@ -834,17 +870,20 @@ function GapperRow({ s, red }: { s: StockEntry; red?: boolean }) {
   const dolVol = s.dvol != null ? s.dvol : (s.price && s.vol) ? s.price * s.vol : null;
   return (
     <div className={scrollWrap} style={scrollStyle}>
-      <div className="grid items-center gap-x-1 py-[1px] text-[11px] tabular-nums " style={{ gridTemplateColumns: GRID_COLS_GAP }}>
+      <div className="flex items-center whitespace-nowrap py-[1px]">
         <TickerChip stock={s} red={red} />
-        <span className="text-center">{s.score != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(Number(s.score) || 0)}`}>{s.score}</span> : ''}</span>
-        <span className={`font-semibold text-right ${(s.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(s.changePct || 0) >= 0 ? '+' : ''}{s.changePct.toFixed(2)}%</span>
-        <span className="text-right text-slate-300">{fmtPrice(s.price)}</span>
-        <span className={`font-semibold text-right ${s.rvol != null ? rvolColor(s.rvol) : ''}`}>{s.rvol != null ? s.rvol.toFixed(2) : ''}</span>
-        <span className="text-slate-400 text-right">{s.vol != null ? formatVol(s.vol) : ''}</span>
-        <span className="text-slate-300 text-right">{dolVol != null ? `$${formatVol(dolVol)}` : ''}</span>
-        <span className="text-center">{s.rs != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${rsBadge(s.rs)}`}>{s.rs}</span> : ''}</span>
-        <span className="text-center">{s.stage ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${stageBadge(s.stage)}`}>{stripStage(s.stage)}</span> : ''}</span>
-        <span className="text-center"><NewsStars count={newsStars(s as any)} url={(s as any).catalystUrl} /></span>
+        <span className="hidden md:inline-block w-[12px]" />
+        <span className="inline-block w-[8px]" />
+        <span className="inline-block w-[8px]" />
+        <span className="inline-block w-[22px] text-center ml-1">{s.score != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(Number(s.score) || 0)}`}>{s.score}</span> : ''}</span>
+        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[52px] text-right ml-1 ${(s.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(s.changePct || 0) >= 0 ? '+' : ''}{s.changePct.toFixed(2)}%</span>
+        <span className="text-[9px] tabular-nums inline-block w-[42px] text-right text-slate-300 ml-2 md:ml-1">{fmtPrice(s.price)}</span>
+        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[40px] text-right ml-2 md:ml-1 ${s.rvol != null ? rvolColor(s.rvol) : ''}`}>{s.rvol != null ? `${s.rvol < 1 ? s.rvol.toFixed(1) : Math.round(s.rvol)}x` : ''}</span>
+        <span className="text-[9px] tabular-nums inline-block w-[36px] text-right ml-2 md:ml-1 text-slate-400">{s.vol != null ? formatVol(s.vol) : ''}</span>
+        <span className="text-[9px] tabular-nums inline-block w-[42px] text-right ml-2 md:ml-1 text-slate-300">{dolVol != null ? `$${formatVol(dolVol)}` : ''}</span>
+        <span className="inline-block w-[24px] text-center ml-2 md:ml-1">{s.rs != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${rsBadge(s.rs)}`}>{s.rs}</span> : ''}</span>
+        <span className="inline-block w-[24px] text-center ml-2 md:ml-1">{s.stage ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${stageBadge(s.stage)}`}>{stripStage(s.stage)}</span> : ''}</span>
+        <span className="inline-block w-[16px] text-center ml-2 md:ml-1"><NewsStars count={newsStars(s as any)} url={(s as any).catalystUrl} /></span>
       </div>
     </div>
   );
@@ -866,36 +905,45 @@ function GapperSection({ section, gradeMap, avoidSet, scannerGainers, scannerLos
   const rawUps = [...briefUps, ...(scannerGainers || []).filter(s => !seenUp.has(s.ticker))];
   const rawDowns = [...briefDowns, ...(scannerLosers || []).filter(s => !seenDown.has(s.ticker))];
   const ups = (sk ? sortStocks(rawUps, sk, sd) : rawUps.sort((a, b) => (b.changePct || 0) - (a.changePct || 0))).slice(0, 10);
-  const downs = (sk ? sortStocks(rawDowns, sk, sd) : rawDowns.sort((a, b) => (a.changePct || 0) - (b.changePct || 0))).slice(0, 10);
+  const downDir: SortDir = sk === 'chg' ? (sd === 'desc' ? 'asc' : 'desc') : sd;
+  const downs = (sk ? sortStocks(rawDowns, sk, downDir) : rawDowns.sort((a, b) => (a.changePct || 0) - (b.changePct || 0))).slice(0, 10);
 
   return (
-    <SectionCard title="Top Movers" accent="#34d399">
+    <SectionCard title={section.section || 'Top Movers'} accent="#34d399">
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 md:gap-3">
 
       {ups.length > 0 && (
-        <div className="border-l-0 md:border-l-[3px] border-l-emerald-500 bg-[#0a1220] rounded-r-lg px-1 md:px-4 py-2 md:py-3">
+        <div className="py-2 md:py-3">
           <div className="text-[9px] font-bold text-emerald-400 tracking-wider uppercase mb-2">
             Movers Up
           </div>
-          <SummaryHeader gapper sortKey={sk} sortDir={sd} onSort={handleSort} />
-          {ups.map((s, i) => <GapperRow key={i} s={s} red={avoidSet?.has(s.ticker)} />)}
+          <div className={scrollWrap} style={scrollStyle}>
+            <SummaryHeader gapper sortKey={sk} sortDir={sd} onSort={handleSort} />
+            {ups.map((s, i) => <GapperRow key={i} s={s} red={avoidSet?.has(s.ticker)} />)}
+          </div>
         </div>
       )}
       {downs.length > 0 && (
-        <div className="border-l-0 md:border-l-[3px] border-l-rose-500 bg-[#0a1220] rounded-r-lg px-1 md:px-4 py-2 md:py-3">
+        <div className="py-2 md:py-3">
           <div className="text-[9px] font-bold text-rose-400 tracking-wider uppercase mb-2">
             Movers Down
           </div>
-          <SummaryHeader gapper sortKey={sk} sortDir={sd} onSort={handleSort} />
-          {downs.map((s, i) => <GapperRow key={i} s={s} red />)}
+          <div className={scrollWrap} style={scrollStyle}>
+            <SummaryHeader gapper sortKey={sk} sortDir={sd} onSort={handleSort} />
+            {downs.map((s, i) => <GapperRow key={i} s={s} red />)}
+          </div>
         </div>
       )}
     </div>
     {section.analysis && (
       <div className="mt-3 pt-3 border-t border-white/[0.04]">
         <div className="text-[8px] font-bold text-slate-500 tracking-wider uppercase mb-1">WIM</div>
-        <div className="text-[11px] text-slate-200 leading-[1.7]">
-          {highlightBold(section.analysis, 'text-white', false, true, gradeMap, avoidSet)}
+        <div className="text-[10px] text-slate-200 leading-[1.7]">
+          {section.analysis.split(/\n\n+/).filter(p => p.trim()).map((block, i) => (
+            <div key={i} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
+              <p className="leading-[1.7]">{highlightBold(block.replace(/\n/g, ' '), 'text-white', true, true, gradeMap, avoidSet)}</p>
+            </div>
+          ))}
         </div>
       </div>
     )}
@@ -904,7 +952,7 @@ function GapperSection({ section, gradeMap, avoidSet, scannerGainers, scannerLos
 }
 
 function SIPSection({ section, gradeMap, avoidSet }: { section: SectionResult; gradeMap?: Record<string, 'A' | 'B'>; avoidSet?: Set<string> }) {
-  const [sk, setSk] = useState<SortKey | null>('cnf');
+  const [sk, setSk] = useState<SortKey | null>('chg');
   const [sd, setSd] = useState<SortDir>('desc');
   const handleSort = useCallback((key: SortKey) => {
     if (sk === key) { if (sd === 'desc') setSd('asc'); else { setSk(null); setSd('desc'); } }
@@ -914,7 +962,7 @@ function SIPSection({ section, gradeMap, avoidSet }: { section: SectionResult; g
   const rawStocks = section.stocks || [];
   const stocks = sk ? sortStocks(rawStocks, sk, sd) : rawStocks;
   return (
-    <SectionCard title={section.section} accent="#818cf8">
+    <SectionCard title={section.section} accent={SECTION_ACCENT[section.section] || '#818cf8'}>
       {stocks.length > 0 && (() => {
         const top10 = stocks.slice(0, 10);
         const left = top10.slice(0, Math.ceil(top10.length / 2));
@@ -924,28 +972,31 @@ function SIPSection({ section, gradeMap, avoidSet }: { section: SectionResult; g
           const dolVol = s.dvol != null ? s.dvol : (s.price && s.vol) ? s.price * s.vol : null;
           return (
             <div key={i} className={scrollWrap} style={scrollStyle}>
-              <div className="grid items-center gap-x-1 py-[1px] text-[11px] tabular-nums min-w-[420px]" style={{ gridTemplateColumns: GRID_COLS }}>
+              <div className="flex items-center whitespace-nowrap py-[1px]">
                 <TickerChip stock={s} red={avoidSet?.has(s.ticker)} />
-                <span className="text-center">{s.score != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(Number(s.score) || 0)}`}>{s.score}</span> : ''}</span>
-                <span className={`font-semibold text-right ${(s.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(s.changePct || 0) >= 0 ? '+' : ''}{s.changePct.toFixed(2)}%</span>
-                <span className="text-right text-slate-300">{fmtPrice(s.price)}</span>
-                <span className={`font-semibold text-right ${s.rvol != null ? rvolColor(s.rvol) : ''}`}>{s.rvol != null ? s.rvol.toFixed(2) : ''}</span>
-                <span className="text-slate-400 text-right">{s.vol != null ? formatVol(s.vol) : ''}</span>
-                <span className="text-slate-300 text-right">{dolVol != null ? `$${formatVol(dolVol)}` : ''}</span>
-                <span className="text-center">{s.rs != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${rsBadge(s.rs)}`}>{s.rs}</span> : ''}</span>
-                <span className="text-center">{s.stage ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${stageBadge(s.stage)}`}>{stripStage(s.stage)}</span> : ''}</span>
-                <span className="text-center"><NewsStars count={newsStars(s as any)} url={(s as any).catalystUrl} /></span>
+                <span className="inline-block w-[12px]" />
+                <span className="inline-block w-[8px]" />
+                <span className="inline-block w-[8px]" />
+                <span className="inline-block w-[20px] md:w-[22px] text-center ml-1">{s.score != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(Number(s.score) || 0)}`}>{s.score}</span> : ''}</span>
+                <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ${(s.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(s.changePct || 0) >= 0 ? '+' : ''}{s.changePct.toFixed(2)}%</span>
+                <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-1">{fmtPrice(s.price)}</span>
+                <span className={`text-[9px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 ${s.rvol != null ? rvolColor(s.rvol) : ''}`}>{s.rvol != null ? `${s.rvol < 1 ? s.rvol.toFixed(1) : Math.round(s.rvol)}x` : ''}</span>
+                <span className="text-[9px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-1 text-slate-400">{s.vol != null ? formatVol(s.vol) : ''}</span>
+                <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-1 text-slate-300">{dolVol != null ? `$${formatVol(dolVol)}` : ''}</span>
+                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{s.rs != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${rsBadge(s.rs)}`}>{s.rs}</span> : ''}</span>
+                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{s.stage ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${stageBadge(s.stage)}`}>{stripStage(s.stage)}</span> : ''}</span>
+                <span className="inline-block w-[14px] md:w-[16px] text-center ml-1"><NewsStars count={newsStars(s as any)} url={(s as any).catalystUrl} /></span>
               </div>
             </div>
           );
         });
         return (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3 md:gap-x-6">
-            <div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-3 lg:gap-x-6">
+            <div className={scrollWrap} style={scrollStyle}>
               <SummaryHeader sortKey={sk} sortDir={sd} onSort={handleSort} />
               {renderCol(left)}
             </div>
-            <div>
+            <div className={scrollWrap} style={scrollStyle}>
               <SummaryHeader sortKey={sk} sortDir={sd} onSort={handleSort} />
               {renderCol(right)}
             </div>
@@ -953,27 +1004,84 @@ function SIPSection({ section, gradeMap, avoidSet }: { section: SectionResult; g
         );
       })()}
       {section.analysis && (
-        <div className="text-[11px] text-slate-200 leading-[1.7] mt-3">
-          {highlightBold(section.analysis, 'text-white', false, true, gradeMap, avoidSet)}
+        <div className="mt-3 pt-3 border-t border-white/[0.04]">
+          <div className="text-[10px] text-slate-200 leading-[1.7]">
+            {section.analysis.split(/\n\n+/).filter(p => p.trim()).map((block, i) => (
+              <div key={i} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
+                <p className="leading-[1.7]">{highlightBold(block.replace(/\n/g, ' '), 'text-white', true, true, gradeMap, avoidSet)}</p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </SectionCard>
   );
 }
 
+const BOLD_TERMS = new Set([
+  'FOMC','Fed','Federal Reserve','ECB','BOJ','BOE','PBOC','SEC','FDIC',
+  'CPI','PPI','GDP','NFP','PCE','ISM','PMI','JOLTS','EIA','OPEC',
+  'T2108','A/D',
+  'Bitcoin','Ethereum','Gold','Silver','Crude Oil','Natural Gas','Copper','Treasury','Treasuries',
+  'Healthcare','Health Care','Technology','Consumer Staples','Consumer Discretionary',
+  'Energy','Financials','Materials','Industrials','Utilities','Real Estate','Communication Services',
+  'Bias','Breadth','Momentum','Initial Claims','Philly Fed','Empire State',
+]);
+const BOLD_RX = new RegExp(`\\b(${Array.from(BOLD_TERMS).sort((a, b) => b.length - a.length).map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'g');
+
+function autoBold(segment: string, keyBase: number): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  BOLD_RX.lastIndex = 0;
+  while ((m = BOLD_RX.exec(segment)) !== null) {
+    if (m.index > last) parts.push(segment.slice(last, m.index));
+    parts.push(<span key={keyBase + m.index} className="font-semibold text-slate-100">{m[0]}</span>);
+    last = m.index + m[0].length;
+  }
+  if (last < segment.length) parts.push(segment.slice(last));
+  if (last === 0) return [segment];
+  return parts;
+}
+
 function richText(text: string, withTickers = false, gradeMap?: Record<string, 'A' | 'B'>, avoidSet?: Set<string>): React.ReactNode {
-  const stripped = text.replace(/\*\*/g, '').replace(/\s*—\s*/g, '. ').replace(/\.\.\s/g, '. ');
-  const colored = colorPcts(stripped, 0);
-  if (!withTickers) return <>{colored}</>;
-  return <>{colored.map((part, i) => typeof part === 'string' ? renderTickerChips(part, i * 1000, gradeMap, avoidSet) : part)}</>;
+  const cleaned = text.replace(/\s*—\s*/g, '. ').replace(/\.\.\s/g, '. ');
+  const boldParts = cleaned.split(/\*\*/);
+  const elements: React.ReactNode[] = [];
+  for (let i = 0; i < boldParts.length; i++) {
+    const part = boldParts[i];
+    if (!part) continue;
+    if (i % 2 === 1) {
+      const colored = colorPcts(part, i * 100);
+      const rendered = withTickers
+        ? colored.map((c, j) => typeof c === 'string' ? renderTickerChips(c, i * 1000 + j * 100, gradeMap, avoidSet) : c)
+        : colored;
+      elements.push(<span key={`b${i}`} className="font-semibold text-slate-100">{rendered}</span>);
+    } else {
+      const colored = colorPcts(part, i * 100);
+      const processed = withTickers
+        ? colored.map((c, j) => typeof c === 'string' ? renderTickerChips(c, i * 1000 + j * 100, gradeMap, avoidSet) : c)
+        : colored;
+      const flat = (Array.isArray(processed) ? processed : [processed]).flat();
+      for (let k = 0; k < flat.length; k++) {
+        const item = flat[k];
+        if (typeof item === 'string') {
+          elements.push(...autoBold(item, i * 10000 + k * 1000));
+        } else {
+          elements.push(<React.Fragment key={`r${i}-${k}`}>{item}</React.Fragment>);
+        }
+      }
+    }
+  }
+  return <>{elements}</>;
 }
 
 function parseLabeled(text: string): { label: string; value: string; detail: string }[] {
   const rows: { label: string; value: string; detail: string }[] = [];
   const lines = text.split('\n').filter(l => l.trim());
   for (const line of lines) {
-    const m = line.match(/^\*{0,2}([A-Za-z0-9\s/&']+?)\*{0,2}:\s*(.+)/);
-    if (!m) continue;
+    const m = line.match(/^\*{0,2}([A-Za-z0-9\s/&']+?)\*{0,2}:(?!\d)\s*(.+)/);
+    if (!m || m[1].trim().length > 15) continue;
     const label = m[1].trim().replace(/\*+/g, '');
     const rest = m[2].replace(/\*+/g, '').trim();
     const dashIdx = rest.indexOf(' — ');
@@ -1026,48 +1134,16 @@ function FormattedBlock({ text, tickers, summaryLabel, skipLabels, distributeLab
   }
 
   if (parsed.length === 0) {
-    const rawLines = text.split('\n').map(l => l.trim()).filter(Boolean);
-    const lines: string[] = [];
-    for (const l of rawLines) {
-      if (l.length > 200) {
-        const tickerSplit = l.split(/(?=\*\*[A-Z]{1,5}\*\*)/).map(s => s.trim()).filter(Boolean);
-        if (tickerSplit.length > 1) {
-          lines.push(...tickerSplit);
-        } else {
-          lines.push(...l.split(/(?<=\.)\s+(?=[A-Z])/).map(s => s.trim()).filter(Boolean));
-        }
-      } else {
-        lines.push(l);
-      }
-    }
+    const paragraphs = text.split(/\n\n+/).map(p => p.replace(/\n/g, ' ').trim()).filter(Boolean);
     return (
-      <div className="space-y-1.5 md:space-y-2">
-        {lines.map((line, i) => {
-          const tickerStart = line.match(/^([A-Z]{2,5})\s*—\s*/);
-          const lastDash = line.lastIndexOf(' — ');
-          if (tickerStart && lastDash > tickerStart[0].length) {
-            const ticker = tickerStart[1];
-            const headline = line.slice(0, lastDash);
-            let stockData = line.slice(lastDash + 3).trim();
-            stockData = stockData.replace(new RegExp(`^${ticker}\\s+is\\s+`, 'i'), 'Is ');
-            stockData = stockData.replace(new RegExp(`^${ticker}\\s+`, ''), '');
-            return (
-              <div key={i} className={i > 0 ? 'pt-2 border-t border-white/[0.06]' : ''}>
-                <p className="text-[13px] text-slate-300 leading-[1.8]">
-                  {richText(headline, tickers, gradeMap, avoidSet)}
-                </p>
-                <p className="text-[12px] text-slate-400 leading-[1.7] mt-1.5 pl-4">
-                  {richText(stockData.charAt(0).toUpperCase() + stockData.slice(1), tickers, gradeMap, avoidSet)}
-                </p>
-              </div>
-            );
-          }
-          return (
-            <p key={i} className={`text-[13px] text-slate-300 leading-[1.8] ${i > 0 ? 'pt-2 border-t border-white/[0.06]' : ''}`}>
-              {richText(line, tickers, gradeMap, avoidSet)}
+      <div className="space-y-0">
+        {paragraphs.map((para, i) => (
+          <div key={i} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
+            <p className="text-[10px] text-slate-200 leading-[1.7]">
+              {richText(para, tickers, gradeMap, avoidSet)}
             </p>
-          );
-        })}
+          </div>
+        ))}
       </div>
     );
   }
@@ -1078,22 +1154,22 @@ function FormattedBlock({ text, tickers, summaryLabel, skipLabels, distributeLab
   return (
     <div className="space-y-1.5 md:space-y-2">
       {metrics.map((r, i) => (
-        <div key={i} className={i > 0 ? 'pt-2 border-t border-white/[0.06]' : ''}>
+        <div key={i} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
           <div className="text-[10px] font-bold text-slate-500 tracking-wider uppercase mb-1.5">{r.label}</div>
-          <p className="text-[13px] text-slate-300 leading-[1.8]">
+          <p className="text-[10px] text-slate-200 leading-[1.7]">
             {richText(r.value, tickers, gradeMap, avoidSet)}
           </p>
           {r.detail && (
-            <p className="text-[12px] text-slate-400 leading-[1.7] mt-2">
+            <p className="text-[10px] text-slate-300 leading-[1.7] mt-2">
               {richText(r.detail.charAt(0).toUpperCase() + r.detail.slice(1), tickers, gradeMap, avoidSet)}
             </p>
           )}
         </div>
       ))}
       {summary && (
-        <div className="pt-2 border-t border-white/[0.06]">
+        <div className="pt-3 mt-3 border-t border-white/[0.06]">
           <div className="text-[10px] font-bold text-slate-500 tracking-wider uppercase mb-2">{summaryLabel || summary.label}</div>
-          <p className="text-[13px] text-slate-300 leading-[1.8]">
+          <p className="text-[10px] text-slate-200 leading-[1.7]">
             {richText(summary.value + (summary.detail ? ' — ' + summary.detail : ''), tickers, gradeMap, avoidSet)}
           </p>
         </div>
@@ -1206,7 +1282,7 @@ function KeyEventsSection() {
     return (
       <div key={i} className={scrollCls} style={scrollSty}>
         <div className={`flex items-center whitespace-nowrap py-[1px] ${EARN_ROW_W}`}>
-          <span className={`inline-block ${EARN_W_MARK} text-[10px] ${pending ? 'text-amber-400' : 'text-transparent'}`}>{pending ? '▸' : ''}</span>
+          <span className={`inline-block ${EARN_W_MARK} text-[9px] ${pending ? 'text-amber-400' : 'text-transparent'}`}>{pending ? '▸' : ''}</span>
           <span className={`inline-block ${EARN_W_TICKER}`}>
             <TickerChartHover symbol={e.symbol}><span className={`${BRIEF_TICKER_CHIP} w-[48px] md:w-[56px]`}>{e.symbol}</span></TickerChartHover>
           </span>
@@ -1223,16 +1299,16 @@ function KeyEventsSection() {
               </span>
             )}
           </span>
-          <span className={`inline-block ${EARN_W_EPS} text-right text-[11px] tabular-nums font-semibold ${pending ? 'text-slate-300' : 'text-slate-200'}`}>
+          <span className={`inline-block ${EARN_W_EPS} text-right text-[9px] tabular-nums font-semibold ${pending ? 'text-slate-300' : 'text-slate-200'}`}>
             {pending ? (e.epsEstimated?.toFixed(2) ?? '—') : e.epsActual?.toFixed(2)}
           </span>
-          <span className={`inline-block ${EARN_W_EST} text-right text-[11px] tabular-nums font-semibold ${pending ? 'text-slate-600' : 'text-slate-400'}`}>
+          <span className={`inline-block ${EARN_W_EST} text-right text-[9px] tabular-nums font-semibold ${pending ? 'text-slate-600' : 'text-slate-400'}`}>
             {pending ? 'est' : e.epsEstimated?.toFixed(2) ?? '—'}
           </span>
-          <span className={`inline-block ${EARN_W_SURP} text-right text-[10px] tabular-nums font-medium ${beat ? 'text-emerald-400/70' : 'text-rose-400/70'}`}>
+          <span className={`inline-block ${EARN_W_SURP} text-right text-[9px] tabular-nums font-medium ${beat ? 'text-emerald-400/70' : 'text-rose-400/70'}`}>
             {pending ? '' : surprise}
           </span>
-          <span className={`inline-block ${EARN_W_REV} text-right text-[10px] text-slate-500`}>
+          <span className={`inline-block ${EARN_W_REV} text-right text-[9px] text-slate-500`}>
             {fmtRev(e.revenueEstimated) || ''}
           </span>
         </div>
@@ -1245,7 +1321,7 @@ function KeyEventsSection() {
 
   return (
     <SectionCard title="Key Events" accent="#fbbf24">
-      <p className="text-[10px] text-slate-500 font-medium leading-snug mb-3">
+      <p className="text-[8px] text-slate-500 font-medium leading-snug mb-3">
         Today&apos;s releases and large-cap prints. ▸ marks what has not happened yet. The only forward-looking macro section.
       </p>
       {/* Economic (left) + Earnings (right) — side by side */}
@@ -1269,17 +1345,17 @@ function KeyEventsSection() {
             return (
               <div key={i} className={scrollCls} style={scrollSty}>
                 <div className="flex items-center whitespace-nowrap py-[1px]">
-                  <span className={`inline-block w-[10px] text-[10px] ${isPending ? 'text-amber-400' : 'text-slate-600'}`}>{isPending ? '▸' : '∅'}</span>
-                  <span className="inline-block w-[62px] md:w-[68px] text-[11px] tabular-nums font-semibold text-slate-400 ml-1">{fmtTime(e.minutes)}</span>
-                  <span className={`inline-block w-[180px] md:w-[240px] text-[11px] font-medium truncate ${isPending ? 'text-slate-200' : impactCls(e.impact)}`}>{e.event}</span>
-                  <span className={`inline-block w-[52px] md:w-[60px] text-[11px] tabular-nums font-semibold text-right ml-3 ${e.actual != null ? 'text-emerald-400' : 'text-slate-600'}`}>{fmtNum(e.actual)}</span>
-                  <span className={`inline-block w-[52px] md:w-[60px] text-[11px] tabular-nums font-semibold text-right ml-1 ${e.estimate != null ? 'text-slate-300' : 'text-slate-600'}`}>{fmtNum(e.estimate)}</span>
-                  <span className={`inline-block w-[52px] md:w-[60px] text-[11px] tabular-nums font-semibold text-right ml-1 ${e.previous != null ? 'text-slate-500' : 'text-slate-600'}`}>{fmtNum(e.previous)}</span>
+                  <span className={`inline-block w-[10px] text-[9px] ${isPending ? 'text-amber-400' : 'text-slate-600'}`}>{isPending ? '▸' : '∅'}</span>
+                  <span className="inline-block w-[62px] md:w-[68px] text-[9px] tabular-nums font-semibold text-slate-400 ml-1">{fmtTime(e.minutes)}</span>
+                  <span className={`inline-block w-[180px] md:w-[240px] text-[9px] font-medium truncate ${isPending ? 'text-slate-200' : impactCls(e.impact)}`}>{e.event}</span>
+                  <span className={`inline-block w-[52px] md:w-[60px] text-[9px] tabular-nums font-semibold text-right ml-3 ${e.actual != null ? 'text-emerald-400' : 'text-slate-600'}`}>{fmtNum(e.actual)}</span>
+                  <span className={`inline-block w-[52px] md:w-[60px] text-[9px] tabular-nums font-semibold text-right ml-1 ${e.estimate != null ? 'text-slate-300' : 'text-slate-600'}`}>{fmtNum(e.estimate)}</span>
+                  <span className={`inline-block w-[52px] md:w-[60px] text-[9px] tabular-nums font-semibold text-right ml-1 ${e.previous != null ? 'text-slate-500' : 'text-slate-600'}`}>{fmtNum(e.previous)}</span>
                 </div>
               </div>
             );
           })}
-          {econToday.length === 0 && <p className="text-[11px] text-slate-600 py-2">Nothing scheduled today.</p>}
+          {econToday.length === 0 && <p className="text-[9px] text-slate-600 py-2">Nothing scheduled today.</p>}
         </div>
         <div className="hidden md:block w-px bg-white/10 self-stretch" />
         <div className="space-y-4 pl-4">
@@ -1298,7 +1374,7 @@ function KeyEventsSection() {
                 <span className={`inline-block ${EARN_W_REV} ${hdrCls} text-right`}>REV</span>
               </div>
             </div>
-            {todayEarn.length > 0 ? todayEarn.map(renderEarnRow) : <p className="text-[11px] text-slate-600 py-2">No large-cap prints.</p>}
+            {todayEarn.length > 0 ? todayEarn.map(renderEarnRow) : <p className="text-[9px] text-slate-600 py-2">No large-cap prints.</p>}
           </div>
           <div className="space-y-0">
             <p className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5">
@@ -1315,7 +1391,7 @@ function KeyEventsSection() {
                 <span className={`inline-block ${EARN_W_REV} ${hdrCls} text-right`}>REV</span>
               </div>
             </div>
-            {tmrwEarn.length > 0 ? tmrwEarn.map(renderEarnRow) : <p className="text-[11px] text-slate-600 py-2">No large-cap prints.</p>}
+            {tmrwEarn.length > 0 ? tmrwEarn.map(renderEarnRow) : <p className="text-[9px] text-slate-600 py-2">No large-cap prints.</p>}
           </div>
         </div>
       </div>
@@ -1339,13 +1415,17 @@ function BriefSection({ section }: { section: SectionResult }) {
   }
 
   return (
-    <div className={`border-l-0 md:border-l-[3px] ${style.border} bg-[#0a1220] rounded-r-lg px-5 py-4`}>
+    <div className={`md:border-l-[3px] ${style.border} bg-[#0a1220] rounded-r-lg px-5 py-4`}>
       <div className={`text-[9px] font-bold ${style.label} tracking-wider uppercase mb-3`}>
         {section.section}
       </div>
       {section.analysis && (
-        <div className="text-[12px] text-slate-300 leading-[1.75] whitespace-pre-line">
-          {highlightBold(section.analysis, 'text-slate-100', usePct, !usePct)}
+        <div className="text-[10px] text-slate-200 leading-[1.7]">
+          {section.analysis.split(/\n\n+/).filter(p => p.trim()).map((block, i) => (
+            <div key={i} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
+              <p className="leading-[1.7]">{highlightBold(block.replace(/\n/g, ' '), 'text-slate-100', usePct, !usePct)}</p>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -1421,7 +1501,7 @@ function SectorSection({ section, scannerData }: { section: SectionResult; scann
   ]);
   const flowRows = flowAll
     .filter((s: any) => dVolOf(s) > 0)
-    .sort((a: any, b: any) => dVolOf(b) - dVolOf(a))
+    .sort((a: any, b: any) => Math.abs(chgOf(b)) - Math.abs(chgOf(a)))
     .slice(0, 5);
 
   /* Same aggregation the dashboard's Industry Heat uses — one implementation
@@ -1448,13 +1528,13 @@ function SectorSection({ section, scannerData }: { section: SectionResult; scann
         const worst = allSectors[allSectors.length - 1];
         const spread = best.pct - worst.pct;
         return (
-          <div className="bg-gradient-to-b from-[#0b1424] to-[#0a1220] rounded-xl border border-white/[0.04] overflow-hidden">
-            <div className="px-3 md:px-5 pt-3 md:pt-4 pb-2 flex items-center justify-end">
-              <div className="text-[10px] text-slate-600 tabular-nums">
+          <div className="overflow-hidden">
+            <div className="flex items-center justify-end pb-0.5 pt-1">
+              <span className="text-[9px] text-slate-600 tabular-nums">
                 Spread {spread.toFixed(2)}%
-              </div>
+              </span>
             </div>
-            <div className="px-2 pb-3">
+            <div className="overflow-hidden px-1.5 py-1.5">
               {allSectors.map((s, i) => {
                 const barWidth = (Math.abs(s.pct) / maxAbs) * 40;
                 const isPositive = s.pct >= 0;
@@ -1465,7 +1545,7 @@ function SectorSection({ section, scannerData }: { section: SectionResult; scann
                     key={i}
                     className="group flex items-center px-3 py-[1px] rounded transition-colors hover:bg-white/[0.02]"
                   >
-                    <span className={`text-[11px] w-[140px] text-right shrink-0 pr-4 transition-colors ${isFirst ? 'text-emerald-300/90 font-medium' : isLast ? 'text-rose-300/90 font-medium' : 'text-slate-400 group-hover:text-slate-300'}`}>
+                    <span className={`text-[9px] w-[140px] text-right shrink-0 pr-4 transition-colors ${isFirst ? 'text-emerald-300/90 font-medium' : isLast ? 'text-rose-300/90 font-medium' : 'text-slate-400 group-hover:text-slate-300'}`}>
                       {s.name}
                     </span>
                     <div className="flex-1 h-[20px] flex items-center">
@@ -1496,7 +1576,7 @@ function SectorSection({ section, scannerData }: { section: SectionResult; scann
                         )}
                       </div>
                     </div>
-                    <span className={`text-[11px] font-semibold tabular-nums w-[58px] text-right shrink-0 pl-2 ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    <span className={`text-[9px] font-semibold tabular-nums w-[58px] text-right shrink-0 pl-2 ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
                       {isPositive ? '+' : ''}{s.pct.toFixed(2)}%
                     </span>
                   </div>
@@ -1508,19 +1588,19 @@ function SectorSection({ section, scannerData }: { section: SectionResult; scann
       })()}
 
       {heat.length >= 2 && (
-        <div className="bg-gradient-to-b from-[#0b1424] to-[#0a1220] rounded-xl border border-white/[0.04] overflow-hidden flex flex-col">
-          <div className="px-3 md:px-5 pt-3 md:pt-4 pb-1">
+        <div className="flex flex-col">
+          <div className="pt-1 pb-1">
             <div className="text-[9px] font-bold text-amber-400 tracking-wider uppercase">Industry Heat</div>
-            <p className="text-[10px] text-slate-500 mt-1">Sector rotation — where money is arriving and where it is leaving.</p>
+            <p className="text-[9px] text-slate-500 mt-1">Sector rotation — where money is arriving and where it is leaving.</p>
           </div>
-          <div className="flex-1 flex flex-col justify-center px-3 md:px-5 pb-3 md:pb-4">
+          <div className="flex-1 flex flex-col justify-center py-1.5">
             {heat.slice(0, 8).map((h: SectorHeat, i: number) => (
-              <div key={i} className="flex items-center gap-2 py-[2px] text-[11px] tabular-nums">
+              <div key={i} className="flex items-center gap-2 py-[2px] text-[9px] tabular-nums">
                 <span className={`font-semibold w-[52px] text-right shrink-0 ${h.avgChg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                   {h.avgChg >= 0 ? '+' : ''}{h.avgChg.toFixed(1)}%
                 </span>
                 <span className="text-slate-300 truncate">{h.sector}</span>
-                <span className="text-slate-600 text-[10px]">({h.count})</span>
+                <span className="text-slate-600 text-[9px]">({h.count})</span>
               </div>
             ))}
           </div>
@@ -1554,7 +1634,7 @@ function SectorSection({ section, scannerData }: { section: SectionResult; scann
 }
 
 function NewsStars({ count, url }: { count: number; url?: string | null }) {
-  if (count === 0) return <span className="text-slate-700">—</span>;
+  if (count === 0) return null;
   const cls = count >= 2 ? 'text-amber-400' : 'text-slate-500';
   const stars = <span className={`text-[7px] leading-none ${cls}`}>{'★'.repeat(count)}</span>;
   if (url) return <a href={url} target="_blank" rel="noopener noreferrer" className="hover:brightness-125 transition-all">{stars}</a>;
@@ -1594,14 +1674,26 @@ function FlowTable({ title, color, blurb, rows }: { title: string; color: string
   const titleCls = color === 'indigo' ? 'text-indigo-400' : 'text-rose-400';
 
   return (
-    <div className={`border-l-0 md:border-l-[3px] ${borderCls} ${bgCls} rounded-r-lg px-1 md:px-4 py-2 md:py-3`}>
+    <div className={`py-2 md:py-3`}>
       <div className={`text-[9px] font-bold ${titleCls} tracking-wider uppercase mb-1.5`}>
         {title}
       </div>
-      <p className="text-[10px] text-slate-500 font-medium leading-snug mb-2">{blurb}</p>
+      <p className="text-[8px] text-slate-500 font-medium leading-snug mb-2">{blurb}</p>
       <div className={scrollWrap} style={scrollStyle}>
-        <div className="grid items-center gap-x-1 text-[7px] font-bold tracking-widest text-slate-600 uppercase pb-0.5 border-b border-white/5 mb-0.5" style={{ gridTemplateColumns: GRID_COLS }}>
-          <span className="text-center">TICKER</span><span className="text-center">CNF</span><span className="text-right">CHG%</span><span className="text-right">PRC</span><span className="text-right">RVOL</span><span className="text-right">VOL</span><span className="text-right">$VOL</span><span className="text-center">RS</span><span className="text-center">STG</span><span className="text-center">N</span>
+        <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
+          <span className="inline-block w-[38px] md:w-[44px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
+          <span className="inline-block w-[12px]" />
+          <span className="inline-block w-[8px]" />
+          <span className="inline-block w-[8px]" />
+          <span className="inline-block w-[20px] md:w-[22px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">CNF</span>
+          <span className="inline-block w-[46px] md:w-[52px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right">CHG%</span>
+          <span className="inline-block w-[36px] md:w-[42px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">PRC</span>
+          <span className="inline-block w-[36px] md:w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">RVOL</span>
+          <span className="inline-block w-[30px] md:w-[36px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">VOL</span>
+          <span className="inline-block w-[36px] md:w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">$VOL</span>
+          <span className="inline-block w-[22px] md:w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">RS</span>
+          <span className="inline-block w-[22px] md:w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">STG</span>
+          <span className="inline-block w-[14px] md:w-[16px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">N</span>
         </div>
         {rows.map((r: any, i: number) => {
           const chg = r.changePct || 0;
@@ -1613,25 +1705,28 @@ function FlowTable({ title, color, blurb, rows }: { title: string; color: string
           const stars = newsStars(r);
           return (
             <div key={i} className={scrollWrap} style={scrollStyle}>
-              <div className="grid items-center gap-x-1 py-[1px] text-[11px] tabular-nums" style={{ gridTemplateColumns: GRID_COLS }}>
-                <span className="inline-flex items-center gap-1">
-                  <ChartTooltip symbol={r.ticker}>
-                    <span className={`${gridChipCls(grade)} cursor-default`}>
-                      {r.ticker}
-                    </span>
-                  </ChartTooltip>
-                  {dot === 'red' && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />}
-                  {dot === 'blue' && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />}
+              <div className="flex items-center whitespace-nowrap py-[1px]">
+                <ChartTooltip symbol={r.ticker}>
+                  <span className={`${gridChipCls(grade)} cursor-default w-[38px] md:w-[44px]`}>
+                    {r.ticker}
+                  </span>
+                </ChartTooltip>
+                <span className="inline-block w-[12px] text-center shrink-0">
+                  {dot === 'blue' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)]" />}
                 </span>
-                <span className="text-center"><span className={`inline-block text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center ${cnfBadge(cnf, grade)}`}>{cnf}</span></span>
-                <span className={`font-semibold text-right ${chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
-                <span className="text-right text-slate-300">{fmtPrice(r.price)}</span>
-                <span className={`text-right ${(r.rvol || 0) >= 2 ? 'text-emerald-400 font-semibold' : (r.rvol || 0) >= 1 ? 'text-slate-300' : 'text-slate-500'}`}>{(r.rvol || 0).toFixed(2)}</span>
-                <span className="text-right text-slate-400">{fmtVol(r.vol || 0)}</span>
-                <span className="text-right text-slate-400">{fmtDollar(r.dVol || 0)}</span>
-                <span className="text-center">{rs ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${rsBadge(rs)}`}>{rs}</span> : ''}</span>
-                <span className="text-center">{stage ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${stageBadge(r.stage)}`}>{stage}</span> : ''}</span>
-                <span className="text-center"><NewsStars count={stars} url={r.catalystUrl} /></span>
+                <span className="inline-block w-[8px] text-center shrink-0">
+                  {dot === 'red' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500" />}
+                </span>
+                <span className="inline-block w-[8px]" />
+                <span className="inline-block w-[20px] md:w-[22px] text-center ml-1"><span className={`inline-block text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center ${cnfBadge(cnf, grade)}`}>{cnf}</span></span>
+                <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ${chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
+                <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-1">{fmtPrice(r.price)}</span>
+                <span className={`text-[9px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 ${(r.rvol || 0) >= 2 ? 'text-emerald-400' : (r.rvol || 0) >= 1 ? 'text-slate-300' : 'text-slate-500'}`}>{(r.rvol || 0) < 1 ? (r.rvol || 0).toFixed(1) : Math.round(r.rvol || 0)}x</span>
+                <span className="text-[9px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-1 text-slate-400">{fmtVol(r.vol || 0)}</span>
+                <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-1 text-slate-400">{fmtDollar(r.dVol || 0)}</span>
+                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{rs ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${rsBadge(rs)}`}>{rs}</span> : ''}</span>
+                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{stage ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${stageBadge(r.stage)}`}>{stage}</span> : ''}</span>
+                <span className="inline-block w-[14px] md:w-[16px] text-center ml-1"><NewsStars count={stars} url={r.catalystUrl} /></span>
               </div>
             </div>
           );
@@ -1717,21 +1812,25 @@ function SectionCard({
   right?: React.ReactNode;
 }) {
   return (
-    <div className="border border-white/[0.06] rounded-2xl p-2 sm:p-6 md:p-8 relative overflow-hidden">
+    <div
+      className="md:border md:border-white/5 md:rounded-2xl p-2 md:p-8 relative overflow-hidden md:shadow-xl w-full rounded-xl"
+      style={{ backgroundColor: `${accent}0a` }}
+    >
       <div
         className="hidden md:block absolute right-0 top-0 w-64 h-64 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"
         style={{ backgroundColor: `${accent}0d` }}
       />
       <div className="flex justify-between items-center relative z-10 mb-3 md:mb-6 border-b border-white/5 pb-2 md:pb-4">
         <span
-          className="text-[8px] font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-2 py-0.5 rounded tracking-widest uppercase flex items-center gap-2"
+          className="text-[8px] font-bold bg-[#161c2a]/40 border border-white/5 px-2 py-0.5 rounded tracking-widest uppercase flex items-center gap-2"
+          style={{ color: accent }}
         >
-          <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]" />
+          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: accent }} />
           {title}
         </span>
         {right}
       </div>
-      <div className="relative z-10">{children}</div>
+      <div className="relative z-10 px-1 md:px-0">{children}</div>
     </div>
   );
 }
@@ -1827,7 +1926,7 @@ export default function AnalystBrief() {
   /* Separate from `error`: the brief simply not being published yet is an
      expected state overnight, and must not paint a red failure box. */
   const [pending, setPending] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey | null>('cnf');
+  const [sortKey, setSortKey] = useState<SortKey | null>('chg');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [macroBadges, setMacroBadges] = useState<MacroBadges | null>(null);
   const [rawBreadth, setRawBreadth] = useState<any>(null);
@@ -2098,9 +2197,9 @@ export default function AnalystBrief() {
     {/* Same shell as the dashboard: centred rounded panel on the page ground,
         header rule, then a spaced stack of cards. */}
     <div className="min-h-screen bg-[#05080f] text-slate-300 font-sans md:py-10 flex justify-center">
-      <div className="w-full max-w-[1200px] bg-[#0b101a] md:rounded-[2rem] border-x md:border border-white/5 overflow-hidden shadow-2xl relative pb-20">
+      <div className="w-full max-w-[1200px] bg-[#0b101a] md:rounded-[2rem] md:border md:border-white/5 overflow-hidden md:shadow-2xl relative pb-20">
 
-        <div className="px-4 md:px-10 pt-6 md:pt-8 pb-4 md:pb-6 border-b border-white/5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="px-3 md:px-10 pt-6 md:pt-8 pb-4 md:pb-6 border-b border-white/5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div className="flex items-center gap-3.5 md:gap-5">
             <img src="/logo.svg" alt="CTT" className="ctt-logo h-9 md:h-12 w-auto drop-shadow-[0_2px_10px_rgba(124,139,250,0.18)]" />
             <div className="leading-none">
@@ -2114,25 +2213,7 @@ export default function AnalystBrief() {
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <button
-              onClick={() => fetchBrief()}
-              disabled={loading}
-              className="px-4 py-2 rounded-lg text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shrink-0 disabled:opacity-50"
-            >
-              {loading ? 'Loading...' : 'Refresh'}
-            </button>
-            <a
-              href="/confluence"
-              className="px-4 py-2 rounded-lg text-sm font-bold bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors shrink-0"
-            >
-              Confluence
-            </a>
-            <a
-              href="/"
-              className="px-4 py-2 rounded-lg text-sm font-bold bg-[#161c2a] hover:bg-[#1e2637] border border-white/10 text-slate-300 transition-colors shrink-0"
-            >
-              Dashboard
-            </a>
+            <DashNav />
             <button
               onClick={() => setHelpOpen(true)}
               className="w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold bg-slate-700/60 hover:bg-slate-600 text-slate-400 hover:text-slate-200 transition-colors shrink-0"
@@ -2141,11 +2222,11 @@ export default function AnalystBrief() {
           </div>
         </div>
 
-        <div className="px-4 md:px-10 py-4 md:py-6 space-y-4 md:space-y-6">
+        <div className="px-0 md:px-10 py-6 space-y-6">
 
         {/* Same card shell and header as the dashboard's Scorecard: label pill
             left, session and last-update right, indigo glow behind. */}
-        <div className="border border-white/[0.06] rounded-2xl p-2 sm:p-6 md:p-8 relative overflow-hidden">
+        <div className="bg-[#101623] border-0 md:border md:border-white/5 md:rounded-2xl p-2 md:p-8 relative overflow-hidden md:shadow-xl w-full">
           <div className="hidden md:block absolute right-0 top-0 w-64 h-64 bg-indigo-500/5 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
           <div className="flex justify-between items-center relative z-10 mb-3 md:mb-6 border-b border-white/5 pb-2 md:pb-4">
             <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2">
@@ -2191,6 +2272,7 @@ export default function AnalystBrief() {
           />
         </div>
 
+        <MacroEconPanel />
 
         {loading && !brief && (
           <div className="flex items-center justify-center py-20 gap-3">
@@ -2215,14 +2297,20 @@ export default function AnalystBrief() {
         )}
 
         {brief && (
-          <div className="space-y-4 md:space-y-8">
+          <div className="space-y-6">
 
             {/* 1. Macro Snapshot */}
             {(() => {
               const macroSec = brief.sections.find(s => /Futures.*Macro|Macro.*Snapshot/i.test(s.section));
               return macroSec?.analysis ? (
                 <SectionCard title="Macro Snapshot" accent="#22d3ee">
-                  <FormattedBlock text={macroSec.analysis} tickers skipLabels={/^futures/i} distributeLabel={/^macro read/i} gradeMap={gradeMap} avoidSet={avoidSet} />
+                  <div className="text-[10px] text-slate-200 leading-[1.7]">
+                    {macroSec.analysis.split(/\n\n+/).filter(p => p.trim()).map((block, i) => (
+                      <div key={i} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
+                        <p className="leading-[1.7]">{highlightBold(block.replace(/\n/g, ' '), 'text-white', true, true, gradeMap, avoidSet)}</p>
+                      </div>
+                    ))}
+                  </div>
                 </SectionCard>
               ) : null;
             })()}
@@ -2256,8 +2344,8 @@ export default function AnalystBrief() {
             {(brief.regimeDetail?.regime || brief.regimeDetail?.caution || brief.regimeDetail?.posture) && (() => {
               const rd = brief.regimeDetail!;
               const detail = [
-                rd.caution ? `Risk: ${rd.caution}` : null,
-                rd.posture ? `Structure: ${rd.posture}` : null,
+                rd.caution ? `Risk: ${rd.caution.replace(/\n+/g, ' ')}` : null,
+                rd.posture ? `Structure: ${rd.posture.replace(/\n+/g, ' ')}` : null,
               ].filter(Boolean).join('\n');
               return (
                 <SectionCard title="Market Regime" accent="#22d3ee">
@@ -2278,7 +2366,7 @@ export default function AnalystBrief() {
             })()}
 
             {/* Compact legend */}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-slate-500 leading-snug">
+            <div className="flex flex-wrap items-center justify-center md:justify-start gap-x-3 gap-y-1 text-[9px] text-slate-500 leading-snug">
               <span className="cursor-help" title="CNF grade. A = 70+ (high conviction), B = 50–69. Combines RVOL, gap size, range expansion, relative strength, and catalyst quality."><span className="text-emerald-400 font-bold">A</span> 70+ <span className="text-amber-400 font-bold">B</span> 50&ndash;69</span>
               <span className="cursor-help" title="10/21 EMA posture. Green = price above both EMAs, trend intact. Amber = 10 and 21 converging, potential trend change. Rose = extended above or broken below the 21 EMA."><span className="inline-block w-[5px] h-[5px] rounded-full bg-emerald-400 relative top-[-1px]" /> stacked <span className="inline-block w-[5px] h-[5px] rounded-full bg-amber-400 relative top-[-1px]" /> pre-cross <span className="inline-block w-[5px] h-[5px] rounded-full bg-rose-400 relative top-[-1px]" /> ext/below</span>
               <span className="cursor-help" title="Analyst-flagged avoid: thin floats with no follow-through, crowded shorts squeezing into resistance, or patterns that look right but fail on closer inspection."><span className="text-rose-300 font-bold">TRAP</span> avoid</span>
@@ -2292,9 +2380,6 @@ export default function AnalystBrief() {
 
             {/* Stocks in Play with full grid */}
             {sipSection && <SIPSection section={sipSection} gradeMap={gradeMap} avoidSet={avoidSet} />}
-
-            {/* Actionable Summary (below Stocks in Play) */}
-            {brief.summary && <ActionableSummary summary={brief.summary} trades={trades?.stocks} avoidStocks={avoid?.stocks} sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />}
 
             {/* Key Events: econ + earnings (same data as main dashboard) */}
             <KeyEventsSection />
@@ -2313,7 +2398,7 @@ export default function AnalystBrief() {
             const st = sessionBlockTheme(themeKey);
             const nextLabel = BLOCK_WINDOWS[key].nextLabel;
             return (
-              <div key={key} className="bg-[#161c2a]/60 border border-white/5 rounded-xl p-3 sm:p-5 md:p-6 mt-3">
+              <div key={key} id={`tape-${key}`} className="bg-[#161c2a]/60 border border-white/5 rounded-xl p-4 sm:p-5 md:p-6 mt-3">
                 <div className="flex items-center gap-2 sm:gap-3 mb-4 flex-wrap">
                   <div className={`w-2 h-2 rounded-full border border-current ${stale ? 'bg-slate-500/10 text-slate-500' : `${st.bg} ${st.text}`}`} />
                   <h4 className={`text-[10px] font-bold tracking-widest uppercase ${stale ? 'text-slate-400' : st.text}`}>
@@ -2330,14 +2415,14 @@ export default function AnalystBrief() {
                 </div>
                 <div className="space-y-3 mb-5">
                   {block.paragraphs.map((p, idx) => (
-                    <p key={idx} className="text-[11px] md:text-[12px] text-slate-400 leading-relaxed border-l-[2px] border-slate-500/30 pl-2.5 md:pl-3.5">
-                      {p}
+                    <p key={idx} className="text-[10px] text-slate-400 leading-relaxed border-l-[2px] border-slate-500/30 pl-2.5 md:pl-3.5">
+                      {highlightBold(p, 'text-white', true, true, gradeMap, avoidSet)}
                     </p>
                   ))}
                 </div>
                 <div className={`border-l-[4px] p-3 md:p-4 rounded-r-xl transition-colors duration-300 ${stale ? 'bg-slate-500/[0.07] border-slate-500' : `${st.boxBg} ${st.boxBorder}`}`}>
-                  <p className={`text-[11px] md:text-[12px] leading-relaxed ${stale ? 'text-slate-300' : st.boxText}`}>
-                    {block.takeaway}
+                  <p className={`text-[10px] leading-relaxed ${stale ? 'text-slate-300' : st.boxText}`}>
+                    {highlightBold(block.takeaway, stale ? 'text-slate-100' : st.boxText, true, true, gradeMap, avoidSet)}
                   </p>
                 </div>
                 {stale && (
@@ -2350,6 +2435,7 @@ export default function AnalystBrief() {
             );
           };
           return (
+            <div id="session-updates">
             <SectionCard title="Session Updates" accent="#818cf8">
               <div className="flex flex-col gap-2">
                 {renderBlock(sessionBlocks.morning, 'morning')}
@@ -2357,13 +2443,14 @@ export default function AnalystBrief() {
                 {renderBlock(sessionBlocks.closing, 'closing')}
               </div>
             </SectionCard>
+            </div>
           );
         })()}
 
         </div>
 
         <div className="text-center text-[10px] text-slate-600 pt-10 pb-4">
-          Confluence Trading Tools © {new Date().getFullYear()} • Not investment advice.
+          Confluence Trading Tools LLC © {new Date().getFullYear()} • Not investment advice.
         </div>
       </div>
     </div>

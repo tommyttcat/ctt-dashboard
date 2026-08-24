@@ -36,7 +36,28 @@ function byteIndex(text: string, charIndex: number): number {
   return new TextEncoder().encode(text.slice(0, charIndex)).length;
 }
 
-export async function postToBluesky(text: string, links: LinkFacet[] = []): Promise<{ uri: string; cid: string } | null> {
+async function uploadBlob(session: BskySession, imageData: Buffer | Uint8Array, mimeType = 'image/png') {
+  const res = await fetch(`${BSKY_SERVICE}/xrpc/com.atproto.repo.uploadBlob`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': mimeType,
+      Authorization: `Bearer ${session.accessJwt}`,
+    },
+    body: imageData as unknown as BodyInit,
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Bluesky blob upload failed (${res.status}): ${body}`);
+  }
+  const data = await res.json();
+  return data.blob;
+}
+
+export async function postToBluesky(
+  text: string,
+  links: LinkFacet[] = [],
+  image?: { data: Buffer | Uint8Array; alt: string; mimeType?: string },
+): Promise<{ uri: string; cid: string } | null> {
   const handle = process.env.BLUESKY_HANDLE;
   const password = process.env.BLUESKY_APP_PASSWORD;
   if (!handle || !password) return null;
@@ -51,6 +72,14 @@ export async function postToBluesky(text: string, links: LinkFacet[] = []): Prom
 
   if (links.length) {
     record.facets = buildFacets(text, links);
+  }
+
+  if (image) {
+    const blob = await uploadBlob(session, image.data, image.mimeType);
+    record.embed = {
+      $type: 'app.bsky.embed.images',
+      images: [{ alt: image.alt, image: blob }],
+    };
   }
 
   const res = await fetch(`${BSKY_SERVICE}/xrpc/com.atproto.repo.createRecord`, {

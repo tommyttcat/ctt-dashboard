@@ -378,7 +378,9 @@ function injectWiim(stocks: any[], newsMap: Map<string, { tag: string; headline:
 function buildBrief(snapshot: any, chop: any, news: any, earnings: any, econ: any, allStocks: any[]): any {
   const snapshotTime = snapshot?.meta?.generatedAt || null;
   const etNowStr = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
-  const hour = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getHours();
+  const _etNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const hour = _etNow.getHours();
+  const minute = _etNow.getMinutes();
 
   const regimeDetail = computeRegime(snapshot, chop);
 
@@ -397,7 +399,8 @@ function buildBrief(snapshot: any, chop: any, news: any, earnings: any, econ: an
     .slice(0, 5)
     .map(s => ({ ...s, direction: 'down', gapPct: s.changePct }));
   const gapperStocks = [...gapperUps, ...gapperDowns];
-  const gapperLabel = hour < 10 ? 'Pre-Market Gappers' : hour < 16 ? 'Intraday Movers' : 'Post-Market Gappers';
+  const preMarket = hour < 9 || (hour === 9 && minute < 30);
+  const gapperLabel = preMarket ? 'Pre-Market Gappers' : hour < 16 ? 'Intraday Movers' : 'Post-Market Gappers';
 
   const sipStocks = allStocks
     .filter(s => (s.score ?? 0) >= 40 || (s.rvol ?? 0) >= 1.5)

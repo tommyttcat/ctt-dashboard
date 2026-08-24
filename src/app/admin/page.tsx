@@ -6,21 +6,21 @@ interface EmailPrefs {
   pre: boolean;
   morning: boolean;
   midday: boolean;
+  power: boolean;
   closing: boolean;
-  confluence: boolean;
   weekly: boolean;
 }
 
 const DEFAULT_EMAIL_PREFS: EmailPrefs = {
-  pre: true, morning: true, midday: true, closing: true, confluence: true, weekly: true,
+  pre: true, morning: true, midday: true, power: true, closing: true, weekly: true,
 };
 
 const EMAIL_PHASE_LABELS: Record<keyof EmailPrefs, string> = {
   pre: 'Pre-Market',
   morning: 'Morning',
   midday: 'Midday',
+  power: 'Power Hour',
   closing: 'Closing',
-  confluence: 'Confluence',
   weekly: 'Weekly',
 };
 
@@ -116,6 +116,46 @@ export default function AdminPage() {
   const [wlFilter, setWlFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [approveTier, setApproveTier] = useState<User['tier']>('full');
+
+  const [briefingPhase, setBriefingPhase] = useState<'pre' | 'morning' | 'midday' | 'power' | 'closing'>('closing');
+  const [briefingSending, setBriefingSending] = useState(false);
+  const [briefingRegenerate, setBriefingRegenerate] = useState(true);
+  const [briefingStatus, setBriefingStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const [briefingLog, setBriefingLog] = useState<string[]>([]);
+
+  const handleSendBriefing = async () => {
+    setBriefingSending(true);
+    setBriefingStatus(null);
+    setBriefingLog([]);
+    const log = (msg: string) => setBriefingLog(prev => [...prev, `${new Date().toLocaleTimeString()} — ${msg}`]);
+    try {
+      if (briefingRegenerate) {
+        log('Regenerating analyst brief…');
+        const genRes = await fetch('/api/analyst/generate?force=1');
+        if (!genRes.ok) {
+          const txt = await genRes.text();
+          throw new Error(`Brief generation failed (${genRes.status}): ${txt.slice(0, 200)}`);
+        }
+        log('Brief regenerated.');
+      }
+      log(`Sending ${briefingPhase} email + Substack…`);
+      const sendRes = await fetch(`/api/email/briefing?phase=${briefingPhase}&force=1`);
+      const sendData = await sendRes.json().catch(() => null);
+      if (!sendRes.ok) {
+        throw new Error(`Email send failed (${sendRes.status}): ${sendData?.error || sendRes.statusText}`);
+      }
+      const sent = sendData?.sentTo || sendData?.recipients || '?';
+      log(`Email sent to ${typeof sent === 'number' ? sent : Array.isArray(sent) ? sent.length : sent} recipients.`);
+      if (sendData?.substackPublished) log('Substack published.');
+      if (sendData?.blueskyPosted) log('Bluesky posted.');
+      setBriefingStatus({ ok: true, message: `${briefingPhase.charAt(0).toUpperCase() + briefingPhase.slice(1)} briefing sent successfully.` });
+    } catch (err: any) {
+      log(`Error: ${err.message}`);
+      setBriefingStatus({ ok: false, message: err.message });
+    } finally {
+      setBriefingSending(false);
+    }
+  };
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -371,6 +411,57 @@ export default function AdminPage() {
               <div className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</div>
             </div>
           ))}
+        </div>
+
+        {/* Manual Briefing Send */}
+        <div className="mb-8 rounded-xl p-6" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}>
+          <h2 className="text-sm font-bold uppercase tracking-wider mb-4" style={{ color: 'var(--text-muted)' }}>Send Briefing</h2>
+          <div className="flex items-end gap-3 flex-wrap">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>Phase</label>
+              <select
+                value={briefingPhase}
+                onChange={(e) => setBriefingPhase(e.target.value as 'pre' | 'morning' | 'midday' | 'power' | 'closing')}
+                className="rounded-lg px-3 py-2 text-sm font-semibold cursor-pointer"
+                style={{ background: 'var(--bg-base)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+                disabled={briefingSending}
+              >
+                <option value="pre">Pre-Market</option>
+                <option value="morning">Morning</option>
+                <option value="midday">Midday</option>
+                <option value="power">Power Hour</option>
+                <option value="closing">Closing</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1.5 text-xs font-semibold cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                <input type="checkbox" checked={briefingRegenerate} onChange={(e) => setBriefingRegenerate(e.target.checked)} disabled={briefingSending} />
+                Regenerate brief
+              </label>
+            </div>
+            <button
+              onClick={handleSendBriefing}
+              disabled={briefingSending}
+              className="rounded-lg px-5 py-2 text-sm font-bold text-white cursor-pointer disabled:opacity-50"
+              style={{ background: briefingSending ? '#475569' : '#6366f1' }}
+            >
+              {briefingSending ? 'Sending…' : 'Send Email + Substack'}
+            </button>
+          </div>
+          {briefingStatus && (
+            <div className={`mt-3 text-xs font-semibold px-3 py-2 rounded-lg ${briefingStatus.ok ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+              {briefingStatus.message}
+            </div>
+          )}
+          {briefingLog.length > 0 && (
+            <div className="mt-2 space-y-0.5">
+              {briefingLog.map((entry, i) => (
+                <div key={i} className="text-[10px] font-mono" style={{ color: 'var(--text-muted)' }}>
+                  {entry}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Invite Links */}

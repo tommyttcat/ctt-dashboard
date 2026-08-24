@@ -39,7 +39,7 @@ function OverviewTab() {
     <div>
       <H>What is CTT?</H>
       <P>
-        Confluence Trading Tools is a real-time stock market dashboard that scans for high-probability trade setups
+        Confluence Trading Tools is a stock market dashboard that scans for high-probability trade setups
         by measuring how many independent technical and fundamental factors align on a single name. The core idea
         is <strong className="text-slate-200">confluence</strong>: a stock with volume, relative strength, a clean base,
         a catalyst, and favorable market conditions is more likely to follow through than one with just one of those.
@@ -59,12 +59,6 @@ function OverviewTab() {
         timeframes. Sector filtering and an AI summary with top picks.
       </Li>
 
-      <H>Data Refresh</H>
-      <P>
-        Scanner data updates automatically every 60 seconds during market hours (9:30 AM – 4:00 PM ET).
-        Pre-market data starts at 4:00 AM ET. The page auto-reloads every 15 minutes to pick up any
-        code deployments.
-      </P>
     </div>
   );
 }
@@ -332,8 +326,8 @@ function UpdatesTab() {
     <div>
       <H>Update Schedules</H>
       <P>
-        All times are Eastern Time (ET). Scanners run on weekdays only (Mon–Fri).
-        The dashboard auto-refreshes every 60 seconds to show the latest data.
+        All times are Eastern Standard Time (EST). Scanners run on weekdays only (Mon–Fri).
+        Scanner data updates every 15 minutes.
       </P>
 
       <H>Scanners</H>
@@ -379,23 +373,17 @@ function UpdatesTab() {
       </Sched>
 
       <H>Emails</H>
-      <Sched time="8 AM">
-        <strong className="text-slate-200">Pre-Market Briefing</strong> — Overnight movers, economic calendar, and key levels.
+      <Sched time="Every hour, 5 AM – 5 PM">
+        <strong className="text-slate-200">CTT Briefing</strong> — Market analysis and scanner highlights.
       </Sched>
-      <Sched time="10 AM">
-        <strong className="text-slate-200">Morning Briefing</strong> — Opening action and top setups.
+      <Sched time="7:30 AM, 10:30 AM, 1:30 PM">
+        <strong className="text-slate-200">CTT Briefing Email</strong> — Intraday briefing snapshots.
       </Sched>
-      <Sched time="2 PM">
-        <strong className="text-slate-200">Midday Briefing</strong> — Intraday update.
+      <Sched time="5:00 PM">
+        <strong className="text-slate-200">CTT Close Email</strong> — End-of-day wrap.
       </Sched>
-      <Sched time="5 PM">
-        <strong className="text-slate-200">Closing Briefing</strong> — End-of-day wrap.
-      </Sched>
-      <Sched time="9:30 AM">
-        <strong className="text-slate-200">Confluence Email</strong> — Multi-timeframe confluence report.
-      </Sched>
-      <Sched time="Sun 5:30 PM">
-        <strong className="text-slate-200">Weekly Recap</strong> — Weekly performance summary.
+      <Sched time="Sun 6:00 PM">
+        <strong className="text-slate-200">CTT Weekly Summary</strong> — Weekly performance summary.
       </Sched>
     </div>
   );

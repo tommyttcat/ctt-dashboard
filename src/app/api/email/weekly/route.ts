@@ -164,7 +164,7 @@ function cnf(score: number | null): string {
 function rvol(v: number | null): string {
   if (v == null || v < 1) return '';
   const clr = v >= 2 ? '#fbbf24' : '#34d399';
-  return `<span style="font-size:10px;font-weight:700;color:${clr};">RVOL ${v.toFixed(1)}</span>`;
+  return `<span style="font-size:10px;font-weight:700;color:${clr};">RVOL ${v < 1 ? v.toFixed(1) : Math.round(v)}x</span>`;
 }
 
 function stage(s: string | null): string {
@@ -248,7 +248,8 @@ function buildFallbackNarrative(data: any): any {
   // Build real catalyst stories
   const catalysts: any[] = [];
   for (const sip of topThree.slice(0, 2)) {
-    const rv = sip.rvol ? Number(sip.rvol).toFixed(1) : null;
+    const rvRaw = sip.rvol ? Number(sip.rvol) : null;
+    const rv = rvRaw != null ? (rvRaw < 1 ? rvRaw.toFixed(1) : String(Math.round(rvRaw))) : null;
     const catLabel = sip.catalyst || sip.setup || 'Momentum';
     let body = `${sip.name || sip.ticker} moved ${sip.chg}`;
     if (rv) body += ` on ${rv}x relative volume`;

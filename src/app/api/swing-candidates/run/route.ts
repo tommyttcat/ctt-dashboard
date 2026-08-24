@@ -128,6 +128,7 @@ import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { computeTradePlan } from '@/lib/indicators/tradeplan';
 import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN, CHOP_TREND_MAX } from '@/lib/indicators/chop';
 import { SWING, CONSOL, SWING_META, CONSOL_META } from '@/lib/scanConfig';
+import { enrichWithFundamentals } from '@/lib/indicators/fundamentals';
 import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
 import { cleanSectorDescription } from '@/lib/sectors';
 import { sma, ema, atr, adrPct, stochK } from '@/lib/indicators/marketMath';
@@ -1186,6 +1187,22 @@ async function runSwingScan() {
     const universeOk = universe.length > 0;
     const swingPersisted = universeOk && candidates.length > 0;
     const consolPersisted = universeOk && consolKeep.length > 0;
+
+    // Enrich with fundamentals — cross-reference multibagger KV first, Polygon for the rest
+    try {
+      const mbData = await kv.get<any[]>('multibagger_v1');
+      const allCands = [...candidates, ...consolKeep];
+      const fundInput = allCands
+        .filter(c => c.symbol && c.price > 0)
+        .map(c => ({ ticker: c.symbol, price: c.price, marketCap: c.mktCap || undefined }));
+      if (fundInput.length > 0) {
+        const fundMap = await enrichWithFundamentals(fundInput, POLYGON_KEY, mbData ?? undefined);
+        for (const c of allCands) {
+          const f = fundMap.get((c.symbol ?? '').toUpperCase());
+          if (f) (c as any)._fund = f;
+        }
+      }
+    } catch (e) { console.error('[swing] fundamental enrichment failed:', e); }
 
     if (swingPersisted) {
       await kv.set('swing_candidates_v1', candidates);

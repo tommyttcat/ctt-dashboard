@@ -105,7 +105,7 @@ import { cachedJson, fetchScannerLatest } from '@/lib/scannerLatest';
 import TickerChartHover, { ActiveChartProvider } from './TickerChartHover';
 import { newsStarCount } from '@/lib/newsStars';
 import { rsColor, rsBadge } from '@/lib/indicators/rs';
-import { toCanonicalSector, isEtfSector, industryHeat } from '@/lib/sectors';
+import { toCanonicalSector, isEtfSector, industryHeat, displaySector } from '@/lib/sectors';
 import { stageColor, stageBadge } from '@/lib/indicators/stage';
 import { rvolColor, stochColor } from '@/lib/indicators/columnColors';
 import { getMarketSession } from '@/lib/indicators/marketScorecard';
@@ -187,9 +187,11 @@ interface MacroInsights {
   topCatalyst?: TopCatalyst | null;
   topCatalysts?: TopCatalyst[];
   setupPool?: any[];
+  repeatPivots?: Record<string, { count: number; events: { date: string; price: number; vol: number; rvol: number; score: number }[] }>;
   sectorHeat?: { sector: string; avgChg: number; count: number }[];
   econEvents?: EconEvent[];
   earningsEvents?: EarningsEvent[];
+  etfMoversPara?: string;
 }
 
 interface EconEvent {
@@ -327,7 +329,7 @@ const rvolOf = (s: any): number | null => {
 
 const fmtRvol = (s: any): string => {
   const rv = rvolOf(s);
-  return rv != null ? `RVOL ${rv.toFixed(2)}` : 'RVOL —';
+  return rv != null ? `RVOL ${rv < 1 ? rv.toFixed(1) : Math.round(rv)}` : 'RVOL —';
 };
 
 const stageOf = (s: any): string => (s?.stage ? String(s.stage).replace(/Stage\s*/i, '') : '');
@@ -952,7 +954,7 @@ const buildCatalystBrief = (s: any): string => {
   const cnf = scoreOf(s);
   const dot = dotOf(s);
 
-  bits.push(`${chg >= 0 ? 'Up' : 'Down'} ${Math.abs(chg).toFixed(2)}%${rv != null ? ` on RVOL ${rv.toFixed(2)}` : ''}`);
+  bits.push(`${chg >= 0 ? 'Up' : 'Down'} ${Math.abs(chg).toFixed(2)}%${rv != null ? ` on RVOL ${rv < 1 ? rv.toFixed(1) : Math.round(rv)}` : ''}`);
   if (rv != null && rv >= 2) bits.push('heavy participation is validating the headline');
   else if (rv != null && rv >= 1.5) bits.push('volume is confirming');
   else if (rv != null && rv < 1) bits.push('headline pop without volume — fade risk');
@@ -983,7 +985,7 @@ const buildWatchReason = (s: any): string => {
 
   let lead = su || 'Momentum move';
   if (st) lead += ` in Stage ${st}`;
-  if (rv != null) lead += ` with RVOL ${rv.toFixed(2)}`;
+  if (rv != null) lead += ` with RVOL ${rv < 1 ? rv.toFixed(1) : Math.round(rv)}`;
   parts.push(lead);
 
   // Dot leads the qualifiers — a red dot is the single most important thing
@@ -1199,6 +1201,28 @@ const buildMoversPara = (movers: any): string => {
   return '';
 };
 
+const buildEtfMoversPara = (movers: any): string => {
+  const gainers: any[] = Array.isArray(movers?.['ETF Gainers']) ? movers['ETF Gainers'] : [];
+  const losers: any[] = Array.isArray(movers?.['ETF Losers']) ? movers['ETF Losers'] : [];
+  if (gainers.length === 0 && losers.length === 0) return '';
+
+  const fmtMover = (s: any): string =>
+    `${s.ticker} ${stdCols(s)}`;
+
+  const topG = gainers.slice().sort((a, b) => chgOf(b) - chgOf(a)).slice(0, 10);
+  const topL = losers.slice().sort((a, b) => chgOf(a) - chgOf(b)).slice(0, 10);
+
+  if (topG.length && topL.length) {
+    return twoCol(
+      `Leading ETFs:\n${topG.map(fmtMover).join('\n')}`,
+      `Weakest ETFs:\n${topL.map(fmtMover).join('\n')}`,
+    );
+  }
+  if (topG.length) return `Leading ETFs:\n${topG.map(fmtMover).join('\n')}`;
+  if (topL.length) return `Weakest ETFs:\n${topL.map(fmtMover).join('\n')}`;
+  return '';
+};
+
 /* ---- VCP -----------------------------------------------------------------
    Volatility Contraction Pattern bases, split by whether the entry is still
    available.
@@ -1295,13 +1319,15 @@ const buildVcpPara = (vcp: any[]): string => {
 
    vs-60d still RANKS the Unprecedented column. Ranking without display is
    normal here — reach does the same in Trade Plan. */
-const buildEp9mPara = (ep9m: any[]): string => {
+const buildEp9mPara = (ep9m: any[], repeatPivots?: Record<string, { count: number; events: any[] }>): string => {
   const rows = ep9m.filter(s => s?.ticker);
   if (rows.length < 1) return '';
 
   const fmtEp = (s: any): string => {
     const tag = catalystTagOf(s);
-    return `${s.ticker} ${stdCols(s)}${tag ? ` ${tag}` : ''}`;
+    const rpt = repeatPivots?.[s.ticker]?.count ?? 0;
+    const rptTag = rpt >= 2 ? ` EP:${rpt}` : '';
+    return `${s.ticker} ${stdCols(s)}${tag ? ` ${tag}` : ''}${rptTag}`;
   };
 
   const sorted = [...rows].sort((a, b) => {
@@ -1339,7 +1365,7 @@ const buildMultibaggerPara = (mbList: any[]): string => {
   const fmtMb = (c: any): string => {
     const chg = typeof c.changePct === 'number' ? `${c.changePct >= 0 ? '+' : ''}${c.changePct.toFixed(2)}%` : '—';
     const stg = c.stageShort || '—';
-    const rvol = c.rvol != null ? `RVOL ${c.rvol.toFixed(2)}` : 'RVOL —';
+    const rvol = c.rvol != null ? `RVOL ${c.rvol < 1 ? c.rvol.toFixed(1) : Math.round(c.rvol)}` : 'RVOL —';
     const vol = c.vol ? `VOL ${c.vol >= 1e6 ? (c.vol / 1e6).toFixed(1) + 'M' : c.vol >= 1e3 ? Math.round(c.vol / 1e3) + 'K' : c.vol}` : 'VOL —';
     const dvol = c.dvol ? `$${c.dvol >= 1e9 ? (c.dvol / 1e9).toFixed(1) + 'B' : c.dvol >= 1e6 ? Math.round(c.dvol / 1e6) + 'M' : Math.round(c.dvol / 1e3) + 'K'}` : '';
     const rs = c.rs != null ? `RS ${c.rs}` : '';
@@ -1408,6 +1434,7 @@ const buildLocalInsights = (
   vcpList: any[] = [],
   mbList: any[] = [],
   dvolList: any[] = [],
+  repeatPivots: Record<string, { count: number; events: { date: string; price: number; vol: number; rvol: number; score: number }[] }> = {},
 ): MacroInsights | null => {
   const sips: any[] = Array.isArray(scan?.stocksInPlay) ? scan.stocksInPlay : [];
   const daily: any[] = Array.isArray(scan?.dailySetups) ? scan.dailySetups : [];
@@ -1647,8 +1674,9 @@ const buildLocalInsights = (
 
   const keyEventsPara = buildKeyEventsPara(econList, earningsList);
   const moversPara = buildMoversPara(movers);
+  const etfMoversPara = buildEtfMoversPara(movers);
   const vcpPara = buildVcpPara(vcpList);
-  const ep9mPara = buildEp9mPara(ep9m);
+  const ep9mPara = buildEp9mPara(ep9m, repeatPivots);
   /* No client-side overlay: /api/multibagger/latest, /api/swing-candidates/latest
      and /api/consolidation/latest all apply liveChgMap server-side now, so these
      rows already carry live changePct/price. That is what let scanner/latest stop
@@ -1677,6 +1705,41 @@ const buildLocalInsights = (
     ...tagAndDedup(mbList, 'mb'),
   ];
   const setupsPara = setupPool.length > 0 ? 'Setups Summary: interactive' : '';
+
+  const allScannerLists: [string, any[]][] = [
+    ['daily', daily], ['sip', sips], ['dvol', dvolList],
+    ['swing', swingList], ['coil', consolList], ['vcp', vcpList],
+    ['hrs', []],  ['ep9m', ep9m], ['multi', mbList],
+  ];
+  const cnfTickerMap = new Map<string, Set<string>>();
+  for (const [src, list] of allScannerLists) {
+    for (const row of list) {
+      const t = (row?.ticker ?? row?.symbol ?? '').toUpperCase();
+      if (!t) continue;
+      let s = cnfTickerMap.get(t);
+      if (!s) { s = new Set(); cnfTickerMap.set(t, s); }
+      s.add(src);
+    }
+  }
+  const streakCounts: Record<string, number> = scan?.scanStreaks ?? {};
+  const mbFundLookup = new Map<string, { score: number; grade: string; attrs: any }>();
+  for (const m of mbList) {
+    const mt = (m.ticker ?? m.symbol ?? '').toUpperCase();
+    if (mt && m.attrs) mbFundLookup.set(mt, { score: m.score, grade: m.grade, attrs: m.attrs });
+  }
+  for (const item of setupPool) {
+    const t = (item.ticker ?? '').toUpperCase();
+    const src = cnfTickerMap.get(t);
+    if (src && src.size >= 2) {
+      item._cnfOverlap = src.size;
+      item._cnfSources = Array.from(src);
+    }
+    item._scanStreak = streakCounts[t] || item.scanStreak || 0;
+    const rpt = repeatPivots[t];
+    if (rpt && rpt.count >= 2) item._repeatPivot = rpt;
+    const mbf = item._fund ?? mbFundLookup.get(t);
+    if (mbf) item._mbFund = mbf;
+  }
 
   const sipsFinal = sipsPara || (sips.length === 0 && (daily.length || ep9m.length) ? 'SIPs Thesis: No stocks in play in the current scan.' : '');
   const ep9mFinal = ep9mPara || (ep9m.length === 0 && (sips.length || daily.length) ? 'EP9M Thesis: No names trading abnormal 9M+ size yet — this fills in as session volume builds.' : '');
@@ -1776,9 +1839,11 @@ const buildLocalInsights = (
     topCatalyst,
     topCatalysts,
     setupPool,
+    repeatPivots,
     sectorHeat: heat,
     econEvents: econList,
     earningsEvents: earningsList,
+    etfMoversPara,
   };
 };
 
@@ -1871,7 +1936,7 @@ const PROSE_CHIP_A = "inline-block align-baseline text-[7px] font-bold text-emer
 const PROSE_CHIP_B = "inline-block align-baseline text-[7px] font-bold text-amber-300 bg-amber-500/10 px-1 py-[1px] rounded border border-amber-400/30 tracking-wider mx-0.5 text-center min-w-[28px]";
 const proseChipCls = (grade: 'A' | 'B' | null | undefined, isAvoid: boolean): string =>
   isAvoid ? PROSE_CHIP_RED : grade === 'A' ? PROSE_CHIP_A : grade === 'B' ? PROSE_CHIP_B : PROSE_CHIP_BASE;
-const valNum = "text-[10px] tabular-nums";
+const valNum = "text-[9px] tabular-nums";
 const rowText = "text-[12px]";
 
 /* Aligned rows scroll rather than clip. The scrollbar is suppressed because
@@ -2014,7 +2079,7 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
     }
 
     if (part === 'N0') {
-      return <span key={i} className={`${newsEndW} text-slate-700 text-[7px]`}>—</span>;
+      return <span key={i} className={newsEndW}></span>;
     }
 
     const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
@@ -2066,7 +2131,7 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
       return (
         <span key={i} className={align ? 'ml-1 md:ml-1.5' : ''}>
           <span className="text-slate-500 text-[7px]">RVOL</span>{' '}
-          <span className={`${valNum} ${isDash ? 'text-slate-600' : rvolColor(v)} ${rvolW}`}>{m[1]}</span>
+          <span className={`${valNum} ${isDash ? 'text-slate-600' : rvolColor(v)} ${rvolW}`}>{isDash ? '—' : `${v < 1 ? v.toFixed(1) : Math.round(v)}x`}</span>
         </span>
       );
     }
@@ -2219,7 +2284,7 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
 
 const EXTRA_TOKEN_RX = new RegExp(
   `(${BLUE_DOT_GLYPH}|RED DOT|REV|BB SQZ|Gap & Go|Gap and Go|Trend Hold|20 EMA PB|Episodic Pivot|` +
-  `RS \\d+|TR \\d+(?:\\.\\d+)?|ST \\d+(?:\\.\\d+)?|` +
+  `RS \\d+|TR \\d+(?:\\.\\d+)?|ST \\d+(?:\\.\\d+)?|EP:\\d+|` +
   `${CATALYST_TAGS}|\\S+)`,
   'g'
 );
@@ -2253,12 +2318,15 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
         extraEls.push(<span key={`ex${ei}`} className="text-rose-400 text-[10px] align-baseline ml-0.5" title="Active red dot — grade-capped on the long side">{BLUE_DOT_GLYPH}</span>);
       } else if (/^T[2-9]$/.test(ex)) {
         tNum = ex;
+      } else if (/^EP:\d+$/.test(ex)) {
+        const rptN = Number(ex.split(':')[1]);
+        extraEls.push(<span key={`ex${ei}`} className={`hidden md:inline relative group/rpt text-[7px] font-bold ml-1 px-1 py-[1px] rounded border cursor-help ${rptN >= 3 ? 'text-fuchsia-400 border-fuchsia-500/20 bg-fuchsia-500/10' : 'text-purple-400 border-purple-500/20 bg-purple-500/10'}`}>EP{rptN}<span className="absolute bottom-full left-0 mb-2 w-72 px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 font-normal whitespace-normal opacity-0 pointer-events-none group-hover/rpt:opacity-100 transition-opacity z-[9999]">{rptN} episodic pivots in the past 90 days</span></span>);
       } else if (/^TR \d/.test(ex) || /^ST \d/.test(ex)) {
         // removed from the summary — trigger and stop live in the plan tooltip
       } else if (CATALYST_TAGS_SET.has(ex)) {
         extraEls.push(<span key={`ex${ei}`} className="hidden md:inline text-[7px] font-medium text-amber-400/80 ml-1">{ex}</span>);
       } else if (ex && ex !== '∅') {
-        extraEls.push(<span key={`ex${ei}`} className="text-[7px] text-slate-500 ml-1">{ex}</span>);
+        extraEls.push(<span key={`ex${ei}`} className="hidden md:inline text-[7px] text-slate-500 ml-1">{ex}</span>);
       }
     });
   }
@@ -2271,27 +2339,27 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
         ) : (
           <TickerChartHover symbol={p.ticker}><span className={`${chipBase} w-[38px] md:w-[44px]`}>{p.ticker}</span></TickerChartHover>
         )}
-        <span className="inline-block w-[9px] text-center leading-none shrink-0" />
+        <span className="inline-block w-[12px] text-center leading-none shrink-0" />
         <span className="inline-block w-[8px] text-center shrink-0">
           {p.blueDot && <span className="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)]" title="Blue Dot reversal — oversold stochastic reset fired on the daily" />}
         </span>
         <span className="inline-block w-[8px] text-center shrink-0">
           {pMeta ? <span title={`${pMeta.short} — ${pMeta.tip}`} className={`inline-block w-[6px] h-[6px] rounded-full cursor-help ${pMeta.tone === 'good' ? 'bg-emerald-400' : pMeta.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`} /> : null}
         </span>
-        <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${cnfBadgeCls(p.cnf)}`}>{p.cnf}</span>
-        <span className={`text-[10px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ${p.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{p.chg >= 0 ? '+' : ''}{p.chg.toFixed(2)}%</span>
-        <span className="text-[10px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-1">{fmtPrc(p.price ?? priceMap?.[p.ticker])}</span>
-        <span className={`text-[10px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? rv.toFixed(2) : ''}</span>
-        <span className={`text-[10px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-1 ${isDash ? 'text-transparent' : 'text-slate-400'}`}>{isDash ? '' : p.vol}</span>
-        <span className={`text-[10px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-1 ${dIsDash ? 'text-transparent' : 'text-slate-300'}`}>{dIsDash ? '' : p.dvol}</span>
-        {tNum && <span className="text-[10px] tabular-nums font-semibold text-slate-300 inline-block w-[20px] md:w-[24px] text-center ml-1">{tNum}</span>}
-        <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{p.rs != null ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(p.rs)}`}>{p.rs}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
-        <span className="inline-block w-[22px] md:w-[24px] text-center ml-0.5">{p.stage && p.stage !== '—' ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(p.stage)}`}>{p.stage}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
+        <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-2 md:ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${cnfBadgeCls(p.cnf)}`}>{p.cnf}</span>
+        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${p.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{p.chg >= 0 ? '+' : ''}{p.chg.toFixed(2)}%</span>
+        <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-2 md:ml-1">{fmtPrc(p.price ?? priceMap?.[p.ticker])}</span>
+        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-2 md:ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? `${rv < 1 ? rv.toFixed(1) : Math.round(rv)}x` : ''}</span>
+        <span className={`text-[9px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-2 md:ml-1 ${isDash ? 'text-transparent' : 'text-slate-400'}`}>{isDash ? '' : p.vol}</span>
+        <span className={`text-[9px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-2 md:ml-1 ${dIsDash ? 'text-transparent' : 'text-slate-300'}`}>{dIsDash ? '' : p.dvol}</span>
+        {tNum && <span className="text-[9px] tabular-nums font-semibold text-slate-300 inline-block w-[20px] md:w-[24px] text-center ml-2 md:ml-1">{tNum}</span>}
+        <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{p.rs != null ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(p.rs)}`}>{p.rs}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
+        <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{p.stage && p.stage !== '—' ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(p.stage)}`}>{p.stage}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
         {p.newsCount >= 1 && p.newsUrl ? (
           <a href={p.newsUrl} target="_blank" rel="noopener noreferrer" title={p.newsTip || ''} onClick={(e) => e.stopPropagation()}
-            className={`inline-block w-[14px] md:w-[16px] text-center ${p.newsCount >= 2 ? 'text-amber-400' : 'text-slate-500'} hover:brightness-125 font-bold text-[7px] leading-none cursor-pointer transition-all ml-0.5`}>{'★'.repeat(p.newsCount)}</a>
+            className={`inline-block w-[14px] md:w-[16px] text-center ${p.newsCount >= 2 ? 'text-amber-400' : 'text-slate-500'} hover:brightness-125 font-bold text-[7px] leading-none cursor-pointer transition-all ml-2 md:ml-1`}>{'★'.repeat(p.newsCount)}</a>
         ) : (
-          <span className="inline-block w-[14px] md:w-[16px] text-center text-slate-700 text-[7px] ml-0.5">—</span>
+          <span className="inline-block w-[14px] md:w-[16px] ml-2 md:ml-1"></span>
         )}
         {/* setup badges (REV, etc.) removed — N is the last column */}
         {extraEls}
@@ -2334,11 +2402,11 @@ const renderEventRow = (p: ParsedEventRow, idx: number): React.ReactNode => {
     <div key={idx} className={scrollRowCls} style={scrollRowStyle}>
       <div className="flex items-center whitespace-nowrap py-[1px]">
         <span className={`inline-block w-[10px] text-[10px] ${pending ? 'text-amber-400' : 'text-slate-600'}`}>{p.marker}</span>
-        <span className="inline-block w-[62px] md:w-[68px] text-[11px] tabular-nums font-semibold text-slate-400 ml-1">{p.time}</span>
-        <span className={`inline-block w-[180px] md:w-[240px] text-[11px] font-medium truncate ${pending ? 'text-slate-200' : 'text-slate-400'}`}>{p.event}</span>
-        <span className={`inline-block w-[52px] md:w-[60px] text-[11px] tabular-nums font-semibold text-right ml-3 ${p.act ? 'text-emerald-400' : 'text-slate-600'}`}>{p.act || '—'}</span>
-        <span className={`inline-block w-[52px] md:w-[60px] text-[11px] tabular-nums font-semibold text-right ml-1 ${p.est ? 'text-slate-300' : 'text-slate-600'}`}>{p.est || '—'}</span>
-        <span className={`inline-block w-[52px] md:w-[60px] text-[11px] tabular-nums font-semibold text-right ml-1 ${p.prev ? 'text-slate-500' : 'text-slate-600'}`}>{p.prev || '—'}</span>
+        <span className="inline-block w-[62px] md:w-[68px] text-[9px] tabular-nums font-semibold text-slate-400 ml-1">{p.time}</span>
+        <span className={`inline-block w-[180px] md:w-[240px] text-[9px] font-medium truncate ${pending ? 'text-slate-200' : 'text-slate-400'}`}>{p.event}</span>
+        <span className={`inline-block w-[52px] md:w-[60px] text-[9px] tabular-nums font-semibold text-right ml-3 ${p.act ? 'text-emerald-400' : 'text-slate-600'}`}>{p.act || '—'}</span>
+        <span className={`inline-block w-[52px] md:w-[60px] text-[9px] tabular-nums font-semibold text-right ml-1 ${p.est ? 'text-slate-300' : 'text-slate-600'}`}>{p.est || '—'}</span>
+        <span className={`inline-block w-[52px] md:w-[60px] text-[9px] tabular-nums font-semibold text-right ml-1 ${p.prev ? 'text-slate-500' : 'text-slate-600'}`}>{p.prev || '—'}</span>
       </div>
     </div>
   );
@@ -2391,16 +2459,16 @@ const renderEarningsRow = (p: ParsedEarningsRow, idx: number): React.ReactNode =
             <span className={`inline-block text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border ${p.beat ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-rose-400 bg-rose-500/10 border-rose-500/20'}`}>{p.beat ? 'Beat' : 'Miss'}</span>
           )}
         </span>
-        <span className={`inline-block w-[52px] text-right text-[10px] tabular-nums font-semibold ${p.beat != null ? 'text-slate-200' : 'text-slate-300'}`}>
+        <span className={`inline-block w-[52px] text-right text-[9px] tabular-nums font-semibold ${p.beat != null ? 'text-slate-200' : 'text-slate-300'}`}>
           {p.beat != null ? p.epsActual : (p.epsEst || '—')}
         </span>
-        <span className={`inline-block w-[46px] text-right text-[10px] tabular-nums font-semibold ${p.beat != null ? 'text-slate-400' : 'text-slate-600'}`}>
+        <span className={`inline-block w-[46px] text-right text-[9px] tabular-nums font-semibold ${p.beat != null ? 'text-slate-400' : 'text-slate-600'}`}>
           {p.beat != null ? (p.epsEst || '—') : 'est'}
         </span>
-        <span className={`inline-block w-[54px] text-right text-[10px] tabular-nums font-medium ${p.beat ? 'text-emerald-400/70' : 'text-rose-400/70'}`}>
+        <span className={`inline-block w-[54px] text-right text-[9px] tabular-nums font-medium ${p.beat ? 'text-emerald-400/70' : 'text-rose-400/70'}`}>
           {p.beat != null ? p.surprise : ''}
         </span>
-        <span className="inline-block w-[68px] text-right text-[10px] text-slate-500">
+        <span className="inline-block w-[68px] text-right text-[9px] text-slate-500">
           {p.rev || ''}
         </span>
       </div>
@@ -2418,14 +2486,14 @@ const renderBodyLine = (line: string, li: number, aligned: boolean, gradeMap?: R
     if (earnParsed) return renderEarningsRow(earnParsed, li);
     return (
       <div key={li} className={scrollRowCls} style={scrollRowStyle}>
-        <p className="text-[11px] text-slate-400 leading-relaxed font-medium whitespace-nowrap">
+        <p className="text-[9px] text-slate-400 leading-relaxed font-medium whitespace-nowrap">
           {renderBriefingText(line, false, gradeMap, dotMap, postureMap, avoidSet)}
         </p>
       </div>
     );
   }
   return (
-    <p key={li} className="text-[11px] text-slate-400 leading-relaxed font-medium">
+    <p key={li} className="text-[9px] text-slate-400 leading-relaxed font-medium">
       {renderBriefingText(line, false, gradeMap, dotMap, postureMap, avoidSet)}
     </p>
   );
@@ -2444,7 +2512,7 @@ const renderBodyLine = (line: string, li: number, aligned: boolean, gradeMap?: R
    filter card of their own, and a key for marks that live somewhere else is
    just clutter here. TRAP and the blue dot stay: those are warnings on the
    rows this strip sits above, not setup names. */
-type SortKey = 'cnf' | 'chg' | 'rvol' | 'vol' | 'dvol' | 'stg' | 'rs';
+type SortKey = 'cnf' | 'chg' | 'rvol' | 'vol' | 'dvol' | 'stg' | 'rs' | 'alpha' | 'win' | 'high52' | 'hrs';
 type SortDir = 'asc' | 'desc';
 
 type ScanFilterKey = 'A' | 'B' | 'CNF' | 'RS' | '2A' | 'stacked' | 'first-touch' | 'pre-cross' | 'extended' | 'below-21' | 'trap' | 'bluedot' | 'news' | null;
@@ -2452,10 +2520,10 @@ type ScanFilterKey = 'A' | 'B' | 'CNF' | 'RS' | '2A' | 'stacked' | 'first-touch'
 const ALL_SCAN_KEYS = ['A','B','CNF','RS','2A','stacked','first-touch','pre-cross','extended','below-21','trap','bluedot','news'];
 const SCAN_FILTER_KEY = 'ctt-scan-filter';
 const loadSavedFilter = (): ScanFilterKey => {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === 'undefined') return 'CNF';
   const v = localStorage.getItem(SCAN_FILTER_KEY);
   if (v && ALL_SCAN_KEYS.includes(v)) return v as ScanFilterKey;
-  return null;
+  return 'CNF';
 };
 
 type ScanFilterCtx = {
@@ -2503,6 +2571,50 @@ const passesPoolFilter = (key: ScanFilterKey, item: any) => {
    Every filter pill is single-select. Click one to isolate that group, click
    it again to go back to ALL. Two rows of pills: setup patterns (from the
    scanner's setupName) and scan sources (tagged by buildLocalInsights). */
+const renderSetupRow = (
+  s: any, i: number,
+  gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>,
+  postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>,
+  rsMap?: Record<string, number>, stageMap?: Record<string, string>,
+) => {
+  const line = `${s.ticker} ${stdCols(s)}`;
+  const parsed = parseStdLine(line);
+  if (!parsed) return null;
+  parsed.price = priceOf(s);
+  const overlap = s._cnfOverlap ?? 0;
+  const streak = s._scanStreak ?? 0;
+  const sources: string[] = s._cnfSources ?? [];
+  const cnfTip = sources.map(k => CNF_SOURCE_LABELS[k] ?? k.toUpperCase()).join(' · ');
+  const rpt = s._repeatPivot;
+  const mbf = s._mbFund;
+  const tipParts: string[] = [];
+  if (streak >= 3) tipParts.push(`${streak} consecutive scans`);
+  if (overlap >= 2) tipParts.push(`${overlap} scanners: ${cnfTip}`);
+  if (rpt) tipParts.push(`EP${rpt.count} — ${rpt.count} episodic pivots in 90d: ${rpt.events.map((e: any) => `${e.date} $${e.price?.toFixed(2) ?? '—'}`).join(', ')}`);
+  const tip = tipParts.join('\n');
+  const hasIndicator = streak >= 3 || overlap >= 2 || !!rpt;
+  const indicatorLabel = streak >= 3 ? String(streak) : overlap >= 2 ? overlap + '×' : rpt ? `EP${rpt.count}` : '';
+  const indicatorColor = streak >= 10 ? 'text-purple-400/90' : streak >= 5 ? 'text-emerald-400/80' : streak >= 3 ? 'text-amber-400/80' : rpt ? 'text-fuchsia-400/80' : 'text-indigo-400/80';
+  const mbGradeCls = mbf ? (mbf.grade === 'A' ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/10' : mbf.grade === 'B' ? 'text-sky-400 border-sky-500/20 bg-sky-500/10' : mbf.grade === 'C' ? 'text-amber-400 border-amber-500/20 bg-amber-500/10' : 'text-slate-400 border-slate-500/20 bg-slate-500/10') : '';
+  return (
+    <div key={`ss-${s.ticker}-${i}`} className="flex items-center gap-0">
+      <div className="w-[28px] shrink-0 flex items-center justify-end pr-1.5">
+        {hasIndicator && (
+          <span className="relative group/cnf cursor-default">
+            <span className={`text-[8px] font-bold ${indicatorColor}`}>
+              {indicatorLabel}
+            </span>
+            <span className="absolute bottom-full left-0 mb-2 w-72 px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 font-normal whitespace-normal opacity-0 pointer-events-none group-hover/cnf:opacity-100 transition-opacity z-[9999]">
+              {tipParts.map((t, ti) => <span key={ti} className="block">{t}</span>)}
+            </span>
+          </span>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">{renderStdRow(parsed, i, gradeMap, dotMap, postureMap, avoidSet, true, undefined, rsMap, stageMap)}</div>
+    </div>
+  );
+};
+
 type SetupFilter = { key: string; label: string; cls: string; match: (s: any) => boolean };
 
 const SETUP_PATTERN_FILTERS: SetupFilter[] = [
@@ -2514,6 +2626,12 @@ const SETUP_PATTERN_FILTERS: SetupFilter[] = [
     match: s => setupOf(s) === '20 EMA PB' },
   { key: 'sqz',  label: 'SQZ', cls: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
     match: s => setupOf(s) === 'BB SQZ' },
+  { key: 'cnf',  label: 'CNF', cls: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+    match: s => (s._cnfOverlap ?? 0) >= 2 },
+  { key: 'stk',  label: 'STK', cls: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+    match: s => (s._scanStreak ?? 0) >= 3 },
+  { key: 'fnd',  label: 'FND', cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+    match: s => !!s._mbFund },
 ];
 
 const SETUP_SOURCE_FILTERS: SetupFilter[] = [
@@ -2614,23 +2732,20 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
         <p className="text-[10px] text-slate-500 font-medium">No names match the active filter.</p>
       ) : (
         <>
-          <SortableHeader sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
             <div className="space-y-0">
-              {filtered.slice(0, 10).map((s, i) => {
-                const line = `${s.ticker} ${stdCols(s)}`;
-                const parsed = parseStdLine(line);
-                if (parsed) parsed.price = priceOf(s);
-                return parsed ? renderStdRow(parsed, i, gradeMap, dotMap, postureMap, avoidSet, true, undefined, rsMap, stageMap) : null;
-              })}
+              <div className="flex items-center gap-0">
+                <div className="w-[28px] shrink-0" />
+                <div className="flex-1 min-w-0"><SortableHeader sortKey={sortKey} sortDir={sortDir} onSort={handleSort} /></div>
+              </div>
+              {filtered.slice(0, 10).map((s, i) => renderSetupRow(s, i, gradeMap, dotMap, postureMap, avoidSet, rsMap, stageMap))}
             </div>
             <div className="space-y-0">
-              {filtered.slice(10, 20).map((s, i) => {
-                const line = `${s.ticker} ${stdCols(s)}`;
-                const parsed = parseStdLine(line);
-                if (parsed) parsed.price = priceOf(s);
-                return parsed ? renderStdRow(parsed, 100 + i, gradeMap, dotMap, postureMap, avoidSet, true, undefined, rsMap, stageMap) : null;
-              })}
+              <div className="hidden md:flex items-center gap-0">
+                <div className="w-[28px] shrink-0" />
+                <div className="flex-1 min-w-0"><SortableHeader sortKey={sortKey} sortDir={sortDir} onSort={handleSort} /></div>
+              </div>
+              {filtered.slice(10, 20).map((s, i) => renderSetupRow(s, 100 + i, gradeMap, dotMap, postureMap, avoidSet, rsMap, stageMap))}
             </div>
           </div>
           <p className="text-[10px] text-slate-500 font-medium mt-2">
@@ -2640,6 +2755,73 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
       )}
     </div>
   );
+};
+
+const SetupSummaryHelp = () => {
+  const [open, setOpen] = React.useState(false);
+  const [pinned, setPinned] = React.useState(false);
+  const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wrapRef = React.useRef<HTMLDivElement | null>(null);
+
+  const cancelClose = () => { if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; } };
+  const scheduleClose = () => { if (pinned) return; cancelClose(); closeTimer.current = setTimeout(() => setOpen(false), 220); };
+
+  React.useEffect(() => {
+    if (!pinned) return;
+    const onDown = (e: MouseEvent) => { if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) { setPinned(false); setOpen(false); } };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setPinned(false); setOpen(false); } };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [pinned]);
+
+  React.useEffect(() => () => cancelClose(), []);
+
+  const togglePin = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (pinned) { setPinned(false); setOpen(false); } else { setPinned(true); setOpen(true); }
+  };
+
+  const gates = [
+    { label: 'Sources', value: 'DAY · SIP · DVOL · SWING · VCP · EP9 · 100B' },
+    { label: 'Overlap (×)', value: 'Tickers in 2+ scanners simultaneously' },
+    { label: 'Streak (#)', value: 'Consecutive 15-min scans a ticker has appeared' },
+    { label: 'CNF', value: 'Confluence score from the primary scanner' },
+    { label: 'STK filter', value: 'Shows tickers with 3+ consecutive scan appearances' },
+    { label: 'CNF filter', value: 'Shows tickers appearing in 2+ scanners' },
+  ];
+
+  return (
+    <div ref={wrapRef} className="relative inline-block" onMouseEnter={() => { cancelClose(); setOpen(true); }} onMouseLeave={scheduleClose} onClick={(e) => e.stopPropagation()}>
+      <button onClick={togglePin} title={pinned ? 'Unpin' : 'Card guide — click to pin'} aria-label="Card guide"
+        className={`w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center transition-colors ${
+          pinned || open ? 'bg-violet-500/30 text-violet-300 ring-1 ring-violet-400/40' : 'bg-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-300'
+        }`}
+      >?</button>
+      {open && (
+        <div onMouseEnter={cancelClose} onMouseLeave={scheduleClose}
+          className="absolute top-full mt-2 right-0 z-[70] w-[280px] rounded-xl border border-white/10 p-4 shadow-2xl shadow-black/60"
+          style={{ backgroundColor: '#10141f' }}
+        >
+          <div className="text-[11px] font-bold tracking-[0.12em] uppercase text-slate-100">Setups Summary</div>
+          <div className="text-[9px] text-slate-500 mt-0.5 mb-3">All scans pooled into one ranked view.</div>
+          <div className="space-y-1.5">
+            {gates.map(g => (
+              <div key={g.label} className="flex items-start justify-between gap-3">
+                <span className="text-[8px] font-bold tracking-wide uppercase text-slate-400 whitespace-nowrap shrink-0">{g.label}</span>
+                <span className="text-[9px] font-medium text-slate-300 text-right">{g.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const CNF_SOURCE_LABELS: Record<string, string> = {
+  daily: 'DAY', sip: 'SIP', dvol: 'DVOL', swing: 'SWG',
+  coil: 'COIL', vcp: 'VCP', hrs: 'HRS', ep9m: 'EP9', multi: '100',
 };
 
 const KeyEventsPanel = ({ econ, earnings }: { econ: EconEvent[]; earnings: EarningsEvent[] }) => {
@@ -2697,31 +2879,37 @@ const KeyEventsPanel = ({ econ, earnings }: { econ: EconEvent[]; earnings: Earni
         <div className="border-b border-white/5 mb-1 flex items-center gap-0 py-[2px]">
           <span className="w-[10px]" />
           <span className="w-[56px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center">Ticker</span>
+          <span className="w-[44px]" />
           <span className="w-[52px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right">EPS</span>
           <span className="w-[46px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right">EST</span>
           <span className="w-[54px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right">SURP</span>
           <span className="w-[68px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right">REV</span>
         </div>
-        {list.length === 0 && <p className="text-[10px] text-slate-600 mt-1">No large-cap prints.</p>}
+        {list.length === 0 && <p className="text-[9px] text-slate-600 mt-1">No large-cap prints.</p>}
         {list.map((e, i) => {
           const beat = e.epsActual != null && e.epsEstimated != null ? e.epsActual >= e.epsEstimated : null;
           const surp = e.epsSurprisePct != null ? `${e.epsSurprisePct > 0 ? '+' : ''}${e.epsSurprisePct.toFixed(1)}%` : '';
           return (
             <div key={i} className="flex items-center py-[1px]">
-              <span className={`w-[10px] text-[10px] ${e.epsActual == null ? 'text-amber-400' : 'text-transparent'}`}>{e.epsActual == null ? '▸' : ''}</span>
+              <span className={`w-[10px] text-[9px] ${e.epsActual == null ? 'text-amber-400' : 'text-transparent'}`}>{e.epsActual == null ? '▸' : ''}</span>
               <span className="w-[56px]">
                 <TickerChartHover symbol={e.symbol}><span className={`${TICKER_CHIP_BASE} w-[38px] md:w-[44px]`}>{e.symbol}</span></TickerChartHover>
               </span>
-              <span className={`w-[52px] text-right text-[10px] tabular-nums font-semibold ${beat != null ? 'text-slate-200' : 'text-slate-300'}`}>
+              <span className="w-[44px] text-center">
+                {beat != null && (
+                  <span className={`inline-block text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border ${beat ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-rose-400 bg-rose-500/10 border-rose-500/20'}`}>{beat ? 'Beat' : 'Miss'}</span>
+                )}
+              </span>
+              <span className={`w-[52px] text-right text-[9px] tabular-nums font-semibold ${beat != null ? 'text-slate-200' : 'text-slate-300'}`}>
                 {beat != null ? e.epsActual?.toFixed(2) : (e.epsEstimated?.toFixed(2) ?? '—')}
               </span>
-              <span className={`w-[46px] text-right text-[10px] tabular-nums ${beat != null ? 'text-slate-400' : 'text-slate-600'}`}>
+              <span className={`w-[46px] text-right text-[9px] tabular-nums ${beat != null ? 'text-slate-400' : 'text-slate-600'}`}>
                 {beat != null ? (e.epsEstimated?.toFixed(2) ?? '—') : 'est'}
               </span>
-              <span className={`w-[54px] text-right text-[10px] tabular-nums font-medium ${beat === true ? 'text-emerald-400/70' : beat === false ? 'text-rose-400/70' : ''}`}>
+              <span className={`w-[54px] text-right text-[9px] tabular-nums font-medium ${beat === true ? 'text-emerald-400/70' : beat === false ? 'text-rose-400/70' : ''}`}>
                 {beat != null ? surp : ''}
               </span>
-              <span className="w-[68px] text-right text-[10px] text-slate-500">{fmtRev(e.revenueEstimated)}</span>
+              <span className="w-[68px] text-right text-[9px] text-slate-500">{fmtRev(e.revenueEstimated)}</span>
             </div>
           );
         })}
@@ -2734,7 +2922,7 @@ const KeyEventsPanel = ({ econ, earnings }: { econ: EconEvent[]; earnings: Earni
       <div className="pr-4">
         <p className="text-[9px] font-bold tracking-wider uppercase text-slate-500 mb-1">{econHdr}</p>
         {econRows.length === 0 ? (
-          <p className="text-[10px] text-slate-600 mt-1">Nothing scheduled today.</p>
+          <p className="text-[9px] text-slate-600 mt-1">Nothing scheduled today.</p>
         ) : (
           <>
             <div className="border-b border-white/5 mb-1 flex items-center gap-0 py-[2px]">
@@ -2749,12 +2937,12 @@ const KeyEventsPanel = ({ econ, earnings }: { econ: EconEvent[]; earnings: Earni
               const pending = (e.minutes ?? 0) > nowMin && e.actual == null;
               return (
                 <div key={i} className="flex items-center py-[1px]">
-                  <span className={`w-[10px] text-[10px] ${pending ? 'text-amber-400' : 'text-transparent'}`}>{pending ? '▸' : ''}</span>
-                  <span className="w-[62px] text-[10px] text-slate-500 tabular-nums">{fmtTime(e.minutes)}</span>
-                  <span className="flex-1 text-[10px] text-slate-300 truncate">{e.event}</span>
-                  <span className={`w-[52px] text-right text-[10px] tabular-nums font-semibold ${e.actual != null ? 'text-emerald-400' : 'text-slate-600'}`}>{e.actual != null ? fmtNum(e.actual) : '—'}</span>
-                  <span className="w-[52px] text-right text-[10px] tabular-nums text-slate-400 ml-1">{e.estimate != null ? fmtNum(e.estimate) : '—'}</span>
-                  <span className="w-[52px] text-right text-[10px] tabular-nums text-slate-600 ml-1">{e.previous != null ? fmtNum(e.previous) : '—'}</span>
+                  <span className={`w-[10px] text-[9px] ${pending ? 'text-amber-400' : 'text-transparent'}`}>{pending ? '▸' : ''}</span>
+                  <span className="w-[62px] text-[9px] text-slate-500 tabular-nums">{fmtTime(e.minutes)}</span>
+                  <span className="flex-1 text-[9px] text-slate-300 truncate">{e.event}</span>
+                  <span className={`w-[52px] text-right text-[9px] tabular-nums font-semibold ${e.actual != null ? 'text-emerald-400' : 'text-slate-600'}`}>{e.actual != null ? fmtNum(e.actual) : '—'}</span>
+                  <span className="w-[52px] text-right text-[9px] tabular-nums text-slate-400 ml-1">{e.estimate != null ? fmtNum(e.estimate) : '—'}</span>
+                  <span className="w-[52px] text-right text-[9px] tabular-nums text-slate-600 ml-1">{e.previous != null ? fmtNum(e.previous) : '—'}</span>
                 </div>
               );
             })}
@@ -2804,7 +2992,7 @@ const SectorBars = ({ body, heat }: { body: string; heat?: { sector: string; avg
           const last = i === items.length - 1;
           return (
             <div key={i} className="flex items-center px-1.5 py-[2px]">
-              <span className={`text-[10px] w-[130px] md:w-[150px] text-right shrink-0 pr-2.5 truncate ${
+              <span className={`text-[9px] w-[130px] md:w-[150px] text-right shrink-0 pr-2.5 truncate ${
                 first ? 'text-emerald-300/90 font-medium' : last ? 'text-rose-300/90 font-medium' : 'text-slate-400'
               }`}>{s.name}</span>
               <div className="flex-1 h-[16px] relative">
@@ -2819,7 +3007,7 @@ const SectorBars = ({ body, heat }: { body: string; heat?: { sector: string; avg
                   }}
                 />
               </div>
-              <span className={`text-[10px] font-semibold tabular-nums w-[46px] text-right shrink-0 pl-1.5 ${pos ? 'text-emerald-400' : 'text-rose-400'}`}>
+              <span className={`text-[9px] font-semibold tabular-nums w-[46px] text-right shrink-0 pl-1.5 ${pos ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {pos ? '+' : ''}{s.pct.toFixed(2)}%
               </span>
             </div>
@@ -2836,7 +3024,7 @@ const ScanLegend = ({ activeFilter, onFilterChange }: { activeFilter?: ScanFilte
   const base = 'text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border transition-all duration-150 cursor-pointer';
   const off = 'text-slate-500 bg-white/[0.03] border-white/[0.08] hover:text-slate-300 hover:border-white/15 hover:bg-white/[0.06]';
   return (
-    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+    <div className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5">
       <button onClick={() => toggle('A')} title="Grade A — CNF 70+" className={`${base} ${cur === 'A' ? 'text-emerald-300 bg-emerald-500/20 border-emerald-400/40' : 'text-emerald-400/70 bg-emerald-500/[0.08] border-emerald-500/15 hover:bg-emerald-500/15 hover:border-emerald-400/30'}`}>A</button>
       <button onClick={() => toggle('B')} title="Grade B — CNF 50–69" className={`${base} ${cur === 'B' ? 'text-amber-300 bg-amber-500/20 border-amber-400/40' : 'text-amber-400/70 bg-amber-500/[0.08] border-amber-500/15 hover:bg-amber-500/15 hover:border-amber-400/30'}`}>B</button>
       <button onClick={() => toggle('CNF')} title="CNF 50+ (all graded)" className={`${base} ${cur === 'CNF' ? 'text-slate-200 bg-white/15 border-white/25' : off}`}>CNF</button>
@@ -3017,6 +3205,7 @@ function sortParsedRows(rows: ParsedStdRow[], key: SortKey, dir: SortDir): Parse
       case 'dvol': { const pd = (s: string) => { if (s === '—') return 0; const n = parseFloat(s.replace('$', '')); return s.endsWith('B') ? n * 1e9 : s.endsWith('M') ? n * 1e6 : s.endsWith('K') ? n * 1e3 : n; }; av = pd(a.dvol); bv = pd(b.dvol); break; }
       case 'stg': av = parseFloat(a.stage) || 0; bv = parseFloat(b.stage) || 0; break;
       case 'rs': av = a.rs ?? 0; bv = b.rs ?? 0; break;
+      default: av = 0; bv = 0; break;
     }
     const primary = dir === 'desc' ? bv - av : av - bv;
     if (primary !== 0 || key === 'rs') return primary;
@@ -3032,27 +3221,71 @@ function SortableHeader({ sortKey, sortDir, onSort, isVcp }: { sortKey: SortKey 
     <div className={scrollRowCls} style={scrollRowStyle}>
       <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
         <span className="inline-block w-[38px] md:w-[44px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
-        <span className="inline-block w-[9px]" />
+        <span className="inline-block w-[12px]" />
         <span className="inline-block w-[8px]" />
         <span className="inline-block w-[8px]" />
-        <span className={`inline-block w-[20px] md:w-[22px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1 ${hCls}`} onClick={() => onSort('cnf')}>CNF{arrow('cnf')}</span>
-        <span className={`inline-block w-[46px] md:w-[52px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ${hCls}`} onClick={() => onSort('chg')}>CHG%{arrow('chg')}</span>
-        <span className="inline-block w-[36px] md:w-[42px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">PRC</span>
-        <span className={`inline-block w-[36px] md:w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1 ${hCls}`} onClick={() => onSort('rvol')}>RVOL{arrow('rvol')}</span>
-        <span className={`inline-block w-[30px] md:w-[36px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1 ${hCls}`} onClick={() => onSort('vol')}>VOL{arrow('vol')}</span>
-        <span className={`inline-block w-[36px] md:w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1 ${hCls}`} onClick={() => onSort('dvol')}>$VOL{arrow('dvol')}</span>
-        {isVcp && <span className="inline-block w-[20px] md:w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">T#</span>}
-        <span className={`inline-block w-[22px] md:w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1 ${hCls}`} onClick={() => onSort('rs')}>RS{arrow('rs')}</span>
-        <span className={`inline-block w-[22px] md:w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-0.5 ${hCls}`} onClick={() => onSort('stg')}>STG{arrow('stg')}</span>
-        <span className="inline-block w-[14px] md:w-[16px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-0.5">N</span>
+        <span className={`inline-block w-[20px] md:w-[22px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1 ${hCls}`} onClick={() => onSort('cnf')}>CNF{arrow('cnf')}</span>
+        <span className={`inline-block w-[46px] md:w-[52px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1 ${hCls}`} onClick={() => onSort('chg')}>CHG%{arrow('chg')}</span>
+        <span className="inline-block w-[36px] md:w-[42px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1">PRC</span>
+        <span className={`inline-block w-[36px] md:w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hCls}`} onClick={() => onSort('rvol')}>RVOL{arrow('rvol')}</span>
+        <span className={`inline-block w-[30px] md:w-[36px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hCls}`} onClick={() => onSort('vol')}>VOL{arrow('vol')}</span>
+        <span className={`inline-block w-[36px] md:w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hCls}`} onClick={() => onSort('dvol')}>$VOL{arrow('dvol')}</span>
+        {isVcp && <span className="inline-block w-[20px] md:w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1">T#</span>}
+        <span className={`inline-block w-[22px] md:w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1 ${hCls}`} onClick={() => onSort('rs')}>RS{arrow('rs')}</span>
+        <span className={`inline-block w-[22px] md:w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1 ${hCls}`} onClick={() => onSort('stg')}>STG{arrow('stg')}</span>
+        <span className="inline-block w-[14px] md:w-[16px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1">N</span>
       </div>
     </div>
   );
 }
 
+function HrsSortableHeader({ sortKey, sortDir, onSort }: { sortKey: SortKey | null; sortDir: SortDir; onSort: (k: SortKey) => void }) {
+  const hCls = 'cursor-pointer hover:text-slate-400 transition-colors select-none';
+  const arrow = (k: SortKey) => sortKey === k ? (sortDir === 'desc' ? ' ↓' : ' ↑') : '';
+  return (
+    <div className="flex items-center whitespace-nowrap py-[1px] text-[7px] font-bold tracking-wider uppercase text-slate-600">
+      <span className="w-[38px] md:w-[44px] text-center">TICKER</span>
+      <span className={`inline-block w-[28px] md:w-[30px] text-center ml-0.5 ${hCls}`} onClick={() => onSort('hrs')}>HRS{arrow('hrs')}</span>
+      <span className={`inline-block w-[46px] md:w-[52px] text-right ml-0.5 ${hCls}`} onClick={() => onSort('chg')}>CHG%{arrow('chg')}</span>
+      <span className={`inline-block w-[32px] md:w-[36px] text-right ml-0.5 ${hCls}`} onClick={() => onSort('vol')}>VOL{arrow('vol')}</span>
+      <span className={`inline-block w-[36px] md:w-[40px] text-right ml-0.5 ${hCls}`} onClick={() => onSort('dvol')}>$VOL{arrow('dvol')}</span>
+      <span className={`inline-block w-[30px] md:w-[34px] text-right ml-0.5 ${hCls}`} onClick={() => onSort('rvol')}>RVOL{arrow('rvol')}</span>
+      <span className={`inline-block w-[36px] md:w-[42px] text-right ml-0.5 ${hCls}`} onClick={() => onSort('alpha')}>ALPHA{arrow('alpha')}</span>
+      <span className={`inline-block w-[30px] md:w-[34px] text-right ml-0.5 ${hCls}`} onClick={() => onSort('win')}>WIN%{arrow('win')}</span>
+      <span className={`inline-block w-[36px] md:w-[40px] text-right ml-0.5 ${hCls}`} onClick={() => onSort('high52')}>52WK{arrow('high52')}</span>
+      <span className={`inline-block w-[22px] md:w-[24px] text-center ml-0.5 ${hCls}`} onClick={() => onSort('stg')}>STG{arrow('stg')}</span>
+      <span className="w-0" />
+    </div>
+  );
+}
+
+interface HrsRow {
+  symbol: string;
+  score: number;
+  grade: string;
+  changePct: number;
+  price: number;
+  rsRating: number | null;
+  cnfScore: number | null;
+  cnfGrade: string | null;
+  alphaOnWeakDays: number;
+  weakDayOutperformPct: number;
+  pctBelow52wHigh: number;
+  vol: number;
+  dVol: number;
+  avgVol: number;
+  mktCap: number | null;
+  stage: string;
+  sector: string;
+  catalyst: string | null;
+  catalystUrl: string | null;
+  newsCausal: boolean | null;
+}
+
 export default function MarketSummary() {
   const [data, setData] = useState<SummaryData | null>(null);
   const [macroInsights, setMacroInsights] = useState<MacroInsights | null>(null);
+  const [hrsTop, setHrsTop] = useState<HrsRow[]>([]);
   const [status, setStatus] = useState<'Loading' | 'Synced' | 'Error'>('Loading');
   const [session, setSession] = useState<MarketSession>('Closed');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -3072,8 +3305,18 @@ export default function MarketSummary() {
      disappear between scans — EP9M is empty before volume builds, Key Events
      is empty on a quiet calendar — and an index-keyed set would silently
      collapse whichever section slid into that slot. */
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
-  const [scanFilter, setScanFilter] = useState<ScanFilterKey>(() => loadSavedFilter());
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() =>
+    new Set([
+      ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary'),
+      'hrsTop', 'topSetups', 'tomorrowWatch',
+    ])
+  );
+  const [scanFilter, setScanFilter] = useState<ScanFilterKey>('CNF');
+  const [moverView, setMoverView] = useState<'stocks' | 'etf'>('stocks');
+  useEffect(() => {
+    const v = localStorage.getItem(SCAN_FILTER_KEY);
+    if (v && ALL_SCAN_KEYS.includes(v)) setScanFilter(v as ScanFilterKey);
+  }, []);
   const handleScanFilter = useCallback((k: ScanFilterKey) => {
     setScanFilter(k);
     if (typeof window !== 'undefined') {
@@ -3129,6 +3372,7 @@ export default function MarketSummary() {
           vcpRes,
           mbRes,
           dvolRes,
+          hrsRes,
         ] = await Promise.all([
           cachedJson('/api/market-summary').catch(() => null),
           fetchScannerLatest().catch(() => null),
@@ -3140,6 +3384,7 @@ export default function MarketSummary() {
           cachedJson('/api/vcp/latest').catch(() => null),
           cachedJson('/api/multibagger/latest').catch(() => null),
           cachedJson('/api/dvol/latest').catch(() => null),
+          cachedJson('/api/hrs/latest').catch(() => null),
         ]);
 
         if (isMounted && narrative) {
@@ -3160,6 +3405,7 @@ export default function MarketSummary() {
         if (!scannerData) throw new Error('No scanner data available');
 
         const ep9mList: any[] = ep9mRes?.candidates ?? [];
+        const ep9mRepeatPivots: Record<string, { count: number; events: { date: string; price: number; vol: number; rvol: number; score: number }[] }> = ep9mRes?.repeatPivots ?? {};
         const econList: EconEvent[] = Array.isArray(econRes) ? econRes : [];
 
         let earningsList: EarningsEvent[] = [];
@@ -3178,8 +3424,40 @@ export default function MarketSummary() {
         const mbList: any[] = mbRes?.candidates ?? [];
         const dvolList: any[] = Array.isArray(dvolRes?.rows) ? dvolRes.rows : [];
 
+        if (isMounted && hrsRes?.success) {
+          const hrsCandidates: HrsRow[] = (hrsRes.candidates ?? [])
+            .filter((c: any) => (c.rsRating ?? 0) >= 85)
+            .filter((c: any) => /^(Stage\s*)?[12]/i.test(c.stage || ''))
+            .filter((c: any) => (c.dVol ?? 0) >= 10_000_000)
+            .sort((a: any, b: any) => b.score - a.score)
+            .slice(0, 10)
+            .map((c: any) => ({
+              symbol: c.symbol,
+              score: c.score,
+              grade: c.grade,
+              changePct: c.changePct,
+              price: c.price ?? 0,
+              rsRating: c.rsRating,
+              cnfScore: c.cnfScore ?? null,
+              cnfGrade: c.cnfGrade ?? null,
+              alphaOnWeakDays: c.alphaOnWeakDays,
+              weakDayOutperformPct: c.weakDayOutperformPct,
+              pctBelow52wHigh: c.pctBelow52wHigh,
+              vol: c.vol ?? 0,
+              dVol: c.dVol ?? 0,
+              avgVol: c.avgVol ?? 0,
+              mktCap: c.mktCap ?? null,
+              stage: c.stage,
+              sector: c.sector ?? '',
+              catalyst: c.catalyst,
+              catalystUrl: c.catalystUrl,
+              newsCausal: c.newsCausal,
+            }));
+          setHrsTop(hrsCandidates);
+        }
+
         if (isMounted) {
-          const local = buildLocalInsights(scannerData, ep9mList, econList, earningsList, swingList, consolList, vcpList, mbList, dvolList);
+          const local = buildLocalInsights(scannerData, ep9mList, econList, earningsList, swingList, consolList, vcpList, mbList, dvolList, ep9mRepeatPivots);
           if (local) setMacroInsights(local);
           else if (scannerData.macroInsights) setMacroInsights(scannerData.macroInsights);
 
@@ -3253,7 +3531,7 @@ export default function MarketSummary() {
 
 
   return (
-    <div className="bg-[#101623] border border-white/10 rounded-2xl p-1 sm:p-6 md:p-8 relative overflow-x-auto shadow-2xl w-full" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}>
+    <div className="bg-[#101623] border-0 md:border md:border-white/10 md:rounded-2xl p-2 sm:p-6 md:p-8 relative overflow-x-auto md:shadow-2xl w-full" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}>
       <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-500 via-emerald-500 to-indigo-500 opacity-40"></div>
 
       <div
@@ -3294,14 +3572,6 @@ export default function MarketSummary() {
                     MARKET BRIEFING
                   </span>
                 </div>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-slate-500 leading-snug">
-                  <span className="cursor-help" title="CNF grade. A = 70+ (high conviction), B = 50–69. Combines RVOL, gap size, range expansion, relative strength, and catalyst quality."><span className="text-emerald-400 font-bold">A</span> 70+ <span className="text-amber-400 font-bold">B</span> 50&ndash;69</span>
-                  <span className="cursor-help" title="10/21 EMA posture. Green = price above both EMAs, trend intact. Amber = 10 and 21 converging, potential trend change. Rose = extended above or broken below the 21 EMA."><span className="inline-block w-[5px] h-[5px] rounded-full bg-emerald-400 relative top-[-1px]" /> stacked <span className="inline-block w-[5px] h-[5px] rounded-full bg-amber-400 relative top-[-1px]" /> pre-cross <span className="inline-block w-[5px] h-[5px] rounded-full bg-rose-400 relative top-[-1px]" /> ext/below</span>
-                  <span className="cursor-help" title="Analyst-flagged avoid: thin floats with no follow-through, crowded shorts squeezing into resistance, or patterns that look right but fail on closer inspection."><span className="text-rose-300 font-bold">TRAP</span> avoid</span>
-                  <span className="cursor-help" title="Structural reversal. Price is up today but still under the 21 EMA with no prior blue-dot setup. A contrarian signal, not a trend-following one."><span className="inline-block w-[5px] h-[5px] rounded-full bg-blue-500 relative top-[-1px]" /> blue dot</span>
-                  <span className="cursor-help" title="One star = a news headline exists today (earnings, FDA, upgrade, etc.). Two stars = a material catalyst is driving the move — higher conviction."><span className="text-slate-500">★</span> news <span className="text-amber-400">★★</span> catalyst</span>
-                  <span className="cursor-help" title="CNF = confluence score (0–100). RVOL = relative volume vs 20-day average. RS = relative strength percentile (0–99). STG = Weinstein stage (1B–4C)."><span className="font-semibold text-slate-400">CNF</span> score <span className="font-semibold text-slate-400">RVOL</span> vs avg <span className="font-semibold text-slate-400">RS</span> rel str <span className="font-semibold text-slate-400">STG</span> stage</span>
-                </div>
               </div>
 
 
@@ -3335,7 +3605,9 @@ export default function MarketSummary() {
                           there is width for it. */}
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                         {sections.map((sec, idx) => {
-                          const { label, color, blurb, body, key } = sec;
+                          const { label, color, blurb, body: rawBody, key } = sec;
+                          const body = label === 'Top Movers' && moverView === 'etf' && macroInsights?.etfMoversPara
+                            ? macroInsights.etfMoversPara : rawBody;
                           const st = sectionStyles(color);
                           const bodyTickers = label === 'Setups Summary'
                             ? (macroInsights?.setupPool ?? []).map((s: any) => s.ticker).filter(Boolean)
@@ -3366,14 +3638,93 @@ export default function MarketSummary() {
                           const wantsLegend =
                             isOpen && !!label && !!SECTION_HEADERS[label] && label !== 'Money Flow';
 
+                          const renderHrsBefore = label === '100-Bagger Thesis' && hrsTop.length > 0;
+                          const renderWatchAfter = label === '100-Bagger Thesis';
+                          const hrsSort = sectionSorts['HRS'] ?? null;
+                          const hrsSorted = hrsSort ? [...hrsTop].sort((a, b) => {
+                            let av = 0, bv = 0;
+                            switch (hrsSort.key) {
+                              case 'hrs': av = a.score; bv = b.score; break;
+                              case 'chg': av = a.changePct; bv = b.changePct; break;
+                              case 'alpha': av = a.alphaOnWeakDays; bv = b.alphaOnWeakDays; break;
+                              case 'win': av = a.weakDayOutperformPct; bv = b.weakDayOutperformPct; break;
+                              case 'high52': av = a.pctBelow52wHigh; bv = b.pctBelow52wHigh; break;
+                              case 'rs': av = Number(a.rsRating) || 0; bv = Number(b.rsRating) || 0; break;
+                              case 'vol': av = a.vol; bv = b.vol; break;
+                              case 'dvol': av = a.dVol; bv = b.dVol; break;
+                              case 'rvol': av = a.avgVol ? a.vol / a.avgVol : 0; bv = b.avgVol ? b.vol / b.avgVol : 0; break;
+                              case 'stg': av = parseFloat(a.stage.replace(/[^0-9.]/g, '')) || 0; bv = parseFloat(b.stage.replace(/[^0-9.]/g, '')) || 0; break;
+                            }
+                            return hrsSort.dir === 'desc' ? bv - av : av - bv;
+                          }) : hrsTop;
+                          const hrsLeft = hrsSorted.slice(0, 5);
+                          const hrsRight = hrsSorted.slice(5, 10);
+                          const hrsIsOpen = !collapsedSections.has('hrsTop');
+                          const hrsRowEl = (h: HrsRow) => {
+                            const hrsGrade: 'A' | 'B' | null = h.score >= 70 ? 'A' : h.score >= 50 ? 'B' : null;
+                            const nc = newsStarCount({ catalyst: h.catalyst, catalystUrl: h.catalystUrl, newsCausal: h.newsCausal });
+                            const rvol = h.avgVol ? h.vol / h.avgVol : 0;
+                            const fmtV = (v: number) => v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : '—';
+                            const fmtDV = (v: number) => v >= 1e9 ? `$${(v / 1e9).toFixed(1)}B` : v >= 1e6 ? `$${(v / 1e6).toFixed(0)}M` : v > 0 ? `$${(v / 1e3).toFixed(0)}K` : '—';
+                            return (
+                              <div key={h.symbol} className="flex items-center whitespace-nowrap py-[1px]">
+                                <TickerChartHover symbol={h.symbol}><span className={`${gradeChipCls(hrsGrade, false)} w-[38px] md:w-[44px]`}>{h.symbol}</span></TickerChartHover>
+                                <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-0.5 w-[28px] md:w-[30px] leading-[14px] text-center ${h.score >= 70 ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/10' : h.score >= 50 ? 'text-amber-400 border-amber-500/20 bg-amber-500/10' : 'text-slate-400 border-white/5 bg-white/[0.03]'}`}>{h.score}</span>
+                                <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-0.5 ${h.changePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{h.changePct >= 0 ? '+' : ''}{h.changePct.toFixed(2)}%</span>
+                                <span className="text-[9px] tabular-nums inline-block w-[32px] md:w-[36px] text-right ml-0.5 text-slate-400">{fmtV(h.vol)}</span>
+                                <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-0.5 text-slate-400">{fmtDV(h.dVol)}</span>
+                                <span className={`text-[9px] tabular-nums inline-block w-[30px] md:w-[34px] text-right ml-0.5 ${rvol >= 2 ? 'text-emerald-400' : rvol >= 1.2 ? 'text-cyan-400' : 'text-slate-400'}`}>{rvol < 1 ? rvol.toFixed(1) : Math.round(rvol)}x</span>
+                                <span className={`text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right ml-0.5 ${h.alphaOnWeakDays > 5 ? 'text-emerald-400' : h.alphaOnWeakDays > 2 ? 'text-cyan-400' : 'text-slate-300'}`}>+{h.alphaOnWeakDays.toFixed(1)}</span>
+                                <span className={`text-[9px] tabular-nums inline-block w-[30px] md:w-[34px] text-right ml-0.5 ${h.weakDayOutperformPct >= 80 ? 'text-emerald-400' : h.weakDayOutperformPct >= 60 ? 'text-cyan-400' : 'text-slate-400'}`}>{h.weakDayOutperformPct}%</span>
+                                <span className={`text-[9px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-0.5 ${h.pctBelow52wHigh <= 3 ? 'text-emerald-400' : h.pctBelow52wHigh <= 8 ? 'text-cyan-400' : 'text-slate-400'}`}>{h.pctBelow52wHigh <= 0.5 ? 'ATH' : `-${h.pctBelow52wHigh.toFixed(1)}%`}</span>
+                                <span className="inline-block w-[22px] md:w-[24px] text-center ml-0.5">{h.stage ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(h.stage)}`}>{stageOf({ stage: h.stage })}</span> : <span className="text-slate-600">-</span>}</span>
+                                <span className="w-0" />
+                              </div>
+                            );
+                          };
+
                           return (
                             <React.Fragment key={idx}>
+                            {renderHrsBefore && (
+                              <div className="lg:col-span-2 rounded-xl px-2.5 md:px-4 py-3 bg-indigo-500/[0.04]">
+                                <div className="flex items-center gap-3 mb-2">
+                                  <button onClick={() => toggleSection('hrsTop')} className="inline-flex items-center gap-1.5 group" title={hrsIsOpen ? 'Collapse' : 'Expand'}>
+                                    <span className={`text-[9px] transition-transform duration-200 ${hrsIsOpen ? 'rotate-90' : ''} text-slate-500`}>&#9654;</span>
+                                    <span className="inline-block text-[7px] font-bold tracking-widest uppercase px-1.5 py-[1px] rounded border text-indigo-400 bg-indigo-500/10 border-indigo-500/20">Hidden Relative Strength</span>
+                                  </button>
+                                  {hrsIsOpen && <SectionCopyButton tickers={hrsTop.map(h => h.symbol)} />}
+                                  {hrsIsOpen && <SectionTxtButton tickers={hrsTop.map(h => h.symbol)} />}
+                                  {!hrsIsOpen && <span className="text-[8px] text-slate-600 font-medium">{hrsTop.map(h => h.symbol).join(' · ')}</span>}
+                                </div>
+                                {hrsIsOpen && (
+                                  <>
+                                    <p className="text-[8px] text-slate-500 font-medium mb-2 leading-snug">
+                                      Top {hrsTop.length} by hidden RS score — RS 85+, Stage 1–2. Holding up while QQQ sells off.
+                                    </p>
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-0">
+                                      <div className="flex flex-col gap-0.5">
+                                        <HrsSortableHeader sortKey={hrsSort?.key ?? null} sortDir={hrsSort?.dir ?? 'desc'} onSort={(k) => handleSectionSort('HRS', k)} />
+                                        {hrsLeft.map(hrsRowEl)}
+                                      </div>
+                                      {hrsRight.length > 0 && (
+                                        <div className="flex flex-col gap-0.5">
+                                          <div className="hidden lg:flex">
+                                            <HrsSortableHeader sortKey={hrsSort?.key ?? null} sortDir={hrsSort?.dir ?? 'desc'} onSort={(k) => handleSectionSort('HRS', k)} />
+                                          </div>
+                                          {hrsRight.map(hrsRowEl)}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            )}
                             {wantsLegend && (
                               <div className="lg:col-span-2 px-1 pt-1 pb-0.5">
                                 <ScanLegend activeFilter={scanFilter} onFilterChange={handleScanFilter} />
                               </div>
                             )}
-                            <div className={`border-l-[3px] rounded-r-xl px-2.5 md:px-4 py-3 ${st.border} ${st.bg} ${label && PAIRED_SECTIONS.has(label) ? '' : 'lg:col-span-2'} ${label === 'Industry Heat' ? 'flex flex-col' : ''}`}>
+                            <div className={`rounded-xl px-2.5 md:px-4 py-3 ${st.bg} ${label && PAIRED_SECTIONS.has(label) ? '' : 'lg:col-span-2'} ${label === 'Industry Heat' ? 'flex flex-col' : ''}`}>
                               {label && (
                                 <div className={isOpen ? 'mb-2' : ''}>
                                   <div
@@ -3389,13 +3740,34 @@ export default function MarketSummary() {
                                     </div>
                                     {isOpen && bodyTickers.length > 0 && label !== 'Key Events' && label !== 'Market Regime' && <SectionCopyButton tickers={bodyTickers} />}
                                     {isOpen && bodyTickers.length > 0 && label !== 'Key Events' && label !== 'Market Regime' && <SectionTxtButton tickers={bodyTickers} />}
+                                    {isOpen && label === 'Setups Summary' && <SetupSummaryHelp />}
+                                    {isOpen && label === 'Top Movers' && (
+                                      <div className="flex items-center gap-1 ml-1">
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); setMoverView('stocks'); }}
+                                          className={`text-[7px] font-bold tracking-wider uppercase px-1.5 py-[1px] rounded border transition-all duration-200 ${
+                                            moverView === 'stocks'
+                                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                              : 'bg-[#161c2a] text-slate-500 border-white/5 hover:text-slate-300 hover:bg-white/[0.04]'
+                                          }`}
+                                        >Stocks</button>
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); setMoverView('etf'); }}
+                                          className={`text-[7px] font-bold tracking-wider uppercase px-1.5 py-[1px] rounded border transition-all duration-200 ${
+                                            moverView === 'etf'
+                                              ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+                                              : 'bg-[#161c2a] text-slate-500 border-white/5 hover:text-slate-300 hover:bg-white/[0.04]'
+                                          }`}
+                                        >ETF</button>
+                                      </div>
+                                    )}
                                     {!isOpen && bodyTickers.length > 0 && (
-                                      <span className="text-[9px] text-slate-600 font-medium">
-                                        {bodyTickers.length} name{bodyTickers.length === 1 ? '' : 's'}
+                                      <span className="text-[8px] text-slate-600 font-medium">
+                                        {bodyTickers.slice(0, 10).join(' · ')}{bodyTickers.length > 10 ? ` +${bodyTickers.length - 10}` : ''}
                                       </span>
                                     )}
                                   </div>
-                                  {isOpen && blurb && <p className="text-[10px] text-slate-500 font-medium mt-1.5 leading-snug">{blurb.split('\n').map((line, i, arr) => <React.Fragment key={i}>{line}{i < arr.length - 1 && <br/>}</React.Fragment>)}</p>}
+                                  {isOpen && blurb && <p className="text-[8px] text-slate-500 font-medium mt-1.5 leading-snug">{blurb.split('\n').map((line, i, arr) => <React.Fragment key={i}>{line}{i < arr.length - 1 && <br/>}</React.Fragment>)}</p>}
                                 </div>
                               )}
                               {/* Header for single-column aligned sections is now rendered inside the body block below */}
@@ -3421,12 +3793,12 @@ export default function MarketSummary() {
                               ) : isOpen && label === 'Industry Heat' && (macroInsights?.sectorHeat?.length ?? 0) >= 2 ? (
                                 <div className="flex-1 flex flex-col justify-center">
                                   {macroInsights!.sectorHeat!.slice(0, 8).map((h, i) => (
-                                    <div key={i} className="flex items-center gap-2 py-[2px] text-[11px] tabular-nums">
+                                    <div key={i} className="flex items-center gap-2 py-[2px] text-[9px] tabular-nums">
                                       <span className={`font-semibold w-[52px] text-right shrink-0 ${h.avgChg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                                         {h.avgChg >= 0 ? '+' : ''}{h.avgChg.toFixed(1)}%
                                       </span>
                                       <span className="text-slate-300 truncate">{h.sector}</span>
-                                      <span className="text-slate-600 text-[10px]">({h.count})</span>
+                                      <span className="text-slate-600 text-[9px]">({h.count})</span>
                                     </div>
                                   ))}
                                 </div>
@@ -3624,7 +3996,8 @@ export default function MarketSummary() {
                                             ) : null;
                                             const sortedRender = (lines: string[]) => {
                                               if (!sectionAligns) return lines.map(render);
-                                              const activeSort = colSort ?? { key: defaultSortKey, dir: 'desc' as SortDir };
+                                              const defaultDir: SortDir = label === 'Top Movers' && ci === 1 ? 'asc' : 'desc';
+                                              const activeSort = colSort ?? { key: defaultSortKey, dir: defaultDir };
                                               const stockLines: string[] = [];
                                               const stockParsed: ParsedStdRow[] = [];
                                               const nonStockRendered: React.ReactNode[] = [];
@@ -3660,7 +4033,10 @@ export default function MarketSummary() {
                                             };
                                             return (
                                               <div key={ci} className="space-y-1.5">
-                                                {isHeading ? renderWithSubHeadings(rows) : (
+                                                {isHeading ? (<>
+                                                  <p className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5">{heading.replace(/:$/, '')}</p>
+                                                  {renderWithSubHeadings(rows)}
+                                                </>) : (
                                                   <>
                                                     {inlineHeader}
                                                     {sortedRender(colLines)}
@@ -3739,6 +4115,154 @@ export default function MarketSummary() {
                                 )
                               )}
                             </div>
+                            {renderWatchAfter && macroInsights.watching?.length > 0 && (
+                              <div className="lg:col-span-2 rounded-xl px-2.5 md:px-4 py-3 bg-cyan-500/[0.04]">
+                                <div className="flex items-center gap-3 mb-2">
+                                  <button onClick={() => toggleSection('topSetups')} className="inline-flex items-center gap-1.5 group" title={collapsedSections.has('topSetups') ? 'Expand' : 'Collapse'}>
+                                    <span className={`text-[9px] transition-transform duration-200 ${collapsedSections.has('topSetups') ? '' : 'rotate-90'} text-slate-500`}>&#9654;</span>
+                                    <span className="inline-block text-[7px] font-bold tracking-widest uppercase px-1.5 py-[1px] rounded border text-cyan-400 bg-cyan-500/10 border-cyan-500/20">Top Setups</span>
+                                  </button>
+                                  {!collapsedSections.has('topSetups') && <SectionCopyButton tickers={macroInsights.watching.map(w => w.symbol)} />}
+                                  {!collapsedSections.has('topSetups') && <SectionTxtButton tickers={macroInsights.watching.map(w => w.symbol)} />}
+                                  {collapsedSections.has('topSetups') && macroInsights.watching.length > 0 && (
+                                    <span className="text-[8px] text-slate-600 font-medium">{macroInsights.watching.map(w => w.symbol).join(' · ')}</span>
+                                  )}
+                                </div>
+                                {!collapsedSections.has('topSetups') && (() => {
+                                  const ws = sectionSorts['Top Setups'];
+                                  const sortedItems = ws ? [...macroInsights.watching].sort((a, b) => {
+                                    let av = 0, bv = 0;
+                                    switch (ws.key) {
+                                      case 'cnf': av = Number(a.score) || 0; bv = Number(b.score) || 0; break;
+                                      case 'chg': av = a.chg ?? 0; bv = b.chg ?? 0; break;
+                                      case 'rvol': av = Number(a.rvol) || 0; bv = Number(b.rvol) || 0; break;
+                                      case 'vol': av = a.vol ?? 0; bv = b.vol ?? 0; break;
+                                      case 'dvol': av = a.dVol ?? 0; bv = b.dVol ?? 0; break;
+                                      case 'rs': av = Number(a.rsRating) || 0; bv = Number(b.rsRating) || 0; break;
+                                    }
+                                    return ws.dir === 'desc' ? bv - av : av - bv;
+                                  }) : macroInsights.watching;
+                                  const filtered = sortedItems.filter((item: any) => passesPoolFilter(scanFilter, item));
+                                  const leftItems = filtered.slice(0, Math.ceil(filtered.length / 2));
+                                  const rightItems = filtered.slice(Math.ceil(filtered.length / 2));
+                                  const hdr = <SortableHeader sortKey={ws?.key ?? null} sortDir={ws?.dir ?? 'desc'} onSort={(k) => handleSectionSort('Top Setups', k)} />;
+                                  const renderItem = (item: any, idx: number) => {
+                                    const _s = typeof item === 'object' ? item : { symbol: item as never, chg: 0, rvol: null, vol: 0, dVol: 0, stage: '', grade: null, score: undefined, dotKind: null, posture: null, rsRating: null, price: null as number | null, catalyst: null as string | null, catalystUrl: null as string | null, newsCausal: null as boolean | null };
+                                    const s = { ..._s, rsRating: _s.rsRating ?? macroInsights.rsMap?.[_s.symbol] ?? null, stage: _s.stage || macroInsights.stageMap?.[_s.symbol] || '' };
+                                    const pb: PostureBucket | null = s.posture || null;
+                                    const pMeta = pb ? POSTURE_META[pb] : null;
+                                    const rv = s.rvol != null ? Number(s.rvol) : null;
+                                    const v = s.vol ?? 0;
+                                    const dv = s.dVol ?? 0;
+                                    const fmtV = v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(0) + 'K' : '';
+                                    const fmtDv = dv >= 1e9 ? '$' + (dv / 1e9).toFixed(1) + 'B' : dv >= 1e6 ? '$' + (dv / 1e6).toFixed(0) + 'M' : dv > 0 ? '$' + (dv / 1e3).toFixed(0) + 'K' : '';
+                                    const isAvoid = macroInsights.avoidSet?.has(s.symbol) || s.dotKind === 'red';
+                                    const isBlueDot = s.dotKind === 'blue';
+                                    return (
+                                      <div key={idx} className="flex items-center whitespace-nowrap py-[1px]">
+                                        <TickerChartHover symbol={s.symbol}><span className={`${gradeChipCls(s.grade, isAvoid)} w-[38px] md:w-[44px]`}>{s.symbol}</span></TickerChartHover>
+                                        <span className="inline-block w-[12px] text-center leading-none shrink-0" />
+                                        <span className="inline-block w-[8px] text-center shrink-0">
+                                          {isBlueDot && <span className="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)]" />}
+                                        </span>
+                                        <span className="inline-block w-[8px] text-center shrink-0">
+                                          {pMeta ? <span title={`${pMeta.short} — ${pMeta.tip}`} className={`inline-block w-[6px] h-[6px] rounded-full cursor-help ${pMeta.tone === 'good' ? 'bg-emerald-400' : pMeta.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`} /> : null}
+                                        </span>
+                                        <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${s.score != null && !isNaN(Number(s.score)) ? cnfBadgeCls(Number(s.score)) : 'text-slate-600 border-slate-700/40 bg-slate-800/30'}`}>{s.score != null && !isNaN(Number(s.score)) ? Number(s.score) : '-'}</span>
+                                        <span className={`text-[10px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ${(s.chg ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(s.chg ?? 0) >= 0 ? '+' : ''}{(s.chg ?? 0).toFixed(2)}%</span>
+                                        <span className="text-[10px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-1">{fmtPrc(s.price)}</span>
+                                        <span className={`text-[10px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? `${rv < 1 ? rv.toFixed(1) : Math.round(rv)}x` : ''}</span>
+                                        <span className={`text-[10px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-1 ${fmtV ? 'text-slate-400' : 'text-transparent'}`}>{fmtV}</span>
+                                        <span className={`text-[10px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-1 ${fmtDv ? 'text-slate-300' : 'text-transparent'}`}>{fmtDv}</span>
+                                        <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{s.rsRating != null ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(Number(s.rsRating))}`}>{Number(s.rsRating)}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
+                                        <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{s.stage ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(s.stage)}`}>{s.stage}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
+                                        {(() => {
+                                          const nc = newsStarCount({ catalyst: s.catalyst, catalystUrl: s.catalystUrl, newsCausal: (s as any).newsCausal });
+                                          if (nc >= 1 && s.catalystUrl) return <a href={s.catalystUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={`inline-block w-[14px] md:w-[16px] text-center ${nc >= 2 ? 'text-amber-400' : 'text-slate-500'} hover:brightness-125 font-bold text-[7px] leading-none cursor-pointer transition-all ml-1`} title={s.catalyst || ''}>{'★'.repeat(nc)}</a>;
+                                          return <span className="inline-block w-[14px] md:w-[16px] ml-1"></span>;
+                                        })()}
+                                      </div>
+                                    );
+                                  };
+                                  return (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                                      <div className="flex flex-col gap-0.5">{hdr}{leftItems.map(renderItem)}</div>
+                                      {rightItems.length > 0 && <div className="flex flex-col gap-0.5"><div className="hidden md:flex">{hdr}</div>{rightItems.map((item, i) => renderItem(item, 500 + i))}</div>}
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            )}
+                            {renderWatchAfter && macroInsights.tomorrowWatch?.length > 0 && (
+                              <div className="lg:col-span-2 rounded-xl px-2.5 md:px-4 py-3 bg-violet-500/[0.04]">
+                                <div className="flex items-center gap-3 mb-2">
+                                  <button onClick={() => toggleSection('tomorrowWatch')} className="inline-flex items-center gap-1.5 group" title={collapsedSections.has('tomorrowWatch') ? 'Expand' : 'Collapse'}>
+                                    <span className={`text-[9px] transition-transform duration-200 ${collapsedSections.has('tomorrowWatch') ? '' : 'rotate-90'} text-slate-500`}>&#9654;</span>
+                                    <span className="inline-block text-[7px] font-bold tracking-widest uppercase px-1.5 py-[1px] rounded border text-violet-400 bg-violet-500/10 border-violet-500/20">Tomorrow&apos;s Watchlist</span>
+                                  </button>
+                                  {!collapsedSections.has('tomorrowWatch') && <SectionCopyButton tickers={macroInsights.tomorrowWatch.map(w => w.symbol)} />}
+                                  {!collapsedSections.has('tomorrowWatch') && <SectionTxtButton tickers={macroInsights.tomorrowWatch.map(w => w.symbol)} />}
+                                  {collapsedSections.has('tomorrowWatch') && macroInsights.tomorrowWatch.length > 0 && (
+                                    <span className="text-[8px] text-slate-600 font-medium">{macroInsights.tomorrowWatch.map(w => w.symbol).join(' · ')}</span>
+                                  )}
+                                </div>
+                                {!collapsedSections.has('tomorrowWatch') && <div className="flex flex-col gap-0.5">
+                                  <SortableHeader sortKey={sectionSorts['Tomorrow Watch']?.key ?? null} sortDir={sectionSorts['Tomorrow Watch']?.dir ?? 'desc'} onSort={(k) => handleSectionSort('Tomorrow Watch', k)} />
+                                  {(() => {
+                                    const ws = sectionSorts['Tomorrow Watch'];
+                                    const items = ws ? [...macroInsights.tomorrowWatch].sort((a, b) => {
+                                      let av = 0, bv = 0;
+                                      switch (ws.key) {
+                                        case 'cnf': av = Number(a.score) || 0; bv = Number(b.score) || 0; break;
+                                        case 'chg': av = a.chg ?? 0; bv = b.chg ?? 0; break;
+                                        case 'rvol': av = Number(a.rvol) || 0; bv = Number(b.rvol) || 0; break;
+                                        case 'vol': av = a.vol ?? 0; bv = b.vol ?? 0; break;
+                                        case 'dvol': av = a.dVol ?? 0; bv = b.dVol ?? 0; break;
+                                        case 'rs': av = Number(a.rsRating) || 0; bv = Number(b.rsRating) || 0; break;
+                                      }
+                                      return ws.dir === 'desc' ? bv - av : av - bv;
+                                    }) : macroInsights.tomorrowWatch;
+                                    return items;
+                                  })().filter((item: any) => passesPoolFilter(scanFilter, item)).map((_item, idx) => {
+                                    const item = { ..._item, rsRating: _item.rsRating ?? macroInsights.rsMap?.[_item.symbol] ?? null, stage: _item.stage || macroInsights.stageMap?.[_item.symbol] || '' };
+                                    const pb = item.posture || null;
+                                    const pMeta = pb ? POSTURE_META[pb] : null;
+                                    const rv = item.rvol != null ? Number(item.rvol) : null;
+                                    const v = item.vol ?? 0;
+                                    const dv = item.dVol ?? 0;
+                                    const fmtV = v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(0) + 'K' : '';
+                                    const fmtDv = dv >= 1e9 ? '$' + (dv / 1e9).toFixed(1) + 'B' : dv >= 1e6 ? '$' + (dv / 1e6).toFixed(0) + 'M' : dv > 0 ? '$' + (dv / 1e3).toFixed(0) + 'K' : '';
+                                    const isAvoid = macroInsights.avoidSet?.has(item.symbol) || item.dotKind === 'red';
+                                    const isBlueDot = item.dotKind === 'blue';
+                                    return (
+                                      <div key={idx} className="flex items-center whitespace-nowrap py-[1px]">
+                                        <TickerChartHover symbol={item.symbol}><span className={`${gradeChipCls(item.grade, isAvoid)} w-[38px] md:w-[44px]`}>{item.symbol}</span></TickerChartHover>
+                                        <span className="inline-block w-[12px] text-center leading-none shrink-0" />
+                                        <span className="inline-block w-[8px] text-center shrink-0">
+                                          {isBlueDot && <span className="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)]" />}
+                                        </span>
+                                        <span className="inline-block w-[8px] text-center shrink-0">
+                                          {pMeta ? <span title={`${pMeta.short} — ${pMeta.tip}`} className={`inline-block w-[6px] h-[6px] rounded-full cursor-help ${pMeta.tone === 'good' ? 'bg-emerald-400' : pMeta.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`} /> : null}
+                                        </span>
+                                        <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${item.score != null && !isNaN(Number(item.score)) ? cnfBadgeCls(Number(item.score)) : 'text-slate-600 border-slate-700/40 bg-slate-800/30'}`}>{item.score != null && !isNaN(Number(item.score)) ? Number(item.score) : '-'}</span>
+                                        <span className={`text-[10px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ${(item.chg ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(item.chg ?? 0) >= 0 ? '+' : ''}{(item.chg ?? 0).toFixed(2)}%</span>
+                                        <span className="text-[10px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-1">{fmtPrc(item.price)}</span>
+                                        <span className={`text-[10px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? `${rv < 1 ? rv.toFixed(1) : Math.round(rv)}x` : ''}</span>
+                                        <span className={`text-[10px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-1 ${fmtV ? 'text-slate-400' : 'text-transparent'}`}>{fmtV}</span>
+                                        <span className={`text-[10px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-1 ${fmtDv ? 'text-slate-300' : 'text-transparent'}`}>{fmtDv}</span>
+                                        <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{item.rsRating != null ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(Number(item.rsRating))}`}>{Number(item.rsRating)}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
+                                        <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{item.stage && item.stage !== '—' ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(item.stage)}`}>{item.stage}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
+                                        {(() => {
+                                          const nc = newsStarCount({ catalyst: item.catalyst, catalystUrl: item.catalystUrl, newsCausal: (item as any).newsCausal });
+                                          if (nc >= 1 && item.catalystUrl) return <a href={item.catalystUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={`inline-block w-[14px] md:w-[16px] text-center ${nc >= 2 ? 'text-amber-400' : 'text-slate-500'} hover:brightness-125 font-bold text-[7px] leading-none cursor-pointer transition-all ml-1`} title={item.catalyst || ''}>{'★'.repeat(nc)}</a>;
+                                          return <span className="inline-block w-[14px] md:w-[16px] ml-1"></span>;
+                                        })()}
+                                      </div>
+                                    );
+                                  })}
+                                </div>}
+                              </div>
+                            )}
                             </React.Fragment>
                           );
                         })}
@@ -3746,162 +4270,6 @@ export default function MarketSummary() {
                     </div>
                   );
                 })()}
-
-                {/* Top Setups and Tomorrow render outside the section loop, so
-                    they need their own strip — they carry the same grade
-                    chips, dots and stars every other row grid does. */}
-                {(macroInsights.watching?.length > 0 || macroInsights.tomorrowWatch?.length > 0) && (
-                  <div className="border-t border-white/5 pt-5 md:pt-6 px-1 pb-1">
-                    <ScanLegend activeFilter={scanFilter} onFilterChange={handleScanFilter} />
-                  </div>
-                )}
-
-                {(macroInsights.watching?.length > 0 || macroInsights.tomorrowWatch?.length > 0) && (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
-                    {macroInsights.watching?.length > 0 && (
-                      <div className="border-l-[3px] border-cyan-500 rounded-r-xl px-2.5 md:px-4 py-3 bg-cyan-500/[0.04]">
-                        <div className="flex items-center gap-3 mb-2">
-                          <button onClick={() => toggleSection('topSetups')} className="inline-flex items-center gap-1.5 group" title={collapsedSections.has('topSetups') ? 'Expand' : 'Collapse'}>
-                            <span className={`text-[9px] transition-transform duration-200 ${collapsedSections.has('topSetups') ? '' : 'rotate-90'} text-slate-500`}>&#9654;</span>
-                            <span className="inline-block text-[7px] font-bold tracking-widest uppercase px-1.5 py-[1px] rounded border text-cyan-400 bg-cyan-500/10 border-cyan-500/20">Top Setups</span>
-                          </button>
-                          {!collapsedSections.has('topSetups') && <SectionCopyButton tickers={macroInsights.watching.map(w => w.symbol)} />}
-                          {!collapsedSections.has('topSetups') && <SectionTxtButton tickers={macroInsights.watching.map(w => w.symbol)} />}
-                          {collapsedSections.has('topSetups') && macroInsights.watching.length > 0 && (
-                            <span className="text-[8px] text-slate-600 font-medium">{macroInsights.watching.map(w => w.symbol).join(' · ')}</span>
-                          )}
-                        </div>
-                        {!collapsedSections.has('topSetups') && <div className="flex flex-col gap-0.5">
-                          <SortableHeader sortKey={sectionSorts['Top Setups']?.key ?? null} sortDir={sectionSorts['Top Setups']?.dir ?? 'desc'} onSort={(k) => handleSectionSort('Top Setups', k)} />
-                          {(() => {
-                            const ws = sectionSorts['Top Setups'];
-                            const items = ws ? [...macroInsights.watching].sort((a, b) => {
-                              let av = 0, bv = 0;
-                              switch (ws.key) {
-                                case 'cnf': av = Number(a.score) || 0; bv = Number(b.score) || 0; break;
-                                case 'chg': av = a.chg ?? 0; bv = b.chg ?? 0; break;
-                                case 'rvol': av = Number(a.rvol) || 0; bv = Number(b.rvol) || 0; break;
-                                case 'vol': av = a.vol ?? 0; bv = b.vol ?? 0; break;
-                                case 'dvol': av = a.dVol ?? 0; bv = b.dVol ?? 0; break;
-                                case 'rs': av = Number(a.rsRating) || 0; bv = Number(b.rsRating) || 0; break;
-                              }
-                              return ws.dir === 'desc' ? bv - av : av - bv;
-                            }) : macroInsights.watching;
-                            return items;
-                          })().filter((item: any) => passesPoolFilter(scanFilter, item)).map((item, idx) => {
-                            const _s = typeof item === 'object' ? item : { symbol: item as never, chg: 0, rvol: null, vol: 0, dVol: 0, stage: '', grade: null, score: undefined, dotKind: null, posture: null, rsRating: null, price: null as number | null, catalyst: null as string | null, catalystUrl: null as string | null, newsCausal: null as boolean | null };
-                            const s = { ..._s, rsRating: _s.rsRating ?? macroInsights.rsMap?.[_s.symbol] ?? null, stage: _s.stage || macroInsights.stageMap?.[_s.symbol] || '' };
-                            const pb = s.posture || null;
-                            const pMeta = pb ? POSTURE_META[pb] : null;
-                            const rv = s.rvol != null ? Number(s.rvol) : null;
-                            const v = s.vol ?? 0;
-                            const dv = s.dVol ?? 0;
-                            const fmtV = v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(0) + 'K' : '';
-                            const fmtDv = dv >= 1e9 ? '$' + (dv / 1e9).toFixed(1) + 'B' : dv >= 1e6 ? '$' + (dv / 1e6).toFixed(0) + 'M' : dv > 0 ? '$' + (dv / 1e3).toFixed(0) + 'K' : '';
-                            const isAvoid = macroInsights.avoidSet?.has(s.symbol) || s.dotKind === 'red';
-                            const isBlueDot = s.dotKind === 'blue';
-                            return (
-                              <div key={idx} className="flex items-center whitespace-nowrap py-[1px]">
-                                <TickerChartHover symbol={s.symbol}><span className={`${gradeChipCls(s.grade, isAvoid)} w-[38px] md:w-[44px]`}>{s.symbol}</span></TickerChartHover>
-                                <span className="inline-block w-[9px] text-center leading-none shrink-0" />
-                                <span className="inline-block w-[8px] text-center shrink-0">
-                                  {isBlueDot && <span className="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)]" />}
-                                </span>
-                                <span className="inline-block w-[8px] text-center shrink-0">
-                                  {pMeta ? <span title={`${pMeta.short} — ${pMeta.tip}`} className={`inline-block w-[6px] h-[6px] rounded-full cursor-help ${pMeta.tone === 'good' ? 'bg-emerald-400' : pMeta.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`} /> : null}
-                                </span>
-                                <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${s.score != null && !isNaN(Number(s.score)) ? cnfBadgeCls(Number(s.score)) : 'text-slate-600 border-slate-700/40 bg-slate-800/30'}`}>{s.score != null && !isNaN(Number(s.score)) ? Number(s.score) : '-'}</span>
-                                <span className={`text-[10px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ${(s.chg ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(s.chg ?? 0) >= 0 ? '+' : ''}{(s.chg ?? 0).toFixed(2)}%</span>
-                                <span className="text-[10px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-1">{fmtPrc(s.price)}</span>
-                                <span className={`text-[10px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? rv.toFixed(2) : ''}</span>
-                                <span className={`text-[10px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-1 ${fmtV ? 'text-slate-400' : 'text-transparent'}`}>{fmtV}</span>
-                                <span className={`text-[10px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-1 ${fmtDv ? 'text-slate-300' : 'text-transparent'}`}>{fmtDv}</span>
-                                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{s.rsRating != null ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(Number(s.rsRating))}`}>{Number(s.rsRating)}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
-                                <span className="inline-block w-[22px] md:w-[24px] text-center ml-0.5">{s.stage ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(s.stage)}`}>{s.stage}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
-                                {(() => {
-                                  const nc = newsStarCount({ catalyst: s.catalyst, catalystUrl: s.catalystUrl, newsCausal: (s as any).newsCausal });
-                                  if (nc >= 1 && s.catalystUrl) return <a href={s.catalystUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={`inline-block w-[14px] md:w-[16px] text-center ${nc >= 2 ? 'text-amber-400' : 'text-slate-500'} hover:brightness-125 font-bold text-[7px] leading-none cursor-pointer transition-all ml-0.5`} title={s.catalyst || ''}>{'★'.repeat(nc)}</a>;
-                                  return <span className="inline-block w-[14px] md:w-[16px] text-center text-slate-700 text-[7px] ml-0.5">—</span>;
-                                })()}
-                              </div>
-                            );
-                          })}
-                        </div>}
-                      </div>
-                    )}
-
-                    {macroInsights.tomorrowWatch?.length > 0 && (
-                      <div className="border-l-[3px] border-violet-500 rounded-r-xl px-2.5 md:px-4 py-3 bg-violet-500/[0.04]">
-                        <div className="flex items-center gap-3 mb-2">
-                          <button onClick={() => toggleSection('tomorrowWatch')} className="inline-flex items-center gap-1.5 group" title={collapsedSections.has('tomorrowWatch') ? 'Expand' : 'Collapse'}>
-                            <span className={`text-[9px] transition-transform duration-200 ${collapsedSections.has('tomorrowWatch') ? '' : 'rotate-90'} text-slate-500`}>&#9654;</span>
-                            <span className="inline-block text-[7px] font-bold tracking-widest uppercase px-1.5 py-[1px] rounded border text-violet-400 bg-violet-500/10 border-violet-500/20">Tomorrow&apos;s Watchlist</span>
-                          </button>
-                          {!collapsedSections.has('tomorrowWatch') && <SectionCopyButton tickers={macroInsights.tomorrowWatch.map(w => w.symbol)} />}
-                          {!collapsedSections.has('tomorrowWatch') && <SectionTxtButton tickers={macroInsights.tomorrowWatch.map(w => w.symbol)} />}
-                          {collapsedSections.has('tomorrowWatch') && macroInsights.tomorrowWatch.length > 0 && (
-                            <span className="text-[8px] text-slate-600 font-medium">{macroInsights.tomorrowWatch.map(w => w.symbol).join(' · ')}</span>
-                          )}
-                        </div>
-                        {!collapsedSections.has('tomorrowWatch') && <div className="flex flex-col gap-0.5">
-                          <SortableHeader sortKey={sectionSorts['Tomorrow Watch']?.key ?? null} sortDir={sectionSorts['Tomorrow Watch']?.dir ?? 'desc'} onSort={(k) => handleSectionSort('Tomorrow Watch', k)} />
-                          {(() => {
-                            const ws = sectionSorts['Tomorrow Watch'];
-                            const items = ws ? [...macroInsights.tomorrowWatch].sort((a, b) => {
-                              let av = 0, bv = 0;
-                              switch (ws.key) {
-                                case 'cnf': av = Number(a.score) || 0; bv = Number(b.score) || 0; break;
-                                case 'chg': av = a.chg ?? 0; bv = b.chg ?? 0; break;
-                                case 'rvol': av = Number(a.rvol) || 0; bv = Number(b.rvol) || 0; break;
-                                case 'vol': av = a.vol ?? 0; bv = b.vol ?? 0; break;
-                                case 'dvol': av = a.dVol ?? 0; bv = b.dVol ?? 0; break;
-                                case 'rs': av = Number(a.rsRating) || 0; bv = Number(b.rsRating) || 0; break;
-                              }
-                              return ws.dir === 'desc' ? bv - av : av - bv;
-                            }) : macroInsights.tomorrowWatch;
-                            return items;
-                          })().filter((item: any) => passesPoolFilter(scanFilter, item)).map((_item, idx) => {
-                            const item = { ..._item, rsRating: _item.rsRating ?? macroInsights.rsMap?.[_item.symbol] ?? null, stage: _item.stage || macroInsights.stageMap?.[_item.symbol] || '' };
-                            const pb = item.posture || null;
-                            const pMeta = pb ? POSTURE_META[pb] : null;
-                            const rv = item.rvol != null ? Number(item.rvol) : null;
-                            const v = item.vol ?? 0;
-                            const dv = item.dVol ?? 0;
-                            const fmtV = v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(0) + 'K' : '';
-                            const fmtDv = dv >= 1e9 ? '$' + (dv / 1e9).toFixed(1) + 'B' : dv >= 1e6 ? '$' + (dv / 1e6).toFixed(0) + 'M' : dv > 0 ? '$' + (dv / 1e3).toFixed(0) + 'K' : '';
-                            const isAvoid = macroInsights.avoidSet?.has(item.symbol) || item.dotKind === 'red';
-                            const isBlueDot = item.dotKind === 'blue';
-                            return (
-                              <div key={idx} className="flex items-center whitespace-nowrap py-[1px]">
-                                <TickerChartHover symbol={item.symbol}><span className={`${gradeChipCls(item.grade, isAvoid)} w-[38px] md:w-[44px]`}>{item.symbol}</span></TickerChartHover>
-                                <span className="inline-block w-[9px] text-center leading-none shrink-0" />
-                                <span className="inline-block w-[8px] text-center shrink-0">
-                                  {isBlueDot && <span className="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)]" />}
-                                </span>
-                                <span className="inline-block w-[8px] text-center shrink-0">
-                                  {pMeta ? <span title={`${pMeta.short} — ${pMeta.tip}`} className={`inline-block w-[6px] h-[6px] rounded-full cursor-help ${pMeta.tone === 'good' ? 'bg-emerald-400' : pMeta.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`} /> : null}
-                                </span>
-                                <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${item.score != null && !isNaN(Number(item.score)) ? cnfBadgeCls(Number(item.score)) : 'text-slate-600 border-slate-700/40 bg-slate-800/30'}`}>{item.score != null && !isNaN(Number(item.score)) ? Number(item.score) : '-'}</span>
-                                <span className={`text-[10px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ${(item.chg ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(item.chg ?? 0) >= 0 ? '+' : ''}{(item.chg ?? 0).toFixed(2)}%</span>
-                                <span className="text-[10px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-1">{fmtPrc(item.price)}</span>
-                                <span className={`text-[10px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? rv.toFixed(2) : ''}</span>
-                                <span className={`text-[10px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-1 ${fmtV ? 'text-slate-400' : 'text-transparent'}`}>{fmtV}</span>
-                                <span className={`text-[10px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-1 ${fmtDv ? 'text-slate-300' : 'text-transparent'}`}>{fmtDv}</span>
-                                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{item.rsRating != null ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(Number(item.rsRating))}`}>{Number(item.rsRating)}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
-                                <span className="inline-block w-[22px] md:w-[24px] text-center ml-0.5">{item.stage && item.stage !== '—' ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(item.stage)}`}>{item.stage}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
-                                {(() => {
-                                  const nc = newsStarCount({ catalyst: item.catalyst, catalystUrl: item.catalystUrl, newsCausal: (item as any).newsCausal });
-                                  if (nc >= 1 && item.catalystUrl) return <a href={item.catalystUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={`inline-block w-[14px] md:w-[16px] text-center ${nc >= 2 ? 'text-amber-400' : 'text-slate-500'} hover:brightness-125 font-bold text-[7px] leading-none cursor-pointer transition-all ml-0.5`} title={item.catalyst || ''}>{'★'.repeat(nc)}</a>;
-                                  return <span className="inline-block w-[14px] md:w-[16px] text-center text-slate-700 text-[7px] ml-0.5">—</span>;
-                                })()}
-                              </div>
-                            );
-                          })}
-                        </div>}
-                      </div>
-                    )}
-                  </div>
-                )}
 
               </div>
             </div>

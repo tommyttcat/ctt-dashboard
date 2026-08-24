@@ -141,6 +141,7 @@ import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { computeTradePlan } from '@/lib/indicators/tradeplan';
 import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN, CHOP_TREND_MAX } from '@/lib/indicators/chop';
 import { EP9M, EP9M_META } from '@/lib/scanConfig';
+import { enrichWithFundamentals } from '@/lib/indicators/fundamentals';
 import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
 import { rawRsScore, percentileRank } from '@/lib/indicators/vcp';
 import { cleanSectorDescription } from '@/lib/sectors';
@@ -1017,6 +1018,21 @@ async function runScan(request: Request) {
       }
     }
     const nextRegistry = Array.from(registryMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+
+    // Enrich with fundamentals — cross-reference multibagger KV first, Polygon for the rest
+    try {
+      const mbData = await kv.get<any[]>('multibagger_v1');
+      const fundInput = finalList
+        .filter(c => c.ticker && c.price > 0)
+        .map(c => ({ ticker: c.ticker, price: c.price, marketCap: (c as any).mktCap || undefined }));
+      if (fundInput.length > 0) {
+        const fundMap = await enrichWithFundamentals(fundInput, POLYGON_KEY, mbData ?? undefined);
+        for (const c of finalList) {
+          const f = fundMap.get((c.ticker ?? '').toUpperCase());
+          if (f) (c as any)._fund = f;
+        }
+      }
+    } catch (e) { console.error('[ep9m] fundamental enrichment failed:', e); }
 
     const scanTime = Date.now();
     await kv.set('ep9m_v1', finalList);

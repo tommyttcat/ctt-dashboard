@@ -100,6 +100,7 @@ import {
 import { SCANNER, COLUMN_NOTES, columnTip } from '@/lib/scanConfig';
 import TickerChartHover, { useFreezeWhileChartOpen } from './TickerChartHover';
 import { rvolColor as getRvolColor, adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, floatColor as getFloatColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
+import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The setup name sits directly beneath it.' },
@@ -319,21 +320,6 @@ const statePair = (rmv: number | null, rme: number | null): string => {
   return `${v}/${e}`;
 };
 
-const formatSetupName = (name: string | null) => {
-  if (!name || name === '-' || name === '—') return '—';
-  if (name.includes('BB SQZ')) return 'BB SQZ';
-  if (name === 'Blue Dot Rev') return 'BD Rev';
-  // Matches DailySetups and SwingCandidates. Without this the raw
-  // "Episodic Pivot" reached the name slot and rendered as "EPISODIC ...".
-  if (name === 'Episodic Pivot') return 'EP';
-  return name;
-};
-
-const isBlueDotSetup = (name: string | null | undefined): boolean => {
-  if (!name) return false;
-  const n = String(name).toLowerCase();
-  return n === 'blue dot rev' || n.includes('blue dot') || n.includes('bd rev');
-};
 
 const BlueDot = ({ className = '' }: { className?: string }) => (
   <span
@@ -858,7 +844,7 @@ export default function StocksInPlay() {
     (squeezeFilter !== 'All' ? 1 : 0);
 
   return (
-    <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-visible shadow-xl w-full max-w-[1280px] mx-auto">
+    <div className="bg-[#101623] border-0 md:border md:border-white/5 md:rounded-2xl p-2 md:p-5 relative overflow-visible md:shadow-xl w-full max-w-[1280px] mx-auto">
       <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-30 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
@@ -1095,11 +1081,11 @@ export default function StocksInPlay() {
                           <td className={`${tdBase} whitespace-nowrap`} title={rsTooltip(row.rsRating)}>
                             <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span>
                           </td>
-                          <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
+                          <td className={`${tdBase} text-[10px] text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
                             <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div onClick={(e) => { e.stopPropagation(); toggleVwap(row.vwapStatus as 'above' | 'below'); }} className={`w-1.5 h-1.5 rounded-full shrink-0 cursor-pointer ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'} ${vwapFilter === row.vwapStatus ? 'ring-1 ring-white/40' : ''}`} title={`VWAP: ${row.vwapStatus} — click to filter`}></div>)}</div>
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${row.gapPct != null && row.gapPct >= 10 ? 'text-purple-400' : row.gapPct != null && row.gapPct >= 7 ? 'text-emerald-400' : 'text-slate-500'}`}>{row.gapPct != null ? `${row.gapPct >= 0 ? '+' : ''}${row.gapPct.toFixed(1)}%` : '—'}</td>
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${row.gapPct != null && row.gapPct >= 10 ? 'text-purple-400' : row.gapPct != null && row.gapPct >= 7 ? 'text-emerald-400' : 'text-slate-500'}`}>{row.gapPct != null ? `${row.gapPct >= 0 ? '+' : ''}${row.gapPct.toFixed(1)}%` : '—'}</td>
                           {/* The 10/21 dots ARE the posture read — above 21
                               and below 10 is a first touch, both green is
                               stacked. Hover states the bucket so the filter
@@ -1119,10 +1105,10 @@ export default function StocksInPlay() {
                               </div>
                             </div>
                           </td>
-                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
-                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol.toFixed(1)}x` : '—'}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
+                          <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
+                          <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol < 1 ? row.rvol.toFixed(1) : Math.round(row.rvol)}x` : '—'}</td>
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
                           {/* ADR over CHOP, one cell. See the v3.2 header: the
                               two are misleading apart, and separate columns
                               would let the eye take one without the other.
@@ -1133,19 +1119,19 @@ export default function StocksInPlay() {
                             title={chopTooltip(chop, adr)}
                           >
                             <div className="flex flex-col leading-tight">
-                              <span className={`text-xs font-bold ${getAdrColor(adr)}`}>
+                              <span className={`text-[10px] font-bold ${getAdrColor(adr)}`}>
                                 {adr != null ? `${adr.toFixed(1)}%` : '—'}
                               </span>
                             </div>
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={mf != null ? `Money Flow ${mf.toFixed(0)} — ${mfLabel(mf)}` : undefined}>
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={mf != null ? `Money Flow ${mf.toFixed(0)} — ${mfLabel(mf)}` : undefined}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`}>
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`}>
                             {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
                           </td>
-                          <td className={`${tdBase} text-xs text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
+                          <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
                           <td className={`${tdStage} whitespace-nowrap border-l border-white/5`}>
                             <span
                               title={stageDescription(row.stage)}

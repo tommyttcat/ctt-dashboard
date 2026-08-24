@@ -50,22 +50,22 @@ export const displaySector = (raw: string | null | undefined, ticker?: string): 
 
 const THEME_TO_SECTOR: [RegExp, CanonicalSector][] = [
   [/^semi|semiconduct/i,               'Technology'],
-  [/^it$|^tech|software|^ai$|cyber/i,  'Technology'],
-  [/memory|dram|nand|storage|quantum/i,'Technology'],
+  [/^it$|^tech|software|^ai$|cyber|quantum/i, 'Technology'],
+  [/memory|dram|nand|storage/i,             'Technology'],
   [/fintech/i,                         'Financials'],
   [/crypto|bitcoin|blockchain/i,       'Financials'],
   [/^financ|bank|insur/i,              'Financials'],
   [/biotech|^health|pharma|medical/i,  'Health Care'],
-  [/aerospace|defen[cs]e|industrial|space|shipping|tanker|airline/i, 'Industrials'],
+  [/aerospace|defen[cs]e|industr|space|shipping|tanker|airline/i, 'Industrials'],
   /* Nuclear, uranium and solar sit under Energy here rather than being split
      between Utilities and Technology — on this dashboard they are traded as
      energy themes, and splitting them would put related names on opposite
      sides of a sector filter. */
   [/nuclear|uranium|solar|^energy|\boil\b|\bgas\b/i, 'Energy'],
   [/^ev$|auto|^con disc|consumer discretionary|retail/i, 'Consumer Discretionary'],
-  [/^con staples|consumer staples|food|beverage/i,      'Consumer Staples'],
-  [/^comm serv|communication|media|telecom/i,           'Communication Services'],
-  [/real estate|reit/i,                                 'Real Estate'],
+  [/^con staples|^staples|consumer staples|food|beverage/i, 'Consumer Staples'],
+  [/^comm s|communication|media|telecom/i,              'Communication Services'],
+  [/real es|reit/i,                                     'Real Estate'],
   [/utilit/i,                                           'Utilities'],
   [/material|mining|chemical|steel/i,                   'Materials'],
 ];
@@ -100,40 +100,40 @@ export const cleanSectorDescription = (
   if (/semiconductor/.test(blob)) return "Semi's";
   if (/artificial intelligence/.test(blob)) return 'AI';
   if (/cybersecurity|security software/.test(blob)) return 'Cyber';
-  if (/fintech|financial technology/.test(blob)) return 'Fintech';
+  if (/fintech|financial technology|crypto|bitcoin|blockchain|digital asset|digital currency/.test(blob)) return 'Fintech';
   if (/aerospace|\bdefense\b|aircraft|guided missile|space vehicle/.test(blob)) return 'Aerospace';
 
   if (sicTxt) {
-    if (/software|prepackaged|computer program|data processing|information retrieval|computer integrated|computer communication|electronic computer|computer peripheral|computer storage|computer terminal|electronic component|printed circuit/.test(sicTxt)) return 'IT';
-    if (/pharmaceutical|drug|medicinal|surgical|\bmedical\b|\bhealth\b|dental|hospital|diagnostic|laborator/.test(sicTxt)) return 'Healthcare';
+    if (/software|prepackaged|computer program|data processing|information retrieval|computer integrated|computer communication|electronic computer|computer peripheral|computer storage|computer terminal|electronic component|printed circuit/.test(sicTxt)) return 'Tech';
+    if (/pharmaceutical|drug|medicinal|surgical|\bmedical\b|\bhealth\b|dental|hospital|diagnostic|laborator/.test(sicTxt)) return 'Health';
     if (/crude petroleum|natural gas|petroleum|drilling|\boil\b|\bcoal\b|\benergy\b/.test(sicTxt)) return 'Energy';
-    if (/\bbank\b|savings instit|credit institution|insurance|investment office|securities broker|security broker|personal credit|holding compan|fire, marine/.test(sicTxt)) return 'Financials';
-    if (/real estate|land subdivid|operators of apartment|operators of nonresident/.test(sicTxt)) return 'Real Estate';
+    if (/\bbank\b|savings instit|credit institution|insurance|investment office|securities broker|security broker|personal credit|holding compan|fire, marine/.test(sicTxt)) return 'Finance';
+    if (/real estate|land subdivid|operators of apartment|operators of nonresident/.test(sicTxt)) return 'Real Est';
     if (/electric services|gas & other|water supply|cogeneration|electric & other services/.test(sicTxt)) return 'Utilities';
-    if (/telephone|telecommunic|radio|television|broadcast|cable|motion picture|advertising|publishing|newspaper|periodical|entertainment/.test(sicTxt)) return 'Comm Serv';
+    if (/telephone|telecommunic|radio|television|broadcast|cable|motion picture|advertising|publishing|newspaper|periodical|entertainment/.test(sicTxt)) return 'Comm Svc';
     if (/retail|catalog|mail-order|eating place|restaurant|apparel|footwear|hotel|department store|grocery|variety store|jewelry/.test(sicTxt)) return 'Con Disc';
-    if (/beverage|\bfood\b|tobacco|soap|cosmetic|household|dairy|bakery/.test(sicTxt)) return 'Con Staples';
+    if (/beverage|\bfood\b|tobacco|soap|cosmetic|household|dairy|bakery/.test(sicTxt)) return 'Staples';
     if (/gold mining|metal mining|steel|aluminum|chemical|industrial inorganic|plastics material|paper mill|fertilizer|\bmining\b/.test(sicTxt)) return 'Materials';
-    if (/aircraft|machinery|industrial|construction|engineering|electrical industrial|transportation|railroad|trucking|air transport|switchgear|electronic connector|measuring|controlling instrument/.test(sicTxt)) return 'Industrials';
-    if (/investment advice|investment counsel|commodity contract|security & commodity|mortgage banker|loan broker|services allied with|short-term business credit|functions related to depository/.test(sicTxt)) return 'Financials';
+    if (/aircraft|machinery|industrial|construction|engineering|electrical industrial|transportation|railroad|trucking|air transport|switchgear|electronic connector|measuring|controlling instrument/.test(sicTxt)) return 'Industrl';
+    if (/investment advice|investment counsel|commodity contract|security & commodity|mortgage banker|loan broker|services allied with|short-term business credit|functions related to depository/.test(sicTxt)) return 'Finance';
     if (/educational service|school|instruction/.test(sicTxt)) return 'Con Disc';
     if (/amusement|recreation|fitness|physical fitness|membership sport|bowling|racing/.test(sicTxt)) return 'Con Disc';
-    if (/services-management|services-business services|services-help supply|services-misc/.test(sicTxt)) return 'IT';
-    if (/services-engineering|services-research|services-testing/.test(sicTxt)) return 'IT';
+    if (/services-management|services-business services|services-help supply|services-misc/.test(sicTxt)) return 'Tech';
+    if (/services-engineering|services-research|services-testing/.test(sicTxt)) return 'Tech';
   }
 
   const sec = (sector || '').toLowerCase();
-  if (sec.includes('technology')) return 'IT';
-  if (sec.includes('healthcare') || sec.includes('health care')) return 'Healthcare';
-  if (sec.includes('financial')) return 'Financials';
+  if (sec.includes('technology')) return 'Tech';
+  if (sec.includes('healthcare') || sec.includes('health care')) return 'Health';
+  if (sec.includes('financial')) return 'Finance';
   if (sec.includes('consumer discretionary')) return 'Con Disc';
-  if (sec.includes('consumer staples')) return 'Con Staples';
+  if (sec.includes('consumer staples')) return 'Staples';
   if (sec.includes('energy')) return 'Energy';
   if (sec.includes('materials')) return 'Materials';
-  if (sec.includes('industrials')) return 'Industrials';
-  if (sec.includes('real estate')) return 'Real Estate';
+  if (sec.includes('industrials')) return 'Industrl';
+  if (sec.includes('real estate')) return 'Real Est';
   if (sec.includes('utilities')) return 'Utilities';
-  if (sec.includes('communication')) return 'Comm Serv';
+  if (sec.includes('communication')) return 'Comm Svc';
 
   return 'Other';
 };

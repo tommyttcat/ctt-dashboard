@@ -64,6 +64,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import MacroScorecardPanel from './MacroScorecardPanel';
 import BenchmarkStrips from './BenchmarkStrip';
+import TickerChartHover from './TickerChartHover';
 import { getMarketSession } from '@/lib/indicators/marketScorecard';
 import {
   type ChopMode,
@@ -85,17 +86,17 @@ import {
 
 // Unified Asset Dictionary
 const MACRO_ASSETS = [
-  { id: 'SPY', fmp: 'SPY', ws: 'SPY', name: 'S&P 500', type: 'stock' },
-  { id: 'QQQ', fmp: 'QQQ', ws: 'QQQ', name: 'Nasdaq 100', type: 'stock' },
-  { id: 'DIA', fmp: 'DIA', ws: 'DIA', name: 'Dow Jones', type: 'stock' },
-  { id: 'IWM', fmp: 'IWM', ws: 'IWM', name: 'Russell 2000', type: 'stock' },
-  { id: 'VIX', fmp: '^VIX', ws: 'VIX', name: 'VIX Index', type: 'stock' },
-  { id: 'TLT', fmp: 'TLT', ws: 'TLT', name: '20Y Treasury', type: 'stock' },
-  { id: 'GLD', fmp: 'GLD', ws: 'GLD', name: 'Gold ETF', type: 'stock' },
-  { id: 'SLV', fmp: 'SLV', ws: 'SLV', name: 'Silver ETF', type: 'stock' },
-  { id: 'USO', fmp: 'USO', ws: 'USO', name: 'Crude Oil', type: 'stock' },
-  { id: 'BTC', fmp: 'BTCUSD', ws: 'BTC-USD', name: 'Bitcoin', type: 'crypto' },
-  { id: 'ETH', fmp: 'ETHUSD', ws: 'ETH-USD', name: 'Ethereum', type: 'crypto' }
+  { id: 'SPY', fmp: 'SPY', ws: 'SPY', chart: 'SPY', name: 'S&P 500', type: 'stock' },
+  { id: 'QQQ', fmp: 'QQQ', ws: 'QQQ', chart: 'QQQ', name: 'Nasdaq 100', type: 'stock' },
+  { id: 'DIA', fmp: 'DIA', ws: 'DIA', chart: 'DIA', name: 'Dow Jones', type: 'stock' },
+  { id: 'IWM', fmp: 'IWM', ws: 'IWM', chart: 'IWM', name: 'Russell 2000', type: 'stock' },
+  { id: 'VIX', fmp: '^VIX', ws: 'VIX', chart: 'VIX', name: 'VIX Index', type: 'stock' },
+  { id: 'TLT', fmp: 'TLT', ws: 'TLT', chart: 'TLT', name: '20Y Treasury', type: 'stock' },
+  { id: 'GLD', fmp: 'GLD', ws: 'GLD', chart: 'GLD', name: 'Gold ETF', type: 'stock' },
+  { id: 'SLV', fmp: 'SLV', ws: 'SLV', chart: 'SLV', name: 'Silver ETF', type: 'stock' },
+  { id: 'USO', fmp: 'USO', ws: 'USO', chart: 'USO', name: 'Crude Oil', type: 'stock' },
+  { id: 'BTC', fmp: 'BTCUSD', ws: 'BTC-USD', chart: 'X:BTCUSD', name: 'Bitcoin', type: 'crypto' },
+  { id: 'ETH', fmp: 'ETHUSD', ws: 'ETH-USD', chart: 'X:ETHUSD', name: 'Ethereum', type: 'crypto' },
 ];
 
 interface TickData {
@@ -987,7 +988,7 @@ export default function MacroScorecard() {
   ].filter(Boolean).join('\n');
 
   return (
-    <div className="bg-[#101623] border border-white/10 rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-xl">
+    <div className="bg-[#101623] border-0 md:border md:border-white/10 md:rounded-2xl p-2 md:p-8 relative overflow-hidden md:shadow-xl">
 
       <div className="absolute right-0 top-0 w-64 h-64 bg-indigo-500/5 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
 
@@ -1016,7 +1017,7 @@ export default function MacroScorecard() {
           </div>
         </div>
 
-        <div onClick={(e) => e.stopPropagation()} className="mt-2 overflow-x-auto" style={{ scrollbarWidth: 'none' } as React.CSSProperties}>
+        <div onClick={(e) => e.stopPropagation()} className="mt-2 md:overflow-x-auto" style={{ scrollbarWidth: 'none' } as React.CSSProperties}>
           <BenchmarkStrips />
         </div>
       </div>
@@ -1083,7 +1084,8 @@ export default function MacroScorecard() {
               }
 
               return (
-                <div key={asset.id} className={`rounded-xl p-4 flex flex-col justify-between h-24 transition-colors duration-300 border ${cardBg} ${cardBorder} hover:bg-white/[0.02] shadow-sm`}>
+                <TickerChartHover key={asset.id} symbol={asset.chart}>
+                <div className={`rounded-xl p-4 flex flex-col justify-between h-24 transition-colors duration-300 border ${cardBg} ${cardBorder} hover:bg-white/[0.02] shadow-sm`}>
 
                   <div className="flex justify-between items-start">
                     <div className="flex flex-col">
@@ -1117,6 +1119,7 @@ export default function MacroScorecard() {
                   </div>
 
                 </div>
+                </TickerChartHover>
               );
             })}
 

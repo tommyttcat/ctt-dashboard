@@ -15,6 +15,7 @@
 'use client';
 
 import React from 'react';
+import InfoDot from './InfoDot';
 import {
   type ChopMode,
   type ChopBands,
@@ -74,6 +75,7 @@ const formatClockShort = (iso: string | null | undefined): string => {
 
 const chopStripStyle = (v: number | null, b: ChopBands): string => {
   if (v == null) return 'border-white/5 bg-[#161c2a]/40';
+  if (v >= b.dead) return 'border-rose-500/20 bg-rose-500/[0.04]';
   if (v >= b.chop) return 'border-amber-500/20 bg-amber-500/[0.04]';
   if (v <= b.trend) return 'border-emerald-500/20 bg-emerald-500/[0.04]';
   return 'border-white/5 bg-[#161c2a]/40';
@@ -81,6 +83,7 @@ const chopStripStyle = (v: number | null, b: ChopBands): string => {
 
 const chopMarkerBg = (v: number | null, b: ChopBands): string => {
   if (v == null) return 'bg-slate-500';
+  if (v >= b.dead) return 'bg-rose-400';
   if (v >= b.chop) return 'bg-amber-400';
   if (v <= b.trend) return 'bg-emerald-400';
   return 'bg-slate-300';
@@ -357,12 +360,10 @@ export default function MacroScorecardPanel({
           <div className="mb-4 relative z-10">
             <div className={`grid grid-cols-3 md:grid-cols-5 gap-2 ${cells.length >= 9 ? 'xl:grid-cols-9' : cells.length === 8 ? 'xl:grid-cols-8' : 'xl:grid-cols-7'}`}>
               {cells.map((c) => (
-                <div key={c.label} title={c.title} className={`rounded-lg border px-3.5 py-3 text-center ${scCellCls(c.color)}${c.title ? ' cursor-help' : ''}`}>
+                <div key={c.label} className={`rounded-lg border px-3.5 py-3 text-center ${scCellCls(c.color)}`}>
                   <div className="text-[8px] font-bold uppercase tracking-[0.08em] text-slate-500 mb-1 flex items-center justify-center gap-1">
                     <span className="truncate">{c.label}</span>
-                    {c.title && (
-                      <span className="text-[8px] text-slate-600 border border-white/10 rounded-full w-[11px] h-[11px] leading-[10px] text-center shrink-0">?</span>
-                    )}
+                    {c.title && <InfoDot text={c.title} />}
                   </div>
                   <div className={`text-[15px] font-bold tabular-nums leading-tight ${scValCls(c.color)}`}>{c.valueNode ?? c.value}</div>
                   {c.sub && <div className={`text-[10px] mt-0.5 truncate ${c.subColor ? scValCls(c.subColor) : 'text-slate-500'}`}>{c.sub}</div>}
@@ -504,7 +505,7 @@ export default function MacroScorecardPanel({
 
             <span
               className={`text-sm font-bold leading-none ${STRIP_ARROW_W} ${
-                chopTrend === 'up' ? 'text-amber-400' : chopTrend === 'down' ? 'text-emerald-400' : 'text-slate-600'
+                chopTrend === 'up' ? chopColor(chopVal, bands) : chopTrend === 'down' ? 'text-emerald-400' : 'text-slate-600'
               }`}
               title={
                 chopDelta == null ? 'No prior bar to compare'
@@ -517,10 +518,6 @@ export default function MacroScorecardPanel({
             </span>
 
             <div className="flex items-center gap-3 flex-1 min-w-0">
-              <span className={`text-[11px] font-bold tabular-nums whitespace-nowrap ${STRIP_SIDE_W} ${chopColor(chopVal, bands)}`}>
-                TREND
-              </span>
-
               <div className="flex-1 min-w-[80px] flex flex-col gap-2.5">
                 {/* --- TRACK 1: DAILY --- */}
                 <div className="flex items-center gap-1.5">
@@ -625,7 +622,7 @@ export default function MacroScorecardPanel({
               </div>
 
               <span className={`text-[11px] font-bold tabular-nums whitespace-nowrap sm:text-right ${STRIP_SIDE_W} ${chopColor(chopVal, bands)}`}>
-                CHOP
+                {chopZoneLabel(chopVal, bands)}
               </span>
             </div>
 
@@ -650,7 +647,7 @@ export default function MacroScorecardPanel({
               <span className={`flex items-center whitespace-nowrap ${STRIP_NOTE_W}`}>
                 <span className={`text-[9px] font-bold tracking-widest uppercase ${
                   chopTrend === 'down' ? 'text-emerald-400'
-                  : chopTrend === 'up' ? 'text-amber-400'
+                  : chopTrend === 'up' ? chopColor(chopVal, bands)
                   : chopColor(chopVal, bands)
                 }`}>
                   {chopTrend === 'down' ? 'Trending Down'

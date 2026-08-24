@@ -19,7 +19,7 @@ export default function BenchmarkStrips() {
   const { benchmarks } = useMarketData();
   if (!benchmarks?.length) return null;
   return (
-    <div className="flex items-center gap-2 flex-wrap">
+    <div className="flex items-center justify-center gap-2 flex-wrap">
       {benchmarks.map((b) => <Strip key={b.symbol} benchmark={b} />)}
     </div>
   );

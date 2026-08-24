@@ -129,6 +129,7 @@ import {
   EXT_HARD_ATRS, EXT_PARABOLIC_ATRS, EXT_HARD_PCT_NO_ATR, EXT_PARABOLIC_PCT_NO_ATR,
 } from '@/lib/indicators/confluence';
 import { SCANNER, SCANNER_SIP_META, SCANNER_DAILY_META, TOPMOVERS_META } from '@/lib/scanConfig';
+import { enrichWithFundamentals } from '@/lib/indicators/fundamentals';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -136,24 +137,24 @@ export const revalidate = 0;
 export const maxDuration = 300;
 
 const SECTOR_MAP: Record<string, string> = {
-  'AAPL': 'IT', 'MSFT': 'IT', 'SMCI': 'IT',
+  'AAPL': 'Tech', 'MSFT': 'Tech', 'SMCI': 'Tech',
   'NVDA': "Semi's", 'AMD': "Semi's", 'INTC': "Semi's",
   'AVGO': "Semi's", 'MU': "Semi's", 'ARM': "Semi's",
   'QCOM': "Semi's", 'TSM': "Semi's",
   'PLTR': 'AI', 'SOUN': 'AI', 'BBAI': 'AI',
   'AI': 'AI', 'CRWD': 'Cyber', 'PANW': 'Cyber', 'ZS': 'Cyber',
   'COIN': 'Fintech', 'MSTR': 'Fintech', 'MARA': 'Fintech', 'RIOT': 'Fintech', 'CLSK': 'Fintech',
-  'IREN': 'Fintech', 'CIFR': 'Fintech', 'HUT': 'Fintech', 'HOOD': 'Fintech', 'SOFI': 'Fintech', 'UPST': 'Fintech',
+  'IREN': 'Fintech', 'CIFR': 'Fintech', 'HUT': 'Fintech', 'HOOD': 'Fintech', 'SOFI': 'Fintech', 'UPST': 'Fintech', 'BMNR': 'Fintech',
   'TSLA': 'EV', 'NIO': 'EV', 'LI': 'EV', 'XPEV': 'EV',
   'LUNR': 'Aerospace', 'ASTS': 'Aerospace', 'RKLB': 'Aerospace', 'SPCX': 'Aerospace',
   'CEG': 'Nuclear', 'OKLO': 'Nuclear', 'CCJ': 'Nuclear', 'SMR': 'Nuclear', 'LEU': 'Nuclear',
   'FSLR': 'Solar', 'ENPH': 'Solar', 'RUN': 'Solar',
-  'HIMS': 'Healthcare', 'NVO': 'Healthcare', 'LLY': 'Healthcare', 'COO': 'Healthcare',
+  'HIMS': 'Health', 'NVO': 'Health', 'LLY': 'Health', 'COO': 'Health',
   'AMZN': 'Con Disc', 'UBER': 'Con Disc', 'BABA': 'Con Disc',
   'PDD': 'Con Disc', 'JD': 'Con Disc',
-  'PG': 'Con Staples',
-  'META': 'Comm Serv', 'GOOGL': 'Comm Serv', 'NFLX': 'Comm Serv',
-  'RDDT': 'Comm Serv', 'DJT': 'Comm Serv'
+  'PG': 'Staples',
+  'META': 'Comm Svc', 'GOOGL': 'Comm Svc', 'NFLX': 'Comm Svc',
+  'RDDT': 'Comm Svc', 'DJT': 'Comm Svc'
 };
 
 const ETF_TARGET_MAP: Record<string, string> = {
@@ -165,25 +166,25 @@ const ETF_TARGET_MAP: Record<string, string> = {
   'TSLL': 'TSLA - EV', 'TSLS': 'TSLA - EV', 'TSLQ': 'TSLA - EV', 'TSDD': 'TSLA - EV',
   'NVDL': "NVDA - Semi's", 'NVDX': "NVDA - Semi's", 'NVD': "NVDA - Semi's", 'NVDD': "NVDA - Semi's", 'NVDQ': "NVDA - Semi's",
   'AMZU': 'AMZN - Con Disc', 'AMZD': 'AMZN - Con Disc',
-  'AAPU': 'AAPL - IT', 'AAPD': 'AAPL - IT', 'APLX': 'AAPL - IT',
-  'MSFU': 'MSFT - IT', 'MSFD': 'MSFT - IT',
-  'GGLL': 'GOOGL - Comm Serv', 'GGLS': 'GOOGL - Comm Serv',
+  'AAPU': 'AAPL - Tech', 'AAPD': 'AAPL - Tech', 'APLX': 'AAPL - Tech',
+  'MSFU': 'MSFT - Tech', 'MSFD': 'MSFT - Tech',
+  'GGLL': 'GOOGL - Comm Svc', 'GGLS': 'GOOGL - Comm Svc',
   'BABX': 'BABA - Con Disc', 'BABD': 'BABA - Con Disc',
-  'LLYX': 'LLY - Healthcare', 'LLYD': 'LLY - Healthcare',
+  'LLYX': 'LLY - Health', 'LLYD': 'LLY - Health',
   'AMDL': "AMD - Semi's", 'AMDS': "AMD - Semi's",
   'AVGX': "AVGO - Semi's",
-  'SMU': 'SMCI - IT', 'SMCX': 'SMCI - IT', 'SMCZ': 'SMCI - IT',
-  'DLLL': 'DELL - IT', 'LUNL': 'LUNR - Aerospace', 'OKLL': 'OKLO - Nuclear', 'PLTU': 'PLTR - AI',
-  'METU': 'META - Comm Serv', 'TEMT': 'META - Comm Serv', 'SOFX': 'SOFI - Fintech', 'ROBN': 'HOOD - Fintech',
+  'SMU': 'SMCI - Tech', 'SMCX': 'SMCI - Tech', 'SMCZ': 'SMCI - Tech',
+  'DLLL': 'DELL - Tech', 'LUNL': 'LUNR - Aerospace', 'OKLL': 'OKLO - Nuclear', 'PLTU': 'PLTR - AI',
+  'METU': 'META - Comm Svc', 'TEMT': 'META - Comm Svc', 'SOFX': 'SOFI - Fintech', 'ROBN': 'HOOD - Fintech',
   'RVNL': 'RIVN - EV', 'LCDL': 'LCID - EV', 'INTW': "INTC - Semi's",
-  'GMEU': 'GME - Con Disc', 'APPX': 'APP - IT',
-  'IONX': 'IONQ - IT', 'IONZ': 'IONQ - IT', 'QPUX': 'IONQ - IT', 'CEGX': 'CEG - Nuclear',
-  'ASMG': "ASML - Semi's", 'UUUG': 'U - IT', 'FBL': 'META - Comm Serv', 'HIMZ': 'HIMS - Healthcare',
-  'RDTL': 'RDDT - Comm Serv', 'RCAX': 'RCAT - Aerospace', 'SOUX': 'SOUN - AI',
+  'GMEU': 'GME - Con Disc', 'APPX': 'APP - Tech',
+  'IONX': 'IONQ - Tech', 'IONZ': 'IONQ - Tech', 'QPUX': 'IONQ - Tech', 'CEGX': 'CEG - Nuclear',
+  'ASMG': "ASML - Semi's", 'UUUG': 'U - Tech', 'FBL': 'META - Comm Svc', 'HIMZ': 'HIMS - Health',
+  'RDTL': 'RDDT - Comm Svc', 'RCAX': 'RCAT - Aerospace', 'SOUX': 'SOUN - AI',
   'RKLB': 'RKLB - Aerospace', 'RKLX': 'RKLB - Aerospace',
   'ASTS': 'ASTS - Aerospace', 'ASTX': "AXTI - Semi's",
   'SPCF': 'SPCX - Aerospace 2X', 'SSPC': 'SPCX - Aerospace -2X', 'SPCH': 'SPCX - Aerospace 2X',
-  'RGTX': 'RGTI - IT', 'RGTU': 'RGTI - IT', 'RGTZ': 'RGTI - IT',
+  'RGTX': 'RGTI - Tech', 'RGTU': 'RGTI - Tech', 'RGTZ': 'RGTI - Tech',
   'TQQQ': 'QQQ - Nasdaq 3X', 'SQQQ': 'QQQ - Nasdaq -3X', 'QID': 'QQQ - Nasdaq -2X', 'QLD': 'QQQ - Nasdaq 2X', 'SNDQ': 'QQQ - Nasdaq ETF',
   'SOXL': "SOXX - Semi's 3X", 'SOXS': "SOXX - Semi's -3X", 'TECL': 'XLK - Tech 3X', 'TECS': 'XLK - Tech -3X',
   'FNGU': 'FNGU - Big Tech 3X', 'FNGD': 'FNGD - Big Tech -3X',
@@ -211,7 +212,7 @@ const ETF_TARGET_MAP: Record<string, string> = {
   'SMTG': "SMTC - Semi's", 'COHX': "COHR - Semi's", 'COHH': "COHR - Semi's",
   'AMA': "AMAT - Semi's", 'MVLL': "MRVL - Semi's", 'MRVU': "MRVL - Semi's",
   'ARMG': "ARM - Semi's", 'ARMW': "ARM - Semi's", 'FNG': "FN - Semi's",
-  'CSEX': 'CLS - IT', 'AAOG': "AAOI - Semi's",
+  'CSEX': 'CLS - Tech', 'AAOG': "AAOI - Semi's",
   'NEBX': 'NBIS - AI', 'NBIG': 'NBIS - AI', 'NBIL': 'NBIS - AI',
   'CWVX': 'CRWV - AI', 'CRWX': 'CRWV - AI',
   'BEX': 'BE - Energy', 'BEG': 'BE - Energy', 'EOSU': 'EOSE - Energy',
@@ -219,13 +220,13 @@ const ETF_TARGET_MAP: Record<string, string> = {
   'LEUX': 'LEU - Nuclear', 'LACG': 'LAC - Lithium',
   'UCO': 'USO - Crude Oil 2X', 'UGA': 'UGA - Gasoline', 'WTIU': 'WTIU - Energy 3X',
   'PLU': 'PL - Aerospace', 'UMAL': 'UMAC - Aerospace', 'RDWU': 'RDW - Aerospace',
-  'NFLW': 'NFLX - Comm Serv', 'CSCL': 'CSCO - IT', 'ORCX': 'ORCL - IT', 'ORCU': 'ORCL - IT',
-  'PALU': 'PANW - Cyber', 'PANG': 'PANW - Cyber', 'NETG': 'NET - IT',
-  'UNHG': 'UNH - Healthcare', 'CATG': 'CAT - Industrials', 'DUOG': 'DUOL - IT',
-  'FIGG': 'FIG - IT', 'LMNX': 'LMND - Fintech', 'HUTG': 'HUT - Fintech',
-  'BMNG': 'BMNR - Fintech', 'LNOK': 'NOK - IT', 'QUBX': 'QUBT - IT',
-  'ECHX': 'ECHO - IT', 'INFH': 'INFQ - IT', 'WYFL': 'WYFI - IT',
-  'KEEX': 'KEEL - Industrials', 'VELL': 'VELO - Industrials',
+  'NFLW': 'NFLX - Comm Svc', 'CSCL': 'CSCO - Tech', 'ORCX': 'ORCL - Tech', 'ORCU': 'ORCL - Tech',
+  'PALU': 'PANW - Cyber', 'PANG': 'PANW - Cyber', 'NETG': 'NET - Tech',
+  'UNHG': 'UNH - Health', 'CATG': 'CAT - Industrl', 'DUOG': 'DUOL - Tech',
+  'FIGG': 'FIG - Tech', 'LMNX': 'LMND - Fintech', 'HUTG': 'HUT - Fintech',
+  'BMNG': 'BMNR - Fintech', 'LNOK': 'NOK - Tech', 'QUBX': 'QUBT - Tech',
+  'ECHX': 'ECHO - Tech', 'INFH': 'INFQ - Tech', 'WYFL': 'WYFI - Tech',
+  'KEEX': 'KEEL - Industrl', 'VELL': 'VELO - Industrl',
   'LABU': 'XBI - Biotech 3X', 'PILL': 'PILL - Pharma 2X',
   'EZJ': 'EWJ - Japan 2X', 'EWY': 'EWY - South Korea', 'FLKR': 'FLKR - South Korea',
   'FOTO': 'FOTO - Photonics ETF'
@@ -640,7 +641,16 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 20000, head
   }
 };
 
-interface EarningsEntry { date: string; when: string; reported: boolean; }
+interface EarningsEntry {
+  date: string;
+  when: string;
+  reported: boolean;
+  epsEstimate: number | null;
+  epsActual: number | null;
+  revEstimate: number | null;
+  revActual: number | null;
+  epsSurprisePct: number | null;
+}
 
 const fetchEarningsCalendar = async (apiKey: string): Promise<Map<string, EarningsEntry>> => {
   const out = new Map<string, EarningsEntry>();
@@ -661,8 +671,22 @@ const fetchEarningsCalendar = async (apiKey: string): Promise<Map<string, Earnin
       const date: string = r?.date || '';
       const when: string = (r?.time_of_day || r?.time || '').toString().toUpperCase();
       const reported = date < today || (date === today && !when.includes('AMC'));
+      const epsEst = r?.eps_estimate != null ? parseFloat(String(r.eps_estimate)) : null;
+      const epsAct = r?.eps_actual != null ? parseFloat(String(r.eps_actual)) : null;
+      const revEst = r?.revenue_estimate != null ? parseFloat(String(r.revenue_estimate)) : null;
+      const revAct = r?.revenue_actual != null ? parseFloat(String(r.revenue_actual)) : null;
+      const epsSurprisePct = epsAct != null && epsEst != null && epsEst !== 0
+        ? Math.round(((epsAct - epsEst) / Math.abs(epsEst)) * 10000) / 100
+        : null;
       const prev = out.get(ticker);
-      if (!prev || date < prev.date) out.set(ticker, { date, when, reported });
+      if (!prev || date < prev.date) out.set(ticker, {
+        date, when, reported,
+        epsEstimate: isNaN(epsEst as number) ? null : epsEst,
+        epsActual: isNaN(epsAct as number) ? null : epsAct,
+        revEstimate: isNaN(revEst as number) ? null : revEst,
+        revActual: isNaN(revAct as number) ? null : revAct,
+        epsSurprisePct,
+      });
     }
   } catch {
     // fail open
@@ -1527,6 +1551,11 @@ async function runScan(request: Request) {
       t.earningsDate = earn?.date || null;
       t.earningsWhen = earn?.when || null;
       t.earningsReported = reportedEarnings;
+      t.earningsEpsEst = earn?.epsEstimate ?? null;
+      t.earningsEpsActual = earn?.epsActual ?? null;
+      t.earningsRevEst = earn?.revEstimate ?? null;
+      t.earningsRevActual = earn?.revActual ?? null;
+      t.earningsEpsSurprise = earn?.epsSurprisePct ?? null;
 
       t.tradeType = deriveTradeType(t.setupName);
 
@@ -1647,6 +1676,22 @@ async function runScan(request: Request) {
       )
       .slice(0, SCANNER.finalSize);
 
+    // Enrich with fundamentals — cross-reference multibagger KV first, Polygon for the rest
+    try {
+      const mbData = await kv.get<any[]>('multibagger_v1');
+      const allSetups = [...finalSip, ...finalDaily];
+      const fundInput = allSetups
+        .filter((t: any) => t.ticker && t.price > 0)
+        .map((t: any) => ({ ticker: t.ticker, price: t.price, marketCap: t.mktCap || undefined }));
+      if (fundInput.length > 0) {
+        const fundMap = await enrichWithFundamentals(fundInput, polygonApiKey, mbData ?? undefined);
+        for (const t of allSetups) {
+          const f = fundMap.get((t.ticker ?? '').toUpperCase());
+          if (f) t._fund = f;
+        }
+      }
+    } catch (e) { console.error('[scanner] fundamental enrichment failed:', e); }
+
     const finalTopMovers = {
       'Mega Caps': megaCapsRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined).slice(0, 10),
       'Gainers': gainersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.vol >= SCANNER.minVolume).slice(0, 10),
@@ -1675,16 +1720,25 @@ async function runScan(request: Request) {
         if (!seenWeeks.has(wi)) { seenWeeks.add(wi); weeklyBars.push({ c: b.c }); }
       }
 
+      const emaOf = (bars: any[], n: number): number | null => {
+        if (bars.length < n) return null;
+        const k = 2 / (n + 1);
+        let ema = bars[bars.length - 1].c;
+        for (let i = bars.length - 2; i >= 0; i--) {
+          ema = (bars[i].c * k) + (ema * (1 - k));
+        }
+        return ema;
+      };
       const smaOf = (bars: any[], n: number): number | null => {
         if (bars.length < n) return null;
         let sum = 0;
         for (let i = 0; i < n; i++) sum += bars[i].c;
         return sum / n;
       };
-      const buildSet = (bars: any[], price: number, periods: number[]) =>
+      const buildSet = (bars: any[], price: number, periods: number[], useSma = false) =>
         periods
           .map((p) => {
-            const v = smaOf(bars, p);
+            const v = useSma ? smaOf(bars, p) : emaOf(bars, p);
             return v == null ? null : { label: String(p), value: parseFloat(v.toFixed(2)), above: price >= v };
           })
           .filter((m): m is { label: string; value: number; above: boolean } => m !== null);
@@ -1694,8 +1748,8 @@ async function runScan(request: Request) {
         benchmark = {
           symbol: 'QQQ',
           price: qqqPrice,
-          day: buildSet(dailyBars, qqqPrice, [10, 21, 30, 50]),
-          week: buildSet(weeklyBars, qqqPrice, [5, 10, 30, 50]),
+          day: buildSet(dailyBars, qqqPrice, [10, 21, 30, 50], true),
+          week: buildSet(weeklyBars, qqqPrice, [5, 10, 30, 50], true),
         };
       }
 
@@ -1718,8 +1772,8 @@ async function runScan(request: Request) {
         benchmarks.push({
           symbol: 'SPY',
           price: spyPrice,
-          day: buildSet(spyDaily, spyPrice, [10, 21, 30, 50]),
-          week: buildSet(spyWeekly, spyPrice, [5, 10, 30, 50]),
+          day: buildSet(spyDaily, spyPrice, [10, 21, 30, 50], true),
+          week: buildSet(spyWeekly, spyPrice, [5, 10, 30, 50], true),
         });
       }
       if (benchmark) benchmarks.unshift(benchmark);

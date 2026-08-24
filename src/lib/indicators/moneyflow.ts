@@ -151,6 +151,18 @@ export function mfLabel(mf: number | null | undefined): string {
   return 'heavy distribution';
 }
 
+/** Abbreviated label for table cells. */
+export function mfLabelShort(mf: number | null | undefined): string {
+  if (mf == null || !isFinite(Number(mf))) return 'n/a';
+  const v = Number(mf);
+  if (v >= 70) return 'Hvy Acc';
+  if (v >= 60) return 'Acc';
+  if (v >= 50) return 'Mld Acc';
+  if (v >= 40) return 'Mld Dist';
+  if (v >= 30) return 'Dist';
+  return 'Hvy Dist';
+}
+
 /** Arrow glyph for the trend value from moneyFlowTrend(). */
 export function mfArrow(trend: number): string {
   if (trend > 0) return ' ↑';

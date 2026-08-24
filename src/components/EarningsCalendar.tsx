@@ -39,23 +39,23 @@ type CapFilter = 'ALL' | 'SMALL' | 'MID' | 'LARGE' | 'MEGA';
 
 // --- CONSTANTS & MAPS ---
 const SECTOR_MAP: Record<string, string> = {
-  'AAPL': 'IT', 'MSFT': 'IT', 'SMCI': 'IT',
+  'AAPL': 'Tech', 'MSFT': 'Tech', 'SMCI': 'Tech',
   'NVDA': "Semi's", 'AMD': "Semi's", 'INTC': "Semi's",
   'AVGO': "Semi's", 'MU': "Semi's", 'ARM': "Semi's",
-  'QCOM': "Semi's", 'TSM': "Semi's", 'ALOT': 'IT',
+  'QCOM': "Semi's", 'TSM': "Semi's", 'ALOT': 'Tech',
   'PLTR': 'AI', 'SOUN': 'AI', 'BBAI': 'AI', 'AI': 'AI',
   'CRWD': 'Cyber', 'PANW': 'Cyber', 'ZS': 'Cyber',
   'IONQ': 'Quantum', 'RGTI': 'Quantum', 'QBTS': 'Quantum',
-  'COIN': 'Fintech', 'MSTR': 'Fintech', 'MARA': 'Fintech', 'RIOT': 'Fintech', 'HOOD': 'Fintech', 'SOFI': 'Fintech',
+  'COIN': 'Fintech', 'MSTR': 'Fintech', 'MARA': 'Fintech', 'RIOT': 'Fintech', 'HOOD': 'Fintech', 'SOFI': 'Fintech', 'BMNR': 'Fintech',
   'TSLA': 'EV', 'NIO': 'EV', 'LI': 'EV', 'XPEV': 'EV',
   'LUNR': 'Aerospace', 'ASTS': 'Aerospace', 'RKLB': 'Aerospace',
   'CEG': 'Nuclear', 'OKLO': 'Nuclear', 'CCJ': 'Nuclear', 'SMR': 'Nuclear', 'LEU': 'Nuclear',
   'FSLR': 'Solar', 'ENPH': 'Solar', 'RUN': 'Solar',
-  'HIMS': 'Healthcare', 'NVO': 'Healthcare', 'LLY': 'Healthcare', 'ASTX': 'Biotech', 'COO': 'Healthcare',
+  'HIMS': 'Health', 'NVO': 'Health', 'LLY': 'Health', 'ASTX': 'Biotech', 'COO': 'Health',
   'AMZN': 'Con Disc', 'UBER': 'Con Disc', 'BABA': 'Con Disc', 'DLTH': 'Con Disc',
-  'PG': 'Con Staples', 'CPB': 'Con Staples', 'AVO': 'Con Staples',
-  'META': 'Comm Serv', 'GOOGL': 'Comm Serv', 'NFLX': 'Comm Serv',
-  'GHM': 'Industrials',
+  'PG': 'Staples', 'CPB': 'Staples', 'AVO': 'Staples',
+  'META': 'Comm Svc', 'GOOGL': 'Comm Svc', 'NFLX': 'Comm Svc',
+  'GHM': 'Industrl',
 };
 
 const THEMATIC_SECTORS = ['AI', 'Nuclear', 'Quantum', "Semi's", 'Cyber', 'Aerospace'];
@@ -358,7 +358,7 @@ export default function EarningsCalendar() {
   const filterBtnIdle = "text-slate-500 hover:text-slate-300 border border-transparent hover:bg-white/[0.02]";
 
   return (
-    <div className="bg-[#101623] border border-white/5 rounded-2xl p-5 md:p-8 relative overflow-hidden shadow-xl w-full">
+    <div className="bg-[#101623] border-0 md:border md:border-white/5 md:rounded-2xl p-2 md:p-8 relative overflow-hidden md:shadow-xl w-full">
       <div className="absolute right-0 top-0 w-64 h-64 bg-cyan-500/5 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
 
       {/* Header */}

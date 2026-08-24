@@ -40,6 +40,7 @@ const SOURCES: SourceDef[] = [
   { name: 'ep9m', path: '/api/ep9m/latest' },
   { name: 'multibagger', path: '/api/multibagger/latest' },
   { name: 'vcp', path: '/api/vcp/latest' },
+  { name: 'macroEcon', path: '/api/macro-econ' },
   { name: 'news', path: '/api/news', extra: true },
   { name: 'earnings', path: '/api/earnings', extra: true },
   { name: 'econ', path: '/api/econ', extra: true },

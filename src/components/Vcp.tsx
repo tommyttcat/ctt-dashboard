@@ -95,7 +95,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: {
     what: 'Symbol. Hover for the company name. The dot is base status — see the STATUS column.',
   },
-  VCP: {
+  CNF: {
     what: 'Pattern score 0–100. Weights the contraction shape most heavily (final leg tightness and how far the legs contract), then volume drying, then RS Rating, then the Trend Template. Hover the number for the per-row breakdown.',
     colour: 'The grade is on the ticker, not here: green 70+ (A) · amber 50+ (B) · grey below (C).',
   },
@@ -671,7 +671,7 @@ export default function Vcp() {
     : null;
 
   return (
-    <div className="bg-[#101623] border border-white/5 rounded-2xl p-3 md:p-5 relative overflow-visible shadow-xl w-full max-w-[1280px] mx-auto">
+    <div className="bg-[#101623] border-0 md:border md:border-white/5 md:rounded-2xl p-2 md:p-5 relative overflow-visible md:shadow-xl w-full max-w-[1280px] mx-auto">
       <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-30 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
@@ -818,7 +818,7 @@ export default function Vcp() {
                 </div>
 
                 <div className={pillWrap}>
-                  <span className={pillLabel}>VCP</span>
+                  <span className={pillLabel}>CNF</span>
                   <div className="flex items-center gap-1">
                     {GRADE_BUCKETS.map((g) => (
                       <button
@@ -867,12 +867,12 @@ export default function Vcp() {
             <table className="w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} w-[8%] !text-left pl-1`} title={colTip('TICKER')} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
+                  <th className={`${thBase} w-[7%] !text-left pl-1`} title={colTip('TICKER')} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>
                   <th className={`${thBase} w-[2%]`} title="News — ★ has an article, ★★ has a causal catalyst from a primary source">N</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('VCP')} onClick={() => handleSort('score')}>VCP{getSortIcon('score')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
-                  <th className={`${thBase} w-[7%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
+                  <th className={`${thBase} w-[4%]`} title={colTip('CNF')} onClick={() => handleSort('score')}>CNF{getSortIcon('score')}</th>
+                  <th className={`${thBase} w-[4%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
+                  <th className={`${thBase} w-[6%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   {/* The signature column — the pattern itself, not a summary
                       of it. Wider than anything else for that reason. */}
                   <th className={`${thBase} w-[13%]`} title={colTip('CONTRACTIONS')} onClick={() => handleSort('contractionCount')}>CONTRACTIONS{getSortIcon('contractionCount')}</th>
@@ -882,9 +882,9 @@ export default function Vcp() {
                   <th className={`${thBase} w-[5%]`} title={colTip('VOL')} onClick={() => handleSort('volumeDryingRatio')}>VOL{getSortIcon('volumeDryingRatio')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('TT')} onClick={() => handleSort('templatePassed')}>TT{getSortIcon('templatePassed')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('ATR')} onClick={() => handleSort('atrPct')}>ATR{getSortIcon('atrPct')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
-                  <th className={`${thStage} w-[6%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thSector} w-[8%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
+                  <th className={`${thStage} w-[5%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
+                  <th className={`${thSector} w-[7%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
 
@@ -939,7 +939,7 @@ export default function Vcp() {
                           </td>
 
 
-                          <td className={`${tdBase} text-xs text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
+                          <td className={`${tdBase} text-[10px] text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
                             <div className="flex items-center justify-center gap-1">
                               ${row.price.toFixed(2)}
                               {row.vwapStatus && row.vwapStatus !== 'neutral' && (
@@ -948,7 +948,7 @@ export default function Vcp() {
                             </div>
                           </td>
 
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
                             {row.changePct != null ? `${isPositive ? '+' : ''}${row.changePct.toFixed(2)}%` : '—'}
                           </td>
 
@@ -976,7 +976,7 @@ export default function Vcp() {
                             </div>
                           </td>
 
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums text-slate-400`}
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums text-slate-400`}
                             title={`${row.contractionCount} contraction${row.contractionCount === 1 ? '' : 's'} in the current base`}>
                             T{row.contractionCount}
                           </td>
@@ -994,28 +994,28 @@ export default function Vcp() {
                             </div>
                           </td>
 
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${baseLenColor(row.baseLengthBars)}`}
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${baseLenColor(row.baseLengthBars)}`}
                             title={row.baseLengthBars != null ? `${row.baseLengthBars} trading days since the base began — about ${(row.baseLengthBars / 5).toFixed(0)} weeks` : undefined}>
                             {row.baseLengthBars ?? '—'}d
                           </td>
 
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${volDryColor(row.volumeDryingRatio)}`}
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${volDryColor(row.volumeDryingRatio)}`}
                             title={row.volumeDryingRatio != null ? `Base volume is ${(row.volumeDryingRatio * 100).toFixed(0)}% of the equivalent span before the base began.` : undefined}>
                             {row.volumeDryingRatio != null ? `${row.volumeDryingRatio.toFixed(2)}x` : '—'}
                           </td>
 
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums cursor-help ${ttColor(row.templatePassed, row.templateTotal)}`}
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums cursor-help ${ttColor(row.templatePassed, row.templateTotal)}`}
                             title={ttTooltip(row)}>
                             {row.templatePassed != null && row.templateTotal != null
                               ? `${row.templatePassed}/${row.templateTotal}`
                               : '—'}
                           </td>
 
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${atrColor(row.atrPct)}`}>
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${atrColor(row.atrPct)}`}>
                             {row.atrPct != null ? `${row.atrPct.toFixed(1)}%` : '—'}
                           </td>
 
-                          <td className={`${tdBase} text-xs font-bold whitespace-nowrap tabular-nums ${mfColor(row.mf ?? null)}`}
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${mfColor(row.mf ?? null)}`}
                             title={row.mf != null ? `Money Flow ${row.mf.toFixed(0)} — ${mfLabel(row.mf)}. Inside a base, above 55 is absorption and below 45 is quiet distribution.` : undefined}>
                             {row.mf != null ? `${row.mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
                           </td>

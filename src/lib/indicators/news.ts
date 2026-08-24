@@ -190,7 +190,13 @@ const RX_CAUSAL_JOIN = /\b(?:on|after|as|following|amid|because|due to|thanks to
 
 const isCausal = (title: string): boolean => {
   if (!RX_MOVE_LANGUAGE.test(title)) return true;   // pure event reporting
-  return RX_CAUSAL_JOIN.test(title);
+  if (RX_CAUSAL_JOIN.test(title)) return true;
+  const m = title.match(RX_MOVE_LANGUAGE);
+  if (m && m.index! > 20) {
+    const before = title.slice(0, m.index!);
+    if (/[,;]\s*$/.test(before) && !RX_MOVE_LANGUAGE.test(before)) return true;
+  }
+  return false;
 };
 
 /* ---- Classification -----------------------------------------------------
