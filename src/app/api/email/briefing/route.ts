@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
+import { kv } from '@vercel/kv';
 import {
   type ChopMode,
   CHOP_BANDS as CHOP_MODE_BANDS,
@@ -38,15 +39,16 @@ import { industryHeat } from '@/lib/sectors';
 import { getEmailRecipients } from '@/lib/users';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+export const maxDuration = 60;
 
-const PHASES = ['pre', 'morning', 'midday', 'closing'] as const;
+const PHASES = ['pre', 'morning', 'midday', 'power', 'closing'] as const;
 type Phase = (typeof PHASES)[number];
 
 const PHASE_LABELS: Record<Phase, string> = {
   pre: 'Pre-Market',
   morning: 'Morning',
   midday: 'Midday',
+  power: 'Power Hour',
   closing: 'Closing',
 };
 
@@ -84,6 +86,16 @@ const chgClr = (v: number) => v >= 0 ? '#34d399' : '#fb7185';
 const fmtVol = (v: number) => v >= 1e9 ? '$' + (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? '$' + (v / 1e6).toFixed(0) + 'M' : v > 0 ? '$' + (v / 1e3).toFixed(0) + 'K' : '';
 const fmtVolShort = (v: number) => v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? Math.round(v / 1e3) + 'K' : '—';
 const stripStage = (s: string) => String(s || '').replace(/Stage\s*/i, '').trim() || '';
+
+function trimToSentence(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const chunk = text.slice(0, max);
+  const lastSentence = Math.max(chunk.lastIndexOf('. '), chunk.lastIndexOf('! '), chunk.lastIndexOf('? '), chunk.lastIndexOf('.\n'));
+  if (lastSentence > max * 0.3) return chunk.slice(0, lastSentence + 1).trim();
+  const lastEnd = Math.max(chunk.lastIndexOf('.'), chunk.lastIndexOf('!'), chunk.lastIndexOf('?'));
+  if (lastEnd > max * 0.3) return chunk.slice(0, lastEnd + 1).trim();
+  return chunk.slice(0, chunk.lastIndexOf(' ')).replace(/[,;:\s]+$/, '').trim();
+}
 
 const BADGE = 'display:inline-block;font-size:6px;font-weight:700;border-radius:3px;width:18px;line-height:12px;text-align:center;border:1px solid';
 function rsPillHtml(rs: number | null | undefined): string {
@@ -258,11 +270,11 @@ function noteBlocksHtml(arr: string[], known: Set<string>, color = '#cbd5e1'): s
           : `<strong style="color:#f1f5f9;">${richHtml(lead, known)}</strong>`;
       /* No space before a comma or full stop — the lead is mid-sentence. */
       const glue = leadHtml && rest && !/^[,.;:!?)]/.test(rest) ? ' ' : '';
-      return `<div style="${sep}font-size:9px;color:${color};line-height:1.6;">${leadHtml}${glue}${richHtml(rest || (lead ? '' : s), known)}</div>`;
+      return `<div style="${sep}font-size:10px;color:${color};line-height:1.6;">${leadHtml}${glue}${richHtml(rest || (lead ? '' : s), known)}</div>`;
     }
 
     return `<div style="${sep}">
-      <div style="font-size:9px;font-weight:700;color:#f1f5f9;line-height:1.5;">${richHtml(lead, known)}</div>
+      <div style="font-size:10px;font-weight:700;color:#f1f5f9;line-height:1.5;">${richHtml(lead, known)}</div>
       <div style="font-size:8px;color:${color};line-height:1.5;padding-left:12px;margin-top:4px;">${richHtml(rest, known)}</div>
     </div>`;
   }).join('');
@@ -291,29 +303,15 @@ function parseLabeled(text: string): LabeledRow[] {
 function formattedBlockHtml(text: string, known: Set<string>): string {
   const rows = parseLabeled(text);
   if (!rows.length) {
-    /* Mirrors the page's FormattedBlock: a line over 200 chars is split into
-       sentences so each becomes its own separated block. Without this the
-       email rendered multi-sentence analysis as one dense slab while the page
-       showed the same text as spaced paragraphs — the two surfaces read the
-       same brief and should look alike. Keep this rule in sync with
-       AnalystBrief.tsx if either side changes. */
     const rawLines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean);
-    const paras: string[] = [];
-    for (const l of rawLines) {
-      if (l.length > 200) {
-        paras.push(...l.split(/(?<=\.)\s+(?=[A-Z])/).map((s) => s.trim()).filter(Boolean));
-      } else {
-        paras.push(l);
-      }
-    }
-    return paras.map((p, i) =>
-      `<div style="${i > 0 ? 'border-top:1px solid #ffffff0d;padding-top:8px;margin-top:8px;' : ''}font-size:9px;color:#cbd5e1;line-height:1.6;">${richHtml(p, known)}</div>`
+    return rawLines.map((p, i) =>
+      `<div style="border-left:2px solid #334155;padding-left:10px;${i > 0 ? 'margin-top:12px;' : ''}font-size:10px;color:#cbd5e1;line-height:1.7;">${richHtml(p, known)}</div>`
     ).join('');
   }
   return rows.map((r, i) =>
     `<div style="${i > 0 ? 'border-top:1px solid #ffffff0d;padding-top:10px;margin-top:10px;' : ''}">
       <div style="font-size:8px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#64748b;margin-bottom:4px;">${r.label}</div>
-      <div style="font-size:9px;color:#cbd5e1;line-height:1.7;">${richHtml(r.value, known)}</div>
+      <div style="font-size:10px;color:#cbd5e1;line-height:1.7;">${richHtml(r.value, known)}</div>
       ${r.detail ? `<div style="font-size:8px;color:#94a3b8;line-height:1.6;margin-top:4px;">${richHtml(r.detail.charAt(0).toUpperCase() + r.detail.slice(1), known)}</div>` : ''}
     </div>`
   ).join('');
@@ -427,7 +425,7 @@ function sectorsCardHtml(sectorText: string, snapshot: any): string {
   const etfAll = dedupeByTicker([...(movers['ETF Gainers'] || []), ...(movers['ETF Losers'] || [])]);
   const etfRows = etfAll
     .filter((e: any) => dVolOf(e) > 0)
-    .sort((a: any, b: any) => dVolOf(b) - dVolOf(a))
+    .sort((a: any, b: any) => Math.abs(chgOf(b)) - Math.abs(chgOf(a)))
     .slice(0, 5);
 
   const flowAll = dedupeByTicker([
@@ -435,7 +433,7 @@ function sectorsCardHtml(sectorText: string, snapshot: any): string {
   ]);
   const flowRows = flowAll
     .filter((s: any) => dVolOf(s) > 0)
-    .sort((a: any, b: any) => dVolOf(b) - dVolOf(a))
+    .sort((a: any, b: any) => Math.abs(chgOf(b)) - Math.abs(chgOf(a)))
     .slice(0, 5);
 
   const etfShare = advancingDollarShare(etfAll);
@@ -474,15 +472,10 @@ function sectorsCardHtml(sectorText: string, snapshot: any): string {
   return pageCard('Sectors &amp; Money Flow', '#22d3ee', topRow + tables);
 }
 
-/* Every table on the page opens sorted by CNF descending — GapperSection,
-   SIPSection and ActionableSummary all initialise their sort key to 'cnf' —
-   with RS as the tiebreak. The email sorted Top Movers by change% instead, so
-   the same section listed different names in a different order on the two
-   surfaces. Mirrors sortStocks/getVal in AnalystBrief. */
-function sortByCnf<T extends any>(stocks: T[]): T[] {
-  const cnf = (s: any) => Number(s?.score ?? 0);
+function sortByChg<T extends any>(stocks: T[]): T[] {
+  const chg = (s: any) => Math.abs(Number(s?.changePct ?? s?.chg ?? 0));
   const rs = (s: any) => Number(s?.rs ?? s?.rsRating ?? 0);
-  return [...stocks].sort((a, b) => (cnf(b) - cnf(a)) || (rs(b) - rs(a)));
+  return [...stocks].sort((a, b) => (chg(b) - chg(a)) || (rs(b) - rs(a)));
 }
 
 /* The page's SummaryRow / GapperRow, column for column: grade letter, ticker,
@@ -503,7 +496,7 @@ function pageStockTable(stocks: any[], opts: { red?: boolean } = {}): string {
       <td class="d" style="text-align:center;">${cnfPill(s.score, grade)}</td>
       <td class="d" style="text-align:right;font-weight:700;color:${chgClr(chg)};white-space:nowrap;">${fmtPct(chg)}</td>
       <td class="d" style="text-align:right;color:#cbd5e1;">${fmtPrice(s.price)}</td>
-      <td class="d" style="text-align:right;color:${rvolHex(rv)};font-weight:700;">${rv != null ? rv.toFixed(2) : ''}</td>
+      <td class="d" style="text-align:right;color:${rvolHex(rv)};font-weight:700;">${rv != null ? (rv < 1 ? rv.toFixed(1) : Math.round(rv)) + 'x' : ''}</td>
       <td class="d" style="text-align:right;color:#94a3b8;">${s.vol || s.volume ? fmtVolShort(s.vol || s.volume) : ''}</td>
       <td class="d" style="text-align:right;color:#cbd5e1;">${dv ? fmtVol(dv) : ''}</td>
       <td class="d" style="text-align:center;">${rsPillHtml(rs)}</td>
@@ -550,7 +543,7 @@ function flowTableHtml(title: string, color: string, blurb: string, rows: any[])
       <td class="d" style="text-align:center;">${cnfPill(cnf, grade)}</td>
       <td class="d" style="text-align:right;font-weight:700;color:${chgClr(chg)};white-space:nowrap;">${fmtPct(chg)}</td>
       <td class="d" style="text-align:right;color:#cbd5e1;">${fmtPrice(r.price)}</td>
-      <td class="d" style="text-align:right;color:${rvol >= 2 ? '#34d399' : rvol >= 1 ? '#cbd5e1' : '#64748b'};font-weight:${rvol >= 2 ? '700' : '400'};">${rvol.toFixed(2)}</td>
+      <td class="d" style="text-align:right;color:${rvol >= 2 ? '#34d399' : rvol >= 1 ? '#cbd5e1' : '#64748b'};font-weight:${rvol >= 2 ? '700' : '400'};">${rvol < 1 ? rvol.toFixed(1) : Math.round(rvol)}x</td>
       <td class="d" style="text-align:right;color:#94a3b8;">${fmtVolShort(r.vol || 0)}</td>
       <td class="d" style="text-align:right;color:#94a3b8;">${fmtVol(dVolOf(r))}</td>
       <td class="d" style="text-align:center;">${rsPillHtml(rs || null)}</td>
@@ -835,20 +828,21 @@ function deriveDir(paragraphs: string[]): 'up' | 'down' | null {
   const avg = moves.reduce((a, b) => a + b, 0) / moves.length;
   return Math.abs(avg) < 0.25 ? null : avg > 0 ? 'up' : 'down';
 }
-function sessionUpdatesHtml(brief: any, known: Set<string>): string {
+function sessionUpdatesHtml(brief: any, known: Set<string>, latestOnly?: boolean): string {
   const su = brief?.sessionUpdates;
   if (!su) return '';
   const blocks: { key: string; block: any }[] = [];
-  for (const key of ['morning', 'midday', 'closing']) {
+  for (const key of ['pre', 'morning', 'midday', 'power', 'closing']) {
     if (su[key]) blocks.push({ key, block: su[key] });
   }
   if (!blocks.length) return '';
-  const rendered = blocks.map(({ block }) => {
+  const toRender = latestOnly ? [blocks[blocks.length - 1]] : blocks;
+  const rendered = toRender.map(({ block }) => {
     const dir = deriveDir(block.paragraphs || []);
     const themeKey = dir === 'up' ? 'emerald' : dir === 'down' ? 'rose' : (block.colorTheme || 'indigo');
     const st = SESSION_THEME[themeKey] || SESSION_THEME.indigo;
     const paras = (block.paragraphs || []).map((p: string) =>
-      `<div style="font-size:9px;color:#94a3b8;line-height:1.6;border-left:2px solid #334155;padding-left:8px;margin-bottom:6px;">${richHtml(p, known)}</div>`
+      `<div style="font-size:10px;color:#94a3b8;line-height:1.6;border-left:2px solid #334155;padding-left:8px;margin-bottom:6px;">${richHtml(p, known)}</div>`
     ).join('');
     return `<div style="border-left:3px solid ${st.dot};padding:6px 12px;margin-top:8px;">
       <div style="margin-bottom:10px;">
@@ -858,7 +852,7 @@ function sessionUpdatesHtml(brief: any, known: Set<string>): string {
       </div>
       ${paras}
       <div style="border-left:4px solid ${st.boxBorder};padding:10px 12px;">
-        <div style="font-size:9px;line-height:1.6;color:${st.boxText};">${richHtml(block.takeaway || '', known)}</div>
+        <div style="font-size:10px;line-height:1.6;color:${st.boxText};">${richHtml(block.takeaway || '', known)}</div>
       </div>
     </div>`;
   }).join('');
@@ -1032,22 +1026,25 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
   /* ---- Top Movers — five a side inside one card, as on the page --------- */
   const gapSec = sections.find((s: any) => /Gappers|Intraday Movers/i.test(s.section));
   const gapStocks: any[] = gapSec?.stocks || [];
-  const ups = sortByCnf(
+  const ups = sortByChg(
     gapStocks.filter((s) => s.direction === 'up' || s.direction === 'long' || (!['down','short'].includes(s.direction) && (s.gapPct ?? s.changePct ?? 0) > 0))
   ).slice(0, 5);
-  const downs = sortByCnf(
+  const downs = sortByChg(
     gapStocks.filter((s) => s.direction === 'down' || s.direction === 'short' || (!['up','long'].includes(s.direction) && (s.gapPct ?? s.changePct ?? 0) < 0))
   ).slice(0, 5);
-  const moversHtml = (ups.length || downs.length)
+  const moversAnalysis = gapSec?.analysis
+    ? `<div style="margin-top:12px;">${formattedBlockHtml(gapSec.analysis, knownTickers)}</div>`
+    : '';
+  const moversHtml = (ups.length || downs.length || gapSec?.analysis)
     ? pageCard('Top Movers', '#22d3ee', twoColHtml(
         ups.length ? panel('Movers Up', '#34d399', pageStockTable(ups)) : '',
         downs.length ? panel('Movers Down', '#fb7185', pageStockTable(downs, { red: true })) : '',
-      ))
+      ) + moversAnalysis)
     : '';
 
   /* ---- Stocks in Play — stock table first, analysis brief below ---------- */
   const sipSec = sections.find((s: any) => s.section === 'Stocks in Play Today');
-  const sipStocks: any[] = sortByCnf(sipSec?.stocks || []).slice(0, 10);
+  const sipStocks: any[] = sortByChg(sipSec?.stocks || []).slice(0, 10);
   const sipMid = Math.ceil(sipStocks.length / 2);
   const sipHtml = (sipStocks.length || sipSec?.analysis)
     ? pageCard('Stocks in Play Today', '#22d3ee',
@@ -1055,7 +1052,7 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
           ? twoColHtml(pageStockTable(sipStocks.slice(0, sipMid)), pageStockTable(sipStocks.slice(sipMid)))
           : '') +
         (sipSec?.analysis
-          ? `<div style="font-size:9px;color:#cbd5e1;line-height:1.6;margin-top:10px;">${richHtml(sipSec.analysis, knownTickers)}</div>`
+          ? `<div style="font-size:10px;color:#cbd5e1;line-height:1.6;margin-top:10px;">${richHtml(sipSec.analysis, knownTickers)}</div>`
           : ''))
     : '';
 
@@ -1074,8 +1071,8 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
   /* Slice THEN sort, in that order — the page ranks by position first and
      only sorts within each panel. Sorting first would let a high-CNF
      watchlist name climb into the conviction pair. */
-  const conviction = sortByCnf(topTrades.slice(0, 2));
-  const watchlistTrades = sortByCnf(topTrades.slice(2, 7));
+  const conviction = sortByChg(topTrades.slice(0, 2));
+  const watchlistTrades = sortByChg(topTrades.slice(2, 7));
 
   const proseList = (arr: string[], color: string) =>
     arr.length
@@ -1083,7 +1080,7 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
       : '';
 
   const trapsArr: string[] = Array.isArray(summary.traps) ? summary.traps : [];
-  const traps = sortByCnf(topAvoid.slice(0, 5));
+  const traps = sortByChg(topAvoid.slice(0, 5));
   const trapMid = Math.ceil(traps.length / 2);
   const trapsBlock = (traps.length || trapsArr.length)
     ? panel('Traps to Avoid', '#f43f5e',
@@ -1131,8 +1128,8 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
   /* Repeated cell/chip styling, hoisted out of the markup to keep the message
      under Gmail's clip threshold — see minify(). Colour and alignment stay
      inline so they survive a client that strips this block. */
-  .d { padding: 2px 2px; font-size: 8px; }
-  .h { padding: 2px 2px; font-size: 6px; color: #475569; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; border-bottom: 1px solid #ffffff10; }
+  .d { padding: 2px 2px; font-size: 9px; }
+  .h { padding: 2px 2px; font-size: 7px; color: #475569; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; border-bottom: 1px solid #ffffff10; }
   .tk { display: inline-block; background: #1b2434; border: 1px solid #2a3446; border-radius: 3px; padding: 0px 3px; font-size: 6px; font-weight: 700; letter-spacing: .06em; color: #cbd5e1; }
   .tk.a { background: #042f2e; border-color: #115e59; color: #6ee7b7; }
   .tk.b { background: #422006; border-color: #854d0e; color: #fde68a; }
@@ -1180,14 +1177,10 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
     ${newsHtml}
     ${regimeHtml}
     ${sectorsHtml}
-    ${legendHtml()}
-    <div style="border-top:1px solid #ffffff1a;margin:0 0 14px;"></div>
     ${moversHtml}
     ${sipHtml}
-    ${summaryHtml}
     ${eventsHtml}
-    ${tomorrowSecHtml}
-    ${sessionUpdatesHtml(brief, knownTickers)}
+    ${sessionUpdatesHtml(brief, knownTickers, true)}
 
     <div style="padding-top:14px;margin-top:18px;">
       <div style="font-size:8px;color:#475569;text-align:center;">
@@ -1222,15 +1215,60 @@ export async function GET(req: Request) {
 
   const origin = resolveOrigin(req);
 
+  /* Guards run cheapest-first, and that ordering is load-bearing. The seven
+     upstream fetches further down move ~305 KB per invocation, and
+     /api/claude/snapshot alone is 222 KB that fans out to 14 more sources.
+     These crons are scheduled to retry — the NX lock below makes a send
+     idempotent, so firing repeatedly is how the email survives not knowing
+     when the analyst actually posts — but that is only affordable while an
+     invocation that will skip returns before reaching the expensive part. */
+  const todayET = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+  const sentKey = `briefing_sent:${phase}:${todayET.replace(/\//g, '-')}`;
+  if (!force) {
+    const alreadySent = await kv.get(sentKey);
+    if (alreadySent) {
+      return NextResponse.json({ skipped: true, phase, reason: `${phase} email already sent today` });
+    }
+  }
+
+  /* Freshness gate — one cheap fetch, and the only one a skipping retry pays
+     for. The previous check asked whether a tape block merely *existed*,
+     which stays true from the prior session forever: on Monday it passed on
+     Friday's blocks. `pre` was exempted from it outright and so sent
+     unconditionally, which is how a pre-market email shipped the previous
+     session's brief. Compare the brief's own date instead, and apply it to
+     every phase — the cron fires on a wall clock that cannot know when the
+     analyst run lands, so the brief's date is the only honest signal. */
+  const brief = await fetchJson(`${origin}/api/analyst/brief`);
+  if (!force) {
+    const briefDateET = brief?.generatedAt
+      ? new Date(brief.generatedAt).toLocaleDateString('en-US', { timeZone: 'America/New_York' })
+      : null;
+    if (briefDateET !== todayET) {
+      return NextResponse.json({
+        skipped: true,
+        phase,
+        reason: 'brief is not from today — waiting for the analyst run',
+        briefDateET,
+        todayET,
+      });
+    }
+    /* The phase's own block, not any block. sessionUpdates accumulates across
+       the day, so `pre` still being there at 2 PM says nothing about whether
+       the power reading has been written yet. */
+    if (!brief?.sessionUpdates?.[phase]) {
+      return NextResponse.json({ skipped: true, phase, reason: `no ${phase} tape reading yet` });
+    }
+  }
+
   const userRecipients = await getEmailRecipients('briefing', phase as any);
   const fallback = process.env.BRIEFING_EMAIL || process.env.Email || 'thomasbeach@gmail.com';
   const recipients = userRecipients.length > 0 ? userRecipients : [fallback];
 
-  const [macro, chopData, t2108Data, brief, snapshotRes, chopSetting, econRes, earningsRes] = await Promise.all([
+  const [macro, chopData, t2108Data, snapshotRes, chopSetting, econRes, earningsRes] = await Promise.all([
     fetchJson(`${origin}/api/macro`),
     fetchJson(`${origin}/api/chop`),
     fetchJson(`${origin}/api/t2108/latest`),
-    fetchJson(`${origin}/api/analyst/brief`),
     fetchJson(`${origin}/api/claude/snapshot?full=1`),
     fetchJson(`${origin}/api/settings/chop`),
     /* Key Events reads these directly, the same two endpoints the page's
@@ -1253,13 +1291,80 @@ export async function GET(req: Request) {
     return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
   }
 
-  const preview = url.searchParams.get('preview');
-  if (preview === '1') {
-    return new Response(html, { headers: { 'Content-Type': 'text/html' } });
+  if (url.searchParams.get('testSocial') === '1') {
+    const su = brief?.sessionUpdates || {};
+    const block = ['closing', 'power', 'midday', 'morning', 'pre'].reduce((latest: any, k) => latest || su[k], null);
+    const takeaway = block?.takeaway || '';
+    const regime = brief?.regimeDetail?.regime || '';
+    const blurb = (takeaway || regime).replace(/\*\*([^*]+)\*\*/g, '$1').trim();
+    const dashUrl = 'confluencetradingtools.com';
+    const header = `CTT ${PHASE_LABELS[phase]} Brief`;
+    const debug: any = {
+      hasBskyEnv: !!(process.env.BLUESKY_HANDLE && process.env.BLUESKY_APP_PASSWORD),
+      hasXEnv: !!(process.env.X_API_KEY && process.env.X_API_SECRET && process.env.X_ACCESS_TOKEN && process.env.X_ACCESS_TOKEN_SECRET),
+      hasBlurb: !!blurb,
+      blurbLen: blurb.length,
+      blurbPreview: blurb.slice(0, 80),
+      phase,
+    };
+
+    let screenshotBuf: Buffer | null = null;
+    try {
+      const ssUrl = `${origin}/api/og/screenshot?force=1&url=${encodeURIComponent('https://app.confluencetradingtools.com/analyst')}&selector=${encodeURIComponent(`#tape-${phase}`)}&w=800&h=1200`;
+      const ssRes = await fetch(ssUrl);
+      if (ssRes.ok && ssRes.headers.get('content-type')?.includes('image')) {
+        screenshotBuf = Buffer.from(await ssRes.arrayBuffer());
+        debug.screenshotBytes = screenshotBuf.length;
+      } else {
+        const errBody = await ssRes.text().catch(() => '');
+        debug.screenshotError = `status ${ssRes.status}: ${errBody.slice(0, 200)}`;
+      }
+    } catch (ssErr: any) {
+      debug.screenshotError = ssErr?.message || String(ssErr);
+    }
+
+    if (blurb) {
+      const imagePayload = screenshotBuf
+        ? { data: screenshotBuf, alt: `CTT ${PHASE_LABELS[phase]} Tape Reading`, mimeType: 'image/png' }
+        : undefined;
+
+      const bskyMax = 300 - `${header}\n\n\n\n${dashUrl}`.length;
+      const bskyBlurb = trimToSentence(blurb, bskyMax);
+      const bskyText = `${header}\n\n${bskyBlurb}\n\n${dashUrl}`;
+      const linkStart = bskyText.indexOf(dashUrl);
+
+      const xMax = 280 - `${header}\n\n\n\nhttps://${dashUrl}`.length;
+      const xBlurb = trimToSentence(blurb, xMax);
+      const xText = `${header}\n\n${xBlurb}\n\nhttps://${dashUrl}`;
+
+      debug.bskyText = bskyText;
+      debug.xText = xText;
+
+      try {
+        const bsky = await postToBluesky(bskyText, [{ start: linkStart, end: linkStart + dashUrl.length, url: `https://${dashUrl}` }], imagePayload);
+        debug.bskyResult = bsky ?? 'returned null (env vars missing?)';
+      } catch (e: any) { debug.bskyError = e.message; }
+
+      try {
+        const x = await postToX(xText, screenshotBuf ? { data: screenshotBuf } : undefined);
+        debug.xResult = x ?? 'returned null (env vars missing?)';
+      } catch (e: any) { debug.xError = e.message; }
+    }
+    return NextResponse.json(debug);
   }
 
   const resend = new Resend(apiKey);
   const subject = `CTT ${phaseLabel} Briefing — ${new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })}`;
+
+  // Atomic lock: NX ensures only one invocation wins when two race
+  if (!force) {
+    const locked = await kv.set(sentKey, 1, { nx: true, ex: 86400 });
+    if (!locked) {
+      return NextResponse.json({ skipped: true, phase, reason: `${phase} email already sent today` });
+    }
+  } else {
+    await kv.set(sentKey, 1, { ex: 86400 });
+  }
 
   try {
     const results = await Promise.allSettled(
@@ -1284,45 +1389,80 @@ export async function GET(req: Request) {
 
     let bskyResult: any = null;
     let xResult: any = null;
+    let socialDebug: any = {};
     try {
       const su = brief?.sessionUpdates || {};
-      const block = su[phase] || su.morning || su.midday || su.closing;
+      const block = ['closing', 'power', 'midday', 'morning', 'pre'].reduce((latest: any, k) => latest || su[k], null);
       const takeaway = block?.takeaway || '';
       const regime = brief?.regimeDetail?.regime || '';
 
       const blurb = (takeaway || regime).replace(/\*\*([^*]+)\*\*/g, '$1').trim();
+      socialDebug.hasBlurb = !!blurb;
+      socialDebug.blurbLen = blurb.length;
+      socialDebug.hasBskyEnv = !!(process.env.BLUESKY_HANDLE && process.env.BLUESKY_APP_PASSWORD);
+      socialDebug.hasXEnv = !!(process.env.X_API_KEY && process.env.X_API_SECRET && process.env.X_ACCESS_TOKEN && process.env.X_ACCESS_TOKEN_SECRET);
+
       if (blurb) {
         const dashUrl = 'confluencetradingtools.com';
         const header = `CTT ${PHASE_LABELS[phase]} Brief`;
 
+        let screenshotBuf: Buffer | null = null;
+        try {
+          const ssUrl = `${origin}/api/og/screenshot?force=1&url=${encodeURIComponent('https://app.confluencetradingtools.com/analyst')}&selector=${encodeURIComponent(`#tape-${phase}`)}&w=800&h=1200`;
+          const ssRes = await fetch(ssUrl);
+          if (ssRes.ok && ssRes.headers.get('content-type')?.includes('image')) {
+            screenshotBuf = Buffer.from(await ssRes.arrayBuffer());
+            socialDebug.screenshotBytes = screenshotBuf.length;
+          } else {
+            socialDebug.screenshotError = `status ${ssRes.status}`;
+          }
+        } catch (ssErr: any) {
+          socialDebug.screenshotError = ssErr?.message || String(ssErr);
+        }
+
+        const imagePayload = screenshotBuf
+          ? { data: screenshotBuf, alt: `CTT ${PHASE_LABELS[phase]} Tape Reading`, mimeType: 'image/png' }
+          : undefined;
+
         const bskyMax = 300 - `${header}\n\n\n\n${dashUrl}`.length;
-        const bskyBlurb = blurb.length > bskyMax
-          ? blurb.slice(0, blurb.lastIndexOf(' ', bskyMax)).replace(/[,;:.\s]+$/, '') + '...'
-          : blurb;
+        const bskyBlurb = trimToSentence(blurb, bskyMax);
         const bskyText = `${header}\n\n${bskyBlurb}\n\n${dashUrl}`;
         const linkStart = bskyText.indexOf(dashUrl);
 
         const xMax = 280 - `${header}\n\n\n\nhttps://${dashUrl}`.length;
-        const xBlurb = blurb.length > xMax
-          ? blurb.slice(0, blurb.lastIndexOf(' ', xMax)).replace(/[,;:.\s]+$/, '') + '...'
-          : blurb;
+        const xBlurb = trimToSentence(blurb, xMax);
         const xText = `${header}\n\n${xBlurb}\n\nhttps://${dashUrl}`;
 
-        [bskyResult, xResult] = await Promise.allSettled([
+        const results = await Promise.allSettled([
           postToBluesky(bskyText, [{
             start: linkStart,
             end: linkStart + dashUrl.length,
             url: `https://${dashUrl}`,
-          }]),
-          postToX(xText),
-        ]).then(rs => rs.map(r => r.status === 'fulfilled' ? r.value : null));
+          }], imagePayload),
+          postToX(xText, screenshotBuf ? { data: screenshotBuf } : undefined),
+        ]);
+
+        socialDebug.bskyStatus = results[0].status;
+        socialDebug.xStatus = results[1].status;
+        if (results[0].status === 'rejected') socialDebug.bskyError = String((results[0] as PromiseRejectedResult).reason);
+        if (results[1].status === 'rejected') socialDebug.xError = String((results[1] as PromiseRejectedResult).reason);
+
+        bskyResult = results[0].status === 'fulfilled' ? results[0].value : null;
+        xResult = results[1].status === 'fulfilled' ? results[1].value : null;
+
+        console.log('[social]', JSON.stringify(socialDebug));
+      } else {
+        console.log('[social] no blurb — skipping posts', JSON.stringify(socialDebug));
       }
-    } catch { /* Social posts are best-effort */ }
+    } catch (socialErr: any) {
+      console.error('[social] outer error:', socialErr?.message || socialErr);
+    }
 
     return NextResponse.json({
       success: true, phase, sent, failed, recipients: recipients.length,
       bluesky: bskyResult ? 'posted' : 'skipped',
       x: xResult ? 'posted' : 'skipped',
+      socialDebug,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Send failed' }, { status: 500 });
