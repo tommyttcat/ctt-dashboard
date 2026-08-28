@@ -100,9 +100,10 @@
    independently readable, and a shared scroll container would drag every row
    sideways to read one. */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { cachedJson, fetchScannerLatest } from '@/lib/scannerLatest';
-import TickerChartHover, { ActiveChartProvider } from './TickerChartHover';
+import TickerChartHover, { ActiveChartProvider, WatchlistBtn } from './TickerChartHover';
+import { WatchlistToggle } from './WatchlistPanel';
 import { newsStarCount } from '@/lib/newsStars';
 import { rsColor, rsBadge } from '@/lib/indicators/rs';
 import { toCanonicalSector, isEtfSector, industryHeat, displaySector } from '@/lib/sectors';
@@ -2289,7 +2290,7 @@ const EXTRA_TOKEN_RX = new RegExp(
   'g'
 );
 
-const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>, chartHover?: boolean, priceMap?: Record<string, number>, rsMap?: Record<string, number>, stageMap?: Record<string, string>): React.ReactNode => {
+const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>, chartHover?: boolean, priceMap?: Record<string, number>, rsMap?: Record<string, number>, stageMap?: Record<string, string>, skipWatchlistBtn?: boolean): React.ReactNode => {
   const mapGrade = gradeMap?.[p.ticker] ?? null;
   const cnfGrade: 'A' | 'B' | null = p.cnf >= 70 ? 'A' : p.cnf >= 50 ? 'B' : null;
   const grade = cnfGrade === 'A' ? 'A' : mapGrade ?? cnfGrade;
@@ -2332,13 +2333,11 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
   }
 
   return (
-    <div key={idx} className={scrollRowCls} style={scrollRowStyle}>
+    <div key={idx} className="flex items-center">
+      {!skipWatchlistBtn && <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={p.ticker} /></span></span>}
+      <div className={`${scrollRowCls} flex-1 min-w-0`} style={scrollRowStyle}>
       <div className="flex items-center whitespace-nowrap py-[1px]">
-        {chartHover ? (
-          <TickerChartHover symbol={p.ticker}><span className={`${chipBase} w-[38px] md:w-[44px]`}>{p.ticker}</span></TickerChartHover>
-        ) : (
-          <TickerChartHover symbol={p.ticker}><span className={`${chipBase} w-[38px] md:w-[44px]`}>{p.ticker}</span></TickerChartHover>
-        )}
+        <TickerChartHover symbol={p.ticker}><span className={`${chipBase} w-[38px] md:w-[44px]`}>{p.ticker}</span></TickerChartHover>
         <span className="inline-block w-[12px] text-center leading-none shrink-0" />
         <span className="inline-block w-[8px] text-center shrink-0">
           {p.blueDot && <span className="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)]" title="Blue Dot reversal — oversold stochastic reset fired on the daily" />}
@@ -2363,6 +2362,7 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
         )}
         {/* setup badges (REV, etc.) removed — N is the last column */}
         {extraEls}
+      </div>
       </div>
     </div>
   );
@@ -2588,16 +2588,16 @@ const renderSetupRow = (
   const rpt = s._repeatPivot;
   const mbf = s._mbFund;
   const tipParts: string[] = [];
-  if (streak >= 3) tipParts.push(`${streak} consecutive scans`);
   if (overlap >= 2) tipParts.push(`${overlap} scanners: ${cnfTip}`);
   if (rpt) tipParts.push(`EP${rpt.count} — ${rpt.count} episodic pivots in 90d: ${rpt.events.map((e: any) => `${e.date} $${e.price?.toFixed(2) ?? '—'}`).join(', ')}`);
   const tip = tipParts.join('\n');
-  const hasIndicator = streak >= 3 || overlap >= 2 || !!rpt;
-  const indicatorLabel = streak >= 3 ? String(streak) : overlap >= 2 ? overlap + '×' : rpt ? `EP${rpt.count}` : '';
-  const indicatorColor = streak >= 10 ? 'text-purple-400/90' : streak >= 5 ? 'text-emerald-400/80' : streak >= 3 ? 'text-amber-400/80' : rpt ? 'text-fuchsia-400/80' : 'text-indigo-400/80';
+  const hasIndicator = overlap >= 2 || !!rpt;
+  const indicatorLabel = overlap >= 2 ? overlap + '×' : rpt ? `EP${rpt.count}` : '';
+  const indicatorColor = overlap >= 2 ? 'text-indigo-400/80' : rpt ? 'text-fuchsia-400/80' : 'text-slate-500';
   const mbGradeCls = mbf ? (mbf.grade === 'A' ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/10' : mbf.grade === 'B' ? 'text-sky-400 border-sky-500/20 bg-sky-500/10' : mbf.grade === 'C' ? 'text-amber-400 border-amber-500/20 bg-amber-500/10' : 'text-slate-400 border-slate-500/20 bg-slate-500/10') : '';
   return (
     <div key={`ss-${s.ticker}-${i}`} className="flex items-center gap-0">
+      <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={s.ticker} /></span></span>
       <div className="w-[28px] shrink-0 flex items-center justify-end pr-1.5">
         {hasIndicator && (
           <span className="relative group/cnf cursor-default">
@@ -2610,7 +2610,7 @@ const renderSetupRow = (
           </span>
         )}
       </div>
-      <div className="flex-1 min-w-0">{renderStdRow(parsed, i, gradeMap, dotMap, postureMap, avoidSet, true, undefined, rsMap, stageMap)}</div>
+      <div className="flex-1 min-w-0">{renderStdRow(parsed, i, gradeMap, dotMap, postureMap, avoidSet, true, undefined, rsMap, stageMap, true)}</div>
     </div>
   );
 };
@@ -2661,7 +2661,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
   rsMap?: Record<string, number>;
   stageMap?: Record<string, string>;
 }) => {
-  const [activeKey, setActiveKey] = React.useState<string | null>(null);
+  const [activeKey, setActiveKey] = React.useState<string | null>('cnf');
   const [sortKey, setSortKey] = React.useState<SortKey>('cnf');
   const [sortDir, setSortDir] = React.useState<SortDir>('desc');
 
@@ -3104,6 +3104,26 @@ const SECTION_HEADERS: Record<string, string[]> = {
   'Money Flow': STD_HEADERS,
 };
 
+const formatBriefingText = (text: string) => {
+  if (!text) return '';
+  return text
+    .replace(/(Top Movers:)/gi, '\n\n$1')
+    .replace(/(SIPs Thesis:)/gi, '\n\n$1')
+    .replace(/(\$Vol Summary:)/gi, '\n\n$1')
+    .replace(/(Setups Summary:)/gi, '\n\n$1')
+    .replace(/(Daily Setups Thesis:)/gi, '\n\n$1')
+    .replace(/(10\/21 Thesis:)/gi, '\n\n$1')
+    .replace(/(VCP Thesis:)/gi, '\n\n$1')
+    .replace(/(EP9M Thesis:)/gi, '\n\n$1')
+    .replace(/(100-Bagger Thesis:)/gi, '\n\n$1')
+    .replace(/(Industry Heat:)/gi, '\n\n$1')
+    .replace(/(ETF Flow:)/gi, '\n\n$1')
+    .replace(/(Money Flow:)/gi, '\n\n$1')
+    .replace(/(Key Events:)/gi, '\n\n$1')
+    .replace(/(Sector Performance:)/gi, '\n\n$1')
+    .replace(/(Sector Flow:)/gi, '\n\n$1');
+};
+
 const splitBriefingSection = (para: string): { label: string | null; color: string; blurb: string; body: string } => {
   for (const sec of BRIEFING_SECTIONS) {
     if (para.startsWith(`${sec.label}:`)) {
@@ -3308,23 +3328,46 @@ export default function MarketSummary() {
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() =>
     new Set([
       ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary'),
-      'hrsTop', 'topSetups', 'tomorrowWatch',
+      'hrsTop', 'topSetups',
     ])
   );
-  const [scanFilter, setScanFilter] = useState<ScanFilterKey>('CNF');
+  const [scanFilter, setScanFilter] = useState<ScanFilterKey>(null);
   const [moverView, setMoverView] = useState<'stocks' | 'etf'>('stocks');
-  useEffect(() => {
-    const v = localStorage.getItem(SCAN_FILTER_KEY);
-    if (v && ALL_SCAN_KEYS.includes(v)) setScanFilter(v as ScanFilterKey);
-  }, []);
+  const macroRef = useRef<MacroInsights | null>(null);
+  macroRef.current = macroInsights;
   const handleScanFilter = useCallback((k: ScanFilterKey) => {
     setScanFilter(k);
     if (typeof window !== 'undefined') {
       if (k) localStorage.setItem(SCAN_FILTER_KEY, k);
       else localStorage.removeItem(SCAN_FILTER_KEY);
     }
+    const mi = macroRef.current;
+    if (!mi?.briefing) return;
+    if (!k) {
+      setCollapsedSections(new Set([
+        ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary'),
+        'hrsTop', 'topSetups',
+      ]));
+      return;
+    }
+    const collapsed = new Set<string>();
+    const ctx: ScanFilterCtx = { gradeMap: mi.gradeMap, postureMap: mi.postureMap, avoidSet: mi.avoidSet, dotMap: mi.dotMap };
+    const paras = formatBriefingText(mi.briefing).split('\n\n').filter(Boolean);
+    for (const p of paras) {
+      const sec = splitBriefingSection(p.trim());
+      if (!sec.label) continue;
+      if (!SECTION_HEADERS[sec.label]) { collapsed.add(sec.label); continue; }
+      if (sec.label === 'Setups Summary') {
+        if (!(mi.setupPool ?? []).some((item: any) => passesPoolFilter(k, item))) collapsed.add(sec.label);
+      } else {
+        const lines = sec.body.replace(/\|\|\|/g, '\n').split('\n').filter(Boolean);
+        if (!lines.some(l => { const pr = parseStdLine(l); return pr && passesScanFilter(k, pr, ctx); })) collapsed.add(sec.label);
+      }
+    }
+    if (!(mi.watching ?? []).some((item: any) => passesPoolFilter(k, item))) collapsed.add('topSetups');
+    collapsed.add('hrsTop');
+    setCollapsedSections(collapsed);
   }, []);
-
   const toggleSection = (key: string) => {
     setCollapsedSections(prev => {
       const next = new Set(prev);
@@ -3508,25 +3551,7 @@ export default function MarketSummary() {
     return 'text-slate-500';
   };
 
-  const formatBriefing = (text: string) => {
-    if (!text) return '';
-    return text
-      .replace(/(Top Movers:)/gi, '\n\n$1')
-      .replace(/(SIPs Thesis:)/gi, '\n\n$1')
-      .replace(/(\$Vol Summary:)/gi, '\n\n$1')
-      .replace(/(Setups Summary:)/gi, '\n\n$1')
-      .replace(/(Daily Setups Thesis:)/gi, '\n\n$1')
-      .replace(/(10\/21 Thesis:)/gi, '\n\n$1')
-      .replace(/(VCP Thesis:)/gi, '\n\n$1')
-      .replace(/(EP9M Thesis:)/gi, '\n\n$1')
-      .replace(/(100-Bagger Thesis:)/gi, '\n\n$1')
-      .replace(/(Industry Heat:)/gi, '\n\n$1')
-      .replace(/(ETF Flow:)/gi, '\n\n$1')
-      .replace(/(Money Flow:)/gi, '\n\n$1')
-      .replace(/(Key Events:)/gi, '\n\n$1')
-      .replace(/(Sector Performance:)/gi, '\n\n$1')
-      .replace(/(Sector Flow:)/gi, '\n\n$1');
-  };
+  const formatBriefing = formatBriefingText;
 
 
 
@@ -3546,10 +3571,13 @@ export default function MarketSummary() {
         </div>
 
         <div className="flex flex-row sm:flex-col items-center gap-2 sm:gap-1.5">
-          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-3 sm:px-4 py-1.5 rounded-[10px] min-w-[100px] sm:min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${status === 'Loading' ? 'text-amber-500' : status === 'Error' ? 'text-rose-400' : getSessionTextColor()}`}>
-              {status === 'Synced' ? session : status}
-            </span>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-3 sm:px-4 py-1.5 rounded-[10px] min-w-[100px] sm:min-w-[120px]">
+              <span className={`text-[10px] font-bold tracking-widest uppercase ${status === 'Loading' ? 'text-amber-500' : status === 'Error' ? 'text-rose-400' : getSessionTextColor()}`}>
+                {status === 'Synced' ? session : status}
+              </span>
+            </div>
+            <span onClick={(e) => e.stopPropagation()}><WatchlistToggle /></span>
           </div>
           {lastUpdated && (
             <span className="text-[10px] text-slate-400/80 font-medium px-1 tracking-wide whitespace-nowrap">
@@ -3582,7 +3610,11 @@ export default function MarketSummary() {
                     const parsed = splitBriefingSection(p.trim());
                     return { ...parsed, key: parsed.label || `sec-${i}` };
                   });
-                  const collapsibleKeys = sections.filter(s => s.label).map(s => s.key);
+                  const collapsibleKeys = [
+                    ...sections.filter(s => s.label).map(s => s.key),
+                    ...(hrsTop.length > 0 ? ['hrsTop'] : []),
+                    ...(macroInsights.watching?.length ? ['topSetups'] : []),
+                  ];
                   const everyCollapsed =
                     collapsibleKeys.length > 0 && collapsibleKeys.every(k => collapsedSections.has(k));
 
@@ -3592,12 +3624,15 @@ export default function MarketSummary() {
                         <h3 className="text-[8px] font-bold tracking-widest uppercase text-slate-500">Narrative Breakdown</h3>
                         {collapsibleKeys.length > 1 && (
                           <button
-                            onClick={() => setCollapsedSections(everyCollapsed ? new Set() : new Set(collapsibleKeys))}
+                            onClick={() => setCollapsedSections(everyCollapsed ? new Set() : new Set(collapsibleKeys.filter(k => k !== 'Setups Summary')))}
                             className="text-[7px] font-bold tracking-wider uppercase px-1.5 py-[1px] rounded border bg-[#161c2a] text-slate-500 border-white/5 hover:text-slate-300 hover:bg-white/[0.04] transition-all duration-200"
                           >
                             {everyCollapsed ? 'Expand all' : 'Collapse all'}
                           </button>
                         )}
+                      </div>
+                      <div className="mb-3 px-1">
+                        <ScanLegend activeFilter={scanFilter} onFilterChange={handleScanFilter} />
                       </div>
                       {/* A grid rather than a column so ETF Flow and Money Flow can pair
                           up. Every other section spans both tracks, so the stack reads
@@ -3623,7 +3658,7 @@ export default function MarketSummary() {
                             const allLines = body.replace(/\|\|\|/g, '\n').split('\n').filter(Boolean);
                             return !allLines.some(l => { const p = parseStdLine(l); return p && passesScanFilter(scanFilter, p, ctx); });
                           })();
-                          const isOpen = !label || (scanFilter && !!SECTION_HEADERS[label ?? ''] ? !filterEmpty : !collapsedSections.has(key));
+                          const isOpen = !label || !collapsedSections.has(key);
 
                           /* The key sits in the GAP ABOVE the card rather than
                              inside it — same information, none of the card's
@@ -3635,9 +3670,6 @@ export default function MarketSummary() {
                              but has no glyphs), and only once for a paired row
                              — ETF Flow leads that pair, so Money Flow does not
                              emit a second strip beside it. */
-                          const wantsLegend =
-                            isOpen && !!label && !!SECTION_HEADERS[label] && label !== 'Money Flow';
-
                           const renderHrsBefore = label === '100-Bagger Thesis' && hrsTop.length > 0;
                           const renderWatchAfter = label === '100-Bagger Thesis';
                           const hrsSort = sectionSorts['HRS'] ?? null;
@@ -3668,6 +3700,7 @@ export default function MarketSummary() {
                             const fmtDV = (v: number) => v >= 1e9 ? `$${(v / 1e9).toFixed(1)}B` : v >= 1e6 ? `$${(v / 1e6).toFixed(0)}M` : v > 0 ? `$${(v / 1e3).toFixed(0)}K` : '—';
                             return (
                               <div key={h.symbol} className="flex items-center whitespace-nowrap py-[1px]">
+                                <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={h.symbol} /></span></span>
                                 <TickerChartHover symbol={h.symbol}><span className={`${gradeChipCls(hrsGrade, false)} w-[38px] md:w-[44px]`}>{h.symbol}</span></TickerChartHover>
                                 <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-0.5 w-[28px] md:w-[30px] leading-[14px] text-center ${h.score >= 70 ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/10' : h.score >= 50 ? 'text-amber-400 border-amber-500/20 bg-amber-500/10' : 'text-slate-400 border-white/5 bg-white/[0.03]'}`}>{h.score}</span>
                                 <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-0.5 ${h.changePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{h.changePct >= 0 ? '+' : ''}{h.changePct.toFixed(2)}%</span>
@@ -3687,13 +3720,13 @@ export default function MarketSummary() {
                             <React.Fragment key={idx}>
                             {renderHrsBefore && (
                               <div className="lg:col-span-2 rounded-xl px-2.5 md:px-4 py-3 bg-indigo-500/[0.04]">
-                                <div className="flex items-center gap-3 mb-2">
-                                  <button onClick={() => toggleSection('hrsTop')} className="inline-flex items-center gap-1.5 group" title={hrsIsOpen ? 'Collapse' : 'Expand'}>
+                                <div className="flex items-center gap-3 mb-2 cursor-pointer select-none" onClick={() => toggleSection('hrsTop')} title={hrsIsOpen ? 'Collapse' : 'Expand'}>
+                                  <div className="inline-flex items-center gap-1.5">
                                     <span className={`text-[9px] transition-transform duration-200 ${hrsIsOpen ? 'rotate-90' : ''} text-slate-500`}>&#9654;</span>
                                     <span className="inline-block text-[7px] font-bold tracking-widest uppercase px-1.5 py-[1px] rounded border text-indigo-400 bg-indigo-500/10 border-indigo-500/20">Hidden Relative Strength</span>
-                                  </button>
-                                  {hrsIsOpen && <SectionCopyButton tickers={hrsTop.map(h => h.symbol)} />}
-                                  {hrsIsOpen && <SectionTxtButton tickers={hrsTop.map(h => h.symbol)} />}
+                                  </div>
+                                  {hrsIsOpen && <span onClick={e => e.stopPropagation()}><SectionCopyButton tickers={hrsTop.map(h => h.symbol)} /></span>}
+                                  {hrsIsOpen && <span onClick={e => e.stopPropagation()}><SectionTxtButton tickers={hrsTop.map(h => h.symbol)} /></span>}
                                   {!hrsIsOpen && <span className="text-[8px] text-slate-600 font-medium">{hrsTop.map(h => h.symbol).join(' · ')}</span>}
                                 </div>
                                 {hrsIsOpen && (
@@ -3717,11 +3750,6 @@ export default function MarketSummary() {
                                     </div>
                                   </>
                                 )}
-                              </div>
-                            )}
-                            {wantsLegend && (
-                              <div className="lg:col-span-2 px-1 pt-1 pb-0.5">
-                                <ScanLegend activeFilter={scanFilter} onFilterChange={handleScanFilter} />
                               </div>
                             )}
                             <div className={`rounded-xl px-2.5 md:px-4 py-3 ${st.bg} ${label && PAIRED_SECTIONS.has(label) ? '' : 'lg:col-span-2'} ${label === 'Industry Heat' ? 'flex flex-col' : ''}`}>
@@ -4117,13 +4145,13 @@ export default function MarketSummary() {
                             </div>
                             {renderWatchAfter && macroInsights.watching?.length > 0 && (
                               <div className="lg:col-span-2 rounded-xl px-2.5 md:px-4 py-3 bg-cyan-500/[0.04]">
-                                <div className="flex items-center gap-3 mb-2">
-                                  <button onClick={() => toggleSection('topSetups')} className="inline-flex items-center gap-1.5 group" title={collapsedSections.has('topSetups') ? 'Expand' : 'Collapse'}>
+                                <div className="flex items-center gap-3 mb-2 cursor-pointer select-none" onClick={() => toggleSection('topSetups')} title={collapsedSections.has('topSetups') ? 'Expand' : 'Collapse'}>
+                                  <div className="inline-flex items-center gap-1.5">
                                     <span className={`text-[9px] transition-transform duration-200 ${collapsedSections.has('topSetups') ? '' : 'rotate-90'} text-slate-500`}>&#9654;</span>
                                     <span className="inline-block text-[7px] font-bold tracking-widest uppercase px-1.5 py-[1px] rounded border text-cyan-400 bg-cyan-500/10 border-cyan-500/20">Top Setups</span>
-                                  </button>
-                                  {!collapsedSections.has('topSetups') && <SectionCopyButton tickers={macroInsights.watching.map(w => w.symbol)} />}
-                                  {!collapsedSections.has('topSetups') && <SectionTxtButton tickers={macroInsights.watching.map(w => w.symbol)} />}
+                                  </div>
+                                  {!collapsedSections.has('topSetups') && <span onClick={e => e.stopPropagation()}><SectionCopyButton tickers={macroInsights.watching.map(w => w.symbol)} /></span>}
+                                  {!collapsedSections.has('topSetups') && <span onClick={e => e.stopPropagation()}><SectionTxtButton tickers={macroInsights.watching.map(w => w.symbol)} /></span>}
                                   {collapsedSections.has('topSetups') && macroInsights.watching.length > 0 && (
                                     <span className="text-[8px] text-slate-600 font-medium">{macroInsights.watching.map(w => w.symbol).join(' · ')}</span>
                                   )}
@@ -4160,6 +4188,7 @@ export default function MarketSummary() {
                                     const isBlueDot = s.dotKind === 'blue';
                                     return (
                                       <div key={idx} className="flex items-center whitespace-nowrap py-[1px]">
+                                        <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={s.symbol} /></span></span>
                                         <TickerChartHover symbol={s.symbol}><span className={`${gradeChipCls(s.grade, isAvoid)} w-[38px] md:w-[44px]`}>{s.symbol}</span></TickerChartHover>
                                         <span className="inline-block w-[12px] text-center leading-none shrink-0" />
                                         <span className="inline-block w-[8px] text-center shrink-0">
@@ -4191,76 +4220,6 @@ export default function MarketSummary() {
                                     </div>
                                   );
                                 })()}
-                              </div>
-                            )}
-                            {renderWatchAfter && macroInsights.tomorrowWatch?.length > 0 && (
-                              <div className="lg:col-span-2 rounded-xl px-2.5 md:px-4 py-3 bg-violet-500/[0.04]">
-                                <div className="flex items-center gap-3 mb-2">
-                                  <button onClick={() => toggleSection('tomorrowWatch')} className="inline-flex items-center gap-1.5 group" title={collapsedSections.has('tomorrowWatch') ? 'Expand' : 'Collapse'}>
-                                    <span className={`text-[9px] transition-transform duration-200 ${collapsedSections.has('tomorrowWatch') ? '' : 'rotate-90'} text-slate-500`}>&#9654;</span>
-                                    <span className="inline-block text-[7px] font-bold tracking-widest uppercase px-1.5 py-[1px] rounded border text-violet-400 bg-violet-500/10 border-violet-500/20">Tomorrow&apos;s Watchlist</span>
-                                  </button>
-                                  {!collapsedSections.has('tomorrowWatch') && <SectionCopyButton tickers={macroInsights.tomorrowWatch.map(w => w.symbol)} />}
-                                  {!collapsedSections.has('tomorrowWatch') && <SectionTxtButton tickers={macroInsights.tomorrowWatch.map(w => w.symbol)} />}
-                                  {collapsedSections.has('tomorrowWatch') && macroInsights.tomorrowWatch.length > 0 && (
-                                    <span className="text-[8px] text-slate-600 font-medium">{macroInsights.tomorrowWatch.map(w => w.symbol).join(' · ')}</span>
-                                  )}
-                                </div>
-                                {!collapsedSections.has('tomorrowWatch') && <div className="flex flex-col gap-0.5">
-                                  <SortableHeader sortKey={sectionSorts['Tomorrow Watch']?.key ?? null} sortDir={sectionSorts['Tomorrow Watch']?.dir ?? 'desc'} onSort={(k) => handleSectionSort('Tomorrow Watch', k)} />
-                                  {(() => {
-                                    const ws = sectionSorts['Tomorrow Watch'];
-                                    const items = ws ? [...macroInsights.tomorrowWatch].sort((a, b) => {
-                                      let av = 0, bv = 0;
-                                      switch (ws.key) {
-                                        case 'cnf': av = Number(a.score) || 0; bv = Number(b.score) || 0; break;
-                                        case 'chg': av = a.chg ?? 0; bv = b.chg ?? 0; break;
-                                        case 'rvol': av = Number(a.rvol) || 0; bv = Number(b.rvol) || 0; break;
-                                        case 'vol': av = a.vol ?? 0; bv = b.vol ?? 0; break;
-                                        case 'dvol': av = a.dVol ?? 0; bv = b.dVol ?? 0; break;
-                                        case 'rs': av = Number(a.rsRating) || 0; bv = Number(b.rsRating) || 0; break;
-                                      }
-                                      return ws.dir === 'desc' ? bv - av : av - bv;
-                                    }) : macroInsights.tomorrowWatch;
-                                    return items;
-                                  })().filter((item: any) => passesPoolFilter(scanFilter, item)).map((_item, idx) => {
-                                    const item = { ..._item, rsRating: _item.rsRating ?? macroInsights.rsMap?.[_item.symbol] ?? null, stage: _item.stage || macroInsights.stageMap?.[_item.symbol] || '' };
-                                    const pb = item.posture || null;
-                                    const pMeta = pb ? POSTURE_META[pb] : null;
-                                    const rv = item.rvol != null ? Number(item.rvol) : null;
-                                    const v = item.vol ?? 0;
-                                    const dv = item.dVol ?? 0;
-                                    const fmtV = v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(0) + 'K' : '';
-                                    const fmtDv = dv >= 1e9 ? '$' + (dv / 1e9).toFixed(1) + 'B' : dv >= 1e6 ? '$' + (dv / 1e6).toFixed(0) + 'M' : dv > 0 ? '$' + (dv / 1e3).toFixed(0) + 'K' : '';
-                                    const isAvoid = macroInsights.avoidSet?.has(item.symbol) || item.dotKind === 'red';
-                                    const isBlueDot = item.dotKind === 'blue';
-                                    return (
-                                      <div key={idx} className="flex items-center whitespace-nowrap py-[1px]">
-                                        <TickerChartHover symbol={item.symbol}><span className={`${gradeChipCls(item.grade, isAvoid)} w-[38px] md:w-[44px]`}>{item.symbol}</span></TickerChartHover>
-                                        <span className="inline-block w-[12px] text-center leading-none shrink-0" />
-                                        <span className="inline-block w-[8px] text-center shrink-0">
-                                          {isBlueDot && <span className="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)]" />}
-                                        </span>
-                                        <span className="inline-block w-[8px] text-center shrink-0">
-                                          {pMeta ? <span title={`${pMeta.short} — ${pMeta.tip}`} className={`inline-block w-[6px] h-[6px] rounded-full cursor-help ${pMeta.tone === 'good' ? 'bg-emerald-400' : pMeta.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`} /> : null}
-                                        </span>
-                                        <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${item.score != null && !isNaN(Number(item.score)) ? cnfBadgeCls(Number(item.score)) : 'text-slate-600 border-slate-700/40 bg-slate-800/30'}`}>{item.score != null && !isNaN(Number(item.score)) ? Number(item.score) : '-'}</span>
-                                        <span className={`text-[10px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ${(item.chg ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(item.chg ?? 0) >= 0 ? '+' : ''}{(item.chg ?? 0).toFixed(2)}%</span>
-                                        <span className="text-[10px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-1">{fmtPrc(item.price)}</span>
-                                        <span className={`text-[10px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? `${rv < 1 ? rv.toFixed(1) : Math.round(rv)}x` : ''}</span>
-                                        <span className={`text-[10px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-1 ${fmtV ? 'text-slate-400' : 'text-transparent'}`}>{fmtV}</span>
-                                        <span className={`text-[10px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-1 ${fmtDv ? 'text-slate-300' : 'text-transparent'}`}>{fmtDv}</span>
-                                        <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{item.rsRating != null ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(Number(item.rsRating))}`}>{Number(item.rsRating)}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
-                                        <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{item.stage && item.stage !== '—' ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(item.stage)}`}>{item.stage}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
-                                        {(() => {
-                                          const nc = newsStarCount({ catalyst: item.catalyst, catalystUrl: item.catalystUrl, newsCausal: (item as any).newsCausal });
-                                          if (nc >= 1 && item.catalystUrl) return <a href={item.catalystUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={`inline-block w-[14px] md:w-[16px] text-center ${nc >= 2 ? 'text-amber-400' : 'text-slate-500'} hover:brightness-125 font-bold text-[7px] leading-none cursor-pointer transition-all ml-1`} title={item.catalyst || ''}>{'★'.repeat(nc)}</a>;
-                                          return <span className="inline-block w-[14px] md:w-[16px] ml-1"></span>;
-                                        })()}
-                                      </div>
-                                    );
-                                  })}
-                                </div>}
                               </div>
                             )}
                             </React.Fragment>

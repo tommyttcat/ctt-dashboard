@@ -4,6 +4,7 @@ import React, { useState, useCallback, useEffect, Suspense, useId, useRef } from
 
 const MiniChart = React.lazy(() => import('./analyst/MiniChart'));
 import { prefetchChart } from './analyst/MiniChart';
+import { useWatchlist } from './WatchlistContext';
 
 export const ActiveChartCtx = React.createContext<{
   activeId: string | null;
@@ -331,6 +332,41 @@ function EarningsStrip({ earnings }: { earnings: EarningsData }) {
   );
 }
 
+export function WatchlistBtn({ symbol }: { symbol: string }) {
+  const { has, add, remove } = useWatchlist();
+  const inList = has(symbol);
+  const [flash, setFlash] = useState(false);
+
+  const toggle = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (inList) {
+      remove(symbol);
+    } else {
+      add(symbol);
+      setFlash(true);
+      setTimeout(() => setFlash(false), 600);
+    }
+  }, [inList, symbol, add, remove]);
+
+  return (
+    <button
+      onClick={toggle}
+      className={`shrink-0 w-3.5 h-3.5 hidden md:flex items-center justify-center rounded transition-colors ${
+        inList
+          ? 'text-indigo-400 bg-indigo-500/20 hover:bg-red-500/20 hover:text-red-400'
+          : 'text-slate-600 hover:text-indigo-400 hover:bg-indigo-500/10'
+      } ${flash ? 'scale-110' : ''}`}
+      title={inList ? 'Remove from watchlist' : 'Add to watchlist'}
+    >
+      {inList ? (
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M20 6L9 17l-5-5" /></svg>
+      ) : (
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+      )}
+    </button>
+  );
+}
+
 function ChartPopup({ symbol }: { symbol: string; triggerX: number }) {
   const { setActive, scheduleDismiss, cancelDismiss, triggerEl } = React.useContext(ActiveChartCtx);
   const popupRef = useRef<HTMLDivElement>(null);
@@ -409,6 +445,7 @@ function ChartPopup({ symbol }: { symbol: string; triggerX: number }) {
             {profile.sector && <span className="text-[10px] text-slate-600 shrink-0">{profile.sector}</span>}
           </>
         )}
+        <span className="ml-auto"><WatchlistBtn symbol={symbol} /></span>
       </div>
       <Suspense fallback={<div className="flex items-center justify-center h-[320px]"><div className="w-4 h-4 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" /></div>}>
         <MiniChart symbol={symbol} showTrend large onProfile={onProfile} />
