@@ -65,7 +65,14 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import MacroScorecardPanel from './MacroScorecardPanel';
 import BenchmarkStrips from './BenchmarkStrip';
 import TickerChartHover from './TickerChartHover';
-import { getMarketSession } from '@/lib/indicators/marketScorecard';
+
+import {
+  getMarketSession,
+  instDirSetup,
+  instDirSignal,
+  type InstDirSetup,
+  type InstDirSignal,
+} from '@/lib/indicators/marketScorecard';
 import {
   type ChopMode,
   type ChopBands,
@@ -106,6 +113,8 @@ interface TickData {
   tickDirection: 'up' | 'down' | 'flat';
   synced: boolean;
   isExtended?: boolean;
+  prevHigh?: number;
+  prevLow?: number;
 }
 
 interface BreadthData {
@@ -596,6 +605,12 @@ export default function MacroScorecard() {
 
   // riskMode removed — tone and breadth badges cover the same ground
   const [marketTone, setMarketTone] = useState<'BULLISH' | 'NEUTRAL' | 'BEARISH'>('NEUTRAL');
+
+  const [instSetup, setInstSetup] = useState<InstDirSetup>('CLEAR');
+  const [instSignal, setInstSignal] = useState<InstDirSignal>('NEUTRAL');
+  const [instPrevSetup, setInstPrevSetup] = useState<InstDirSetup | null>(null);
+  const [instFlash, setInstFlash] = useState(false);
+  const instInitialized = useRef(false);
   const [breadth, setBreadth] = useState<BreadthData | null>(null);
   const [t2108, setT2108] = useState<T2108Data | null>(null);
   const [chop, setChop] = useState<ChopData | null>(null);
@@ -673,6 +688,28 @@ export default function MacroScorecard() {
     }
   }, [quotes, breadth]);
 
+  // --- ENGINE 1b: INSTITUTIONAL DIRECTION ---
+  useEffect(() => {
+    const spy = quotes['SPY'];
+    const qqq = quotes['QQQ'];
+    const vix = quotes['VIX'];
+    if (!spy?.synced || !qqq?.synced || !vix?.synced) return;
+
+    const setup = instDirSetup(
+      spy.price, spy.prevLow ?? null, spy.pct,
+      qqq.price, qqq.prevLow ?? null,
+      vix.price, vix.prevHigh ?? null, vix.pct,
+    );
+    if (instInitialized.current && setup !== instSetup) {
+      setInstPrevSetup(instSetup);
+      setInstFlash(true);
+      setTimeout(() => setInstFlash(false), 1500);
+    }
+    instInitialized.current = true;
+    setInstSetup(setup);
+    setInstSignal(instDirSignal(setup));
+  }, [quotes]);
+
   // --- A/D DIRECTION: compare each new ratio against the last one ---
   useEffect(() => {
     if (!breadth || breadth.decliners <= 0) return;
@@ -738,7 +775,9 @@ export default function MacroScorecard() {
               pct: v.pct,
               tickDirection: direction,
               synced: true,
-              isExtended: v.isExtended
+              isExtended: v.isExtended,
+              prevHigh: v.prevHigh ?? prevQuote?.prevHigh,
+              prevLow: v.prevLow ?? prevQuote?.prevLow,
             };
           });
           return next;
@@ -948,21 +987,20 @@ export default function MacroScorecard() {
      otherwise. Raw-to-raw is the comparison actually available. */
   const chopRaw = chop?.blended ?? null;
   const chopRawPrev = chop?.blendedPrev ?? null;
-  const chopVal = chopComposite(chopRaw, breadth);
-  const chopDelta = chopRaw != null && chopRawPrev != null ? chopRaw - chopRawPrev : null;
-  const chopTrend: 'up' | 'down' | 'flat' =
-    chopDelta == null ? 'flat'
-      : chopDelta > CHOP_TREND_BAND ? 'up'
-      : chopDelta < -CHOP_TREND_BAND ? 'down'
-      : 'flat';
-
-  /* The intraday leg is RAW — see the note on chopComposite. */
   const intraVal = chop?.intraday?.blended ?? null;
   const intraLastBar = chop?.intraday?.lastBarAt ?? null;
   const intraAgeMin = intraLastBar
     ? (Date.now() - new Date(intraLastBar).getTime()) / 60000
     : null;
   const intraStale = intraAgeMin != null && intraAgeMin > INTRADAY_STALE_MINUTES;
+  const sessionDir = { qqqPct: quotes['QQQ']?.pct ?? null, spyPct: quotes['SPY']?.pct ?? null };
+  const chopVal = chopComposite(chopRaw, breadth, { blended: intraVal, stale: intraStale || intraVal == null }, sessionDir);
+  const chopDelta = chopRaw != null && chopRawPrev != null ? chopRaw - chopRawPrev : null;
+  const chopTrend: 'up' | 'down' | 'flat' =
+    chopDelta == null ? 'flat'
+      : chopDelta > CHOP_TREND_BAND ? 'up'
+      : chopDelta < -CHOP_TREND_BAND ? 'down'
+      : 'flat';
 
   const divergence = divergenceOf(chopVal, intraVal, bands);
 
@@ -972,10 +1010,10 @@ export default function MacroScorecard() {
     bands.blurb,
     '',
     `Daily (${chop?.period ?? 14} × 1d): QQQ ${chop?.qqq != null ? chop.qqq.toFixed(1) : '—'}, SPY ${chop?.spy != null ? chop.spy.toFixed(1) : '—'}, blended ${chopRaw != null ? chopRaw.toFixed(1) : '—'}`,
-    `Adjusted ${chopRaw != null && chopVal - chopRaw >= 0 ? '+' : ''}${chopRaw != null ? (chopVal - chopRaw).toFixed(1) : '0'} by breadth centrality and high/low balance.`,
+    `Adjusted ${chopRaw != null && chopVal - chopRaw >= 0 ? '+' : ''}${chopRaw != null ? (chopVal - chopRaw).toFixed(1) : '0'} by breadth${!intraStale && intraVal != null ? ', intraday blend' : ''}, and high/low balance.`,
     chopSpreadNote(chop?.qqq ?? null, chop?.spy ?? null),
     intraVal != null
-      ? `\nIntraday (${chop?.intraday?.windowMinutes ?? 210} min): ${intraVal.toFixed(1)} — ${chopZoneLabel(intraVal, bands)}. Raw, unadjusted.` +
+      ? `\nIntraday (${chop?.intraday?.windowMinutes ?? 210} min): ${intraVal.toFixed(1)} — ${chopZoneLabel(intraVal, bands)}.${!intraStale ? ' Blended into composite at 30%.' : ' Stale — not blended.'}` +
         `\nNewest closed bar ${formatClockShort(intraLastBar)} EST` +
         (chop?.intraday?.feedDelayMinutes ? ` · feed is ${chop.intraday.feedDelayMinutes}-min delayed` : '') +
         (intraStale ? '\nThis reading is not current — it describes the last session that traded.' : '')
@@ -1003,17 +1041,19 @@ export default function MacroScorecard() {
             MACRO SCORECARD
           </span>
 
-          <div className="flex flex-col items-center gap-1.5">
-            <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-              <span className={`text-[10px] font-bold tracking-widest uppercase ${stockStatus === 'LIVE' ? getSessionTextColor() : 'text-slate-500'}`}>
-                {stockStatus === 'LIVE' ? session : stockStatus === 'CONNECTING' ? 'Scouting...' : 'Offline'}
-              </span>
+          <div className="flex items-center gap-2">
+            <div className="flex flex-col items-center gap-1.5">
+              <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
+                <span className={`text-[10px] font-bold tracking-widest uppercase ${stockStatus === 'LIVE' ? getSessionTextColor() : 'text-slate-500'}`}>
+                  {stockStatus === 'LIVE' ? session : stockStatus === 'CONNECTING' ? 'Scouting...' : 'Offline'}
+                </span>
+              </div>
+              {lastUpdated && (
+                 <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
+                   Updated: {formatTime(lastUpdated)} EST
+                 </span>
+              )}
             </div>
-            {lastUpdated && (
-               <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
-                 Updated: {formatTime(lastUpdated)} EST
-               </span>
-            )}
           </div>
         </div>
 
@@ -1047,6 +1087,10 @@ export default function MacroScorecard() {
             setChopMode={setChopMode}
             bands={bands}
             divergence={divergence}
+            instSetup={instSetup}
+            instSignal={instSignal}
+            instPrevSetup={instPrevSetup}
+            instFlash={instFlash}
           />
 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4 relative z-10">
@@ -1096,9 +1140,17 @@ export default function MacroScorecard() {
                     </div>
 
                     <div className="flex flex-col items-end">
-                      <span className={`text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded ${isBullish ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-                        {isMathPositive ? '+' : ''}{pct.toFixed(2)}%
-                      </span>
+                      <div className="flex items-center gap-1">
+                        {asset.id === 'VIX' && q.prevLow != null && (
+                          <span className="text-[8px] text-slate-500 font-medium tabular-nums">PDL {q.prevLow.toFixed(2)}</span>
+                        )}
+                        <span className={`text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded ${isBullish ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                          {isMathPositive ? '+' : ''}{pct.toFixed(2)}%
+                        </span>
+                        {asset.id === 'VIX' && q.prevHigh != null && (
+                          <span className="text-[8px] text-slate-500 font-medium tabular-nums">PDH {q.prevHigh.toFixed(2)}</span>
+                        )}
+                      </div>
                       {q.isExtended && (
                         <span className="text-[8px] font-bold text-amber-500/80 tracking-wider mt-1 uppercase">
                           {session === 'Pre-Market' ? 'PRE' : 'POST'}
@@ -1111,11 +1163,11 @@ export default function MacroScorecard() {
                     <span className={`text-2xl font-semibold tracking-tight transition-colors duration-200 ${tickColor}`}>
                       {asset.type === 'crypto' && q.price > 100 ? q.price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : q.price.toFixed(2)}
                     </span>
-                    {q.isExtended && session === 'Pre-Market' && q.baseline > 0 && (
+                    {q.isExtended && session === 'Pre-Market' && q.baseline > 0 ? (
                       <span className="text-[9px] text-slate-500 font-medium">
                         Prev {q.baseline.toFixed(2)}
                       </span>
-                    )}
+                    ) : null}
                   </div>
 
                 </div>
@@ -1168,6 +1220,7 @@ export default function MacroScorecard() {
                 </div>
               </div>
             )}
+
           </div>
         </>
       )}

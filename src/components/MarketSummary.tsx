@@ -82,7 +82,7 @@
        A VCP base is weeks of accumulation resolving at some future pivot,
        which puts it at the far end of that scale. EP9M follows because a
        volume event with no headline is a research task rather than a trade,
-       and Industry Heat / ETF Flow / Money Flow close as context rather than
+       and Sector Concentration / ETF Flow / Money Flow close as context rather than
        candidates.
 
    v2.1 — MOBILE WIDTHS.
@@ -525,7 +525,7 @@ const dVolOf = (s: any): number => {
 
 /* Detects ETF-style sector strings: "ETF", "TICKER - ETF", or ETF_TARGET_MAP
    values like "QQQ - Nasdaq", "SOXX - Semi's -3X". Leveraged/sector products,
-   not industries — they belong in ETF Flow, not Industry Heat, and never in
+   not industries — they belong in ETF Flow, not Sector Concentration, and never in
    the 10/21 thesis. */
 const priceOf = (s: any): number | null => numOrNull(s?.price ?? s?.last ?? s?.close);
 const fmtPrc = (p: number | null | undefined): string => {
@@ -1588,7 +1588,7 @@ const buildLocalInsights = (
   })();
   const heat = industryHeat(moverPool, chgOf);
 
-  /* Sector Performance — the same aggregation Industry Heat lists, drawn as
+  /* Sector Performance — the same aggregation Sector Concentration lists, drawn as
      bars instead. Emitted in the "Name +1.2%" shape the briefing page's
      parseSectorItems already reads, so the two surfaces agree on the format
      as well as the numbers. Every group, not just the top four: a bar chart
@@ -1597,27 +1597,7 @@ const buildLocalInsights = (
     ? `Sector Performance: ${heat.map(h => `${h.sector} ${h.avgChg >= 0 ? '+' : ''}${h.avgChg.toFixed(2)}%`).join('\n')}`
     : '';
 
-  let heatPara = '';
-  if (heat.length >= 2) {
-    const fmtHeat = (h: { sector: string; avgChg: number; count: number }) =>
-      `${h.avgChg >= 0 ? '+' : ''}${h.avgChg.toFixed(1)}% ${h.sector} (${h.count})`;
-    const hot = heat.filter(h => h.avgChg > 0).slice(0, 4);
-    const cold = heat.filter(h => h.avgChg < 0).slice(-4).reverse();
-    if (hot.length && cold.length) {
-      const footer = [hot[0].avgChg - cold[0].avgChg >= 8
-        ? 'Wide dispersion between groups — a stock-picker\'s tape, stay in the leaders.'
-        : 'Group dispersion is narrow — moves are market-driven more than industry-driven.'];
-      heatPara = `Industry Heat: ${twoCol(
-        `Strongest:\n${hot.map(fmtHeat).join('\n')}`,
-        `Weakest:\n${cold.map(fmtHeat).join('\n')}`,
-        footer
-      )}`;
-    } else if (hot.length) {
-      heatPara = `Industry Heat: All tracked groups lean green:\n${hot.map(fmtHeat).join('\n')}\nBroad industry participation.`;
-    } else if (cold.length) {
-      heatPara = `Industry Heat: All tracked groups lean red:\n${cold.map(fmtHeat).join('\n')}\nNo industry shelter today.`;
-    }
-  }
+  const heatPara = 'Sector Concentration: interactive';
 
   const etfAll = [...(movers['ETF Gainers'] || []), ...(movers['ETF Losers'] || [])];
   const etfSeen = new Set<string>();
@@ -1668,7 +1648,7 @@ const buildLocalInsights = (
     /* Same shape as ETF Flow and as the briefing page: blurb, then rows. The
        "Dollar magnets:" heading and the trailing inflows sentence are gone —
        neither appears on the brief page, and the sector concentration they
-       reported is what Industry Heat is for. */
+       reported is what Sector Concentration is for. */
     if (magnets.length) moneyLines.push(magnets.join('\n'));
     moneyPara = `Money Flow: ${moneyLines.join('\n')}`;
   }
@@ -1984,22 +1964,22 @@ const postureChipCls = (tone: 'good' | 'warn' | 'bad'): string => {
    order and both read as short context blocks, so pairing them costs no
    reordering and saves a full section's height. */
 /* Which sections share a row, in pairs that are meant to be read across:
-   the sector bars beside Industry Heat (the same groups drawn and listed),
+   the sector bars beside Sector Concentration (the same groups drawn and listed),
    then ETF Flow beside Money Flow (the two halves of where the dollars went).
 
    PAIRING IS POSITIONAL — a paired section drops its `lg:col-span-2` and the
    grid fills in order, so partners must be ADJACENT in orderedParas. Moving
    one without the other silently re-pairs it with whatever lands next. */
-const PAIRED_SECTIONS = new Set(['Sector Performance', 'Industry Heat', 'ETF Flow', 'Money Flow']);
+const PAIRED_SECTIONS = new Set(['Sector Performance', 'Sector Concentration', 'ETF Flow', 'Money Flow']);
 
 const ALIGNED_SECTIONS = new Set([
   'Top Movers', 'SIPs Thesis', '$Vol Summary',
-  '10/21 Thesis', 'VCP Thesis', 'EP9M Thesis', '100-Bagger Thesis', 'Setups Summary', 'Industry Heat', 'ETF Flow', 'Money Flow',
+  '10/21 Thesis', 'VCP Thesis', 'EP9M Thesis', '100-Bagger Thesis', 'Setups Summary', 'Sector Concentration', 'ETF Flow', 'Money Flow',
   'Key Events',
 ]);
 
 /* A ROW starts with a ticker (all-caps, 1-5 chars, then a space) or with a
-   signed percentage (Industry Heat has no ticker). Prose never does, so
+   signed percentage (Sector Concentration has no ticker). Prose never does, so
    "$57.7B in tracked dollar volume..." keeps its natural spacing while the
    dollar magnets below it get aligned columns. */
 const isRowLine = (line: string): boolean => {
@@ -2732,22 +2712,32 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
         <p className="text-[10px] text-slate-500 font-medium">No names match the active filter.</p>
       ) : (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
-            <div className="space-y-0">
-              <div className="flex items-center gap-0">
-                <div className="w-[28px] shrink-0" />
-                <div className="flex-1 min-w-0"><SortableHeader sortKey={sortKey} sortDir={sortDir} onSort={handleSort} /></div>
+          {(() => {
+            const useTwoCols = filtered.length > 5;
+            const mid = useTwoCols ? Math.ceil(filtered.length / 2) : filtered.length;
+            const left = filtered.slice(0, mid);
+            const right = useTwoCols ? filtered.slice(mid) : [];
+            return (
+              <div className={useTwoCols ? 'grid grid-cols-1 md:grid-cols-2 gap-x-6' : ''}>
+                <div className="space-y-0">
+                  <div className="flex items-center gap-0">
+                    <div className="w-[28px] shrink-0" />
+                    <div className="flex-1 min-w-0"><SortableHeader sortKey={sortKey} sortDir={sortDir} onSort={handleSort} /></div>
+                  </div>
+                  {left.map((s, i) => renderSetupRow(s, i, gradeMap, dotMap, postureMap, avoidSet, rsMap, stageMap))}
+                </div>
+                {right.length > 0 && (
+                  <div className="space-y-0">
+                    <div className="hidden md:flex items-center gap-0">
+                      <div className="w-[28px] shrink-0" />
+                      <div className="flex-1 min-w-0"><SortableHeader sortKey={sortKey} sortDir={sortDir} onSort={handleSort} /></div>
+                    </div>
+                    {right.map((s, i) => renderSetupRow(s, 100 + i, gradeMap, dotMap, postureMap, avoidSet, rsMap, stageMap))}
+                  </div>
+                )}
               </div>
-              {filtered.slice(0, 10).map((s, i) => renderSetupRow(s, i, gradeMap, dotMap, postureMap, avoidSet, rsMap, stageMap))}
-            </div>
-            <div className="space-y-0">
-              <div className="hidden md:flex items-center gap-0">
-                <div className="w-[28px] shrink-0" />
-                <div className="flex-1 min-w-0"><SortableHeader sortKey={sortKey} sortDir={sortDir} onSort={handleSort} /></div>
-              </div>
-              {filtered.slice(10, 20).map((s, i) => renderSetupRow(s, 100 + i, gradeMap, dotMap, postureMap, avoidSet, rsMap, stageMap))}
-            </div>
-          </div>
+            );
+          })()}
           <p className="text-[10px] text-slate-500 font-medium mt-2">
             {filtered.length} name{filtered.length !== 1 ? 's' : ''}{activeKey ? ` — ${ALL_SETUP_FILTERS.find(f => f.key === activeKey)?.label ?? activeKey}` : ' — all scans'}.
           </p>
@@ -3070,7 +3060,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'EP9M Thesis', color: 'rose', blurb: 'Abnormal 9M+ volume. Left = unprecedented or catalyst-driven; right = no headline yet.' },
   { label: '100-Bagger Thesis', color: 'fuchsia', blurb: 'Compounders passing revenue growth and ROIC gates. A = 70+, B = 50+.' },
   { label: 'Sector Performance', color: 'amber', blurb: 'Average move per group, best to worst.' },
-  { label: 'Industry Heat', color: 'amber', blurb: 'Sector rotation — where money is arriving and where it is leaving.' },
+  { label: 'Sector Concentration', color: 'amber', blurb: 'Where scanner setups are clustering by sector.' },
   { label: 'ETF Flow', color: 'indigo', blurb: 'Heaviest ETF dollar volume and the advancing share.' },
   { label: 'Money Flow', color: 'rose', blurb: 'Tracked dollar volume — who is buying and where it concentrates.' },
   { label: 'Key Events', color: 'amber', blurb: 'Today\'s releases and large-cap prints. ▸ marks what has not happened yet.' },
@@ -3116,7 +3106,7 @@ const formatBriefingText = (text: string) => {
     .replace(/(VCP Thesis:)/gi, '\n\n$1')
     .replace(/(EP9M Thesis:)/gi, '\n\n$1')
     .replace(/(100-Bagger Thesis:)/gi, '\n\n$1')
-    .replace(/(Industry Heat:)/gi, '\n\n$1')
+    .replace(/(Sector Concentration:)/gi, '\n\n$1')
     .replace(/(ETF Flow:)/gi, '\n\n$1')
     .replace(/(Money Flow:)/gi, '\n\n$1')
     .replace(/(Key Events:)/gi, '\n\n$1')
@@ -3752,7 +3742,7 @@ export default function MarketSummary() {
                                 )}
                               </div>
                             )}
-                            <div className={`rounded-xl px-2.5 md:px-4 py-3 ${st.bg} ${label && PAIRED_SECTIONS.has(label) ? '' : 'lg:col-span-2'} ${label === 'Industry Heat' ? 'flex flex-col' : ''}`}>
+                            <div className={`rounded-xl px-2.5 md:px-4 py-3 ${st.bg} ${label && PAIRED_SECTIONS.has(label) ? '' : 'lg:col-span-2'} ${label === 'Sector Concentration' ? 'flex flex-col' : ''}`}>
                               {label && (
                                 <div className={isOpen ? 'mb-2' : ''}>
                                   <div
@@ -3799,7 +3789,7 @@ export default function MarketSummary() {
                                 </div>
                               )}
                               {/* Header for single-column aligned sections is now rendered inside the body block below */}
-                              {/* Industry Heat's rows start a hair higher than the
+                              {/* Sector Concentration's rows start a hair higher than the
                                   bars beside it, because SectorBars puts its first
                                   bar inside a padded panel. This nudges the rows
                                   down so "+43.0% Financials" lines up with the
@@ -3818,18 +3808,42 @@ export default function MarketSummary() {
                                 />
                               ) : isOpen && label === 'Sector Performance' ? (
                                 <SectorBars body={body} heat={macroInsights?.sectorHeat} />
-                              ) : isOpen && label === 'Industry Heat' && (macroInsights?.sectorHeat?.length ?? 0) >= 2 ? (
-                                <div className="flex-1 flex flex-col justify-center">
-                                  {macroInsights!.sectorHeat!.slice(0, 8).map((h, i) => (
-                                    <div key={i} className="flex items-center gap-2 py-[2px] text-[9px] tabular-nums">
-                                      <span className={`font-semibold w-[52px] text-right shrink-0 ${h.avgChg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                        {h.avgChg >= 0 ? '+' : ''}{h.avgChg.toFixed(1)}%
-                                      </span>
-                                      <span className="text-slate-300 truncate">{h.sector}</span>
-                                      <span className="text-slate-600 text-[9px]">({h.count})</span>
+                              ) : isOpen && label === 'Sector Concentration' ? (
+                                (() => {
+                                  const pool = macroInsights?.setupPool ?? [];
+                                  const sectorMap: Record<string, { count: number; totalChg: number }> = {};
+                                  pool.forEach((s: any) => {
+                                    const sec = s.sector && s.sector !== '—' && !isEtfSector(s.sector) ? displaySector(s.sector) : null;
+                                    if (!sec) return;
+                                    if (!sectorMap[sec]) sectorMap[sec] = { count: 0, totalChg: 0 };
+                                    sectorMap[sec].count += 1;
+                                    sectorMap[sec].totalChg += Number(s.changePct ?? s.chg ?? 0);
+                                  });
+                                  const sectors = Object.entries(sectorMap)
+                                    .map(([sector, d]) => ({ sector, count: d.count, avgChg: d.totalChg / d.count }))
+                                    .sort((a, b) => b.count - a.count);
+                                  const maxCount = sectors[0]?.count ?? 1;
+                                  if (sectors.length === 0) return <p className="text-[10px] text-slate-500">No sector data.</p>;
+                                  return (
+                                    <div className="flex-1 flex flex-col justify-center gap-[3px]">
+                                      {sectors.slice(0, 10).map((h, i) => (
+                                        <div key={i} className="flex items-center gap-2 py-[1px] text-[9px] tabular-nums">
+                                          <span className="text-slate-300 font-medium w-[72px] truncate shrink-0">{h.sector}</span>
+                                          <div className="flex-1 h-[6px] rounded-full bg-white/5 overflow-hidden">
+                                            <div
+                                              className={`h-full rounded-full ${h.avgChg >= 0 ? 'bg-emerald-500/50' : 'bg-rose-500/50'}`}
+                                              style={{ width: `${(h.count / maxCount) * 100}%` }}
+                                            />
+                                          </div>
+                                          <span className="text-slate-400 font-bold w-[16px] text-right shrink-0">{h.count}</span>
+                                          <span className={`font-semibold w-[42px] text-right shrink-0 ${h.avgChg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                            {h.avgChg >= 0 ? '+' : ''}{h.avgChg.toFixed(1)}%
+                                          </span>
+                                        </div>
+                                      ))}
                                     </div>
-                                  ))}
-                                </div>
+                                  );
+                                })()
                               ) : isOpen && label === 'Key Events' && macroInsights?.econEvents && macroInsights?.earningsEvents ? (
                                 <KeyEventsPanel econ={macroInsights.econEvents} earnings={macroInsights.earningsEvents} />
                               ) : isOpen && (
@@ -4132,11 +4146,22 @@ export default function MarketSummary() {
                                     const filt = stockParsed.map((p, i) => ({ p, i })).filter(({ p }) => passesScanFilter(scanFilter, p, { gradeMap: macroInsights?.gradeMap, postureMap: macroInsights?.postureMap, avoidSet: macroInsights?.avoidSet, dotMap: macroInsights?.dotMap }));
                                     const sortedFiltered = sortParsedRows(filt.map(ff => ff.p), activeSort.key, activeSort.dir).map(sr => filt[filt.map(ff => ff.p).indexOf(sr)].i);
                                     const hasHeader = !!label && !!SECTION_HEADERS[label];
+                                    const useTwoCols = sortedFiltered.length > 5;
+                                    const mid = useTwoCols ? Math.ceil(sortedFiltered.length / 2) : sortedFiltered.length;
+                                    const leftIdxs = sortedFiltered.slice(0, mid);
+                                    const rightIdxs = useTwoCols ? sortedFiltered.slice(mid) : [];
+                                    const hdrEl = hasHeader ? <SortableHeader sortKey={ss?.key ?? 'cnf'} sortDir={ss?.dir ?? 'desc'} onSort={(k) => handleSectionSort(sk, k)} isVcp={label === 'VCP Thesis'} /> : null;
                                     return (
                                       <div className="space-y-1.5">
                                         {nonStock.length > 0 && <div className="space-y-1 mb-1">{nonStock}</div>}
-                                        {hasHeader && <SortableHeader sortKey={ss?.key ?? 'cnf'} sortDir={ss?.dir ?? 'desc'} onSort={(k) => handleSectionSort(sk, k)} isVcp={label === 'VCP Thesis'} />}
-                                        {sortedFiltered.map((idx, i) => renderLine(stockLines[idx], 1000 + i))}
+                                        {useTwoCols ? (
+                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                                            <div>{hdrEl}{leftIdxs.map((idx, i) => renderLine(stockLines[idx], 1000 + i))}</div>
+                                            <div><div className="hidden md:block">{hdrEl}</div>{rightIdxs.map((idx, i) => renderLine(stockLines[idx], 2000 + i))}</div>
+                                          </div>
+                                        ) : (
+                                          <>{hdrEl}{leftIdxs.map((idx, i) => renderLine(stockLines[idx], 1000 + i))}</>
+                                        )}
                                       </div>
                                     );
                                   })()

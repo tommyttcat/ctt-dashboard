@@ -45,6 +45,9 @@ import {
   mmTodayTone,
   mmCellTone,
   mmRatioLabel,
+  instDirCellTone,
+  type InstDirSetup,
+  type InstDirSignal,
 } from '@/lib/indicators/marketScorecard';
 
 /* ---- Shared slot widths --------------------------------------------------
@@ -178,6 +181,10 @@ export interface MacroScorecardPanelProps {
   chopMode: ChopMode;
   setChopMode: (m: ChopMode) => void;
   bands: ChopBands;
+  instSetup?: InstDirSetup;
+  instSignal?: InstDirSignal;
+  instPrevSetup?: InstDirSetup | null;
+  instFlash?: boolean;
   /* The briefing renders the cell grid alone — same cells, same thresholds,
      same styling, without the internals strips and CHOP regime card the
      dashboard carries underneath. */
@@ -206,6 +213,10 @@ export default function MacroScorecardPanel({
   chopMode,
   setChopMode,
   bands,
+  instSetup,
+  instSignal,
+  instPrevSetup,
+  instFlash,
   cellsOnly = false,
 }: MacroScorecardPanelProps) {
   return (
@@ -216,7 +227,7 @@ export default function MacroScorecardPanel({
           color === 'green' ? 'bg-emerald-500/8 border-emerald-500/20' : color === 'red' ? 'bg-rose-500/8 border-rose-500/20' : color === 'amber' ? 'bg-amber-500/8 border-amber-500/20' : 'bg-slate-500/8 border-white/10';
         const scValCls = (color: 'green' | 'amber' | 'red' | 'slate') =>
           color === 'green' ? 'text-emerald-400' : color === 'red' ? 'text-rose-400' : color === 'amber' ? 'text-amber-400' : 'text-slate-300';
-        type SC = { label: string; value: string; valueNode?: React.ReactNode; sub?: string; color: 'green' | 'amber' | 'red' | 'slate'; subColor?: 'green' | 'amber' | 'red' | 'slate'; title?: string };
+        type SC = { label: string; value: string; valueNode?: React.ReactNode; sub?: string; subNode?: React.ReactNode; color: 'green' | 'amber' | 'red' | 'slate'; subColor?: 'green' | 'amber' | 'red' | 'slate'; title?: string; extraClass?: string };
         const cells: SC[] = [];
 
         /* ---- Order is the reading order ---------------------------------
@@ -232,6 +243,35 @@ export default function MacroScorecardPanel({
           color: toneCellTone(marketTone),
           title: 'Weighted read of the session.\n\nSPY x3, QQQ x2.5, IWM x1 — a small-cap-only move is not the market. VIX counts only when it moves more than 2% and is inverted, since rising fear is bearish. Bitcoin carries a small risk-appetite weight. Breadth score nudges the total.\n\nBULLISH above +1.0, BEARISH below -1.0, NEUTRAL between.',
         });
+
+        if (instSetup && instSignal) {
+          cells.push({
+            label: 'INST DIR',
+            value: instSignal,
+            subNode: instPrevSetup && instPrevSetup !== instSetup
+              ? <>{instSetup}<br /><span className="text-[8px] text-slate-600">was {instPrevSetup}</span></>
+              : <>{instSetup}</>,
+            color: instDirCellTone(instSignal),
+            extraClass: instFlash ? 'animate-inst-flash' : '',
+            title: 'Institutional Direction — VIX-ES correlation.\n\nVIX pricing drives ~90% of S&P algorithmic volume. Rising VIX = put demand = sell programs. Falling VIX = pressure off = buy programs.\n\nBULLS: VIX pressure off, bear trap, or selling exhaustion.\nBEARS: VIX pressure on, confirmed breakdown, or 1% divergence.\nNEUTRAL: no active setup.',
+          });
+        }
+
+        {
+          const vixQ = quotes['VIX'];
+          if (vixQ?.price) {
+            const vPct = Number(vixQ.pct);
+            const sign = vPct >= 0 ? '+' : '';
+            cells.push({
+              label: 'VIX',
+              value: Number(vixQ.price).toFixed(2),
+              sub: `${sign}${vPct.toFixed(2)}%`,
+              color: vixPctTone(vPct),
+              subColor: vixPctTone(vPct),
+              title: 'CBOE Volatility Index — the market\'s 30-day expectation of movement.\n\nBelow 18 is calm, 18-25 is elevated, above 25 is stressed. Falling VIX into a rising tape is confirmation; rising VIX into a rising tape is a warning.',
+            });
+          }
+        }
 
         if (breadth) {
           cells.push({
@@ -332,20 +372,6 @@ export default function MacroScorecardPanel({
           });
         }
 
-        const vixQ = quotes['VIX'];
-        if (vixQ?.price) {
-          const vPct = Number(vixQ.pct);
-          const sign = vPct >= 0 ? '+' : '';
-          cells.push({
-            label: 'VIX',
-            value: Number(vixQ.price).toFixed(2),
-            sub: `${sign}${vPct.toFixed(2)}%`,
-            color: vixPctTone(vPct),
-            subColor: vixPctTone(vPct),
-            title: 'CBOE Volatility Index — the market\'s 30-day expectation of movement.\n\nBelow 18 is calm, 18-25 is elevated, above 25 is stressed. Falling VIX into a rising tape is confirmation; rising VIX into a rising tape is a warning.',
-          });
-        }
-
         if (chopVal != null) {
           cells.push({
             label: 'CHOP',
@@ -360,13 +386,13 @@ export default function MacroScorecardPanel({
           <div className="mb-4 relative z-10">
             <div className={`grid grid-cols-3 md:grid-cols-5 gap-2 ${cells.length >= 9 ? 'xl:grid-cols-9' : cells.length === 8 ? 'xl:grid-cols-8' : 'xl:grid-cols-7'}`}>
               {cells.map((c) => (
-                <div key={c.label} className={`rounded-lg border px-3.5 py-3 text-center ${scCellCls(c.color)}`}>
-                  <div className="text-[8px] font-bold uppercase tracking-[0.08em] text-slate-500 mb-1 flex items-center justify-center gap-1">
+                <div key={c.label} className={`rounded-lg border px-2.5 py-2 text-center flex flex-col items-center justify-center ${scCellCls(c.color)} ${c.extraClass ?? ''}`}>
+                  <div className="text-[7px] font-bold uppercase tracking-[0.08em] text-slate-500 mb-0.5 flex items-center justify-center gap-1">
                     <span className="truncate">{c.label}</span>
                     {c.title && <InfoDot text={c.title} />}
                   </div>
-                  <div className={`text-[15px] font-bold tabular-nums leading-tight ${scValCls(c.color)}`}>{c.valueNode ?? c.value}</div>
-                  {c.sub && <div className={`text-[10px] mt-0.5 truncate ${c.subColor ? scValCls(c.subColor) : 'text-slate-500'}`}>{c.sub}</div>}
+                  <div className={`text-[13px] font-bold tabular-nums leading-tight ${scValCls(c.color)}`}>{c.valueNode ?? c.value}</div>
+                  {(c.sub || c.subNode) && <div className={`text-[9px] mt-0.5 ${c.subNode ? '' : 'truncate'} ${c.subColor ? scValCls(c.subColor) : 'text-slate-500'}`}>{c.subNode ?? c.sub}</div>}
                 </div>
               ))}
             </div>
@@ -505,7 +531,7 @@ export default function MacroScorecardPanel({
 
             <span
               className={`text-sm font-bold leading-none ${STRIP_ARROW_W} ${
-                chopTrend === 'up' ? chopColor(chopVal, bands) : chopTrend === 'down' ? 'text-emerald-400' : 'text-slate-600'
+                chopTrend === 'up' ? chopColor(chopVal, bands) : chopTrend === 'down' ? chopColor(chopVal, bands) : 'text-slate-600'
               }`}
               title={
                 chopDelta == null ? 'No prior bar to compare'
@@ -645,11 +671,7 @@ export default function MacroScorecardPanel({
                 direction to report, so it keeps the zone word. */}
             <div className={`flex items-center gap-4 ${STRIP_CLUSTER_W}`}>
               <span className={`flex items-center whitespace-nowrap ${STRIP_NOTE_W}`}>
-                <span className={`text-[9px] font-bold tracking-widest uppercase ${
-                  chopTrend === 'down' ? 'text-emerald-400'
-                  : chopTrend === 'up' ? chopColor(chopVal, bands)
-                  : chopColor(chopVal, bands)
-                }`}>
+                <span className={`text-[9px] font-bold tracking-widest uppercase ${chopColor(chopVal, bands)}`}>
                   {chopTrend === 'down' ? 'Trending Down'
                     : chopTrend === 'up' ? 'Trending Up'
                     : chopZoneLabel(chopVal, bands)}
