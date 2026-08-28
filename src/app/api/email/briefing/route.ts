@@ -28,6 +28,9 @@ import {
   mmTodayTone,
   mmCellTone,
   mmRatioLabel,
+  instDirSetup,
+  instDirSignal,
+  instDirCellTone,
 } from '@/lib/indicators/marketScorecard';
 import { dedupeByTicker, chgOf, dVolOf, advancingDollarShare } from '@/lib/indicators/marketMath';
 import { postToBluesky } from '@/lib/bluesky';
@@ -35,7 +38,7 @@ import { postToX } from '@/lib/twitter';
 import { stageHex as stageColor } from '@/lib/indicators/stage';
 import { cnfHex, rvolHex, rsHex } from '@/lib/indicators/columnColors';
 import { newsStarCount } from '@/lib/newsStars';
-import { industryHeat } from '@/lib/sectors';
+import { isEtfSector, displaySector } from '@/lib/sectors';
 import { getEmailRecipients } from '@/lib/users';
 
 export const dynamic = 'force-dynamic';
@@ -97,9 +100,9 @@ function trimToSentence(text: string, max: number): string {
   return chunk.slice(0, chunk.lastIndexOf(' ')).replace(/[,;:\s]+$/, '').trim();
 }
 
-const BADGE = 'display:inline-block;font-size:6px;font-weight:700;border-radius:3px;width:18px;line-height:12px;text-align:center;border:1px solid';
+const BADGE = 'display:inline-block;font-size:8px;font-weight:700;border-radius:3px;padding:1px 4px;line-height:14px;text-align:center;border:1px solid';
 function rsPillHtml(rs: number | null | undefined): string {
-  if (rs == null) return '';
+  if (rs == null) return '<span style="color:#475569;">-</span>';
   const [bg, bc, tx] = rs >= 90 ? ['#3b0764','#6b21a8','#c084fc']
     : rs >= 80 ? ['#042f2e','#065f46','#34d399']
     : rs >= 70 ? ['#1e293b','#ffffff1a','#cbd5e1']
@@ -108,7 +111,7 @@ function rsPillHtml(rs: number | null | undefined): string {
 }
 function stagePillHtml(stage: string | null | undefined): string {
   const s = stripStage(String(stage || ''));
-  if (!s || s === '—') return '';
+  if (!s || s === '—') return '<span style="color:#475569;">-</span>';
   const u = s.toUpperCase();
   const [bg, bc, tx] = u.startsWith('2')
     ? (u === '2C' ? ['#422006','#854d0e','#fbbf24'] : u === '2B' ? ['#042f2e','#065f46','#6ee7b7'] : ['#042f2e','#065f46','#34d399'])
@@ -270,11 +273,11 @@ function noteBlocksHtml(arr: string[], known: Set<string>, color = '#cbd5e1'): s
           : `<strong style="color:#f1f5f9;">${richHtml(lead, known)}</strong>`;
       /* No space before a comma or full stop — the lead is mid-sentence. */
       const glue = leadHtml && rest && !/^[,.;:!?)]/.test(rest) ? ' ' : '';
-      return `<div style="${sep}font-size:10px;color:${color};line-height:1.6;">${leadHtml}${glue}${richHtml(rest || (lead ? '' : s), known)}</div>`;
+      return `<div style="${sep}font-size:12px;color:${color};line-height:1.6;">${leadHtml}${glue}${richHtml(rest || (lead ? '' : s), known)}</div>`;
     }
 
     return `<div style="${sep}">
-      <div style="font-size:10px;font-weight:700;color:#f1f5f9;line-height:1.5;">${richHtml(lead, known)}</div>
+      <div style="font-size:12px;font-weight:700;color:#f1f5f9;line-height:1.5;">${richHtml(lead, known)}</div>
       <div style="font-size:8px;color:${color};line-height:1.5;padding-left:12px;margin-top:4px;">${richHtml(rest, known)}</div>
     </div>`;
   }).join('');
@@ -286,8 +289,8 @@ function parseLabeled(text: string): LabeledRow[] {
   const rows: LabeledRow[] = [];
   for (const line of String(text || '').split('\n')) {
     if (!line.trim()) continue;
-    const m = line.match(/^\*{0,2}([A-Za-z0-9\s/&']+?)\*{0,2}:\s*(.+)/);
-    if (!m) continue;
+    const m = line.match(/^\*{0,2}([A-Za-z0-9\s/&']+?)\*{0,2}:(?!\d)\s*(.+)/);
+    if (!m || m[1].trim().length > 15) continue;
     const label = m[1].trim().replace(/\*+/g, '');
     const rest = m[2].replace(/\*+/g, '').trim();
     const i = rest.indexOf(' — ');
@@ -305,13 +308,13 @@ function formattedBlockHtml(text: string, known: Set<string>): string {
   if (!rows.length) {
     const rawLines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean);
     return rawLines.map((p, i) =>
-      `<div style="border-left:2px solid #334155;padding-left:10px;${i > 0 ? 'margin-top:12px;' : ''}font-size:10px;color:#cbd5e1;line-height:1.7;">${richHtml(p, known)}</div>`
+      `<div style="border-left:2px solid #334155;padding-left:10px;${i > 0 ? 'margin-top:12px;' : ''}font-size:12px;color:#cbd5e1;line-height:1.7;">${richHtml(p, known)}</div>`
     ).join('');
   }
   return rows.map((r, i) =>
     `<div style="${i > 0 ? 'border-top:1px solid #ffffff0d;padding-top:10px;margin-top:10px;' : ''}">
       <div style="font-size:8px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#64748b;margin-bottom:4px;">${r.label}</div>
-      <div style="font-size:10px;color:#cbd5e1;line-height:1.7;">${richHtml(r.value, known)}</div>
+      <div style="font-size:12px;color:#cbd5e1;line-height:1.7;">${richHtml(r.value, known)}</div>
       ${r.detail ? `<div style="font-size:8px;color:#94a3b8;line-height:1.6;margin-top:4px;">${richHtml(r.detail.charAt(0).toUpperCase() + r.detail.slice(1), known)}</div>` : ''}
     </div>`
   ).join('');
@@ -321,10 +324,10 @@ function formattedBlockHtml(text: string, known: Set<string>): string {
    indigo pill title with dot — mirrors AnalystBrief.tsx SectionCard. */
 function pageCard(title: string, accent: string, bodyHtml: string, _tint = '0a'): string {
   if (!bodyHtml) return '';
-  return `<div style="margin-bottom:12px;border-radius:14px;border:1px solid #ffffff0f;padding:14px 16px;">
-      <div style="margin-bottom:10px;border-bottom:1px solid #ffffff08;padding-bottom:8px;">
-        <span style="display:inline-block;font-size:8px;font-weight:700;color:#7c8bfa;background:#161c2a;border:1px solid #ffffff0d;padding:3px 8px;border-radius:4px;letter-spacing:0.14em;text-transform:uppercase;">
-          <span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#7c8bfa;margin-right:6px;vertical-align:middle;"></span>${title}
+  return `<div style="margin-bottom:16px;border-left:3px solid ${accent};padding-left:12px;">
+      <div style="margin-bottom:10px;">
+        <span style="display:inline-block;font-size:8px;font-weight:700;color:${accent};background:#161c2a66;border:1px solid #ffffff0d;padding:2px 8px;border-radius:4px;letter-spacing:0.14em;text-transform:uppercase;">
+          <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${accent};margin-right:6px;vertical-align:middle;"></span>${title}
         </span>
       </div>
       ${bodyHtml}
@@ -346,32 +349,6 @@ function parseSectorItems(raw: string): { name: string; pct: number }[] {
   return out;
 }
 
-function sectorBarsFromHeat(heat: { sector: string; avgChg: number; count: number }[]): string {
-  const all = heat.slice(0, 10).sort((a, b) => b.avgChg - a.avgChg);
-  if (!all.length) return '';
-  const maxAbs = Math.max(...all.map((s) => Math.abs(s.avgChg)), 0.01);
-  const spread = all[0].avgChg - all[all.length - 1].avgChg;
-
-  const rows = all.map((s) => {
-    const w = Math.max(2, Math.round((Math.abs(s.avgChg) / maxAbs) * 46));
-    const pos = s.avgChg >= 0;
-    const bar = pos
-      ? `<td width="50%" style="padding:0;"></td><td width="50%" style="padding:0;"><div style="width:${w * 2}%;height:14px;border-radius:3px;background:linear-gradient(90deg,#065f46,#34d399);"></div></td>`
-      : `<td width="50%" style="padding:0;text-align:right;"><div style="width:${w * 2}%;height:14px;border-radius:3px;background:linear-gradient(90deg,#fb7185,#7f1d3a);margin-left:auto;"></div></td><td width="50%" style="padding:0;"></td>`;
-    return `<tr>
-      <td width="26%" style="padding:3px 8px 3px 0;text-align:right;font-size:8px;color:${pos ? '#34d399' : '#cbd5e1'};">${s.sector}</td>
-      <td width="58%" style="padding:3px 0;"><table width="100%" style="border-collapse:collapse;"><tr>${bar}</tr></table></td>
-      <td width="16%" style="padding:3px 0 3px 8px;text-align:right;font-size:8px;font-weight:700;color:${pos ? '#34d399' : '#fb7185'};">${fmtPct(s.avgChg)}</td>
-    </tr>`;
-  }).join('');
-
-  return `<div style="padding:6px 8px;height:100%;box-sizing:border-box;border-left:3px solid #34d399;">
-    <table width="100%" style="border-collapse:collapse;margin:0 0 6px;"><tr>
-      <td style="text-align:right;font-size:8px;color:#475569;">Spread ${spread.toFixed(2)}%</td>
-    </tr></table>
-    <table width="100%" style="border-collapse:collapse;">${rows}</table>
-  </div>`;
-}
 
 /* Horizontal bars growing from a centre line, same as the page's sector chart. */
 function sectorBarsHtml(text: string): string {
@@ -419,6 +396,60 @@ function sectorBarsHtml(text: string): string {
    different pool with different prose, so the same section looked like three
    sections and reported different numbers. Rows, limits, shares and blurb
    wording below are SectorSection's. */
+function buildSetupPool(snapshot: any): any[] {
+  const sip = snapshot?.stocksInPlay || {};
+  const seen = new Set<string>();
+  const out: any[] = [];
+  const add = (arr: any[]) => {
+    for (const s of arr) {
+      const t = s?.ticker ?? s?.symbol;
+      if (!t || seen.has(t)) continue;
+      seen.add(t);
+      out.push({ ...s, ticker: t });
+    }
+  };
+  add(Array.isArray(sip.stocksInPlay) ? sip.stocksInPlay : []);
+  add(Array.isArray(sip.dailySetups) ? sip.dailySetups : []);
+  add(Array.isArray(snapshot?.ep9m?.candidates) ? snapshot.ep9m.candidates : []);
+  add(Array.isArray(snapshot?.swingCandidates?.candidates) ? snapshot.swingCandidates.candidates : []);
+  add(Array.isArray(snapshot?.vcp?.candidates) ? snapshot.vcp.candidates : []);
+  add(Array.isArray(snapshot?.multibagger?.candidates) ? snapshot.multibagger.candidates : []);
+  return out;
+}
+
+function sectorConcentrationHtml(pool: any[]): string {
+  const sectorMap: Record<string, { count: number; totalChg: number }> = {};
+  pool.forEach((s: any) => {
+    const sec = s.sector && s.sector !== '—' && !isEtfSector(s.sector) ? displaySector(s.sector) : null;
+    if (!sec || sec === '—' || sec.toLowerCase() === 'other') return;
+    if (!sectorMap[sec]) sectorMap[sec] = { count: 0, totalChg: 0 };
+    sectorMap[sec].count += 1;
+    sectorMap[sec].totalChg += Number(s.changePct ?? s.chg ?? 0);
+  });
+  const sectors = Object.entries(sectorMap)
+    .map(([sector, d]) => ({ sector, count: d.count, avgChg: d.totalChg / d.count }))
+    .sort((a, b) => b.count - a.count);
+  if (!sectors.length) return '';
+  const maxCount = sectors[0].count;
+  const rows = sectors.slice(0, 10).map((h) => {
+    const pos = h.avgChg >= 0;
+    const barW = Math.max(4, Math.round((h.count / maxCount) * 100));
+    return `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:8px;">
+      <span style="color:#cbd5e1;font-weight:500;width:60px;flex-shrink:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">${h.sector}</span>
+      <div style="flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,0.05);overflow:hidden;">
+        <div style="width:${barW}%;height:100%;border-radius:3px;background:${pos ? 'rgba(52,211,153,0.5)' : 'rgba(251,113,133,0.5)'};"></div>
+      </div>
+      <span style="color:#94a3b8;font-weight:700;width:16px;text-align:right;flex-shrink:0;">${h.count}</span>
+      <span style="font-weight:600;width:42px;text-align:right;flex-shrink:0;color:${pos ? '#34d399' : '#fb7185'};">${pos ? '+' : ''}${h.avgChg.toFixed(1)}%</span>
+    </div>`;
+  }).join('');
+  return `<div style="padding:6px 12px;height:100%;box-sizing:border-box;border-left:3px solid #fbbf24;">
+    <div style="font-size:9px;font-weight:700;color:#fbbf24;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:4px;">Sector Concentration</div>
+    <div style="font-size:8px;color:#64748b;margin-bottom:6px;">Where scanner setups are clustering by sector.</div>
+    ${rows}
+  </div>`;
+}
+
 function sectorsCardHtml(sectorText: string, snapshot: any): string {
   const movers = snapshot?.stocksInPlay?.topMovers || {};
 
@@ -440,25 +471,11 @@ function sectorsCardHtml(sectorText: string, snapshot: any): string {
   const mfShare = advancingDollarShare(flowAll);
   const totalDVol = flowAll.reduce((a: number, s: any) => a + dVolOf(s), 0);
 
-  const heat = industryHeat(flowAll, chgOf);
-  const bars = heat.length >= 2 ? sectorBarsFromHeat(heat) : (sectorText ? sectorBarsHtml(sectorText) : '');
-  const heatHtml = heat.length >= 2 ? (() => {
-    const rows = heat.slice(0, 8).map((h: any) => {
-      const pos = h.avgChg >= 0;
-      return `<div style="display:flex;align-items:center;gap:6px;padding:1px 0;font-size:8px;">
-        <span style="font-weight:600;width:44px;text-align:right;flex-shrink:0;color:${pos ? '#34d399' : '#fb7185'};">${pos ? '+' : ''}${h.avgChg.toFixed(1)}%</span>
-        <span style="color:#cbd5e1;">${h.sector}</span>
-        <span style="color:#475569;font-size:8px;">(${h.count})</span>
-      </div>`;
-    }).join('');
-    return `<div style="padding:6px 12px;height:100%;box-sizing:border-box;border-left:3px solid #fbbf24;">
-      <div style="font-size:9px;font-weight:700;color:#fbbf24;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:4px;">Industry Heat</div>
-      <div style="font-size:8px;color:#64748b;margin-bottom:6px;">Sector rotation — where money is arriving and where it is leaving.</div>
-      ${rows}
-    </div>`;
-  })() : '';
+  const setupPool = buildSetupPool(snapshot);
+  const bars = sectorText ? sectorBarsHtml(sectorText) : '';
+  const concHtml = sectorConcentrationHtml(setupPool);
 
-  const topRow = (bars || heatHtml) ? twoColHtml(bars, heatHtml) : '';
+  const topRow = (bars || concHtml) ? twoColHtml(bars, concHtml) : '';
   const tables = twoColHtml(
     flowTableHtml('ETF Flow', '#818cf8',
       `${etfShare}% of ETF dollars on the advancing side${etfShare >= 60 ? ' — chasing strength.' : etfShare <= 40 ? ' — favoring defense.' : ' — no clean bet.'}`,
@@ -490,7 +507,8 @@ function pageStockTable(stocks: any[], opts: { red?: boolean } = {}): string {
     const dv = s.dVol ?? s.dvol ?? (s.price && (s.vol || s.volume) ? s.price * (s.vol || s.volume) : 0);
     const grade = s.grade || '';
     const stage = stripStage(String(s.stage || ''));
-    const rs = s.rs ?? s.rsRating ?? null;
+    const rsRaw = s.rs ?? s.rsRating ?? null;
+    const rs = (typeof rsRaw === 'number' && Number.isFinite(rsRaw)) ? rsRaw : (Number.isFinite(Number(rsRaw)) ? Number(rsRaw) : null);
     return `<tr>
       <td class="d" style="padding-left:0;white-space:nowrap;">${opts.red ? tickerChipRed(s.ticker) : tickerChip(s.ticker, grade)}</td>
       <td class="d" style="text-align:center;">${cnfPill(s.score, grade)}</td>
@@ -553,7 +571,7 @@ function flowTableHtml(title: string, color: string, blurb: string, rows: any[])
   }).join('');
 
   const borderClr = color === '#818cf8' ? '#6366f1' : '#f43f5e';
-  return `<div style="border-left:3px solid ${borderClr};padding:6px 12px;">
+  return `<div style="padding:6px 0;">
     <div style="font-size:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${borderClr};margin-bottom:3px;">${title}</div>
     <div style="font-size:8px;color:#94a3b8;line-height:1.5;margin-bottom:4px;">${blurb}</div>
     <table width="100%" style="border-collapse:collapse;">
@@ -588,7 +606,7 @@ function twoColHtml(left: string, right: string): string {
 
 function panel(title: string, color: string, bodyHtml: string): string {
   if (!bodyHtml) return '';
-  return `<div style="overflow:hidden;height:100%;border-left:3px solid ${color};padding:6px 12px;">
+  return `<div style="overflow:hidden;height:100%;padding:6px 0;">
       <div style="font-size:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${color};margin-bottom:4px;">${title}</div>
       ${bodyHtml}
   </div>`;
@@ -842,9 +860,9 @@ function sessionUpdatesHtml(brief: any, known: Set<string>, latestOnly?: boolean
     const themeKey = dir === 'up' ? 'emerald' : dir === 'down' ? 'rose' : (block.colorTheme || 'indigo');
     const st = SESSION_THEME[themeKey] || SESSION_THEME.indigo;
     const paras = (block.paragraphs || []).map((p: string) =>
-      `<div style="font-size:10px;color:#94a3b8;line-height:1.6;border-left:2px solid #334155;padding-left:8px;margin-bottom:6px;">${richHtml(p, known)}</div>`
+      `<div style="font-size:12px;color:#94a3b8;line-height:1.6;margin-bottom:6px;">${richHtml(p, known)}</div>`
     ).join('');
-    return `<div style="border-left:3px solid ${st.dot};padding:6px 12px;margin-top:8px;">
+    return `<div style="padding:6px 0;margin-top:8px;">
       <div style="margin-bottom:10px;">
         <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${st.dot};vertical-align:middle;margin-right:8px;"></span>
         <span style="font-size:8px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:${st.label};vertical-align:middle;">${block.phase || ''}</span>
@@ -852,7 +870,7 @@ function sessionUpdatesHtml(brief: any, known: Set<string>, latestOnly?: boolean
       </div>
       ${paras}
       <div style="border-left:4px solid ${st.boxBorder};padding:10px 12px;">
-        <div style="font-size:10px;line-height:1.6;color:${st.boxText};">${richHtml(block.takeaway || '', known)}</div>
+        <div style="font-size:12px;line-height:1.6;color:${st.boxText};">${richHtml(block.takeaway || '', known)}</div>
       </div>
     </div>`;
   }).join('');
@@ -937,6 +955,24 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
       color: vixPctTone(Number(vixQ.pct ?? 0)),
     });
   }
+  {
+    const spyQ = quotes['SPY'];
+    const qqqQ = quotes['QQQ'];
+    if (spyQ?.price && qqqQ?.price && vixQ?.price) {
+      const setup = instDirSetup(
+        spyQ.price, spyQ.prevLow ?? null, spyQ.pct ?? 0,
+        qqqQ.price, qqqQ.prevLow ?? null,
+        vixQ.price, vixQ.prevHigh ?? null, vixQ.pct ?? 0,
+      );
+      const signal = instDirSignal(setup);
+      scCells.push({
+        label: 'INST DIR',
+        value: signal,
+        sub: setup,
+        color: instDirCellTone(signal),
+      });
+    }
+  }
   if (chopVal != null) {
     scCells.push({
       label: 'CHOP',
@@ -958,7 +994,18 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
     ...(movers['Gainers'] || []), ...(movers['Losers'] || []), ...(movers['Mega Caps'] || []),
   ]);
 
-  const sections = brief?.sections || [];
+  const scannerLookup: Record<string, any> = {};
+  for (const s of flowPool) if (s?.ticker) scannerLookup[s.ticker] = s;
+
+  const sections = (brief?.sections || []).map((sec: any) => ({
+    ...sec,
+    stocks: (sec.stocks || []).map((s: any) => {
+      const sc = scannerLookup[s.ticker];
+      if (!sc) return s;
+      const rsVal = s.rs != null && typeof s.rs === 'number' ? s.rs : null;
+      return { ...s, rs: rsVal ?? sc.rsRating ?? sc.rs ?? null, stage: s.stage || sc.stage || undefined };
+    }),
+  }));
   const summary = brief?.summary || {};
   const topTrades = sections.find((s: any) => s.section === 'Top Trades')?.stocks || [];
   const topAvoid = sections.find((s: any) => s.section === 'Top Avoid')?.stocks || [];
@@ -1052,7 +1099,7 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
           ? twoColHtml(pageStockTable(sipStocks.slice(0, sipMid)), pageStockTable(sipStocks.slice(sipMid)))
           : '') +
         (sipSec?.analysis
-          ? `<div style="font-size:10px;color:#cbd5e1;line-height:1.6;margin-top:10px;">${richHtml(sipSec.analysis, knownTickers)}</div>`
+          ? `<div style="margin-top:10px;">${formattedBlockHtml(sipSec.analysis, knownTickers)}</div>`
           : ''))
     : '';
 
@@ -1128,9 +1175,9 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
   /* Repeated cell/chip styling, hoisted out of the markup to keep the message
      under Gmail's clip threshold — see minify(). Colour and alignment stay
      inline so they survive a client that strips this block. */
-  .d { padding: 2px 2px; font-size: 9px; }
-  .h { padding: 2px 2px; font-size: 7px; color: #475569; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; border-bottom: 1px solid #ffffff10; }
-  .tk { display: inline-block; background: #1b2434; border: 1px solid #2a3446; border-radius: 3px; padding: 0px 3px; font-size: 6px; font-weight: 700; letter-spacing: .06em; color: #cbd5e1; }
+  .d { padding: 2px 2px; font-size: 8px; }
+  .h { padding: 2px 2px; font-size: 8px; color: #475569; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; border-bottom: 1px solid #ffffff10; }
+  .tk { display: inline-block; background: #1b2434; border: 1px solid #2a3446; border-radius: 3px; padding: 1px 4px; font-size: 8px; font-weight: 700; letter-spacing: .06em; color: #cbd5e1; }
   .tk.a { background: #042f2e; border-color: #115e59; color: #6ee7b7; }
   .tk.b { background: #422006; border-color: #854d0e; color: #fde68a; }
   .tk.r { background: #4c0519; border-color: #7f1d3a; color: #fecdd3; }
@@ -1147,27 +1194,30 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
 </head>
 <body style="margin:0;padding:0;background:#020408;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#020408;"><tr><td align="center" style="padding:0;">
-  <div class="shell" style="max-width:900px;margin:0 auto;background:#05080f;border-left:1px solid #0f1729;border-right:1px solid #0f1729;text-align:left;">
+  <!--[if mso]><table width="900" cellpadding="0" cellspacing="0" align="center"><tr><td><![endif]-->
+  <table cellpadding="0" cellspacing="0" align="center" style="max-width:900px;width:100%;background:#05080f;border-left:1px solid #0f1729;border-right:1px solid #0f1729;"><tr><td style="padding:0;text-align:left;">
     <table width="100%" cellpadding="0" cellspacing="0"><tr>
       <td style="height:3px;background:#6366f1;"></td>
     </tr></table>
-    <div style="padding:20px 16px;">
+    <div style="padding:20px 20px;">
 
     <div style="padding:10px 0 12px;border-bottom:1px solid #ffffff0d;margin-bottom:14px;">
       <table width="100%" style="border-collapse:collapse;"><tr>
         <td style="padding:0;vertical-align:middle;">
-          <img src="https://ctt-dashboard.vercel.app/logo.svg" alt="CTT" style="height:24px;width:auto;vertical-align:middle;" />
-          <span style="font-size:11px;font-weight:800;color:#f1f5f9;vertical-align:middle;margin-left:8px;">Confluence Trading Tools</span>
+          <a href="https://confluencetradingtools.com" style="text-decoration:none;">
+            <img src="https://ctt-dashboard.vercel.app/logo.svg" alt="CTT" style="height:24px;width:auto;vertical-align:middle;" />
+            <span style="font-size:11px;font-weight:800;color:#f1f5f9;vertical-align:middle;margin-left:8px;">Confluence Trading Tools</span>
+          </a>
           <div style="font-size:8px;font-weight:600;color:#64748b;letter-spacing:0.22em;text-transform:uppercase;margin-top:3px;margin-left:32px;">Market Briefing</div>
         </td>
       </tr></table>
       <div style="font-size:8px;color:#64748b;margin-top:6px;">${phaseLabel} &middot; ${now} ET${updatedTime ? ` &middot; Updated ${updatedTime} ET` : ''}</div>
     </div>
 
-    <div style="margin-bottom:12px;border-radius:14px;border:1px solid #ffffff0f;padding:14px 16px;">
-      <div style="margin-bottom:10px;border-bottom:1px solid #ffffff08;padding-bottom:8px;">
-        <span style="display:inline-block;font-size:8px;font-weight:700;color:#7c8bfa;background:#161c2a;border:1px solid #ffffff0d;padding:3px 8px;border-radius:4px;letter-spacing:0.14em;text-transform:uppercase;">
-          <span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#7c8bfa;margin-right:6px;vertical-align:middle;"></span>Macro Scorecard
+    <div style="margin-bottom:16px;border-left:3px solid #818cf8;padding-left:12px;">
+      <div style="margin-bottom:10px;">
+        <span style="display:inline-block;font-size:8px;font-weight:700;color:#818cf8;background:#161c2a66;border:1px solid #ffffff0d;padding:2px 8px;border-radius:4px;letter-spacing:0.14em;text-transform:uppercase;">
+          <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#818cf8;margin-right:6px;vertical-align:middle;"></span>Macro Scorecard
         </span>
       </div>
       ${scorecardHtml}
@@ -1182,13 +1232,26 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
     ${eventsHtml}
     ${sessionUpdatesHtml(brief, knownTickers, true)}
 
-    <div style="padding-top:14px;margin-top:18px;">
+    <div style="padding:20px 0;margin-top:18px;border-top:1px solid #0f1729;text-align:center;">
+      <a href="https://app.confluencetradingtools.com/pricing" style="display:inline-block;font-size:11px;font-weight:700;color:#fbbf24;background:#fbbf2415;border:1px solid #fbbf2430;padding:8px 20px;border-radius:8px;text-decoration:none;letter-spacing:0.02em;">
+        Upgrade Your Plan
+      </a>
+      <div style="font-size:9px;color:#475569;margin-top:8px;">
+        Unlock scanners, the live dashboard, and the full confluence report.
+      </div>
+    </div>
+
+    <div style="padding-top:10px;">
       <div style="font-size:8px;color:#475569;text-align:center;">
-        Confluence Trading Tools &copy; ${new Date().getFullYear()} &bull; Not investment advice.
+        <a href="https://confluencetradingtools.com" style="color:#818cf8;text-decoration:none;">confluencetradingtools.com</a>
+      </div>
+      <div style="font-size:8px;color:#475569;text-align:center;margin-top:4px;">
+        Confluence Trading Tools LLC &copy; ${new Date().getFullYear()} &bull; Not investment advice.
       </div>
     </div>
     </div>
-  </div>
+  </td></tr></table>
+  <!--[if mso]></td></tr></table><![endif]-->
   </td></tr></table>
 </body>
 </html>`);
@@ -1261,9 +1324,15 @@ export async function GET(req: Request) {
     }
   }
 
-  const userRecipients = await getEmailRecipients('briefing', phase as any);
-  const fallback = process.env.BRIEFING_EMAIL || process.env.Email || 'thomasbeach@gmail.com';
-  const recipients = userRecipients.length > 0 ? userRecipients : [fallback];
+  const testTo = url.searchParams.get('to');
+  let recipients: string[];
+  if (testTo && force) {
+    recipients = [testTo];
+  } else {
+    const userRecipients = await getEmailRecipients('briefing', phase as any);
+    const fallback = process.env.BRIEFING_EMAIL || process.env.Email || 'thomasbeach@gmail.com';
+    recipients = userRecipients.length > 0 ? userRecipients : [fallback];
+  }
 
   const [macro, chopData, t2108Data, snapshotRes, chopSetting, econRes, earningsRes] = await Promise.all([
     fetchJson(`${origin}/api/macro`),
@@ -1310,7 +1379,8 @@ export async function GET(req: Request) {
 
     let screenshotBuf: Buffer | null = null;
     try {
-      const ssUrl = `${origin}/api/og/screenshot?force=1&url=${encodeURIComponent('https://app.confluencetradingtools.com/analyst')}&selector=${encodeURIComponent(`#tape-${phase}`)}&w=800&h=1200`;
+      const tapePageUrl = `${origin}/api/og/tape?phase=${phase}`;
+      const ssUrl = `${origin}/api/og/screenshot?force=1&url=${encodeURIComponent(tapePageUrl)}&w=800&h=1200&selector=${encodeURIComponent('#tape-card')}&minText=80`;
       const ssRes = await fetch(ssUrl);
       if (ssRes.ok && ssRes.headers.get('content-type')?.includes('image')) {
         screenshotBuf = Buffer.from(await ssRes.arrayBuffer());
@@ -1408,7 +1478,8 @@ export async function GET(req: Request) {
 
         let screenshotBuf: Buffer | null = null;
         try {
-          const ssUrl = `${origin}/api/og/screenshot?force=1&url=${encodeURIComponent('https://app.confluencetradingtools.com/analyst')}&selector=${encodeURIComponent(`#tape-${phase}`)}&w=800&h=1200`;
+          const tapePageUrl = `${origin}/api/og/tape?phase=${phase}`;
+          const ssUrl = `${origin}/api/og/screenshot?force=1&url=${encodeURIComponent(tapePageUrl)}&w=800&h=1200&selector=${encodeURIComponent('#tape-card')}&minText=80`;
           const ssRes = await fetch(ssUrl);
           if (ssRes.ok && ssRes.headers.get('content-type')?.includes('image')) {
             screenshotBuf = Buffer.from(await ssRes.arrayBuffer());

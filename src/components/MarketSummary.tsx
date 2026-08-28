@@ -3816,7 +3816,7 @@ export default function MarketSummary() {
                                   const sectorMap: Record<string, { count: number; totalChg: number }> = {};
                                   pool.forEach((s: any) => {
                                     const sec = s.sector && s.sector !== '—' && !isEtfSector(s.sector) ? displaySector(s.sector) : null;
-                                    if (!sec) return;
+                                    if (!sec || sec === '—' || sec.toLowerCase() === 'other') return;
                                     if (!sectorMap[sec]) sectorMap[sec] = { count: 0, totalChg: 0 };
                                     sectorMap[sec].count += 1;
                                     sectorMap[sec].totalChg += Number(s.changePct ?? s.chg ?? 0);

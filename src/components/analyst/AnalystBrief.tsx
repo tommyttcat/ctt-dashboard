@@ -1494,8 +1494,8 @@ function SectorSection({ section, scannerData, auxScanData }: { section: Section
     .sort((a: any, b: any) => Math.abs(chgOf(b)) - Math.abs(chgOf(a)))
     .slice(0, 5);
 
-  /* Same aggregation the dashboard's Industry Heat uses — one implementation
-     in lib/sectors, so the two pages cannot report different group averages. */
+  /* Sector Performance bars use industryHeat from movers; Sector Concentration
+     beside it uses the scanner pool. Both match the dashboard. */
   const heat = industryHeat(flowAll, chgOf);
 
   if (allSectors.length === 0 && heat.length > 0) {
@@ -1509,8 +1509,8 @@ function SectorSection({ section, scannerData, auxScanData }: { section: Section
 
   return (
     <SectionCard title="Sectors & Money Flow" accent="#fbbf24">
-    {/* Same two rows as the dashboard: bars beside Industry Heat (the same
-        groups drawn and listed), then ETF Flow beside Money Flow. */}
+    {/* Sector Performance bars beside Sector Concentration, then ETF Flow
+        beside Money Flow — matches dashboard layout. */}
     <div className="space-y-2.5 md:space-y-4">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 md:gap-3 items-stretch">
       {allSectors.length > 0 && (() => {
@@ -1592,7 +1592,7 @@ function SectorSection({ section, scannerData, auxScanData }: { section: Section
         const sectorMap: Record<string, { count: number; totalChg: number }> = {};
         poolDeduped.forEach((s: any) => {
           const sec = s.sector && s.sector !== '—' && !isEtfSector(s.sector) ? displaySector(s.sector) : null;
-          if (!sec) return;
+          if (!sec || sec === '—' || sec.toLowerCase() === 'other') return;
           if (!sectorMap[sec]) sectorMap[sec] = { count: 0, totalChg: 0 };
           sectorMap[sec].count += 1;
           sectorMap[sec].totalChg += Number(s.changePct ?? chgOf(s) ?? 0);
