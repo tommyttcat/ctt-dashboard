@@ -5,13 +5,15 @@ import { fetchScannerLatest } from '@/lib/scannerLatest';
 import { ThemeToggle } from '../ThemeProvider';
 import HelpModal from '../HelpModal';
 import DashNav from '../DashNav';
+import { WatchlistProvider } from '../WatchlistContext';
+import WatchlistPanel from '../WatchlistPanel';
 import TickerChartHover, { ActiveChartCtx, ActiveChartProvider, autoScrollRef, scrollingRef, HOVER_DELAY_MS } from '../TickerChartHover';
 import { prefetchChart } from './MiniChart';
 import { newsStarCount as newsStars } from '@/lib/newsStars';
 import { stageColor, stageBadge } from '@/lib/indicators/stage';
 import { rsColor, rsBadge } from '@/lib/indicators/rs';
 import { dedupeByTicker, chgOf, dVolOf, advancingDollarShare } from '@/lib/indicators/marketMath';
-import { industryHeat, type SectorHeat } from '@/lib/sectors';
+import { industryHeat, type SectorHeat, isEtfSector, displaySector } from '@/lib/sectors';
 import MacroScorecardPanel from '../MacroScorecardPanel';
 import MacroEconPanel from '../MacroEconPanel';
 import { useMacroScorecard } from '../useMacroScorecard';
@@ -79,6 +81,10 @@ interface StockEntry extends StockEntryRaw {
 
 function normalizeStock(raw: StockEntryRaw): StockEntry {
   const s = { ...raw };
+  if (s.rs != null && typeof s.rs !== 'number') {
+    const n = Number(s.rs);
+    s.rs = Number.isFinite(n) ? n : null;
+  }
   if (s.rs == null && s.rsRating != null) s.rs = s.rsRating;
   if (s.score == null && s.cnfScore != null) s.score = s.cnfScore;
   if (s.grade == null && s.cnfGrade != null) s.grade = s.cnfGrade;
@@ -132,14 +138,21 @@ interface UpdateBlock {
   colorTheme: 'cyan' | 'emerald' | 'indigo' | 'amber' | 'rose';
 }
 
-type BlockKey = 'morning' | 'midday' | 'closing';
+type BlockKey = 'pre' | 'morning' | 'midday' | 'power' | 'closing';
 type Direction = 'up' | 'down' | 'neutral';
 
+/* Windows must match the analyst task's own phase boundaries, or a block that
+   posts correctly to KV never renders. `pre` and `power` were missing here
+   while the task wrote both — see CLAUDE.md, "Automation is the default". */
 const BLOCK_WINDOWS: Record<BlockKey, { opens: number; supersededAt: number; nextLabel: string }> = {
-  morning: { opens: 4.0, supersededAt: 11.5, nextLabel: 'midday' },
-  midday: { opens: 11.5, supersededAt: 15.5, nextLabel: 'closing' },
-  closing: { opens: 15.5, supersededAt: 24, nextLabel: '' },
+  pre: { opens: 4.0, supersededAt: 10.0, nextLabel: 'morning' },
+  morning: { opens: 10.0, supersededAt: 12.0, nextLabel: 'midday' },
+  midday: { opens: 12.0, supersededAt: 14.0, nextLabel: 'power hour' },
+  power: { opens: 14.0, supersededAt: 16.0, nextLabel: 'closing' },
+  closing: { opens: 16.0, supersededAt: 24, nextLabel: '' },
 };
+
+const BLOCK_ORDER: BlockKey[] = ['pre', 'morning', 'midday', 'power', 'closing'];
 
 const getEstNow = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
 const estDecimal = () => { const d = getEstNow(); return d.getHours() + d.getMinutes() / 60; };
@@ -195,13 +208,13 @@ function setupBadge(stock: StockEntry) {
   return parts.join(' ');
 }
 
-const BRIEF_TICKER_CHIP = "inline-block align-baseline text-[7px] font-bold text-slate-300 bg-slate-500/10 px-1 py-[1px] rounded border border-white/10 tracking-wider mx-0.5 text-center min-w-[28px]";
-const BRIEF_TICKER_CHIP_A = "inline-block align-baseline text-[7px] font-bold text-emerald-300 bg-emerald-500/10 px-1 py-[1px] rounded border border-emerald-400/30 tracking-wider mx-0.5 text-center min-w-[28px]";
-const BRIEF_TICKER_CHIP_B = "inline-block align-baseline text-[7px] font-bold text-amber-300 bg-amber-500/10 px-1 py-[1px] rounded border border-amber-400/30 tracking-wider mx-0.5 text-center min-w-[28px]";
-const BRIEF_TICKER_CHIP_RED = "inline-block align-baseline text-[7px] font-bold text-rose-200 bg-rose-950 px-1 py-[1px] rounded border border-rose-500/20 tracking-wider mx-0.5 text-center min-w-[28px]";
+const BRIEF_TICKER_CHIP = "inline-block align-baseline text-[8px] font-bold text-slate-300 bg-slate-500/10 px-1 py-[1px] rounded border border-white/10 tracking-wider mx-0.5 text-center min-w-[28px]";
+const BRIEF_TICKER_CHIP_A = "inline-block align-baseline text-[8px] font-bold text-emerald-300 bg-emerald-500/10 px-1 py-[1px] rounded border border-emerald-400/30 tracking-wider mx-0.5 text-center min-w-[28px]";
+const BRIEF_TICKER_CHIP_B = "inline-block align-baseline text-[8px] font-bold text-amber-300 bg-amber-500/10 px-1 py-[1px] rounded border border-amber-400/30 tracking-wider mx-0.5 text-center min-w-[28px]";
+const BRIEF_TICKER_CHIP_RED = "inline-block align-baseline text-[8px] font-bold text-rose-200 bg-rose-950 px-1 py-[1px] rounded border border-rose-500/20 tracking-wider mx-0.5 text-center min-w-[28px]";
 
-const MINI_CHIP = "inline-block align-baseline text-[7px] font-bold text-slate-300 bg-slate-500/10 px-1 py-[1px] rounded border border-white/10 tracking-wider mr-1 text-center min-w-[28px]";
-const MINI_CHIP_RED = "inline-block align-baseline text-[7px] font-bold text-rose-200 bg-rose-950 px-1 py-[1px] rounded border border-rose-500/20 tracking-wider mr-1 text-center min-w-[28px]";
+const MINI_CHIP = "inline-block align-baseline text-[8px] font-bold text-slate-300 bg-slate-500/10 px-1 py-[1px] rounded border border-white/10 tracking-wider mr-1 text-center min-w-[28px]";
+const MINI_CHIP_RED = "inline-block align-baseline text-[8px] font-bold text-rose-200 bg-rose-950 px-1 py-[1px] rounded border border-rose-500/20 tracking-wider mr-1 text-center min-w-[28px]";
 
 const briefChipCls = (ticker: string, gradeMap?: Record<string, 'A' | 'B'>, avoidSet?: Set<string>): string => {
   if (avoidSet?.has(ticker)) return BRIEF_TICKER_CHIP_RED;
@@ -421,10 +434,10 @@ interface SummaryItem {
   note?: string;
 }
 
-const TICKER_CHIP = 'inline-block align-baseline text-[7px] font-bold tracking-wider text-slate-300 bg-slate-500/10 border border-white/10 rounded px-1 py-[1px] mx-0.5 text-center';
-const TICKER_CHIP_A_GRID = 'inline-block align-baseline text-[7px] font-bold tracking-wider text-emerald-300 bg-emerald-500/10 border border-emerald-400/30 rounded px-1 py-[1px] mx-0.5 text-center';
-const TICKER_CHIP_B_GRID = 'inline-block align-baseline text-[7px] font-bold tracking-wider text-amber-300 bg-amber-500/10 border border-amber-400/30 rounded px-1 py-[1px] mx-0.5 text-center';
-const TICKER_CHIP_RED = 'inline-block align-baseline text-[7px] font-bold tracking-wider text-rose-200 bg-rose-950 border border-rose-500/20 rounded px-1 py-[1px] mx-0.5 text-center';
+const TICKER_CHIP = 'inline-block align-baseline text-[8px] font-bold tracking-wider text-slate-300 bg-slate-500/10 border border-white/10 rounded px-1 py-[1px] mx-0.5 text-center';
+const TICKER_CHIP_A_GRID = 'inline-block align-baseline text-[8px] font-bold tracking-wider text-emerald-300 bg-emerald-500/10 border border-emerald-400/30 rounded px-1 py-[1px] mx-0.5 text-center';
+const TICKER_CHIP_B_GRID = 'inline-block align-baseline text-[8px] font-bold tracking-wider text-amber-300 bg-amber-500/10 border border-amber-400/30 rounded px-1 py-[1px] mx-0.5 text-center';
+const TICKER_CHIP_RED = 'inline-block align-baseline text-[8px] font-bold tracking-wider text-rose-200 bg-rose-950 border border-rose-500/20 rounded px-1 py-[1px] mx-0.5 text-center';
 
 const gridChipCls = (grade?: string | null, isAvoid?: boolean): string => {
   if (isAvoid) return TICKER_CHIP_RED;
@@ -526,7 +539,7 @@ function SummaryHeader({ trap, gapper, sortKey, sortDir, onSort }: {
   const hdrCls = 'cursor-pointer hover:text-slate-400 transition-colors select-none';
   if (trap) {
     return (
-      <div className="grid items-center text-[7px] font-bold tracking-widest text-slate-600 uppercase pb-0.5 border-b border-white/5 mb-0.5" style={{ gridTemplateColumns: GRID_COLS_TRAP }}>
+      <div className="grid items-center text-[8px] font-bold tracking-widest text-slate-600 uppercase pb-0.5 border-b border-white/5 mb-0.5" style={{ gridTemplateColumns: GRID_COLS_TRAP }}>
         <span className="text-center">TICKER</span><span className="text-right">CHG%</span><span className="text-center">STG</span><span />
       </div>
     );
@@ -534,19 +547,19 @@ function SummaryHeader({ trap, gapper, sortKey, sortDir, onSort }: {
   return (
     <div className={scrollWrap} style={scrollStyle}>
       <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
-        <span className="inline-block w-[44px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
+        <span className="inline-block w-[44px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
         <span className="hidden md:inline-block w-[12px]" />
         <span className="inline-block w-[8px]" />
         <span className="inline-block w-[8px]" />
-        <span className={`inline-block w-[22px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1 ${hdrCls}`} onClick={() => onSort?.('cnf')}>CNF<SortArrow active={sortKey === 'cnf'} dir={sortDir || 'desc'} /></span>
-        <span className={`inline-block w-[52px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1 ${hdrCls}`} onClick={() => onSort?.('chg')}>CHG%<SortArrow active={sortKey === 'chg'} dir={sortDir || 'desc'} /></span>
-        <span className="inline-block w-[42px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1">PRC</span>
-        <span className={`inline-block w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('rvol')}>RVOL<SortArrow active={sortKey === 'rvol'} dir={sortDir || 'desc'} /></span>
-        <span className={`inline-block w-[36px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('vol')}>VOL<SortArrow active={sortKey === 'vol'} dir={sortDir || 'desc'} /></span>
-        <span className={`inline-block w-[42px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('dvol')}>$VOL<SortArrow active={sortKey === 'dvol'} dir={sortDir || 'desc'} /></span>
-        <span className={`inline-block w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('rs')}>RS<SortArrow active={sortKey === 'rs'} dir={sortDir || 'desc'} /></span>
-        <span className={`inline-block w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('stg')}>STG<SortArrow active={sortKey === 'stg'} dir={sortDir || 'desc'} /></span>
-        <span className="inline-block w-[16px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1">N</span>
+        <span className={`inline-block w-[22px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1 ${hdrCls}`} onClick={() => onSort?.('cnf')}>CNF<SortArrow active={sortKey === 'cnf'} dir={sortDir || 'desc'} /></span>
+        <span className={`inline-block w-[52px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1 ${hdrCls}`} onClick={() => onSort?.('chg')}>CHG%<SortArrow active={sortKey === 'chg'} dir={sortDir || 'desc'} /></span>
+        <span className="inline-block w-[42px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1">PRC</span>
+        <span className={`inline-block w-[40px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('rvol')}>RVOL<SortArrow active={sortKey === 'rvol'} dir={sortDir || 'desc'} /></span>
+        <span className={`inline-block w-[36px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('vol')}>VOL<SortArrow active={sortKey === 'vol'} dir={sortDir || 'desc'} /></span>
+        <span className={`inline-block w-[42px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('dvol')}>$VOL<SortArrow active={sortKey === 'dvol'} dir={sortDir || 'desc'} /></span>
+        <span className={`inline-block w-[24px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('rs')}>RS<SortArrow active={sortKey === 'rs'} dir={sortDir || 'desc'} /></span>
+        <span className={`inline-block w-[24px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('stg')}>STG<SortArrow active={sortKey === 'stg'} dir={sortDir || 'desc'} /></span>
+        <span className="inline-block w-[16px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1">N</span>
       </div>
     </div>
   );
@@ -627,14 +640,14 @@ function SummaryRow({ item, stock, showNote, red }: { item: SummaryItem; stock?:
         <span className="hidden md:inline-block w-[12px]" />
         <span className="inline-block w-[8px]" />
         <span className="inline-block w-[8px]" />
-        <span className="inline-block w-[22px] text-center ml-1">{item.score != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(Number(item.score) || 0)}`}>{item.score}</span> : ''}</span>
+        <span className="inline-block w-[22px] text-center ml-1">{item.score != null ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(Number(item.score) || 0)}`}>{item.score}</span> : ''}</span>
         <span className={`text-[9px] tabular-nums font-semibold inline-block w-[52px] text-right ml-1 ${(item.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{item.changePct != null ? `${(item.changePct || 0) >= 0 ? '+' : ''}${item.changePct.toFixed(2)}%` : ''}</span>
         <span className="text-[9px] tabular-nums inline-block w-[42px] text-right text-slate-300 ml-2 md:ml-1">{fmtPrice(item.price)}</span>
         <span className={`text-[9px] tabular-nums font-semibold inline-block w-[40px] text-right ml-2 md:ml-1 ${rv != null ? rvolColor(rv) : ''}`}>{rv != null ? `${rv < 1 ? rv.toFixed(1) : Math.round(rv)}x` : ''}</span>
         <span className={`text-[9px] tabular-nums inline-block w-[36px] text-right ml-2 md:ml-1 text-slate-400`}>{item.vol != null ? formatVol(item.vol) : ''}</span>
         <span className={`text-[9px] tabular-nums inline-block w-[42px] text-right ml-2 md:ml-1 text-slate-300`}>{dolVol != null ? `$${formatVol(dolVol)}` : ''}</span>
-        <span className="inline-block w-[24px] text-center ml-2 md:ml-1">{rs != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${rsBadge(rs)}`}>{rs}</span> : ''}</span>
-        <span className="inline-block w-[24px] text-center ml-2 md:ml-1">{item.stage ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${stageBadge(item.stage)}`}>{stripStage(item.stage)}</span> : ''}</span>
+        <span className="inline-block w-[24px] text-center ml-2 md:ml-1">{rs != null ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${rsBadge(rs)}`}>{rs}</span> : ''}</span>
+        <span className="inline-block w-[24px] text-center ml-2 md:ml-1">{item.stage ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${stageBadge(item.stage)}`}>{stripStage(item.stage)}</span> : ''}</span>
         <span className="inline-block w-[16px] text-center ml-2 md:ml-1"><NewsStars count={newsStars(stock || item as any)} url={(stock || item as any)?.catalystUrl} /></span>
       </div>
     </div>
@@ -697,7 +710,7 @@ function ActionableSummary({ summary, trades, avoidStocks, sortKey, sortDir, onS
           {top2.some(s => s.thesis) && (
             <div className="mt-2 border-t border-white/[0.04] pt-2">
               {top2.filter(s => s.thesis).map((s, i) => (
-                <p key={i} className={`text-[10px] text-slate-400 leading-relaxed pl-1${i > 0 ? ' border-t border-white/[0.04] pt-2 mt-2' : ''}`}>
+                <p key={i} className={`text-[12px] text-slate-400 leading-relaxed pl-1${i > 0 ? ' border-t border-white/[0.04] pt-2 mt-2' : ''}`}>
                   <TickerChartHover symbol={s.ticker}><span className={MINI_CHIP}>{s.ticker}</span></TickerChartHover>{s.thesis}
                 </p>
               ))}
@@ -716,7 +729,7 @@ function ActionableSummary({ summary, trades, avoidStocks, sortKey, sortDir, onS
           {watchlist.some(s => s.thesis) && (
             <div className="mt-2 border-t border-white/[0.04] pt-2">
               {watchlist.filter(s => s.thesis).map((s, i) => (
-                <p key={i} className={`text-[10px] text-slate-400 leading-relaxed pl-1${i > 0 ? ' border-t border-white/[0.04] pt-2 mt-2' : ''}`}>
+                <p key={i} className={`text-[12px] text-slate-400 leading-relaxed pl-1${i > 0 ? ' border-t border-white/[0.04] pt-2 mt-2' : ''}`}>
                   <TickerChartHover symbol={s.ticker}><span className={MINI_CHIP}>{s.ticker}</span></TickerChartHover>{s.thesis}
                 </p>
               ))}
@@ -737,7 +750,7 @@ function ActionableSummary({ summary, trades, avoidStocks, sortKey, sortDir, onS
           {traps.some(s => s.reason) && (
             <div className="mt-2 border-t border-white/[0.04] pt-2">
               {traps.filter(s => s.reason).map((s, i) => (
-                <p key={i} className={`text-[10px] text-slate-400 leading-relaxed pl-1${i > 0 ? ' border-t border-white/[0.04] pt-2 mt-2' : ''}`}>
+                <p key={i} className={`text-[12px] text-slate-400 leading-relaxed pl-1${i > 0 ? ' border-t border-white/[0.04] pt-2 mt-2' : ''}`}>
                   <TickerChartHover symbol={s.ticker}><span className={MINI_CHIP_RED}>{s.ticker}</span></TickerChartHover>{s.reason}
                 </p>
               ))}
@@ -762,7 +775,7 @@ function AnalystCard({ stock, rank }: { stock: StockEntry; rank: number }) {
         <TickerChartHover symbol={stock.ticker}><span className={isAvoid ? TICKER_CHIP_RED : TICKER_CHIP}>{stock.ticker}</span></TickerChartHover>
 
         {stock.score != null && (
-          <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(stock.score)}`}>
+          <span className={`text-[8px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(stock.score)}`}>
             {stock.score}
           </span>
         )}
@@ -817,19 +830,19 @@ function AnalystCard({ stock, rank }: { stock: StockEntry; rank: number }) {
         {stock.thesis && (
           <div className="flex gap-3">
             <span className="text-[9px] font-bold text-slate-500 tracking-wider uppercase shrink-0 w-24 pt-0.5">Core Thesis</span>
-            <p className="text-[10px] text-slate-200 leading-relaxed">{renderTickerChips(stock.thesis, 0)}</p>
+            <p className="text-[12px] text-slate-200 leading-relaxed">{renderTickerChips(stock.thesis, 0)}</p>
           </div>
         )}
         {stock.risk && (
           <div className="flex gap-3">
             <span className="text-[9px] font-bold text-amber-500/70 tracking-wider uppercase shrink-0 w-24 pt-0.5">Risk</span>
-            <p className="text-[10px] text-slate-400 leading-relaxed">{stock.risk}</p>
+            <p className="text-[12px] text-slate-400 leading-relaxed">{stock.risk}</p>
           </div>
         )}
         {stock.invalidation && (
           <div className="flex gap-3">
             <span className="text-[9px] font-bold text-rose-500/70 tracking-wider uppercase shrink-0 w-24 pt-0.5">Invalidation</span>
-            <p className="text-[10px] text-slate-400 leading-relaxed">{stock.invalidation}</p>
+            <p className="text-[12px] text-slate-400 leading-relaxed">{stock.invalidation}</p>
           </div>
         )}
       </div>
@@ -875,14 +888,14 @@ function GapperRow({ s, red }: { s: StockEntry; red?: boolean }) {
         <span className="hidden md:inline-block w-[12px]" />
         <span className="inline-block w-[8px]" />
         <span className="inline-block w-[8px]" />
-        <span className="inline-block w-[22px] text-center ml-1">{s.score != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(Number(s.score) || 0)}`}>{s.score}</span> : ''}</span>
+        <span className="inline-block w-[22px] text-center ml-1">{s.score != null ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(Number(s.score) || 0)}`}>{s.score}</span> : ''}</span>
         <span className={`text-[9px] tabular-nums font-semibold inline-block w-[52px] text-right ml-1 ${(s.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(s.changePct || 0) >= 0 ? '+' : ''}{s.changePct.toFixed(2)}%</span>
         <span className="text-[9px] tabular-nums inline-block w-[42px] text-right text-slate-300 ml-2 md:ml-1">{fmtPrice(s.price)}</span>
         <span className={`text-[9px] tabular-nums font-semibold inline-block w-[40px] text-right ml-2 md:ml-1 ${s.rvol != null ? rvolColor(s.rvol) : ''}`}>{s.rvol != null ? `${s.rvol < 1 ? s.rvol.toFixed(1) : Math.round(s.rvol)}x` : ''}</span>
         <span className="text-[9px] tabular-nums inline-block w-[36px] text-right ml-2 md:ml-1 text-slate-400">{s.vol != null ? formatVol(s.vol) : ''}</span>
         <span className="text-[9px] tabular-nums inline-block w-[42px] text-right ml-2 md:ml-1 text-slate-300">{dolVol != null ? `$${formatVol(dolVol)}` : ''}</span>
-        <span className="inline-block w-[24px] text-center ml-2 md:ml-1">{s.rs != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${rsBadge(s.rs)}`}>{s.rs}</span> : ''}</span>
-        <span className="inline-block w-[24px] text-center ml-2 md:ml-1">{s.stage ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${stageBadge(s.stage)}`}>{stripStage(s.stage)}</span> : ''}</span>
+        <span className="inline-block w-[24px] text-center ml-2 md:ml-1">{s.rs != null ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${rsBadge(s.rs)}`}>{s.rs}</span> : ''}</span>
+        <span className="inline-block w-[24px] text-center ml-2 md:ml-1">{s.stage ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${stageBadge(s.stage)}`}>{stripStage(s.stage)}</span> : ''}</span>
         <span className="inline-block w-[16px] text-center ml-2 md:ml-1"><NewsStars count={newsStars(s as any)} url={(s as any).catalystUrl} /></span>
       </div>
     </div>
@@ -915,7 +928,7 @@ function GapperSection({ section, gradeMap, avoidSet, scannerGainers, scannerLos
       {ups.length > 0 && (
         <div className="py-2 md:py-3">
           <div className="text-[9px] font-bold text-emerald-400 tracking-wider uppercase mb-2">
-            Movers Up
+            Top Movers
           </div>
           <div className={scrollWrap} style={scrollStyle}>
             <SummaryHeader gapper sortKey={sk} sortDir={sd} onSort={handleSort} />
@@ -926,7 +939,7 @@ function GapperSection({ section, gradeMap, avoidSet, scannerGainers, scannerLos
       {downs.length > 0 && (
         <div className="py-2 md:py-3">
           <div className="text-[9px] font-bold text-rose-400 tracking-wider uppercase mb-2">
-            Movers Down
+            Top Losers
           </div>
           <div className={scrollWrap} style={scrollStyle}>
             <SummaryHeader gapper sortKey={sk} sortDir={sd} onSort={handleSort} />
@@ -938,7 +951,7 @@ function GapperSection({ section, gradeMap, avoidSet, scannerGainers, scannerLos
     {section.analysis && (
       <div className="mt-3 pt-3 border-t border-white/[0.04]">
         <div className="text-[8px] font-bold text-slate-500 tracking-wider uppercase mb-1">WIM</div>
-        <div className="text-[10px] text-slate-200 leading-[1.7]">
+        <div className="text-[12px] text-slate-200 leading-[1.7]">
           {section.analysis.split(/\n\n+/).filter(p => p.trim()).map((block, i) => (
             <div key={i} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
               <p className="leading-[1.7]">{highlightBold(block.replace(/\n/g, ' '), 'text-white', true, true, gradeMap, avoidSet)}</p>
@@ -967,45 +980,22 @@ function SIPSection({ section, gradeMap, avoidSet }: { section: SectionResult; g
         const top10 = stocks.slice(0, 10);
         const left = top10.slice(0, Math.ceil(top10.length / 2));
         const right = top10.slice(Math.ceil(top10.length / 2));
-        const renderCol = (list: typeof stocks) => list.map((s, i) => {
-          const setupLabel = s.setup && s.setup.toUpperCase() !== 'GENERIC' ? s.setup : null;
-          const dolVol = s.dvol != null ? s.dvol : (s.price && s.vol) ? s.price * s.vol : null;
-          return (
-            <div key={i} className={scrollWrap} style={scrollStyle}>
-              <div className="flex items-center whitespace-nowrap py-[1px]">
-                <TickerChip stock={s} red={avoidSet?.has(s.ticker)} />
-                <span className="inline-block w-[12px]" />
-                <span className="inline-block w-[8px]" />
-                <span className="inline-block w-[8px]" />
-                <span className="inline-block w-[20px] md:w-[22px] text-center ml-1">{s.score != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(Number(s.score) || 0)}`}>{s.score}</span> : ''}</span>
-                <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ${(s.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(s.changePct || 0) >= 0 ? '+' : ''}{s.changePct.toFixed(2)}%</span>
-                <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-1">{fmtPrice(s.price)}</span>
-                <span className={`text-[9px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 ${s.rvol != null ? rvolColor(s.rvol) : ''}`}>{s.rvol != null ? `${s.rvol < 1 ? s.rvol.toFixed(1) : Math.round(s.rvol)}x` : ''}</span>
-                <span className="text-[9px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-1 text-slate-400">{s.vol != null ? formatVol(s.vol) : ''}</span>
-                <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-1 text-slate-300">{dolVol != null ? `$${formatVol(dolVol)}` : ''}</span>
-                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{s.rs != null ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${rsBadge(s.rs)}`}>{s.rs}</span> : ''}</span>
-                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{s.stage ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${stageBadge(s.stage)}`}>{stripStage(s.stage)}</span> : ''}</span>
-                <span className="inline-block w-[14px] md:w-[16px] text-center ml-1"><NewsStars count={newsStars(s as any)} url={(s as any).catalystUrl} /></span>
-              </div>
-            </div>
-          );
-        });
         return (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-3 lg:gap-x-6">
             <div className={scrollWrap} style={scrollStyle}>
               <SummaryHeader sortKey={sk} sortDir={sd} onSort={handleSort} />
-              {renderCol(left)}
+              {left.map((s, i) => <GapperRow key={i} s={s} red={avoidSet?.has(s.ticker)} />)}
             </div>
             <div className={scrollWrap} style={scrollStyle}>
               <SummaryHeader sortKey={sk} sortDir={sd} onSort={handleSort} />
-              {renderCol(right)}
+              {right.map((s, i) => <GapperRow key={i} s={s} red={avoidSet?.has(s.ticker)} />)}
             </div>
           </div>
         );
       })()}
       {section.analysis && (
         <div className="mt-3 pt-3 border-t border-white/[0.04]">
-          <div className="text-[10px] text-slate-200 leading-[1.7]">
+          <div className="text-[12px] text-slate-200 leading-[1.7]">
             {section.analysis.split(/\n\n+/).filter(p => p.trim()).map((block, i) => (
               <div key={i} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
                 <p className="leading-[1.7]">{highlightBold(block.replace(/\n/g, ' '), 'text-white', true, true, gradeMap, avoidSet)}</p>
@@ -1139,7 +1129,7 @@ function FormattedBlock({ text, tickers, summaryLabel, skipLabels, distributeLab
       <div className="space-y-0">
         {paragraphs.map((para, i) => (
           <div key={i} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
-            <p className="text-[10px] text-slate-200 leading-[1.7]">
+            <p className="text-[12px] text-slate-200 leading-[1.7]">
               {richText(para, tickers, gradeMap, avoidSet)}
             </p>
           </div>
@@ -1155,12 +1145,12 @@ function FormattedBlock({ text, tickers, summaryLabel, skipLabels, distributeLab
     <div className="space-y-1.5 md:space-y-2">
       {metrics.map((r, i) => (
         <div key={i} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
-          <div className="text-[10px] font-bold text-slate-500 tracking-wider uppercase mb-1.5">{r.label}</div>
-          <p className="text-[10px] text-slate-200 leading-[1.7]">
+          <div className="text-[12px] font-bold text-slate-500 tracking-wider uppercase mb-1.5">{r.label}</div>
+          <p className="text-[12px] text-slate-200 leading-[1.7]">
             {richText(r.value, tickers, gradeMap, avoidSet)}
           </p>
           {r.detail && (
-            <p className="text-[10px] text-slate-300 leading-[1.7] mt-2">
+            <p className="text-[12px] text-slate-300 leading-[1.7] mt-2">
               {richText(r.detail.charAt(0).toUpperCase() + r.detail.slice(1), tickers, gradeMap, avoidSet)}
             </p>
           )}
@@ -1168,8 +1158,8 @@ function FormattedBlock({ text, tickers, summaryLabel, skipLabels, distributeLab
       ))}
       {summary && (
         <div className="pt-3 mt-3 border-t border-white/[0.06]">
-          <div className="text-[10px] font-bold text-slate-500 tracking-wider uppercase mb-2">{summaryLabel || summary.label}</div>
-          <p className="text-[10px] text-slate-200 leading-[1.7]">
+          <div className="text-[12px] font-bold text-slate-500 tracking-wider uppercase mb-2">{summaryLabel || summary.label}</div>
+          <p className="text-[12px] text-slate-200 leading-[1.7]">
             {richText(summary.value + (summary.detail ? ' — ' + summary.detail : ''), tickers, gradeMap, avoidSet)}
           </p>
         </div>
@@ -1249,7 +1239,7 @@ function KeyEventsSection() {
   if (econToday.length === 0 && earnFiltered.length === 0) return null;
 
   const impactCls = (i: string) => i === 'High' ? 'text-rose-400' : i === 'Medium' ? 'text-amber-400' : 'text-slate-500';
-  const hdrCls = 'text-[7px] font-bold tracking-widest uppercase text-slate-600';
+  const hdrCls = 'text-[8px] font-bold tracking-widest uppercase text-slate-600';
 
   const scrollCls = "overflow-x-auto overflow-y-hidden -mx-0.5 px-0.5";
 
@@ -1396,7 +1386,7 @@ function KeyEventsSection() {
         </div>
       </div>
       {highPending.length > 0 && (
-        <p className="text-[10px] text-amber-400/70 mt-4 pt-3 border-t border-white/5">
+        <p className="text-[12px] text-amber-400/70 mt-4 pt-3 border-t border-white/5">
           Setups are on a clock until this prints — breakouts into a scheduled release carry event risk the scan cannot price.
         </p>
       )}
@@ -1415,12 +1405,12 @@ function BriefSection({ section }: { section: SectionResult }) {
   }
 
   return (
-    <div className={`md:border-l-[3px] ${style.border} bg-[#0a1220] rounded-r-lg px-5 py-4`}>
+    <div className={`border-l-[3px] ${style.border} bg-[#0a1220] rounded-r-lg px-4 md:px-5 py-4`}>
       <div className={`text-[9px] font-bold ${style.label} tracking-wider uppercase mb-3`}>
         {section.section}
       </div>
       {section.analysis && (
-        <div className="text-[10px] text-slate-200 leading-[1.7]">
+        <div className="text-[12px] text-slate-200 leading-[1.7]">
           {section.analysis.split(/\n\n+/).filter(p => p.trim()).map((block, i) => (
             <div key={i} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
               <p className="leading-[1.7]">{highlightBold(block.replace(/\n/g, ' '), 'text-slate-100', usePct, !usePct)}</p>
@@ -1467,7 +1457,7 @@ function ChartTooltip({ symbol, children }: { symbol: string; children: React.Re
   );
 }
 
-function SectorSection({ section, scannerData }: { section: SectionResult; scannerData?: any }) {
+function SectorSection({ section, scannerData, auxScanData }: { section: SectionResult; scannerData?: any; auxScanData?: any[] }) {
   const text = section.analysis || '';
   const lines = text.split('\n').filter(l => l.trim());
 
@@ -1587,25 +1577,57 @@ function SectorSection({ section, scannerData }: { section: SectionResult; scann
         );
       })()}
 
-      {heat.length >= 2 && (
-        <div className="flex flex-col">
-          <div className="pt-1 pb-1">
-            <div className="text-[9px] font-bold text-amber-400 tracking-wider uppercase">Industry Heat</div>
-            <p className="text-[9px] text-slate-500 mt-1">Sector rotation — where money is arriving and where it is leaving.</p>
+      {(() => {
+        const sips: any[] = Array.isArray(scannerData?.stocksInPlay) ? scannerData.stocksInPlay : [];
+        const daily: any[] = Array.isArray(scannerData?.dailySetups) ? scannerData.dailySetups : [];
+        const aux: any[] = Array.isArray(auxScanData) ? auxScanData : [];
+        const allPool = [...sips, ...daily, ...aux];
+        const poolSeen = new Set<string>();
+        const poolDeduped = allPool.filter(s => {
+          const t = (s?.ticker ?? s?.symbol ?? '').toUpperCase();
+          if (!t || poolSeen.has(t)) return false;
+          poolSeen.add(t);
+          return true;
+        });
+        const sectorMap: Record<string, { count: number; totalChg: number }> = {};
+        poolDeduped.forEach((s: any) => {
+          const sec = s.sector && s.sector !== '—' && !isEtfSector(s.sector) ? displaySector(s.sector) : null;
+          if (!sec) return;
+          if (!sectorMap[sec]) sectorMap[sec] = { count: 0, totalChg: 0 };
+          sectorMap[sec].count += 1;
+          sectorMap[sec].totalChg += Number(s.changePct ?? chgOf(s) ?? 0);
+        });
+        const sectors = Object.entries(sectorMap)
+          .map(([sector, d]) => ({ sector, count: d.count, avgChg: d.totalChg / d.count }))
+          .sort((a, b) => b.count - a.count);
+        const maxCount = sectors[0]?.count ?? 1;
+        if (sectors.length === 0) return null;
+        return (
+          <div className="flex flex-col">
+            <div className="pt-1 pb-1">
+              <div className="text-[9px] font-bold text-amber-400 tracking-wider uppercase">Sector Concentration</div>
+              <p className="text-[9px] text-slate-500 mt-1">Where scanner setups are clustering by sector.</p>
+            </div>
+            <div className="flex-1 flex flex-col justify-center gap-[3px] py-1.5">
+              {sectors.slice(0, 10).map((h, i) => (
+                <div key={i} className="flex items-center gap-2 py-[1px] text-[9px] tabular-nums">
+                  <span className="text-slate-300 font-medium w-[72px] truncate shrink-0">{h.sector}</span>
+                  <div className="flex-1 h-[6px] rounded-full bg-white/5 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${h.avgChg >= 0 ? 'bg-emerald-500/50' : 'bg-rose-500/50'}`}
+                      style={{ width: `${(h.count / maxCount) * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-slate-400 font-bold w-[16px] text-right shrink-0">{h.count}</span>
+                  <span className={`font-semibold w-[42px] text-right shrink-0 ${h.avgChg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {h.avgChg >= 0 ? '+' : ''}{h.avgChg.toFixed(1)}%
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="flex-1 flex flex-col justify-center py-1.5">
-            {heat.slice(0, 8).map((h: SectorHeat, i: number) => (
-              <div key={i} className="flex items-center gap-2 py-[2px] text-[9px] tabular-nums">
-                <span className={`font-semibold w-[52px] text-right shrink-0 ${h.avgChg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {h.avgChg >= 0 ? '+' : ''}{h.avgChg.toFixed(1)}%
-                </span>
-                <span className="text-slate-300 truncate">{h.sector}</span>
-                <span className="text-slate-600 text-[9px]">({h.count})</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+        );
+      })()}
       </div>
 
       {(etfRows.length > 0 || flowRows.length > 0) && (
@@ -1636,7 +1658,7 @@ function SectorSection({ section, scannerData }: { section: SectionResult; scann
 function NewsStars({ count, url }: { count: number; url?: string | null }) {
   if (count === 0) return null;
   const cls = count >= 2 ? 'text-amber-400' : 'text-slate-500';
-  const stars = <span className={`text-[7px] leading-none ${cls}`}>{'★'.repeat(count)}</span>;
+  const stars = <span className={`text-[8px] leading-none ${cls}`}>{'★'.repeat(count)}</span>;
   if (url) return <a href={url} target="_blank" rel="noopener noreferrer" className="hover:brightness-125 transition-all">{stars}</a>;
   return stars;
 }
@@ -1681,19 +1703,19 @@ function FlowTable({ title, color, blurb, rows }: { title: string; color: string
       <p className="text-[8px] text-slate-500 font-medium leading-snug mb-2">{blurb}</p>
       <div className={scrollWrap} style={scrollStyle}>
         <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
-          <span className="inline-block w-[38px] md:w-[44px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
+          <span className="inline-block w-[38px] md:w-[44px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
           <span className="inline-block w-[12px]" />
           <span className="inline-block w-[8px]" />
           <span className="inline-block w-[8px]" />
-          <span className="inline-block w-[20px] md:w-[22px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">CNF</span>
-          <span className="inline-block w-[46px] md:w-[52px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right">CHG%</span>
-          <span className="inline-block w-[36px] md:w-[42px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">PRC</span>
-          <span className="inline-block w-[36px] md:w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">RVOL</span>
-          <span className="inline-block w-[30px] md:w-[36px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">VOL</span>
-          <span className="inline-block w-[36px] md:w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">$VOL</span>
-          <span className="inline-block w-[22px] md:w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">RS</span>
-          <span className="inline-block w-[22px] md:w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">STG</span>
-          <span className="inline-block w-[14px] md:w-[16px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">N</span>
+          <span className="inline-block w-[20px] md:w-[22px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">CNF</span>
+          <span className="inline-block w-[46px] md:w-[52px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right">CHG%</span>
+          <span className="inline-block w-[36px] md:w-[42px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">PRC</span>
+          <span className="inline-block w-[36px] md:w-[40px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">RVOL</span>
+          <span className="inline-block w-[30px] md:w-[36px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">VOL</span>
+          <span className="inline-block w-[36px] md:w-[40px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">$VOL</span>
+          <span className="inline-block w-[22px] md:w-[24px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">RS</span>
+          <span className="inline-block w-[22px] md:w-[24px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">STG</span>
+          <span className="inline-block w-[14px] md:w-[16px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">N</span>
         </div>
         {rows.map((r: any, i: number) => {
           const chg = r.changePct || 0;
@@ -1718,14 +1740,14 @@ function FlowTable({ title, color, blurb, rows }: { title: string; color: string
                   {dot === 'red' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500" />}
                 </span>
                 <span className="inline-block w-[8px]" />
-                <span className="inline-block w-[20px] md:w-[22px] text-center ml-1"><span className={`inline-block text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center ${cnfBadge(cnf, grade)}`}>{cnf}</span></span>
+                <span className="inline-block w-[20px] md:w-[22px] text-center ml-1"><span className={`inline-block text-[8px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center ${cnfBadge(cnf, grade)}`}>{cnf}</span></span>
                 <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ${chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
                 <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-1">{fmtPrice(r.price)}</span>
                 <span className={`text-[9px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 ${(r.rvol || 0) >= 2 ? 'text-emerald-400' : (r.rvol || 0) >= 1 ? 'text-slate-300' : 'text-slate-500'}`}>{(r.rvol || 0) < 1 ? (r.rvol || 0).toFixed(1) : Math.round(r.rvol || 0)}x</span>
                 <span className="text-[9px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-1 text-slate-400">{fmtVol(r.vol || 0)}</span>
                 <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-1 text-slate-400">{fmtDollar(r.dVol || 0)}</span>
-                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{rs ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${rsBadge(rs)}`}>{rs}</span> : ''}</span>
-                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{stage ? <span className={`text-[7px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${stageBadge(r.stage)}`}>{stage}</span> : ''}</span>
+                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{rs ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${rsBadge(rs)}`}>{rs}</span> : ''}</span>
+                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{stage ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${stageBadge(r.stage)}`}>{stage}</span> : ''}</span>
                 <span className="inline-block w-[14px] md:w-[16px] text-center ml-1"><NewsStars count={stars} url={r.catalystUrl} /></span>
               </div>
             </div>
@@ -1813,8 +1835,8 @@ function SectionCard({
 }) {
   return (
     <div
-      className="md:border md:border-white/5 md:rounded-2xl p-2 md:p-8 relative overflow-hidden md:shadow-xl w-full rounded-xl"
-      style={{ backgroundColor: `${accent}0a` }}
+      className="border-l-[3px] md:border md:border-white/5 md:rounded-2xl p-2 pl-3 md:p-8 relative overflow-hidden md:shadow-xl w-full rounded-xl"
+      style={{ backgroundColor: `${accent}0a`, borderLeftColor: accent }}
     >
       <div
         className="hidden md:block absolute right-0 top-0 w-64 h-64 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"
@@ -1909,7 +1931,7 @@ function MacroScorecard({ badges, raw, chopBands }: { badges: MacroBadges | null
       <div className="grid grid-cols-4 md:grid-cols-8 gap-1.5">
         {cells.map((c) => (
           <div key={c.label} className={`rounded-lg border px-3 py-2.5 ${scorecardCellCls(c.color)}`}>
-            <div className="text-[7px] font-bold uppercase tracking-wider text-slate-500 mb-1">{c.label}</div>
+            <div className="text-[8px] font-bold uppercase tracking-wider text-slate-500 mb-1">{c.label}</div>
             <div className={`text-[13px] font-bold tabular-nums leading-tight ${scorecardValCls(c.color)}`}>{c.value}</div>
             {c.sub && <div className={`text-[9px] mt-0.5 truncate ${c.subColor ? scorecardValCls(c.subColor) : 'text-slate-500'}`}>{c.sub}</div>}
           </div>
@@ -1934,6 +1956,13 @@ export default function AnalystBrief() {
   const macro = useMacroScorecard();
   const [session, setSession] = useState(getMarketSession());
   const [helpOpen, setHelpOpen] = useState(false);
+  const [tier, setTier] = useState<string>('pro');
+
+  useEffect(() => {
+    fetch('/api/auth/session').then(r => r.json()).then(d => {
+      if (d.authenticated && d.tier) setTier(d.tier);
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const id = setInterval(() => setSession(getMarketSession()), 30_000);
@@ -2027,7 +2056,12 @@ export default function AnalystBrief() {
            time against the live band setting — see MacroScorecard. */
         let chopObj: { value: number; zone: string } | null = null;
         if (chopRes?.success) {
-          const composite = chopComposite(rawChopOf(chopRes), bData ?? null);
+          const intraBlended = chopRes?.intraday?.blended ?? null;
+          const intraLastBar = chopRes?.intraday?.lastBarAt ?? null;
+          const intraAge = intraLastBar ? (Date.now() - new Date(intraLastBar).getTime()) / 60000 : null;
+          const intraStale = intraAge != null && intraAge > 90;
+          const sessionDir = { qqqPct: quotes['QQQ']?.pct ?? null, spyPct: quotes['SPY']?.pct ?? null };
+          const composite = chopComposite(rawChopOf(chopRes), bData ?? null, { blended: intraBlended, stale: intraStale || intraBlended == null }, sessionDir);
           if (composite != null) {
             chopObj = { value: composite, zone: chopZone(composite, CHOP_MODE_BANDS[DEFAULT_CHOP_MODE]) };
           }
@@ -2074,11 +2108,11 @@ export default function AnalystBrief() {
     if (!su) return null;
     const weekend = isWeekendNow();
     const t = estDecimal();
-    return {
-      morning: (t >= BLOCK_WINDOWS.morning.opens || weekend) ? (su.morning || null) : null,
-      midday: (t >= BLOCK_WINDOWS.midday.opens || weekend) ? (su.midday || null) : null,
-      closing: (t >= BLOCK_WINDOWS.closing.opens || weekend) ? (su.closing || null) : null,
-    };
+    const out = {} as Record<BlockKey, UpdateBlock | null>;
+    for (const key of BLOCK_ORDER) {
+      out[key] = (t >= BLOCK_WINDOWS[key].opens || weekend) ? (su[key] || null) : null;
+    }
+    return out;
   }, [brief]);
 
   const gradeMap = React.useMemo<Record<string, 'A' | 'B'>>(() => {
@@ -2130,7 +2164,7 @@ export default function AnalystBrief() {
       rvol: s.rvol ?? sc.rvol ?? null,
       vol: s.vol ?? sc.vol ?? null,
       dvol: s.dvol ?? sc.dVol ?? sc.dvol ?? null,
-      rs: s.rs ?? sc.rsRating ?? sc.rs ?? null,
+      rs: (s.rs != null && typeof s.rs === 'number') ? s.rs : (sc.rsRating ?? sc.rs ?? null),
       stage: s.stage || sc.stage || undefined,
       score: s.score ?? sc.cnfScore ?? sc.score ?? null,
       grade: s.grade ?? sc.cnfGrade ?? sc.grade ?? null,
@@ -2193,6 +2227,7 @@ export default function AnalystBrief() {
 
   return (
     <>
+    <WatchlistProvider>
     <ActiveChartProvider>
     {/* Same shell as the dashboard: centred rounded panel on the page ground,
         header rule, then a spaced stack of cards. */}
@@ -2200,20 +2235,21 @@ export default function AnalystBrief() {
       <div className="w-full max-w-[1200px] bg-[#0b101a] md:rounded-[2rem] md:border md:border-white/5 overflow-hidden md:shadow-2xl relative pb-20">
 
         <div className="px-3 md:px-10 pt-6 md:pt-8 pb-4 md:pb-6 border-b border-white/5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div className="flex items-center gap-3.5 md:gap-5">
+          <a href="https://confluencetradingtools.com" className="flex items-center gap-3.5 md:gap-5 no-underline" style={{ textDecoration: 'none' }}>
             <img src="/logo.svg" alt="CTT" className="ctt-logo h-9 md:h-12 w-auto drop-shadow-[0_2px_10px_rgba(124,139,250,0.18)]" />
             <div className="leading-none">
               <h2 className="text-2xl md:text-[2.5rem] font-extrabold text-slate-50 tracking-[-0.025em] leading-[1.05] antialiased">
                 Confluence Trading Tools
               </h2>
-              <p className="text-[10px] md:text-[11px] font-semibold text-slate-500 tracking-[0.22em] uppercase mt-2">
+              <p className="text-[12px] md:text-[11px] font-semibold text-slate-500 tracking-[0.22em] uppercase mt-2">
                 Market Briefing
               </p>
             </div>
-          </div>
+          </a>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <DashNav />
+            <DashNav tier={tier} />
+            <WatchlistPanel />
             <button
               onClick={() => setHelpOpen(true)}
               className="w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold bg-slate-700/60 hover:bg-slate-600 text-slate-400 hover:text-slate-200 transition-colors shrink-0"
@@ -2224,8 +2260,7 @@ export default function AnalystBrief() {
 
         <div className="px-0 md:px-10 py-6 space-y-6">
 
-        {/* Same card shell and header as the dashboard's Scorecard: label pill
-            left, session and last-update right, indigo glow behind. */}
+        {tier !== 'core' && (<>
         <div className="bg-[#101623] border-0 md:border md:border-white/5 md:rounded-2xl p-2 md:p-8 relative overflow-hidden md:shadow-xl w-full">
           <div className="hidden md:block absolute right-0 top-0 w-64 h-64 bg-indigo-500/5 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
           <div className="flex justify-between items-center relative z-10 mb-3 md:mb-6 border-b border-white/5 pb-2 md:pb-4">
@@ -2235,7 +2270,7 @@ export default function AnalystBrief() {
             </span>
             <div className="flex flex-col items-center gap-1.5">
               <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-                <span className={`text-[10px] font-bold tracking-widest uppercase ${sessionTextColor(session)}`}>
+                <span className={`text-[12px] font-bold tracking-widest uppercase ${sessionTextColor(session)}`}>
                   {session}
                 </span>
               </div>
@@ -2268,11 +2303,14 @@ export default function AnalystBrief() {
             setChopMode={macro.setChopMode}
             bands={macro.bands}
             divergence={macro.divergence}
+            instSetup={macro.instSetup}
+            instSignal={macro.instSignal}
             cellsOnly
           />
         </div>
 
         <MacroEconPanel />
+        </>)}
 
         {loading && !brief && (
           <div className="flex items-center justify-center py-20 gap-3">
@@ -2304,7 +2342,7 @@ export default function AnalystBrief() {
               const macroSec = brief.sections.find(s => /Futures.*Macro|Macro.*Snapshot/i.test(s.section));
               return macroSec?.analysis ? (
                 <SectionCard title="Macro Snapshot" accent="#22d3ee">
-                  <div className="text-[10px] text-slate-200 leading-[1.7]">
+                  <div className="text-[12px] text-slate-200 leading-[1.7]">
                     {macroSec.analysis.split(/\n\n+/).filter(p => p.trim()).map((block, i) => (
                       <div key={i} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
                         <p className="leading-[1.7]">{highlightBold(block.replace(/\n/g, ' '), 'text-white', true, true, gradeMap, avoidSet)}</p>
@@ -2362,7 +2400,7 @@ export default function AnalystBrief() {
             {/* Sectors */}
             {(() => {
               const sectorSec = brief.sections.find(s => s.section === 'Top Sectors & Money Flow');
-              return sectorSec ? <SectorSection section={sectorSec} scannerData={scannerData} /> : null;
+              return sectorSec ? <SectorSection section={sectorSec} scannerData={scannerData} auxScanData={auxScanData} /> : null;
             })()}
 
             {/* Compact legend */}
@@ -2388,7 +2426,7 @@ export default function AnalystBrief() {
         )}
 
         {/* Session Updates — at the bottom, independent of brief load */}
-        {sessionBlocks && (sessionBlocks.morning || sessionBlocks.midday || sessionBlocks.closing) && (() => {
+        {sessionBlocks && BLOCK_ORDER.some((k) => sessionBlocks[k]) && (() => {
           const weekend = isWeekendNow();
           const renderBlock = (block: UpdateBlock | null, key: BlockKey) => {
             if (!block) return null;
@@ -2398,10 +2436,10 @@ export default function AnalystBrief() {
             const st = sessionBlockTheme(themeKey);
             const nextLabel = BLOCK_WINDOWS[key].nextLabel;
             return (
-              <div key={key} id={`tape-${key}`} className="bg-[#161c2a]/60 border border-white/5 rounded-xl p-4 sm:p-5 md:p-6 mt-3">
+              <div key={key} id={`tape-${key}`} className="bg-[#161c2a]/60 border border-white/5 rounded-xl px-3 py-4 sm:p-5 md:p-6 mt-3">
                 <div className="flex items-center gap-2 sm:gap-3 mb-4 flex-wrap">
                   <div className={`w-2 h-2 rounded-full border border-current ${stale ? 'bg-slate-500/10 text-slate-500' : `${st.bg} ${st.text}`}`} />
-                  <h4 className={`text-[10px] font-bold tracking-widest uppercase ${stale ? 'text-slate-400' : st.text}`}>
+                  <h4 className={`text-[12px] font-bold tracking-widest uppercase ${stale ? 'text-slate-400' : st.text}`}>
                     {block.phase}
                   </h4>
                   <span className="text-[8px] text-slate-500 font-medium tracking-wider px-2 py-0.5 bg-black/20 border border-white/5 rounded">
@@ -2415,18 +2453,18 @@ export default function AnalystBrief() {
                 </div>
                 <div className="space-y-3 mb-5">
                   {block.paragraphs.map((p, idx) => (
-                    <p key={idx} className="text-[10px] text-slate-400 leading-relaxed border-l-[2px] border-slate-500/30 pl-2.5 md:pl-3.5">
+                    <p key={idx} className="text-[12px] text-slate-400 leading-relaxed">
                       {highlightBold(p, 'text-white', true, true, gradeMap, avoidSet)}
                     </p>
                   ))}
                 </div>
                 <div className={`border-l-[4px] p-3 md:p-4 rounded-r-xl transition-colors duration-300 ${stale ? 'bg-slate-500/[0.07] border-slate-500' : `${st.boxBg} ${st.boxBorder}`}`}>
-                  <p className={`text-[10px] leading-relaxed ${stale ? 'text-slate-300' : st.boxText}`}>
+                  <p className={`text-[12px] leading-relaxed ${stale ? 'text-slate-300' : st.boxText}`}>
                     {highlightBold(block.takeaway, stale ? 'text-slate-100' : st.boxText, true, true, gradeMap, avoidSet)}
                   </p>
                 </div>
                 {stale && (
-                  <p className="text-[10px] text-amber-400/90 font-medium mt-3 leading-snug">
+                  <p className="text-[12px] text-amber-400/90 font-medium mt-3 leading-snug">
                     Written for the {block.phase.toLowerCase()} window — the tape has moved past this read.
                     {nextLabel ? ` Treat it as history until the ${nextLabel} update posts.` : ''}
                   </p>
@@ -2438,9 +2476,7 @@ export default function AnalystBrief() {
             <div id="session-updates">
             <SectionCard title="Session Updates" accent="#818cf8">
               <div className="flex flex-col gap-2">
-                {renderBlock(sessionBlocks.morning, 'morning')}
-                {renderBlock(sessionBlocks.midday, 'midday')}
-                {renderBlock(sessionBlocks.closing, 'closing')}
+                {BLOCK_ORDER.map((k) => renderBlock(sessionBlocks[k], k))}
               </div>
             </SectionCard>
             </div>
@@ -2449,13 +2485,14 @@ export default function AnalystBrief() {
 
         </div>
 
-        <div className="text-center text-[10px] text-slate-600 pt-10 pb-4">
-          Confluence Trading Tools LLC © {new Date().getFullYear()} • Not investment advice.
+        <div className="text-center text-[12px] text-slate-600 pt-10 pb-4">
+          Confluence Trading Tools LLC © {new Date().getFullYear()} • Not investment advice. • <a href="mailto:info@confluencetradingtools.com" className="text-slate-500 hover:text-slate-400" style={{ textDecoration: 'none' }}>info@confluencetradingtools.com</a>
         </div>
       </div>
     </div>
     </ActiveChartProvider>
-    <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
+    </WatchlistProvider>
+    <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} tier={tier} />
     </>
   );
 }
