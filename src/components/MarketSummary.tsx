@@ -1530,8 +1530,10 @@ const buildLocalInsights = (
 
   const sipsSorted = sips.slice().sort((a, b) => (rvolOf(b) ?? 0) - (rvolOf(a) ?? 0));
   const leaders = sipsSorted.filter(s => (rvolOf(s) ?? 0) >= 1.5).slice(0, 3);
-  const faders = sips.filter(s => { const r = rvolOf(s); return r != null && r < 1; });
-  const newsItems = sips.filter(hasRealCatalyst).slice(0, 4);
+  const faders = sips.filter(s => { const r = rvolOf(s); return r != null && r < 1 && !leaders.some(l => l.ticker === s.ticker); });
+  const leaderTickers = new Set(leaders.map(s => s.ticker));
+  const faderTickers = new Set(faders.map((s: any) => s.ticker));
+  const newsItems = sips.filter(s => hasRealCatalyst(s) && !leaderTickers.has(s.ticker) && !faderTickers.has(s.ticker)).slice(0, 4);
 
   const fmtNewsRow = (s: any): string => {
     const tag = catalystTagOf(s);
