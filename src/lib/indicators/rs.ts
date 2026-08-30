@@ -29,20 +29,17 @@ export interface RsPayload {
 
 /* How old the map may be before it is refused.
 
-   THREE DAYS, NOT ONE. A one-day rule would blank every rating across a
-   long weekend, and every table would lose a column for reasons that have
-   nothing to do with the data — Friday's ratings are perfectly good on a
-   Monday morning because no session has traded since.
-
-   Three days covers a normal weekend plus a holiday. Beyond that a real
-   amount of market has happened and a stale percentile is worse than none:
-   the number would look current, sit in a column headed RS, and quietly
-   describe a market that no longer exists.
+   FOUR DAYS, NOT ONE. A one-day rule would blank every rating across a
+   weekend. Friday's ratings are perfectly good on Monday because no
+   session has traded since. The asOf date parses to midnight UTC, so
+   Friday midnight → Monday afternoon is already ~3.85 calendar days;
+   a 3-day cap rejects valid weekend data. Four days covers a normal
+   weekend with margin and most single-day holidays.
 
    NULL RATHER THAN STALE is the rule throughout. A missing rating renders
    as an em-dash and any RS filter drops the row; a stale one would pass
    filters and be acted on. */
-const MAX_AGE_DAYS = 3;
+const MAX_AGE_DAYS = 4;
 
 export interface RsLookup {
   /* Rating for a symbol, or null when unrated. Unrated is common and

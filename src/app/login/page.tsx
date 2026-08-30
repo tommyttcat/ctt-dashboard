@@ -5,11 +5,12 @@ import { useState } from 'react';
 const ERRORS: Record<string, string> = {
   'missing-token': 'Invalid sign-in link.',
   'invalid-or-expired': 'This link has expired. Request a new one below.',
-  'account-inactive': 'Your account is not active. Contact the administrator.',
+  'account-inactive': 'Your account is not active. Contact us at info@confluencetradingtools.com.',
 };
 
 const INFOS: Record<string, string> = {
   'email-only': 'Your subscription is email-only. Reports are delivered straight to your inbox — no login needed.',
+  'trial-expired': 'Your free trial has ended. Email info@confluencetradingtools.com to upgrade your access.',
 };
 
 export default function LoginPage() {
@@ -96,10 +97,12 @@ export default function LoginPage() {
         }}
       >
         <div className="text-center mb-8">
-          <img src="/logo.svg" alt="CTT" className="h-8 mx-auto mb-4 ctt-logo" />
-          <h1 className="text-xl font-bold" style={{ color: 'var(--text-heading)' }}>
-            Confluence Trading Tools
-          </h1>
+          <a href="https://confluencetradingtools.com" style={{ textDecoration: 'none' }}>
+            <img src="/logo.svg" alt="CTT" className="h-8 mx-auto mb-4 ctt-logo" />
+            <h1 className="text-xl font-bold" style={{ color: 'var(--text-heading)' }}>
+              Confluence Trading Tools
+            </h1>
+          </a>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
             {showWaitlist ? 'Request access to the platform' : 'Sign in to access your dashboard'}
           </p>
@@ -271,7 +274,21 @@ export default function LoginPage() {
           </form>
         )}
 
-        <div className="text-center mt-6 pt-6" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+        <div className="text-center mt-5">
+          <a
+            href="/invite?code=CTT-HCXFBF"
+            className="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold no-underline"
+            style={{ color: '#fb923c', border: '1px solid rgba(251,146,60,0.3)', background: 'rgba(251,146,60,0.08)', textDecoration: 'none' }}
+          >
+            Start Your 30-Day Free Trial
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+          </a>
+        </div>
+
+        <div className="text-center mt-4 pt-4" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+          <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
+            <a href="/pricing" className="font-medium text-indigo-400 hover:text-indigo-300" style={{ textDecoration: 'none' }}>View pricing</a>
+          </p>
           {showWaitlist ? (
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
               Already have an account? <button onClick={() => setShowWaitlist(false)} className="font-medium text-indigo-400 hover:text-indigo-300 cursor-pointer">Sign in</button>
@@ -281,6 +298,9 @@ export default function LoginPage() {
               Don&apos;t have an account? <button onClick={() => setShowWaitlist(true)} className="font-medium text-indigo-400 hover:text-indigo-300 cursor-pointer">Join the waitlist</button>
             </p>
           )}
+          <p className="text-[10px] mt-4" style={{ color: 'var(--text-muted)', opacity: 0.6 }}>
+            &copy; 2026 Confluence Trading Tools LLC
+          </p>
         </div>
       </div>
     </div>

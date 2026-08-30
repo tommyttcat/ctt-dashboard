@@ -22,21 +22,21 @@ export async function GET(req: Request) {
     return NextResponse.redirect(new URL('/login?error=account-inactive', url.origin));
   }
 
+  if (user.accessExpiresAt && new Date(user.accessExpiresAt) < new Date()) {
+    return NextResponse.redirect(new URL('/login?info=trial-expired', url.origin));
+  }
+
   const sessionToken = await createSessionToken({
     email: user.email,
     name: user.name,
     tier: user.tier,
     isAdmin: user.isAdmin,
+    accessExpiresAt: user.accessExpiresAt,
   });
 
-  const emailOnlyTiers = ['briefing_email', 'confluence_email', 'both_email'];
-  const dest = emailOnlyTiers.includes(user.tier)
+  const dest = user.tier === 'starter'
     ? '/login?info=email-only'
-    : user.tier === 'full'
-    ? '/dashboard'
-    : user.tier === 'briefing'
-    ? '/analyst'
-    : '/confluence';
+    : '/dashboard';
 
   const res = NextResponse.redirect(new URL(dest, url.origin));
   res.cookies.set(SESSION_COOKIE, sessionToken, {

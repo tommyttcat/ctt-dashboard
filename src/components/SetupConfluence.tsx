@@ -8,13 +8,15 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { cachedJson, fetchScannerLatest } from '@/lib/scannerLatest';
-import TickerChartHover, { useFreezeWhileChartOpen } from './TickerChartHover';
+import TickerChartHover, { useFreezeWhileChartOpen, WatchlistBtn } from './TickerChartHover';
+import { WatchlistToggle } from './WatchlistPanel';
+import { useMarketData } from './MarketDataContext';
 import { stageShort, stageDescription, stageBadge } from '@/lib/indicators/stage';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { rsBadge } from '@/lib/indicators/rs';
 import { displaySector } from '@/lib/sectors';
 import { CatalystChip, NewsStars, headlineOf, isGenericCatalyst, catalystUrlOf } from '@/lib/catalyst';
-import { formatSetupName } from '@/lib/setupName';
+import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
 import {
   rvolColor as getRvolColor,
   adrColor as getAdrColor,
@@ -34,7 +36,7 @@ type ScannerKey = 'daily' | 'sip' | 'dvol' | 'swing' | 'coil' | 'vcp' | 'hrs' | 
 const SCANNERS: { key: ScannerKey; label: string; short: string; color: string }[] = [
   { key: 'daily', label: 'Daily Setups',   short: 'DAILY', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-400/30' },
   { key: 'sip',   label: 'Stocks in Play', short: 'SIP',   color: 'bg-violet-500/20 text-violet-300 border-violet-400/30' },
-  { key: 'dvol',  label: 'Dollar Volume',  short: 'DVOL',  color: 'bg-amber-500/20 text-amber-300 border-amber-400/30' },
+  { key: 'dvol',  label: 'Dollar Volume',  short: '$VOL',  color: 'bg-amber-500/20 text-amber-300 border-amber-400/30' },
   { key: 'swing', label: 'Swing',          short: 'SWING', color: 'bg-teal-500/20 text-teal-300 border-teal-400/30' },
   { key: 'coil',  label: 'Consolidation',  short: 'COIL',  color: 'bg-cyan-500/20 text-cyan-300 border-cyan-400/30' },
   { key: 'vcp',   label: 'VCP',            short: 'VCP',   color: 'bg-emerald-500/20 text-emerald-300 border-emerald-400/30' },
@@ -189,13 +191,13 @@ const formatCurrency = (num: number | null | undefined) => {
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
   const date = new Date(timestamp);
-  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
 };
 
 /* ---- Overlap badge color ------------------------------------------------ */
 
 function overlapBadgeCls(n: number): string {
-  const base = 'inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-black border';
+  const base = 'inline-flex items-center justify-center w-4 h-4 rounded-full text-[8px] font-black border';
   if (n >= 5) return `${base} bg-purple-500/20 text-purple-300 border-purple-400/30`;
   if (n >= 4) return `${base} bg-emerald-500/20 text-emerald-300 border-emerald-400/30`;
   if (n >= 3) return `${base} bg-amber-500/20 text-amber-300 border-amber-400/30`;
@@ -220,6 +222,7 @@ type MinOverlapFilter = 2 | 3 | 4;
 type MinStreakFilter = 0 | 3 | 5 | 10;
 
 export default function SetupConfluence() {
+  const { session } = useMarketData();
   const [rows, setRows] = useState<ConfluenceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastFetch, setLastFetch] = useState<number | null>(null);
@@ -364,7 +367,7 @@ export default function SetupConfluence() {
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="text-xs md:text-sm font-bold text-[#7c8bfa] bg-[#161c2a]/40 border border-white/5 px-4 py-1.5 rounded-lg tracking-widest uppercase flex items-center gap-2 group-hover:bg-white/[0.02] transition-colors">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa]"></span>
-                  SETUP CONFLUENCE
+                  CONFLUENCE
                 </span>
 
                 {rows.length > 0 && (
@@ -422,12 +425,18 @@ export default function SetupConfluence() {
                 </span>
               </div>
 
-              <div className="flex flex-col items-center gap-1.5">
-                {lastFetch && (
-                  <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
-                    Updated: {formatTime(lastFetch)} ET
-                  </span>
-                )}
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-col items-center gap-1.5">
+                  <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
+                    <span className={`text-[10px] font-bold tracking-widest uppercase ${session === 'Pre-Market' ? 'text-amber-500' : session === 'Open' ? 'text-[#00e676]' : session === 'Post-Market' ? 'text-indigo-400' : 'text-slate-500'}`}>{['Pre-Market', 'Open', 'Post-Market', 'Closed'].includes(session) ? session : 'Closed'}</span>
+                  </div>
+                  {lastFetch && (
+                    <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide whitespace-nowrap">
+                      Scanned: {formatTime(lastFetch)} EST
+                    </span>
+                  )}
+                </div>
+                <WatchlistToggle />
               </div>
             </div>
 
@@ -487,18 +496,16 @@ export default function SetupConfluence() {
                 {/* Table */}
                 {!loading && frozenRows.length > 0 && (
                   <div className="overflow-x-auto">
-                    <table className="w-full table-fixed border-collapse" style={{ minWidth: 1060 }}>
+                    <table className="w-full min-w-[940px] table-fixed border-collapse">
                       <thead>
                         <tr className="border-b border-white/5">
-                          <th className={`${thBase} w-[8%]`} onClick={() => handleSort('ticker')} title="Ticker symbol">TICKER{getSortIcon('ticker')}</th>
-                          <th className={`${thBase} w-[3%]`} onClick={() => handleSort('overlap')} title="Scanner overlap count">#</th>
-                          <th className={`${thBase} w-[3%]`} onClick={() => handleSort('scanStreak')} title="Consecutive scans appeared">STK{getSortIcon('scanStreak')}</th>
-                          <th className={`${thBase} w-[3%]`} title="News quality stars">N</th>
+                          <th className={`${thBase} w-[7%] !text-left pl-1`} onClick={() => handleSort('ticker')} title="Ticker symbol">TICKER{getSortIcon('ticker')}</th>
+                          <th className={`${thBase} w-[2%]`} title="News quality stars">N</th>
                           <th className={`${thBase} w-[4%]`} onClick={() => handleSort('cnfScore')} title="Confluence score from the primary scanner">CNF{getSortIcon('cnfScore')}</th>
                           <th className={`${thBase} w-[4%]`} onClick={() => handleSort('rsRating')} title="IBD-style RS Rating (percentile)">RS{getSortIcon('rsRating')}</th>
                           <th className={`${thBase} w-[6%]`} onClick={() => handleSort('price')} title="Last price. Dot is VWAP position.">PRICE{getSortIcon('price')}</th>
                           <th className={`${thBase} w-[5%]`} onClick={() => handleSort('changePct')} title="Change vs prior close">CHG%{getSortIcon('changePct')}</th>
-                          <th className={`${thBase} w-[4%]`} title="Price vs 10 and 21 EMAs">10/21</th>
+                          <th className={`${thBase} w-[5%]`} title="Price vs 10 and 21 EMAs">10/21</th>
                           <th className={`${thBase} w-[5%]`} onClick={() => handleSort('vol')} title="Shares traded today">VOL{getSortIcon('vol')}</th>
                           <th className={`${thBase} w-[5%]`} onClick={() => handleSort('dVol')} title="Dollar volume — price × volume">$VOL{getSortIcon('dVol')}</th>
                           <th className={`${thBase} w-[5%]`} onClick={() => handleSort('rvol')} title="Relative volume vs 20-day average">RVOL{getSortIcon('rvol')}</th>
@@ -506,10 +513,10 @@ export default function SetupConfluence() {
                           <th className={`${thBase} w-[5%]`} onClick={() => handleSort('adrPct')} title="20-day Average Daily Range %">ADR{getSortIcon('adrPct')}</th>
                           <th className={`${thBase} w-[4%]`} onClick={() => handleSort('mf')} title="Money Flow (21) — accumulation vs distribution">MF{getSortIcon('mf')}</th>
                           <th className={`${thBase} w-[5%]`} onClick={() => handleSort('stochK')} title="Stochastic %K (10)">STOCH{getSortIcon('stochK')}</th>
-                          <th className={`${thBase} w-[4%]`} onClick={() => handleSort('daysToCover')} title="Days to cover — short interest">DTC{getSortIcon('daysToCover')}</th>
+                          <th className={`${thBase} w-[5%]`} onClick={() => handleSort('daysToCover')} title="Days to cover — short interest">DTC{getSortIcon('daysToCover')}</th>
                           <th className={`${thBase} w-[5%]`} onClick={() => handleSort('mktCap')} title="Market capitalization">MCAP{getSortIcon('mktCap')}</th>
                           <th className={`${thStage} w-[5%] border-l border-white/5`} onClick={() => handleSort('stage')} title="Weinstein stage">STAGE{getSortIcon('stage')}</th>
-                          <th className={`${thSector} w-[8%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                          <th className={`${thSector} w-[7%]`} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -520,6 +527,7 @@ export default function SetupConfluence() {
                               {/* Ticker */}
                               <td className={tdBase}>
                                 <div className="flex items-center justify-start gap-1.5">
+                                  <WatchlistBtn symbol={row.ticker} />
                                   <TickerChartHover symbol={row.ticker}>
                                     <span
                                       className={tickerChipForScore(row.cnfScore)}
@@ -528,28 +536,7 @@ export default function SetupConfluence() {
                                       {row.ticker}
                                     </span>
                                   </TickerChartHover>
-                                  <CatalystChip row={row} />
-                                  {row.dotKind === 'blue' && <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0" title="Blue dot" />}
-                                  {row.dotKind === 'red' && <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" title="Red dot" />}
                                 </div>
-                              </td>
-
-                              {/* Overlap # */}
-                              <td className={tdBase}>
-                                <span className={overlapBadgeCls(row.overlap)} title={`Appears in ${row.overlap} scanners`}>
-                                  {row.overlap}
-                                </span>
-                              </td>
-
-                              {/* Streak */}
-                              <td className={tdBase}>
-                                {row.scanStreak > 0 ? (
-                                  <span className={streakBadgeCls(row.scanStreak)} title={`${row.scanStreak} consecutive scans`}>
-                                    {row.scanStreak}
-                                  </span>
-                                ) : (
-                                  <span className="text-[10px] text-slate-600">—</span>
-                                )}
                               </td>
 
                               {/* N — news stars */}
@@ -661,11 +648,17 @@ export default function SetupConfluence() {
 
                             {/* Sub-row */}
                             <tr className="bg-transparent border-t border-white/5">
+                              <td className="align-top pt-1">
+                                <div className="flex items-center gap-1 pl-6">
+                                  <CatalystChip row={row} />
+                                  {row.dotKind === 'red' && <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" title="Red dot" />}
+                                </div>
+                              </td>
                               <td />
-                              <td colSpan={19} className="pb-1.5 pt-1 pr-3">
+                              <td colSpan={16} className="pb-1.5 pt-1 pr-3">
                                 <div className="flex items-center text-left gap-0 min-w-0">
-                                  <span className="shrink-0 w-[78px] px-0.5 text-center text-[#7c8bfa]/90 font-bold text-[9px] tracking-[0.04em] uppercase leading-none whitespace-nowrap">
-                                    {formatSetupName(row.setupName)}
+                                  <span className="shrink-0 w-[48px] px-0.5 text-center text-[#7c8bfa]/90 font-bold text-[7px] tracking-[0.04em] uppercase leading-none whitespace-nowrap">
+                                    {isBlueDotSetup(row.setupName) ? <span className="w-2 h-2 rounded-full bg-blue-400 inline-block" title="Blue Dot Reversal" /> : formatSetupName(row.setupName)}
                                   </span>
                                   <div className="flex-1 min-w-0 flex items-center gap-1.5 border-l border-white/10 pl-2.5 pr-3">
                                     {row.scanners.map(sk => {
@@ -673,7 +666,7 @@ export default function SetupConfluence() {
                                       return (
                                         <span
                                           key={sk}
-                                          className={`inline-block text-[7px] font-bold tracking-wider px-1.5 py-[2px] rounded border ${s.color}`}
+                                          className={`inline-block text-[6px] font-bold tracking-wider px-1 py-[1px] rounded border ${s.color}`}
                                           title={s.label}
                                         >
                                           {s.short}

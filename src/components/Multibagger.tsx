@@ -12,7 +12,8 @@ import { MULTIBAGGER } from '@/lib/scanConfig';
 import { rsBadge } from '@/lib/indicators/rs';
 
 import { useMarketData } from './MarketDataContext';
-import TickerChartHover from './TickerChartHover';
+import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
+import { WatchlistToggle } from './WatchlistPanel';
 import { NewsStars } from '@/lib/catalyst';
 import { stageColor as stgColor, stageBadge, stageShort as stgShort, stageDescription } from '@/lib/indicators/stage';
 import { rvolColorLowFloor as rvolColor, tickerChipCls, scoreCellCls } from '@/lib/indicators/columnColors';
@@ -101,7 +102,7 @@ const fcfColor = (v: number | null): string => {
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
   const d = typeof timestamp === 'number' ? new Date(timestamp) : timestamp;
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
 };
 
 interface Candidate {
@@ -438,15 +439,18 @@ export default function Multibagger() {
             </span>
           )}
         </div>
-        <div className="flex flex-col items-center gap-1.5">
-          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${sessionColor}`}>{displaySession}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-col items-center gap-1.5">
+            <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
+              <span className={`text-[10px] font-bold tracking-widest uppercase ${sessionColor}`}>{displaySession}</span>
+            </div>
+            {lastScanTime && (
+              <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide whitespace-nowrap">
+                Scanned: {formatTime(lastScanTime)} EST
+              </span>
+            )}
           </div>
-          {lastScanTime && (
-            <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
-              Scanned: {formatTime(lastScanTime)} EST
-            </span>
-          )}
+          <WatchlistToggle />
         </div>
       </div>
 
@@ -592,6 +596,7 @@ export default function Multibagger() {
                         {/* Ticker */}
                         <td className={tdBase}>
                           <div className="flex items-center justify-start gap-1.5">
+                            <WatchlistBtn symbol={c.ticker} />
                             <TickerChartHover symbol={c.ticker}><span className={tickerChipCls(c.grade)} title={`${c.name} — Grade ${c.grade} (${c.score})`}>{c.ticker}</span></TickerChartHover>
                           </div>
                         </td>

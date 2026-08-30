@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import TickerChartHover from './TickerChartHover';
 import { getMarketSession } from '@/lib/indicators/marketScorecard';
 
+
 // ---------------------------------------------------------------------------
 // Earnings Calendar — v3.1
 //
@@ -378,17 +379,19 @@ export default function EarningsCalendar() {
           )}
         </div>
 
-        <div className="flex flex-col items-center gap-1.5">
-          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${status === 'Live' ? getSessionTextColor() : 'text-slate-500'}`}>
-              {status === 'Live' ? session : status}
-            </span>
+        <div className="flex items-center gap-2">
+          <div className="flex flex-col items-center gap-1.5">
+            <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
+              <span className={`text-[10px] font-bold tracking-widest uppercase ${status === 'Live' ? getSessionTextColor() : 'text-slate-500'}`}>
+                {status === 'Live' ? session : status}
+              </span>
+            </div>
+            {lastUpdated && (
+              <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
+                Updated: {formatTime(lastUpdated)} EST
+              </span>
+            )}
           </div>
-          {lastUpdated && (
-            <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
-              Updated: {formatTime(lastUpdated)} EST
-            </span>
-          )}
         </div>
       </div>
 
@@ -445,15 +448,15 @@ export default function EarningsCalendar() {
             <table className="w-full min-w-[920px] border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rawDateString')}>DATE{getSortIcon('rawDateString')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[18%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('name')}>COMPANY{getSortIcon('name')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MKT CAP{getSortIcon('mktCap')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[9%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('epsEst')}>EST EPS{getSortIcon('epsEst')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[9%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('epsActual')}>ACTUAL{getSortIcon('epsActual')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('result')}>RESULT{getSortIcon('result')}</th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('revEst')}>EST REV{getSortIcon('revEst')}</th>
+                  <th className="py-2.5 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('rawDateString')}>DATE{getSortIcon('rawDateString')}</th>
+                  <th className="py-2.5 text-[10px] text-slate-500 font-bold tracking-wider w-[8%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
+                  <th className="py-2.5 text-[10px] text-slate-500 font-bold tracking-wider w-[18%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('name')}>COMPANY{getSortIcon('name')}</th>
+                  <th className="py-2.5 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className="py-2.5 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('mktCap')}>MKT CAP{getSortIcon('mktCap')}</th>
+                  <th className="py-2.5 text-[10px] text-slate-500 font-bold tracking-wider w-[9%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('epsEst')}>EST EPS{getSortIcon('epsEst')}</th>
+                  <th className="py-2.5 text-[10px] text-slate-500 font-bold tracking-wider w-[9%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('epsActual')}>ACTUAL{getSortIcon('epsActual')}</th>
+                  <th className="py-2.5 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('result')}>RESULT{getSortIcon('result')}</th>
+                  <th className="py-2.5 text-[10px] text-slate-500 font-bold tracking-wider w-[12%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '16px' }} onClick={() => handleSort('revEst')}>EST REV{getSortIcon('revEst')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -497,35 +500,35 @@ export default function EarningsCalendar() {
 
                     return (
                       <tr key={row.id} className={`transition-colors group ${rowBgClass} ${opacityClass}`}>
-                        <td className="py-3.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <span className={`text-xs whitespace-nowrap ${dateTextColor}`}>{row.date}</span>
+                        <td className="pt-2.5 pb-1.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                          <span className={`text-[10px] whitespace-nowrap ${dateTextColor}`}>{row.date}</span>
                         </td>
 
-                        <td className="py-3.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <TickerChartHover symbol={row.ticker}><span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded border ${tickerBgColor}`}>{row.ticker}</span></TickerChartHover>
+                        <td className="pt-2.5 pb-1.5" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                          <TickerChartHover symbol={row.ticker}><span className={`inline-block text-[8px] font-bold px-1.5 py-[2px] rounded border tracking-wider ${tickerBgColor}`}>{row.ticker}</span></TickerChartHover>
                         </td>
 
-                        <td className={`py-3.5 text-xs whitespace-nowrap truncate max-w-[220px] ${nameTextColor}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.name}</td>
+                        <td className={`pt-2.5 pb-1.5 text-[10px] whitespace-nowrap truncate max-w-[220px] ${nameTextColor}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>{row.name}</td>
 
-                        <td className="py-3.5 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
-                          <div className={`truncate px-1.5 py-0.5 rounded border inline-block ${row.isThematic ? 'bg-violet-500/10 text-violet-300 border-violet-500/20' : 'bg-[#161c2a] border-white/5'}`} title={row.sector}>{row.sector}</div>
+                        <td className="pt-2.5 pb-1.5 text-[10px] text-slate-400 font-medium whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                          <div className={`truncate px-1 py-[1px] rounded border inline-block text-[8px] ${row.isThematic ? 'bg-violet-500/10 text-violet-300 border-violet-500/20' : 'bg-[#161c2a] border-white/5'}`} title={row.sector}>{row.sector}</div>
                         </td>
 
-                        <td className="py-3.5 text-xs font-medium whitespace-nowrap text-slate-400 tabular-nums" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                        <td className="pt-2.5 pb-1.5 text-[10px] font-medium whitespace-nowrap text-slate-400 tabular-nums" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           {formatCurrency(row.mktCap)}
                         </td>
 
-                        <td className="py-3.5 text-xs font-medium whitespace-nowrap text-slate-400 tabular-nums" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                        <td className="pt-2.5 pb-1.5 text-[10px] font-medium whitespace-nowrap text-slate-400 tabular-nums" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           {row.epsEst !== null ? `$${row.epsEst.toFixed(2)}` : '-'}
                         </td>
 
-                        <td className={`py-3.5 text-xs font-bold whitespace-nowrap tabular-nums ${actualColor}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                        <td className={`pt-2.5 pb-1.5 text-[10px] font-bold whitespace-nowrap tabular-nums ${actualColor}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           {row.epsActual !== null ? `$${row.epsActual.toFixed(2)}` : '—'}
                         </td>
 
-                        <td className="py-3.5 whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                        <td className="pt-2.5 pb-1.5 whitespace-nowrap" style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           {row.result ? (
-                            <span className={`inline-block text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${getResultBadge(row.result)}`}>
+                            <span className={`inline-block text-[8px] font-bold uppercase tracking-wider px-1.5 py-[2px] rounded border ${getResultBadge(row.result)}`}>
                               {row.result}{row.epsSurprisePct !== null ? ` ${row.epsSurprisePct > 0 ? '+' : ''}${row.epsSurprisePct.toFixed(1)}%` : ''}
                             </span>
                           ) : (
@@ -533,7 +536,7 @@ export default function EarningsCalendar() {
                           )}
                         </td>
 
-                        <td className={`py-3.5 text-xs font-medium whitespace-nowrap tabular-nums ${isToday ? 'text-slate-300' : 'text-slate-400'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>
+                        <td className={`pt-2.5 pb-1.5 text-[10px] font-medium whitespace-nowrap tabular-nums ${isToday ? 'text-slate-300' : 'text-slate-400'}`} style={{ textAlign: 'left', paddingLeft: '16px' }}>
                           {formatCurrency(row.revEst)}
                         </td>
                       </tr>

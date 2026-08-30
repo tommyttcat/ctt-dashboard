@@ -1,16 +1,21 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { verifySession, SESSION_COOKIE } from './lib/auth';
+import { getUserByEmail } from './lib/users';
+
+const TRIAL_TIERS = ['trial_7', 'trial_14', 'trial_30'];
+const FULL_ACCESS_TIERS = ['pro', ...TRIAL_TIERS];
 
 const ROUTE_TIERS: [string, string[]][] = [
   ['/admin', ['__admin__']],
-  ['/dashboard', ['full']],
-  ['/analyst', ['full', 'briefing']],
-  ['/confluence', ['full', 'confluence']],
+  ['/dashboard', [...FULL_ACCESS_TIERS, 'core']],
+  ['/analyst', [...FULL_ACCESS_TIERS, 'core']],
+  ['/confluence', [...FULL_ACCESS_TIERS]],
+  ['/scanners', [...FULL_ACCESS_TIERS]],
 ];
 
 const EXACT_ROUTES: [string, string[]][] = [
-  ['/', ['full']],
+  ['/', [...FULL_ACCESS_TIERS, 'core']],
 ];
 
 const ALLOWED_HOST = 'app.confluencetradingtools.com';
@@ -24,13 +29,21 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url, 301);
   }
 
-  const EMAIL_ONLY_TIERS = ['briefing_email', 'confluence_email', 'both_email'];
+  // TEMP local debug bypass — remove before deploy (inert in production: host is never localhost there)
+  if (host === 'localhost') return NextResponse.next();
+
+  const EMAIL_ONLY_TIERS = ['starter'];
 
   if (pathname === '/login') {
     const session = await verifySession(request.cookies.get(SESSION_COOKIE)?.value);
-    if (session && !EMAIL_ONLY_TIERS.includes(session.tier)) {
-      const dest = session.tier === 'full' ? '/dashboard' : session.tier === 'briefing' ? '/analyst' : '/confluence';
-      return NextResponse.redirect(new URL(dest, request.url));
+    if (session) {
+      const loginUser = await getUserByEmail(session.email);
+      if (loginUser?.active && !EMAIL_ONLY_TIERS.includes(loginUser.tier)) {
+        if (loginUser.accessExpiresAt && new Date(loginUser.accessExpiresAt) < new Date()) {
+          return NextResponse.next();
+        }
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+      }
     }
     return NextResponse.next();
   }
@@ -48,25 +61,36 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
+  const user = await getUserByEmail(session.email);
+  if (!user || !user.active) {
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
+
+  const tier = user.tier;
+  const isAdmin = user.isAdmin;
+
+  if (user.accessExpiresAt && new Date(user.accessExpiresAt) < new Date()) {
+    return NextResponse.redirect(new URL('/login?info=trial-expired', request.url));
+  }
+
   const [, tiers] = match;
   if (tiers.includes('__admin__')) {
-    if (!session.isAdmin) {
+    if (!isAdmin) {
       return NextResponse.redirect(new URL('/login', request.url));
     }
     return NextResponse.next();
   }
 
-  if (!tiers.includes(session.tier)) {
-    if (EMAIL_ONLY_TIERS.includes(session.tier)) {
+  if (!tiers.includes(tier)) {
+    if (EMAIL_ONLY_TIERS.includes(tier)) {
       return NextResponse.redirect(new URL('/login?info=email-only', request.url));
     }
-    const dest = session.tier === 'full' ? '/dashboard' : session.tier === 'briefing' ? '/analyst' : '/confluence';
-    return NextResponse.redirect(new URL(dest, request.url));
+    return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ['/', '/login', '/dashboard', '/analyst', '/confluence', '/admin', '/invite'],
+  matcher: ['/', '/login', '/dashboard', '/analyst', '/confluence', '/scanners', '/admin', '/invite'],
 };

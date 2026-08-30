@@ -4,13 +4,14 @@ const INVITES_KEY = 'ctt_invites';
 
 export interface Invite {
   code: string;
-  tier: 'full' | 'briefing' | 'confluence' | 'briefing_email' | 'confluence_email' | 'both_email';
+  tier: 'starter' | 'indicators' | 'core' | 'core-max' | 'pro' | 'pro-max' | 'trial_7' | 'trial_14' | 'trial_30';
   label: string;
   maxUses: number; // 0 = unlimited
   uses: number;
   createdAt: string;
   expiresAt: string | null;
   active: boolean;
+  trialDays?: number;
 }
 
 function genCode(): string {
@@ -35,6 +36,7 @@ export async function createInvite(data: {
   label: string;
   maxUses?: number;
   expiresAt?: string | null;
+  trialDays?: number;
 }): Promise<Invite> {
   const invites = await getInvites();
   const invite: Invite = {
@@ -46,6 +48,7 @@ export async function createInvite(data: {
     createdAt: new Date().toISOString(),
     expiresAt: data.expiresAt ?? null,
     active: true,
+    ...(data.trialDays ? { trialDays: data.trialDays } : {}),
   };
   invites.push(invite);
   await kv.set(INVITES_KEY, invites);

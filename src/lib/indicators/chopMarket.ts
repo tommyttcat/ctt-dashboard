@@ -86,10 +86,28 @@ export const bandsFor = (mode: string | null | undefined): ChopBands =>
    into the modifier weights would mean the number itself changed when you
    changed how you read it.
 
-   IT IS ALSO NOT APPLIED TO THE INTRADAY LEG. Breadth and the high/low line
-   are daily measures; using them to adjust a 3.5-hour reading would import
-   three weeks of context into a number whose entire job is to be current. */
+   Breadth modifiers are NOT applied to the intraday leg. Breadth and the
+   high/low line are daily measures; using them to adjust a 3.5-hour reading
+   would import three weeks of context into a number whose entire job is to
+   be current.
+
+   The intraday CI leg IS blended into the composite when it is current.
+   The daily CI is a 14-day backward-looking measure that cannot see a
+   session that just started trending — by the time it moves, the break is
+   days old. A 30% intraday weight is enough to pull the composite out of
+   CHOPPY on a clearly trending session without overriding the daily
+   structure.
+
+   SESSION DIRECTION uses today's QQQ/SPY price change as a proxy for
+   intraday trend when 15-minute bars are unavailable. A weighted index
+   move of ±0.5%+ is directional; ±1.5%+ is strongly directional. The
+   modifier pushes toward trending (lower CHOP) proportionally, capped at
+   CHOP_MODIFIER_CAP. This data comes from the macro endpoint which updates
+   every 15 minutes and is always current. */
 export const CHOP_MODIFIER_CAP = 12;
+export const CHOP_INTRADAY_WEIGHT = 0.3;
+const SESSION_DIR_THRESHOLD = 0.5;
+const SESSION_DIR_FULL = 1.5;
 
 export interface ChopBreadthInput {
   score?: number | null;
@@ -97,7 +115,22 @@ export interface ChopBreadthInput {
   newLows?: number | null;
 }
 
-export function chopComposite(raw: number | null, breadth: ChopBreadthInput | null): number | null {
+export interface ChopIntradayInput {
+  blended: number | null;
+  stale: boolean;
+}
+
+export interface ChopSessionInput {
+  qqqPct?: number | null;
+  spyPct?: number | null;
+}
+
+export function chopComposite(
+  raw: number | null,
+  breadth: ChopBreadthInput | null,
+  intraday?: ChopIntradayInput | null,
+  session?: ChopSessionInput | null,
+): number | null {
   if (raw == null) return null;
 
   let adj = 0;
@@ -117,7 +150,28 @@ export function chopComposite(raw: number | null, breadth: ChopBreadthInput | nu
     adj += (balance - 0.5) * 2 * CHOP_MODIFIER_CAP;
   }
 
-  return Math.max(0, Math.min(100, raw + adj));
+  // Session direction — today's weighted index change. Both moving the
+  // same way is directional; opposing moves cancel. Only kicks in past
+  // SESSION_DIR_THRESHOLD so a flat day contributes nothing.
+  if (session) {
+    const qp = session.qqqPct ?? 0;
+    const sp = session.spyPct ?? 0;
+    const weightedPct = qp * 0.6 + sp * 0.4;
+    const absPct = Math.abs(weightedPct);
+    if (absPct >= SESSION_DIR_THRESHOLD) {
+      const strength = Math.min((absPct - SESSION_DIR_THRESHOLD) / (SESSION_DIR_FULL - SESSION_DIR_THRESHOLD), 1);
+      adj -= strength * CHOP_MODIFIER_CAP;
+    }
+  }
+
+  let result = raw + adj;
+
+  // Blend intraday when current — the daily CI cannot see today's regime.
+  if (intraday && intraday.blended != null && !intraday.stale) {
+    result = result * (1 - CHOP_INTRADAY_WEIGHT) + intraday.blended * CHOP_INTRADAY_WEIGHT;
+  }
+
+  return Math.max(0, Math.min(100, result));
 }
 
 /** Pulls the raw blended value out of an /api/chop payload, nested or flat. */

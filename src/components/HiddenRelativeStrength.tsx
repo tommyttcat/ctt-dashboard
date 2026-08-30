@@ -9,7 +9,8 @@ import { stageShort, stageBadge } from '@/lib/indicators/stage';
 import { tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
 import { displaySector } from '@/lib/sectors';
 import { NewsStars, type CatalystRow } from '@/lib/catalyst';
-import TickerChartHover from './TickerChartHover';
+import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
+import { WatchlistToggle } from './WatchlistPanel';
 
 const SCORE_LABELS: Record<string, string> = {
   alpha: 'Weak-day alpha & consistency',
@@ -27,7 +28,7 @@ const COL_TIPS: Record<string, string> = {
 
 const formatTime = (ts: number | Date) => {
   if (!ts) return '';
-  return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
+  return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
 };
 
 const fmtNum = (n: number | null | undefined) => {
@@ -292,15 +293,18 @@ export default function HiddenRelativeStrength() {
           </span>
         </div>
 
-        <div className="flex flex-col items-center gap-1.5 shrink-0">
-          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>{displaySession}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-col items-center gap-1.5 shrink-0">
+            <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
+              <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>{displaySession}</span>
+            </div>
+            {lastScanTime && (
+              <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide whitespace-nowrap">
+                Scanned: {formatTime(lastScanTime)} EST
+              </span>
+            )}
           </div>
-          {lastScanTime && (
-            <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
-              Scanned: {formatTime(lastScanTime)} EST
-            </span>
-          )}
+          <WatchlistToggle />
         </div>
       </div>
 
@@ -395,6 +399,7 @@ export default function HiddenRelativeStrength() {
                         >
                           <td className={tdBase}>
                             <div className="flex items-center justify-start gap-1.5">
+                              <WatchlistBtn symbol={row.symbol} />
                               <TickerChartHover symbol={row.symbol}>
                                 <span className={tickerChipForScore(row.cnfScore)} title={tickerTitle(row.name, row.symbol, row.cnfScore)}>
                                   {row.symbol}

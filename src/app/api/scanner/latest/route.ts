@@ -25,6 +25,7 @@ export async function GET() {
       lastScanTime,
       storedMeta,
       scanStreaks,
+      highBeta,
     ] = await Promise.all([
       kv.get('daily_setups_v6'),
       kv.get('stocks_in_play_v6'),
@@ -35,6 +36,7 @@ export async function GET() {
       kv.get('last_scan_time_v6'),
       kv.get<any>('scan_meta_v6'),
       kv.get<{ date: string; counts: Record<string, number> }>('scan_streaks_v6'),
+      kv.get<any[]>('high_beta_v6'),
     ]);
 
     // Scan-gate metadata for the on-screen "?" key. Prefer whatever the last
@@ -74,6 +76,7 @@ export async function GET() {
       benchmarks: benchmarks || (benchmark ? [benchmark] : []),
       scanMeta,
       scanStreaks: scanStreaks?.counts ?? {},
+      highBeta: highBeta || [],
     }, {
       headers: cacheHeaders(CACHE.LIVE),
     });

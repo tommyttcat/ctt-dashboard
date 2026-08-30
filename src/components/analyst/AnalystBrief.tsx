@@ -6,7 +6,7 @@ import { ThemeToggle } from '../ThemeProvider';
 import HelpModal from '../HelpModal';
 import DashNav from '../DashNav';
 import { WatchlistProvider } from '../WatchlistContext';
-import WatchlistPanel from '../WatchlistPanel';
+
 import TickerChartHover, { ActiveChartCtx, ActiveChartProvider, autoScrollRef, scrollingRef, HOVER_DELAY_MS } from '../TickerChartHover';
 import { prefetchChart } from './MiniChart';
 import { newsStarCount as newsStars } from '@/lib/newsStars';
@@ -2236,12 +2236,12 @@ export default function AnalystBrief() {
 
         <div className="px-3 md:px-10 pt-6 md:pt-8 pb-4 md:pb-6 border-b border-white/5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <a href="https://confluencetradingtools.com" className="flex items-center gap-3.5 md:gap-5 no-underline" style={{ textDecoration: 'none' }}>
-            <img src="/logo.svg" alt="CTT" className="ctt-logo h-9 md:h-12 w-auto drop-shadow-[0_2px_10px_rgba(124,139,250,0.18)]" />
+            <img src="/logo.svg" alt="CTT" className="ctt-logo h-9 md:h-10 w-auto drop-shadow-[0_2px_10px_rgba(124,139,250,0.18)]" />
             <div className="leading-none">
-              <h2 className="text-2xl md:text-[2.5rem] font-extrabold text-slate-50 tracking-[-0.025em] leading-[1.05] antialiased">
+              <h2 className="text-xl md:text-[1.75rem] font-extrabold text-slate-50 tracking-[-0.025em] leading-[1.05] antialiased">
                 Confluence Trading Tools
               </h2>
-              <p className="text-[12px] md:text-[11px] font-semibold text-slate-500 tracking-[0.22em] uppercase mt-2">
+              <p className="text-[10px] md:text-[10px] font-semibold text-slate-500 tracking-[0.22em] uppercase mt-1.5">
                 Market Briefing
               </p>
             </div>
@@ -2249,7 +2249,6 @@ export default function AnalystBrief() {
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <DashNav tier={tier} />
-            <WatchlistPanel />
             <button
               onClick={() => setHelpOpen(true)}
               className="w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold bg-slate-700/60 hover:bg-slate-600 text-slate-400 hover:text-slate-200 transition-colors shrink-0"

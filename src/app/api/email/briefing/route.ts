@@ -100,6 +100,37 @@ function trimToSentence(text: string, max: number): string {
   return chunk.slice(0, chunk.lastIndexOf(' ')).replace(/[,;:\s]+$/, '').trim();
 }
 
+const SOCIAL_INDEX_TICKERS = new Set(['SPY', 'QQQ', 'IWM', 'DIA', 'VIX', 'TLT', 'GLD', 'USO']);
+
+function extractBriefTickers(brief: any): Set<string> {
+  const tickers = new Set<string>();
+  for (const sec of (brief?.sections || [])) {
+    for (const s of (sec.stocks || [])) {
+      if (s.ticker) tickers.add(s.ticker.toUpperCase());
+    }
+  }
+  const sm = brief?.summary || {};
+  for (const arr of [sm.conviction, sm.watchlist, sm.traps, sm.tomorrow]) {
+    if (!Array.isArray(arr)) continue;
+    for (const line of arr) {
+      const str = String(line || '');
+      for (const m of str.matchAll(/\*\*([A-Z]{1,5})\*\*/g)) tickers.add(m[1]);
+      const lead = str.match(/^([A-Z]{1,5})(?:[\s,:]|'s|$)/);
+      if (lead) tickers.add(lead[1]);
+    }
+  }
+  return tickers;
+}
+
+function socialCashtags(text: string, brief: any): string {
+  const tickers = new Set([...extractBriefTickers(brief), ...SOCIAL_INDEX_TICKERS]);
+  let result = text;
+  for (const t of tickers) {
+    result = result.replace(new RegExp(`(?<!\\$)\\b${t}\\b`, 'g'), `$${t}`);
+  }
+  return result;
+}
+
 const BADGE = 'display:inline-block;font-size:8px;font-weight:700;border-radius:3px;padding:1px 4px;line-height:14px;text-align:center;border:1px solid';
 function rsPillHtml(rs: number | null | undefined): string {
   if (rs == null) return '<span style="color:#475569;">-</span>';
@@ -1365,9 +1396,12 @@ export async function GET(req: Request) {
     const block = ['closing', 'power', 'midday', 'morning', 'pre'].reduce((latest: any, k) => latest || su[k], null);
     const takeaway = block?.takeaway || '';
     const regime = brief?.regimeDetail?.regime || '';
-    const blurb = (takeaway || regime).replace(/\*\*([^*]+)\*\*/g, '$1').trim();
+    const rawBlurb = (takeaway || regime).replace(/\*\*([^*]+)\*\*/g, '$1').trim();
+    const blurb = rawBlurb ? socialCashtags(rawBlurb, brief) : '';
     const dashUrl = 'confluencetradingtools.com';
-    const header = `CTT ${PHASE_LABELS[phase]} Brief`;
+    const regimeStr = brief?.regimeDetail?.regime || '';
+    const regimeLine = regimeStr ? `\nRegime: ${regimeStr}` : '';
+    const phaseTag = `${PHASE_LABELS[phase]}: `;
     const debug: any = {
       hasBskyEnv: !!(process.env.BLUESKY_HANDLE && process.env.BLUESKY_APP_PASSWORD),
       hasXEnv: !!(process.env.X_API_KEY && process.env.X_API_SECRET && process.env.X_ACCESS_TOKEN && process.env.X_ACCESS_TOKEN_SECRET),
@@ -1398,14 +1432,16 @@ export async function GET(req: Request) {
         ? { data: screenshotBuf, alt: `CTT ${PHASE_LABELS[phase]} Tape Reading`, mimeType: 'image/png' }
         : undefined;
 
-      const bskyMax = 300 - `${header}\n\n\n\n${dashUrl}`.length;
-      const bskyBlurb = trimToSentence(blurb, bskyMax);
-      const bskyText = `${header}\n\n${bskyBlurb}\n\n${dashUrl}`;
+      const bskyCta = `Full tape + scanners → ${dashUrl}`;
+      const bskyAvail = 300 - phaseTag.length - regimeLine.length - 2 - bskyCta.length;
+      const bskyBlurb = trimToSentence(blurb, bskyAvail);
+      const bskyText = `${phaseTag}${bskyBlurb}${regimeLine}\n\n${bskyCta}`;
       const linkStart = bskyText.indexOf(dashUrl);
 
-      const xMax = 280 - `${header}\n\n\n\nhttps://${dashUrl}`.length;
-      const xBlurb = trimToSentence(blurb, xMax);
-      const xText = `${header}\n\n${xBlurb}\n\nhttps://${dashUrl}`;
+      const xCta = `Full tape + scanners → https://${dashUrl}`;
+      const xAvail = 280 - phaseTag.length - regimeLine.length - 2 - xCta.length;
+      const xBlurb = trimToSentence(blurb, xAvail);
+      const xText = `${phaseTag}${xBlurb}${regimeLine}\n\n${xCta}`;
 
       debug.bskyText = bskyText;
       debug.xText = xText;
@@ -1466,7 +1502,8 @@ export async function GET(req: Request) {
       const takeaway = block?.takeaway || '';
       const regime = brief?.regimeDetail?.regime || '';
 
-      const blurb = (takeaway || regime).replace(/\*\*([^*]+)\*\*/g, '$1').trim();
+      const rawBlurb = (takeaway || regime).replace(/\*\*([^*]+)\*\*/g, '$1').trim();
+      const blurb = rawBlurb ? socialCashtags(rawBlurb, brief) : '';
       socialDebug.hasBlurb = !!blurb;
       socialDebug.blurbLen = blurb.length;
       socialDebug.hasBskyEnv = !!(process.env.BLUESKY_HANDLE && process.env.BLUESKY_APP_PASSWORD);
@@ -1474,7 +1511,9 @@ export async function GET(req: Request) {
 
       if (blurb) {
         const dashUrl = 'confluencetradingtools.com';
-        const header = `CTT ${PHASE_LABELS[phase]} Brief`;
+        const regimeStr = brief?.regimeDetail?.regime || '';
+        const regimeLine = regimeStr ? `\nRegime: ${regimeStr}` : '';
+        const phaseTag = `${PHASE_LABELS[phase]}: `;
 
         let screenshotBuf: Buffer | null = null;
         try {
@@ -1495,14 +1534,16 @@ export async function GET(req: Request) {
           ? { data: screenshotBuf, alt: `CTT ${PHASE_LABELS[phase]} Tape Reading`, mimeType: 'image/png' }
           : undefined;
 
-        const bskyMax = 300 - `${header}\n\n\n\n${dashUrl}`.length;
-        const bskyBlurb = trimToSentence(blurb, bskyMax);
-        const bskyText = `${header}\n\n${bskyBlurb}\n\n${dashUrl}`;
+        const bskyCta = `Full tape + scanners → ${dashUrl}`;
+        const bskyAvail = 300 - phaseTag.length - regimeLine.length - 2 - bskyCta.length;
+        const bskyBlurb = trimToSentence(blurb, bskyAvail);
+        const bskyText = `${phaseTag}${bskyBlurb}${regimeLine}\n\n${bskyCta}`;
         const linkStart = bskyText.indexOf(dashUrl);
 
-        const xMax = 280 - `${header}\n\n\n\nhttps://${dashUrl}`.length;
-        const xBlurb = trimToSentence(blurb, xMax);
-        const xText = `${header}\n\n${xBlurb}\n\nhttps://${dashUrl}`;
+        const xCta = `Full tape + scanners → https://${dashUrl}`;
+        const xAvail = 280 - phaseTag.length - regimeLine.length - 2 - xCta.length;
+        const xBlurb = trimToSentence(blurb, xAvail);
+        const xText = `${phaseTag}${xBlurb}${regimeLine}\n\n${xCta}`;
 
         const results = await Promise.allSettled([
           postToBluesky(bskyText, [{
@@ -1529,10 +1570,103 @@ export async function GET(req: Request) {
       console.error('[social] outer error:', socialErr?.message || socialErr);
     }
 
+    // "Called it" archive + receipt post (closing phase only)
+    let calledItResult: string | null = null;
+    if (phase === 'closing') {
+      try {
+        const etFmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' });
+        const todayKey = etFmt.format(new Date());
+        const yd = new Date(); yd.setDate(yd.getDate() - 1);
+        const yesterdayKey = etFmt.format(yd);
+
+        const topSetups = (brief?.sections || [])
+          .flatMap((sec: any) => (sec.stocks || []))
+          .filter((s: any) => s.ticker && s.trigger)
+          .slice(0, 10)
+          .map((s: any) => ({
+            ticker: s.ticker,
+            trigger: s.trigger,
+            target: s.target,
+            price: s.price,
+          }));
+        if (topSetups.length) {
+          await kv.set(`social_calls:${todayKey}`, topSetups, { ex: 259200 });
+        }
+
+        const yesterdayCalls = await kv.get<any[]>(`social_calls:${yesterdayKey}`);
+        if (yesterdayCalls?.length) {
+          const [sipData, dsData] = await kv.mget<[any[], any[]]>('stocks_in_play_v6', 'daily_setups_v6');
+          const priceMap: Record<string, number> = {};
+          for (const pool of [sipData || [], dsData || []]) {
+            for (const s of (pool || [])) {
+              const t = s?.ticker || s?.symbol;
+              if (t && s?.price) priceMap[t] = s.price;
+            }
+          }
+
+          const comparisons: { ticker: string; trigger: number; current: number; gainPct: number; date: string }[] = [];
+          let best: { ticker: string; trigger: number; current: number; gain: number } | null = null;
+          for (const call of yesterdayCalls) {
+            const cur = priceMap[call.ticker];
+            if (!cur || !call.trigger) continue;
+            const gain = ((cur - call.trigger) / call.trigger) * 100;
+            comparisons.push({ ticker: call.ticker, trigger: call.trigger, current: cur, gainPct: gain, date: yesterdayKey });
+            if (gain > (best?.gain ?? 1)) {
+              best = { ticker: call.ticker, trigger: call.trigger, current: cur, gain };
+            }
+          }
+
+          // Accumulate weekly stats
+          if (comparisons.length) {
+            const mon = new Date(); mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
+            const weekKey = `social_weekly_stats:${etFmt.format(mon)}`;
+            const existing = await kv.get<any[]>(weekKey) || [];
+            await kv.set(weekKey, [...existing, ...comparisons], { ex: 1209600 });
+          }
+
+          if (best) {
+            const cdUrl = 'confluencetradingtools.com';
+            const calledBsky = `Yesterday CTT flagged $${best.ticker} at ${best.trigger.toFixed(2)}\n\nToday: ${best.current.toFixed(2)} (+${best.gain.toFixed(1)}%)\n\nDaily setups → ${cdUrl}`;
+            const calledX = `Yesterday CTT flagged $${best.ticker} at ${best.trigger.toFixed(2)}\n\nToday: ${best.current.toFixed(2)} (+${best.gain.toFixed(1)}%)\n\nDaily setups → https://${cdUrl}`;
+
+            const cdLinkPos = calledBsky.indexOf(cdUrl);
+            await Promise.allSettled([
+              postToBluesky(calledBsky, [{ start: cdLinkPos, end: cdLinkPos + cdUrl.length, url: `https://${cdUrl}` }]),
+              postToX(calledX),
+            ]);
+            calledItResult = `${best.ticker} +${best.gain.toFixed(1)}%`;
+            console.log('[social] called-it post:', calledItResult);
+          }
+        }
+      } catch (calledErr: any) {
+        console.error('[social] called-it error:', calledErr?.message || calledErr);
+      }
+
+      // Archive the full brief for the public /briefs page (one write/day)
+      try {
+        const etFmt2 = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' });
+        const archiveDate = etFmt2.format(new Date());
+        const archiveKey = `brief_archive:${archiveDate}`;
+        const indexKey = 'brief_archive_index';
+        const existing = await kv.get<any>(archiveKey);
+        if (!existing && brief) {
+          await kv.set(archiveKey, brief);
+          const idx = await kv.get<string[]>(indexKey) || [];
+          if (!idx.includes(archiveDate)) {
+            await kv.set(indexKey, [...idx, archiveDate]);
+          }
+          console.log('[archive] brief archived for', archiveDate);
+        }
+      } catch (archiveErr: any) {
+        console.error('[archive] error:', archiveErr?.message || archiveErr);
+      }
+    }
+
     return NextResponse.json({
       success: true, phase, sent, failed, recipients: recipients.length,
       bluesky: bskyResult ? 'posted' : 'skipped',
       x: xResult ? 'posted' : 'skipped',
+      calledIt: calledItResult,
       socialDebug,
     });
   } catch (err: any) {

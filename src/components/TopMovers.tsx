@@ -78,7 +78,8 @@ import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews, NewsStars } 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useMarketData } from './MarketDataContext';
 import { SCANNER } from '@/lib/scanConfig';
-import TickerChartHover, { useFreezeWhileChartOpen } from './TickerChartHover';
+import TickerChartHover, { useFreezeWhileChartOpen, WatchlistBtn } from './TickerChartHover';
+import { WatchlistToggle } from './WatchlistPanel';
 import { rvolColor as getRvolColor, adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, floatColor as getFloatColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { displaySector } from '@/lib/sectors';
@@ -126,7 +127,7 @@ type CnfFilterType = 'All' | 'A' | 'B' | 'C';
 interface MovingAverage { label: string; value: number; above: boolean; }
 interface Benchmark { symbol: string; price: number; day?: MovingAverage[]; week?: MovingAverage[]; mas?: MovingAverage[]; }
 
-const formatTime = (timestamp: number | Date) => { if (!timestamp) return ''; const date = new Date(timestamp); return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' }); };
+const formatTime = (timestamp: number | Date) => { if (!timestamp) return ''; const date = new Date(timestamp); return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }); };
 const formatNumber = (num: number | null) => { if (num === null || num === 0 || isNaN(num)) return '\u2014'; if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B'; if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M'; if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K'; return num.toLocaleString(); };
 const formatCurrency = (num: number | null) => { if (num === null || num === 0 || isNaN(num)) return '\u2014'; if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B'; if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M'; return '$' + num.toLocaleString(); };
 
@@ -337,11 +338,14 @@ export default function TopMovers() {
             Top {sortedStocks.length} of {rawCount} · ${SCANNER.minPrice}+ · {SCANNER.minVolume >= 1e6 ? `${SCANNER.minVolume/1e6}M` : `${SCANNER.minVolume/1e3}K`} vol · +{SCANNER.minChange}%+ · ${SCANNER.minMarketCap >= 1e6 ? `${SCANNER.minMarketCap/1e6}M` : ''} cap
           </span>
         </div>
-        <div className="flex flex-col items-center gap-1.5">
-          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>{status === 'Live' ? session : status}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-col items-center gap-1.5">
+            <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
+              <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>{status === 'Live' ? session : status}</span>
+            </div>
+            {lastScanTime && (<span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide whitespace-nowrap">Scanned: {formatTime(lastScanTime)} EST</span>)}
           </div>
-          {lastScanTime && (<span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">Updated: {formatTime(lastScanTime)} EST</span>)}
+          <WatchlistToggle />
         </div>
       </div>
 
@@ -436,6 +440,7 @@ export default function TopMovers() {
                       <tr key={i} className="hover:bg-white/[0.02] transition-colors group">
                         <td className={tdBase}>
                           <div className="flex items-center justify-start gap-1.5">
+                            <WatchlistBtn symbol={row.ticker} />
                             <TickerChartHover symbol={row.ticker}><span className={tickerChipForScore(row.conviction)} title={tickerTitle(row.name, row.ticker, row.conviction)}>{row.ticker}</span></TickerChartHover>
                             <CatalystChip row={row} note={NEGATIVE_NOTE} />
                           </div>

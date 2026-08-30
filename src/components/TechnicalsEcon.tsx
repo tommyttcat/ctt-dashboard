@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { getMarketSession } from '@/lib/indicators/marketScorecard';
 
+
 // ---------------------------------------------------------------------------
 // Economic Calendar — v1.2
 //
@@ -301,17 +302,19 @@ export default function EconomicCalendar() {
           )}
         </div>
 
-        <div className="flex flex-col items-center gap-1.5">
-          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>
-              {status === 'Live' ? (isHistorical ? `ARCHIVE: ${selectedDate}` : session) : status}
-            </span>
+        <div className="flex items-center gap-2">
+          <div className="flex flex-col items-center gap-1.5">
+            <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
+              <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>
+                {status === 'Live' ? (isHistorical ? `ARCHIVE: ${selectedDate}` : session) : status}
+              </span>
+            </div>
+            {lastUpdated && (
+               <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
+                 Updated: {formatTime(lastUpdated)} EST
+               </span>
+            )}
           </div>
-          {lastUpdated && (
-             <span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">
-               Updated: {formatTime(lastUpdated)} EST
-             </span>
-          )}
         </div>
       </div>
 
@@ -324,7 +327,7 @@ export default function EconomicCalendar() {
                 <button
                   key={tab}
                   onClick={(e) => { e.stopPropagation(); setActiveTab(tab); }}
-                  className={`px-5 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all duration-300 ${
+                  className={`px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase whitespace-nowrap transition-all duration-300 ${
                     activeTab === tab 
                       ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 shadow-[0_0_10px_rgba(34,211,238,0.1)]' 
                       : 'bg-[#161c2a] text-slate-400 border border-white/5 hover:bg-white/[0.04]'
@@ -346,22 +349,22 @@ export default function EconomicCalendar() {
             <table className="w-full min-w-[900px] border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[20%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('rawDateString')}>
+                  <th className="py-2.5 text-[10px] text-slate-500 font-bold tracking-wider w-[20%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('rawDateString')}>
                     DATE / TIME (EST){getSortIcon('rawDateString')}
                   </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[35%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('event')}>
+                  <th className="py-2.5 text-[10px] text-slate-500 font-bold tracking-wider w-[35%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('event')}>
                     MACRO EVENT{getSortIcon('event')}
                   </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[15%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('impact')}>
+                  <th className="py-2.5 text-[10px] text-slate-500 font-bold tracking-wider w-[15%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('impact')}>
                     IMPACT RATING{getSortIcon('impact')}
                   </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('actual')}>
+                  <th className="py-2.5 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('actual')}>
                     ACTUAL{getSortIcon('actual')}
                   </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('estimate')}>
+                  <th className="py-2.5 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('estimate')}>
                     ESTIMATE{getSortIcon('estimate')}
                   </th>
-                  <th className="py-3 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('previous')}>
+                  <th className="py-2.5 text-[10px] text-slate-500 font-bold tracking-wider w-[10%] cursor-pointer hover:text-slate-300 transition-colors" style={{ textAlign: 'left', paddingLeft: '12px' }} onClick={() => handleSort('previous')}>
                     PREVIOUS{getSortIcon('previous')}
                   </th>
                 </tr>
@@ -399,13 +402,13 @@ export default function EconomicCalendar() {
                     return (
                       <tr key={row.id} className={`transition-colors group ${rowBgClass} ${opacityClass}`}>
                         
-                        <td className="py-3.5" style={{ textAlign: 'left', paddingLeft: '12px' }}>
-                          <span className={`text-xs whitespace-nowrap ${dateTextColor}`}>
+                        <td className="pt-2.5 pb-1.5" style={{ textAlign: 'left', paddingLeft: '12px' }}>
+                          <span className={`text-[10px] whitespace-nowrap ${dateTextColor}`}>
                             {formatEventDate(row.rawDateString)}
                           </span>
                         </td>
-                        
-                        <td className={`py-3.5 text-xs whitespace-nowrap truncate max-w-[300px] ${eventTextColor}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>
+
+                        <td className={`pt-2.5 pb-1.5 text-[10px] whitespace-nowrap truncate max-w-[300px] ${eventTextColor}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>
                           {row.event}
                           {isPending && (
                             <span className="ml-2 text-[8px] font-bold tracking-widest uppercase text-rose-400 bg-rose-500/10 border border-rose-500/20 px-1.5 py-0.5 rounded">
@@ -414,21 +417,21 @@ export default function EconomicCalendar() {
                           )}
                         </td>
 
-                        <td className="py-3.5" style={{ textAlign: 'left', paddingLeft: '12px' }}>
-                          <span className={`inline-block text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded border text-center min-w-[70px] ${getImpactBadgeColors(row.impact)}`}>
+                        <td className="pt-2.5 pb-1.5" style={{ textAlign: 'left', paddingLeft: '12px' }}>
+                          <span className={`inline-block text-[8px] font-bold uppercase tracking-widest px-1.5 py-[2px] rounded border text-center min-w-[56px] ${getImpactBadgeColors(row.impact)}`}>
                             {row.impact}
                           </span>
                         </td>
 
-                        <td className={`py-3.5 text-xs font-bold whitespace-nowrap ${isSelectedDay ? 'text-slate-100' : 'text-slate-300'}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>
+                        <td className={`pt-2.5 pb-1.5 text-[10px] font-bold whitespace-nowrap ${isSelectedDay ? 'text-slate-100' : 'text-slate-300'}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>
                           {row.actual !== null ? row.actual.toLocaleString() : '-'}
                         </td>
 
-                        <td className={`py-3.5 text-xs font-medium whitespace-nowrap ${isSelectedDay ? 'text-slate-300' : 'text-slate-400'}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>
+                        <td className={`pt-2.5 pb-1.5 text-[10px] font-medium whitespace-nowrap ${isSelectedDay ? 'text-slate-300' : 'text-slate-400'}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>
                           {row.estimate !== null ? row.estimate.toLocaleString() : '-'}
                         </td>
-                        
-                        <td className={`py-3.5 text-xs font-medium whitespace-nowrap ${isSelectedDay ? 'text-slate-400' : 'text-slate-500'}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>
+
+                        <td className={`pt-2.5 pb-1.5 text-[10px] font-medium whitespace-nowrap ${isSelectedDay ? 'text-slate-400' : 'text-slate-500'}`} style={{ textAlign: 'left', paddingLeft: '12px' }}>
                           {row.previous !== null ? row.previous.toLocaleString() : '-'}
                         </td>
                         

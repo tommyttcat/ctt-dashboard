@@ -96,6 +96,26 @@ export async function GET() {
     });
   }
 
+  // Previous-day high/low for SPY, QQQ, VIX (institutional direction).
+  const PDH_SYMS = ['SPY', 'QQQ', '^VIX'];
+  const pdhBars = await Promise.all(
+    PDH_SYMS.map((sym) =>
+      fetchSafeJson(
+        `https://financialmodelingprep.com/stable/historical-chart/1day?symbol=${encodeURIComponent(sym)}&timeseries=2&apikey=${fmpApiKey}`,
+        []
+      )
+    )
+  );
+  const prevDay: Record<string, { high: number; low: number }> = {};
+  PDH_SYMS.forEach((sym, i) => {
+    const bars = pdhBars[i];
+    const bar = Array.isArray(bars) && bars.length >= 2 ? bars[1] : null;
+    if (bar && bar.high > 0 && bar.low > 0) {
+      const id = sym === '^VIX' ? 'VIX' : sym;
+      prevDay[id] = { high: bar.high, low: bar.low };
+    }
+  });
+
   // Build the per-symbol payload. Tick direction is computed on the client.
   const quotes: Record<string, any> = {};
   for (const s of STOCK_SYMBOLS) {
@@ -106,7 +126,14 @@ export async function GET() {
     const price = useAh ? ahPrice : q.price || 0;
     const baseline = q.previousClose || q.open || price;
     const pct = baseline > 0 ? ((price - baseline) / baseline) * 100 : 0;
-    if (price > 0) quotes[s.id] = { price, baseline, pct, isExtended: useAh };
+    if (price > 0) {
+      const entry: any = { price, baseline, pct, isExtended: useAh };
+      if (prevDay[s.id]) {
+        entry.prevHigh = prevDay[s.id].high;
+        entry.prevLow = prevDay[s.id].low;
+      }
+      quotes[s.id] = entry;
+    }
   }
 
   const payload = { session, updatedAt: Date.now(), quotes };

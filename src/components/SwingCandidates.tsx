@@ -135,7 +135,8 @@ import {
   CHOP_CHOP_MIN,
 } from '@/lib/indicators/chop';
 import { SWING, COLUMN_NOTES, columnTip } from '@/lib/scanConfig';
-import TickerChartHover from './TickerChartHover';
+import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
+import { WatchlistToggle } from './WatchlistPanel';
 import { rvolColor as getRvolColor, adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, floatColor as getFloatColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
 import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
 
@@ -320,7 +321,7 @@ const CNF_LABELS: Record<string, string> = {
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
   const date = new Date(timestamp);
-  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
 };
 
 const formatNumber = (num: number | null | undefined) => {
@@ -945,11 +946,14 @@ export default function SwingCandidates() {
             Top {filteredAndSorted.length} of {candidates.length} · ${SWING.minPrice}–${SWING.maxPrice} · $50M avg $vol · RS 50+ · above 50 &amp; 200 SMA · stoch ≤ {SWING.maxStochK}
           </span>
         </div>
-        <div className="flex flex-col items-center gap-1.5">
-          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>{displaySession}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-col items-center gap-1.5">
+            <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
+              <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>{displaySession}</span>
+            </div>
+            {generatedAt && (<span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide whitespace-nowrap">Scanned: {formatTime(generatedAt)} EST</span>)}
           </div>
-          {generatedAt && (<span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">Scanned: {formatTime(generatedAt)} EST</span>)}
+          <WatchlistToggle />
         </div>
       </div>
 
@@ -1151,10 +1155,8 @@ export default function SwingCandidates() {
                         <tr className="hover:bg-white/[0.02] transition-colors group">
                           <td className={tdBase}>
                             <div className="flex items-center justify-start gap-1.5">
+                              <WatchlistBtn symbol={row.symbol} />
                               <TickerChartHover symbol={row.symbol}><span title={tickerTitle(row.name, row.symbol, row.score)} className={tickerChipForScore(row.score)}>{row.symbol}</span></TickerChartHover>
-                              <CatalystChip row={row} note={NEGATIVE_NOTE} />
-                              {dot === 'blue' && <BlueDot />}
-                              {dot === 'red' && <RedDot />}
                             </div>
                           </td>
                           <td className={tdBase}><NewsStars row={row} /></td>
@@ -1242,15 +1244,16 @@ export default function SwingCandidates() {
                             slot is sized for TREND HOLD, the longest label that
                             survives formatSetupName. */}
                         <tr className="bg-transparent border-t border-white/5">
-                          {/* Empty cell under TICKER so the sub-row starts at CNF. An
-                              actual cell rather than a padding value, so the
-                              indent tracks the ticker column's real width
-                              instead of drifting from it. */}
-                          <td />
+                          <td className="align-top pt-1">
+                            <div className="flex items-center gap-1 pl-6">
+                              <CatalystChip row={row} note={NEGATIVE_NOTE} />
+                              {dot === 'red' && <RedDot />}
+                            </div>
+                          </td>
                           <td />
                           <td colSpan={16} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
-                              <span className="shrink-0 w-[78px] px-0.5 text-center text-[#7c8bfa]/90 font-bold text-[9px] tracking-[0.04em] uppercase leading-none whitespace-nowrap">
+                              <span className="shrink-0 w-[48px] px-0.5 text-center text-[#7c8bfa]/90 font-bold text-[7px] tracking-[0.04em] uppercase leading-none whitespace-nowrap">
                                 {bdRev ? <BlueDot /> : (formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : 'EMA PB')}
                               </span>
                               <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={newsTooltip(row) || headline || undefined}>

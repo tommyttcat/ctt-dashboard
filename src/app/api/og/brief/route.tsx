@@ -6,6 +6,7 @@ import {
   highsPct, highsCellTone,
   marketMonitorOf, mmTodayTone, mmCellTone, mmRatioLabel,
   mkmCellTone, vixPctTone, breadthSignalTone,
+  instDirSetup, instDirSignal, instDirCellTone,
 } from '@/lib/indicators/marketScorecard';
 import {
   chopComposite, rawChopOf, chopZoneLabel, chopCellTone, bandsFor,
@@ -412,6 +413,19 @@ export async function GET(req: Request) {
           sub: `${sign}${Number(vixQ.pct ?? 0).toFixed(2)}%`,
           color: vixPctTone(Number(vixQ.pct ?? 0)),
         });
+      }
+      {
+        const spyQ = quotes['SPY'];
+        const qqqQ = quotes['QQQ'];
+        if (spyQ?.price && qqqQ?.price && vixQ?.price) {
+          const setup = instDirSetup(
+            spyQ.price, spyQ.prevLow ?? null, spyQ.pct ?? 0,
+            qqqQ.price, qqqQ.prevLow ?? null,
+            vixQ.price, vixQ.prevHigh ?? null, vixQ.pct ?? 0,
+          );
+          const signal = instDirSignal(setup);
+          cells.push({ label: 'INST DIR', value: signal, sub: setup, color: instDirCellTone(signal) });
+        }
       }
       if (chopVal != null) {
         cells.push({

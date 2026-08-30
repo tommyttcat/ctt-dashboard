@@ -26,12 +26,16 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  tier: 'full' | 'briefing' | 'confluence' | 'briefing_email' | 'confluence_email' | 'both_email';
+  tier: 'starter' | 'indicators' | 'core' | 'core-max' | 'pro' | 'pro-max' | 'trial_7' | 'trial_14' | 'trial_30';
   source: 'founder' | 'general' | 'admin' | 'invite';
   isAdmin: boolean;
   active: boolean;
   createdAt: string;
+  accessExpiresAt?: string;
   emailPrefs?: EmailPrefs;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  tvUsername?: string;
 }
 
 function genId(): string {
@@ -62,6 +66,9 @@ export async function addUser(data: {
   tier: User['tier'];
   source: User['source'];
   isAdmin?: boolean;
+  accessExpiresAt?: string;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
 }): Promise<User> {
   const users = await getUsers();
   const existing = users.find((u) => u.email.toLowerCase() === data.email.toLowerCase());
@@ -76,13 +83,21 @@ export async function addUser(data: {
     isAdmin: data.isAdmin || false,
     active: true,
     createdAt: new Date().toISOString(),
+    ...(data.accessExpiresAt ? { accessExpiresAt: data.accessExpiresAt } : {}),
+    ...(data.stripeCustomerId ? { stripeCustomerId: data.stripeCustomerId } : {}),
+    ...(data.stripeSubscriptionId ? { stripeSubscriptionId: data.stripeSubscriptionId } : {}),
   };
   users.push(user);
   await kv.set(USERS_KEY, users);
   return user;
 }
 
-export async function updateUser(id: string, updates: Partial<Pick<User, 'name' | 'tier' | 'isAdmin' | 'active' | 'emailPrefs'>>): Promise<User | null> {
+export async function getUserByStripeCustomerId(customerId: string): Promise<User | null> {
+  const users = await getUsers();
+  return users.find((u) => u.stripeCustomerId === customerId) || null;
+}
+
+export async function updateUser(id: string, updates: Partial<Pick<User, 'name' | 'tier' | 'isAdmin' | 'active' | 'emailPrefs' | 'accessExpiresAt' | 'stripeCustomerId' | 'stripeSubscriptionId' | 'tvUsername'>>): Promise<User | null> {
   const users = await getUsers();
   const idx = users.findIndex((u) => u.id === id);
   if (idx < 0) return null;
@@ -106,14 +121,20 @@ export async function getUsersByTier(...tiers: User['tier'][]): Promise<User[]> 
   return users.filter((u) => u.active && tiers.includes(u.tier));
 }
 
+const STARTER_PHASES = new Set<keyof EmailPrefs>(['pre', 'midday', 'closing']);
+
 export async function getEmailRecipients(emailType: 'briefing' | 'confluence', phase?: keyof EmailPrefs): Promise<string[]> {
   const users = await getUsers();
   return users
     .filter((u) => {
       if (!u.active) return false;
-      if (u.tier === 'full' || u.tier === emailType || u.tier === 'both_email') return true;
-      if (emailType === 'briefing' && u.tier === 'briefing_email') return true;
-      if (emailType === 'confluence' && u.tier === 'confluence_email') return true;
+      if (u.accessExpiresAt && new Date(u.accessExpiresAt) < new Date()) return false;
+      if (u.tier === 'pro' || u.tier === 'trial_7' || u.tier === 'trial_14' || u.tier === 'trial_30') return true;
+      if (u.tier === 'core') return true;
+      if (u.tier === 'starter' && emailType === 'briefing') {
+        if (phase && !STARTER_PHASES.has(phase)) return false;
+        return true;
+      }
       return false;
     })
     .filter((u) => {

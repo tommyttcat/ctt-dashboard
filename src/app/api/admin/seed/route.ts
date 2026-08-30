@@ -19,7 +19,7 @@ export async function GET(req: Request) {
   const user = await addUser({
     email,
     name: 'Thomas Beach',
-    tier: 'full',
+    tier: 'pro',
     source: 'admin',
     isAdmin: true,
   });

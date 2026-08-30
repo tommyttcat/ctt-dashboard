@@ -27,7 +27,7 @@ export async function POST(req: Request) {
     await addUser({
       email,
       name: name || email.split('@')[0],
-      tier: 'briefing',
+      tier: 'starter',
       source: validSource,
     });
 

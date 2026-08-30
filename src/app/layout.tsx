@@ -5,7 +5,8 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Confluence Trading Tools",
   description: "Custom trading indicators and dashboards",
-  icons: { icon: "/logo.svg" },
+  icons: { icon: "/logo.svg", apple: "/apple-touch-icon.png" },
+  manifest: "/manifest.json",
 };
 
 export default function RootLayout({

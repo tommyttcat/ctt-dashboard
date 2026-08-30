@@ -43,7 +43,7 @@ export async function POST(req: Request) {
     const user = await addUser({
       email: entry.email,
       name: entry.name,
-      tier: tier || 'full',
+      tier: tier || 'pro',
       source: 'general',
     });
 

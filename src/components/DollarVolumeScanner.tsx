@@ -2,7 +2,8 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { cachedJson } from '@/lib/scannerLatest';
-import TickerChartHover, { useFreezeWhileChartOpen } from './TickerChartHover';
+import TickerChartHover, { useFreezeWhileChartOpen, WatchlistBtn } from './TickerChartHover';
+import { WatchlistToggle } from './WatchlistPanel';
 import { CatalystChip, NewsStars } from '@/lib/catalyst';
 import { rsBadge } from '@/lib/indicators/rs';
 import {
@@ -233,7 +234,7 @@ export default function DollarVolumeScanner() {
   const { session } = useMarketData();
   const [raw, setRaw] = useState<Row[]>([]);
   const [status, setStatus] = useState<'loading' | 'live' | 'empty' | 'error'>('loading');
-  const [minDvol, setMinDvol] = useState<DvolStep>(20);
+  const [minDvol, setMinDvol] = useState<DvolStep>(100);
   const [cap, setCap] = useState<CapBand | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'dvol', dir: 'desc' });
@@ -365,10 +366,10 @@ export default function DollarVolumeScanner() {
                   some of these names are on the board. */}
               <td className={tdBase}>
                 <div className="flex items-center justify-start gap-1.5">
+                  <WatchlistBtn symbol={row.ticker} />
                   <TickerChartHover symbol={row.ticker}>
                     <span className={tickerChipForScore(row.cnfScore)}>{row.ticker}</span>
                   </TickerChartHover>
-                  <CatalystChip row={row} note={NEGATIVE_NOTE} />
                 </div>
               </td>
               <td className={tdBase}><NewsStars row={row} /></td>
@@ -393,10 +394,14 @@ export default function DollarVolumeScanner() {
               </td>
               <td className="px-0.5 pt-2.5 pb-1.5 text-center whitespace-nowrap">
                 <div className="flex items-center justify-center gap-1" title={emaTitle(row)}>
-                  <span className="text-[8px] font-bold text-slate-500">10</span>
-                  <span className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} />
-                  <span className="text-[8px] font-bold text-slate-500">21</span>
-                  <span className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma21)}`} />
+                  <div className="flex items-center gap-px">
+                    <span className="text-[8px] font-bold text-slate-500">10</span>
+                    <span className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} />
+                  </div>
+                  <div className="flex items-center gap-px">
+                    <span className="text-[8px] font-bold text-slate-500">21</span>
+                    <span className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma21)}`} />
+                  </div>
                 </div>
               </td>
               <td className="px-0.5 pt-2.5 pb-1.5 text-center text-[10px] text-slate-400 font-medium tabular-nums">{fmtVol(row.vol)}</td>
@@ -434,10 +439,15 @@ export default function DollarVolumeScanner() {
                 computes no setup name, so the left slot carries the em dash
                 the other tables use when a row has none. */}
             <tr className="bg-transparent border-t border-white/5">
+              <td className="align-top pt-1">
+                <div className="flex items-center gap-1 pl-6">
+                  <CatalystChip row={row} note={NEGATIVE_NOTE} />
+                </div>
+              </td>
               <td />
-              <td />
-              <td colSpan={14} className="pb-1.5 pt-0 pr-3">
+              <td colSpan={16} className="pb-1.5 pt-1 pr-3">
                 <div className="flex items-center text-left gap-0 min-w-0">
+                  <span className="shrink-0 w-[48px] px-0.5 text-center text-[#7c8bfa]/90 font-bold text-[7px] tracking-[0.04em] uppercase leading-none whitespace-nowrap">—</span>
                   <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={row.thesis || undefined}>
                     {row.thesis || row.catalyst ? (
                       <>
@@ -463,7 +473,6 @@ export default function DollarVolumeScanner() {
                   </p>
                 </div>
               </td>
-              <td className="border-l border-white/5" colSpan={2}></td>
             </tr>
             </React.Fragment>
           );
@@ -552,11 +561,14 @@ export default function DollarVolumeScanner() {
             Top {Math.min(SHOWN, rows.length)} of {clearing} in ${activeBand.label} · +4%+ · 5M shares · $2+ · 25M cap · whole market
           </span>
         </div>
-        <div className="flex flex-col items-center gap-1.5">
-          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${displaySession === 'Open' ? 'text-[#00e676]' : displaySession === 'Pre-Market' ? 'text-amber-500' : displaySession === 'Post-Market' ? 'text-indigo-400' : 'text-slate-500'}`}>{displaySession}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-col items-center gap-1.5">
+            <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
+              <span className={`text-[10px] font-bold tracking-widest uppercase ${displaySession === 'Open' ? 'text-[#00e676]' : displaySession === 'Pre-Market' ? 'text-amber-500' : displaySession === 'Post-Market' ? 'text-indigo-400' : 'text-slate-500'}`}>{displaySession}</span>
+            </div>
+            {lastScanTime && (<span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide whitespace-nowrap">Scanned: {formatTime(lastScanTime)} EST</span>)}
           </div>
-          {lastScanTime && (<span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">Scanned: {formatTime(lastScanTime)} EST</span>)}
+          <WatchlistToggle />
         </div>
       </div>
 

@@ -179,3 +179,14 @@ body {
     margin: -18px;
   }
 }
+
+@keyframes inst-flash {
+  0%   { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0.5); }
+  25%  { box-shadow: 0 0 12px 4px rgba(250, 204, 21, 0.4); }
+  50%  { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0); }
+  75%  { box-shadow: 0 0 10px 3px rgba(250, 204, 21, 0.3); }
+  100% { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0); }
+}
+.animate-inst-flash {
+  animation: inst-flash 1.5s ease-out;
+}

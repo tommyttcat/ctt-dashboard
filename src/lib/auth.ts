@@ -54,12 +54,13 @@ export async function verifyToken<T = Record<string, unknown>>(token: string): P
 export interface Session {
   email: string;
   name: string;
-  tier: 'full' | 'briefing' | 'confluence' | 'briefing_email' | 'confluence_email' | 'both_email';
+  tier: 'starter' | 'indicators' | 'core' | 'core-max' | 'pro' | 'pro-max' | 'trial_7' | 'trial_14' | 'trial_30';
   isAdmin: boolean;
   exp: number;
+  accessExpiresAt?: string;
 }
 
-const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
 const MAGIC_LINK_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 export async function createMagicToken(email: string): Promise<string> {
@@ -73,7 +74,7 @@ export async function verifyMagicToken(token: string): Promise<string | null> {
 }
 
 export async function createSessionToken(user: {
-  email: string; name: string; tier: Session['tier']; isAdmin: boolean;
+  email: string; name: string; tier: Session['tier']; isAdmin: boolean; accessExpiresAt?: string;
 }): Promise<string> {
   return signToken({
     email: user.email,
@@ -81,6 +82,7 @@ export async function createSessionToken(user: {
     tier: user.tier,
     isAdmin: user.isAdmin,
     exp: Date.now() + SESSION_TTL_MS,
+    ...(user.accessExpiresAt ? { accessExpiresAt: user.accessExpiresAt } : {}),
   });
 }
 

@@ -386,10 +386,16 @@ function buildTitle(brief: any, phase?: string): string {
 }
 
 function buildSubtitle(brief: any): string {
-  const rd = brief?.regimeDetail;
-  if (!rd?.regime) return 'Daily market analysis from Confluence Trading Tools';
-  const first = String(rd.regime).split(/[.!]\s/)[0];
-  return first.length > 140 ? first.slice(0, 137) + '...' : first;
+  const su = brief?.sessionUpdates || {};
+  const phases = ['closing', 'power', 'midday', 'morning', 'pre'];
+  for (const p of phases) {
+    const takeaway = su[p]?.takeaway;
+    if (takeaway && typeof takeaway === 'string' && takeaway.length > 10) {
+      const clean = takeaway.replace(/\*\*/g, '');
+      return clean.length > 200 ? clean.slice(0, 197) + '...' : clean;
+    }
+  }
+  return 'Daily market analysis from Confluence Trading Tools';
 }
 
 async function substackGetUserId(pubUrl: string, session: string): Promise<{ id: number | null; debug?: string }> {
@@ -526,6 +532,85 @@ export async function GET(req: Request) {
     return NextResponse.json({ success: true, draftId: draft.id, published: false });
   }
 
+  if (custom === 'weekly') {
+    const pubUrl = process.env.SUBSTACK_PUB_URL;
+    const session = process.env.SUBSTACK_SESSION;
+    if (!pubUrl || !session) return NextResponse.json({ error: 'Missing env' }, { status: 500 });
+
+    const weeklyData = await kv.get<any>('weekly_substack_data');
+    if (!weeklyData || !weeklyData.narrative) {
+      return NextResponse.json({ error: 'No weekly data in KV' }, { status: 404 });
+    }
+
+    const { narrative, weeklyChanges, sips, sectors: sectorList, mStr, fStr, subject: weeklySubject } = weeklyData;
+    const wTitle = weeklySubject || 'CTT Weekly Wrap';
+    const wSubtitle = `Market review for the week of ${mStr} to ${fStr}`;
+
+    const today = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York' }).replace(/\//g, '-');
+    const subKey = `substack_sent:weekly:${today}`;
+    if (publish && !force) {
+      const alreadyPublished = await kv.get(subKey);
+      if (alreadyPublished) {
+        return NextResponse.json({ skipped: true, reason: 'Weekly Substack already published today' });
+      }
+    }
+
+    const indexLine = ['SPY', 'QQQ', 'IWM', 'DIA']
+      .filter(t => weeklyChanges?.[t])
+      .map(t => `$${t} ${weeklyChanges[t].pct >= 0 ? '+' : ''}${weeklyChanges[t].pct.toFixed(1)}%`)
+      .join(' | ');
+
+    const content: any[] = [];
+    if (indexLine) content.push(para([bold(indexLine)]));
+
+    if (narrative?.priceAction) {
+      content.push(heading(2, 'Price Action'));
+      content.push(...analysisToNodes(narrative.priceAction));
+    }
+    if (narrative?.macro) {
+      content.push(heading(2, 'Macro'));
+      content.push(...analysisToNodes(narrative.macro));
+    }
+    if (narrative?.catalysts?.length) {
+      content.push(heading(2, 'Headlines & Catalysts'));
+      for (const c of narrative.catalysts.slice(0, 3)) {
+        content.push(para([bold(c.title)]));
+        if (c.body) content.push(...analysisToNodes(c.body));
+      }
+    }
+    if (sips?.length) {
+      content.push(heading(2, 'Top Scanner Picks'));
+      content.push(bulletList(sips.slice(0, 5).map((s: any) =>
+        `**$${s.ticker}** — CNF ${s.cnfScore || '—'} · ${s.stage || '—'} · ${s.setup || '—'}`
+      )));
+    }
+    if (sectorList?.length) {
+      content.push(heading(2, 'Sector Performance'));
+      content.push(bulletList(sectorList.slice(0, 5).map((s: any) =>
+        `**${s.sector || s.name}** ${fmtPct(s.changesPercentage || 0)}`
+      )));
+    }
+    if (narrative?.weekAhead) {
+      content.push(heading(2, 'Week Ahead'));
+      content.push(...analysisToNodes(narrative.weekAhead));
+    }
+    content.push(hr());
+    content.push(para([link('View the Dashboard →', 'https://app.confluencetradingtools.com')]));
+    content.push(paraText('*Confluence Trading Tools. Analysis only. Not financial advice.*'));
+
+    const weeklyBody = { type: 'doc', content };
+    const draft = await substackCreateDraft(pubUrl, session, wTitle, wSubtitle, weeklyBody);
+    if (draft.error) return NextResponse.json({ error: draft.error }, { status: 502 });
+
+    if (publish && draft.id) {
+      await kv.set(subKey, true, { ex: 86400 });
+      const pub = await substackPublish(pubUrl, session, draft.id, send);
+      if (pub.error) return NextResponse.json({ draftId: draft.id, error: pub.error }, { status: 502 });
+      return NextResponse.json({ success: true, draftId: draft.id, published: true, sent: send });
+    }
+    return NextResponse.json({ success: true, draftId: draft.id, published: false });
+  }
+
   const brief = await fetchJson(`${origin}/api/analyst/brief`);
   if (!brief || brief.pending || brief.error) {
     return NextResponse.json(
@@ -585,10 +670,10 @@ export async function GET(req: Request) {
     const su = brief?.sessionUpdates || {};
     const tapeKey = phase || ['closing', 'power', 'midday', 'morning', 'pre'].find(k => su[k]);
     if (!tapeKey) throw new Error('no phase and no populated sessionUpdates for tape selector');
+    const tapePageUrl = `${origin}/api/og/tape?phase=${tapeKey}`;
     const screenshotUrl = `${origin}/api/og/screenshot?force=1`
-      + `&url=${encodeURIComponent('https://app.confluencetradingtools.com/analyst')}`
-      + `&selector=${encodeURIComponent(`#tape-${tapeKey}`)}`
-      + `&w=800&h=1200`;
+      + `&url=${encodeURIComponent(tapePageUrl)}`
+      + `&w=800&h=1200&selector=${encodeURIComponent('#tape-card')}&minText=80`;
     const imgRes = await fetch(screenshotUrl, { cache: 'no-store' });
     if (!imgRes.ok) throw new Error(`tape screenshot ${imgRes.status}`);
     if (!imgRes.headers.get('content-type')?.includes('image')) {

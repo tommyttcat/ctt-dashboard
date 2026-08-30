@@ -239,6 +239,82 @@ export const vixPctTone = (pct: number): CellTone =>
 /** Tickers where a rising price is a bearish signal. */
 export const INVERSE_TICKERS = new Set(['VIX', 'UVXY', 'SQQQ', 'SPXS', 'SDOW', 'SOXS']);
 
+/* ---- Institutional Direction ------------------------------------------------
+
+   Derived from the VIX-ES correlation framework: VIX pricing drives ~90% of
+   S&P algorithmic volume. Rising VIX = institutional put demand = sell programs.
+   Falling VIX = pressure off = buy programs engage.
+
+   Reference points are previous-day high/low (PDH/PDL). Setups compare where
+   SPY/QQQ sit relative to their PDL and where VIX sits relative to its PDH. */
+
+export type InstDirSetup =
+  | 'BEAR TRAP'
+  | 'CONFIRMED ↓'
+  | '1% DIVG'
+  | 'EXHAUSTION'
+  | 'PRESSURE ON'
+  | 'PRESSURE OFF'
+  | 'CLEAR';
+
+export type InstDirSignal = 'BULLS' | 'BEARS' | 'NEUTRAL';
+
+export function instDirSetup(
+  spyPrice: number, spyPdl: number | null, spyPct: number,
+  qqqPrice: number, qqqPdl: number | null,
+  vixPrice: number, vixPdh: number | null, vixPct: number,
+): InstDirSetup {
+  if (spyPct >= 1 && vixPct >= 1) return '1% DIVG';
+  if (spyPct <= -1 && vixPct <= -1) return 'EXHAUSTION';
+
+  const spyBrokePdl = spyPdl != null && spyPrice < spyPdl;
+  const qqqBrokePdl = qqqPdl != null && qqqPrice < qqqPdl;
+  const vixAbovePdh = vixPdh != null && vixPrice >= vixPdh;
+
+  if (spyBrokePdl && qqqBrokePdl && vixAbovePdh) return 'CONFIRMED ↓';
+  if (spyBrokePdl && !vixAbovePdh) return 'BEAR TRAP';
+
+  if (vixPct >= 0.5) return 'PRESSURE ON';
+  if (vixPct <= -0.5) return 'PRESSURE OFF';
+
+  return 'CLEAR';
+}
+
+export function instDirSignal(setup: InstDirSetup): InstDirSignal {
+  switch (setup) {
+    case 'BEAR TRAP':
+    case 'PRESSURE OFF':
+    case 'EXHAUSTION':
+      return 'BULLS';
+    case 'CONFIRMED ↓':
+    case '1% DIVG':
+    case 'PRESSURE ON':
+      return 'BEARS';
+    default:
+      return 'NEUTRAL';
+  }
+}
+
+export const instDirCellTone = (s: InstDirSignal): CellTone =>
+  s === 'BULLS' ? 'green' : s === 'BEARS' ? 'red' : 'amber';
+
+export function instDirCardStyle(s: InstDirSignal): { bg: string; border: string } {
+  if (s === 'BULLS') return { bg: 'bg-emerald-950/10', border: 'border-emerald-500/20' };
+  if (s === 'BEARS') return { bg: 'bg-rose-950/10', border: 'border-rose-500/20' };
+  return { bg: 'bg-[#161c2a]/60', border: 'border-white/10' };
+}
+
+export const instDirTextColor = (s: InstDirSignal): string =>
+  s === 'BULLS' ? 'text-emerald-400' : s === 'BEARS' ? 'text-rose-400' : 'text-slate-200';
+
+export function instDirSetupBadge(setup: InstDirSetup): string {
+  if (setup === 'BEAR TRAP' || setup === 'PRESSURE OFF' || setup === 'EXHAUSTION')
+    return 'bg-emerald-500/10 text-emerald-400';
+  if (setup === 'CONFIRMED ↓' || setup === '1% DIVG' || setup === 'PRESSURE ON')
+    return 'bg-rose-500/10 text-rose-400';
+  return 'bg-slate-500/10 text-slate-300';
+}
+
 /* ---- Market session ------------------------------------------------------
 
    Written out separately in Scorecard.tsx, /api/macro and /api/sectors. The

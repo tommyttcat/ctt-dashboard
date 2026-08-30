@@ -289,6 +289,9 @@ interface Ep9mCandidate {
   // v1.6 — regime.
   chop14: number | null;
   chopTrap: boolean;
+  // EP type classification (Bonde framework).
+  epType?: 'growth' | 'turnaround' | 'delayed' | 'theme' | 'volume';
+  epTheme?: string | null;
 }
 
 async function polygon<T = any>(path: string): Promise<T> {
@@ -630,6 +633,81 @@ function scoreEp9m(q: {
 }
 
 // ---------------------------------------------------------------
+// EP TYPE CLASSIFICATION — the Bonde framework.
+//
+// Five variations, checked in priority order. A name can match multiple
+// types; the first match wins because it is the most actionable read.
+//
+//   1. Delayed Reaction — re-trigger 3–20 days after a prior EP. The initial
+//      gap is priced; this is the re-break after a pullback, tighter stop.
+//   2. Classical Growth — explosive revenue surprise (50%+ sales growth).
+//   3. Turnaround — CEO change, or a cheap stock posting results.
+//   4. Stories & Themes — narrative drives the move, not fundamentals.
+//   5. Volume (default) — pure abnormality, no specific classification.
+// ---------------------------------------------------------------
+
+const EP_THEMES: { name: string; rx: RegExp }[] = [
+  { name: 'AI', rx: /\b(?:artificial intelligence|machine learning|deep learning|neural|large language|generative ai|computer vision)\b|\bai\b/i },
+  { name: 'Quantum', rx: /\bquantum\b/i },
+  { name: 'Crypto', rx: /\b(?:bitcoin|crypto(?:currency)?|blockchain|digital asset)\b/i },
+  { name: 'Space', rx: /\b(?:spacecraft|spaceflight|satellite|rocket|launch vehicle|orbital|lunar)\b/i },
+  { name: 'Nuclear', rx: /\b(?:nuclear|uranium|reactor)\b/i },
+  { name: 'Defense', rx: /\b(?:defense|defence|military|weapon|missile|unmanned)\b/i },
+  { name: 'GLP-1', rx: /\b(?:glp.?1|anti.?obes|semaglutide|tirzepatide|incretin)\b/i },
+];
+
+function classifyEpType(params: {
+  fund: { attrs: { revGrowthPct: number | null; pe: number | null } } | null;
+  newsTag: string | null;
+  companyName: string;
+  sector: string;
+  catalyst: string | null;
+  priorTriggers: number;
+  mostRecentPriorDaysAgo: number | null;
+}): { epType: 'growth' | 'turnaround' | 'delayed' | 'theme' | 'volume'; epTheme: string | null } {
+  const { fund, newsTag, companyName, sector, catalyst, priorTriggers, mostRecentPriorDaysAgo } = params;
+  const revGrowth = fund?.attrs?.revGrowthPct ?? null;
+  const pe = fund?.attrs?.pe ?? null;
+
+  // 1. Delayed Reaction — re-trigger 3–20 trading days after prior EP.
+  if (priorTriggers > 0 && mostRecentPriorDaysAgo != null &&
+      mostRecentPriorDaysAgo >= 3 && mostRecentPriorDaysAgo <= 20) {
+    return { epType: 'delayed', epTheme: null };
+  }
+
+  // 2. Classical Growth — triple-digit sales growth is the headline case;
+  //    50%+ with an earnings catalyst is the broader definition.
+  const isEarningsCatalyst = newsTag === 'Earnings' || newsTag === 'Guidance';
+  if (revGrowth != null && revGrowth >= 100 && isEarningsCatalyst) {
+    return { epType: 'growth', epTheme: null };
+  }
+  if (revGrowth != null && revGrowth >= 50 && newsTag === 'Earnings') {
+    return { epType: 'growth', epTheme: null };
+  }
+
+  // 3. Turnaround — CEO/CFO change, or cheap stock posting results.
+  if (newsTag === 'Management') {
+    return { epType: 'turnaround', epTheme: null };
+  }
+  if (pe != null && pe > 0 && pe < 15 && isEarningsCatalyst) {
+    return { epType: 'turnaround', epTheme: null };
+  }
+
+  // 4. Stories & Themes — narrative drives the move, not fundamentals.
+  //    Only fires when there is no strong fundamental story.
+  const hasStrongFundamentals = revGrowth != null && revGrowth >= 25;
+  if (!hasStrongFundamentals) {
+    const text = `${companyName} ${sector} ${catalyst || ''}`;
+    for (const t of EP_THEMES) {
+      if (t.rx.test(text)) return { epType: 'theme', epTheme: t.name };
+    }
+  }
+
+  // 5. Default — pure volume anomaly.
+  return { epType: 'volume', epTheme: null };
+}
+
+// ---------------------------------------------------------------
 // Registry — every trigger, kept for 90 days. Free to maintain, and it's the
 // prerequisite for the Delayed Reaction EP: watch these names for a tight
 // pullback over the following weeks, then buy the re-break with a sub-1% stop.
@@ -694,9 +772,15 @@ async function runScan(request: Request) {
 
     const registry = await readRegistry();
     const priorCounts = new Map<string, number>();
+    const priorRecent = new Map<string, number>();
     for (const e of registry) {
       if (e.date === today) continue;
       priorCounts.set(e.ticker, (priorCounts.get(e.ticker) || 0) + 1);
+      const daysAgo = Math.round((Date.now() - new Date(e.date + 'T00:00:00Z').getTime()) / 86400000);
+      if (daysAgo > 0) {
+        const cur = priorRecent.get(e.ticker);
+        if (cur == null || daysAgo < cur) priorRecent.set(e.ticker, daysAgo);
+      }
     }
 
     /* One fetch for the whole scan, indexed by ticker — this plan's Benzinga
@@ -1034,6 +1118,21 @@ async function runScan(request: Request) {
       }
     } catch (e) { console.error('[ep9m] fundamental enrichment failed:', e); }
 
+    // --- EP TYPE CLASSIFICATION (Bonde framework) ---
+    for (const c of finalList) {
+      const fund = (c as any)._fund ?? null;
+      const rawTag = c.catalyst
+        ? c.catalyst.replace(/\s*\(Delayed\)\s*$/, '').trim()
+        : null;
+      const cls = classifyEpType({
+        fund, newsTag: rawTag, companyName: c.name, sector: c.sector,
+        catalyst: c.thesis, priorTriggers: c.priorTriggers,
+        mostRecentPriorDaysAgo: priorRecent.get(c.ticker) ?? null,
+      });
+      c.epType = cls.epType;
+      c.epTheme = cls.epTheme;
+    }
+
     const scanTime = Date.now();
     await kv.set('ep9m_v1', finalList);
     await kv.set('ep9m_last_scan_v1', scanTime);
@@ -1082,6 +1181,14 @@ async function runScan(request: Request) {
       unprecedentedInChop: finalList.filter(c => c.unprecedented && c.chop14 != null && c.chop14 >= CHOP_CHOP_MIN).length,
     };
 
+    const epTypeStats = {
+      growth: finalList.filter(c => c.epType === 'growth').length,
+      turnaround: finalList.filter(c => c.epType === 'turnaround').length,
+      delayed: finalList.filter(c => c.epType === 'delayed').length,
+      theme: finalList.filter(c => c.epType === 'theme').length,
+      volume: finalList.filter(c => c.epType === 'volume').length,
+    };
+
     return NextResponse.json({
       success: true,
       lastScanTime: scanTime,
@@ -1102,6 +1209,7 @@ async function runScan(request: Request) {
       scanMeta: EP9M_META,
       planCoverage,
       chopStats,
+      epTypeStats,
     });
   } catch (error: any) {
     console.error('EP9M_RUN_ERROR:', error);

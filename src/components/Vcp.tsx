@@ -78,7 +78,8 @@ import { stageColor, stageShort, stageDescription, stageBadge } from '@/lib/indi
 import { rsColor, rsBadge } from '@/lib/indicators/rs';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { VCP, columnTip } from '@/lib/scanConfig';
-import TickerChartHover from './TickerChartHover';
+import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
+import { WatchlistToggle } from './WatchlistPanel';
 import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews, NewsStars } from '@/lib/catalyst';
 import { displaySector } from '@/lib/sectors';
 import { tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
@@ -223,7 +224,7 @@ const SCORE_LABELS: Record<string, string> = {
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
   const date = new Date(timestamp);
-  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
 };
 
 const formatNumber = (num: number | null | undefined) => {
@@ -738,11 +739,14 @@ export default function Vcp() {
             Top {filteredAndSorted.length} of {candidates.length} · RS {VCP.minRsRating}+ · 2–6 contractions · ${VCP.minPrice}+ · {VCP.minAvgVolume >= 1e6 ? `${VCP.minAvgVolume/1e6}M` : `${VCP.minAvgVolume/1e3}K`} avg vol · ${VCP.minDollarVol >= 1e6 ? `${VCP.minDollarVol/1e6}M` : `${VCP.minDollarVol/1e3}K`} $vol
           </span>
         </div>
-        <div className="flex flex-col items-center gap-1.5">
-          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>{displaySession}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-col items-center gap-1.5">
+            <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
+              <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>{displaySession}</span>
+            </div>
+            {generatedAt && (<span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide whitespace-nowrap">Scanned: {formatTime(generatedAt)} EST</span>)}
           </div>
-          {generatedAt && (<span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">Scanned: {formatTime(generatedAt)} EST</span>)}
+          <WatchlistToggle />
         </div>
       </div>
 
@@ -914,8 +918,8 @@ export default function Vcp() {
                         <tr className="hover:bg-white/[0.02] transition-colors group">
                           <td className={tdBase}>
                             <div className="flex items-center justify-start gap-1.5">
+                              <WatchlistBtn symbol={row.symbol} />
                               <TickerChartHover symbol={row.symbol}><span title={tickerTitle(row.name, row.symbol, row.score)} className={tickerChipForScore(row.score)}>{row.symbol}</span></TickerChartHover>
-                              <CatalystChip row={row} note={NEGATIVE_NOTE} neutralNote={NEUTRAL_NOTE} />
                             </div>
                           </td>
                           <td className={tdBase}><NewsStars row={row} /></td>
@@ -1039,16 +1043,16 @@ export default function Vcp() {
                             table it decides whether the rest of the row is a
                             trade or a post-mortem. */}
                         <tr className="bg-transparent border-t border-white/5">
-                          {/* Empty cell under TICKER so the sub-row starts at
-                              CNF, matching the other scan tables. A cell
-                              rather than a padding value, so the indent
-                              follows the ticker column's real width. */}
-                          <td />
+                          <td className="align-top pt-1">
+                            <div className="flex items-center gap-1 pl-6">
+                              <CatalystChip row={row} note={NEGATIVE_NOTE} neutralNote={NEUTRAL_NOTE} />
+                            </div>
+                          </td>
                           <td />
                           <td colSpan={12} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
                               <span
-                                className={`shrink-0 w-[64px] px-0.5 text-center font-bold text-[9px] tracking-[0.04em] uppercase leading-none truncate cursor-help ${meta.text}`}
+                                className={`shrink-0 w-[48px] px-0.5 text-center font-bold text-[7px] tracking-[0.04em] uppercase leading-none truncate cursor-help ${meta.text}`}
                                 title={meta.title}
                               >
                                 {meta.label}

@@ -36,7 +36,7 @@ export async function POST(req: Request) {
     if (!name?.trim()) {
       return NextResponse.json({ error: 'Name required' }, { status: 400 });
     }
-    if (!['full', 'briefing', 'confluence', 'briefing_email', 'confluence_email', 'both_email'].includes(tier)) {
+    if (!['starter', 'core', 'pro', 'trial_7', 'trial_14', 'trial_30'].includes(tier)) {
       return NextResponse.json({ error: 'Invalid tier' }, { status: 400 });
     }
 

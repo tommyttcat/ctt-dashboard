@@ -229,7 +229,163 @@ const ETF_TARGET_MAP: Record<string, string> = {
   'KEEX': 'KEEL - Industrl', 'VELL': 'VELO - Industrl',
   'LABU': 'XBI - Biotech 3X', 'PILL': 'PILL - Pharma 2X',
   'EZJ': 'EWJ - Japan 2X', 'EWY': 'EWY - South Korea', 'FLKR': 'FLKR - South Korea',
-  'FOTO': 'FOTO - Photonics ETF'
+  'FOTO': 'FOTO - Photonics ETF',
+
+  // Single-stock leveraged — AAPL
+  'AAPB': 'AAPL - Tech',
+  // ADBE
+  'ADBG': 'ADBE - Tech',
+  // AFRM
+  'AFRU': 'AFRM - Fintech',
+  // ALB
+  'ALBG': 'ALB - Materials',
+  // AMD bear
+  'AMDD': "AMD - Semi's",
+  // ACHR (Archer Aviation)
+  'ARCX': 'ACHR - Aerospace',
+  // AVGO additional
+  'AVGG': "AVGO - Semi's", 'AVGU': "AVGO - Semi's", 'AVL': "AVGO - Semi's", 'AVGW': "AVGO - Semi's",
+  // AVAV (AeroVironment)
+  'AVXX': 'AVAV - Aerospace',
+  // BBAI (BigBear.ai)
+  'BAIG': 'BBAI - AI',
+  // BIDU
+  'BIDG': 'BIDU - Tech', 'KBDU': 'BIDU - Tech',
+  // BLSH (Blade Air Mobility)
+  'BLSG': 'BLSH - Aerospace',
+  // BMNR additional
+  'BMNU': 'BMNR - Fintech',
+  // BULL (Corcept Therapeutics)
+  'BULG': 'BULL - Health',
+  // CIFR (Cipher Mining)
+  'CIFG': 'CIFR - Crypto', 'CIFU': 'CIFR - Crypto',
+  // CLSK (CleanSpark)
+  'CLSX': 'CLSK - Crypto',
+  // COIN additional
+  'COIG': 'COIN - Fintech', 'COIW': 'COIN - Fintech',
+  // CRCL (Circle)
+  'CRCG': 'CRCL - Fintech', 'CCUP': 'CRCL - Fintech', 'CRCO': 'CRCL - Fintech',
+  // CRM (Salesforce)
+  'CRMG': 'CRM - Tech',
+  // CRML (Caramel/Coreweave?)
+  'CRMU': 'CRWV - AI', 'CRMX': 'CRWV - AI', 'CORD': 'CRWV - AI',
+  // CRWD (CrowdStrike)
+  'CRWL': 'CRWD - Cyber',
+  // COIN/CORZ (Core Scientific)
+  'COZX': 'CORZ - Crypto',
+  // DJT
+  'DJTU': 'DJT - Comm Svc',
+  // FCX (Freeport-McMoRan)
+  'FCXG': 'FCX - Materials',
+  // FIGR (Figure?)
+  'FGRU': 'FIG - Tech',
+  // FNGG/FNGO — FANG+ index leveraged
+  'FNGG': 'FANG+ - Big Tech 2X', 'FNGO': 'FANG+ - Big Tech 2X',
+  // GEMI (Gemini Therapeutics)
+  'GEMG': 'GEMI - Health',
+  // GLXY (Galaxy Digital)
+  'GLGG': 'GLXY - Crypto', 'GLXU': 'GLXY - Crypto',
+  // HOOD additional
+  'HODU': 'HOOD - Fintech', 'HOOG': 'HOOD - Fintech', 'HOOX': 'HOOD - Fintech', 'HOOW': 'HOOD - Fintech',
+  // INTC additional
+  'LINT': "INTC - Semi's",
+  // IONQ additional
+  'IONL': 'IONQ - Tech',
+  // IREN
+  'IRE': 'IREN - Crypto', 'IREG': 'IREN - Crypto', 'IREX': 'IREN - Crypto',
+  // KTOS (Kratos Defense)
+  'KTUP': 'KTOS - Aerospace',
+  // LRCX (Lam Research)
+  'LRCU': "LRCX - Semi's",
+  // META bear
+  'METD': 'META - Comm Svc',
+  // MSFT additional
+  'MSFL': 'MSFT - Tech', 'MSFX': 'MSFT - Tech',
+  // MSTR additional
+  'MSTP': 'MSTR - Fintech', 'MST': 'MSTR - Fintech', 'MSTW': 'MSTR - Fintech', 'MSTY': 'MSTR - Fintech',
+  // MU bear
+  'MUD': "MU - Semi's",
+  // NEM (Newmont)
+  'NEMG': 'NEM - Gold',
+  // NFLX bear
+  'NFXS': 'NFLX - Comm Svc',
+  // NOW (ServiceNow)
+  'NOWL': 'NOW - Tech',
+  // NVDA additional
+  'NVDG': "NVDA - Semi's", 'NVDU': "NVDA - Semi's", 'NVDW': "NVDA - Semi's", 'NVDY': "NVDA - Semi's", 'NVIT': "NVDA - Semi's",
+  // OKTA
+  'OKTG': 'OKTA - Cyber',
+  // ONDS (Ondas Holdings)
+  'ONDG': 'ONDS - Tech', 'ONDL': 'ONDS - Tech', 'ONDU': 'ONDS - Tech',
+  // PATH (UiPath)
+  'PATX': 'PATH - AI',
+  // PLTR additional
+  'PLTG': 'PLTR - AI', 'PTIR': 'PLTR - AI', 'PLTW': 'PLTR - AI',
+  // PONY (Pony AI)
+  'PONX': 'PONY - AI',
+  // QBTS (D-Wave Quantum)
+  'QBTX': 'QBTS - Tech',
+  // QCOM
+  'QCML': "QCOM - Semi's", 'QCMU': "QCOM - Semi's",
+  // QS (QuantumScape)
+  'QSU': 'QS - EV',
+  // RBLX (Roblox)
+  'RBLU': 'RBLX - Tech',
+  // RKT (Rocket Companies)
+  'RKTL': 'RKT - Fintech',
+  // SBET (SharpLink Gaming)
+  'SBTU': 'SBET - Tech',
+  // SHOP (Shopify)
+  'SHPU': 'SHOP - Tech',
+  // SMCI additional
+  'SMCL': 'SMCI - Tech',
+  // SMR (NuScale Power)
+  'SMUP': 'SMR - Nuclear',
+  // SNAP
+  'SNAG': 'SNAP - Comm Svc',
+  // SNOW (Snowflake)
+  'SNOU': 'SNOW - Tech',
+  // SOFI additional
+  'SOFA': 'SOFI - Fintech',
+  // TER (Teradyne)
+  'TERG': "TER - Semi's",
+  // TSLA additional
+  'TSL': 'TSLA - EV', 'TSLG': 'TSLA - EV', 'TSLR': 'TSLA - EV', 'TSLT': 'TSLA - EV', 'TSLW': 'TSLA - EV', 'TSLY': 'TSLA - EV',
+  // TSM (Taiwan Semi)
+  'TSMG': "TSM - Semi's", 'TSMU': "TSM - Semi's", 'TSMX': "TSM - Semi's",
+  // TTD (The Trade Desk)
+  'TTDU': 'TTD - Tech',
+  // UEC (Uranium Energy)
+  'UECG': 'UEC - Nuclear',
+  // UPST (Upstart)
+  'UPSX': 'UPST - Fintech',
+  // USAR
+  'USAX': 'USAR - Aerospace', 'USGG': 'USAR - Aerospace',
+  // VRT (Vertiv)
+  'VRTL': 'VRT - Tech',
+  // WULF (TeraWulf)
+  'WULX': 'WULF - Crypto',
+  // XYZ (Block)
+  'XYZG': 'XYZ - Fintech',
+  // ZETA
+  'ZETX': 'ZETA - Tech',
+
+  // Crypto ETFs (non-leveraged and leveraged)
+  'BITU': 'BTC - Bitcoin', 'BTCL': 'BTC - Bitcoin',
+  'ETHT': 'ETH - Ethereum',
+  'SLON': 'SOL - Solana',
+  'UXRP': 'XRP - Crypto', 'XXRP': 'XRP - Crypto',
+  'TXXD': 'DOGE - Crypto', 'TXXS': 'SUI - Crypto',
+
+  // Index/sector leveraged
+  'DDM': 'DIA - Dow Jones 2X', 'UDOW': 'DIA - Dow Jones 3X',
+  'SSO': 'SPY - S&P 2X',
+  'ROM': 'XLK - Tech 2X', 'USD': "SOXX - Semi's 2X",
+  'UCYB': 'Cyber - Cyber 2X', 'SKYU': 'Cloud - Cloud 2X',
+  'MAGX': 'MAG7 - Big Tech 2X', 'QQQU': 'MAG7 - Big Tech 2X',
+  'NUGT': 'GDX - Gold Miners 2X', 'GDXU': 'GDX - Gold Miners 3X', 'JNUG': 'GDXJ - Jr Gold 2X',
+  'BULZ': 'FANG+ - Big Tech 3X',
+  'TSXU': "Semi's - Top 5 Semi 2X", 'TTXU': 'Tech - Top 5 Tech 2X',
 };
 
 const getMarketStatus = () => {
@@ -889,7 +1045,7 @@ async function runScan(request: Request) {
       });
     }
 
-    const viableSetups = processedSnapshot.filter((t: any) => t._livePrice >= SCANNER.minPrice && t._liveVol >= SCANNER.minVolume);
+    const viableSetups = processedSnapshot.filter((t: any) => /^[A-Z]{1,5}$/.test(t.ticker) && t._livePrice >= SCANNER.minPrice && t._liveVol >= SCANNER.minVolume);
     const spyChgToday = processedSnapshot.find((t: any) => t.ticker === 'SPY')?._liveChg ?? 0;
 
     // Lightweight {ticker: [changePct, price]} map from the full snapshot.
@@ -1166,6 +1322,12 @@ async function runScan(request: Request) {
        these bars are still fetched because spyAbove21 below needs them. */
     const spyHistBars = (spyHistRes.results || []).sort((a: any, b: any) => b.t - a.t);
 
+    const spyReturnsByDate = new Map<number, number>();
+    for (let i = 0; i < spyHistBars.length - 1; i++) {
+      const prevC = spyHistBars[i + 1].c;
+      if (prevC > 0) spyReturnsByDate.set(spyHistBars[i].t, (spyHistBars[i].c - prevC) / prevC);
+    }
+
     let spyAbove21: boolean | null = null;
     if (spyHistBars.length >= 30) {
       const spyWarm = Math.min(100, spyHistBars.length - 1);
@@ -1345,6 +1507,38 @@ async function runScan(request: Request) {
         if (raw != null) rsRating = percentileRank(raw, rsLookup.sortedRaws);
       }
 
+      let beta: number | null = null;
+      let alpha: number | null = null;
+      if (dailyBars.length >= 60) {
+        const stockRets: number[] = [];
+        const mktRets: number[] = [];
+        for (let i = 0; i < dailyBars.length - 1 && stockRets.length < 60; i++) {
+          const prevC = dailyBars[i + 1].c;
+          if (prevC > 0) {
+            const sr = (dailyBars[i].c - prevC) / prevC;
+            const mr = spyReturnsByDate.get(dailyBars[i].t);
+            if (mr !== undefined) { stockRets.push(sr); mktRets.push(mr); }
+          }
+        }
+        if (stockRets.length >= 30) {
+          const n = stockRets.length;
+          let sumS = 0, sumM = 0;
+          for (let i = 0; i < n; i++) { sumS += stockRets[i]; sumM += mktRets[i]; }
+          const meanS = sumS / n;
+          const meanM = sumM / n;
+          let cov = 0, varM = 0;
+          for (let i = 0; i < n; i++) {
+            const dm = mktRets[i] - meanM;
+            cov += (stockRets[i] - meanS) * dm;
+            varM += dm * dm;
+          }
+          if (varM > 0) {
+            beta = parseFloat((cov / varM).toFixed(2));
+            alpha = parseFloat(((meanS - beta * meanM) * 252).toFixed(2));
+          }
+        }
+      }
+
       let gapPct: number | null = null;
       let atrExpansion: number | null = null;
       let moveVsAtr: number | null = null;
@@ -1457,9 +1651,8 @@ async function runScan(request: Request) {
         atrExpansion: atrExpansion != null ? parseFloat(atrExpansion.toFixed(2)) : null,
         moveVsAtr: moveVsAtr != null ? parseFloat(moveVsAtr.toFixed(2)) : null,
         rsVsMkt: parseFloat(rsVsMkt.toFixed(2)),
-        /* The whole selected item rides through to the catalyst pass below.
-           Carrying the object rather than a headline string means publisher,
-           age and sentiment are available there without re-deriving them. */
+        beta,
+        alpha,
         _news: newsPick
       };
     };
@@ -1700,6 +1893,11 @@ async function runScan(request: Request) {
       'ETF Losers': etfLosersRaw.map((t: any) => enrichedMap.get(t.ticker)).filter((r: any) => r !== undefined && r.vol >= SCANNER.minVolume).slice(0, 10)
     };
 
+    const finalHighBeta = enrichedList
+      .filter((t: any) => t.beta != null && t.beta >= 1.5 && t.vol >= SCANNER.minVolume && !ETF_TARGET_MAP[t.ticker])
+      .sort((a: any, b: any) => b.beta - a.beta)
+      .slice(0, 10);
+
     let benchmark: any = null;
     const benchmarks: any[] = [];
     try {
@@ -1797,6 +1995,7 @@ async function runScan(request: Request) {
       await kv.set('top_movers_v6', finalTopMovers);
       await kv.set('last_scan_time_v6', finalScanTime);
       await kv.set('scan_meta_v6', scanMeta);
+      await kv.set('high_beta_v6', finalHighBeta);
     } else {
       console.warn('Scan produced no movers; preserving previous KV snapshot.');
     }
@@ -1845,6 +2044,7 @@ async function runScan(request: Request) {
       benchmarks,
       sips: finalSip,
       dailySetups: finalDaily,
+      highBeta: finalHighBeta,
       scanMeta,
       dataPersisted: hasRealData,
       /* RS diagnostics. `rated` well below `scanned` is expected — the

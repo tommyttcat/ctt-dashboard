@@ -2812,7 +2812,7 @@ const SetupSummaryHelp = () => {
 };
 
 const CNF_SOURCE_LABELS: Record<string, string> = {
-  daily: 'DAY', sip: 'SIP', dvol: 'DVOL', swing: 'SWG',
+  daily: 'DAY', sip: 'SIP', dvol: '$VOL', swing: 'SWG',
   coil: 'COIL', vcp: 'VCP', hrs: 'HRS', ep9m: 'EP9', multi: '100',
 };
 
@@ -3360,11 +3360,21 @@ export default function MarketSummary() {
     collapsed.add('hrsTop');
     setCollapsedSections(collapsed);
   }, []);
+  const SECTION_PAIRS: Record<string, string> = {
+    'Sector Performance': 'Sector Concentration',
+    'Sector Concentration': 'Sector Performance',
+    'ETF Flow': 'Money Flow',
+    'Money Flow': 'ETF Flow',
+  };
   const toggleSection = (key: string) => {
     setCollapsedSections(prev => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      const keys = [key, SECTION_PAIRS[key]].filter(Boolean) as string[];
+      const opening = next.has(key);
+      for (const k of keys) {
+        if (opening) next.delete(k);
+        else next.add(k);
+      }
       return next;
     });
   };

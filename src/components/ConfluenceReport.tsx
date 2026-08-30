@@ -5,6 +5,8 @@ import { ThemeToggle } from './ThemeProvider';
 import DashNav from './DashNav';
 import TickerChartHover, { ActiveChartProvider } from './TickerChartHover';
 import HelpModal from './HelpModal';
+import { WatchlistProvider } from './WatchlistContext';
+import WatchlistPanel from './WatchlistPanel';
 import { cnfBadgeCls } from '@/lib/indicators/columnColors';
 import { rsBadge } from '@/lib/indicators/rs';
 import { stageBadge } from '@/lib/indicators/stage';
@@ -157,7 +159,7 @@ function TimeframeTable({ timeframes }: { timeframes: TfAnalysis[] }) {
 
 // ---- AI summary card --------------------------------------------------------
 
-function AiSummaryCard({ summary, reports, activeSector, onSectorFilter }: { summary: AiSummary; reports: Report[]; activeSector: string | null; onSectorFilter: (sector: string | null) => void }) {
+function AiSummaryCard({ summary, reports, activeSector, onSectorFilter, lastScan }: { summary: AiSummary; reports: Report[]; activeSector: string | null; onSectorFilter: (sector: string | null) => void; lastScan: number | null }) {
   const biasCls = summary.overallBias === 'BULLISH' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
     : summary.overallBias === 'BEARISH' ? 'text-rose-400 bg-rose-500/10 border-rose-500/20'
     : 'text-amber-400 bg-amber-500/10 border-amber-500/20';
@@ -241,6 +243,10 @@ function AiSummaryCard({ summary, reports, activeSector, onSectorFilter }: { sum
       <div className="px-3 md:px-5 py-2 border-b border-indigo-500/10 flex items-center gap-2">
         <span className="text-[10px] font-bold text-indigo-400 tracking-wider uppercase">AI Analyst Rec</span>
         <span className={`inline-block text-[7px] font-bold tracking-wider px-1.5 py-[1px] rounded border ${biasCls}`}>{summary.overallBias}</span>
+        <span className="ml-auto flex items-center gap-2">
+          {lastScan && <span className="text-[10px] text-slate-500 font-medium tabular-nums whitespace-nowrap">{new Date(lastScan).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })} ET</span>}
+          <WatchlistPanel />
+        </span>
       </div>
 
       <div className="px-3 md:px-5 py-2.5">
@@ -523,24 +529,20 @@ export default function ConfluenceReport() {
 
   return (
     <>
+    <WatchlistProvider>
     <ActiveChartProvider>
       <ChartLevelsCtx.Provider value={levelsMap}>
       <div className="min-h-screen bg-[var(--bg-primary)] text-slate-300 px-3 md:px-6 py-4 md:py-6 max-w-5xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-4 md:mb-6">
-          <div className="flex items-center gap-3">
+          <a href="https://confluencetradingtools.com" className="flex items-center gap-3 no-underline" style={{ textDecoration: 'none' }}>
             <img src="/logo.svg" alt="CTT" className="w-8 h-8 md:w-10 md:h-10 opacity-80" />
             <div>
-              <h1 className="text-lg md:text-xl font-bold text-slate-100 tracking-tight">Multi-Confluence Report</h1>
-              <p className="text-[10px] text-slate-500 tracking-widest uppercase">Top Setups — Multi-Timeframe Analysis</p>
+              <h1 className="text-lg md:text-xl font-bold text-slate-100 tracking-tight">Confluence Report</h1>
+              <p className="text-[10px] text-slate-500 tracking-widest uppercase">Multi-Timeframe Analysis</p>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {lastScan && (
-              <span className="text-[9px] text-slate-600 italic tabular-nums whitespace-nowrap">
-                Updated: {new Date(lastScan).toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })} ET
-              </span>
-            )}
+          </a>
+          <div className="flex items-center gap-2 shrink-0">
             <ThemeToggle />
             <DashNav />
             <button
@@ -564,7 +566,7 @@ export default function ConfluenceReport() {
           </div>
         ) : (
           <>
-            {aiSummary && <AiSummaryCard summary={aiSummary} reports={reports} activeSector={sectorFilter} onSectorFilter={setSectorFilter} />}
+            {aiSummary && <AiSummaryCard summary={aiSummary} reports={reports} activeSector={sectorFilter} onSectorFilter={setSectorFilter} lastScan={lastScan} />}
             <div className="space-y-4">
               {(sectorFilter ? reports.filter(r => r.sector === sectorFilter) : reports).map((r) => (
                 <StockCard key={r.ticker} report={r} />
@@ -585,6 +587,7 @@ export default function ConfluenceReport() {
       </div>
       </ChartLevelsCtx.Provider>
     </ActiveChartProvider>
+    </WatchlistProvider>
     <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
     </>
   );

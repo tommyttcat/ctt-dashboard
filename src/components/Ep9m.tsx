@@ -72,7 +72,8 @@ import {
   CHOP_CHOP_MIN,
 } from '@/lib/indicators/chop';
 import { EP9M, COLUMN_NOTES, columnTip } from '@/lib/scanConfig';
-import TickerChartHover from './TickerChartHover';
+import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
+import { WatchlistToggle } from './WatchlistPanel';
 import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews, NewsStars } from '@/lib/catalyst';
 import { displaySector } from '@/lib/sectors';
 import { rsBadge, rsTooltip } from '@/lib/indicators/rs';
@@ -213,10 +214,13 @@ interface Ep9mCandidate {
   thesis?: string | null;
   scoreBreakdown?: Record<string, number>;
   plan?: TradePlanRow | null;
+  epType?: 'growth' | 'turnaround' | 'delayed' | 'theme' | 'volume';
+  epTheme?: string | null;
 }
 
 type SortDirection = 'asc' | 'desc';
 type EpFilterType = 'All' | 'A' | 'B';
+type EpTypeFilterType = 'All' | 'growth' | 'turnaround' | 'delayed' | 'theme' | 'volume';
 type RvolFilterType = 'All' | '5';
 type CatalystFilterType = 'All' | 'News' | 'Silent';
 type VwapFilterType = 'All' | 'above' | 'below';
@@ -258,10 +262,52 @@ const EP_LABELS: Record<string, string> = {
   repeatOffender: 'Repeat trigger',
 };
 
+const EP_TYPE_SHORT: Record<string, string> = {
+  growth: 'GROWTH',
+  turnaround: 'TURN',
+  delayed: 'DELAY',
+  theme: 'THEME',
+  volume: 'VOL',
+};
+
+const EP_TYPE_BADGE: Record<string, string> = {
+  growth: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+  turnaround: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+  delayed: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+  theme: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
+  volume: 'text-slate-500 bg-white/[0.02] border-white/5',
+};
+
+const EP_TYPE_FILTER_COLORS: Record<string, string> = {
+  growth: 'text-emerald-400',
+  turnaround: 'text-amber-400',
+  delayed: 'text-purple-400',
+  theme: 'text-cyan-400',
+  volume: 'text-slate-400',
+};
+
+const epTypeLabel = (type: string, theme: string | null): string => {
+  if (type === 'theme' && theme) return theme.toUpperCase();
+  return EP_TYPE_SHORT[type] || type.toUpperCase();
+};
+
+const epTypeTooltip = (type: string, theme: string | null): string => {
+  switch (type) {
+    case 'growth': return 'Classical Growth EP — driven by explosive revenue surprise (50%+ sales growth with an earnings catalyst). The market is re-pricing to reflect fundamentals it missed.';
+    case 'turnaround': return 'Turnaround EP — a neglected or struggling company posting results, or new leadership reshaping the story. These tend to run for several quarters.';
+    case 'delayed': return 'Delayed Reaction EP — this name triggered EP9M recently and is re-appearing. The initial gap is priced; this is the re-break after a pullback, which allows a tighter stop and larger position.';
+    case 'theme': return `Stories & Themes EP${theme ? ` (${theme})` : ''} — the narrative drives the move, not fundamentals. Based on market manias; can run hundreds of percent, but the stock may never turn a profit.`;
+    case 'volume': return 'EP 9 Million — pure volume anomaly. Institutions are moving size; the catalyst has not been classified into a specific EP variation.';
+    default: return '';
+  }
+};
+
+const EP_TYPE_BUCKETS: EpTypeFilterType[] = ['growth', 'turnaround', 'delayed', 'theme', 'volume'];
+
 const formatTime = (timestamp: number | Date) => {
   if (!timestamp) return '';
   const date = new Date(timestamp);
-  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' });
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
 };
 
 const formatNumber = (num: number | null | undefined) => {
@@ -536,6 +582,7 @@ export default function Ep9m() {
   const [showStage2Only, setShowStage2Only] = useState<boolean>(false);
   const [marketCapFilter, setMarketCapFilter] = useState<CapFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
+  const [epTypeFilter, setEpTypeFilter] = useState<EpTypeFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [repeatPivots, setRepeatPivots] = useState<Record<string, { count: number; events: { date: string; price: number; vol: number; rvol: number; score: number }[] }>>({});
@@ -584,6 +631,7 @@ export default function Ep9m() {
   const handlePlanFilter = (val: PlanFilterType) => setPlanFilter(prev => prev === val ? 'All' : val);
   const handleCapFilter = (val: CapFilterType) => setMarketCapFilter(prev => prev === val ? 'All' : val);
   const handleChopFilter = (val: ChopFilterType) => setChopFilter(prev => prev === val ? 'All' : val);
+  const handleEpTypeFilter = (val: EpTypeFilterType) => setEpTypeFilter(prev => prev === val ? 'All' : val);
 
   /* Does ANY row carry a chop reading? Drives whether the CHOP group renders
      at all. Until /api/ep9m/run has executed since v1.6 the field is absent
@@ -652,6 +700,9 @@ export default function Ep9m() {
     if (vwapFilter !== 'All') {
       list = list.filter(c => c.vwapStatus === vwapFilter);
     }
+    if (epTypeFilter !== 'All') {
+      list = list.filter(c => (c.epType ?? 'volume') === epTypeFilter);
+    }
 
     if (!sortConfig) return list;
     return list.sort((a, b) => {
@@ -663,7 +714,7 @@ export default function Ep9m() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, epFilter, rvolFilter, catalystFilter, planFilter, chopFilter, showUnprecedentedOnly, showSugarBabyOnly, showStage2Only, marketCapFilter, vwapFilter]);
+  }, [candidates, sortConfig, epFilter, rvolFilter, catalystFilter, planFilter, chopFilter, showUnprecedentedOnly, showSugarBabyOnly, showStage2Only, marketCapFilter, vwapFilter, epTypeFilter]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -783,7 +834,8 @@ export default function Ep9m() {
     (catalystFilter !== 'All' ? 1 : 0) +
     (showStage2Only ? 1 : 0) +
     (marketCapFilter !== 'All' ? 1 : 0) +
-    (vwapFilter !== 'All' ? 1 : 0);
+    (vwapFilter !== 'All' ? 1 : 0) +
+    (epTypeFilter !== 'All' ? 1 : 0);
 
   const funnelNote = raw9m != null && shortlisted != null
     ? `${raw9m} names cleared 9M shares · ${shortlisted} were abnormal for themselves`
@@ -852,11 +904,14 @@ export default function Ep9m() {
             Top {filteredAndSorted.length} of {candidates.length} · {EP9M.minVolume >= 1e6 ? `${EP9M.minVolume/1e6}M` : `${EP9M.minVolume/1e3}K`}+ shares · {EP9M.minRvol}×+ RVOL · ${EP9M.minPrice}+ · ${EP9M.minDollarVol >= 1e6 ? `${EP9M.minDollarVol/1e6}M` : ''} $vol · common stock
           </span>
         </div>
-        <div className="flex flex-col items-center gap-1.5">
-          <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
-            <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>{displaySession}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-col items-center gap-1.5">
+            <div className="flex items-center justify-center border border-white/5 bg-[#161c2a]/40 px-4 py-1.5 rounded-[10px] min-w-[120px]">
+              <span className={`text-[10px] font-bold tracking-widest uppercase ${getSessionTextColor()}`}>{displaySession}</span>
+            </div>
+            {generatedAt && (<span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide whitespace-nowrap">Scanned: {formatTime(generatedAt)} EST</span>)}
           </div>
-          {generatedAt && (<span className="text-[11px] text-slate-400/80 font-medium px-1 tracking-wide">Scanned: {formatTime(generatedAt)} EST</span>)}
+          <WatchlistToggle />
         </div>
       </div>
 
@@ -882,6 +937,23 @@ export default function Ep9m() {
             </div>
             {showFilters && (
               <div className="flex flex-wrap justify-center items-center gap-3 w-full">
+                {candidates.some(c => c.epType && c.epType !== 'volume') && (
+                  <div className={pillWrap}>
+                    <span className={pillLabel}>TYPE</span>
+                    <div className="flex items-center gap-1">
+                      {EP_TYPE_BUCKETS.filter(t => candidates.some(c => (c.epType ?? 'volume') === t)).map((t) => (
+                        <button
+                          key={t}
+                          onClick={() => handleEpTypeFilter(t)}
+                          title={epTypeTooltip(t, null)}
+                          className={`${pillBtn} ${epTypeFilter === t ? filterBtnActive : filterBtnIdle} ${EP_TYPE_FILTER_COLORS[t] && epTypeFilter !== t ? EP_TYPE_FILTER_COLORS[t] : ''}`}
+                        >
+                          {EP_TYPE_SHORT[t]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className={pillWrap}>
                   <span className={pillLabel}>CNF</span>
                   <div className="flex items-center gap-1">
@@ -1079,10 +1151,8 @@ export default function Ep9m() {
                         <tr className="hover:bg-white/[0.02] transition-colors group">
                           <td className={tdBase}>
                             <div className="flex items-center justify-start gap-1.5">
+                              <WatchlistBtn symbol={row.ticker} />
                               <TickerChartHover symbol={row.ticker}><span title={tickerTitle(row.name, row.ticker, row.score)} className={tickerChipForScore(row.score)}>{row.ticker}</span></TickerChartHover>
-                              <CatalystChip row={row} note={NEGATIVE_NOTE} />
-                              {row.unprecedented && <UnprecedentedMark chop={chop} />}
-                              {row.sugarBaby && <SugarBabyMark />}
                             </div>
                           </td>
                           <td className={tdBase}><NewsStars row={row} /></td>
@@ -1193,11 +1263,13 @@ export default function Ep9m() {
                             signal this scan exists for, and it is the pairing
                             called out in the v2.5 header. */}
                         <tr className="bg-transparent border-t border-white/5">
-                          {/* Empty cell under TICKER so the sub-row starts at CNF. An
-                              actual cell rather than a padding value, so the
-                              indent tracks the ticker column's real width
-                              instead of drifting from it. */}
-                          <td />
+                          <td className="align-top pt-1">
+                            <div className="flex items-center gap-1 pl-6">
+                              {row.unprecedented && <UnprecedentedMark chop={chop} />}
+                              {row.sugarBaby && <SugarBabyMark />}
+                              <CatalystChip row={row} note={NEGATIVE_NOTE} />
+                            </div>
+                          </td>
                           <td />
                           <td colSpan={17} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
@@ -1208,6 +1280,16 @@ export default function Ep9m() {
                                 <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-slate-600">VS60D</span>
                                 <span className={`text-[9px] font-bold tabular-nums ${getVs60dColor(vs60d)}`}>{vs60d != null ? `${vs60d.toFixed(2)}×` : '—'}</span>
                               </span>
+                              {row.epType && row.epType !== 'volume' && (
+                                <span
+                                  className="shrink-0 pr-2.5 cursor-help"
+                                  title={epTypeTooltip(row.epType, row.epTheme ?? null)}
+                                >
+                                  <span className={`inline-block px-1.5 py-[1px] rounded border text-[8px] font-bold tracking-wider ${EP_TYPE_BADGE[row.epType] || EP_TYPE_BADGE.volume}`}>
+                                    {epTypeLabel(row.epType, row.epTheme ?? null)}
+                                  </span>
+                                </span>
+                              )}
                               <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={newsTooltip(row) || headline || undefined}>
                                 {headline || tag ? (
                                   <>

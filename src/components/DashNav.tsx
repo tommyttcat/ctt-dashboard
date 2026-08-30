@@ -3,18 +3,21 @@
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 
-const LINKS = [
+const LINKS: readonly { href: string; label: string; proOnly?: boolean }[] = [
   { href: '/dashboard', label: 'Dashboard' },
-  { href: '/scanners', label: 'Scanners' },
+  { href: '/scanners', label: 'Scanners', proOnly: true },
   { href: '/analyst', label: 'Briefing' },
-  { href: '/confluence', label: 'Confluence' },
-] as const;
+  { href: '/confluence', label: 'Confluence', proOnly: true },
+  { href: '/briefs', label: 'Archive' },
+];
 
-export default function DashNav() {
+const PRO_TIERS = new Set(['pro', 'trial_7', 'trial_14', 'trial_30']);
+
+export default function DashNav({ tier = 'pro' }: { tier?: string }) {
   const path = usePathname();
   return (
     <nav className="flex items-center gap-1.5 flex-wrap">
-      {LINKS.map(({ href, label }) => {
+      {LINKS.filter(l => !l.proOnly || PRO_TIERS.has(tier)).map(({ href, label }) => {
         const active = path === href;
         return (
           <Link

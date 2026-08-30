@@ -28,7 +28,16 @@ import {
   CHOP_TREND_BAND,
   INTRADAY_STALE_MINUTES,
 } from '@/lib/indicators/chopMarket';
-import { marketTone, advPct as advPctOf, highsPct as highsPctOf, type MarketTone } from '@/lib/indicators/marketScorecard';
+import {
+  marketTone,
+  advPct as advPctOf,
+  highsPct as highsPctOf,
+  instDirSetup,
+  instDirSignal,
+  type MarketTone,
+  type InstDirSetup,
+  type InstDirSignal,
+} from '@/lib/indicators/marketScorecard';
 
 export interface MacroScorecardData {
   marketTone: MarketTone;
@@ -52,6 +61,8 @@ export interface MacroScorecardData {
   setChopMode: (m: ChopMode) => void;
   bands: ChopBands;
   divergence: DivergenceRead;
+  instSetup: InstDirSetup;
+  instSignal: InstDirSignal;
   ready: boolean;
 }
 
@@ -105,7 +116,14 @@ export function useMacroScorecard(): MacroScorecardData {
 
   const chopRaw = chop?.success ? rawChopOf(chop) : null;
   const chopRawPrev = chop?.daily?.blendedPrev ?? chop?.blendedPrev ?? null;
-  const chopVal = chopComposite(chopRaw, breadth);
+
+  const intraVal = chop?.intraday?.blended ?? null;
+  const intraLastBar = chop?.intraday?.lastBar ?? null;
+  const intraAgeMin = minutesSince(intraLastBar);
+  const intraStale = intraAgeMin != null && intraAgeMin > INTRADAY_STALE_MINUTES;
+
+  const sessionDir = { qqqPct: quotes['QQQ']?.pct ?? null, spyPct: quotes['SPY']?.pct ?? null };
+  const chopVal = chopComposite(chopRaw, breadth, { blended: intraVal, stale: intraStale || intraVal == null }, sessionDir);
 
   /* Delta is taken from the RAW readings, not the composites — the modifiers
      are today's internals and would otherwise show up as movement in a
@@ -114,15 +132,22 @@ export function useMacroScorecard(): MacroScorecardData {
   const chopTrend: 'up' | 'down' | 'flat' =
     chopDelta == null || Math.abs(chopDelta) < CHOP_TREND_BAND ? 'flat' : chopDelta > 0 ? 'up' : 'down';
 
-  const intraVal = chop?.intraday?.blended ?? null;
-  const intraLastBar = chop?.intraday?.lastBar ?? null;
-  const intraAgeMin = minutesSince(intraLastBar);
-  const intraStale = intraAgeMin != null && intraAgeMin > INTRADAY_STALE_MINUTES;
-
   const divergence = divergenceOf(chopVal, intraVal, bands);
 
   const advPct = advPctOf(breadth?.advancers, breadth?.decliners);
   const highsPct = highsPctOf(breadth?.newHighs, breadth?.newLows);
+
+  const spy = quotes['SPY'];
+  const qqq = quotes['QQQ'];
+  const vix = quotes['VIX'];
+  const iSetup = spy && qqq && vix
+    ? instDirSetup(
+        spy.price ?? 0, spy.prevLow ?? null, spy.pct ?? 0,
+        qqq.price ?? 0, qqq.prevLow ?? null,
+        vix.price ?? 0, vix.prevHigh ?? null, vix.pct ?? 0,
+      )
+    : 'CLEAR' as InstDirSetup;
+  const iSignal = instDirSignal(iSetup);
 
   const chopTooltipText = chopVal == null ? '' : [
     `CHOP ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal, bands)}   [${bands.label}]`,
@@ -164,6 +189,8 @@ export function useMacroScorecard(): MacroScorecardData {
     setChopMode,
     bands,
     divergence,
+    instSetup: iSetup,
+    instSignal: iSignal,
     ready,
   };
 }

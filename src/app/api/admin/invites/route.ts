@@ -27,12 +27,12 @@ export async function POST(req: Request) {
   if (denied) return denied;
 
   try {
-    const { tier, label, maxUses, expiresAt } = await req.json();
+    const { tier, label, maxUses, expiresAt, trialDays } = await req.json();
 
     if (!label?.trim()) {
       return NextResponse.json({ error: 'Label required' }, { status: 400 });
     }
-    const validTiers = ['full', 'briefing', 'confluence', 'briefing_email', 'confluence_email', 'both_email'];
+    const validTiers = ['starter', 'core', 'pro', 'trial_7', 'trial_14', 'trial_30'];
     if (!validTiers.includes(tier)) {
       return NextResponse.json({ error: 'Invalid tier' }, { status: 400 });
     }
@@ -42,6 +42,7 @@ export async function POST(req: Request) {
       label,
       maxUses: maxUses || 0,
       expiresAt: expiresAt || null,
+      trialDays: trialDays || undefined,
     });
     return NextResponse.json({ invite }, { status: 201 });
   } catch (err: any) {

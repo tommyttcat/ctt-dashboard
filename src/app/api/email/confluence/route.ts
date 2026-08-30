@@ -264,7 +264,7 @@ function buildEmail(reports: any[], aiSummary: any, lastScanTime: number | null)
         <td style="padding:0;vertical-align:middle;">
           <img src="https://ctt-dashboard.vercel.app/logo.svg" alt="CTT" style="height:24px;width:auto;vertical-align:middle;" />
           <span style="font-size:11px;font-weight:800;color:#f1f5f9;vertical-align:middle;margin-left:8px;">Confluence Trading Tools</span>
-          <div style="font-size:8px;font-weight:600;color:#64748b;letter-spacing:0.22em;text-transform:uppercase;margin-top:3px;margin-left:32px;">Multi-Confluence Report</div>
+          <div style="font-size:8px;font-weight:600;color:#64748b;letter-spacing:0.22em;text-transform:uppercase;margin-top:3px;margin-left:32px;">Confluence Report</div>
         </td>
       </tr></table>
       <div style="font-size:8px;color:#64748b;margin-top:6px;">${now} ET${scanTime ? ` &middot; Scan ${scanTime} ET` : ''} &middot; ${reports.length} setup${reports.length !== 1 ? 's' : ''}</div>

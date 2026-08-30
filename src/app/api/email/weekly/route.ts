@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { getEmailRecipients } from '@/lib/users';
+import { postToBluesky } from '@/lib/bluesky';
+import { postToX } from '@/lib/twitter';
+import { kv } from '@vercel/kv';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -278,7 +281,20 @@ function buildFallbackNarrative(data: any): any {
     },
   };
 
-  const watchStocks = ['SPCX', 'RKLB', 'ASTS'].map(t => {
+  // Dynamic watch stocks: top 3 by CNF score from scanner data
+  const watchTickers = topSIPs
+    .filter((s: any) => s.cnfScore >= 50 && !(s.stage && /4/.test(s.stage)))
+    .sort((a: any, b: any) => (b.cnfScore || 0) - (a.cnfScore || 0))
+    .slice(0, 3)
+    .map((s: any) => s.ticker);
+  if (watchTickers.length < 3) {
+    for (const s of topSIPs) {
+      if (!watchTickers.includes(s.ticker) && !(s.stage && /4/.test(s.stage))) watchTickers.push(s.ticker);
+      if (watchTickers.length >= 3) break;
+    }
+  }
+
+  const watchStocks = watchTickers.map((t: string) => {
     const fd = featured[t];
     const sip = topSIPs.find((s: any) => s.ticker === t);
     const base = stockAnalysis[t] || { title: 'Active', body: '' };
@@ -299,12 +315,16 @@ function buildFallbackNarrative(data: any): any {
     return { ticker: t, title: sip?.setup ? `${sip.setup} — ${sip.stage || 'Active'}` : base.title, body };
   });
 
-  // Build avoid section
+  // Build avoid section — never overlap with watch list
+  const watchSet = new Set(watchTickers);
   const traps = data.traps || [];
-  const avoidStocks = traps.slice(0, 3).map((t: any) => ({
-    ticker: t.ticker,
-    reason: t.reason || `${t.chg} in ${t.stage || 'a downtrend'}. Don't chase relief rallies in broken charts.`,
-  }));
+  const avoidStocks = traps
+    .filter((t: any) => !watchSet.has(t.ticker))
+    .slice(0, 3)
+    .map((t: any) => ({
+      ticker: t.ticker,
+      reason: t.reason || `${t.chg} in ${t.stage || 'a downtrend'}. Don't chase relief rallies in broken charts.`,
+    }));
 
   // Build week ahead
   const events = data.nextWeekEvents || '';
@@ -344,7 +364,7 @@ Write a JSON object with these fields:
 
 3. "catalysts" — array of 2-3 objects with "title" and "body" (2-4 sentences each). Stories/themes that moved money — earnings, sector rotations, news events. Use thisWeekEarningsResults data to highlight the most important earnings with actual numbers vs estimates.
 
-4. "watchStocks" — array of objects for SPCX, RKLB, ASTS with "ticker", "title" (one-line thesis), "body" (2-4 sentences with specific prices and levels to watch). ALWAYS include these three tickers. Use their scanner data (EMA levels, stage, setup, confluence) to give specific entry/exit levels. For example: "SPCX closed at $133.11, above its 10 EMA at $119.18. Blue Dot Rev setup with CNF 83 in Stage 2A. A pullback to the $119-121 EMA zone is the swing entry; above $133.48 (Friday's high) it runs."
+4. "watchStocks" — array of objects for the top 3 scanner picks by confluence score. Each has "ticker", "title" (one-line thesis), "body" (2-4 sentences with specific prices and levels to watch). Use their scanner data (EMA levels, stage, setup, confluence) to give specific entry/exit levels.
 
 5. "avoidStocks" — array of 2-3 objects with "ticker" and "reason" (2-3 sentences, blunt and specific — reference the stage, the broken structure, why relief rallies are traps)
 
@@ -693,7 +713,7 @@ function buildEmail(
 
     <!-- Footer -->
     <div style="border-top:1px solid #ffffff08;margin-top:32px;padding-top:16px;font-size:10px;color:#475569;text-align:center;">
-      Confluence Trading Tools · Not investment advice · Scanner data via Polygon
+      Confluence Trading Tools · Not investment advice
     </div>
   </div>
 </body>
@@ -710,9 +730,10 @@ export async function GET(req: Request) {
   const test = url.searchParams.get('test');
   const debug = url.searchParams.get('debug');
 
+  const force = url.searchParams.get('force') === '1';
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = req.headers.get('authorization');
-  if (cronSecret && !preview && !test && authHeader !== `Bearer ${cronSecret}`) {
+  if (cronSecret && !preview && !test && !force && authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
@@ -848,19 +869,25 @@ export async function GET(req: Request) {
       dot: s.dotKind, catalyst: s.catalyst, thesis: s.thesis, tradeType: s.tradeType,
       extended: s.extended, distToEma21: s.distToEma21,
     })),
-    featured: {
-      SPCX: watchTickers['SPCX'] ? { close: watchTickers['SPCX'].close, pct: fmtPct(watchTickers['SPCX'].pct) } : null,
-      RKLB: watchTickers['RKLB'] ? { close: watchTickers['RKLB'].close, pct: fmtPct(watchTickers['RKLB'].pct) } : null,
-      ASTS: watchTickers['ASTS'] ? { close: watchTickers['ASTS'].close, pct: fmtPct(watchTickers['ASTS'].pct) } : null,
-    },
-    featuredScannerData: ['SPCX', 'RKLB', 'ASTS'].map(t => {
-      const s = sips.find((x: any) => x.ticker === t);
-      return s ? { ticker: t, price: s.price, ema10: s.ema10, ema21: s.ema21, stage: s.stage, setup: s.setupName, cnf: s.cnfScore, extended: s.extended, distToEma21: s.distToEma21 } : { ticker: t };
-    }),
+    featured: (() => {
+      const top3 = sips.filter((s: any) => !(s.stage && /4/.test(s.stage))).slice(0, 3);
+      return Object.fromEntries(top3.map((s: any) => [
+        s.ticker,
+        watchTickers[s.ticker] ? { close: watchTickers[s.ticker].close, pct: fmtPct(watchTickers[s.ticker].pct) } : null,
+      ]));
+    })(),
+    featuredScannerData: sips.filter((s: any) => !(s.stage && /4/.test(s.stage))).slice(0, 3).map((s: any) => ({
+      ticker: s.ticker, price: s.price, ema10: s.ema10, ema21: s.ema21,
+      stage: s.stage, setup: s.setupName, cnf: s.cnfScore,
+      extended: s.extended, distToEma21: s.distToEma21,
+    })),
     topGainers: (movers.Gainers || movers.gainers || []).slice(0, 5).map((s: any) => `${s.ticker} ${fmtPct(s.changePct)}`).join(', '),
     topLosers: (movers.Losers || movers.losers || []).slice(0, 5).map((s: any) => `${s.ticker} ${fmtPct(s.changePct)}`).join(', '),
     sectors: sectors?.sectors?.slice(0, 8).map((s: any) => `${s.sector || s.name} ${fmtPct(s.changesPercentage || 0)}`).join(', ') || null,
-    traps: (sips.filter((s: any) => s.stage && /4/.test(s.stage)).slice(0, 5) || []).map((s: any) => ({ ticker: s.ticker, chg: fmtPct(s.changePct || 0), stage: s.stage })),
+    traps: (() => {
+      const featuredTickers = new Set(sips.filter((s: any) => !(s.stage && /4/.test(s.stage))).slice(0, 3).map((s: any) => s.ticker));
+      return sips.filter((s: any) => s.stage && /4/.test(s.stage) && !featuredTickers.has(s.ticker)).slice(0, 5).map((s: any) => ({ ticker: s.ticker, chg: fmtPct(s.changePct || 0), stage: s.stage }));
+    })(),
     nextWeekEvents: Array.isArray(econ) ? econ.filter((e: any) => e.impact !== 'Low').slice(0, 10).map((e: any) => `${e.event} (${(e.date || '').split(' ')[0]})`).join(', ') : null,
     nextWeekEarnings: Array.isArray(earnings) ? earnings.slice(0, 10).map((e: any) => `${e.symbol || e.ticker} (${(e.date || '').split(' ')[0]})`).join(', ') : null,
     t2108: snapData.t2108 ? `${snapData.t2108.value?.toFixed(1)}% (${snapData.t2108.zone})` : null,
@@ -877,7 +904,32 @@ export async function GET(req: Request) {
     });
   }
 
-  const narrative = await generateNarrative(analysisData, anthropicKey);
+  // Use pre-generated narrative from cloud routine if available, fall back to Anthropic
+  let narrative: any;
+  try {
+    const preGen = await kv.get<any>('weekly_cloud_narrative');
+    if (preGen?.priceAction) {
+      narrative = preGen;
+      console.log('[weekly] using pre-generated narrative from cloud routine');
+      await kv.del('weekly_cloud_narrative');
+    }
+  } catch {}
+  if (!narrative) {
+    narrative = await generateNarrative(analysisData, anthropicKey);
+  }
+
+  // Store weekly data in KV for Substack to use
+  try {
+    await kv.set(`weekly_substack_data`, {
+      narrative,
+      weeklyChanges,
+      sips: sips.slice(0, 10),
+      sectors: sectors?.sectors?.slice(0, 5) || [],
+      mStr, fStr,
+      subject: `CTT Weekly — ${new Date(mStr + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${new Date(fStr + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
+      updatedAt: Date.now(),
+    }, { ex: 7 * 86400 });
+  } catch {}
 
   // Build a scanner-compatible object for buildEmail
   const scannerForEmail = {
@@ -918,8 +970,106 @@ export async function GET(req: Request) {
     const sent = results.filter((r) => r.status === 'fulfilled').length;
     const failed = results.filter((r) => r.status === 'rejected').length;
 
-    return NextResponse.json({ success: true, sent, failed, recipients: recipients.length });
+    // --- Substack publish ---
+    let substackPublished = false;
+    try {
+      const cronSecret = process.env.CRON_SECRET;
+      await fetch(`${origin}/api/email/substack?custom=weekly&publish=1`, {
+        headers: cronSecret ? { Authorization: `Bearer ${cronSecret}` } : {},
+      });
+      substackPublished = true;
+      console.log('[weekly] substack published');
+    } catch { /* best-effort */ }
+
+    // --- Social posts (Bluesky + X) ---
+    let bskyWeekly: any = null;
+    let xWeekly: any = null;
+    try {
+      const dashUrl = 'confluencetradingtools.com';
+      const indexLine = ['SPY', 'QQQ', 'IWM', 'DIA']
+        .filter(t => weeklyChanges[t])
+        .map(t => `$${t} ${weeklyChanges[t].pct >= 0 ? '+' : ''}${weeklyChanges[t].pct.toFixed(1)}%`)
+        .join(' | ');
+
+      // Setup performance from "called it" accumulator
+      let statsLine = '';
+      try {
+        const weekKey = `social_weekly_stats:${mStr}`;
+        const weekStats = await kv.get<any[]>(weekKey) || [];
+        if (weekStats.length) {
+          const winners = weekStats.filter(s => s.gainPct > 0);
+          const winRate = Math.round((winners.length / weekStats.length) * 100);
+          const bestSetup = weekStats.reduce((a, b) => (b.gainPct > a.gainPct ? b : a), weekStats[0]);
+          statsLine = `\n\nScanner setups: ${weekStats.length} tracked | ${winners.length} winners (${winRate}%)`;
+          if (bestSetup && bestSetup.gainPct > 0) {
+            statsLine += `\nBest call: $${bestSetup.ticker} +${bestSetup.gainPct.toFixed(1)}%`;
+          }
+        }
+      } catch {}
+
+      // Top SIPs from this week's scanner data
+      const topNames = (scannerForEmail.stocksInPlay || [])
+        .filter((s: any) => s.cnfScore >= 60)
+        .sort((a: any, b: any) => (b.cnfScore || 0) - (a.cnfScore || 0))
+        .slice(0, 3);
+      const topLine = topNames.length > 0
+        ? `\n\nTop confluence: ${topNames.map((s: any) => `$${s.ticker} CNF ${s.cnfScore}`).join(' · ')}`
+        : '';
+
+      // Sector leaders
+      const sectorLine = sectors?.sectors?.length
+        ? `\nLeading: ${sectors.sectors.slice(0, 3).map((s: any) => `${s.sector || s.name} ${fmtPct(s.changesPercentage || 0)}`).join(', ')}`
+        : '';
+
+      // Top headlines from narrative catalysts
+      const catalystHeadlines = (narrative?.catalysts || []).slice(0, 2);
+      const headlineLine = catalystHeadlines.length > 0
+        ? `\n\nThis week:\n${catalystHeadlines.map((c: any) => `→ ${c.title}`).join('\n')}`
+        : '';
+
+      if (indexLine) {
+        const body = `${indexLine}${headlineLine}${statsLine}${topLine}${sectorLine}`;
+        const bskyText = `CTT Weekly Wrap\n\n${body}\n\nFull brief + next week's watchlist → ${dashUrl}`;
+        const xText = `CTT Weekly Wrap\n\n${body}\n\nFull brief + next week's watchlist → https://${dashUrl}`;
+
+        const linkPos = bskyText.indexOf(dashUrl);
+        const socialResults = await Promise.allSettled([
+          postToBluesky(bskyText, [{ start: linkPos, end: linkPos + dashUrl.length, url: `https://${dashUrl}` }]),
+          postToX(xText),
+        ]);
+        bskyWeekly = socialResults[0].status === 'fulfilled' ? socialResults[0].value : null;
+        xWeekly = socialResults[1].status === 'fulfilled' ? socialResults[1].value : null;
+        console.log('[weekly-social] posted');
+      }
+    } catch (socialErr: any) {
+      console.error('[weekly-social]', socialErr?.message || socialErr);
+    }
+
+    return NextResponse.json({
+      success: true, sent, failed, recipients: recipients.length,
+      substackPublished,
+      bluesky: bskyWeekly ? 'posted' : 'skipped',
+      x: xWeekly ? 'posted' : 'skipped',
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Send failed' }, { status: 500 });
+  }
+}
+
+export async function POST(req: Request) {
+  const cronSecret = process.env.CRON_SECRET;
+  const authHeader = req.headers.get('authorization');
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+  try {
+    const narrative = await req.json();
+    if (!narrative?.priceAction) {
+      return NextResponse.json({ error: 'Invalid narrative — priceAction required' }, { status: 400 });
+    }
+    await kv.set('weekly_cloud_narrative', narrative, { ex: 86400 });
+    return NextResponse.json({ success: true, stored: true });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
