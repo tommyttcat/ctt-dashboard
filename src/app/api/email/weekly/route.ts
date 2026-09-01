@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
+import Anthropic from '@anthropic-ai/sdk';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 120;
+/* Narrative generation at high effort runs materially longer than the previous
+   configuration. The request streams, so the SDK never hits an HTTP timeout,
+   but the function still has to outlive the generation. Weekly cron — one
+   invocation, so the longer ceiling costs nothing at any user count. */
+export const maxDuration = 300;
 
 function resolveOrigin(req: Request): string {
   try {
@@ -193,7 +198,7 @@ function setup(name: string | null): string {
 }
 
 // ---------------------------------------------------------------------------
-// Deterministic narrative fallback (when Gemini is unavailable)
+// Deterministic narrative fallback (when the model call is unavailable or fails)
 // ---------------------------------------------------------------------------
 
 function buildFallbackNarrative(data: any): any {
@@ -316,18 +321,68 @@ function buildFallbackNarrative(data: any): any {
 }
 
 // ---------------------------------------------------------------------------
-// Gemini narrative generation
+// Claude narrative generation
 // ---------------------------------------------------------------------------
+
+/* The shape the email renderer reads. Passed as a structured-output schema so
+   the model cannot return anything else — this replaces the old regex-scrape
+   of a JSON blob out of prose, which failed silently into the canned
+   fallback whenever the response was truncated or fenced differently. */
+const NARRATIVE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['priceAction', 'macro', 'catalysts', 'watchStocks', 'avoidStocks', 'weekAhead'],
+  properties: {
+    priceAction: { type: 'string' },
+    macro: { type: 'string' },
+    catalysts: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['title', 'body'],
+        properties: { title: { type: 'string' }, body: { type: 'string' } },
+      },
+    },
+    watchStocks: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['ticker', 'title', 'body'],
+        properties: {
+          ticker: { type: 'string' },
+          title: { type: 'string' },
+          body: { type: 'string' },
+        },
+      },
+    },
+    avoidStocks: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['ticker', 'reason'],
+        properties: { ticker: { type: 'string' }, reason: { type: 'string' } },
+      },
+    },
+    weekAhead: { type: 'string' },
+  },
+};
 
 async function generateNarrative(data: any, anthropicKey: string, debug = false): Promise<any> {
   if (!anthropicKey) {
     const msg = '[weekly] No ANTHROPIC_API_KEY, using fallback';
-    console.log(msg);
+    console.error(msg);
     if (debug) return { _debug: msg };
     return buildFallbackNarrative(data);
   }
 
-  const systemPrompt = `You are the analyst behind a weekly trading briefing email. You write like a smart, opinionated trader talking to other smart traders. Your tone is direct, specific, and analytical — never vague, never generic, never a disclaimer. You reference specific price levels, specific days, specific catalysts. You sound like a hedge fund morning note, not a blog post. Respond with ONLY a JSON object, no markdown fences, no other text.`;
+  const systemPrompt = `You are the analyst behind a weekly trading briefing email. You write like a smart, opinionated trader talking to other smart traders. Your tone is direct, specific, and analytical — never vague, never generic, never a disclaimer. You reference specific price levels, specific days, specific catalysts. You sound like a hedge fund morning note, not a blog post.
+
+The reader already sees the dashboard's raw figures on their own screen. Restating a number they can look up is worse than writing nothing. Every sentence must carry something the cards cannot: why a name moved, what two conflicting readings imply together, which macro or geopolitical event drove the tape, what would invalidate the read. If a sentence would still be true with the numbers stripped out, cut it.
+
+Name the conflicts. When two readings disagree, say which one you weight and why. Cite a number only when it is doing work in an argument.`;
 
   const userPrompt = `Here is this week's market data. Use ALL of it to write a detailed weekly briefing.
 
@@ -350,58 +405,63 @@ Write a JSON object with these fields:
 
 RULES:
 - Reference SPECIFIC price levels, dates, and numbers throughout
+- Every directional call names the level or event that invalidates it
+- Analyze mechanics and structure, never give advice — "trigger sits at 42.10, a close below 39.80 invalidates the base" is analysis; "buy at 42.10" is not
 - NEVER use asterisks, markdown, or bullet points
 - Conversational but authoritative tone
-- 800-1500 words total
-- Respond with ONLY the JSON object, no code fences, no other text`;
+- 800-1500 words total`;
+
+  const client = new Anthropic({ apiKey: anthropicKey });
 
   try {
-    console.log('[weekly] Calling Claude API...');
-    const reqBody = JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
+    console.log('[weekly] Calling Claude (opus-5, streaming, structured output)...');
+    /* Streamed because max_tokens is large and adaptive thinking makes the
+       turn long — a non-streaming call at this size risks an HTTP timeout
+       before Vercel's own maxDuration is even reached. */
+    const stream = client.beta.messages.stream({
+      model: 'claude-opus-5',
+      max_tokens: 32000,
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+      thinking: { type: 'adaptive' },
+      output_config: {
+        effort: 'high',
+        format: { type: 'json_schema', schema: NARRATIVE_SCHEMA },
+      },
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
-      temperature: 0.7,
     });
-    console.log('[weekly] Request body size:', reqBody.length, 'bytes');
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: reqBody,
-    });
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
-      console.error('[weekly] Claude API error:', res.status, errBody);
-      if (debug) return { _debug: `API error ${res.status}: ${errBody.slice(0, 500)}` };
+    const res = await stream.finalMessage();
+
+    /* Safety classifiers can decline with HTTP 200 — check before reading content. */
+    if (res?.stop_reason === 'refusal') {
+      console.error('[weekly] Claude refused:', JSON.stringify(res?.stop_details ?? null));
+      if (debug) return { _debug: `refusal: ${res?.stop_details?.category ?? 'unknown'}` };
       return buildFallbackNarrative(data);
     }
-    const json = await res.json();
-    const text = json?.content?.[0]?.text || '';
-    console.log('[weekly] Claude response length:', text.length, 'chars, stop_reason:', json?.stop_reason);
-    if (!text) {
+
+    const text = res.content
+      .map((b) => (b.type === 'text' ? b.text : ''))
+      .join('');
+    console.log(
+      '[weekly] Claude response:', text.length, 'chars, stop_reason:', res?.stop_reason,
+      'in:', res?.usage?.input_tokens, 'out:', res?.usage?.output_tokens,
+    );
+
+    if (!text.trim()) {
       console.error('[weekly] Empty response from Claude');
-      if (debug) return { _debug: 'Empty response', raw: JSON.stringify(json).slice(0, 500) };
+      if (debug) return { _debug: 'Empty response', stop: res?.stop_reason };
       return buildFallbackNarrative(data);
     }
-    // Strip code fences if present
-    const cleaned = text.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '');
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.error('[weekly] Could not extract JSON from Claude response, first 200 chars:', text.slice(0, 200));
-      if (debug) return { _debug: 'No JSON match', first500: text.slice(0, 500) };
-      return buildFallbackNarrative(data);
-    }
-    const parsed = JSON.parse(jsonMatch[0]);
-    console.log('[weekly] Claude narrative parsed successfully, keys:', Object.keys(parsed).join(','));
+
+    /* Constrained decoding guarantees schema-valid JSON, so this parses
+       directly — no fence-stripping, no regex scrape. */
+    const parsed = JSON.parse(text);
+    console.log('[weekly] Claude narrative parsed, keys:', Object.keys(parsed).join(','));
     if (debug) return { _debug: 'success', keys: Object.keys(parsed) };
     return parsed;
   } catch (err: any) {
-    console.error('[weekly] Claude narrative generation failed:', err);
+    console.error('[weekly] FALLBACK NARRATIVE IN USE — generation failed:', err?.message || err);
     if (debug) return { _debug: `Exception: ${err?.message || err}` };
     return buildFallbackNarrative(data);
   }
