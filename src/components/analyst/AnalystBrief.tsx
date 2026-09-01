@@ -129,13 +129,25 @@ interface UpdateBlock {
   colorTheme: 'cyan' | 'emerald' | 'indigo' | 'amber' | 'rose';
 }
 
-type BlockKey = 'morning' | 'midday' | 'closing';
+/* Five phases, matching what the analyst routine actually writes to
+   sessionUpdates. It has always written `pre` and `power`; this renderer only
+   knew three keys, so both blocks stored fine and displayed nowhere — the
+   POWER HOUR read was invisible for its whole 2–4 PM window while the page
+   still showed the midday block. Keep these keys in sync with the generator. */
+type BlockKey = 'pre' | 'morning' | 'midday' | 'power' | 'closing';
 type Direction = 'up' | 'down' | 'neutral';
 
+/* `opens` is the ET hour the block is expected to exist by — the generator
+   writes pre before 10:00, morning 10:00–12:00, midday 12:00–14:00, power
+   14:00–16:00, closing after 16:00 — and `supersededAt` is when the next one
+   lands and this read becomes history. pre opens at 4.0 rather than 0 so an
+   unrefreshed store can't surface yesterday's pre block overnight. */
 const BLOCK_WINDOWS: Record<BlockKey, { opens: number; supersededAt: number; nextLabel: string }> = {
-  morning: { opens: 4.0, supersededAt: 11.5, nextLabel: 'midday' },
-  midday: { opens: 11.5, supersededAt: 15.5, nextLabel: 'closing' },
-  closing: { opens: 15.5, supersededAt: 24, nextLabel: '' },
+  pre: { opens: 4.0, supersededAt: 10.0, nextLabel: 'morning' },
+  morning: { opens: 10.0, supersededAt: 12.0, nextLabel: 'midday' },
+  midday: { opens: 12.0, supersededAt: 14.0, nextLabel: 'power hour' },
+  power: { opens: 14.0, supersededAt: 16.0, nextLabel: 'closing' },
+  closing: { opens: 16.0, supersededAt: 24, nextLabel: '' },
 };
 
 const getEstNow = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
@@ -1954,8 +1966,10 @@ export default function AnalystBrief() {
     const weekend = isWeekendNow();
     const t = estDecimal();
     return {
+      pre: (t >= BLOCK_WINDOWS.pre.opens || weekend) ? (su.pre || null) : null,
       morning: (t >= BLOCK_WINDOWS.morning.opens || weekend) ? (su.morning || null) : null,
       midday: (t >= BLOCK_WINDOWS.midday.opens || weekend) ? (su.midday || null) : null,
+      power: (t >= BLOCK_WINDOWS.power.opens || weekend) ? (su.power || null) : null,
       closing: (t >= BLOCK_WINDOWS.closing.opens || weekend) ? (su.closing || null) : null,
     };
   }, [brief]);
@@ -2263,7 +2277,7 @@ export default function AnalystBrief() {
         )}
 
         {/* Session Updates — at the bottom, independent of brief load */}
-        {sessionBlocks && (sessionBlocks.morning || sessionBlocks.midday || sessionBlocks.closing) && (() => {
+        {sessionBlocks && (sessionBlocks.pre || sessionBlocks.morning || sessionBlocks.midday || sessionBlocks.power || sessionBlocks.closing) && (() => {
           const weekend = isWeekendNow();
           const renderBlock = (block: UpdateBlock | null, key: BlockKey) => {
             if (!block) return null;
@@ -2312,8 +2326,10 @@ export default function AnalystBrief() {
           return (
             <SectionCard title="Session Updates" accent="#818cf8">
               <div className="flex flex-col gap-2">
+                {renderBlock(sessionBlocks.pre, 'pre')}
                 {renderBlock(sessionBlocks.morning, 'morning')}
                 {renderBlock(sessionBlocks.midday, 'midday')}
+                {renderBlock(sessionBlocks.power, 'power')}
                 {renderBlock(sessionBlocks.closing, 'closing')}
               </div>
             </SectionCard>
