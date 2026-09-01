@@ -1395,6 +1395,18 @@ function SectorSection({ section, scannerData }: { section: SectionResult; scann
     else if (/^\*\*Lagging/i.test(line.trim())) laggingRaw = stripped;
   }
 
+  /* The Leading/Lagging lines are chart inputs — they exist so the bars above
+     can be drawn, and repeating them as prose beside the bars they produced is
+     the exact duplication the brief is meant to avoid. Everything else in the
+     section is narrative and gets rendered. Split on the raw text rather than
+     `lines` so paragraph breaks survive; `lines` has already dropped them. */
+  const narrative = text
+    .split('\n')
+    .filter(l => !/^\s*\*\*(Leading|Lagging)\b/i.test(l))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
   const leading = parseSectorItems(leadingRaw);
   const lagging = parseSectorItems(laggingRaw);
   let allSectors = [...leading, ...lagging].sort((a, b) => b.pct - a.pct);
@@ -1437,6 +1449,11 @@ function SectorSection({ section, scannerData }: { section: SectionResult; scann
     {/* Same two rows as the dashboard: bars beside Industry Heat (the same
         groups drawn and listed), then ETF Flow beside Money Flow. */}
     <div className="space-y-2.5 md:space-y-4">
+      {narrative && (
+        <div className="text-[12px] text-slate-300 leading-[1.75] whitespace-pre-line">
+          {highlightBold(narrative, 'text-slate-100', true, false)}
+        </div>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 md:gap-3 items-stretch">
       {allSectors.length > 0 && (() => {
         const best = allSectors[0];
