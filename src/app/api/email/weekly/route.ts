@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
-import Anthropic from '@anthropic-ai/sdk';
+import { kv } from '@vercel/kv';
 
 export const dynamic = 'force-dynamic';
-/* Narrative generation at high effort runs materially longer than the previous
-   configuration. The request streams, so the SDK never hits an HTTP timeout,
-   but the function still has to outlive the generation. Weekly cron — one
-   invocation, so the longer ceiling costs nothing at any user count. */
-export const maxDuration = 300;
+export const maxDuration = 120;
+
+/* Where the cloud routine's narrative is stored. This route never generates
+   the narrative itself — it renders and sends whatever the routine wrote. */
+const NARRATIVE_KEY = 'weekly_narrative_v1';
 
 function resolveOrigin(req: Request): string {
   try {
@@ -394,99 +394,31 @@ const NARRATIVE_SCHEMA = {
   },
 };
 
-async function generateNarrative(data: any, anthropicKey: string, debug = false): Promise<any> {
-  if (!anthropicKey) {
-    const msg = '[weekly] No ANTHROPIC_API_KEY, using fallback';
-    console.error(msg);
-    if (debug) return { _debug: msg };
-    return buildFallbackNarrative(data);
-  }
-
-  const systemPrompt = `You are the analyst behind a weekly trading briefing email. You write like a smart, opinionated trader talking to other smart traders. Your tone is direct, specific, and analytical — never vague, never generic, never a disclaimer. You reference specific price levels, specific days, specific catalysts. You sound like a hedge fund morning note, not a blog post.
-
-The reader already sees the dashboard's raw figures on their own screen. Restating a number they can look up is worse than writing nothing. Every sentence must carry something the cards cannot: why a name moved, what two conflicting readings imply together, which macro or geopolitical event drove the tape, what would invalidate the read. If a sentence would still be true with the numbers stripped out, cut it.
-
-Name the conflicts. When two readings disagree, say which one you weight and why. Cite a number only when it is doing work in an argument.`;
-
-  const userPrompt = `Here is this week's market data. Use ALL of it to write a detailed weekly briefing.
-
-DATA:
-${JSON.stringify(data)}
-
-Write a JSON object with these fields:
-
-1. "priceAction" — 3-5 paragraphs of DETAILED QQQ/SPY price action analysis. This is the centerpiece. Reference specific price levels from the daily bars, not just percentages. Note distribution days (down >0.2% on higher volume). Mention the total distribution day count over the last 25 sessions. Describe the intraweek pattern. Reference the 30-session range context. End with where QQQ closed relative to its EMAs and what that means. Tell the STORY of the week — write like: "Having chopped around between 700-745 for 24 sessions, on Friday, QQQ broke below 700."
-
-2. "macro" — 2-4 paragraphs covering the most important macro/Fed/economic story. Analyze results vs expectations using thisWeekEconResults data. Name specific Fed officials if news mentions them. Reference actual numbers.
-
-3. "catalysts" — array of 2-3 objects with "title" and "body" (2-4 sentences each). Stories/themes that moved money — earnings, sector rotations, news events. Use thisWeekEarningsResults data to highlight the most important earnings with actual numbers vs estimates.
-
-4. "watchStocks" — array of objects with "ticker", "title" (one-line thesis), "body" (2-4 sentences with specific prices and levels to watch). Cover the names in watchList, using their featured and featuredScannerData entries (EMA levels, stage, setup, confluence) to give specific entry/exit levels. Shape each body like: "closed at $133.11, above its 10 EMA at $119.18. Blue Dot Rev setup with CNF 83 in Stage 2A. A pullback to the $119-121 EMA zone is the swing entry; above $133.48 (Friday's high) it runs." If a name has no usable entry because it is extended, say so plainly instead of inventing a level.
-
-5. "avoidStocks" — array of 2-3 objects with "ticker" and "reason" (2-3 sentences, blunt and specific — reference the stage, the broken structure, why relief rallies are traps)
-
-6. "weekAhead" — 2-3 paragraphs. Name the biggest event and why it matters. Reference specific QQQ levels from the EMA data as support/resistance. Include key earnings next week. End with a clear opinionated take.
-
-RULES:
-- Reference SPECIFIC price levels, dates, and numbers throughout
-- Every directional call names the level or event that invalidates it
-- Analyze mechanics and structure, never give advice — "trigger sits at 42.10, a close below 39.80 invalidates the base" is analysis; "buy at 42.10" is not
-- NEVER use asterisks, markdown, or bullet points
-- Conversational but authoritative tone
-- 800-1500 words total`;
-
-  const client = new Anthropic({ apiKey: anthropicKey });
-
+/* The narrative is produced by the CTT Weekly Wrap cloud routine and POSTed
+   to this route, which stores it under NARRATIVE_KEY. Generation deliberately
+   does not happen here: a Vercel route must never call a model API to write
+   the brief, the tape, an email or a social post. If no routine narrative is
+   stored, or it is stale, the email falls back to the deterministic summary
+   built from the scan data — degraded, but never model-generated in-process. */
+async function loadNarrative(data: any): Promise<any> {
   try {
-    console.log('[weekly] Calling Claude (opus-5, streaming, structured output)...');
-    /* Streamed because max_tokens is large and adaptive thinking makes the
-       turn long — a non-streaming call at this size risks an HTTP timeout
-       before Vercel's own maxDuration is even reached. */
-    const stream = client.beta.messages.stream({
-      model: 'claude-opus-5',
-      max_tokens: 32000,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      thinking: { type: 'adaptive' },
-      output_config: {
-        effort: 'high',
-        format: { type: 'json_schema', schema: NARRATIVE_SCHEMA },
-      },
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-    });
-    const res = await stream.finalMessage();
-
-    /* Safety classifiers can decline with HTTP 200 — check before reading content. */
-    if (res?.stop_reason === 'refusal') {
-      console.error('[weekly] Claude refused:', JSON.stringify(res?.stop_details ?? null));
-      if (debug) return { _debug: `refusal: ${res?.stop_details?.category ?? 'unknown'}` };
+    const stored = await kv.get<any>(NARRATIVE_KEY);
+    if (!stored?.narrative) {
+      console.error('[weekly] FALLBACK NARRATIVE IN USE — no routine narrative stored');
       return buildFallbackNarrative(data);
     }
-
-    const text = res.content
-      .map((b) => (b.type === 'text' ? b.text : ''))
-      .join('');
-    console.log(
-      '[weekly] Claude response:', text.length, 'chars, stop_reason:', res?.stop_reason,
-      'in:', res?.usage?.input_tokens, 'out:', res?.usage?.output_tokens,
-    );
-
-    if (!text.trim()) {
-      console.error('[weekly] Empty response from Claude');
-      if (debug) return { _debug: 'Empty response', stop: res?.stop_reason };
+    const ageMs = Date.now() - new Date(stored.storedAt ?? 0).getTime();
+    if (ageMs > 3 * 24 * 60 * 60 * 1000) {
+      console.error(
+        '[weekly] FALLBACK NARRATIVE IN USE — stored narrative is stale, age(h):',
+        Math.round(ageMs / 3600000),
+      );
       return buildFallbackNarrative(data);
     }
-
-    /* Constrained decoding guarantees schema-valid JSON, so this parses
-       directly — no fence-stripping, no regex scrape. */
-    const parsed = JSON.parse(text);
-    console.log('[weekly] Claude narrative parsed, keys:', Object.keys(parsed).join(','));
-    if (debug) return { _debug: 'success', keys: Object.keys(parsed) };
-    return parsed;
-  } catch (err: any) {
-    console.error('[weekly] FALLBACK NARRATIVE IN USE — generation failed:', err?.message || err);
-    if (debug) return { _debug: `Exception: ${err?.message || err}` };
+    console.log('[weekly] Using routine narrative stored at', stored.storedAt);
+    return stored.narrative;
+  } catch (err) {
+    console.error('[weekly] FALLBACK NARRATIVE IN USE — KV read failed:', err);
     return buildFallbackNarrative(data);
   }
 }
@@ -804,7 +736,6 @@ export async function GET(req: Request) {
   }
 
   const polygonKey = (process.env.NEXT_PUBLIC_POLYGON_API_KEY || process.env.POLYGON_API_KEY || '').trim();
-  const anthropicKey = (process.env.ANTHROPIC_API_KEY || '').trim();
   const origin = resolveOrigin(req);
 
   const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
@@ -955,17 +886,17 @@ export async function GET(req: Request) {
   };
 
   if (debug === '1') {
-    const debugResult = await generateNarrative(analysisData, anthropicKey, true);
+    const stored = await kv.get<any>(NARRATIVE_KEY).catch(() => null);
     return NextResponse.json({
-      hasAnthropicKey: !!anthropicKey,
-      keyPrefix: anthropicKey ? anthropicKey.slice(0, 8) + '...' : 'none',
+      narrativeSource: stored?.narrative ? 'routine' : 'deterministic fallback',
+      storedAt: stored?.storedAt ?? null,
       snapshotLoaded: !!snapshot,
       dataPayloadSize: JSON.stringify(analysisData).length,
-      narrativeResult: debugResult,
+      watchList,
     });
   }
 
-  const narrative = await generateNarrative(analysisData, anthropicKey);
+  const narrative = await loadNarrative(analysisData);
 
   // Build a scanner-compatible object for buildEmail
   const scannerForEmail = {
@@ -1000,4 +931,37 @@ export async function GET(req: Request) {
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Send failed' }, { status: 500 });
   }
+}
+
+/* The CTT Weekly Wrap cloud routine POSTs its narrative here. Storing it is
+   this route's only write path — generation happens in the routine, never in
+   this function. Mirrors the auth shape of /api/analyst/brief. */
+export async function POST(req: Request) {
+  const requiredKey = process.env.ANALYST_BRIEF_KEY || '';
+  if (requiredKey) {
+    const supplied = req.headers.get('x-api-key') || '';
+    if (supplied !== requiredKey) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
+  }
+
+  let narrative: any;
+  try {
+    narrative = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'invalid JSON body' }, { status: 400 });
+  }
+
+  const required = NARRATIVE_SCHEMA.required as string[];
+  const missing = required.filter((k) => narrative?.[k] === undefined);
+  if (missing.length) {
+    return NextResponse.json(
+      { error: `narrative missing required fields: ${missing.join(', ')}` },
+      { status: 400 },
+    );
+  }
+
+  const storedAt = new Date().toISOString();
+  await kv.set(NARRATIVE_KEY, { narrative, storedAt });
+  return NextResponse.json({ success: true, storedAt, keys: Object.keys(narrative) });
 }
