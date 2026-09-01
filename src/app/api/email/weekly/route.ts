@@ -69,6 +69,42 @@ async function fetchWeeklyChanges(
   return results;
 }
 
+/* Which names the "what I'm watching" section covers. Previously three
+   hardcoded tickers that appeared every week regardless of what the scan
+   found, which is why the section read the same way week after week. Now it
+   follows the board: highest-confluence names first, and a name already
+   extended past its 21 EMA is deprioritised because the section quotes entry
+   levels and there is no usable entry on an extended name. */
+interface ScanRow {
+  ticker?: string;
+  name?: string;
+  sector?: string;
+  cnfScore?: number;
+  extended?: boolean;
+}
+
+/* Leveraged and inverse trackers score well on the scan but are decay
+   vehicles, not swing candidates — quoting an entry and a 10/21 EMA pullback
+   on one is actively wrong. They are identifiable two ways: the scanner maps
+   a tracker's sector to its underlying ("MSTR - Fintech", "USO - Crude Oil
+   2X") or files it under a bare "ETF", and the fund name carries the usual
+   markers. Ordinary equities have a plain sector and a "... Common Stock"
+   style name, so both tests leave them alone. */
+function isTracker(s: ScanRow): boolean {
+  const sector = s.sector ?? '';
+  if (sector === 'ETF' || sector.includes(' - ')) return true;
+  return /\bETF\b|\binverse\b|\b[23]X\b|\bultra\b|daily target/i.test(s.name ?? '');
+}
+
+function selectWatchTickers(sips: ScanRow[], count = 3): string[] {
+  const rank = (s: ScanRow) => (s.cnfScore ?? 0) + (s.extended ? -1000 : 0);
+  return [...(sips || [])]
+    .filter((s) => Boolean(s?.ticker) && !isTracker(s))
+    .sort((a, b) => rank(b) - rank(a))
+    .slice(0, count)
+    .map((s) => s.ticker as string);
+}
+
 interface DailyBar { date: string; o: number; h: number; l: number; c: number; v: number; }
 
 async function fetchDailyBars(
@@ -264,27 +300,11 @@ function buildFallbackNarrative(data: any): any {
     catalysts.push({ title: `${sip.ticker} ${sip.chg} — ${catLabel}`, body });
   }
 
-  // Build watch stocks with real analysis
+  // Build watch stocks with real analysis, over whichever names the scan surfaced
   const featured = data.featured || {};
-  const stockAnalysis: Record<string, { title: string; body: string }> = {
-    SPCX: {
-      title: 'Aerospace leader — watching for continuation',
-      body: 'SpaceX has been the strongest name on the tape.',
-    },
-    RKLB: {
-      title: 'Rocket Lab riding the space trade',
-      body: 'Rocket Lab has been running with the broader aerospace/launch sector.',
-    },
-    ASTS: {
-      title: 'Satellite-to-cell thesis remains live',
-      body: 'AST SpaceMobile continues to build higher lows.',
-    },
-  };
-
-  const watchStocks = ['SPCX', 'RKLB', 'ASTS'].map(t => {
+  const watchStocks = (data.watchList || []).map((t: string) => {
     const fd = featured[t];
     const sip = topSIPs.find((s: any) => s.ticker === t);
-    const base = stockAnalysis[t] || { title: 'Active', body: '' };
     const price = fd?.close ? `$${fmtPrice(fd.close)}` : '?';
     const pct = fd?.pct || sip?.chg || '?';
 
@@ -297,9 +317,13 @@ function buildFallbackNarrative(data: any): any {
         body += `Watch for continuation above ${price} or a pullback to the 10/21 EMA zone for a swing entry.`;
       }
     } else {
-      body += `${base.body} Watch for follow-through above ${price} or a pullback to recent consolidation for entry.`;
+      body += 'Watch for follow-through above that level or a pullback to recent consolidation for entry.';
     }
-    return { ticker: t, title: sip?.setup ? `${sip.setup} — ${sip.stage || 'Active'}` : base.title, body };
+    return {
+      ticker: t,
+      title: sip?.setup ? `${sip.setup} — ${sip.stage || 'Active'}` : 'Active on the scan',
+      body,
+    };
   });
 
   // Build avoid section
@@ -397,7 +421,7 @@ Write a JSON object with these fields:
 
 3. "catalysts" — array of 2-3 objects with "title" and "body" (2-4 sentences each). Stories/themes that moved money — earnings, sector rotations, news events. Use thisWeekEarningsResults data to highlight the most important earnings with actual numbers vs estimates.
 
-4. "watchStocks" — array of objects for SPCX, RKLB, ASTS with "ticker", "title" (one-line thesis), "body" (2-4 sentences with specific prices and levels to watch). ALWAYS include these three tickers. Use their scanner data (EMA levels, stage, setup, confluence) to give specific entry/exit levels. For example: "SPCX closed at $133.11, above its 10 EMA at $119.18. Blue Dot Rev setup with CNF 83 in Stage 2A. A pullback to the $119-121 EMA zone is the swing entry; above $133.48 (Friday's high) it runs."
+4. "watchStocks" — array of objects with "ticker", "title" (one-line thesis), "body" (2-4 sentences with specific prices and levels to watch). Cover the names in watchList, using their featured and featuredScannerData entries (EMA levels, stage, setup, confluence) to give specific entry/exit levels. Shape each body like: "closed at $133.11, above its 10 EMA at $119.18. Blue Dot Rev setup with CNF 83 in Stage 2A. A pullback to the $119-121 EMA zone is the swing entry; above $133.48 (Friday's high) it runs." If a name has no usable entry because it is extended, say so plainly instead of inventing a level.
 
 5. "avoidStocks" — array of 2-3 objects with "ticker" and "reason" (2-3 sentences, blunt and specific — reference the stage, the broken structure, why relief rallies are traps)
 
@@ -801,7 +825,7 @@ export async function GET(req: Request) {
     snapshot,
     econNextWeek, econThisWeek,
     earningsNextWeek, earningsThisWeek,
-    weeklyChanges, watchTickers,
+    weeklyChanges,
     qqqDaily, spyDaily,
     weeklyNews,
   ] = await Promise.all([
@@ -813,7 +837,6 @@ export async function GET(req: Request) {
     fetchJson(`${origin}/api/earnings?from=${nmStr}&to=${nfStr}`),
     fetchJson(`${origin}/api/earnings?from=${mStr}&to=${fStr}`),
     fetchWeeklyChanges(['SPY', 'QQQ', 'DIA', 'IWM'], mStr, fStr, polygonKey),
-    fetchWeeklyChanges(['RKLB', 'ASTS', 'SPCX'], mStr, fStr, polygonKey),
     fetchDailyBars('QQQ', lbStr, fStr, polygonKey),
     fetchDailyBars('SPY', lbStr, fStr, polygonKey),
     fetchWeeklyNews(polygonKey, mStr, fStr),
@@ -830,6 +853,13 @@ export async function GET(req: Request) {
   const scanner = snapData.stocksInPlay || {};
   const sips = scanner.sips || scanner.stocksInPlay || [];
   const movers = scanner.topMovers || {};
+
+  /* Sequential rather than part of the Promise.all above: the tickers come
+     out of the snapshot, so there is nothing to fetch until it resolves. */
+  const watchList = selectWatchTickers(sips);
+  const watchTickers = watchList.length
+    ? await fetchWeeklyChanges(watchList, mStr, fStr, polygonKey)
+    : {};
   const breadth = macro.breadth || marketSummary.breadth;
   const benchmark = scanner.benchmark;
   const closingBlock = marketSummary.closing;
@@ -906,12 +936,12 @@ export async function GET(req: Request) {
       dot: s.dotKind, catalyst: s.catalyst, thesis: s.thesis, tradeType: s.tradeType,
       extended: s.extended, distToEma21: s.distToEma21,
     })),
-    featured: {
-      SPCX: watchTickers['SPCX'] ? { close: watchTickers['SPCX'].close, pct: fmtPct(watchTickers['SPCX'].pct) } : null,
-      RKLB: watchTickers['RKLB'] ? { close: watchTickers['RKLB'].close, pct: fmtPct(watchTickers['RKLB'].pct) } : null,
-      ASTS: watchTickers['ASTS'] ? { close: watchTickers['ASTS'].close, pct: fmtPct(watchTickers['ASTS'].pct) } : null,
-    },
-    featuredScannerData: ['SPCX', 'RKLB', 'ASTS'].map(t => {
+    watchList,
+    featured: Object.fromEntries(watchList.map(t => [
+      t,
+      watchTickers[t] ? { close: watchTickers[t].close, pct: fmtPct(watchTickers[t].pct) } : null,
+    ])),
+    featuredScannerData: watchList.map(t => {
       const s = sips.find((x: any) => x.ticker === t);
       return s ? { ticker: t, price: s.price, ema10: s.ema10, ema21: s.ema21, stage: s.stage, setup: s.setupName, cnf: s.cnfScore, extended: s.extended, distToEma21: s.distToEma21 } : { ticker: t };
     }),
