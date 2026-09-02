@@ -1,59 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import DashNav from '../DashNav';
+import type { BriefData, UpdateBlock } from '../../lib/briefArchive';
 import { ThemeToggle } from '../ThemeProvider';
-
-interface StockEntry {
-  ticker: string;
-  trigger?: number;
-  target?: number;
-  price?: number;
-  change?: number;
-  stage?: string;
-  sector?: string;
-  rs?: number;
-  analysis?: string;
-}
-
-interface SectionResult {
-  section: string;
-  analysis: string;
-  stocks?: StockEntry[];
-}
-
-interface RegimeBlock {
-  regime: string;
-  caution: string;
-  posture: string;
-}
-
-interface SummaryBlock {
-  conviction: string[];
-  watchlist: string[];
-  traps: string[];
-  tomorrow?: string[];
-}
-
-interface UpdateBlock {
-  phase: string;
-  timestamp: string;
-  paragraphs: string[];
-  takeawayLabel: string;
-  takeaway: string;
-  colorTheme: string;
-}
-
-interface BriefData {
-  generatedAt: string;
-  generatedAtET: string;
-  snapshotTime: string | null;
-  sections: SectionResult[];
-  regimeDetail?: RegimeBlock;
-  summary?: SummaryBlock;
-  sessionUpdates?: Record<string, UpdateBlock>;
-}
 
 const PHASE_ORDER = ['pre', 'morning', 'midday', 'power', 'closing'] as const;
 const PHASE_LABELS: Record<string, string> = {
@@ -158,28 +108,18 @@ function formatBriefDate(dateStr: string) {
   return dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 }
 
-export default function BriefDetail({ date }: { date: string }) {
-  const [brief, setBrief] = useState<BriefData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch(`/api/briefs/${date}`, { cache: 'no-store' });
-        if (res.status === 404) {
-          setError('No archived brief for this date.');
-          return;
-        }
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        setBrief(await res.json());
-      } catch (err: any) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [date]);
+/**
+ * Data arrives as a prop from the server page rather than a useEffect fetch.
+ * That is what puts the brief text in the server HTML for crawlers, and it
+ * drops the second function invocation + KV read that every view used to cost.
+ */
+export default function BriefDetail({
+  date,
+  brief,
+}: {
+  date: string;
+  brief: BriefData;
+}) {
 
   const regime = brief?.regimeDetail;
   const regimeLabel = regime ? extractRegimeLabel(regime.regime) : null;
@@ -239,21 +179,6 @@ export default function BriefDetail({ date }: { date: string }) {
             </svg>
             All briefs
           </Link>
-
-          {/* Loading */}
-          {loading && (
-            <div className="flex items-center justify-center py-20 gap-3">
-              <div className="w-6 h-6 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
-              <span className="text-slate-500 text-sm">Loading brief...</span>
-            </div>
-          )}
-
-          {/* Error */}
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-red-400 text-sm">
-              {error}
-            </div>
-          )}
 
           {brief && (
             <>

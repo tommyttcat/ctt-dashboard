@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import DashNav from '../DashNav';
 import { ThemeToggle } from '../ThemeProvider';
@@ -31,50 +30,6 @@ function regimeStyle(regime: string) {
   return REGIME_COLORS.neutral;
 }
 
-function extractRegimeLabel(regime: string): string {
-  if (regime.length < 30) return regime;
-  const r = regime.toLowerCase();
-  if (r.includes('risk-on') || r.includes('risk on')) return 'Risk-On';
-  if (r.includes('risk-off') || r.includes('risk off')) return 'Risk-Off';
-  if (r.includes('bull')) return 'Bullish';
-  if (r.includes('bear')) return 'Bearish';
-  if (r.includes('caution')) return 'Caution';
-  return 'Neutral';
-}
-
-function extractSummary(date: string, brief: any): BriefSummary {
-  const rd = brief?.regimeDetail || {};
-  const regime = extractRegimeLabel(rd.regime || 'Neutral');
-
-  const setupSections = (brief?.sections || []).filter((s: any) =>
-    /Stocks in Play|Top Trades/i.test(s.section),
-  );
-  const setupStocks = setupSections.flatMap((s: any) => s.stocks || []);
-
-  const allStocks = (brief?.sections || []).flatMap((s: any) => s.stocks || []);
-  const tickers = allStocks
-    .filter((s: any) => s.ticker)
-    .slice(0, 5)
-    .map((s: any) => s.ticker);
-
-  const summary = brief?.summary || {};
-  const conviction = summary.conviction || [];
-  const headline = conviction[0]
-    ? String(conviction[0]).replace(/\*\*/g, '').slice(0, 120)
-    : (brief?.sections?.[0]?.section || 'Market brief');
-
-  const phases = Object.keys(brief?.sessionUpdates || {});
-
-  return {
-    date,
-    headline,
-    regime,
-    tickers,
-    setupCount: setupStocks.length,
-    phases,
-  };
-}
-
 function formatDate(dateStr: string) {
   const [y, m, d] = dateStr.split('-').map(Number);
   const dt = new Date(y, m - 1, d);
@@ -84,38 +39,12 @@ function formatDate(dateStr: string) {
   return { day, month, weekday };
 }
 
-export default function BriefsIndex() {
-  const [briefs, setBriefs] = useState<BriefSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const idxRes = await fetch('/api/briefs', { cache: 'no-store' });
-        if (!idxRes.ok) throw new Error('Failed to load brief index');
-        const { dates } = await idxRes.json();
-        if (!dates?.length) {
-          setBriefs([]);
-          return;
-        }
-
-        const results = await Promise.all(
-          dates.slice(0, 30).map(async (date: string) => {
-            const res = await fetch(`/api/briefs/${date}`, { cache: 'no-store' });
-            if (!res.ok) return null;
-            const data = await res.json();
-            return extractSummary(date, data);
-          }),
-        );
-        setBriefs(results.filter(Boolean) as BriefSummary[]);
-      } catch (err: any) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+/**
+ * Summaries are built on the server and passed in. The old version fetched the
+ * date index and then one 44 KB payload per date — up to 31 invocations and 31
+ * KV reads for a single page view, none of which reached a crawler anyway.
+ */
+export default function BriefsIndex({ briefs }: { briefs: BriefSummary[] }) {
 
   return (
     <div className="min-h-screen bg-[#05080f] text-slate-300 font-sans md:py-10 flex justify-center">
@@ -154,23 +83,8 @@ export default function BriefsIndex() {
             </a>
           </div>
 
-          {/* Loading */}
-          {loading && (
-            <div className="flex items-center justify-center py-20 gap-3">
-              <div className="w-6 h-6 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
-              <span className="text-slate-500 text-sm">Loading archive...</span>
-            </div>
-          )}
-
-          {/* Error */}
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-red-400 text-sm">
-              {error}
-            </div>
-          )}
-
           {/* Empty state */}
-          {!loading && !error && briefs.length === 0 && (
+          {briefs.length === 0 && (
             <div className="bg-white/[0.02] border border-white/5 rounded-xl p-8 text-center">
               <p className="text-slate-400 text-sm font-medium">No archived briefs yet.</p>
               <p className="text-slate-600 text-xs mt-1.5">
