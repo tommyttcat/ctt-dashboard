@@ -24,6 +24,7 @@ import {
   CHOP_BANDS as CHOP_MODE_BANDS,
   DEFAULT_CHOP_MODE,
   chopComposite,
+  chopWithConcordance,
   rawChopOf,
   chopZoneLabel as chopZone,
   chopCellTone as chopCellColor,
@@ -2061,7 +2062,8 @@ export default function AnalystBrief() {
           const intraAge = intraLastBar ? (Date.now() - new Date(intraLastBar).getTime()) / 60000 : null;
           const intraStale = intraAge != null && intraAge > 90;
           const sessionDir = { qqqPct: quotes['QQQ']?.pct ?? null, spyPct: quotes['SPY']?.pct ?? null };
-          const composite = chopComposite(rawChopOf(chopRes), bData ?? null, { blended: intraBlended, stale: intraStale || intraBlended == null }, sessionDir);
+          const compositeBase = chopComposite(rawChopOf(chopRes), bData ?? null, { blended: intraBlended, stale: intraStale || intraBlended == null }, sessionDir);
+          const composite = chopWithConcordance(compositeBase, intraBlended, CHOP_MODE_BANDS[DEFAULT_CHOP_MODE]);
           if (composite != null) {
             chopObj = { value: composite, zone: chopZone(composite, CHOP_MODE_BANDS[DEFAULT_CHOP_MODE]) };
           }
@@ -2297,6 +2299,9 @@ export default function AnalystBrief() {
             intraVal={macro.intraVal}
             intraStale={macro.intraStale}
             intraLastBar={macro.intraLastBar}
+            hourVal={macro.hourVal}
+            hourStale={macro.hourStale}
+            hourLastBar={macro.hourLastBar}
             chopTooltipText={macro.chopTooltipText}
             chopMode={macro.chopMode}
             setChopMode={macro.setChopMode}

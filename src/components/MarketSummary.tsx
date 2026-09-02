@@ -1567,8 +1567,8 @@ const buildLocalInsights = (
     return `${s.ticker} ${stdCols(s)}${extra.length ? ` ${extra.join(' ')}` : ''}`;
   };
 
-  const swingNames = daily.filter(s => !isDayName(s)).sort((a, b) => blendedScore(b) - blendedScore(a)).slice(0, 6);
-  const dayNames = daily.filter(isDayName).sort((a, b) => blendedScore(b) - blendedScore(a)).slice(0, 6);
+  const swingNames = daily.filter(s => !isDayName(s)).sort((a, b) => blendedScore(b) - blendedScore(a)).slice(0, 5);
+  const dayNames = daily.filter(isDayName).sort((a, b) => blendedScore(b) - blendedScore(a)).slice(0, 5);
 
   let dailyPara = '';
   if (swingNames.length || dayNames.length) {
@@ -1577,6 +1577,29 @@ const buildLocalInsights = (
     dailyPara = swingCol && dayCol
       ? `Daily Setups Thesis: ${twoCol(swingCol, dayCol)}`
       : `Daily Setups Thesis: ${swingCol || dayCol}`;
+  }
+
+  const fmtSwingRow = (s: any): string => {
+    const t = tickerOf(s) || '—';
+    return `${t} ${stdCols(s)}`;
+  };
+  const swingRev = swingList.filter(s => {
+    const sn = String(s?.setupName || '').toLowerCase();
+    return sn.includes('reversal') || sn.includes('reclaim') || sn.includes('blue dot');
+  }).sort((a, b) => blendedScore(b) - blendedScore(a)).slice(0, 5);
+  const swingPull = swingList.filter(s => {
+    const sn = String(s?.setupName || '').toLowerCase();
+    return !sn.includes('reversal') && !sn.includes('reclaim') && !sn.includes('blue dot');
+  }).sort((a, b) => blendedScore(b) - blendedScore(a)).slice(0, 5);
+  let swingThesisPara = '';
+  if (swingRev.length || swingPull.length) {
+    const revCol = swingRev.length ? `Reversals — ${swingRev.length}:\n${swingRev.map(fmtSwingRow).join('\n')}` : '';
+    const pullCol = swingPull.length ? `Pullbacks — ${swingPull.length}:\n${swingPull.map(fmtSwingRow).join('\n')}` : '';
+    swingThesisPara = revCol && pullCol
+      ? `Reversal Swing Thesis: ${twoCol(revCol, pullCol)}`
+      : `Reversal Swing Thesis: ${revCol || pullCol}`;
+  } else if (swingList.length) {
+    swingThesisPara = `Reversal Swing Thesis: ${swingList.slice(0, 8).map(fmtSwingRow).join('\n')}`;
   }
 
   const ema1021Para = build1021Para(pool);
@@ -1729,8 +1752,9 @@ const buildLocalInsights = (
   const mbFinal = mbPara || '100-Bagger Thesis: No candidates — awaiting scan.';
 
   const orderedParas = [
-    setupsPara, moversPara, sipsFinal, dvolPara, ema1021Para,
-    vcpPara, ep9mFinal, mbFinal,
+    setupsPara, moversPara, sipsFinal, dvolPara,
+    dailyPara, swingThesisPara,
+    ema1021Para, vcpPara, ep9mFinal, mbFinal,
     sectorBarsPara, heatPara, etfPara, moneyPara, keyEventsPara,
   ];
 
@@ -1976,6 +2000,7 @@ const PAIRED_SECTIONS = new Set(['Sector Performance', 'Sector Concentration', '
 
 const ALIGNED_SECTIONS = new Set([
   'Top Movers', 'SIPs Thesis', '$Vol Summary',
+  'Daily Setups Thesis', 'Reversal Swing Thesis',
   '10/21 Thesis', 'VCP Thesis', 'EP9M Thesis', '100-Bagger Thesis', 'Setups Summary', 'Sector Concentration', 'ETF Flow', 'Money Flow',
   'Key Events',
 ]);
@@ -3057,6 +3082,8 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves now. Volume-confirmed is tradeable; a thin gap is a fade.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, and who is on air.' },
   { label: '$Vol Summary', color: 'teal', blurb: 'Top 20 by dollar volume — where the money actually is today.' },
+  { label: 'Daily Setups Thesis', color: 'cyan', blurb: 'Day trades vs multi-day swing holds from the daily scanner — sorted by blended score.' },
+  { label: 'Reversal Swing Thesis', color: 'amber', blurb: 'Swing candidates split by reversals (reclaims, blue dots) vs pullback entries.' },
   { label: '10/21 Thesis', color: 'violet', blurb: 'Top names by holding period. Percentages are distance from the 21 and 10 EMA.' },
   { label: 'VCP Thesis', color: 'teal', blurb: 'Bases of shallower pullbacks on lighter volume — supply drying up.' },
   { label: 'EP9M Thesis', color: 'rose', blurb: 'Abnormal 9M+ volume. Left = unprecedented or catalyst-driven; right = no headline yet.' },
@@ -3087,6 +3114,8 @@ const SECTION_HEADERS: Record<string, string[]> = {
   'Top Movers': STD_HEADERS,
   'SIPs Thesis': STD_HEADERS,
   '$Vol Summary': STD_HEADERS,
+  'Daily Setups Thesis': STD_HEADERS,
+  'Reversal Swing Thesis': STD_HEADERS,
   'Setups Summary': STD_HEADERS,
   '10/21 Thesis': STD_HEADERS,
   'EP9M Thesis': STD_HEADERS,
@@ -3104,6 +3133,7 @@ const formatBriefingText = (text: string) => {
     .replace(/(\$Vol Summary:)/gi, '\n\n$1')
     .replace(/(Setups Summary:)/gi, '\n\n$1')
     .replace(/(Daily Setups Thesis:)/gi, '\n\n$1')
+    .replace(/(Reversal Swing Thesis:)/gi, '\n\n$1')
     .replace(/(10\/21 Thesis:)/gi, '\n\n$1')
     .replace(/(VCP Thesis:)/gi, '\n\n$1')
     .replace(/(EP9M Thesis:)/gi, '\n\n$1')
@@ -3648,9 +3678,14 @@ export default function MarketSummary() {
                           const st = sectionStyles(color);
                           const bodyTickers = label === 'Setups Summary'
                             ? (macroInsights?.setupPool ?? []).map((s: any) => s.ticker).filter(Boolean)
-                            : Array.from(new Set(
-                                (body.match(/\b[A-Z]{2,5}\b/g) || []).filter(t => !TICKER_STOPWORDS.has(t))
-                              ));
+                            : (() => {
+                                const lines = body.replace(/\|\|\|/g, '\n').split('\n').filter(Boolean);
+                                const parsed = lines.map(l => parseStdLine(l)).filter(Boolean);
+                                if (parsed.length > 0) return Array.from(new Set(parsed.map(p => p!.ticker)));
+                                return Array.from(new Set(
+                                  (body.match(/\b[A-Z]{2,5}\b/g) || []).filter(t => !TICKER_STOPWORDS.has(t))
+                                ));
+                              })();
                           const sectionAligns = !!label && ALIGNED_SECTIONS.has(label);
                           const filterEmpty = scanFilter && !!label && !!SECTION_HEADERS[label] && (() => {
                             if (label === 'Setups Summary') {

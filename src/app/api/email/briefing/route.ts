@@ -122,11 +122,17 @@ function extractBriefTickers(brief: any): Set<string> {
   return tickers;
 }
 
-function socialCashtags(text: string, brief: any): string {
+function socialCashtags(text: string, brief: any, max?: number): string {
   const tickers = new Set([...extractBriefTickers(brief), ...SOCIAL_INDEX_TICKERS]);
   let result = text;
+  let count = 0;
   for (const t of tickers) {
-    result = result.replace(new RegExp(`(?<!\\$)\\b${t}\\b`, 'g'), `$${t}`);
+    result = result.replace(new RegExp(`(?<!\\$)\\b${t}\\b`, 'g'), (match) => {
+      if (max != null && count >= max) return match;
+      count++;
+      return `$${match}`;
+    });
+    if (max != null && count >= max) break;
   }
   return result;
 }
@@ -464,20 +470,23 @@ function sectorConcentrationHtml(pool: any[]): string {
   const maxCount = sectors[0].count;
   const rows = sectors.slice(0, 10).map((h) => {
     const pos = h.avgChg >= 0;
-    const barW = Math.max(4, Math.round((h.count / maxCount) * 100));
-    return `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:8px;">
-      <span style="color:#cbd5e1;font-weight:500;width:60px;flex-shrink:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">${h.sector}</span>
-      <div style="flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,0.05);overflow:hidden;">
-        <div style="width:${barW}%;height:100%;border-radius:3px;background:${pos ? 'rgba(52,211,153,0.5)' : 'rgba(251,113,133,0.5)'};"></div>
-      </div>
-      <span style="color:#94a3b8;font-weight:700;width:16px;text-align:right;flex-shrink:0;">${h.count}</span>
-      <span style="font-weight:600;width:42px;text-align:right;flex-shrink:0;color:${pos ? '#34d399' : '#fb7185'};">${pos ? '+' : ''}${h.avgChg.toFixed(1)}%</span>
-    </div>`;
+    const barPx = Math.max(6, Math.round((h.count / maxCount) * 120));
+    const barClr = pos ? '#34d399' : '#fb7185';
+    return `<tr>
+      <td style="padding:3px 0;font-size:10px;font-weight:500;color:#cbd5e1;white-space:nowrap;">${h.sector}</td>
+      <td style="padding:3px 8px;width:140px;">
+        <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:8px;overflow:hidden;">
+          <div style="width:${barPx}px;max-width:100%;height:100%;border-radius:4px;background:${barClr};opacity:0.6;"></div>
+        </div>
+      </td>
+      <td style="padding:3px 0;font-size:10px;font-weight:700;color:#94a3b8;text-align:right;width:24px;">${h.count}</td>
+      <td style="padding:3px 0 3px 8px;font-size:10px;font-weight:600;text-align:right;width:48px;color:${barClr};">${pos ? '+' : ''}${h.avgChg.toFixed(1)}%</td>
+    </tr>`;
   }).join('');
   return `<div style="padding:6px 12px;height:100%;box-sizing:border-box;border-left:3px solid #fbbf24;">
     <div style="font-size:9px;font-weight:700;color:#fbbf24;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:4px;">Sector Concentration</div>
     <div style="font-size:8px;color:#64748b;margin-bottom:6px;">Where scanner setups are clustering by sector.</div>
-    ${rows}
+    <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">${rows}</table>
   </div>`;
 }
 
@@ -1397,17 +1406,14 @@ export async function GET(req: Request) {
     const takeaway = block?.takeaway || '';
     const regime = brief?.regimeDetail?.regime || '';
     const rawBlurb = (takeaway || regime).replace(/\*\*([^*]+)\*\*/g, '$1').trim();
-    const blurb = rawBlurb ? socialCashtags(rawBlurb, brief) : '';
     const dashUrl = 'confluencetradingtools.com';
-    const regimeStr = brief?.regimeDetail?.regime || '';
-    const regimeLine = regimeStr ? `\nRegime: ${regimeStr}` : '';
     const phaseTag = `${PHASE_LABELS[phase]}: `;
     const debug: any = {
       hasBskyEnv: !!(process.env.BLUESKY_HANDLE && process.env.BLUESKY_APP_PASSWORD),
       hasXEnv: !!(process.env.X_API_KEY && process.env.X_API_SECRET && process.env.X_ACCESS_TOKEN && process.env.X_ACCESS_TOKEN_SECRET),
-      hasBlurb: !!blurb,
-      blurbLen: blurb.length,
-      blurbPreview: blurb.slice(0, 80),
+      hasBlurb: !!rawBlurb,
+      blurbLen: rawBlurb.length,
+      blurbPreview: rawBlurb.slice(0, 80),
       phase,
     };
 
@@ -1427,21 +1433,21 @@ export async function GET(req: Request) {
       debug.screenshotError = ssErr?.message || String(ssErr);
     }
 
-    if (blurb) {
+    if (rawBlurb) {
       const imagePayload = screenshotBuf
         ? { data: screenshotBuf, alt: `CTT ${PHASE_LABELS[phase]} Tape Reading`, mimeType: 'image/png' }
         : undefined;
 
       const bskyCta = `Full tape + scanners → ${dashUrl}`;
-      const bskyAvail = 300 - phaseTag.length - regimeLine.length - 2 - bskyCta.length;
-      const bskyBlurb = trimToSentence(blurb, bskyAvail);
-      const bskyText = `${phaseTag}${bskyBlurb}${regimeLine}\n\n${bskyCta}`;
+      const bskyAvail = 300 - phaseTag.length - 2 - bskyCta.length;
+      const bskyBlurb = socialCashtags(trimToSentence(rawBlurb, bskyAvail), brief);
+      const bskyText = `${phaseTag}${bskyBlurb}\n\n${bskyCta}`;
       const linkStart = bskyText.indexOf(dashUrl);
 
       const xCta = `Full tape + scanners → https://${dashUrl}`;
-      const xAvail = 280 - phaseTag.length - regimeLine.length - 2 - xCta.length;
-      const xBlurb = trimToSentence(blurb, xAvail);
-      const xText = `${phaseTag}${xBlurb}${regimeLine}\n\n${xCta}`;
+      const xAvail = 280 - phaseTag.length - 2 - xCta.length;
+      const xBlurb = socialCashtags(trimToSentence(rawBlurb, xAvail), brief, 1);
+      const xText = `${phaseTag}${xBlurb}\n\n${xCta}`;
 
       debug.bskyText = bskyText;
       debug.xText = xText;
@@ -1455,6 +1461,7 @@ export async function GET(req: Request) {
         const x = await postToX(xText, screenshotBuf ? { data: screenshotBuf } : undefined);
         debug.xResult = x ?? 'returned null (env vars missing?)';
       } catch (e: any) { debug.xError = e.message; }
+
     }
     return NextResponse.json(debug);
   }
@@ -1503,16 +1510,13 @@ export async function GET(req: Request) {
       const regime = brief?.regimeDetail?.regime || '';
 
       const rawBlurb = (takeaway || regime).replace(/\*\*([^*]+)\*\*/g, '$1').trim();
-      const blurb = rawBlurb ? socialCashtags(rawBlurb, brief) : '';
-      socialDebug.hasBlurb = !!blurb;
-      socialDebug.blurbLen = blurb.length;
+      socialDebug.hasBlurb = !!rawBlurb;
+      socialDebug.blurbLen = rawBlurb.length;
       socialDebug.hasBskyEnv = !!(process.env.BLUESKY_HANDLE && process.env.BLUESKY_APP_PASSWORD);
       socialDebug.hasXEnv = !!(process.env.X_API_KEY && process.env.X_API_SECRET && process.env.X_ACCESS_TOKEN && process.env.X_ACCESS_TOKEN_SECRET);
 
-      if (blurb) {
+      if (rawBlurb) {
         const dashUrl = 'confluencetradingtools.com';
-        const regimeStr = brief?.regimeDetail?.regime || '';
-        const regimeLine = regimeStr ? `\nRegime: ${regimeStr}` : '';
         const phaseTag = `${PHASE_LABELS[phase]}: `;
 
         let screenshotBuf: Buffer | null = null;
@@ -1535,15 +1539,15 @@ export async function GET(req: Request) {
           : undefined;
 
         const bskyCta = `Full tape + scanners → ${dashUrl}`;
-        const bskyAvail = 300 - phaseTag.length - regimeLine.length - 2 - bskyCta.length;
-        const bskyBlurb = trimToSentence(blurb, bskyAvail);
-        const bskyText = `${phaseTag}${bskyBlurb}${regimeLine}\n\n${bskyCta}`;
+        const bskyAvail = 300 - phaseTag.length - 2 - bskyCta.length;
+        const bskyBlurb = socialCashtags(trimToSentence(rawBlurb, bskyAvail), brief);
+        const bskyText = `${phaseTag}${bskyBlurb}\n\n${bskyCta}`;
         const linkStart = bskyText.indexOf(dashUrl);
 
         const xCta = `Full tape + scanners → https://${dashUrl}`;
-        const xAvail = 280 - phaseTag.length - regimeLine.length - 2 - xCta.length;
-        const xBlurb = trimToSentence(blurb, xAvail);
-        const xText = `${phaseTag}${xBlurb}${regimeLine}\n\n${xCta}`;
+        const xAvail = 280 - phaseTag.length - 2 - xCta.length;
+        const xBlurb = socialCashtags(trimToSentence(rawBlurb, xAvail), brief, 1);
+        const xText = `${phaseTag}${xBlurb}\n\n${xCta}`;
 
         const results = await Promise.allSettled([
           postToBluesky(bskyText, [{

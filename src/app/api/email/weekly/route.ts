@@ -337,97 +337,6 @@ function buildFallbackNarrative(data: any): any {
   return { priceAction, macro, weekRecap: priceAction, catalysts, watchStocks, avoidStocks, weekAhead };
 }
 
-// ---------------------------------------------------------------------------
-// Gemini narrative generation
-// ---------------------------------------------------------------------------
-
-async function generateNarrative(data: any, anthropicKey: string, debug = false): Promise<any> {
-  if (!anthropicKey) {
-    const msg = '[weekly] No ANTHROPIC_API_KEY, using fallback';
-    console.log(msg);
-    if (debug) return { _debug: msg };
-    return buildFallbackNarrative(data);
-  }
-
-  const systemPrompt = `You are the analyst behind a weekly trading briefing email. You write like a smart, opinionated trader talking to other smart traders. Your tone is direct, specific, and analytical — never vague, never generic, never a disclaimer. You reference specific price levels, specific days, specific catalysts. You sound like a hedge fund morning note, not a blog post. Respond with ONLY a JSON object, no markdown fences, no other text.`;
-
-  const userPrompt = `Here is this week's market data. Use ALL of it to write a detailed weekly briefing.
-
-DATA:
-${JSON.stringify(data)}
-
-Write a JSON object with these fields:
-
-1. "priceAction" — 3-5 paragraphs of DETAILED QQQ/SPY price action analysis. This is the centerpiece. Reference specific price levels from the daily bars, not just percentages. Note distribution days (down >0.2% on higher volume). Mention the total distribution day count over the last 25 sessions. Describe the intraweek pattern. Reference the 30-session range context. End with where QQQ closed relative to its EMAs and what that means. Tell the STORY of the week — write like: "Having chopped around between 700-745 for 24 sessions, on Friday, QQQ broke below 700."
-
-2. "macro" — 2-4 paragraphs covering the most important macro/Fed/economic story. Analyze results vs expectations using thisWeekEconResults data. Name specific Fed officials if news mentions them. Reference actual numbers.
-
-3. "catalysts" — array of 2-3 objects with "title" and "body" (2-4 sentences each). Stories/themes that moved money — earnings, sector rotations, news events. Use thisWeekEarningsResults data to highlight the most important earnings with actual numbers vs estimates.
-
-4. "watchStocks" — array of objects for the top 3 scanner picks by confluence score. Each has "ticker", "title" (one-line thesis), "body" (2-4 sentences with specific prices and levels to watch). Use their scanner data (EMA levels, stage, setup, confluence) to give specific entry/exit levels.
-
-5. "avoidStocks" — array of 2-3 objects with "ticker" and "reason" (2-3 sentences, blunt and specific — reference the stage, the broken structure, why relief rallies are traps)
-
-6. "weekAhead" — 2-3 paragraphs. Name the biggest event and why it matters. Reference specific QQQ levels from the EMA data as support/resistance. Include key earnings next week. End with a clear opinionated take.
-
-RULES:
-- Reference SPECIFIC price levels, dates, and numbers throughout
-- NEVER use asterisks, markdown, or bullet points
-- Conversational but authoritative tone
-- 800-1500 words total
-- Respond with ONLY the JSON object, no code fences, no other text`;
-
-  try {
-    console.log('[weekly] Calling Claude API...');
-    const reqBody = JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-      temperature: 0.7,
-    });
-    console.log('[weekly] Request body size:', reqBody.length, 'bytes');
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: reqBody,
-    });
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
-      console.error('[weekly] Claude API error:', res.status, errBody);
-      if (debug) return { _debug: `API error ${res.status}: ${errBody.slice(0, 500)}` };
-      return buildFallbackNarrative(data);
-    }
-    const json = await res.json();
-    const text = json?.content?.[0]?.text || '';
-    console.log('[weekly] Claude response length:', text.length, 'chars, stop_reason:', json?.stop_reason);
-    if (!text) {
-      console.error('[weekly] Empty response from Claude');
-      if (debug) return { _debug: 'Empty response', raw: JSON.stringify(json).slice(0, 500) };
-      return buildFallbackNarrative(data);
-    }
-    // Strip code fences if present
-    const cleaned = text.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '');
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.error('[weekly] Could not extract JSON from Claude response, first 200 chars:', text.slice(0, 200));
-      if (debug) return { _debug: 'No JSON match', first500: text.slice(0, 500) };
-      return buildFallbackNarrative(data);
-    }
-    const parsed = JSON.parse(jsonMatch[0]);
-    console.log('[weekly] Claude narrative parsed successfully, keys:', Object.keys(parsed).join(','));
-    if (debug) return { _debug: 'success', keys: Object.keys(parsed) };
-    return parsed;
-  } catch (err: any) {
-    console.error('[weekly] Claude narrative generation failed:', err);
-    if (debug) return { _debug: `Exception: ${err?.message || err}` };
-    return buildFallbackNarrative(data);
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Build the email
@@ -743,7 +652,6 @@ export async function GET(req: Request) {
   }
 
   const polygonKey = (process.env.POLYGON_API_KEY || '').trim();
-  const anthropicKey = (process.env.ANTHROPIC_API_KEY || '').trim();
   const origin = resolveOrigin(req);
 
   const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
@@ -894,17 +802,17 @@ export async function GET(req: Request) {
   };
 
   if (debug === '1') {
-    const debugResult = await generateNarrative(analysisData, anthropicKey, true);
+    let hasCloudNarrative = false;
+    try { hasCloudNarrative = !!(await kv.get<any>('weekly_cloud_narrative'))?.priceAction; } catch {}
     return NextResponse.json({
-      hasAnthropicKey: !!anthropicKey,
-      keyPrefix: anthropicKey ? anthropicKey.slice(0, 8) + '...' : 'none',
       snapshotLoaded: !!snapshot,
       dataPayloadSize: JSON.stringify(analysisData).length,
-      narrativeResult: debugResult,
+      hasCloudNarrative,
+      source: hasCloudNarrative ? 'cloud_routine' : 'deterministic_fallback',
     });
   }
 
-  // Use pre-generated narrative from cloud routine if available, fall back to Anthropic
+  // Use pre-generated narrative from cloud routine, fall back to deterministic
   let narrative: any;
   try {
     const preGen = await kv.get<any>('weekly_cloud_narrative');
@@ -915,7 +823,8 @@ export async function GET(req: Request) {
     }
   } catch {}
   if (!narrative) {
-    narrative = await generateNarrative(analysisData, anthropicKey);
+    console.log('[weekly] no cloud narrative, using deterministic fallback');
+    narrative = buildFallbackNarrative(analysisData);
   }
 
   // Store weekly data in KV for Substack to use
@@ -986,10 +895,19 @@ export async function GET(req: Request) {
     let xWeekly: any = null;
     try {
       const dashUrl = 'confluencetradingtools.com';
-      const indexLine = ['SPY', 'QQQ', 'IWM', 'DIA']
+      let indexLine = ['SPY', 'QQQ', 'IWM', 'DIA']
         .filter(t => weeklyChanges[t])
         .map(t => `$${t} ${weeklyChanges[t].pct >= 0 ? '+' : ''}${weeklyChanges[t].pct.toFixed(1)}%`)
         .join(' | ');
+
+      // Fallback to snapshot quotes when Polygon weekly data is unavailable
+      if (!indexLine) {
+        const snapQuotes = macro.quotes || {};
+        indexLine = ['SPY', 'QQQ', 'IWM', 'DIA']
+          .filter(t => snapQuotes[t]?.pct != null)
+          .map(t => `$${t} ${snapQuotes[t].pct >= 0 ? '+' : ''}${snapQuotes[t].pct.toFixed(1)}%`)
+          .join(' | ');
+      }
 
       // Setup performance from "called it" accumulator
       let statsLine = '';
@@ -1027,20 +945,27 @@ export async function GET(req: Request) {
         ? `\n\nThis week:\n${catalystHeadlines.map((c: any) => `→ ${c.title}`).join('\n')}`
         : '';
 
-      if (indexLine) {
-        const body = `${indexLine}${headlineLine}${statsLine}${topLine}${sectorLine}`;
-        const bskyText = `CTT Weekly Wrap\n\n${body}\n\nFull brief + next week's watchlist → ${dashUrl}`;
-        const xText = `CTT Weekly Wrap\n\n${body}\n\nFull brief + next week's watchlist → https://${dashUrl}`;
+      const body = `${indexLine}${headlineLine}${statsLine}${topLine}${sectorLine}`;
+      const bskyCta = `Full brief + next week's watchlist → ${dashUrl}`;
+      const bskyMax = 300 - 'CTT Weekly Wrap\n\n'.length - '\n\n'.length - bskyCta.length;
+      const bskyBody = body.length > bskyMax ? body.slice(0, body.lastIndexOf('\n', bskyMax)).trim() || body.slice(0, bskyMax).trim() : body;
+      const bskyText = `CTT Weekly Wrap\n\n${bskyBody}\n\n${bskyCta}`;
 
-        const linkPos = bskyText.indexOf(dashUrl);
-        const socialResults = await Promise.allSettled([
-          postToBluesky(bskyText, [{ start: linkPos, end: linkPos + dashUrl.length, url: `https://${dashUrl}` }]),
-          postToX(xText),
-        ]);
-        bskyWeekly = socialResults[0].status === 'fulfilled' ? socialResults[0].value : null;
-        xWeekly = socialResults[1].status === 'fulfilled' ? socialResults[1].value : null;
-        console.log('[weekly-social] posted');
-      }
+      const xCta = `Full brief + next week's watchlist → https://${dashUrl}`;
+      const xMax = 280 - 'CTT Weekly Wrap\n\n'.length - '\n\n'.length - xCta.length;
+      let xBody = body.length > xMax ? body.slice(0, body.lastIndexOf('\n', xMax)).trim() || body.slice(0, xMax).trim() : body;
+      let cashCount = 0;
+      xBody = xBody.replace(/\$/g, (m) => { cashCount++; return cashCount <= 1 ? m : ''; });
+      const xText = `CTT Weekly Wrap\n\n${xBody}\n\n${xCta}`;
+
+      const linkPos = bskyText.indexOf(dashUrl);
+      const socialResults = await Promise.allSettled([
+        postToBluesky(bskyText, [{ start: linkPos, end: linkPos + dashUrl.length, url: `https://${dashUrl}` }]),
+        postToX(xText),
+      ]);
+      bskyWeekly = socialResults[0].status === 'fulfilled' ? socialResults[0].value : null;
+      xWeekly = socialResults[1].status === 'fulfilled' ? socialResults[1].value : null;
+      console.log('[weekly-social] posted');
     } catch (socialErr: any) {
       console.error('[weekly-social]', socialErr?.message || socialErr);
     }
@@ -1057,11 +982,6 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const cronSecret = process.env.CRON_SECRET;
-  const authHeader = req.headers.get('authorization');
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
   try {
     const narrative = await req.json();
     if (!narrative?.priceAction) {

@@ -19,13 +19,14 @@ import {
   DEFAULT_CHOP_MODE,
   bandsFor,
   chopComposite,
+  chopWithConcordance,
+  chopTrendOf,
   rawChopOf,
   chopZoneLabel,
   chopVerdict,
   chopSpreadNote,
   chopAllBandsNote,
   divergenceOf,
-  CHOP_TREND_BAND,
   INTRADAY_STALE_MINUTES,
 } from '@/lib/indicators/chopMarket';
 import {
@@ -56,6 +57,9 @@ export interface MacroScorecardData {
   intraVal: number | null;
   intraStale: boolean;
   intraLastBar: string | null;
+  hourVal: number | null;
+  hourStale: boolean;
+  hourLastBar: string | null;
   chopTooltipText: string;
   chopMode: ChopMode;
   setChopMode: (m: ChopMode) => void;
@@ -122,17 +126,20 @@ export function useMacroScorecard(): MacroScorecardData {
   const intraAgeMin = minutesSince(intraLastBar);
   const intraStale = intraAgeMin != null && intraAgeMin > INTRADAY_STALE_MINUTES;
 
+  const hourVal = chop?.hourly?.blended ?? null;
+  const hourLastBar = chop?.hourly?.lastBarAt ?? null;
+  const hourAgeMin = minutesSince(hourLastBar);
+  const hourStale = hourAgeMin != null && hourAgeMin > INTRADAY_STALE_MINUTES;
+
   const sessionDir = { qqqPct: quotes['QQQ']?.pct ?? null, spyPct: quotes['SPY']?.pct ?? null };
-  const chopVal = chopComposite(chopRaw, breadth, { blended: intraVal, stale: intraStale || intraVal == null }, sessionDir);
+  const chopRawBase = hourVal ?? chopRaw;
+  const chopBase = chopComposite(chopRawBase, breadth, { blended: intraVal, stale: intraStale || intraVal == null }, sessionDir);
+  const chopVal = chopWithConcordance(chopBase, intraVal, bands);
 
-  /* Delta is taken from the RAW readings, not the composites — the modifiers
-     are today's internals and would otherwise show up as movement in a
-     day-over-day comparison. */
   const chopDelta = chopRaw != null && chopRawPrev != null ? chopRaw - chopRawPrev : null;
-  const chopTrend: 'up' | 'down' | 'flat' =
-    chopDelta == null || Math.abs(chopDelta) < CHOP_TREND_BAND ? 'flat' : chopDelta > 0 ? 'up' : 'down';
+  const chopTrend = chopTrendOf(chopRaw, chopRawPrev, intraVal, intraStale, chopBase);
 
-  const divergence = divergenceOf(chopVal, intraVal, bands);
+  const divergence = divergenceOf(chopBase, intraVal, bands);
 
   const advPct = advPctOf(breadth?.advancers, breadth?.decliners);
   const highsPct = highsPctOf(breadth?.newHighs, breadth?.newLows);
@@ -154,11 +161,13 @@ export function useMacroScorecard(): MacroScorecardData {
     '',
     chopVerdict(chopVal, bands),
     '',
-    `Daily (${chop?.period ?? 14} × 1d): QQQ ${chop?.qqq != null ? chop.qqq.toFixed(1) : '—'}, SPY ${chop?.spy != null ? chop.spy.toFixed(1) : '—'}, blended ${chopRaw != null ? chopRaw.toFixed(1) : '—'}`,
-    `Adjusted ${chopRaw != null && chopVal - chopRaw >= 0 ? '+' : ''}${chopRaw != null ? (chopVal - chopRaw).toFixed(1) : '0'} by breadth centrality and high/low balance.`,
-    chopSpreadNote(chop?.qqq ?? null, chop?.spy ?? null),
+    hourVal != null
+      ? `Hourly (${chop?.period ?? 14} × 1h): QQQ ${chop?.hourly?.qqq != null ? chop.hourly.qqq.toFixed(1) : '—'}, SPY ${chop?.hourly?.spy != null ? chop.hourly.spy.toFixed(1) : '—'}, blended ${hourVal.toFixed(1)}`
+      : `Daily (${chop?.period ?? 14} × 1d): QQQ ${chop?.qqq != null ? chop.qqq.toFixed(1) : '—'}, SPY ${chop?.spy != null ? chop.spy.toFixed(1) : '—'}, blended ${chopRaw != null ? chopRaw.toFixed(1) : '—'}`,
+    `Adjusted ${chopRawBase != null && chopVal - chopRawBase >= 0 ? '+' : ''}${chopRawBase != null ? (chopVal - chopRawBase).toFixed(1) : '0'} by breadth centrality and high/low balance.`,
+    chopSpreadNote(hourVal != null ? chop?.hourly?.qqq ?? null : chop?.qqq ?? null, hourVal != null ? chop?.hourly?.spy ?? null : chop?.spy ?? null),
     intraVal != null
-      ? `\nIntraday (${chop?.intraday?.windowMinutes ?? 210} min): ${intraVal.toFixed(1)} — ${chopZoneLabel(intraVal, bands)}. Raw, unadjusted.` +
+      ? `\nIntraday (${chop?.intraday?.windowMinutes ?? 210} min, 15m bars): ${intraVal.toFixed(1)} — ${chopZoneLabel(intraVal, bands)}. Raw, unadjusted.` +
         (divergence.label ? `\n${divergence.label}: ${divergence.detail}` : '')
       : '',
     '',
@@ -184,6 +193,9 @@ export function useMacroScorecard(): MacroScorecardData {
     intraVal,
     intraStale,
     intraLastBar,
+    hourVal,
+    hourStale,
+    hourLastBar,
     chopTooltipText,
     chopMode,
     setChopMode,

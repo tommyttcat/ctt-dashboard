@@ -79,6 +79,8 @@ import {
   CHOP_BANDS,
   CHOP_MODES,
   chopComposite,
+  chopWithConcordance,
+  chopTrendOf,
   chopZoneLabel,
   chopTextColor as chopColor,
   chopBadgeBg,
@@ -87,7 +89,6 @@ import {
   chopSpreadNote,
   chopAllBandsNote,
   divergenceOf,
-  CHOP_TREND_BAND,
   INTRADAY_STALE_MINUTES,
 } from '@/lib/indicators/chopMarket';
 
@@ -156,6 +157,7 @@ interface ChopData {
   period: number;
   updatedAt: string | null;
   intraday: ChopIntraday | null;
+  hourly: ChopIntraday | null;
 }
 
 type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
@@ -851,6 +853,7 @@ export default function MacroScorecard() {
         if (isMounted && data && data.success) {
           const d = data.daily ?? {};
           const i = data.intraday ?? null;
+          const h = data.hourly ?? null;
           setChop({
             qqq: d.qqq ?? data.qqq ?? null,
             qqqPrev: d.qqqPrev ?? data.qqqPrev ?? null,
@@ -869,6 +872,17 @@ export default function MacroScorecard() {
                   windowMinutes: i.windowMinutes ?? null,
                   barMinutes: i.barMinutes ?? null,
                   feedDelayMinutes: i.feedDelayMinutes ?? null,
+                }
+              : null,
+            hourly: h
+              ? {
+                  qqq: h.qqq ?? null,
+                  spy: h.spy ?? null,
+                  blended: h.blended ?? null,
+                  lastBarAt: h.lastBarAt ?? null,
+                  windowMinutes: h.windowMinutes ?? null,
+                  barMinutes: h.barMinutes ?? null,
+                  feedDelayMinutes: h.feedDelayMinutes ?? null,
                 }
               : null,
           });
@@ -993,27 +1007,34 @@ export default function MacroScorecard() {
     ? (Date.now() - new Date(intraLastBar).getTime()) / 60000
     : null;
   const intraStale = intraAgeMin != null && intraAgeMin > INTRADAY_STALE_MINUTES;
-  const sessionDir = { qqqPct: quotes['QQQ']?.pct ?? null, spyPct: quotes['SPY']?.pct ?? null };
-  const chopVal = chopComposite(chopRaw, breadth, { blended: intraVal, stale: intraStale || intraVal == null }, sessionDir);
-  const chopDelta = chopRaw != null && chopRawPrev != null ? chopRaw - chopRawPrev : null;
-  const chopTrend: 'up' | 'down' | 'flat' =
-    chopDelta == null ? 'flat'
-      : chopDelta > CHOP_TREND_BAND ? 'up'
-      : chopDelta < -CHOP_TREND_BAND ? 'down'
-      : 'flat';
 
-  const divergence = divergenceOf(chopVal, intraVal, bands);
+  const hourVal = chop?.hourly?.blended ?? null;
+  const hourLastBar = chop?.hourly?.lastBarAt ?? null;
+  const hourAgeMin = hourLastBar
+    ? (Date.now() - new Date(hourLastBar).getTime()) / 60000
+    : null;
+  const hourStale = hourAgeMin != null && hourAgeMin > INTRADAY_STALE_MINUTES;
+
+  const sessionDir = { qqqPct: quotes['QQQ']?.pct ?? null, spyPct: quotes['SPY']?.pct ?? null };
+  const chopRawBase = hourVal ?? chopRaw;
+  const chopBase = chopComposite(chopRawBase, breadth, { blended: intraVal, stale: intraStale || intraVal == null }, sessionDir);
+  const divergence = divergenceOf(chopBase, intraVal, bands);
+  const chopVal = chopWithConcordance(chopBase, intraVal, bands);
+  const chopDelta = chopRaw != null && chopRawPrev != null ? chopRaw - chopRawPrev : null;
+  const chopTrend = chopTrendOf(chopRaw, chopRawPrev, intraVal, intraStale, chopBase);
 
   const chopTooltipText = chopVal == null ? '' : [
     `CHOP ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal, bands)}   [${bands.label}]`,
     '',
     bands.blurb,
     '',
-    `Daily (${chop?.period ?? 14} × 1d): QQQ ${chop?.qqq != null ? chop.qqq.toFixed(1) : '—'}, SPY ${chop?.spy != null ? chop.spy.toFixed(1) : '—'}, blended ${chopRaw != null ? chopRaw.toFixed(1) : '—'}`,
-    `Adjusted ${chopRaw != null && chopVal - chopRaw >= 0 ? '+' : ''}${chopRaw != null ? (chopVal - chopRaw).toFixed(1) : '0'} by breadth${!intraStale && intraVal != null ? ', intraday blend' : ''}, and high/low balance.`,
-    chopSpreadNote(chop?.qqq ?? null, chop?.spy ?? null),
+    hourVal != null
+      ? `Hourly (${chop?.period ?? 14} × 1h): QQQ ${chop?.hourly?.qqq != null ? chop.hourly.qqq.toFixed(1) : '—'}, SPY ${chop?.hourly?.spy != null ? chop.hourly.spy.toFixed(1) : '—'}, blended ${hourVal.toFixed(1)}`
+      : `Daily (${chop?.period ?? 14} × 1d): QQQ ${chop?.qqq != null ? chop.qqq.toFixed(1) : '—'}, SPY ${chop?.spy != null ? chop.spy.toFixed(1) : '—'}, blended ${chopRaw != null ? chopRaw.toFixed(1) : '—'}`,
+    `Adjusted ${chopRawBase != null && chopVal - chopRawBase >= 0 ? '+' : ''}${chopRawBase != null ? (chopVal - chopRawBase).toFixed(1) : '0'} by breadth${!intraStale && intraVal != null ? ', intraday blend' : ''}, and high/low balance.`,
+    chopSpreadNote(hourVal != null ? chop?.hourly?.qqq ?? null : chop?.qqq ?? null, hourVal != null ? chop?.hourly?.spy ?? null : chop?.spy ?? null),
     intraVal != null
-      ? `\nIntraday (${chop?.intraday?.windowMinutes ?? 210} min): ${intraVal.toFixed(1)} — ${chopZoneLabel(intraVal, bands)}.${!intraStale ? ' Blended into composite at 30%.' : ' Stale — not blended.'}` +
+      ? `\nIntraday (${chop?.intraday?.windowMinutes ?? 210} min, 15m bars): ${intraVal.toFixed(1)} — ${chopZoneLabel(intraVal, bands)}.${!intraStale ? ' Blended into composite at 60%.' : ' Stale — not blended.'}` +
         `\nNewest closed bar ${formatClockShort(intraLastBar)} EST` +
         (chop?.intraday?.feedDelayMinutes ? ` · feed is ${chop.intraday.feedDelayMinutes}-min delayed` : '') +
         (intraStale ? '\nThis reading is not current — it describes the last session that traded.' : '')
@@ -1082,6 +1103,9 @@ export default function MacroScorecard() {
             intraVal={intraVal}
             intraStale={intraStale}
             intraLastBar={intraLastBar}
+            hourVal={hourVal}
+            hourStale={hourStale}
+            hourLastBar={hourLastBar}
             chopTooltipText={chopTooltipText}
             chopMode={chopMode}
             setChopMode={setChopMode}

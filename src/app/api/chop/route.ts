@@ -70,6 +70,7 @@ const CHOP_PERIOD = CHOP_PERIOD_DEFAULT;
 const CACHE_KEY = 'chop_regime_v2';
 
 const INTRADAY_BAR_MINUTES = 15;
+const HOURLY_BAR_MINUTES = 60;
 
 /* Feed delay, in minutes. Declared rather than inferred because the
    component needs it to label the marker, and because if the plan ever
@@ -81,6 +82,7 @@ const FEED_DELAY_MINUTES = 15;
    no refresh that returns the same number twice. */
 const CACHE_TTL_DAILY = 900;
 const CACHE_TTL_INTRADAY = INTRADAY_BAR_MINUTES * 60;
+const CACHE_TTL_HOURLY = HOURLY_BAR_MINUTES * 60;
 
 // Calendar days back for the daily leg. 14 trading bars plus one for the
 // first true range, plus one more for the shifted previous window, plus
@@ -89,6 +91,9 @@ const LOOKBACK_DAYS = 40;
 
 // Three days covers 14 fifteen-minute bars even across a weekend.
 const LOOKBACK_INTRADAY_DAYS = 3;
+
+// 14 sixty-minute bars = ~2 trading days. 10 calendar days handles weekends.
+const LOOKBACK_HOURLY_DAYS = 10;
 
 // QQQ carries more weight than SPY because the setups this dashboard
 // surfaces are momentum and growth names — they track the Nasdaq's regime
@@ -110,25 +115,39 @@ const ymd = (d: Date): string =>
 async function fetchBars(
   symbol: string,
   apiKey: string,
-  opts: { multiplier: number; timespan: 'day' | 'minute'; lookbackDays: number; limit: number }
+  opts: { multiplier: number; timespan: 'day' | 'minute'; lookbackDays: number; limit: number; paginate?: boolean }
 ): Promise<Bar[]> {
   const to = new Date();
   const from = new Date();
   from.setDate(from.getDate() - opts.lookbackDays);
 
-  const url =
+  const firstUrl =
     `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${opts.multiplier}/${opts.timespan}/${ymd(from)}/${ymd(to)}` +
     `?adjusted=true&sort=asc&limit=${opts.limit}&apiKey=${apiKey}`;
 
-  const res = await fetch(url, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`Polygon ${symbol} ${opts.multiplier}${opts.timespan} returned ${res.status}`);
+  const all: Bar[] = [];
+  const maxPages = opts.paginate ? 5 : 1;
+  let nextUrl: string | null = firstUrl;
 
-  const data = await res.json();
-  if (!data || !Array.isArray(data.results)) return [];
+  for (let page = 0; page < maxPages && nextUrl; page++) {
+    const res = await fetch(nextUrl, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`Polygon ${symbol} ${opts.multiplier}${opts.timespan} returned ${res.status}`);
 
-  return data.results
-    .filter((b: any) => b && typeof b.h === 'number' && typeof b.l === 'number' && typeof b.c === 'number')
-    .map((b: any) => ({ h: b.h, l: b.l, c: b.c, t: b.t }));
+    const data: any = await res.json();
+    if (data && Array.isArray(data.results)) {
+      for (const b of data.results) {
+        if (b && typeof b.h === 'number' && typeof b.l === 'number' && typeof b.c === 'number') {
+          all.push({ h: b.h, l: b.l, c: b.c, t: b.t });
+        }
+      }
+    }
+
+    nextUrl = opts.paginate && data?.next_url
+      ? `${data.next_url}&apiKey=${apiKey}`
+      : null;
+  }
+
+  return all;
 }
 
 const fetchDailyBars = (symbol: string, apiKey: string) =>
@@ -142,6 +161,31 @@ const fetchDailyBars = (symbol: string, apiKey: string) =>
    that silently changes shape at 09:30 — is worse. */
 const fetchIntradayBars = (symbol: string, apiKey: string) =>
   fetchBars(symbol, apiKey, { multiplier: 15, timespan: 'minute', lookbackDays: LOOKBACK_INTRADAY_DAYS, limit: 400 });
+
+async function fetchHourlyBars(symbol: string, apiKey: string): Promise<Bar[]> {
+  const raw = await fetchBars(symbol, apiKey, {
+    multiplier: 15,
+    timespan: 'minute',
+    lookbackDays: LOOKBACK_HOURLY_DAYS,
+    limit: 500,
+    paginate: true,
+  });
+  const byHour = new Map<number, Bar[]>();
+  for (const b of raw) {
+    const hourKey = Math.floor(b.t / 3_600_000) * 3_600_000;
+    let bucket = byHour.get(hourKey);
+    if (!bucket) { bucket = []; byHour.set(hourKey, bucket); }
+    bucket.push(b);
+  }
+  return Array.from(byHour.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([t, bars]) => ({
+      t,
+      h: Math.max(...bars.map(b => b.h)),
+      l: Math.min(...bars.map(b => b.l)),
+      c: bars[bars.length - 1].c,
+    }));
+}
 
 /* Drop the newest bar if its period has not elapsed.
 
@@ -249,6 +293,35 @@ async function computeIntradayLeg(apiKey: string): Promise<IntradayLeg> {
   };
 }
 
+async function computeHourlyLeg(apiKey: string): Promise<IntradayLeg> {
+  const [rawQqq, rawSpy] = await Promise.all([
+    fetchHourlyBars('QQQ', apiKey).catch(() => [] as Bar[]),
+    fetchHourlyBars('SPY', apiKey).catch(() => [] as Bar[]),
+  ]);
+
+  const qqqBars = dropForming(rawQqq, HOURLY_BAR_MINUTES);
+  const spyBars = dropForming(rawSpy, HOURLY_BAR_MINUTES);
+  const droppedForming = qqqBars.length < rawQqq.length || spyBars.length < rawSpy.length;
+
+  const qqq = choppiness(qqqBars, CHOP_PERIOD);
+  const spy = choppiness(spyBars, CHOP_PERIOD);
+
+  const newest = Math.max(
+    qqqBars.length ? qqqBars[qqqBars.length - 1].t : 0,
+    spyBars.length ? spyBars[spyBars.length - 1].t : 0
+  );
+
+  return {
+    qqq,
+    spy,
+    blended: blend(qqq, spy),
+    barsUsed: { qqq: qqqBars.length, spy: spyBars.length },
+    droppedForming,
+    lastBarAt: newest > 0 ? new Date(newest).toISOString() : null,
+    computedAt: new Date().toISOString(),
+  };
+}
+
 const ageSeconds = (iso: string | null | undefined): number => {
   if (!iso) return Infinity;
   const t = new Date(iso).getTime();
@@ -287,10 +360,12 @@ export async function GET(request: Request) {
        the belief that it was checked and confirmed. */
     const dailyStale = refresh || ageSeconds(cached?.daily?.computedAt) > CACHE_TTL_DAILY;
     const intradayStale = refresh || ageSeconds(cached?.intraday?.computedAt) > CACHE_TTL_INTRADAY;
+    const hourlyStale = refresh || ageSeconds(cached?.hourly?.computedAt) > CACHE_TTL_HOURLY;
 
-    const [daily, intraday] = await Promise.all([
+    const [daily, intraday, hourly] = await Promise.all([
       dailyStale ? computeDailyLeg(apiKey) : Promise.resolve(cached.daily as DailyLeg),
       intradayStale ? computeIntradayLeg(apiKey) : Promise.resolve(cached.intraday as IntradayLeg),
+      hourlyStale ? computeHourlyLeg(apiKey) : Promise.resolve(cached.hourly as IntradayLeg),
     ]);
 
     if (daily.blended == null && intraday.blended == null) {
@@ -328,20 +403,27 @@ export async function GET(request: Request) {
         feedDelayMinutes: FEED_DELAY_MINUTES,
       },
 
-      /* The gap, computed once here rather than in every consumer.
-         POSITIVE MEANS INTRADAY IS CLEANER than the daily backdrop — the
-         session is trending inside a range that has not been. The sign
-         convention is chosen so the actionable direction is the positive one. */
+      hourly: {
+        ...hourly,
+        zone: hourly.blended != null ? zoneOf(hourly.blended) : 'unknown',
+        windowMinutes: CHOP_PERIOD * HOURLY_BAR_MINUTES,
+        barMinutes: HOURLY_BAR_MINUTES,
+        feedDelayMinutes: FEED_DELAY_MINUTES,
+      },
+
       spread:
-        daily.blended != null && intraday.blended != null
-          ? +(daily.blended - intraday.blended).toFixed(1)
-          : null,
+        hourly.blended != null && intraday.blended != null
+          ? +(hourly.blended - intraday.blended).toFixed(1)
+          : daily.blended != null && intraday.blended != null
+            ? +(daily.blended - intraday.blended).toFixed(1)
+            : null,
 
       updatedAt: new Date().toISOString(),
-      cached: !dailyStale && !intradayStale,
+      cached: !dailyStale && !intradayStale && !hourlyStale,
       legsRecomputed: {
         daily: dailyStale,
         intraday: intradayStale,
+        hourly: hourlyStale,
       },
     };
 

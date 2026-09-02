@@ -71,6 +71,17 @@ const PHASE_ACCENTS: Record<string, string> = {
   closing: '#818cf8',
 };
 
+function extractRegimeLabel(regime: string): string {
+  if (regime.length < 30) return regime;
+  const r = regime.toLowerCase();
+  if (r.includes('risk-on') || r.includes('risk on')) return 'Risk-On';
+  if (r.includes('risk-off') || r.includes('risk off')) return 'Risk-Off';
+  if (r.includes('bull')) return 'Bullish';
+  if (r.includes('bear')) return 'Bearish';
+  if (r.includes('caution')) return 'Caution';
+  return 'Neutral';
+}
+
 function regimeColor(regime: string): { text: string; bg: string; border: string; dot: string } {
   const r = regime.toLowerCase();
   if (r.includes('bull') || r.includes('risk-on') || r.includes('risk on'))
@@ -171,6 +182,7 @@ export default function BriefDetail({ date }: { date: string }) {
   }, [date]);
 
   const regime = brief?.regimeDetail;
+  const regimeLabel = regime ? extractRegimeLabel(regime.regime) : null;
   const rc = regime ? regimeColor(regime.regime) : null;
   const summary = brief?.summary;
   const su = brief?.sessionUpdates || {};
@@ -250,17 +262,12 @@ export default function BriefDetail({ date }: { date: string }) {
                 <div className="text-[11px] text-slate-500 uppercase tracking-wider font-bold mb-1">
                   {formatBriefDate(date)}
                 </div>
-                {regime && rc && (
+                {regime && rc && regimeLabel && (
                   <div className="flex items-center gap-3 mt-2">
                     <span className={`flex items-center gap-2 text-[11px] font-bold px-3 py-1 rounded-lg border ${rc.text} ${rc.bg} ${rc.border} uppercase tracking-wider`}>
                       <span className={`w-2 h-2 rounded-full ${rc.dot}`} />
-                      {regime.regime}
+                      {regimeLabel}
                     </span>
-                    {allStocks.length > 0 && (
-                      <span className="text-[11px] text-slate-500">
-                        {allStocks.length} setup{allStocks.length !== 1 ? 's' : ''}
-                      </span>
-                    )}
                     {Object.keys(su).length > 0 && (
                       <span className="text-[11px] text-slate-600">
                         {Object.keys(su).length} tape phase{Object.keys(su).length !== 1 ? 's' : ''}
@@ -274,8 +281,14 @@ export default function BriefDetail({ date }: { date: string }) {
               {regime && (
                 <SectionCard title="Market regime" accent="#22d3ee">
                   <div className="space-y-3">
-                    {regime.caution && (
+                    {regime.regime && regime.regime.length > 30 && (
                       <div>
+                        <div className="text-[12px] font-bold text-slate-500 tracking-wider uppercase mb-1">Assessment</div>
+                        <p className="text-[12px] text-slate-200 leading-[1.7]">{richText(regime.regime)}</p>
+                      </div>
+                    )}
+                    {regime.caution && (
+                      <div className={regime.regime && regime.regime.length > 30 ? 'pt-3 border-t border-white/[0.06]' : ''}>
                         <div className="text-[12px] font-bold text-slate-500 tracking-wider uppercase mb-1">Risk</div>
                         <p className="text-[12px] text-slate-200 leading-[1.7]">{richText(regime.caution)}</p>
                       </div>

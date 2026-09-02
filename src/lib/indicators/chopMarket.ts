@@ -105,7 +105,7 @@ export const bandsFor = (mode: string | null | undefined): ChopBands =>
    CHOP_MODIFIER_CAP. This data comes from the macro endpoint which updates
    every 15 minutes and is always current. */
 export const CHOP_MODIFIER_CAP = 12;
-export const CHOP_INTRADAY_WEIGHT = 0.3;
+export const CHOP_INTRADAY_WEIGHT = 0.6;
 const SESSION_DIR_THRESHOLD = 0.5;
 const SESSION_DIR_FULL = 1.5;
 
@@ -177,6 +177,27 @@ export function chopComposite(
 /** Pulls the raw blended value out of an /api/chop payload, nested or flat. */
 export const rawChopOf = (chop: any): number | null =>
   chop?.daily?.blended ?? chop?.blended ?? null;
+
+/* ---- Concordance boost ---------------------------------------------------
+   When both the daily composite and the intraday leg land in the same zone,
+   that agreement is information the blended average alone does not capture.
+   A +5 push for BOTH CHOPPY makes a borderline 46 read 51 — clearly in chop
+   rather than ambiguously on the line. The symmetric −5 for BOTH TRENDING
+   rewards the same kind of agreement on the other side. */
+export const CHOP_CONCORDANCE_BOOST = 5;
+
+export function chopWithConcordance(
+  composite: number | null,
+  intraday: number | null,
+  bands: ChopBands,
+): number | null {
+  if (composite == null || intraday == null) return composite;
+  const bothChoppy = composite >= bands.chop && intraday >= bands.chop;
+  const bothTrending = composite <= bands.trend && intraday <= bands.trend;
+  if (bothChoppy) return Math.min(100, composite + CHOP_CONCORDANCE_BOOST);
+  if (bothTrending) return Math.max(0, composite - CHOP_CONCORDANCE_BOOST);
+  return composite;
+}
 
 /* ---- Zones --------------------------------------------------------------- */
 
@@ -360,3 +381,28 @@ export const INTRADAY_STALE_MINUTES = 90;
    ratio genuinely swings intraday, and applied to a metric with an order of
    magnitude less daily velocity. It would have printed flat every session. */
 export const CHOP_TREND_BAND = 0.15;
+
+/* When intraday is current, direction should reflect what's happening NOW
+   (intra vs daily composite) rather than what happened yesterday (daily vs
+   daily prev). A 15M at 61 with daily at 46 means chop is rising, even if
+   the daily dropped since yesterday. The dead-band is wider here because
+   intraday and daily are structurally different measurements. */
+export const CHOP_INTRA_TREND_BAND = 4;
+
+export function chopTrendOf(
+  chopRaw: number | null,
+  chopRawPrev: number | null,
+  intraVal: number | null,
+  intraStale: boolean,
+  composite: number | null,
+): 'up' | 'down' | 'flat' {
+  if (intraVal != null && !intraStale && composite != null) {
+    const gap = intraVal - composite;
+    if (gap > CHOP_INTRA_TREND_BAND) return 'up';
+    if (gap < -CHOP_INTRA_TREND_BAND) return 'down';
+    return 'flat';
+  }
+  const delta = chopRaw != null && chopRawPrev != null ? chopRaw - chopRawPrev : null;
+  if (delta == null || Math.abs(delta) < CHOP_TREND_BAND) return 'flat';
+  return delta > 0 ? 'up' : 'down';
+}

@@ -1173,10 +1173,20 @@ interface StatsData {
   };
 }
 
+interface EmailMetricsData {
+  startDate: string;
+  endDate: string;
+  metrics: {
+    totals: Record<string, number>;
+  };
+}
+
 function StatsTab() {
   const [data, setData] = useState<StatsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [emailMetrics, setEmailMetrics] = useState<EmailMetricsData | null>(null);
+  const [emailLoading, setEmailLoading] = useState(true);
 
   useEffect(() => {
     fetch('/api/admin/stats')
@@ -1184,6 +1194,11 @@ function StatsTab() {
       .then(d => { if (d.error) throw new Error(d.error); setData(d); })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
+    fetch('/api/admin/email-metrics')
+      .then(r => r.json())
+      .then(d => { if (d.error) throw new Error(d.error); setEmailMetrics(d); })
+      .catch(() => {})
+      .finally(() => setEmailLoading(false));
   }, []);
 
   if (loading) return <div className="text-center py-20 text-xs uppercase tracking-widest animate-pulse" style={{ color: 'var(--text-muted)' }}>Loading stats...</div>;
@@ -1330,6 +1345,37 @@ function StatsTab() {
           </div>
         </div>
       )}
+
+      {/* Email Metrics (Resend) */}
+      {emailLoading ? (
+        <div className="text-center py-6 text-xs uppercase tracking-widest animate-pulse" style={{ color: 'var(--text-muted)' }}>Loading email metrics...</div>
+      ) : emailMetrics?.metrics?.totals ? (() => {
+        const t = emailMetrics.metrics.totals;
+        const num = (v?: number) => v != null ? v.toLocaleString() : '—';
+        const rate = (part?: number, whole?: number) => {
+          if (part == null || whole == null || whole === 0) return undefined;
+          return `${((part / whole) * 100).toFixed(1)}% rate`;
+        };
+        const sent = t.sent ?? t.delivered;
+        return (
+          <>
+            <div className="text-[10px] font-bold uppercase tracking-wider mt-2" style={{ color: 'var(--text-muted)' }}>
+              Email Metrics — Last 30 Days
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {statCard('Sent', num(t.sent), '#818cf8')}
+              {statCard('Delivered', num(t.delivered), '#34d399', rate(t.delivered, t.sent))}
+              {statCard('Opened', num(t.opened), '#06b6d4', rate(t.opened, t.delivered))}
+              {statCard('Clicked', num(t.clicked), '#fbbf24', rate(t.clicked, t.delivered))}
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {statCard('Bounced', num(t.bounced), (t.bounced ?? 0) > 0 ? '#fb7185' : '#34d399', rate(t.bounced, sent))}
+              {statCard('Complaints', num(t.complained), (t.complained ?? 0) > 0 ? '#fb7185' : '#34d399', rate(t.complained, sent))}
+              {statCard('Unsubscribed', num(t.unsubscribed), (t.unsubscribed ?? 0) > 0 ? '#fb923c' : '#34d399')}
+            </div>
+          </>
+        );
+      })() : null}
     </div>
   );
 }

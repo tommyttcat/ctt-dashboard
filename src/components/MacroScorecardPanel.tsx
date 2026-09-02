@@ -159,6 +159,13 @@ const divergenceColor = (tone: DivergenceTone): string => {
   return 'text-slate-600';
 };
 
+const divergenceBadge = (tone: DivergenceTone): string => {
+  if (tone === 'aligned-chop') return 'bg-amber-500/15 border border-amber-500/30 text-amber-400 px-2 py-0.5 rounded';
+  if (tone === 'break') return 'bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 px-2 py-0.5 rounded';
+  if (tone === 'aligned-trend') return 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 px-2 py-0.5 rounded';
+  return '';
+};
+
 export interface MacroScorecardPanelProps {
   marketTone: 'BULLISH' | 'NEUTRAL' | 'BEARISH';
   quotes: Record<string, any>;
@@ -177,6 +184,9 @@ export interface MacroScorecardPanelProps {
   intraVal: number | null;
   intraStale: boolean;
   intraLastBar: string | null;
+  hourVal: number | null;
+  hourStale: boolean;
+  hourLastBar: string | null;
   chopTooltipText: string;
   chopMode: ChopMode;
   setChopMode: (m: ChopMode) => void;
@@ -209,6 +219,9 @@ export default function MacroScorecardPanel({
   intraVal,
   intraStale,
   intraLastBar,
+  hourVal,
+  hourStale,
+  hourLastBar,
   chopTooltipText,
   chopMode,
   setChopMode,
@@ -545,10 +558,10 @@ export default function MacroScorecardPanel({
 
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <div className="flex-1 min-w-[80px] flex flex-col gap-2.5">
-                {/* --- TRACK 1: DAILY --- */}
+                {/* --- TRACK 1: HOURLY (or daily fallback) --- */}
                 <div className="flex items-center gap-1.5">
                   <span className={`text-[8px] font-bold tracking-wider uppercase text-slate-600 text-right ${CHOP_TRACK_LABEL_W}`}>
-                    1D
+                    {hourVal != null ? '1H' : '1D'}
                   </span>
                   <div className="flex-1 h-1.5 rounded-full relative overflow-hidden">
                     <div className="absolute inset-0 flex transition-all duration-300" style={{ borderRadius: 'inherit' }}>
@@ -569,29 +582,29 @@ export default function MacroScorecardPanel({
                       title={`Chop threshold — ${bands.chop} (${bands.label})`}
                     ></div>
 
-                    {chop?.qqq != null && (
+                    {chop?.hourly?.qqq != null && (
                       <div
                         className="absolute top-[-1px] h-[7px] w-px bg-violet-400/70 transition-all duration-500"
-                        style={{ left: `${chop.qqq}%` }}
-                        title={`QQQ daily ${chop.qqq.toFixed(1)}`}
+                        style={{ left: `${chop.hourly.qqq}%` }}
+                        title={`QQQ 1H ${chop.hourly.qqq.toFixed(1)}`}
                       ></div>
                     )}
-                    {chop?.spy != null && (
+                    {chop?.hourly?.spy != null && (
                       <div
                         className="absolute top-[-1px] h-[7px] w-px bg-sky-400/70 transition-all duration-500"
-                        style={{ left: `${chop.spy}%` }}
-                        title={`SPY daily ${chop.spy.toFixed(1)}`}
+                        style={{ left: `${chop.hourly.spy}%` }}
+                        title={`SPY 1H ${chop.hourly.spy.toFixed(1)}`}
                       ></div>
                     )}
 
                     <div
-                      className={`absolute top-[-3px] h-[11px] w-[3px] rounded-sm transition-all duration-500 ${chopMarkerBg(chopVal, bands)}`}
-                      style={{ left: `calc(${chopVal}% - 1.5px)` }}
-                      title={`Daily composite ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal, bands)}`}
+                      className={`absolute top-[-3px] h-[11px] w-[3px] rounded-sm transition-all duration-500 ${chopMarkerBg(hourVal ?? chopVal, bands)}`}
+                      style={{ left: `calc(${hourVal ?? chopVal}% - 1.5px)` }}
+                      title={`${hourVal != null ? 'Hourly' : 'Daily'} composite ${(hourVal ?? chopVal).toFixed(0)} — ${chopZoneLabel(hourVal ?? chopVal, bands)}`}
                     ></div>
                   </div>
-                  <span className={`text-[9px] font-bold tabular-nums w-[18px] text-right ${chopColor(chopVal, bands)}`}>
-                    {chopVal.toFixed(0)}
+                  <span className={`text-[9px] font-bold tabular-nums w-[18px] text-right ${chopColor(hourVal ?? chopVal, bands)}`}>
+                    {(hourVal ?? chopVal).toFixed(0)}
                   </span>
                 </div>
 
@@ -732,7 +745,7 @@ export default function MacroScorecardPanel({
                 title={`${divergence.detail}\n\nDaily ${chopVal.toFixed(0)} vs intraday ${intraVal.toFixed(0)} at the ${bands.label} setting.` +
                   (intraStale ? '\n\nThe intraday leg is not current — treat this read as describing the last session that traded.' : '')}
               >
-                <span className={`text-[9px] font-bold tracking-widest uppercase ${divergenceColor(divergence.tone)}`}>
+                <span className={`text-[10px] font-bold tracking-widest uppercase ${divergenceBadge(divergence.tone) || divergenceColor(divergence.tone)}`}>
                   {divergence.label}
                 </span>
                 {intraStale && (

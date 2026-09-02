@@ -31,9 +31,25 @@ function regimeStyle(regime: string) {
   return REGIME_COLORS.neutral;
 }
 
+function extractRegimeLabel(regime: string): string {
+  if (regime.length < 30) return regime;
+  const r = regime.toLowerCase();
+  if (r.includes('risk-on') || r.includes('risk on')) return 'Risk-On';
+  if (r.includes('risk-off') || r.includes('risk off')) return 'Risk-Off';
+  if (r.includes('bull')) return 'Bullish';
+  if (r.includes('bear')) return 'Bearish';
+  if (r.includes('caution')) return 'Caution';
+  return 'Neutral';
+}
+
 function extractSummary(date: string, brief: any): BriefSummary {
   const rd = brief?.regimeDetail || {};
-  const regime = rd.regime || 'Neutral';
+  const regime = extractRegimeLabel(rd.regime || 'Neutral');
+
+  const setupSections = (brief?.sections || []).filter((s: any) =>
+    /Stocks in Play|Top Trades/i.test(s.section),
+  );
+  const setupStocks = setupSections.flatMap((s: any) => s.stocks || []);
 
   const allStocks = (brief?.sections || []).flatMap((s: any) => s.stocks || []);
   const tickers = allStocks
@@ -54,7 +70,7 @@ function extractSummary(date: string, brief: any): BriefSummary {
     headline,
     regime,
     tickers,
-    setupCount: allStocks.length,
+    setupCount: setupStocks.length,
     phases,
   };
 }
@@ -134,7 +150,7 @@ export default function BriefsIndex() {
               href="/subscribe"
               className="inline-block mt-3 text-[12px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors"
             >
-              Subscribe free →
+              Start free trial →
             </a>
           </div>
 
@@ -242,13 +258,13 @@ export default function BriefsIndex() {
                 Get tomorrow&apos;s brief before the open
               </h3>
               <p className="text-[12px] text-slate-400 mb-4">
-                Free subscribers get the daily brief at 8:30 AM ET — plus tape updates at every session phase.
+                Try the daily brief at 8:30 AM ET — plus tape updates at every session phase. 14 days free.
               </p>
               <a
                 href="/subscribe"
                 className="inline-block bg-indigo-500 hover:bg-indigo-400 text-white font-bold text-[12px] px-6 py-2.5 rounded-lg transition-colors tracking-wide"
               >
-                Subscribe free
+                Start free trial
               </a>
             </div>
           )}

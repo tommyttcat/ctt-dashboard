@@ -51,8 +51,18 @@ export async function GET() {
   }
 }
 
+const ARCHIVE_INDEX_KEY = 'brief_archive_index';
+
+function etDateString(iso: string): string {
+  const dt = new Date(iso);
+  return dt.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+}
+
+function todayET(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+}
+
 export async function POST(req: Request) {
-  // Simple shared-secret auth — optional, set ANALYST_BRIEF_KEY in env to enable
   const requiredKey = process.env.ANALYST_BRIEF_KEY || '';
   if (requiredKey) {
     const authHeader = req.headers.get('authorization') || '';
@@ -76,17 +86,38 @@ export async function POST(req: Request) {
     );
   }
 
+  const existing = await kv.get<any>(CACHE_KEY);
+
+  // Archive previous day's brief when the date rolls over
+  let archived: string | null = null;
+  if (existing?.generatedAt) {
+    const existingDate = etDateString(existing.generatedAt);
+    if (existingDate !== todayET()) {
+      const archiveKey = `brief_archive:${existingDate}`;
+      try {
+        await kv.set(archiveKey, existing);
+        const index = (await kv.get<string[]>(ARCHIVE_INDEX_KEY)) || [];
+        if (!index.includes(existingDate)) {
+          index.push(existingDate);
+          await kv.set(ARCHIVE_INDEX_KEY, index);
+        }
+        archived = existingDate;
+        console.log(`[brief] archived ${existingDate}`);
+      } catch (e: any) {
+        console.error(`[brief] archive failed: ${e.message}`);
+      }
+    }
+  }
+
   let mergedSessionUpdates: Record<string, any> | undefined;
   let newTapePhase: string | null = null;
   if (body.sessionUpdate?.key && body.sessionUpdate?.block) {
-    const existing = await kv.get<any>(CACHE_KEY);
     const prev = existing?.sessionUpdates || {};
     if (!prev[body.sessionUpdate.key]) {
       newTapePhase = body.sessionUpdate.key;
     }
     mergedSessionUpdates = { ...prev, [body.sessionUpdate.key]: body.sessionUpdate.block };
   } else if (!body.sessionUpdates) {
-    const existing = await kv.get<any>(CACHE_KEY);
     if (existing?.sessionUpdates && Object.keys(existing.sessionUpdates).length > 0) {
       mergedSessionUpdates = existing.sessionUpdates;
     }
@@ -106,7 +137,7 @@ export async function POST(req: Request) {
   try {
     await kv.set(CACHE_KEY, brief);
 
-    return NextResponse.json({ success: true, generatedAt: brief.generatedAtET, newTapePhase });
+    return NextResponse.json({ success: true, generatedAt: brief.generatedAtET, newTapePhase, archived });
   } catch (err: any) {
     return NextResponse.json(
       { error: `KV write failed: ${err.message}` },
