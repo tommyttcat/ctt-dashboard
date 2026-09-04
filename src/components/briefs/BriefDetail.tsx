@@ -143,7 +143,16 @@ export default function BriefDetail({
     /Gappers|Intraday Movers/i.test(s.section),
   );
 
-  const allStocks = (brief?.sections || []).flatMap((s) => s.stocks || []);
+  /* This table has Trigger and Target columns, so it wants setups — but it was
+     flattening every stock row in the brief, and only Top Trades carries levels.
+     The movers and Stocks-in-Play rows share the same schema and rendered as
+     rows of em-dashes. Prefer rows that actually have a trigger, and fall back
+     to the flat list so briefs without any leveled setup still show something.
+     Also what keeps trimmed archives working, since those drop the mover
+     grids entirely. */
+  const flatStocks = (brief?.sections || []).flatMap((s) => s.stocks || []);
+  const levelled = flatStocks.filter((s) => s.trigger != null);
+  const allStocks = levelled.length > 0 ? levelled : flatStocks;
 
   return (
     <div className="min-h-screen bg-[#05080f] text-slate-300 font-sans md:py-10 flex justify-center">

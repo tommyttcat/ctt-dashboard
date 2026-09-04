@@ -10,6 +10,12 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
+import {
+  buildLedger,
+  leanArchive,
+  LEDGER_KEY,
+  LEDGER_INDEX_KEY,
+} from '@/lib/setupLedger';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -95,7 +101,11 @@ export async function POST(req: Request) {
     if (existingDate !== todayET()) {
       const archiveKey = `brief_archive:${existingDate}`;
       try {
-        await kv.set(archiveKey, existing);
+        /* Archived lean: the movers and Stocks-in-Play grids are ~40 of the 51
+           stock rows and are never scored, so they are replaced by a compact
+           summary. Top Trades and Top Avoid — the rows that make a claim — are
+           kept in full. Cuts the stored document from ~44 KB to ~5 KB. */
+        await kv.set(archiveKey, leanArchive(existing));
         const index = (await kv.get<string[]>(ARCHIVE_INDEX_KEY)) || [];
         if (!index.includes(existingDate)) {
           index.push(existingDate);
@@ -136,12 +146,58 @@ export async function POST(req: Request) {
 
   try {
     await kv.set(CACHE_KEY, brief);
-
-    return NextResponse.json({ success: true, generatedAt: brief.generatedAtET, newTapePhase, archived });
   } catch (err: any) {
     return NextResponse.json(
       { error: `KV write failed: ${err.message}` },
       { status: 500 },
     );
   }
+
+  /* ── Setup ledger ──────────────────────────────────────────────────────
+     Freeze the day's setups so they can be scored later against price.
+
+     Closing post only. The deterministic cron writes a Top Trades section
+     with no trigger/stop/target, so ~4:40 PM — when the analyst routine
+     posts — is the only moment real setups exist. Recording on any other
+     post would capture rows that cannot be scored.
+
+     Written once per date and never rewritten: an entry that could be
+     revised after the outcome is known would prove nothing. The scoring job
+     appends results to its own key and cannot touch these entries.
+
+     Deliberately after the brief is persisted, and non-fatal — publishing is
+     this route's job, and a ledger failure must never cost a brief. */
+  let ledgerWritten: string | null = null;
+  if (newTapePhase === 'closing' || body.sessionUpdate?.key === 'closing') {
+    const date = todayET();
+    try {
+      const already = await kv.get<any>(LEDGER_KEY(date));
+      if (already) {
+        console.log(`[ledger] ${date} already recorded — not overwriting`);
+      } else {
+        const confluence = (await kv.get<any[]>('confluence_report_v1')) || [];
+        const ledger = buildLedger(brief, confluence, date, 'closing');
+        if (ledger.entries.length > 0) {
+          await kv.set(LEDGER_KEY(date), ledger);
+          const idx = (await kv.get<string[]>(LEDGER_INDEX_KEY)) || [];
+          if (!idx.includes(date)) {
+            idx.push(date);
+            await kv.set(LEDGER_INDEX_KEY, idx);
+          }
+          ledgerWritten = date;
+          console.log(`[ledger] recorded ${ledger.entries.length} setups for ${date}`);
+        }
+      }
+    } catch (e: any) {
+      console.error(`[ledger] write failed: ${e.message}`);
+    }
+  }
+
+  return NextResponse.json({
+    success: true,
+    generatedAt: brief.generatedAtET,
+    newTapePhase,
+    archived,
+    ledgerWritten,
+  });
 }
