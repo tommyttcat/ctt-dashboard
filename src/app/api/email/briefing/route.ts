@@ -1144,22 +1144,37 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
     : '';
 
   /* ---- Actionable Summary ----------------------------------------------
-     THE ORDER OF Top Trades IS THE RANKING — first two are the conviction
-     calls, the next five the watchlist, exactly as ActionableSummary slices
-     them. The email used to re-derive conviction by scraping **TICKER**
-     out of summary.conviction, which the page ignores entirely, so the two
-     surfaces could disagree about which names were the high-conviction ones.
+     summary.conviction IS THE RANKING. Both surfaces resolve the conviction
+     names by scraping **TICKER** out of it and fall back to the first two
+     Top Trades only when it yields no match, so the email and
+     ActionableSummary cannot disagree about which names are conviction.
+
+     Previously both used topTrades.slice(0, 2). That made the table
+     disagree with the prose printed directly beneath it: the analyst wrote
+     four conviction calls today and the table listed two, with the other two
+     appearing under Watchlist.
 
      Traps sit INSIDE this card on the page rather than taking their own. */
   const convictionArr: string[] = Array.isArray(summary.conviction)
     ? summary.conviction
     : summary.conviction ? [String(summary.conviction)] : [];
   const watchlistArr: string[] = Array.isArray(summary.watchlist) ? summary.watchlist : [];
-  /* Slice THEN sort, in that order — the page ranks by position first and
-     only sorts within each panel. Sorting first would let a high-CNF
-     watchlist name climb into the conviction pair. */
-  const conviction = sortByChg(topTrades.slice(0, 2));
-  const watchlistTrades = sortByChg(topTrades.slice(2, 7));
+
+  const convictionTickers = convictionArr
+    .map((l) => /\*\*([A-Z][A-Z0-9.\-]{0,9})\*\*/.exec(String(l))?.[1])
+    .filter((t): t is string => Boolean(t));
+  const matchedConviction = topTrades.filter((s: any) => convictionTickers.includes(s.ticker));
+  const usingWritten = matchedConviction.length > 0;
+
+  /* Select THEN sort, in that order — selection is by the analyst's ranking
+     and sorting only reorders within each panel. Sorting first would let a
+     high-CNF watchlist name climb into the conviction group. */
+  const conviction = sortByChg(usingWritten ? matchedConviction : topTrades.slice(0, 2));
+  const watchlistTrades = sortByChg(
+    usingWritten
+      ? topTrades.filter((s: any) => !convictionTickers.includes(s.ticker)).slice(0, 5)
+      : topTrades.slice(2, 7),
+  );
 
   const proseList = (arr: string[], color: string) =>
     arr.length

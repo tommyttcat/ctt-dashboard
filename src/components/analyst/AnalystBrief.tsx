@@ -674,10 +674,39 @@ function ActionableSummary({ summary, trades, avoidStocks, sortKey, sortDir, onS
   sortDir: SortDir;
   onSort: (key: SortKey) => void;
 }) {
-  const rawTop2 = trades?.slice(0, 2) || [];
-  const rawWatchlist = trades?.slice(2, 7) || [];
+  /* The analyst writes summary.conviction as prose, one line per call, each
+     carrying its own invalidation level. This block used to ignore it and
+     take trades.slice(0, 2) instead, so "Highest Conviction" meant nothing
+     more than "the first two Top Trades" — a name the analyst explicitly
+     called conviction would show up under Watchlist with an auto-generated
+     "needs confirmation" note if it happened to rank fourth.
+
+     Drive it from what was actually written, and fall back to the old slice
+     when conviction is absent or none of its tickers match a trade. */
+  const convictionLines: string[] = Array.isArray(summary?.conviction) ? summary.conviction : [];
+  const convictionTickers = convictionLines
+    .map((l) => /\*\*([A-Z][A-Z0-9.\-]{0,9})\*\*/.exec(String(l))?.[1])
+    .filter((t): t is string => Boolean(t));
+
+  const matched = (trades || []).filter((s) => convictionTickers.includes(s.ticker));
+  const usingWritten = matched.length > 0;
+
+  const rawTop2 = usingWritten ? matched : trades?.slice(0, 2) || [];
+  const rawWatchlist = usingWritten
+    ? (trades || []).filter((s) => !convictionTickers.includes(s.ticker)).slice(0, 5)
+    : trades?.slice(2, 7) || [];
   const top2 = sortKey ? sortStocks(rawTop2, sortKey, sortDir) : rawTop2;
   const watchlist = sortKey ? sortStocks(rawWatchlist, sortKey, sortDir) : rawWatchlist;
+
+  /* Split the leading **TICKER** off so it can render as a chip, matching how
+     the thesis blocks below present a name. */
+  const convictionNotes = convictionLines.map((line) => {
+    const s = String(line);
+    const m = /^\s*\*\*([A-Z][A-Z0-9.\-]{0,9})\*\*\s*[—–-]?\s*/.exec(s);
+    return m
+      ? { ticker: m[1], text: s.slice(m[0].length).replace(/\*\*/g, '') }
+      : { ticker: null, text: s.replace(/\*\*/g, '') };
+  });
   const rawTraps = avoidStocks?.slice(0, 5) || [];
   const traps = sortKey ? sortStocks(rawTraps, sortKey, sortDir) : rawTraps;
 
@@ -708,7 +737,20 @@ function ActionableSummary({ summary, trades, avoidStocks, sortKey, sortDir, onS
           {top2.map((s, i) => (
             <SummaryRow key={i} item={toItem(s)} stock={s} showNote={false} />
           ))}
-          {top2.some(s => s.thesis) && (
+          {/* Prefer the analyst's own conviction lines — they state the
+              invalidation level, which the per-stock thesis does not. */}
+          {convictionNotes.length > 0 ? (
+            <div className="mt-2 border-t border-white/[0.04] pt-2">
+              {convictionNotes.map((n, i) => (
+                <p key={i} className={`text-[12px] text-slate-400 leading-relaxed pl-1${i > 0 ? ' border-t border-white/[0.04] pt-2 mt-2' : ''}`}>
+                  {n.ticker && (
+                    <TickerChartHover symbol={n.ticker}><span className={MINI_CHIP}>{n.ticker}</span></TickerChartHover>
+                  )}
+                  {n.text}
+                </p>
+              ))}
+            </div>
+          ) : top2.some(s => s.thesis) && (
             <div className="mt-2 border-t border-white/[0.04] pt-2">
               {top2.filter(s => s.thesis).map((s, i) => (
                 <p key={i} className={`text-[12px] text-slate-400 leading-relaxed pl-1${i > 0 ? ' border-t border-white/[0.04] pt-2 mt-2' : ''}`}>
