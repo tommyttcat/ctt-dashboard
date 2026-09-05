@@ -201,7 +201,7 @@ function formatForSubstack(brief: any, dashScreenshotUrl?: string, phase?: strin
   /* ── Dashboard screenshot with link to site ── */
   if (dashScreenshotUrl) {
     nodes.push(captionedImage(dashScreenshotUrl, 'normal'));
-    nodes.push(para([link('View Full Dashboard →', 'https://app.confluencetradingtools.com')]));
+    nodes.push(para([link('View Full Dashboard →', 'https://www.confluencetradingtools.com')]));
   }
 
   /* ── Regime: the lead ── */
@@ -515,8 +515,8 @@ export async function GET(req: Request) {
       para([text('This Substack delivers the AI Analyst briefings directly to your inbox — the same analysis that powers the dashboard, formatted for quick reading. Each post includes a live scorecard snapshot so you can see the tape at a glance.')]),
       heading(2, 'Looking for Founding Members'),
       para([text("CTT is in early access and I'm looking for founding members to test the platform and help shape the roadmap. If you're a trader who wants to influence what gets built next — the indicators, the dashboard features, the analysis — this is your chance to get in on the ground floor.")]),
-      para([link('Visit the Dashboard →', 'https://app.confluencetradingtools.com')]),
-      para([link('Join the Founders List →', 'https://confluencetradingtools.com')]),
+      para([link('Visit the Dashboard →', 'https://www.confluencetradingtools.com')]),
+      para([link('Join the Founders List →', 'https://www.confluencetradingtools.com')]),
       hr(),
       paraText('*Confluence Trading Tools. Analysis only. Not financial advice.*'),
     ]};
@@ -595,7 +595,7 @@ export async function GET(req: Request) {
       content.push(...analysisToNodes(narrative.weekAhead));
     }
     content.push(hr());
-    content.push(para([link('View the Dashboard →', 'https://app.confluencetradingtools.com')]));
+    content.push(para([link('View the Dashboard →', 'https://www.confluencetradingtools.com')]));
     content.push(paraText('*Confluence Trading Tools. Analysis only. Not financial advice.*'));
 
     const weeklyBody = { type: 'doc', content };
