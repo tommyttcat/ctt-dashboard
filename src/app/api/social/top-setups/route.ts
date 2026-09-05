@@ -169,11 +169,13 @@ function buildBody(n: Narrative, coverCdn?: string): any {
   return { type: 'doc', content };
 }
 
-/* ── Compose social text within a char budget ── */
-function socialText(n: Narrative, postUrl: string, max: number): string {
+/* ── Compose social text within a char budget ──
+   X rejects posts with more than one cashtag ($SYMBOL) — a 403 — so the X
+   variant passes maxCashtags=1. Bluesky has no such limit. */
+function socialText(n: Narrative, postUrl: string, max: number, maxCashtags = 99): string {
   const title = n.title || 'Top Setups of the Week';
   const teaser = (n.social || '').trim();
-  const tagLine = [...(n.cashtags || []).slice(0, 4), ...(n.hashtags || []).slice(0, 3)].join(' ');
+  const tagLine = [...(n.cashtags || []).slice(0, maxCashtags), ...(n.hashtags || []).slice(0, 3)].join(' ');
   const parts = [title];
   if (teaser) parts.push(teaser);
   let head = parts.join('\n\n');
@@ -245,6 +247,21 @@ export async function GET(req: Request) {
     return NextResponse.json({ title: n.title, subtitle: n.subtitle, setups: n.setups.map(s => s.heading), tags: n.tags, cashtags: n.cashtags, hashtags: n.hashtags });
   }
 
+  // X-only retry — reshare the last published post to X without republishing
+  // Substack or Bluesky. Used when the X share failed (e.g. cashtag limit).
+  if (url.searchParams.get('retryx') === '1') {
+    const last = await kv.get<{ postUrl?: string }>('top_setups_last');
+    const postUrl = url.searchParams.get('posturl') || last?.postUrl || `https://${DASH_URL}`;
+    const coverBuf = await fetchCover(origin);
+    const image = coverBuf ? { data: new Uint8Array(coverBuf) } : undefined;
+    try {
+      const r = await postToX(socialText(n, postUrl, 280, 1), image);
+      return NextResponse.json({ success: true, x: r ? 'posted' : 'skipped', postUrl });
+    } catch (e: any) {
+      return NextResponse.json({ success: false, x: `error: ${e.message || e}`, postUrl }, { status: 502 });
+    }
+  }
+
   const pubUrl = process.env.SUBSTACK_PUB_URL;
   const session = process.env.SUBSTACK_SESSION;
   if (!pubUrl || !session) {
@@ -279,11 +296,13 @@ export async function GET(req: Request) {
   if (pub.error) return NextResponse.json({ draftId: draft.id, published: false, error: pub.error }, { status: 502 });
 
   const postUrl = pub.url || `https://${DASH_URL}`;
+  // Persist the post URL so an X-only retry can reuse it without republishing.
+  await kv.set('top_setups_last', { postUrl, date: today }, { ex: 7 * 86400 });
 
   // Share to X + Bluesky with the post link, tags, and cover image.
   let xRes: any = 'skipped', bskyRes: any = 'skipped';
   try {
-    const xText = socialText(n, postUrl, 280);
+    const xText = socialText(n, postUrl, 280, 1);   // X allows only one cashtag
     const bskyText = socialText(n, postUrl, 300);
     const image = coverBuf ? { data: new Uint8Array(coverBuf) } : undefined;
     const linkPos = bskyText.lastIndexOf(postUrl);
