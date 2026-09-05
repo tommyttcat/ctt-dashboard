@@ -598,6 +598,14 @@ export default function DailySetups() {
   const [showFilters, setShowFilters] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
 
+  // Auto-expand for headless screenshot capture (weekly Top Setups cover).
+  useEffect(() => {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      if (q.get('expand') === '1' || q.get('shot') === '1') setIsExpanded(true);
+    } catch { /* no-op */ }
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
     const fetchDatabaseSnapshot = async () => {
@@ -872,7 +880,7 @@ export default function DailySetups() {
     (planFilter !== 'All' ? 1 : 0);
 
   return (
-    <div className="bg-[#101623] border-0 md:border md:border-white/5 md:rounded-2xl p-2 md:p-5 relative overflow-visible md:shadow-xl w-full max-w-[1280px] mx-auto">
+    <div id="daily-setups-card" {...(setups.length > 0 ? { 'data-loaded': true } : {})} className="bg-[#101623] border-0 md:border md:border-white/5 md:rounded-2xl p-2 md:p-5 relative overflow-visible md:shadow-xl w-full max-w-[1280px] mx-auto">
       {/* Header raised z-10 → z-30 so the ? panel (z-[70]) paints above the
           FILTERS bar (z-10) instead of losing the sibling z-fight. */}
       <div onClick={() => setIsExpanded(!isExpanded)} className={`flex justify-between items-center relative z-30 cursor-pointer group transition-all duration-200 ${isExpanded ? 'mb-5 border-b border-white/5 pb-4' : ''}`}>
