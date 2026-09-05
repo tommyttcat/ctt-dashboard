@@ -18,7 +18,8 @@ export const maxDuration = 60;
    subscribers. Pass ?send=1 to also email the list.                          */
 
 const KV_KEY = 'top_setups_data';
-const DASH_URL = 'app.confluencetradingtools.com';
+// Reader-facing links point to the public site, not the gated app subdomain.
+const DASH_URL = 'www.confluencetradingtools.com';
 
 type Setup = { ticker?: string; heading?: string; body?: string };
 type Narrative = {

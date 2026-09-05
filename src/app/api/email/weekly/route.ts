@@ -894,7 +894,7 @@ export async function GET(req: Request) {
     let bskyWeekly: any = null;
     let xWeekly: any = null;
     try {
-      const dashUrl = 'confluencetradingtools.com';
+      const dashUrl = 'www.confluencetradingtools.com';
       let indexLine = ['SPY', 'QQQ', 'IWM', 'DIA']
         .filter(t => weeklyChanges[t])
         .map(t => `$${t} ${weeklyChanges[t].pct >= 0 ? '+' : ''}${weeklyChanges[t].pct.toFixed(1)}%`)
