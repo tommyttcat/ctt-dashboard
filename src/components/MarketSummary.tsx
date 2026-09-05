@@ -2605,7 +2605,7 @@ const renderSetupRow = (
   return (
     <div key={`ss-${s.ticker}-${i}`} className="flex items-center gap-0">
       <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={s.ticker} /></span></span>
-      <div className="w-[28px] shrink-0 flex items-center justify-end pr-1.5">
+      <div className="w-[28px] shrink-0 flex items-center justify-end pr-1.5 gap-0.5">
         {hasIndicator && (
           <span className="relative group/cnf cursor-default">
             <span className={`text-[8px] font-bold ${indicatorColor}`}>
@@ -2633,12 +2633,14 @@ const SETUP_PATTERN_FILTERS: SetupFilter[] = [
     match: s => setupOf(s) === '20 EMA PB' },
   { key: 'sqz',  label: 'SQZ', cls: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
     match: s => setupOf(s) === 'BB SQZ' },
-  { key: 'cnf',  label: 'CNF', cls: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
-    match: s => (s._cnfOverlap ?? 0) >= 2 },
   { key: 'stk',  label: 'STK', cls: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
     match: s => (s._scanStreak ?? 0) >= 3 },
   { key: 'fnd',  label: 'FND', cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
     match: s => !!s._mbFund },
+  { key: 'cnf',  label: 'CNF', cls: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+    match: s => (s._cnfOverlap ?? 0) >= 2 },
+  { key: 'top',  label: 'TOP', cls: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
+    match: s => !!s._isTop },
 ];
 
 const SETUP_SOURCE_FILTERS: SetupFilter[] = [
@@ -2658,7 +2660,7 @@ const SETUP_SOURCE_FILTERS: SetupFilter[] = [
 
 const ALL_SETUP_FILTERS = [...SETUP_PATTERN_FILTERS, ...SETUP_SOURCE_FILTERS];
 
-const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter: sf, rsMap, stageMap }: {
+const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter: sf, rsMap, stageMap, topSet }: {
   pool: any[];
   gradeMap?: Record<string, 'A' | 'B'>;
   dotMap?: Record<string, 'blue' | 'red'>;
@@ -2667,7 +2669,13 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
   scanFilter?: ScanFilterKey;
   rsMap?: Record<string, number>;
   stageMap?: Record<string, string>;
+  topSet?: Set<string>;
 }) => {
+  const taggedPool = React.useMemo(() => {
+    if (!topSet?.size) return pool;
+    return pool.map(s => topSet.has(s.ticker) ? { ...s, _isTop: true } : s);
+  }, [pool, topSet]);
+
   const [activeKey, setActiveKey] = React.useState<string | null>('cnf');
   const [sortKey, setSortKey] = React.useState<SortKey>('cnf');
   const [sortDir, setSortDir] = React.useState<SortDir>('desc');
@@ -2687,7 +2695,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
 
   const filtered = React.useMemo(() => {
     const activeFilter = activeKey ? ALL_SETUP_FILTERS.find(f => f.key === activeKey) : null;
-    let base = activeFilter ? pool.filter(activeFilter.match) : pool;
+    let base = activeFilter ? taggedPool.filter(activeFilter.match) : taggedPool;
     if (sf) {
       base = base.filter(item => passesPoolFilter(sf, item));
     }
@@ -2705,16 +2713,16 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
       return sortDir === 'desc' ? bv - av : av - bv;
     };
     return [...base].sort(cmp).slice(0, 20);
-  }, [pool, activeKey, sortKey, sortDir, sf]);
+  }, [taggedPool, activeKey, sortKey, sortDir, sf]);
 
   const tickers = filtered.map(s => s.ticker).filter(Boolean);
 
-  if (pool.length === 0) return null;
+  if (taggedPool.length === 0) return null;
 
   const pills = (filters: SetupFilter[]) =>
     filters.map(f => {
       const on = activeKey === f.key;
-      const count = pool.filter(f.match).length;
+      const count = taggedPool.filter(f.match).length;
       return (
         <button
           key={f.key}
@@ -3852,6 +3860,7 @@ export default function MarketSummary() {
                                   avoidSet={macroInsights?.avoidSet}
                                   rsMap={macroInsights?.rsMap}
                                   stageMap={macroInsights?.stageMap}
+                                  topSet={macroInsights?.watching?.length ? new Set(macroInsights.watching.map((w: any) => w.symbol)) : undefined}
                                 />
                               ) : isOpen && label === 'Sector Performance' ? (
                                 <SectorBars body={body} heat={macroInsights?.sectorHeat} />

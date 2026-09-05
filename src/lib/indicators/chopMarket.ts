@@ -76,38 +76,11 @@ export const bandsFor = (mode: string | null | undefined): ChopBands =>
   CHOP_BANDS[(mode as ChopMode)] ?? CHOP_BANDS[DEFAULT_CHOP_MODE];
 
 /* ---- Composite -----------------------------------------------------------
-
-   The raw blended Choppiness value is a price measurement only. These two
-   modifiers add what price alone cannot see: whether the move had the market
-   behind it. Both push toward "choppier" when the internals are ambiguous.
-
-   THE SENSITIVITY SETTING DOES NOT TOUCH THIS. The composite is the
-   measurement; the bands are the interpretation. Letting the setting reach
-   into the modifier weights would mean the number itself changed when you
-   changed how you read it.
-
-   Breadth modifiers are NOT applied to the intraday leg. Breadth and the
-   high/low line are daily measures; using them to adjust a 3.5-hour reading
-   would import three weeks of context into a number whose entire job is to
-   be current.
-
-   The intraday CI leg IS blended into the composite when it is current.
-   The daily CI is a 14-day backward-looking measure that cannot see a
-   session that just started trending — by the time it moves, the break is
-   days old. A 30% intraday weight is enough to pull the composite out of
-   CHOPPY on a clearly trending session without overriding the daily
-   structure.
-
-   SESSION DIRECTION uses today's QQQ/SPY price change as a proxy for
-   intraday trend when 15-minute bars are unavailable. A weighted index
-   move of ±0.5%+ is directional; ±1.5%+ is strongly directional. The
-   modifier pushes toward trending (lower CHOP) proportionally, capped at
-   CHOP_MODIFIER_CAP. This data comes from the macro endpoint which updates
-   every 15 minutes and is always current. */
-export const CHOP_MODIFIER_CAP = 12;
-export const CHOP_INTRADAY_WEIGHT = 0.6;
-const SESSION_DIR_THRESHOLD = 0.5;
-const SESSION_DIR_FULL = 1.5;
+   The raw blended Choppiness value is pure price action — no breadth or
+   internals adjustments. The intraday CI leg is blended in when current
+   so the composite can reflect a regime shift the 14-day daily reading
+   has not yet absorbed. */
+export const CHOP_INTRADAY_WEIGHT = 0.3;
 
 export interface ChopBreadthInput {
   score?: number | null;
@@ -133,38 +106,7 @@ export function chopComposite(
 ): number | null {
   if (raw == null) return null;
 
-  let adj = 0;
-
-  // Breadth centrality — 3/6 is dead centre and maximally uninformative.
-  if (breadth && typeof breadth.score === 'number') {
-    const centrality = 1 - Math.abs(breadth.score - 3) / 3;
-    adj += (centrality - 0.5) * 2 * CHOP_MODIFIER_CAP;
-  }
-
-  // High/low balance — highs ~ lows is the structural signature of churn.
-  const nh = breadth?.newHighs ?? 0;
-  const nl = breadth?.newLows ?? 0;
-  if (nh > 0 || nl > 0) {
-    const highsShare = (nh / (nh + nl)) * 100;
-    const balance = 1 - Math.abs(highsShare - 50) / 50;
-    adj += (balance - 0.5) * 2 * CHOP_MODIFIER_CAP;
-  }
-
-  // Session direction — today's weighted index change. Both moving the
-  // same way is directional; opposing moves cancel. Only kicks in past
-  // SESSION_DIR_THRESHOLD so a flat day contributes nothing.
-  if (session) {
-    const qp = session.qqqPct ?? 0;
-    const sp = session.spyPct ?? 0;
-    const weightedPct = qp * 0.6 + sp * 0.4;
-    const absPct = Math.abs(weightedPct);
-    if (absPct >= SESSION_DIR_THRESHOLD) {
-      const strength = Math.min((absPct - SESSION_DIR_THRESHOLD) / (SESSION_DIR_FULL - SESSION_DIR_THRESHOLD), 1);
-      adj -= strength * CHOP_MODIFIER_CAP;
-    }
-  }
-
-  let result = raw + adj;
+  let result = raw;
 
   // Blend intraday when current — the daily CI cannot see today's regime.
   if (intraday && intraday.blended != null && !intraday.stale) {

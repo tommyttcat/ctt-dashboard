@@ -1942,11 +1942,12 @@ async function runScan(request: Request) {
           .filter((m): m is { label: string; value: number; above: boolean } => m !== null);
 
       if (dailyBars.length >= 10) {
-        const qqqPrice = parseFloat(dailyBars[0].c.toFixed(2));
+        const qqqLive = processedSnapshot.find((t: any) => t.ticker === 'QQQ')?._livePrice;
+        const qqqPrice = parseFloat((qqqLive || dailyBars[0].c).toFixed(2));
         benchmark = {
           symbol: 'QQQ',
           price: qqqPrice,
-          day: buildSet(dailyBars, qqqPrice, [10, 21, 30, 50], true),
+          day: buildSet(dailyBars, qqqPrice, [10, 21, 30, 50]),
           week: buildSet(weeklyBars, qqqPrice, [5, 10, 30, 50], true),
         };
       }
@@ -1966,11 +1967,12 @@ async function runScan(request: Request) {
         if (!spySeen.has(wi)) { spySeen.add(wi); spyWeekly.push({ c: b.c }); }
       }
       if (spyDaily.length >= 10) {
-        const spyPrice = parseFloat(spyDaily[0].c.toFixed(2));
+        const spyLive = processedSnapshot.find((t: any) => t.ticker === 'SPY')?._livePrice;
+        const spyPrice = parseFloat((spyLive || spyDaily[0].c).toFixed(2));
         benchmarks.push({
           symbol: 'SPY',
           price: spyPrice,
-          day: buildSet(spyDaily, spyPrice, [10, 21, 30, 50], true),
+          day: buildSet(spyDaily, spyPrice, [10, 21, 30, 50]),
           week: buildSet(spyWeekly, spyPrice, [5, 10, 30, 50], true),
         });
       }

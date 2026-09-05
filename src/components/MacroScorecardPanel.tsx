@@ -232,6 +232,20 @@ export default function MacroScorecardPanel({
   instFlash,
   cellsOnly = false,
 }: MacroScorecardPanelProps) {
+  const ttRow = (label: string, reading: string, detail?: React.ReactNode) => (
+    <div className="flex items-start gap-1.5 py-[3px]">
+      <span className="text-slate-500 shrink-0 w-[70px]">{label}</span>
+      <span className="text-slate-200 font-medium shrink-0 w-[80px]">{reading}</span>
+      {detail && <span className="text-slate-400">{detail}</span>}
+    </div>
+  );
+  const ttWrap = (header: string, rows: React.ReactNode) => (
+    <div className="space-y-0">
+      <div className="text-slate-200 font-medium mb-1.5">{header}</div>
+      <div className="border-t border-white/10 pt-1.5">{rows}</div>
+    </div>
+  );
+
   return (
     <>
       {/* Mini Scorecard Grid */}
@@ -240,7 +254,7 @@ export default function MacroScorecardPanel({
           color === 'green' ? 'bg-emerald-500/8 border-emerald-500/20' : color === 'red' ? 'bg-rose-500/8 border-rose-500/20' : color === 'amber' ? 'bg-amber-500/8 border-amber-500/20' : 'bg-slate-500/8 border-white/10';
         const scValCls = (color: 'green' | 'amber' | 'red' | 'slate') =>
           color === 'green' ? 'text-emerald-400' : color === 'red' ? 'text-rose-400' : color === 'amber' ? 'text-amber-400' : 'text-slate-300';
-        type SC = { label: string; value: string; valueNode?: React.ReactNode; sub?: string; subNode?: React.ReactNode; color: 'green' | 'amber' | 'red' | 'slate'; subColor?: 'green' | 'amber' | 'red' | 'slate'; title?: string; extraClass?: string };
+        type SC = { label: string; value: string; valueNode?: React.ReactNode; sub?: string; subNode?: React.ReactNode; color: 'green' | 'amber' | 'red' | 'slate'; subColor?: 'green' | 'amber' | 'red' | 'slate'; title?: string; titleContent?: React.ReactNode; extraClass?: string };
         const cells: SC[] = [];
 
         /* ---- Order is the reading order ---------------------------------
@@ -254,10 +268,67 @@ export default function MacroScorecardPanel({
           label: 'TONE',
           value: marketTone,
           color: toneCellTone(marketTone),
-          title: 'Weighted read of the session.\n\nSPY x3, QQQ x2.5, IWM x1 — a small-cap-only move is not the market. VIX counts only when it moves more than 2% and is inverted, since rising fear is bearish. Bitcoin carries a small risk-appetite weight. Breadth score nudges the total.\n\nBULLISH above +1.0, BEARISH below -1.0, NEUTRAL between.',
+          titleContent: ttWrap('Weighted session read', <>
+            {ttRow('Weights', '', <>SPY ×3 · QQQ ×2.5 · IWM ×1</>)}
+            {ttRow('VIX', '', <>inverted, only when &gt;2% move</>)}
+            {ttRow('Crypto', '', <>small risk-appetite weight</>)}
+            {ttRow('Thresholds', '', <>BULL &gt;+1.0 · BEAR &lt;−1.0</>)}
+          </>),
         });
 
         if (instSetup && instSignal) {
+          const spyQ = quotes['SPY'];
+          const vixQ2 = quotes['VIX'];
+          const vix9dQ = quotes['VIX9D'];
+          const vixPctVal = Number(vixQ2?.pct ?? 0);
+          const spyPctVal = Number(spyQ?.pct ?? 0);
+          const spyVol = spyQ?.volume as number | undefined;
+          const spyAvgVol = spyQ?.avgVolume as number | undefined;
+          const volRatio = spyVol && spyAvgVol && spyAvgVol > 0 ? spyVol / spyAvgVol : null;
+          const termRatio = vix9dQ?.price && vixQ2?.price ? vixQ2.price / vix9dQ.price : null;
+
+          const fmtPct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
+          const dot = (on: boolean) => <span className={on ? 'text-amber-400' : 'text-emerald-400'}>{on ? '!' : '✓'}</span>;
+
+          const vixVelLabel = Math.abs(vixPctVal) >= 3
+            ? (vixPctVal <= -3 && spyPctVal >= 0.75 ? 'ALGO BUY'
+              : vixPctVal >= 3 && spyPctVal <= -0.75 ? 'ALGO SELL'
+              : `PRESSURE ${vixPctVal <= -0.5 ? 'OFF' : 'ON'}`)
+            : Math.abs(vixPctVal) >= 0.5
+              ? `PRESSURE ${vixPctVal <= -0.5 ? 'OFF' : 'ON'}`
+              : 'quiet';
+
+          const volLabel = volRatio != null
+            ? (volRatio >= 1.5 ? (spyPctVal < -0.1 ? 'DISTRIBUTION' : 'ACCUMULATION') : 'normal')
+            : 'n/a';
+
+          const termLabel = termRatio != null
+            ? (termRatio > 1.05 ? 'HEDGING' : termRatio < 0.95 ? 'contango' : 'flat')
+            : 'n/a';
+
+          const instTooltip = ttWrap(`${instSignal} — ${instSetup}`, <>
+            {ttRow('VIX-ES',
+              spyQ?.prevLow != null ? (spyQ.price < spyQ.prevLow ? 'DIVG' : 'OK') : 'n/a',
+              <>SPY {dot(spyQ?.prevLow != null && spyQ.price < spyQ.prevLow)} PDL &nbsp; VIX {dot(vixQ2?.prevHigh != null && vixQ2.price >= vixQ2.prevHigh)} PDH</>
+            )}
+            {ttRow('VIX Vel',
+              vixVelLabel,
+              <>VIX {fmtPct(vixPctVal)}{Math.abs(vixPctVal) >= 3 && <span className="text-amber-400 ml-1">algo</span>} · SPY {fmtPct(spyPctVal)}</>
+            )}
+            {ttRow('Volume',
+              volLabel,
+              volRatio != null
+                ? <>{(spyVol! / 1e6).toFixed(1)}M / {(spyAvgVol! / 1e6).toFixed(0)}M = {volRatio.toFixed(2)}x</>
+                : <>unavailable</>
+            )}
+            {ttRow('Term Str',
+              termLabel,
+              termRatio != null
+                ? <>VIX {vixQ2!.price.toFixed(1)} / 9D {vix9dQ!.price.toFixed(1)} = {termRatio.toFixed(3)}</>
+                : <>VIX9D unavailable</>
+            )}
+          </>);
+
           cells.push({
             label: 'INST DIR',
             value: instSignal,
@@ -266,7 +337,7 @@ export default function MacroScorecardPanel({
               : <>{instSetup}</>,
             color: instDirCellTone(instSignal),
             extraClass: instFlash ? 'animate-inst-flash' : '',
-            title: 'Institutional Direction — VIX-ES correlation.\n\nVIX pricing drives ~90% of S&P algorithmic volume. Rising VIX = put demand = sell programs. Falling VIX = pressure off = buy programs.\n\nBULLS: VIX pressure off, bear trap, or selling exhaustion.\nBEARS: VIX pressure on, confirmed breakdown, or 1% divergence.\nNEUTRAL: no active setup.',
+            titleContent: instTooltip,
           });
         }
 
@@ -281,7 +352,13 @@ export default function MacroScorecardPanel({
               sub: `${sign}${vPct.toFixed(2)}%`,
               color: vixPctTone(vPct),
               subColor: vixPctTone(vPct),
-              title: 'CBOE Volatility Index — the market\'s 30-day expectation of movement.\n\nBelow 18 is calm, 18-25 is elevated, above 25 is stressed. Falling VIX into a rising tape is confirmation; rising VIX into a rising tape is a warning.',
+              titleContent: ttWrap('CBOE Volatility Index', <>
+                {ttRow('What', '30d implied', <>expected market movement</>)}
+                {ttRow('<18', 'calm')}
+                {ttRow('18–25', 'elevated')}
+                {ttRow('>25', 'stressed')}
+                {ttRow('Read', '', <>VIX falling + tape rising = confirm</>)}
+              </>),
             });
           }
         }
@@ -292,7 +369,15 @@ export default function MacroScorecardPanel({
             value: `${breadth.score}/6`,
             sub: breadth.signal,
             color: breadthSignalTone(breadth.signal),
-            title: 'Six breadth conditions, one point each:\n\n  advancers > decliners\n  55%+ of the tape advancing\n  more 4% gainers than 4% losers\n  100+ names up 4%\n  60%+ of 4% moves to the upside\n  fewer than 50 names down 4%\n\nGREEN at 4+, RED at 2 or below.',
+            titleContent: ttWrap('Breadth Score — 6 conditions', <>
+              {ttRow('1', 'A > D', <>advancers beat decliners</>)}
+              {ttRow('2', '55%+', <>tape advancing</>)}
+              {ttRow('3', '4% up', <>more gainers than losers</>)}
+              {ttRow('4', '100+', <>names up 4%+</>)}
+              {ttRow('5', '60%+', <>of 4% moves to upside</>)}
+              {ttRow('6', '<50', <>names down 4%+</>)}
+              {ttRow('Signal', '', <>GREEN 4+ · RED ≤2</>)}
+            </>),
           });
         }
 
@@ -318,20 +403,15 @@ export default function MacroScorecardPanel({
               : partial ? `${mm.days}/5d` : '',
             color: mmTodayTone(mm.up4, mm.down4),
             subColor: mmCellTone(mm.ratio5),
-            title: [
-              'Market Monitor — universe: close ≥ $3, volume ≥ 100k',
-              '',
-              `Today: ${mm.up4} up 4%+, ${mm.down4} down 4%+`,
-              mm.up5 != null
-                ? `5-day: ${mm.up5} up vs ${mm.down5} down${partial ? ` (only ${mm.days} sessions buffered so far)` : ''}`
-                : '5-day: building history',
-              mm.ratio5 != null
-                ? `Ratio ${mm.ratio5.toFixed(2)} — above 1.0 favours the buyers, above 1.5 is genuine thrust.`
-                : 'Ratio unavailable — no 4% breakdowns in the window.',
-              mm.quarter25 != null
-                ? `\n25%+ in a quarter: ${mm.quarter25} names over the last 65 sessions.`
-                : '',
-            ].filter(Boolean).join('\n'),
+            titleContent: ttWrap('Market Monitor — ≥$3, ≥100k vol', <>
+              {ttRow('Today', `${mm.up4}▲ ${mm.down4}▼`, <>names moving 4%+</>)}
+              {ttRow('5-day',
+                mm.up5 != null ? `${mm.up5} / ${mm.down5}` : 'building',
+                partial ? <>{mm.days}/5 sessions so far</> : undefined
+              )}
+              {mm.ratio5 != null && ttRow('Ratio', mm.ratio5.toFixed(2), <>&gt;1.0 buyers · &gt;1.5 thrust</>)}
+              {mm.quarter25 != null && ttRow('25%/qtr', `${mm.quarter25}`, <>names up 25%+ in 65 sessions</>)}
+            </>),
           });
         }
 
@@ -343,7 +423,11 @@ export default function MacroScorecardPanel({
             value: `${pct.toFixed(1)}%`,
             sub: `${adv} / ${dec}`,
             color: advCellTone(pct),
-            title: `Share of the tape advancing — ${adv.toLocaleString()} up against ${dec.toLocaleString()} down.\n\nAbove 60% buyers are in control; below 50% sellers have it. Counted across all US equities above $1, so it tracks the market rather than the scanner's filtered list.`,
+            titleContent: ttWrap('Advance / Decline', <>
+              {ttRow('Now', `${adv.toLocaleString()} / ${dec.toLocaleString()}`, <>all US equities &gt;$1</>)}
+              {ttRow('>60%', 'buyers', <>in control</>)}
+              {ttRow('<50%', 'sellers', <>have it</>)}
+            </>),
           });
         }
 
@@ -355,7 +439,11 @@ export default function MacroScorecardPanel({
             value: `${pct.toFixed(1)}%`,
             sub: `${h} / ${l}`,
             color: highsCellTone(pct),
-            title: `New 52-week highs against new 52-week lows — ${h.toLocaleString()} highs, ${l.toLocaleString()} lows.\n\nThe structural read: are names actually breaking out, or just bouncing inside ranges. Above 65% is genuine strength, below 50% a defensive tape.`,
+            titleContent: ttWrap('New 52-Week Highs / Lows', <>
+              {ttRow('Now', `${h.toLocaleString()} / ${l.toLocaleString()}`, <>highs vs lows</>)}
+              {ttRow('>65%', 'strength', <>names breaking out</>)}
+              {ttRow('<50%', 'defensive', <>bouncing inside ranges</>)}
+            </>),
           });
         }
 
@@ -365,7 +453,12 @@ export default function MacroScorecardPanel({
             value: `${tVal.toFixed(0)}%`,
             sub: t2108ZoneLabel(tVal),
             color: t2108CellTone(tVal),
-            title: 'Percentage of stocks trading above their own 40-day moving average.\n\nA mean-reversion gauge, not a trend one. Below 20 the tape is washed out and reversals pay; above 80 it is frothy and breakouts start failing. The middle is uninformative by design.',
+            titleContent: ttWrap('T2108 — % above 40d MA', <>
+              {ttRow('What', 'mean-rev', <>not trend — reversion gauge</>)}
+              {ttRow('<20', 'washed', <>reversals pay</>)}
+              {ttRow('>80', 'frothy', <>breakouts start failing</>)}
+              {ttRow('20–80', 'neutral', <>uninformative by design</>)}
+            </>),
           });
         }
 
@@ -381,17 +474,34 @@ export default function MacroScorecardPanel({
             value: `${Number(mkm).toFixed(0)}%`,
             sub: `${rising ? '\u25B2' : '\u25BC'} vs ${sig.toFixed(0)}`,
             color: mkmCellTone(Number(mkm), sig, rising),
-            title: `Momentum oscillator on the new-high / new-low line.\n\nEMA(10) minus EMA(21) of the normalised ATHI/ATLO spread, rescaled 0-100 over a 500-session window, against a 9-EMA signal line.\n\nNow ${Number(mkm).toFixed(0)} vs signal ${sig.toFixed(0)}, ${rising ? 'rising' : 'falling'}. Green when it is both above signal and rising; rose when below and falling; amber when the two disagree.`,
+            titleContent: ttWrap('McClellan — HI/LO momentum', <>
+              {ttRow('Method', '', <>EMA(10)−EMA(21) of HI/LO spread</>)}
+              {ttRow('Now', `${Number(mkm).toFixed(0)}`, <>vs signal {sig.toFixed(0)}, {rising ? 'rising' : 'falling'}</>)}
+              {ttRow('Green', '', <>above signal + rising</>)}
+              {ttRow('Red', '', <>below signal + falling</>)}
+              {ttRow('Amber', '', <>signal and direction disagree</>)}
+            </>),
           });
         }
 
         if (chopVal != null) {
+          const tf = hourVal != null ? '1H' : '1D';
+          const qqq = hourVal != null ? chop?.hourly?.qqq : chop?.qqq;
+          const spy = hourVal != null ? chop?.hourly?.spy : chop?.spy;
           cells.push({
             label: 'CHOP',
             value: chopVal.toFixed(0),
             sub: chopZoneLabel(chopVal, bands),
             color: chopCellTone(chopVal, bands),
-            title: chopTooltipText,
+            titleContent: ttWrap(`CHOP ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal, bands)} [${bands.label}]`, <>
+              {ttRow('Timeframe', tf, <>{chop?.period ?? 14} bars</>)}
+              {ttRow('QQQ', qqq != null ? qqq.toFixed(1) : '—')}
+              {ttRow('SPY', spy != null ? spy.toFixed(1) : '—')}
+              {ttRow('Composite', chopVal.toFixed(1), intraVal != null ? <>with 30% intraday blend</> : undefined)}
+              {ttRow('Trend', `< ${bands.trend}`, <>trending</>)}
+              {ttRow('Chop', `> ${bands.chop}`, <>choppy</>)}
+              {intraVal != null && ttRow('Intraday', intraVal.toFixed(1), <>15m bars, unadjusted</>)}
+            </>),
           });
         }
 
@@ -402,7 +512,7 @@ export default function MacroScorecardPanel({
                 <div key={c.label} className={`rounded-lg border px-2.5 py-2 text-center flex flex-col items-center justify-center ${scCellCls(c.color)} ${c.extraClass ?? ''}`}>
                   <div className="text-[7px] font-bold uppercase tracking-[0.08em] text-slate-500 mb-0.5 flex items-center justify-center gap-1">
                     <span className="truncate">{c.label}</span>
-                    {c.title && <InfoDot text={c.title} />}
+                    {(c.title || c.titleContent) && <InfoDot text={c.title} content={c.titleContent} />}
                   </div>
                   <div className={`text-[13px] font-bold tabular-nums leading-tight ${scValCls(c.color)}`}>{c.valueNode ?? c.value}</div>
                   {(c.sub || c.subNode) && <div className={`text-[9px] mt-0.5 ${c.subNode ? '' : 'truncate'} ${c.subColor ? scValCls(c.subColor) : 'text-slate-500'}`}>{c.subNode ?? c.sub}</div>}
@@ -419,23 +529,24 @@ export default function MacroScorecardPanel({
           side. See the note above ProportionalBar. */}
       {breadth && (
         <div
-          className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border border-white/5 bg-[#161c2a]/40 rounded-xl px-4 py-3 relative z-10 cursor-help"
-          title={`Advance / Decline — ${breadth.advancers.toLocaleString()} advancing vs ${breadth.decliners.toLocaleString()} declining (${advPct.toFixed(0)}% advancing). Above 60% = buyers in control. Below 40% = sellers dominate.\n\n4% movers: ${breadth.up4} up / ${breadth.down4} down.\nA/D ratio: ${breadth.decliners > 0 ? (breadth.advancers / breadth.decliners).toFixed(2) : 'n/a'}.`}
+          className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border border-white/5 bg-[#161c2a]/40 rounded-xl px-4 py-3 relative z-10"
         >
           <span className={`flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 ${STRIP_LABEL_W}`}>
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa] shrink-0"></span>
             Internals
+            <InfoDot content={ttWrap('Advance / Decline', <>
+              {ttRow('Now', `${breadth.advancers.toLocaleString()} / ${breadth.decliners.toLocaleString()}`, <>{advPct.toFixed(0)}% advancing</>)}
+              {ttRow('4% movers', `${breadth.up4} / ${breadth.down4}`, <>up vs down</>)}
+              {ttRow('A/D ratio', breadth.decliners > 0 ? (breadth.advancers / breadth.decliners).toFixed(2) : '—')}
+              {ttRow('>60%', 'buyers', <>in control</>)}
+              {ttRow('<40%', 'sellers', <>dominate</>)}
+            </>)} />
           </span>
 
           <span
             className={`text-sm font-bold leading-none ${STRIP_ARROW_W} ${
               adTrend === 'up' ? 'text-emerald-400' : adTrend === 'down' ? 'text-rose-400' : 'text-slate-600'
             }`}
-            title={
-              adTrend === 'up' ? 'A/D ratio improving since last refresh'
-              : adTrend === 'down' ? 'A/D ratio deteriorating since last refresh'
-              : 'A/D ratio unchanged'
-            }
           >
             {adTrend === 'up' ? '▲' : adTrend === 'down' ? '▼' : '–'}
           </span>
@@ -471,23 +582,23 @@ export default function MacroScorecardPanel({
       {/* ATHI/ATLO — new highs vs new lows. Same proportional treatment. */}
       {breadth && ((breadth.newHighs ?? 0) > 0 || (breadth.newLows ?? 0) > 0) && (
         <div
-          className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border border-white/5 bg-[#161c2a]/40 rounded-xl px-4 py-3 relative z-10 cursor-help"
-          title={`ATHI/ATLO — ${breadth.newHighs ?? 0} at 52-week high vs ${breadth.newLows ?? 0} at 52-week low across US equities (${highsPct.toFixed(0)}% highs). Above 60% = structural strength. Below 40% = defensive tape. H/L ratio: ${(breadth.newLows ?? 0) > 0 ? ((breadth.newHighs ?? 0) / (breadth.newLows ?? 0)).toFixed(2) : '∞'}.`}
+          className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border border-white/5 bg-[#161c2a]/40 rounded-xl px-4 py-3 relative z-10"
         >
           <span className={`flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 ${STRIP_LABEL_W}`}>
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa] shrink-0"></span>
             ATHI / ATLO
+            <InfoDot content={ttWrap('New 52-Week Highs / Lows', <>
+              {ttRow('Now', `${(breadth.newHighs ?? 0).toLocaleString()} / ${(breadth.newLows ?? 0).toLocaleString()}`, <>{highsPct.toFixed(0)}% highs</>)}
+              {ttRow('H/L ratio', (breadth.newLows ?? 0) > 0 ? ((breadth.newHighs ?? 0) / (breadth.newLows ?? 0)).toFixed(2) : '∞')}
+              {ttRow('>60%', 'strength', <>names breaking out</>)}
+              {ttRow('<40%', 'defensive', <>bouncing in ranges</>)}
+            </>)} />
           </span>
 
           <span
             className={`text-sm font-bold leading-none ${STRIP_ARROW_W} ${
               hlTrend === 'up' ? 'text-emerald-400' : hlTrend === 'down' ? 'text-rose-400' : 'text-slate-600'
             }`}
-            title={
-              hlTrend === 'up' ? 'H/L ratio improving since last refresh'
-              : hlTrend === 'down' ? 'H/L ratio deteriorating since last refresh'
-              : 'H/L ratio unchanged'
-            }
           >
             {hlTrend === 'up' ? '▲' : hlTrend === 'down' ? '▼' : '–'}
           </span>
@@ -534,24 +645,33 @@ export default function MacroScorecardPanel({
       {chopVal != null && (
         <div className={`mb-6 border rounded-xl px-4 py-3 relative z-10 ${chopStripStyle(chopVal, bands)}`}>
           <div
-            className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 cursor-help"
-            title={chopTooltipText}
+            className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5"
           >
             <span className={`flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 ${STRIP_LABEL_W}`}>
               <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa] shrink-0"></span>
               Chop
+              {(() => {
+                const chopRawV = chopRaw ?? chopVal;
+                const adjV = chopVal - chopRawV;
+                const tfV = hourVal != null ? '1H' : '1D';
+                const qqqV = hourVal != null ? chop?.hourly?.qqq : chop?.qqq;
+                const spyV = hourVal != null ? chop?.hourly?.spy : chop?.spy;
+                return <InfoDot content={ttWrap(`CHOP ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal, bands)}`, <>
+                  {ttRow('Timeframe', tfV, <>{chop?.period ?? 14} bars · {bands.label}</>)}
+                  {ttRow('QQQ', qqqV != null ? qqqV.toFixed(1) : '—')}
+                  {ttRow('SPY', spyV != null ? spyV.toFixed(1) : '—')}
+                  {ttRow('Blended', chopVal.toFixed(1), <>adj {adjV >= 0 ? '+' : ''}{adjV.toFixed(1)}</>)}
+                  {ttRow('Trend', `≤ ${bands.trend}`, <>breakouts work</>)}
+                  {ttRow('Chop', `≥ ${bands.chop}`, <>sit out or fade</>)}
+                  {intraVal != null && ttRow('Intraday', intraVal.toFixed(1), <>15m bars</>)}
+                </>)} />;
+              })()}
             </span>
 
             <span
               className={`text-sm font-bold leading-none ${STRIP_ARROW_W} ${
                 chopTrend === 'up' ? chopColor(chopVal, bands) : chopTrend === 'down' ? chopColor(chopVal, bands) : 'text-slate-600'
               }`}
-              title={
-                chopDelta == null ? 'No prior bar to compare'
-                : chopTrend === 'up' ? `Raw daily choppiness rising vs yesterday (+${chopDelta.toFixed(2)}) — conditions deteriorating for breakouts`
-                : chopTrend === 'down' ? `Raw daily choppiness falling vs yesterday (${chopDelta.toFixed(2)}) — trend conditions improving`
-                : `Raw daily choppiness flat vs yesterday (${chopDelta >= 0 ? '+' : ''}${chopDelta.toFixed(2)})`
-              }
             >
               {chopTrend === 'up' ? '▲' : chopTrend === 'down' ? '▼' : '–'}
             </span>
@@ -668,25 +788,14 @@ export default function MacroScorecardPanel({
             {/* Zone word in the note slot, score in the badge — the same
                 grammar as A/D 0.66 then 40%. Both describe the DAILY
                 reading; the intraday number lives on its own track. */}
-            {/* DIRECTION, not just level. The zone word alone ("TRENDING")
-                says where chop sits; it does not say which way it is going,
-                and the way it is going is the tradeable part.
-
-                THE LABEL DESCRIBES CHOP, because this is the CHOP strip and
-                the number beside it is the chop composite: chop rising reads
-                "Trending Up", chop falling reads "Trending Down".
-
-                THE COLOUR DESCRIBES WHAT THAT MEANS FOR TRADING, which runs
-                the other way — falling choppiness is IMPROVING conditions, so
-                "Trending Down" is the green one and "Trending Up" is not.
-                Same convention as the ▲/▼ arrow beside it, which is already
-                amber-up / emerald-down for exactly this reason. Flat has no
-                direction to report, so it keeps the zone word. */}
+            {/* DIRECTION label describes the trading implication:
+                chop falling = conditions clearing for breakouts = "CLEARING"
+                chop rising  = conditions worsening for breakouts = "CHOPPING UP" */}
             <div className={`flex items-center gap-4 ${STRIP_CLUSTER_W}`}>
               <span className={`flex items-center whitespace-nowrap ${STRIP_NOTE_W}`}>
                 <span className={`text-[9px] font-bold tracking-widest uppercase ${chopColor(chopVal, bands)}`}>
-                  {chopTrend === 'down' ? 'Trending Down'
-                    : chopTrend === 'up' ? 'Trending Up'
+                  {chopTrend === 'down' ? 'Clearing'
+                    : chopTrend === 'up' ? 'Chopping Up'
                     : chopZoneLabel(chopVal, bands)}
                 </span>
               </span>
@@ -711,8 +820,6 @@ export default function MacroScorecardPanel({
                   <button
                     key={m}
                     onClick={() => setChopMode(m)}
-                    title={`${b.blurb}\n\nChop called at ${b.chop} and above; trend at ${b.trend} and below.` +
-                      (chopVal != null ? `\n\nToday's ${chopVal.toFixed(0)} would read ${chopZoneLabel(chopVal, b)} here.` : '')}
                     className={`text-[9px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border transition-all duration-200 ${
                       active
                         ? 'bg-[#1e293b] text-indigo-400 border-indigo-500/30'
@@ -727,8 +834,7 @@ export default function MacroScorecardPanel({
 
             {chopRaw != null && chopVal != null && Math.abs(chopVal - chopRaw) >= 2 && (
               <span
-                className="flex items-center gap-1 whitespace-nowrap cursor-help"
-                title={`Raw CHOP ${chopRaw.toFixed(1)} adjusted ${chopVal - chopRaw >= 0 ? '+' : ''}${(chopVal - chopRaw).toFixed(1)} by breadth centrality and high/low balance → composite ${chopVal.toFixed(1)}.\n\nCentred internals push toward chop; skewed internals pull toward trend.`}
+                className="flex items-center gap-1 whitespace-nowrap"
               >
                 <span className="text-[9px] font-medium tabular-nums text-slate-600">
                   raw {chopRaw.toFixed(0)}
@@ -741,9 +847,7 @@ export default function MacroScorecardPanel({
 
             {intraVal != null && divergence.label && (
               <span
-                className="flex items-center gap-2 whitespace-nowrap cursor-help"
-                title={`${divergence.detail}\n\nDaily ${chopVal.toFixed(0)} vs intraday ${intraVal.toFixed(0)} at the ${bands.label} setting.` +
-                  (intraStale ? '\n\nThe intraday leg is not current — treat this read as describing the last session that traded.' : '')}
+                className="flex items-center gap-2 whitespace-nowrap"
               >
                 <span className={`text-[10px] font-bold tracking-widest uppercase ${divergenceBadge(divergence.tone) || divergenceColor(divergence.tone)}`}>
                   {divergence.label}

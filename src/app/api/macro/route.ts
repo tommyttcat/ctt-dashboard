@@ -96,6 +96,34 @@ export async function GET() {
     });
   }
 
+  // Polygon supplementary data — SPY snapshot for volume, VIX9D for term structure.
+  const polyKey = (process.env.POLYGON_API_KEY || '').trim();
+  let polyVolume: { volume: number; avgVolume: number } | null = null;
+  let vix9dPrice: number | null = null;
+  if (polyKey) {
+    const [spySnap, vix9dSnap] = await Promise.all([
+      fetchSafeJson(
+        `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/SPY?apiKey=${polyKey}`,
+        null
+      ),
+      fetchSafeJson(
+        `https://api.polygon.io/v3/snapshot?ticker.any_of=I:VIX9D&apiKey=${polyKey}`,
+        null
+      ),
+    ]);
+    const spyT = spySnap?.ticker ?? spySnap?.tickers?.[0] ?? null;
+    if (spyT?.day?.v > 0) {
+      polyVolume = {
+        volume: spyT.day.v,
+        avgVolume: spyT.prevDay?.v ?? 0,
+      };
+    }
+    const vix9dResult = vix9dSnap?.results?.[0];
+    if (vix9dResult?.value > 0) vix9dPrice = vix9dResult.value;
+    else if (vix9dResult?.session?.close > 0) vix9dPrice = vix9dResult.session.close;
+    else if (vix9dResult?.last?.price > 0) vix9dPrice = vix9dResult.last.price;
+  }
+
   // Previous-day high/low for SPY, QQQ, VIX (institutional direction).
   const PDH_SYMS = ['SPY', 'QQQ', '^VIX'];
   const pdhBars = await Promise.all(
@@ -132,8 +160,18 @@ export async function GET() {
         entry.prevHigh = prevDay[s.id].high;
         entry.prevLow = prevDay[s.id].low;
       }
+      if (q.volume > 0) entry.volume = q.volume;
+      if (s.id === 'SPY' && polyVolume) {
+        entry.volume = polyVolume.volume;
+        entry.avgVolume = polyVolume.avgVolume;
+      }
       quotes[s.id] = entry;
     }
+  }
+
+  if (vix9dPrice != null) {
+    const vixBase = quotes['VIX']?.baseline;
+    quotes['VIX9D'] = { price: vix9dPrice, baseline: vixBase ?? vix9dPrice, pct: 0 };
   }
 
   const payload = { session, updatedAt: Date.now(), quotes };

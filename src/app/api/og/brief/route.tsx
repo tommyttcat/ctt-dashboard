@@ -418,10 +418,16 @@ export async function GET(req: Request) {
         const spyQ = quotes['SPY'];
         const qqqQ = quotes['QQQ'];
         if (spyQ?.price && qqqQ?.price && vixQ?.price) {
+          const vix9dQ = quotes['VIX9D'];
           const setup = instDirSetup(
             spyQ.price, spyQ.prevLow ?? null, spyQ.pct ?? 0,
             qqqQ.price, qqqQ.prevLow ?? null,
             vixQ.price, vixQ.prevHigh ?? null, vixQ.pct ?? 0,
+            {
+              vix9dPrice: vix9dQ?.price ?? null,
+              spyVolume: spyQ.volume ?? null,
+              spyAvgVolume: spyQ.avgVolume ?? null,
+            },
           );
           const signal = instDirSignal(setup);
           cells.push({ label: 'INST DIR', value: signal, sub: setup, color: instDirCellTone(signal) });

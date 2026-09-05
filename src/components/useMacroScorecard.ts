@@ -147,11 +147,17 @@ export function useMacroScorecard(): MacroScorecardData {
   const spy = quotes['SPY'];
   const qqq = quotes['QQQ'];
   const vix = quotes['VIX'];
+  const vix9d = quotes['VIX9D'];
   const iSetup = spy && qqq && vix
     ? instDirSetup(
         spy.price ?? 0, spy.prevLow ?? null, spy.pct ?? 0,
         qqq.price ?? 0, qqq.prevLow ?? null,
         vix.price ?? 0, vix.prevHigh ?? null, vix.pct ?? 0,
+        {
+          vix9dPrice: vix9d?.price ?? null,
+          spyVolume: spy.volume ?? null,
+          spyAvgVolume: spy.avgVolume ?? null,
+        },
       )
     : 'CLEAR' as InstDirSetup;
   const iSignal = instDirSignal(iSetup);
@@ -164,7 +170,7 @@ export function useMacroScorecard(): MacroScorecardData {
     hourVal != null
       ? `Hourly (${chop?.period ?? 14} × 1h): QQQ ${chop?.hourly?.qqq != null ? chop.hourly.qqq.toFixed(1) : '—'}, SPY ${chop?.hourly?.spy != null ? chop.hourly.spy.toFixed(1) : '—'}, blended ${hourVal.toFixed(1)}`
       : `Daily (${chop?.period ?? 14} × 1d): QQQ ${chop?.qqq != null ? chop.qqq.toFixed(1) : '—'}, SPY ${chop?.spy != null ? chop.spy.toFixed(1) : '—'}, blended ${chopRaw != null ? chopRaw.toFixed(1) : '—'}`,
-    `Adjusted ${chopRawBase != null && chopVal - chopRawBase >= 0 ? '+' : ''}${chopRawBase != null ? (chopVal - chopRawBase).toFixed(1) : '0'} by breadth centrality and high/low balance.`,
+    intraVal != null && !intraStale ? `Composite blends 70% hourly/daily + 30% intraday.` : '',
     chopSpreadNote(hourVal != null ? chop?.hourly?.qqq ?? null : chop?.qqq ?? null, hourVal != null ? chop?.hourly?.spy ?? null : chop?.spy ?? null),
     intraVal != null
       ? `\nIntraday (${chop?.intraday?.windowMinutes ?? 210} min, 15m bars): ${intraVal.toFixed(1)} — ${chopZoneLabel(intraVal, bands)}. Raw, unadjusted.` +

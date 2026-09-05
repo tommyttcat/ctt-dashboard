@@ -241,28 +241,53 @@ export const INVERSE_TICKERS = new Set(['VIX', 'UVXY', 'SQQQ', 'SPXS', 'SDOW', '
 
 /* ---- Institutional Direction ------------------------------------------------
 
-   Derived from the VIX-ES correlation framework: VIX pricing drives ~90% of
-   S&P algorithmic volume. Rising VIX = institutional put demand = sell programs.
-   Falling VIX = pressure off = buy programs engage.
+   Three-signal algo/institutional detection:
 
-   Reference points are previous-day high/low (PDH/PDL). Setups compare where
-   SPY/QQQ sit relative to their PDL and where VIX sits relative to its PDH. */
+   1. VIX-ES CORRELATION — the original signal. VIX pricing drives ~90% of
+      S&P algorithmic volume. Rising VIX = put demand = sell programs.
+      Reference: SPY/QQQ vs previous-day low (PDL), VIX vs previous-day high.
+
+   2. VIX VELOCITY — a VIX move of 3%+ intraday is algo-driven, not retail.
+      Retail traders don't move the VIX 3% in a session. When VIX spikes
+      that fast, market makers are delta-hedging options flow, which IS the
+      algorithm. Replaces the old ±0.5% PRESSURE ON/OFF with a tiered read.
+
+   3. VOLUME ANOMALY — SPY volume > 1.5× its 20-day average means large
+      blocks are moving. Direction (positive or negative day) determines
+      whether it is accumulation or distribution.
+
+   4. VIX TERM STRUCTURE — VIX vs VIX9D. When VIX > VIX9D (backwardation),
+      institutions are bidding up short-dated protection: hedging urgency.
+      When VIX < VIX9D (contango), hedges are being unwound. Optional —
+      degrades to the other signals when VIX9D is unavailable. */
 
 export type InstDirSetup =
   | 'BEAR TRAP'
   | 'CONFIRMED ↓'
   | '1% DIVG'
   | 'EXHAUSTION'
+  | 'HEDGING'
+  | 'ALGO SELL'
+  | 'ALGO BUY'
+  | 'DISTRIBUTION'
+  | 'ACCUMULATION'
   | 'PRESSURE ON'
   | 'PRESSURE OFF'
   | 'CLEAR';
 
 export type InstDirSignal = 'BULLS' | 'BEARS' | 'NEUTRAL';
 
+export interface InstDirOpts {
+  vix9dPrice?: number | null;
+  spyVolume?: number | null;
+  spyAvgVolume?: number | null;
+}
+
 export function instDirSetup(
   spyPrice: number, spyPdl: number | null, spyPct: number,
   qqqPrice: number, qqqPdl: number | null,
   vixPrice: number, vixPdh: number | null, vixPct: number,
+  opts?: InstDirOpts,
 ): InstDirSetup {
   if (spyPct >= 1 && vixPct >= 1) return '1% DIVG';
   if (spyPct <= -1 && vixPct <= -1) return 'EXHAUSTION';
@@ -274,25 +299,37 @@ export function instDirSetup(
   if (spyBrokePdl && qqqBrokePdl && vixAbovePdh) return 'CONFIRMED ↓';
   if (spyBrokePdl && !vixAbovePdh) return 'BEAR TRAP';
 
+  const v9d = opts?.vix9dPrice;
+  if (v9d != null && v9d > 0 && vixPrice / v9d > 1.05) return 'HEDGING';
+
+  const volRatio = opts?.spyVolume && opts?.spyAvgVolume && opts.spyAvgVolume > 0
+    ? opts.spyVolume / opts.spyAvgVolume
+    : null;
+
+  if (vixPct >= 3 && spyPct <= -0.75) return 'ALGO SELL';
+  if (vixPct <= -3 && spyPct >= 0.75) return 'ALGO BUY';
+
+  if (volRatio != null && volRatio >= 1.5) {
+    return spyPct < -0.1 ? 'DISTRIBUTION' : spyPct > 0.1 ? 'ACCUMULATION' : 'PRESSURE ON';
+  }
+
   if (vixPct >= 0.5) return 'PRESSURE ON';
   if (vixPct <= -0.5) return 'PRESSURE OFF';
 
   return 'CLEAR';
 }
 
+const BULL_SETUPS: Set<InstDirSetup> = new Set([
+  'BEAR TRAP', 'PRESSURE OFF', 'EXHAUSTION', 'ALGO BUY', 'ACCUMULATION',
+]);
+const BEAR_SETUPS: Set<InstDirSetup> = new Set([
+  'CONFIRMED ↓', '1% DIVG', 'PRESSURE ON', 'HEDGING', 'ALGO SELL', 'DISTRIBUTION',
+]);
+
 export function instDirSignal(setup: InstDirSetup): InstDirSignal {
-  switch (setup) {
-    case 'BEAR TRAP':
-    case 'PRESSURE OFF':
-    case 'EXHAUSTION':
-      return 'BULLS';
-    case 'CONFIRMED ↓':
-    case '1% DIVG':
-    case 'PRESSURE ON':
-      return 'BEARS';
-    default:
-      return 'NEUTRAL';
-  }
+  if (BULL_SETUPS.has(setup)) return 'BULLS';
+  if (BEAR_SETUPS.has(setup)) return 'BEARS';
+  return 'NEUTRAL';
 }
 
 export const instDirCellTone = (s: InstDirSignal): CellTone =>
@@ -308,10 +345,8 @@ export const instDirTextColor = (s: InstDirSignal): string =>
   s === 'BULLS' ? 'text-emerald-400' : s === 'BEARS' ? 'text-rose-400' : 'text-slate-200';
 
 export function instDirSetupBadge(setup: InstDirSetup): string {
-  if (setup === 'BEAR TRAP' || setup === 'PRESSURE OFF' || setup === 'EXHAUSTION')
-    return 'bg-emerald-500/10 text-emerald-400';
-  if (setup === 'CONFIRMED ↓' || setup === '1% DIVG' || setup === 'PRESSURE ON')
-    return 'bg-rose-500/10 text-rose-400';
+  if (BULL_SETUPS.has(setup)) return 'bg-emerald-500/10 text-emerald-400';
+  if (BEAR_SETUPS.has(setup)) return 'bg-rose-500/10 text-rose-400';
   return 'bg-slate-500/10 text-slate-300';
 }
 
