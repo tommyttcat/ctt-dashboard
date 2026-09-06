@@ -29,7 +29,7 @@ const fmtPct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
    publication's existing category names exactly — Substack creates a new
    category for any name that does not already exist, so a typo or a renamed
    category quietly forks the archive instead of erroring. */
-const WEEKLY_SUBSTACK_TAGS = ['Weekly Wrap', 'Market Analysis'];
+const WEEKLY_SUBSTACK_TAGS: string[] = []; // empty on purpose: the publication has no categories yet, and Substack creates one for any unknown name
 
 /* ── ProseMirror node builders ── */
 
