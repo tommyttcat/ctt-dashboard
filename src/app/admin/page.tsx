@@ -411,6 +411,7 @@ export default function AdminPage() {
               <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{session.name}</span>
             )}
             <a href="/dashboard" className="text-xs font-medium text-indigo-400 hover:text-indigo-300">Dashboard</a>
+            <a href="/admin/ledger" className="text-xs font-medium text-indigo-400 hover:text-indigo-300">Ledger</a>
             <a href="/api/auth/logout" className="text-xs font-medium text-rose-400 hover:text-rose-300">Sign Out</a>
           </div>
         </div>
