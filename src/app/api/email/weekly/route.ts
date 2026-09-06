@@ -8,6 +8,32 @@ import { kv } from '@vercel/kv';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
+async function fetchImageBytes(u?: string | null): Promise<Uint8Array | undefined> {
+  try {
+    if (!u) return undefined;
+    const r = await fetch(u, { cache: 'no-store' });
+    if (!r.ok || !(r.headers.get('content-type') || '').startsWith('image/')) return undefined;
+    return new Uint8Array(await r.arrayBuffer());
+  } catch { return undefined; }
+}
+
+/* Social copy for the weekly wrap. Bluesky counts every character; X counts a
+   link as 23 regardless of length, so the X body budget is measured that way. */
+function weeklySocialTexts(body: string, postUrl: string) {
+  const cta = `Full wrap → ${postUrl}`;
+  const head = 'CTT Weekly Wrap\n\n';
+  const cut = (b: string, max: number) => (b.length > max ? (b.slice(0, b.lastIndexOf('\n', max)).trim() || b.slice(0, max).trim()) : b);
+  const bskyMax = 300 - head.length - 2 - cta.length;
+  const bskyText = `${head}${cut(body, bskyMax)}\n\n${cta}`;
+  const xMax = 280 - head.length - 2 - (cta.length - postUrl.length + 23);
+  let cashCount = 0;
+  const xBody = cut(body, xMax).replace(/\$/g, (m) => { cashCount++; return cashCount <= 1 ? m : ''; });
+  const xText = `${head}${xBody}\n\n${cta}`;
+  const linkPos = bskyText.lastIndexOf(postUrl);
+  const facets = linkPos >= 0 ? [{ start: linkPos, end: linkPos + postUrl.length, url: postUrl }] : [];
+  return { bskyText, xText, facets };
+}
+
 function resolveOrigin(req: Request): string {
   try {
     const u = new URL(req.url);
@@ -670,6 +696,33 @@ export async function GET(req: Request) {
       }
     } catch { /* fall through and send */ }
   }
+
+  /* Socials only: repost X + Bluesky for an already-published weekly without
+     re-sending the email or touching Substack. Requires force=1. Optional
+     url= (post link) and img= (image URL) overrides. */
+  if (url.searchParams.get('socialOnly') === '1' && force) {
+    const wd = await kv.get<any>('weekly_substack_data');
+    if (!wd?.narrative) return NextResponse.json({ error: 'No weekly data in KV' }, { status: 404 });
+    const last = await kv.get<any>('weekly_substack_last');
+    const postUrl = url.searchParams.get('url') || last?.postUrl || 'https://www.confluencetradingtools.com';
+    const wc = wd.weeklyChanges || {};
+    const indexLine = ['SPY', 'QQQ', 'IWM', 'DIA'].filter(t => wc[t]).map(t => `$${t} ${wc[t].pct >= 0 ? '+' : ''}${wc[t].pct.toFixed(1)}%`).join(' | ');
+    const heads = (wd.narrative.catalysts || []).slice(0, 2);
+    const headlineLine = heads.length ? `\n\nThis week:\n${heads.map((c: any) => `→ ${c.title}`).join('\n')}` : '';
+    const texts = weeklySocialTexts(`${indexLine}${headlineLine}`, postUrl);
+    const coverBytes = await fetchImageBytes(url.searchParams.get('img') || wd.narrative.coverImageUrl);
+    if (url.searchParams.get('dry') === '1') return NextResponse.json({ dry: true, postUrl, image: !!coverBytes, ...texts });
+    const r = await Promise.allSettled([
+      postToBluesky(texts.bskyText, texts.facets, coverBytes ? { data: coverBytes, alt: 'CTT Weekly Wrap' } : undefined),
+      postToX(texts.xText, coverBytes ? { data: coverBytes } : undefined),
+    ]);
+    return NextResponse.json({
+      socialOnly: true, postUrl, image: !!coverBytes,
+      bluesky: r[0].status, x: r[1].status,
+      errors: r.map(x => (x.status === 'rejected' ? String((x as any).reason?.message || (x as any).reason) : null)),
+      bskyText: texts.bskyText, xText: texts.xText,
+    });
+  }
   const thisMonday = mondayOf(nowET);
   const thisFriday = fridayOf(nowET);
   const nextMon = new Date(thisMonday); nextMon.setDate(nextMon.getDate() + 7);
@@ -972,23 +1025,11 @@ export async function GET(req: Request) {
       // the link is what carries the reader to the full wrap. Fall back to the
       // dashboard only when the publish returned no URL.
       const postUrl = substackUrl || `https://${dashUrl}`;
-      const cta = `Full wrap → ${postUrl}`;
-
-      const bskyMax = 300 - 'CTT Weekly Wrap\n\n'.length - '\n\n'.length - cta.length;
-      const bskyBody = body.length > bskyMax ? body.slice(0, body.lastIndexOf('\n', bskyMax)).trim() || body.slice(0, bskyMax).trim() : body;
-      const bskyText = `CTT Weekly Wrap\n\n${bskyBody}\n\n${cta}`;
-
-      const xMax = 280 - 'CTT Weekly Wrap\n\n'.length - '\n\n'.length - cta.length;
-      let xBody = body.length > xMax ? body.slice(0, body.lastIndexOf('\n', xMax)).trim() || body.slice(0, xMax).trim() : body;
-      let cashCount = 0;
-      xBody = xBody.replace(/\$/g, (m) => { cashCount++; return cashCount <= 1 ? m : ''; });
-      const xText = `CTT Weekly Wrap\n\n${xBody}\n\n${cta}`;
-
-      const linkPos = bskyText.lastIndexOf(postUrl);
-      const facets = linkPos >= 0 ? [{ start: linkPos, end: linkPos + postUrl.length, url: postUrl }] : [];
+      const { bskyText, xText, facets } = weeklySocialTexts(body, postUrl);
+      const coverBytes = await fetchImageBytes(narrative?.coverImageUrl);
       const socialResults = await Promise.allSettled([
-        postToBluesky(bskyText, facets),
-        postToX(xText),
+        postToBluesky(bskyText, facets, coverBytes ? { data: coverBytes, alt: 'CTT Weekly Wrap' } : undefined),
+        postToX(xText, coverBytes ? { data: coverBytes } : undefined),
       ]);
       bskyWeekly = socialResults[0].status === 'fulfilled' ? socialResults[0].value : null;
       xWeekly = socialResults[1].status === 'fulfilled' ? socialResults[1].value : null;

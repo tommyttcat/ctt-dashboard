@@ -554,6 +554,27 @@ export async function GET(req: Request) {
     }
 
     const { narrative, weeklyChanges, sips, sectors: sectorList, mStr, fStr, subject: weeklySubject } = weeklyData;
+
+    /* Attach (or replace) the cover on an already-published weekly post.
+       Used once on 6 Sep 2026 after the post went out without an image. */
+    const attachCover = url.searchParams.get('attachCover');
+    if (attachCover && force) {
+      const src = url.searchParams.get('coverSrc') || narrative?.coverImageUrl;
+      if (!src) return NextResponse.json({ error: 'no coverSrc or narrative.coverImageUrl' }, { status: 400 });
+      const r = await fetch(src, { cache: 'no-store' });
+      const ct = (r.headers.get('content-type') || '').split(';')[0];
+      if (!r.ok || !ct.startsWith('image/')) return NextResponse.json({ error: `cover fetch ${r.status} ${ct}` }, { status: 502 });
+      const buf = Buffer.from(await r.arrayBuffer());
+      const cdn = await uploadImageToSubstack(pubUrl, session, `data:${ct};base64,${buf.toString('base64')}`);
+      if (!cdn) return NextResponse.json({ error: 'substack image upload returned null' }, { status: 502 });
+      const put = await fetch(`${pubUrl}/api/v1/drafts/${attachCover}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Cookie: `substack.sid=${session}` },
+        body: JSON.stringify({ cover_image: cdn, social_image: cdn }),
+      });
+      const putText = await put.text().catch(() => '');
+      return NextResponse.json({ attachCover, coverUrl: cdn, putStatus: put.status, putBody: putText.slice(0, 300) }, { status: put.ok ? 200 : 502 });
+    }
     const wTitle = weeklySubject || 'CTT Weekly Wrap';
     const wSubtitle = `Market review for the week of ${mStr} to ${fStr}`;
 
@@ -580,6 +601,23 @@ export async function GET(req: Request) {
 
     const content: any[] = [];
     if (indexLine) content.push(para([bold(indexLine)]));
+
+    /* Weekly cover: the routine generates an image and passes its URL in the
+       narrative (coverImageUrl). Re-host it on Substack's CDN so the post does
+       not depend on the generator's URL staying alive. No cover = post still goes. */
+    let weeklyCoverCdn: string | undefined;
+    const coverSrc = url.searchParams.get('coverSrc') || narrative?.coverImageUrl;
+    if (coverSrc) {
+      try {
+        const r = await fetch(coverSrc, { cache: 'no-store' });
+        const ct = (r.headers.get('content-type') || '').split(';')[0];
+        if (r.ok && ct.startsWith('image/')) {
+          const buf = Buffer.from(await r.arrayBuffer());
+          weeklyCoverCdn = await uploadImageToSubstack(pubUrl, session, `data:${ct};base64,${buf.toString('base64')}`) || undefined;
+        }
+      } catch { /* best-effort */ }
+    }
+    if (weeklyCoverCdn) content.push(captionedImage(weeklyCoverCdn, 'normal'));
 
     if (narrative?.priceAction) {
       content.push(heading(2, 'Price Action'));
@@ -634,7 +672,7 @@ export async function GET(req: Request) {
     content.push(paraText('*Confluence Trading Tools. Analysis only. Not financial advice.*'));
 
     const weeklyBody = { type: 'doc', content };
-    const draft = await substackCreateDraft(pubUrl, session, wTitle, wSubtitle, weeklyBody, undefined, WEEKLY_SUBSTACK_TAGS);
+    const draft = await substackCreateDraft(pubUrl, session, wTitle, wSubtitle, weeklyBody, weeklyCoverCdn, WEEKLY_SUBSTACK_TAGS);
     if (draft.error) return NextResponse.json({ error: draft.error }, { status: 502 });
 
     if (publish && draft.id) {
@@ -642,9 +680,9 @@ export async function GET(req: Request) {
       const pub = await substackPublish(pubUrl, session, draft.id, send);
       if (pub.error) return NextResponse.json({ draftId: draft.id, error: pub.error }, { status: 502 });
       if (pub.url) await kv.set('weekly_substack_last', { postUrl: pub.url, date: today }, { ex: 7 * 86400 });
-      return NextResponse.json({ success: true, draftId: draft.id, published: true, sent: send, url: pub.url });
+      return NextResponse.json({ success: true, draftId: draft.id, published: true, sent: send, url: pub.url, coverUrl: weeklyCoverCdn || null });
     }
-    return NextResponse.json({ success: true, draftId: draft.id, published: false });
+    return NextResponse.json({ success: true, draftId: draft.id, published: false, coverUrl: weeklyCoverCdn || null });
   }
 
   const brief = await fetchJson(`${origin}/api/analyst/brief`);
