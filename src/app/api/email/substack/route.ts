@@ -25,6 +25,12 @@ async function fetchJson(url: string) {
 
 const fmtPct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
 
+/* Categories applied to the weekly wrap on Substack. These must match the
+   publication's existing category names exactly — Substack creates a new
+   category for any name that does not already exist, so a typo or a renamed
+   category quietly forks the archive instead of erroring. */
+const WEEKLY_SUBSTACK_TAGS = ['Weekly Wrap', 'Market Analysis'];
+
 /* ── ProseMirror node builders ── */
 
 function text(t: string, marks?: any[]): any {
@@ -417,7 +423,7 @@ async function substackGetUserId(pubUrl: string, session: string): Promise<{ id:
   return { id: null, debug: 'all endpoints failed' };
 }
 
-async function substackCreateDraft(pubUrl: string, session: string, title: string, subtitle: string, bodyJson: any, coverImageUrl?: string): Promise<{ id?: number; error?: string }> {
+async function substackCreateDraft(pubUrl: string, session: string, title: string, subtitle: string, bodyJson: any, coverImageUrl?: string, tags?: string[]): Promise<{ id?: number; error?: string }> {
   const userResult = await substackGetUserId(pubUrl, session);
   if (!userResult.id) {
     return { error: `Could not fetch Substack user ID — ${userResult.debug || 'unknown error'}. Cookie length: ${session.length}` };
@@ -435,6 +441,9 @@ async function substackCreateDraft(pubUrl: string, session: string, title: strin
     payload.cover_image = coverImageUrl;
     payload.social_image = coverImageUrl;
   }
+  // Substack creates the category on first use, so a name that does not match
+  // an existing one silently adds a new category to the publication archive.
+  if (tags?.length) payload.postTags = tags.map(name => ({ name }));
 
   const res = await fetch(`${pubUrl}/api/v1/drafts`, {
     method: 'POST',
@@ -608,7 +617,7 @@ export async function GET(req: Request) {
     content.push(paraText('*Confluence Trading Tools. Analysis only. Not financial advice.*'));
 
     const weeklyBody = { type: 'doc', content };
-    const draft = await substackCreateDraft(pubUrl, session, wTitle, wSubtitle, weeklyBody);
+    const draft = await substackCreateDraft(pubUrl, session, wTitle, wSubtitle, weeklyBody, undefined, WEEKLY_SUBSTACK_TAGS);
     if (draft.error) return NextResponse.json({ error: draft.error }, { status: 502 });
 
     if (publish && draft.id) {
