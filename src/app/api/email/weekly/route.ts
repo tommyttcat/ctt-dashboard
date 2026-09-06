@@ -655,6 +655,21 @@ export async function GET(req: Request) {
   const origin = resolveOrigin(req);
 
   const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+
+  /* Sent-today lock. The cloud routine sends this at ~19:00 UTC with force=1;
+     the Vercel cron fires again at 21:30 UTC as a fallback. Without this guard
+     the cron re-sends with the deterministic fallback narrative (the cloud
+     narrative is consumed on first use), which on 6 Sep 2026 produced a second,
+     weaker email plus duplicate social posts. Cost: one KV read per cron fire.
+     force=1 bypasses it on purpose so the routine and the admin page still work. */
+  const sentKey = `weekly_sent:${nowET.toISOString().slice(0, 10)}`;
+  if (!preview && !test && !debug && !force) {
+    try {
+      if (await kv.get(sentKey)) {
+        return NextResponse.json({ skipped: true, reason: 'Weekly already sent today', sentKey });
+      }
+    } catch { /* fall through and send */ }
+  }
   const thisMonday = mondayOf(nowET);
   const thisFriday = fridayOf(nowET);
   const nextMon = new Date(thisMonday); nextMon.setDate(nextMon.getDate() + 7);
@@ -878,6 +893,7 @@ export async function GET(req: Request) {
 
     const sent = results.filter((r) => r.status === 'fulfilled').length;
     const failed = results.filter((r) => r.status === 'rejected').length;
+    if (sent > 0) { try { await kv.set(sentKey, true, { ex: 172800 }); } catch { /* best-effort */ } }
 
     // --- Substack publish ---
     let substackPublished = false;
