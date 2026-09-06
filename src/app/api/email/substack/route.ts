@@ -567,13 +567,20 @@ export async function GET(req: Request) {
       const buf = Buffer.from(await r.arrayBuffer());
       const cdn = await uploadImageToSubstack(pubUrl, session, `data:${ct};base64,${buf.toString('base64')}`);
       if (!cdn) return NextResponse.json({ error: 'substack image upload returned null' }, { status: 502 });
-      const put = await fetch(`${pubUrl}/api/v1/drafts/${attachCover}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Cookie: `substack.sid=${session}` },
-        body: JSON.stringify({ cover_image: cdn, social_image: cdn }),
-      });
-      const putText = await put.text().catch(() => '');
-      return NextResponse.json({ attachCover, coverUrl: cdn, putStatus: put.status, putBody: putText.slice(0, 300) }, { status: put.ok ? 200 : 502 });
+      /* A published post is edited through /posts/{id}; /drafts/{id} answers
+         404 once the draft has been published. Try posts first, then drafts. */
+      const attempts: Array<{ path: string; status: number; body: string }> = [];
+      for (const path of [`/api/v1/posts/${attachCover}`, `/api/v1/drafts/${attachCover}`]) {
+        const put = await fetch(`${pubUrl}${path}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Cookie: `substack.sid=${session}` },
+          body: JSON.stringify({ cover_image: cdn, social_image: cdn, draft_cover_image: cdn }),
+        });
+        const body = (await put.text().catch(() => '')).slice(0, 300);
+        attempts.push({ path, status: put.status, body });
+        if (put.ok) return NextResponse.json({ attachCover, coverUrl: cdn, ok: true, attempts });
+      }
+      return NextResponse.json({ attachCover, coverUrl: cdn, ok: false, attempts }, { status: 502 });
     }
     const wTitle = weeklySubject || 'CTT Weekly Wrap';
     const wSubtitle = `Market review for the week of ${mStr} to ${fStr}`;

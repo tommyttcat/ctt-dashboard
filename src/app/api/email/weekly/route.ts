@@ -17,6 +17,20 @@ async function fetchImageBytes(u?: string | null): Promise<Uint8Array | undefine
   } catch { return undefined; }
 }
 
+/* Social image budget: Bluesky rejects blobs over 1 MB-ish (hard cap 2 MB) and
+   X over 5 MB. Generated covers arrive as 5-7 MB PNGs, so downscale to a
+   1600px JPEG before posting. Falls back to the original bytes if sharp fails. */
+async function socialImage(bytes?: Uint8Array): Promise<{ data: Uint8Array; mimeType: string } | undefined> {
+  if (!bytes) return undefined;
+  try {
+    const sharp = (await import('sharp')).default;
+    const out = await sharp(Buffer.from(bytes)).resize({ width: 1600, withoutEnlargement: true }).jpeg({ quality: 82, mozjpeg: true }).toBuffer();
+    return { data: new Uint8Array(out), mimeType: 'image/jpeg' };
+  } catch {
+    return { data: bytes, mimeType: 'image/png' };
+  }
+}
+
 /* Social copy for the weekly wrap. Bluesky counts every character; X counts a
    link as 23 regardless of length, so the X body budget is measured that way. */
 function weeklySocialTexts(body: string, postUrl: string) {
@@ -710,14 +724,16 @@ export async function GET(req: Request) {
     const heads = (wd.narrative.catalysts || []).slice(0, 2);
     const headlineLine = heads.length ? `\n\nThis week:\n${heads.map((c: any) => `→ ${c.title}`).join('\n')}` : '';
     const texts = weeklySocialTexts(`${indexLine}${headlineLine}`, postUrl);
-    const coverBytes = await fetchImageBytes(url.searchParams.get('img') || wd.narrative.coverImageUrl);
-    if (url.searchParams.get('dry') === '1') return NextResponse.json({ dry: true, postUrl, image: !!coverBytes, ...texts });
+    const cover = await socialImage(await fetchImageBytes(url.searchParams.get('img') || wd.narrative.coverImageUrl));
+    const only = url.searchParams.get('only'); // 'bluesky' | 'x' | null (both)
+    if (url.searchParams.get('dry') === '1') return NextResponse.json({ dry: true, postUrl, image: !!cover, imageBytes: cover?.data.length ?? 0, only, ...texts });
+    const skipped = () => Promise.resolve({ skipped: true });
     const r = await Promise.allSettled([
-      postToBluesky(texts.bskyText, texts.facets, coverBytes ? { data: coverBytes, alt: 'CTT Weekly Wrap' } : undefined),
-      postToX(texts.xText, coverBytes ? { data: coverBytes } : undefined),
+      only === 'x' ? skipped() : postToBluesky(texts.bskyText, texts.facets, cover ? { data: cover.data, alt: 'CTT Weekly Wrap', mimeType: cover.mimeType } : undefined),
+      only === 'bluesky' ? skipped() : postToX(texts.xText, cover ? { data: cover.data } : undefined),
     ]);
     return NextResponse.json({
-      socialOnly: true, postUrl, image: !!coverBytes,
+      socialOnly: true, postUrl, image: !!cover,
       bluesky: r[0].status, x: r[1].status,
       errors: r.map(x => (x.status === 'rejected' ? String((x as any).reason?.message || (x as any).reason) : null)),
       bskyText: texts.bskyText, xText: texts.xText,
@@ -1026,10 +1042,10 @@ export async function GET(req: Request) {
       // dashboard only when the publish returned no URL.
       const postUrl = substackUrl || `https://${dashUrl}`;
       const { bskyText, xText, facets } = weeklySocialTexts(body, postUrl);
-      const coverBytes = await fetchImageBytes(narrative?.coverImageUrl);
+      const cover = await socialImage(await fetchImageBytes(narrative?.coverImageUrl));
       const socialResults = await Promise.allSettled([
-        postToBluesky(bskyText, facets, coverBytes ? { data: coverBytes, alt: 'CTT Weekly Wrap' } : undefined),
-        postToX(xText, coverBytes ? { data: coverBytes } : undefined),
+        postToBluesky(bskyText, facets, cover ? { data: cover.data, alt: 'CTT Weekly Wrap', mimeType: cover.mimeType } : undefined),
+        postToX(xText, cover ? { data: cover.data } : undefined),
       ]);
       bskyWeekly = socialResults[0].status === 'fulfilled' ? socialResults[0].value : null;
       xWeekly = socialResults[1].status === 'fulfilled' ? socialResults[1].value : null;
