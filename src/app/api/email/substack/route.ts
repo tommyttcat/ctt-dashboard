@@ -578,11 +578,28 @@ export async function GET(req: Request) {
         if (c.body) content.push(...analysisToNodes(c.body));
       }
     }
-    if (sips?.length) {
+    /* Watch / Avoid come from the analyst narrative, which carries the levels.
+       The raw scanner list that used to sit here (top 5 by score) surfaced
+       leveraged ETFs and Stage 4 names next to the analyst's actual picks. */
+    if (narrative?.watchStocks?.length) {
+      content.push(heading(2, 'Key Stocks to Watch'));
+      for (const w of narrative.watchStocks.slice(0, 5)) {
+        if (!w?.ticker) continue;
+        content.push(para([bold(`$${w.ticker}`), text(w.title ? ` — ${w.title}` : '')]));
+        if (w.body) content.push(...analysisToNodes(w.body));
+      }
+    } else if (sips?.length) {
       content.push(heading(2, 'Top Scanner Picks'));
       content.push(bulletList(sips.slice(0, 5).map((s: any) =>
         `**$${s.ticker}** — CNF ${s.cnfScore || '—'} · ${s.stage || '—'} · ${s.setup || '—'}`
       )));
+    }
+    if (narrative?.avoidStocks?.length) {
+      content.push(heading(2, 'Stay Away'));
+      for (const a of narrative.avoidStocks.slice(0, 5)) {
+        if (!a?.ticker) continue;
+        content.push(para([bold(`$${a.ticker}`), text(a.reason ? ` — ${a.reason}` : '')]));
+      }
     }
     if (sectorList?.length) {
       content.push(heading(2, 'Sector Performance'));
