@@ -452,7 +452,7 @@ async function substackCreateDraft(pubUrl: string, session: string, title: strin
   return { id: data.id };
 }
 
-async function substackPublish(pubUrl: string, session: string, draftId: number, send: boolean): Promise<{ error?: string }> {
+async function substackPublish(pubUrl: string, session: string, draftId: number, send: boolean): Promise<{ url?: string; error?: string }> {
   const res = await fetch(`${pubUrl}/api/v1/drafts/${draftId}/publish`, {
     method: 'POST',
     headers: {
@@ -468,7 +468,9 @@ async function substackPublish(pubUrl: string, session: string, draftId: number,
     const text = await res.text().catch(() => '');
     return { error: `Publish failed (${res.status}): ${text}` };
   }
-  return {};
+  const data: { canonical_url?: string; slug?: string } = await res.json().catch(() => ({}));
+  const url = data.canonical_url || (data.slug ? `${pubUrl}/p/${data.slug}` : undefined);
+  return { url };
 }
 
 export async function GET(req: Request) {
@@ -551,7 +553,14 @@ export async function GET(req: Request) {
     if (publish && !force) {
       const alreadyPublished = await kv.get(subKey);
       if (alreadyPublished) {
-        return NextResponse.json({ skipped: true, reason: 'Weekly Substack already published today' });
+        // Hand back the URL of the post that already went out so callers
+        // (the weekly route's social block) still get a real link to share.
+        const last = await kv.get<{ postUrl?: string }>('weekly_substack_last');
+        return NextResponse.json({
+          skipped: true,
+          reason: 'Weekly Substack already published today',
+          url: last?.postUrl,
+        });
       }
     }
 
@@ -606,7 +615,8 @@ export async function GET(req: Request) {
       await kv.set(subKey, true, { ex: 86400 });
       const pub = await substackPublish(pubUrl, session, draft.id, send);
       if (pub.error) return NextResponse.json({ draftId: draft.id, error: pub.error }, { status: 502 });
-      return NextResponse.json({ success: true, draftId: draft.id, published: true, sent: send });
+      if (pub.url) await kv.set('weekly_substack_last', { postUrl: pub.url, date: today }, { ex: 7 * 86400 });
+      return NextResponse.json({ success: true, draftId: draft.id, published: true, sent: send, url: pub.url });
     }
     return NextResponse.json({ success: true, draftId: draft.id, published: false });
   }

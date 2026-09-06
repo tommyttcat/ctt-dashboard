@@ -880,14 +880,19 @@ export async function GET(req: Request) {
     const failed = results.filter((r) => r.status === 'rejected').length;
 
     // --- Substack publish ---
+    // The published post's URL is what the social posts link to, so this has to
+    // resolve before the social block below runs — do not make it fire-and-forget.
     let substackPublished = false;
+    let substackUrl: string | undefined;
     try {
       const cronSecret = process.env.CRON_SECRET;
-      await fetch(`${origin}/api/email/substack?custom=weekly&publish=1`, {
+      const subRes = await fetch(`${origin}/api/email/substack?custom=weekly&publish=1`, {
         headers: cronSecret ? { Authorization: `Bearer ${cronSecret}` } : {},
       });
-      substackPublished = true;
-      console.log('[weekly] substack published');
+      const subJson: { url?: string; published?: boolean } = await subRes.json().catch(() => ({}));
+      substackUrl = subJson?.url;
+      substackPublished = subJson?.published === true;
+      console.log('[weekly] substack', substackPublished ? 'published' : 'not published', substackUrl || '(no url)');
     } catch { /* best-effort */ }
 
     // --- Social posts (Bluesky + X) ---
@@ -946,21 +951,27 @@ export async function GET(req: Request) {
         : '';
 
       const body = `${indexLine}${headlineLine}${statsLine}${topLine}${sectorLine}`;
-      const bskyCta = `Full brief + next week's watchlist → ${dashUrl}`;
-      const bskyMax = 300 - 'CTT Weekly Wrap\n\n'.length - '\n\n'.length - bskyCta.length;
-      const bskyBody = body.length > bskyMax ? body.slice(0, body.lastIndexOf('\n', bskyMax)).trim() || body.slice(0, bskyMax).trim() : body;
-      const bskyText = `CTT Weekly Wrap\n\n${bskyBody}\n\n${bskyCta}`;
 
-      const xCta = `Full brief + next week's watchlist → https://${dashUrl}`;
-      const xMax = 280 - 'CTT Weekly Wrap\n\n'.length - '\n\n'.length - xCta.length;
+      // Link to the Substack post itself — the social copy is only a teaser, so
+      // the link is what carries the reader to the full wrap. Fall back to the
+      // dashboard only when the publish returned no URL.
+      const postUrl = substackUrl || `https://${dashUrl}`;
+      const cta = `Full wrap → ${postUrl}`;
+
+      const bskyMax = 300 - 'CTT Weekly Wrap\n\n'.length - '\n\n'.length - cta.length;
+      const bskyBody = body.length > bskyMax ? body.slice(0, body.lastIndexOf('\n', bskyMax)).trim() || body.slice(0, bskyMax).trim() : body;
+      const bskyText = `CTT Weekly Wrap\n\n${bskyBody}\n\n${cta}`;
+
+      const xMax = 280 - 'CTT Weekly Wrap\n\n'.length - '\n\n'.length - cta.length;
       let xBody = body.length > xMax ? body.slice(0, body.lastIndexOf('\n', xMax)).trim() || body.slice(0, xMax).trim() : body;
       let cashCount = 0;
       xBody = xBody.replace(/\$/g, (m) => { cashCount++; return cashCount <= 1 ? m : ''; });
-      const xText = `CTT Weekly Wrap\n\n${xBody}\n\n${xCta}`;
+      const xText = `CTT Weekly Wrap\n\n${xBody}\n\n${cta}`;
 
-      const linkPos = bskyText.indexOf(dashUrl);
+      const linkPos = bskyText.lastIndexOf(postUrl);
+      const facets = linkPos >= 0 ? [{ start: linkPos, end: linkPos + postUrl.length, url: postUrl }] : [];
       const socialResults = await Promise.allSettled([
-        postToBluesky(bskyText, [{ start: linkPos, end: linkPos + dashUrl.length, url: `https://${dashUrl}` }]),
+        postToBluesky(bskyText, facets),
         postToX(xText),
       ]);
       bskyWeekly = socialResults[0].status === 'fulfilled' ? socialResults[0].value : null;
@@ -973,6 +984,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       success: true, sent, failed, recipients: recipients.length,
       substackPublished,
+      substackUrl: substackUrl || null,
       bluesky: bskyWeekly ? 'posted' : 'skipped',
       x: xWeekly ? 'posted' : 'skipped',
     });
