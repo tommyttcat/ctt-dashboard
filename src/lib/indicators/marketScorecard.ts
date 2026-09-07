@@ -9,6 +9,8 @@
  * and "WASHED" on the other.
  */
 
+import { isTradingDay } from '@/lib/marketCalendar';
+
 export type CellTone = 'green' | 'amber' | 'red' | 'slate';
 
 /* ---- Market tone ---------------------------------------------------------
@@ -358,9 +360,8 @@ export type MarketSession = 'Pre-Market' | 'Open' | 'Post-Market' | 'Closed';
 
 export function getMarketSession(): MarketSession {
   const est = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const day = est.getDay();
   const t = est.getHours() + est.getMinutes() / 60;
-  if (day === 0 || day === 6) return 'Closed';
+  if (!isTradingDay()) return 'Closed';
   if (t >= 4 && t < 9.5) return 'Pre-Market';
   if (t >= 9.5 && t < 16) return 'Open';
   if (t >= 16 && t < 20) return 'Post-Market';

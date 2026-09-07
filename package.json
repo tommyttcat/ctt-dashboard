@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:calendar": "node --experimental-strip-types --no-warnings scripts/marketCalendar.test.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",

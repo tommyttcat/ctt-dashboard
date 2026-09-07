@@ -102,6 +102,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { cachedJson, fetchScannerLatest } from '@/lib/scannerLatest';
+import { isTradingDay } from '@/lib/marketCalendar';
 import TickerChartHover, { ActiveChartProvider, WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
 import { newsStarCount } from '@/lib/newsStars';
@@ -228,10 +229,9 @@ const getCurrentEstDecimal = () => {
   return est.getHours() + est.getMinutes() / 60;
 };
 
-const isWeekendNow = () => {
-  const day = getEstDateInfo().getDay();
-  return day === 0 || day === 6;
-};
+/* Non-session day: weekend or market holiday. Used to test weekends only,
+   which showed live session blocks on a day with no session. */
+const isWeekendNow = () => !isTradingDay();
 
 const BLOCK_WINDOWS: Record<BlockKey, { opens: number; supersededAt: number; nextLabel: string }> = {
   morning: { opens: 4.0, supersededAt: 11.5, nextLabel: 'midday' },

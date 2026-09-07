@@ -33,6 +33,8 @@
  * state, so tab #2 shares nothing with tab #1. See lib/httpCache.
  */
 
+import { isMarketSessionWindow } from '@/lib/marketCalendar';
+
 const ACTIVE_TTL_MS = 45_000;   // under the callers' 60s poll, so each tick refetches once
 const IDLE_TTL_MS = 600_000;    // 10 min — nothing writes to KV outside the scan window
 
@@ -45,17 +47,16 @@ type CacheEntry = { at: number; data: any };
 const cacheByPath = new Map<string, CacheEntry>();
 const inFlightByPath = new Map<string, Promise<any>>();
 
-/** Weekday 4 AM – 8 PM ET: the window in which a scan can actually write. */
-function isActiveWindow(): boolean {
-  const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const day = et.getDay();
-  if (day === 0 || day === 6) return false;
-  const hour = et.getHours();
-  return hour >= 4 && hour < 20;
-}
-
+/**
+ * Trading-day 4 AM – 8 PM ET: the window in which a scan can actually write.
+ *
+ * This test used to look at weekends only, so on a market holiday it stayed
+ * true all day and pinned the TTL at ACTIVE_TTL_MS instead of IDLE_TTL_MS —
+ * 13x the refetches, for 16 hours, on a day when nothing writes to KV. See
+ * lib/marketCalendar.
+ */
 function ttlMs(): number {
-  return isActiveWindow() ? ACTIVE_TTL_MS : IDLE_TTL_MS;
+  return isMarketSessionWindow() ? ACTIVE_TTL_MS : IDLE_TTL_MS;
 }
 
 /**

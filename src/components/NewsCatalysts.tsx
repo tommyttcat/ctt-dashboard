@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { isTradingDay } from '@/lib/marketCalendar';
 import { fetchScannerLatest } from '@/lib/scannerLatest';
 import TickerChartHover from './TickerChartHover';
 
@@ -218,12 +219,11 @@ export default function NewsCatalysts() {
 
   const getSessionTextColor = () => {
     const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const day = estDate.getDay();
     const hour = estDate.getHours();
     const min = estDate.getMinutes();
     const timeStr = hour + min / 60;
 
-    if (day === 0 || day === 6) return 'text-slate-500';
+    if (!isTradingDay()) return 'text-slate-500';
     if (timeStr >= 4 && timeStr < 9.5) return 'text-amber-500';
     if (timeStr >= 9.5 && timeStr < 16) return 'text-[#00e676]';
     if (timeStr >= 16 && timeStr < 20) return 'text-indigo-400';
@@ -232,8 +232,7 @@ export default function NewsCatalysts() {
 
   const displaySession = () => {
     const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const day = estDate.getDay();
-    if (day === 0 || day === 6) return 'Closed';
+    if (!isTradingDay()) return 'Closed';
 
     const hour = estDate.getHours();
     const min = estDate.getMinutes();
