@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { isTradingDay } from '@/lib/marketCalendar';
 import { kv } from '@vercel/kv';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 
@@ -36,9 +37,8 @@ async function fetchSafeJson(url: string, fallback: any, timeoutMs = 12000) {
 
 function getMarketPhase(): 'pre' | 'open' | 'post' | 'closed' {
   const est = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const day = est.getDay();
   const t = est.getHours() + est.getMinutes() / 60;
-  if (day === 0 || day === 6) return 'closed';
+  if (!isTradingDay()) return 'closed';
   if (t >= 4 && t < 9.5) return 'pre';
   if (t >= 9.5 && t < 16) return 'open';
   if (t >= 16 && t < 20) return 'post';

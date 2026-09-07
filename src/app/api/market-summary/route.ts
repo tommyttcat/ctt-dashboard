@@ -16,21 +16,14 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
+import { getMarketDay, previousTradingDay, isMarketSessionWindow } from '@/lib/marketCalendar';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 export const revalidate = 0;
 export const maxDuration = 60;
 
-const getIsMarketActive = () => {
-  const est = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const day = est.getDay();
-  const timeStr = est.getHours() + est.getMinutes() / 60;
-
-  if (day === 0 || day === 6) return false;
-  if (timeStr >= 4 && timeStr < 20) return true;
-  return false;
-};
+const getIsMarketActive = () => isMarketSessionWindow();
 
 // ---------------------------------------------------------------
 // Types
@@ -225,7 +218,7 @@ function buildBlocks(
   breadth: Breadth | null,
   events: ActionableEvent[],
   hour: number,
-  isWeekend: boolean
+  isNonSessionDay: boolean
 ): { morning: SessionBlock; midday: SessionBlock | null; closing: SessionBlock | null } {
   const spy = quotes['SPY']?.pct ?? null;
   const qqq = quotes['QQQ']?.pct ?? null;
@@ -261,7 +254,7 @@ function buildBlocks(
 
   // ---- MIDDAY ----
   let midday: SessionBlock | null = null;
-  if (isWeekend || hour >= 11.5) {
+  if (isNonSessionDay || hour >= 11.5) {
     const midP1 = lead
       ? `Midday rotation check: ${lead.text} — ${lead.leader === 'IWM' ? 'risk appetite is broadening beyond the mega caps' : lead.leader === 'QQQ' ? 'growth is doing the heavy lifting' : 'the move is concentrated in the large-cap complex'}.`
       : `Midday tape holds ${dir} — ${printLine}.`;
@@ -280,7 +273,7 @@ function buildBlocks(
 
   // ---- CLOSING ----
   let closing: SessionBlock | null = null;
-  if (isWeekend || hour >= 15.5) {
+  if (isNonSessionDay || hour >= 15.5) {
     const closeP1 =
       dir === 'flat'
         ? `At the close the averages finished little changed — ${printLine} — a digestion day rather than a directional one.`
@@ -322,15 +315,22 @@ export async function GET(request: Request) {
   const estStr = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
   const est = new Date(estStr);
   const currentHourDecimal = est.getHours() + est.getMinutes() / 60;
-  const isWeekend = est.getDay() === 0 || est.getDay() === 6;
-
-  let effectiveDate = new Date(est);
-  if (est.getDay() === 6) effectiveDate.setDate(est.getDate() - 1);
-  if (est.getDay() === 0) effectiveDate.setDate(est.getDate() - 2);
+  /* Non-session day = weekend OR market holiday. This used to test weekends
+     only, which is why Labor Day 2026 rendered as a live tape at 0.00% across
+     every sector: the live snapshot came back zeroed, the rebuild below asked
+     Polygon for grouped bars dated on the holiday itself, got nothing, and
+     left the zeros in place. Walking back to the previous *trading* day makes
+     a holiday behave exactly like a Sunday. See lib/marketCalendar. */
+  /* NOTE: getMarketDay() takes a real instant and does its own ET conversion,
+     so it must NOT be handed `est` — that is already shifted into ET wall
+     clock, and converting it a second time rolls the date back a day between
+     midnight and 5 AM ET. */
+  const marketDay = getMarketDay();
+  const isNonSessionDay = !marketDay.isTradingDay;
 
   let targetDate = dateParam;
   if (!targetDate) {
-    targetDate = `${effectiveDate.getFullYear()}-${String(effectiveDate.getMonth() + 1).padStart(2, '0')}-${String(effectiveDate.getDate()).padStart(2, '0')}`;
+    targetDate = isNonSessionDay ? previousTradingDay(marketDay.date) : marketDay.date;
   }
 
   try {
@@ -370,7 +370,7 @@ export async function GET(request: Request) {
     // 1. Tape quotes — live snapshot on weekdays; frozen data detection
     const quotes: Record<string, TapeQuote> = {};
     let snapshotUsable = false;
-    if (!isWeekend) {
+    if (!isNonSessionDay) {
       try {
         const snapshotUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${TAPE_TICKERS.join(',')}&apiKey=${polygonKey}`;
         const snapRes = await fetch(snapshotUrl, { cache: 'no-store' });
@@ -399,7 +399,7 @@ export async function GET(request: Request) {
     // 3. FALLBACK — rebuild tape and/or breadth from grouped daily bars.
     // Fires on weekends, when the live snapshot is dead, or when the scanner
     // hasn't written a breadth value for targetDate yet.
-    const needTapeRebuild = isWeekend || !snapshotUsable;
+    const needTapeRebuild = isNonSessionDay || !snapshotUsable;
     const needBreadthRebuild = !breadth;
 
     if (needTapeRebuild || needBreadthRebuild) {
@@ -462,7 +462,7 @@ export async function GET(request: Request) {
     }
 
     // 5. Deterministic session blocks from the assembled data
-    const { morning, midday, closing } = buildBlocks(quotes, breadth, actionableEvents, currentHourDecimal, isWeekend);
+    const { morning, midday, closing } = buildBlocks(quotes, breadth, actionableEvents, currentHourDecimal, isNonSessionDay);
 
     // breadth + breadthSource are exposed so the exact numbers behind the
     // narrative text are inspectable without re-deriving them.

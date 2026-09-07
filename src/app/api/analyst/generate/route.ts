@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
+import { getMarketDay, isMarketSessionWindow } from '@/lib/marketCalendar';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -23,14 +24,6 @@ async function fetchJson(url: string) {
     if (!res.ok) return null;
     return res.json();
   } catch { return null; }
-}
-
-function isWithinETWindow(): boolean {
-  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const day = now.getDay();
-  if (day === 0 || day === 6) return false;
-  const hour = now.getHours();
-  return hour >= 4 && hour < 20;
 }
 
 const fmtPct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
@@ -477,8 +470,17 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  if (!force && !isWithinETWindow()) {
-    return NextResponse.json({ skipped: true, reason: 'Outside 4 AM – 8 PM ET window' });
+  // The cron is `* * 1-5`, which fires on market holidays too. Skipping here,
+  // above the kv.get below, keeps a holiday from costing 32 invocations and a
+  // full snapshot fan-out for a session that never happened.
+  if (!force) {
+    const marketDay = getMarketDay();
+    if (!marketDay.isTradingDay) {
+      return NextResponse.json({ skipped: true, reason: marketDay.reason, market: marketDay });
+    }
+    if (!isMarketSessionWindow()) {
+      return NextResponse.json({ skipped: true, reason: 'Outside 4 AM – 8 PM ET window' });
+    }
   }
 
   const existing = await kv.get<any>(CACHE_KEY);

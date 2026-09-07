@@ -18,6 +18,7 @@
 // ---------------------------------------------------------------------------
 
 import { NextResponse } from 'next/server';
+import { getMarketDay, previousTradingDay, nextTradingDay } from '@/lib/marketCalendar';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -178,6 +179,7 @@ export async function GET(req: Request) {
 
   const origin = resolveOrigin(req);
   const startedAt = Date.now();
+  const marketDay = getMarketDay();
 
   const results = await Promise.all(
     selected.map(async (src) => {
@@ -207,6 +209,16 @@ export async function GET(req: Request) {
         sourcesRequested: selected.length,
         sourcesOk: Object.keys(data),
         sourcesFailed: failed,
+        // Whether a session is actually happening. Without this a closed market
+        // is indistinguishable from a flat tape: on 7 Sep 2026 (Labor Day) this
+        // route returned 257 KB with `sourcesFailed: []`, every sector at 0.00%
+        // and every mover's changePct/dayHigh/dayLow at 0. Consumers must check
+        // `market.isTradingDay` before reading any of that as a move.
+        market: {
+          ...marketDay,
+          previousTradingDay: previousTradingDay(marketDay.date),
+          nextTradingDay: nextTradingDay(marketDay.date),
+        },
         note: 'Read-only aggregate of CTT Dashboard scan output. Market data only; not investment advice.',
       },
       data,

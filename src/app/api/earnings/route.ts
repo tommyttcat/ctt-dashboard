@@ -38,6 +38,7 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
+import { isTradingDay } from '@/lib/marketCalendar';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -76,11 +77,6 @@ const fridayOf = (d: Date): Date => {
   return mon;
 };
 
-const isWeekend = (d: Date): boolean => {
-  const day = d.getDay();
-  return day === 0 || day === 6;
-};
-
 /* ---- KV keys ---------------------------------------------------------- */
 
 /* Per-window TTL cache (same as before). */
@@ -89,7 +85,8 @@ const CACHE_TTL_MS = 4 * 60 * 60 * 1000;
 
 /* Durable "last good" key — NOT window-scoped, no TTL. Overwritten every
    successful weekday fetch so it always holds the most recent good data.
-   On weekends, the route reads this instead of hitting APIs. */
+   On weekends and market holidays, the route reads this instead of
+   hitting APIs. */
 const DURABLE_KEY = 'earnings_last_good_v1';
 
 /* ---- Market-cap per-symbol (Polygon Ticker Details, KV-cached) -------- */
@@ -214,8 +211,13 @@ export async function GET(request: Request) {
     new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }),
   );
 
-  /* ---- Weekend guard -------------------------------------------------- */
-  if (isWeekend(estNow)) {
+  /* ---- Non-session guard ----------------------------------------------
+     Weekend OR market holiday. Used to test weekends only, so on a holiday
+     the route still hit the earnings API and rewrote KV for a day with no
+     session. isTradingDay() takes no argument on purpose: `estNow` above is
+     already shifted into ET wall clock, and passing it would convert twice.
+     See lib/marketCalendar. */
+  if (!isTradingDay()) {
     try {
       const durable = await kv.get<any>(DURABLE_KEY);
       if (durable && durable.payload) {

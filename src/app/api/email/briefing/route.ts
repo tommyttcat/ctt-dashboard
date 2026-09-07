@@ -40,6 +40,7 @@ import { cnfHex, rvolHex, rsHex } from '@/lib/indicators/columnColors';
 import { newsStarCount } from '@/lib/newsStars';
 import { isEtfSector, displaySector } from '@/lib/sectors';
 import { getEmailRecipients } from '@/lib/users';
+import { getMarketDay } from '@/lib/marketCalendar';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -1330,6 +1331,19 @@ export async function GET(req: Request) {
   const authHeader = req.headers.get('authorization');
   if (cronSecret && authHeader !== `Bearer ${cronSecret}` && !force) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+
+  // Phase crons are `* * 1-5`, so they fire on market holidays. Without this
+  // the reader gets a briefing narrating a session that never opened — on
+  // 7 Sep 2026 (Labor Day) every sector read 0.00% and nothing errored. The
+  // guard sits above the fan-out below so a holiday costs one invocation
+  // rather than eight fetches, one of which is the 13-route snapshot.
+  // `?force=1` still sends, so a manual send is always possible.
+  if (!force) {
+    const marketDay = getMarketDay();
+    if (!marketDay.isTradingDay) {
+      return NextResponse.json({ skipped: true, reason: marketDay.reason, phase, market: marketDay });
+    }
   }
 
   const apiKey = process.env.RESEND_API_KEY || '';
