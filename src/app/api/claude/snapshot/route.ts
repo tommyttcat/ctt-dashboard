@@ -219,7 +219,15 @@ export async function GET(req: Request) {
           previousTradingDay: previousTradingDay(marketDay.date),
           nextTradingDay: nextTradingDay(marketDay.date),
         },
-        note: 'Read-only aggregate of CTT Dashboard scan output. Market data only; not investment advice.',
+        /* `note` leads with the closure on a non-trading day. A structured
+           `market` field only helps a consumer that thinks to look for it,
+           and the consumer here is an agent that reads the snapshot and
+           writes prose. Putting it in the one free-text field every reader
+           already surfaces is what makes it hard to miss — the zeroed rows
+           below otherwise read as a perfectly ordinary flat tape. */
+        note: marketDay.isTradingDay
+          ? 'Read-only aggregate of CTT Dashboard scan output. Market data only; not investment advice.'
+          : `MARKET CLOSED — ${marketDay.reason}. No session occurred on ${marketDay.date}, so every changePct, dayHigh, dayLow and sector percentage below reads 0 because there is no data, NOT because the tape was flat. Do not narrate a session, derive status tokens, or publish a brief for this date; the last real session was ${previousTradingDay(marketDay.date)}. Read-only aggregate of CTT Dashboard scan output. Market data only; not investment advice.`,
       },
       data,
     },

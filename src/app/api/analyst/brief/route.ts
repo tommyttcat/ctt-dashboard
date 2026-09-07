@@ -10,6 +10,7 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
+import { getMarketDay } from '@/lib/marketCalendar';
 import {
   buildLedger,
   leanArchive,
@@ -89,6 +90,34 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { error: 'Body must have a "sections" array' },
       { status: 400 },
+    );
+  }
+
+  /* ---- Non-trading-day guard ------------------------------------------
+     This is the ONLY chokepoint every writer passes through. Guarding the
+     generator is not enough: /api/analyst/generate is one writer, but any
+     scheduled agent can POST here directly, and on 7 Sep 2026 (Labor Day) a
+     brief was published narrating "distribution under a flat index" and
+     "14 broke their stops intraday" for a session that never opened —
+     because the snapshot's zeroed rows look exactly like a flat tape.
+
+     Refused rather than accepted-and-flagged: a stored brief is what the
+     page renders, what the phase emails read, and what the next run
+     reconciles its delta against, so a holiday brief poisons all three.
+
+     `?force=1` still writes, for the deliberate case (backfill, a manual
+     correction, or posting a market-closed placeholder). */
+  const forceWrite = new URL(req.url).searchParams.get('force') === '1';
+  const marketDay = getMarketDay();
+  if (!marketDay.isTradingDay && !forceWrite) {
+    return NextResponse.json(
+      {
+        error: 'non-trading day',
+        reason: marketDay.reason,
+        market: marketDay,
+        hint: 'No session occurred, so scan rows read 0 and are not a tape. Append ?force=1 to write anyway.',
+      },
+      { status: 409 },
     );
   }
 
