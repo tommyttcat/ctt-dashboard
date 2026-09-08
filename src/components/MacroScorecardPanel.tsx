@@ -293,16 +293,22 @@ export default function MacroScorecardPanel({
           const spyAvgVol = spyQ?.avgVolume as number | undefined;
           const volRatio = spyVol && spyAvgVol && spyAvgVol > 0 ? spyVol / spyAvgVol : null;
           const termRatio = vix9dQ?.price && vixQ2?.price ? vixQ2.price / vix9dQ.price : null;
+          const qqqQtt = quotes['QQQ'];
+          const spyBrokePdlTt = spyQ?.prevLow != null && spyQ.price < spyQ.prevLow;
+          const qqqBrokePdlTt = qqqQtt?.prevLow != null && qqqQtt.price < qqqQtt.prevLow;
 
           const fmtPct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
           const dot = (on: boolean) => <span className={on ? 'text-amber-400' : 'text-emerald-400'}>{on ? '!' : '✓'}</span>;
 
+          /* Mirrors instDirSetup's own floor. Below 2% the card says CLEAR, so
+             the tooltip must not claim pressure the rule did not find. */
+          const VIX_PRESSURE_PCT = 2;
           const vixVelLabel = Math.abs(vixPctVal) >= 3
             ? (vixPctVal <= -3 && spyPctVal >= 0.75 ? 'ALGO BUY'
               : vixPctVal >= 3 && spyPctVal <= -0.75 ? 'ALGO SELL'
-              : `PRESSURE ${vixPctVal <= -0.5 ? 'OFF' : 'ON'}`)
-            : Math.abs(vixPctVal) >= 0.5
-              ? `PRESSURE ${vixPctVal <= -0.5 ? 'OFF' : 'ON'}`
+              : `PRESSURE ${vixPctVal < 0 ? 'OFF' : 'ON'}`)
+            : Math.abs(vixPctVal) >= VIX_PRESSURE_PCT
+              ? `PRESSURE ${vixPctVal < 0 ? 'OFF' : 'ON'}`
               : 'quiet';
 
           const volLabel = volRatio != null
@@ -314,9 +320,17 @@ export default function MacroScorecardPanel({
             : 'n/a';
 
           const instTooltip = ttWrap(`${instSignal} — ${instSetup}`, <>
-            {ttRow('VIX-ES',
-              spyQ?.prevLow != null ? (spyQ.price < spyQ.prevLow ? 'DIVG' : 'OK') : 'n/a',
-              <>SPY {dot(spyQ?.prevLow != null && spyQ.price < spyQ.prevLow)} PDL &nbsp; VIX {dot(vixQ2?.prevHigh != null && vixQ2.price >= vixQ2.prevHigh)} PDH</>
+            {/* Both index legs, because CONFIRMED needs SPY *and* QQQ through
+                their previous-day lows. VIX shows its day move rather than a
+                level: it is an index and this plan carries no Polygon indices,
+                so it has no previous-day high to test. */}
+            {ttRow('Prev day',
+              spyQ?.prevLow != null
+                ? (spyBrokePdlTt && qqqBrokePdlTt ? 'BOTH BROKE' : spyBrokePdlTt ? 'SPY BROKE' : 'holding')
+                : 'n/a',
+              spyQ?.prevLow != null
+                ? <>SPY {dot(spyBrokePdlTt)} {spyQ.prevLow.toFixed(2)} &nbsp; QQQ {dot(qqqBrokePdlTt)} {qqqQtt?.prevLow != null ? qqqQtt.prevLow.toFixed(2) : 'n/a'}</>
+                : <>levels unavailable</>
             )}
             {ttRow('VIX Vel',
               vixVelLabel,
@@ -325,14 +339,14 @@ export default function MacroScorecardPanel({
             {ttRow('Volume',
               volLabel,
               volRatio != null
-                ? <>{(spyVol! / 1e6).toFixed(1)}M / {(spyAvgVol! / 1e6).toFixed(0)}M = {volRatio.toFixed(2)}x</>
+                ? <>{(spyVol! / 1e6).toFixed(1)}M vs {(spyAvgVol! / 1e6).toFixed(1)}M 20-day avg = {volRatio.toFixed(2)}x</>
                 : <>unavailable</>
             )}
             {ttRow('Term Str',
               termLabel,
               termRatio != null
                 ? <>VIX {vixQ2!.price.toFixed(1)} / 9D {vix9dQ!.price.toFixed(1)} = {termRatio.toFixed(3)}</>
-                : <>VIX9D unavailable</>
+                : <>VIX9D not on this data plan</>
             )}
           </>);
 

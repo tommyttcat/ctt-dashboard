@@ -290,6 +290,9 @@ export interface InstDirOpts {
   spyAvgVolume?: number | null;
 }
 
+/* Matches the noise floor `marketToneScore` applies to VIX. */
+const VIX_PRESSURE_PCT = 2;
+
 export function instDirSetup(
   spyPrice: number, spyPdl: number | null, spyPct: number,
   qqqPrice: number, qqqPdl: number | null,
@@ -332,8 +335,17 @@ export function instDirSetup(
     return spyPct < -0.1 ? 'DISTRIBUTION' : spyPct > 0.1 ? 'ACCUMULATION' : 'PRESSURE ON';
   }
 
-  if (vixPct >= 0.5) return 'PRESSURE ON';
-  if (vixPct <= -0.5) return 'PRESSURE OFF';
+  /* THE FALLBACK MUST NOT FIRE ON NOISE. This branch catches everything the
+     rules above did not, so its threshold decides the card's resting state.
+     At the old +/-0.5% it caught nearly every session — VIX clears half a
+     percent most days — which made BULLS or BEARS the default reading and left
+     the card directional on nothing. It also contradicted `marketToneScore` in
+     this same file, which ignores VIX moves under 2% as noise.
+
+     Both now use 2%. Below that the card says CLEAR, which is the honest
+     answer when no rule has actually matched. */
+  if (vixPct >= VIX_PRESSURE_PCT) return 'PRESSURE ON';
+  if (vixPct <= -VIX_PRESSURE_PCT) return 'PRESSURE OFF';
 
   return 'CLEAR';
 }
