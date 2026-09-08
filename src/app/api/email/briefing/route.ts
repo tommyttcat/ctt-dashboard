@@ -1459,7 +1459,15 @@ export async function GET(req: Request) {
     const block = ['closing', 'power', 'midday', 'morning', 'pre'].reduce((latest: any, k) => latest || su[k], null);
     const takeaway = block?.takeaway || '';
     const regime = brief?.regimeDetail?.regime || '';
-    const rawBlurb = (takeaway || regime).replace(/\*\*([^*]+)\*\*/g, '$1').trim();
+    /* `socialTake` is a line the analyst writes for the feed and nowhere else:
+       plain English, no tickers, no levels, no percentages, ending on a reason
+       to click. The takeaway is the wrong thing to post because it opens with
+       the ACT TODAY tickers and a flip level, which reads as a data dump to
+       anyone who has not opened the dashboard. Falls back to the old behaviour
+       when the field is absent. */
+    const socialTake = String((brief as any)?.socialTake || '').trim();
+    const rawBlurb = (socialTake || takeaway || regime).replace(/\*\*([^*]+)\*\*/g, '$1').trim();
+    const blurbIsPlainRead = !!socialTake;
     const dashUrl = 'confluencetradingtools.com';
     const phaseTag = `${PHASE_LABELS[phase]}: `;
     const debug: any = {
@@ -1569,7 +1577,9 @@ export async function GET(req: Request) {
       const takeaway = block?.takeaway || '';
       const regime = brief?.regimeDetail?.regime || '';
 
-      const rawBlurb = (takeaway || regime).replace(/\*\*([^*]+)\*\*/g, '$1').trim();
+      const socialTake = String((brief as any)?.socialTake || '').trim();
+      const rawBlurb = (socialTake || takeaway || regime).replace(/\*\*([^*]+)\*\*/g, '$1').trim();
+      const blurbIsPlainRead = !!socialTake;
       socialDebug.hasBlurb = !!rawBlurb;
       socialDebug.blurbLen = rawBlurb.length;
       socialDebug.hasBskyEnv = !!(process.env.BLUESKY_HANDLE && process.env.BLUESKY_APP_PASSWORD);
@@ -1606,7 +1616,9 @@ export async function GET(req: Request) {
 
         const bskyCta = `${targetLabel} → ${target}`;
         const bskyAvail = 300 - phaseTag.length - 2 - bskyCta.length;
-        const bskyBlurb = socialCashtags(trimToSentence(rawBlurb, bskyAvail), brief);
+        const bskyBlurb = blurbIsPlainRead
+          ? trimToSentence(rawBlurb, bskyAvail)
+          : socialCashtags(trimToSentence(rawBlurb, bskyAvail), brief);
         const bskyText = `${phaseTag}${bskyBlurb}\n\n${bskyCta}`;
         const linkStart = bskyText.indexOf(target);
 
@@ -1617,7 +1629,9 @@ export async function GET(req: Request) {
            renders the same picture — and clicking it opens the briefing. */
         const xCta = target;
         const xAvail = 280 - phaseTag.length - 2 - 23;
-        const xBlurb = socialCashtags(trimToSentence(rawBlurb, xAvail), brief, 1);
+        const xBlurb = blurbIsPlainRead
+          ? trimToSentence(rawBlurb, xAvail)
+          : socialCashtags(trimToSentence(rawBlurb, xAvail), brief, 1);
         const xText = `${phaseTag}${xBlurb}\n\n${xCta}`;
 
         const results = await Promise.allSettled([

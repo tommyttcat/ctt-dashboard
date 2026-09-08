@@ -171,6 +171,9 @@ export async function POST(req: Request) {
        its cover and social image, which is what X and Bluesky unfurl, so it is
        the picture that has to make someone click. */
     ...(body.coverImageUrl ? { coverImageUrl: String(body.coverImageUrl) } : {}),
+    /* One plain-English line written for X and Bluesky, where the reader has
+       not opened the dashboard and a list of levels means nothing. */
+    ...(body.socialTake ? { socialTake: String(body.socialTake) } : {}),
     sections: body.sections,
     ...(body.regimeDetail && { regimeDetail: body.regimeDetail }),
     ...(body.summary && { summary: body.summary }),
