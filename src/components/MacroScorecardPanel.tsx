@@ -232,6 +232,13 @@ export default function MacroScorecardPanel({
   instFlash,
   cellsOnly = false,
 }: MacroScorecardPanelProps) {
+  /* The raw daily leg, straight off the API. `chopVal` is the composite —
+     daily base plus an intraday blend and a concordance adjustment — so it is
+     the headline number, not the day's own reading. When the hourly leg is
+     live it takes over track 1, which used to leave the day with nowhere to
+     show; it now gets a track of its own above the hour. */
+  const dayVal: number | null = chop?.daily?.blended ?? chop?.blended ?? null;
+
   const ttRow = (label: string, reading: string, detail?: React.ReactNode) => (
     <div className="flex items-start gap-1.5 py-[3px]">
       <span className="text-slate-500 shrink-0 w-[70px]">{label}</span>
@@ -678,6 +685,43 @@ export default function MacroScorecardPanel({
 
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <div className="flex-1 min-w-[80px] flex flex-col gap-2.5">
+                {/* --- TRACK 0: DAILY ---
+                    Only rendered when the hourly leg is live, because without
+                    it track 1 is already the daily. Same scale and thresholds
+                    as the tracks below so the three read as one instrument. */}
+                {hourVal != null && dayVal != null && (
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-[8px] font-bold tracking-wider uppercase text-slate-600 text-right ${CHOP_TRACK_LABEL_W}`}>
+                      1D
+                    </span>
+                    <div className="flex-1 h-1.5 rounded-full relative overflow-hidden">
+                      <div className="absolute inset-0 flex transition-all duration-300" style={{ borderRadius: 'inherit' }}>
+                        <div className="h-full bg-teal-400/45" style={{ width: `${bands.strongTrend}%` }}></div>
+                        <div className="h-full bg-emerald-400/35" style={{ width: `${bands.trend - bands.strongTrend}%` }}></div>
+                        <div className="h-full bg-slate-400/20" style={{ width: `${bands.chop - bands.trend}%` }}></div>
+                        <div className="h-full bg-amber-400/35" style={{ width: `${bands.dead - bands.chop}%` }}></div>
+                        <div className="h-full bg-rose-400/35" style={{ width: `${100 - bands.dead}%` }}></div>
+                      </div>
+                      <div
+                        className="absolute top-[-2px] h-[9px] w-px bg-white/30 transition-all duration-300"
+                        style={{ left: `${bands.trend}%` }}
+                      ></div>
+                      <div
+                        className="absolute top-[-2px] h-[9px] w-px bg-white/30 transition-all duration-300"
+                        style={{ left: `${bands.chop}%` }}
+                      ></div>
+                      <div
+                        className={`absolute top-[-3px] h-[11px] w-[3px] rounded-sm transition-all duration-500 ${chopMarkerBg(dayVal, bands)}`}
+                        style={{ left: `calc(${dayVal}% - 1.5px)` }}
+                        title={`Daily ${dayVal.toFixed(0)} — ${chopZoneLabel(dayVal, bands)}\n${chop?.period ?? 14} daily bars, unadjusted`}
+                      ></div>
+                    </div>
+                    <span className={`text-[9px] font-bold tabular-nums w-[18px] text-right ${chopColor(dayVal, bands)}`}>
+                      {dayVal.toFixed(0)}
+                    </span>
+                  </div>
+                )}
+
                 {/* --- TRACK 1: HOURLY (or daily fallback) --- */}
                 <div className="flex items-center gap-1.5">
                   <span className={`text-[8px] font-bold tracking-wider uppercase text-slate-600 text-right ${CHOP_TRACK_LABEL_W}`}>
