@@ -47,7 +47,7 @@ import {
   mmRatioLabel,
   instDirCellTone,
   type InstDirSetup,
-  type InstDirSignal,
+  type InstDirSignal, instDirStrength, instDirStrengthPips,
 } from '@/lib/indicators/marketScorecard';
 
 /* ---- Shared slot widths --------------------------------------------------
@@ -320,6 +320,11 @@ export default function MacroScorecardPanel({
             : 'n/a';
 
           const instTooltip = ttWrap(`${instSignal} — ${instSetup}`, <>
+            {ttRow('Strength', instDirStrength(instSetup),
+              instDirStrength(instSetup) === 'STRONG' ? <>several conditions agree</>
+                : instDirStrength(instSetup) === 'MODERATE' ? <>two conditions, or one structural read</>
+                : <>one ordinary reading — the fallback</>
+            )}
             {/* Both index legs, because CONFIRMED needs SPY *and* QQQ through
                 their previous-day lows. VIX shows its day move rather than a
                 level: it is an index and this plan carries no Polygon indices,
@@ -353,9 +358,12 @@ export default function MacroScorecardPanel({
           cells.push({
             label: 'INST DIR',
             value: instSignal,
+            /* Pips carry the strength: three filled means several conditions
+               agree, one filled is the fallback. Without them CONFIRMED and
+               PRESSURE ON looked like the same call. */
             subNode: instPrevSetup && instPrevSetup !== instSetup
-              ? <>{instSetup}<br /><span className="text-[8px] text-slate-600">was {instPrevSetup}</span></>
-              : <>{instSetup}</>,
+              ? <>{instSetup} <span className="text-[7px] tracking-tighter opacity-70">{instDirStrengthPips(instSetup)}</span><br /><span className="text-[8px] text-slate-600">was {instPrevSetup}</span></>
+              : <>{instSetup} <span className="text-[7px] tracking-tighter opacity-70">{instDirStrengthPips(instSetup)}</span></>,
             color: instDirCellTone(instSignal),
             extraClass: instFlash ? 'animate-inst-flash' : '',
             titleContent: instTooltip,

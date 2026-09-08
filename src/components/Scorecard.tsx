@@ -614,6 +614,8 @@ export default function MacroScorecard() {
   const [instSignal, setInstSignal] = useState<InstDirSignal>('NEUTRAL');
   const [instPrevSetup, setInstPrevSetup] = useState<InstDirSetup | null>(null);
   const [instFlash, setInstFlash] = useState(false);
+  /* Holds a changed reading until a second poll agrees with it. */
+  const instPendingSetup = useRef<InstDirSetup | null>(null);
   const instInitialized = useRef(false);
   const [breadth, setBreadth] = useState<BreadthData | null>(null);
   const [t2108, setT2108] = useState<T2108Data | null>(null);
@@ -710,12 +712,38 @@ export default function MacroScorecard() {
         spyAvgVolume: spy.avgVolume ?? null,
       },
     );
-    if (instInitialized.current && setup !== instSetup) {
-      setInstPrevSetup(instSetup);
-      setInstFlash(true);
-      setTimeout(() => setInstFlash(false), 1500);
+    /* DEAD-BAND: a new reading must repeat before it is committed.
+       Every rule here turns on a threshold — VIX through 2%, price through the
+       previous-day low, volume through 1.5x — so a value sitting on one of
+       those lines made the card alternate on consecutive polls, flashing each
+       time. The A/D arrow beside it already ignores moves under 1% for exactly
+       this reason; this is the same idea applied to a categorical reading,
+       where an average has no meaning: hold a change until it is seen twice.
+
+       Cost is one poll of latency on a genuine change, which is far cheaper
+       than a card that cries wolf. The first reading commits immediately. */
+    if (!instInitialized.current) {
+      instInitialized.current = true;
+      instPendingSetup.current = null;
+      setInstSetup(setup);
+      setInstSignal(instDirSignal(setup));
+      return;
     }
-    instInitialized.current = true;
+
+    if (setup === instSetup) {
+      instPendingSetup.current = null;   // reading reverted; nothing to confirm
+      return;
+    }
+
+    if (instPendingSetup.current !== setup) {
+      instPendingSetup.current = setup;  // first sighting — wait for a repeat
+      return;
+    }
+
+    instPendingSetup.current = null;
+    setInstPrevSetup(instSetup);
+    setInstFlash(true);
+    setTimeout(() => setInstFlash(false), 1500);
     setInstSetup(setup);
     setInstSignal(instDirSignal(setup));
   }, [quotes]);

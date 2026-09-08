@@ -363,6 +363,46 @@ export function instDirSignal(setup: InstDirSetup): InstDirSignal {
   return 'NEUTRAL';
 }
 
+/* ---- Setup strength ------------------------------------------------------
+
+   Every setup used to render identically, so CONFIRMED — three independent
+   conditions agreeing — carried the same visual weight as PRESSURE ON, which
+   is one VIX reading and the fallback branch at that. A reader could not tell
+   a real signal from the default.
+
+   STRONG    several independent conditions agree, or one is at an extreme.
+   MODERATE  two conditions, or a single structural read.
+   WEAK      one ordinary reading, including the fallback.                   */
+
+export type InstDirStrength = 'STRONG' | 'MODERATE' | 'WEAK';
+
+const STRONG_SETUPS: Set<InstDirSetup> = new Set([
+  'CONFIRMED ↓',   // both indices through their previous-day lows, volatility confirming
+  'ALGO SELL',     // VIX 3%+ against a falling tape
+  'ALGO BUY',      // VIX -3%+ against a rising tape
+  '1% DIVG',       // index and volatility both up 1%+ — they should not agree
+  'EXHAUSTION',    // index and volatility both down 1%+
+]);
+
+const MODERATE_SETUPS: Set<InstDirSetup> = new Set([
+  'BEAR TRAP',     // index broke its low, volatility declined to confirm
+  'DISTRIBUTION',  // volume anomaly with a negative tape
+  'ACCUMULATION',  // volume anomaly with a positive tape
+  'HEDGING',       // term structure in backwardation
+]);
+
+export function instDirStrength(setup: InstDirSetup): InstDirStrength {
+  if (STRONG_SETUPS.has(setup)) return 'STRONG';
+  if (MODERATE_SETUPS.has(setup)) return 'MODERATE';
+  return 'WEAK';
+}
+
+/** Filled/empty pips, so strength reads at a glance without another word. */
+export const instDirStrengthPips = (setup: InstDirSetup): string => {
+  const st = instDirStrength(setup);
+  return st === 'STRONG' ? '●●●' : st === 'MODERATE' ? '●●○' : '●○○';
+};
+
 export const instDirCellTone = (s: InstDirSignal): CellTone =>
   s === 'BULLS' ? 'green' : s === 'BEARS' ? 'red' : 'amber';
 
