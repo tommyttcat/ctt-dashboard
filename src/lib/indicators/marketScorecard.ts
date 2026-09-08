@@ -278,6 +278,9 @@ export type InstDirSetup =
   | 'ALGO BUY'
   | 'DISTRIBUTION'
   | 'ACCUMULATION'
+  | 'FLIGHT TO SAFETY'
+  | 'ROTATION'
+  | 'RISK ON'
   | 'FLOW IN'
   | 'FLOW OUT'
   | 'PRESSURE ON'
@@ -294,6 +297,10 @@ export interface InstDirOpts {
   spyMoneyFlow?: number | null;
   /** QQQ money flow, same scale. */
   qqqMoneyFlow?: number | null;
+  /** Day move of the long-bond proxy, percent. Duration demand. */
+  tltPct?: number | null;
+  /** Day move of the gold proxy, percent. The other haven. */
+  gldPct?: number | null;
 }
 
 /* Matches the noise floor `marketToneScore` applies to VIX. */
@@ -304,6 +311,13 @@ const VIX_PRESSURE_PCT = 2;
    40-60 band is deliberately not a signal. */
 const MF_ACCUM = 60;
 const MF_DISTRIB = 40;
+
+/* Cross-asset. Bonds are far less volatile than equities, so a third of a
+   percent on the long end is a real duration bid where the same number on SPY
+   would be noise. */
+const EQUITY_MOVE_PCT = 0.5;
+const TLT_BID_PCT = 0.3;
+const GLD_BID_PCT = 0.5;
 
 export function instDirSetup(
   spyPrice: number, spyPdl: number | null, spyPct: number,
@@ -356,6 +370,27 @@ export function instDirSetup(
 
      Both now use 2%. Below that the card says CLEAR, which is the honest
      answer when no rule has actually matched. */
+  /* CROSS-ASSET — is the money leaving equities, or moving inside them?
+
+     Nothing else on this card can tell those apart. A decline with the long
+     end bid and gold bid is capital going to safety; the same decline with
+     bonds also falling is rotation, and the index number overstates it. That
+     distinction is the whole reason ROTATION reads NEUTRAL rather than bearish
+     — it is a fall the card is explicitly declining to call directional.
+
+     Same-day, so it ranks below today's volume and velocity reads but above
+     the 21-session flow. */
+  const tlt = opts?.tltPct;
+  const gld = opts?.gldPct;
+  const havenBid = (tlt != null && tlt >= TLT_BID_PCT) || (gld != null && gld >= GLD_BID_PCT);
+
+  if (spyPct <= -EQUITY_MOVE_PCT && (tlt != null || gld != null)) {
+    return havenBid ? 'FLIGHT TO SAFETY' : 'ROTATION';
+  }
+  if (spyPct >= EQUITY_MOVE_PCT && tlt != null && tlt <= -TLT_BID_PCT) {
+    return 'RISK ON';
+  }
+
   /* MONEY FLOW — the only reading here that measures which side actually got
      filled. Everything above infers intent from price and volume; this weights
      where each of 21 sessions closed inside its own range by that session's
@@ -386,10 +421,10 @@ export function instDirSetup(
 }
 
 const BULL_SETUPS: Set<InstDirSetup> = new Set([
-  'BEAR TRAP', 'PRESSURE OFF', 'EXHAUSTION', 'ALGO BUY', 'ACCUMULATION', 'FLOW IN',
+  'BEAR TRAP', 'PRESSURE OFF', 'EXHAUSTION', 'ALGO BUY', 'ACCUMULATION', 'FLOW IN', 'RISK ON',
 ]);
 const BEAR_SETUPS: Set<InstDirSetup> = new Set([
-  'CONFIRMED ↓', '1% DIVG', 'PRESSURE ON', 'HEDGING', 'ALGO SELL', 'DISTRIBUTION', 'FLOW OUT',
+  'CONFIRMED ↓', '1% DIVG', 'PRESSURE ON', 'HEDGING', 'ALGO SELL', 'DISTRIBUTION', 'FLOW OUT', 'FLIGHT TO SAFETY',
 ]);
 
 export function instDirSignal(setup: InstDirSetup): InstDirSignal {
@@ -413,6 +448,7 @@ export type InstDirStrength = 'STRONG' | 'MODERATE' | 'WEAK';
 
 const STRONG_SETUPS: Set<InstDirSetup> = new Set([
   'CONFIRMED ↓',   // both indices through their previous-day lows, volatility confirming
+  'FLIGHT TO SAFETY', // equities down and a haven bid — two asset classes agree
   'ALGO SELL',     // VIX 3%+ against a falling tape
   'ALGO BUY',      // VIX -3%+ against a rising tape
   '1% DIVG',       // index and volatility both up 1%+ — they should not agree
@@ -426,6 +462,8 @@ const MODERATE_SETUPS: Set<InstDirSetup> = new Set([
   'HEDGING',       // term structure in backwardation
   'FLOW IN',       // 21 sessions of accumulation
   'FLOW OUT',      // 21 sessions of distribution
+  'RISK ON',       // equities up, money leaving the long end
+  'ROTATION',      // equities down with no haven bid — contained, not systemic
 ]);
 
 export function instDirStrength(setup: InstDirSetup): InstDirStrength {

@@ -714,6 +714,8 @@ export default function MacroScorecard() {
         spyAvgVolume: spy.avgVolume ?? null,
         spyMoneyFlow: spyMoneyFlow?.value ?? null,
         qqqMoneyFlow: qqqMoneyFlow?.value ?? null,
+        tltPct: quotes['TLT']?.synced ? quotes['TLT'].pct : null,
+        gldPct: quotes['GLD']?.synced ? quotes['GLD'].pct : null,
       },
     );
     /* DEAD-BAND: a new reading must repeat before it is committed.

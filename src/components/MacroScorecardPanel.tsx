@@ -301,6 +301,15 @@ export default function MacroScorecardPanel({
           const volRatio = spyVol && spyAvgVol && spyAvgVol > 0 ? spyVol / spyAvgVol : null;
           const termRatio = vix9dQ?.price && vixQ2?.price ? vixQ2.price / vix9dQ.price : null;
           const qqqQtt = quotes['QQQ'];
+          const tltQ = quotes['TLT'];
+          const gldQ = quotes['GLD'];
+          const tltPctVal = tltQ?.synced ? Number(tltQ.pct) : null;
+          const gldPctVal = gldQ?.synced ? Number(gldQ.pct) : null;
+          const havenBidTt = (tltPctVal != null && tltPctVal >= 0.3) || (gldPctVal != null && gldPctVal >= 0.5);
+          const crossLabel = (tltPctVal == null && gldPctVal == null) ? 'n/a'
+            : spyPctVal <= -0.5 ? (havenBidTt ? 'TO SAFETY' : 'contained')
+            : (spyPctVal >= 0.5 && tltPctVal != null && tltPctVal <= -0.3) ? 'RISK ON'
+            : 'quiet';
           const spyBrokePdlTt = spyQ?.prevLow != null && spyQ.price < spyQ.prevLow;
           const qqqBrokePdlTt = qqqQtt?.prevLow != null && qqqQtt.price < qqqQtt.prevLow;
 
@@ -369,6 +378,13 @@ export default function MacroScorecardPanel({
                     <br />21 sessions, volume-weighted close position · above 60 accumulation, below 40 distribution
                     {qqqMoneyFlow && <><br />both must agree for a flow call; split reads as rotation</>}
                   </>
+                : <>unavailable</>
+            )}
+            {/* Cross-asset: whether a decline is capital leaving equities or
+                moving inside them. Nothing else on the card separates those. */}
+            {ttRow('Cross-asset', crossLabel,
+              (tltPctVal != null || gldPctVal != null)
+                ? <>TLT {tltPctVal != null ? fmtPct(tltPctVal) : 'n/a'} &nbsp; GLD {gldPctVal != null ? fmtPct(gldPctVal) : 'n/a'}<br />a haven bid on a down tape is money leaving; no bid is rotation</>
                 : <>unavailable</>
             )}
             {ttRow('Term Str',
