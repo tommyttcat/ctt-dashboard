@@ -112,6 +112,8 @@ interface RegimeBlock {
 interface SummaryBlock {
   conviction: string[];
   watchlist: string[];
+  /* Written every run; the page rendered none of it until 8 Sep 2026. */
+  tomorrow?: string[];
   traps: string[];
 }
 
@@ -675,6 +677,36 @@ function TrapRow({ item, stock }: { item: SummaryItem; stock?: StockEntry }) {
   );
 }
 
+/* The analyst writes summary.watchlist, .traps and .tomorrow as one line per
+   idea, each carrying its own level. The page used none of them: Watchlist and
+   Traps were built from stock rows and their thesis text, and Tomorrow was not
+   rendered at all, so three of the four summary arrays were written every run
+   and discarded. Conviction is not repeated here because it already appears as
+   the note on each conviction row. */
+function SummaryProse({ lines, red }: { lines: unknown; red?: boolean }) {
+  const arr = Array.isArray(lines) ? lines.map(String).filter((l) => l.trim()) : [];
+  if (!arr.length) return null;
+  return (
+    <div className="mt-2 border-t border-white/[0.04] pt-2 max-w-[72ch]">
+      {arr.map((line, i) => {
+        const m = /^\s*\*\*([A-Z][A-Z0-9.\-]{0,9})\*\*\s*[—–-]?\s*/.exec(line);
+        const ticker = m ? m[1] : null;
+        const text = m ? line.slice(m[0].length) : line;
+        return (
+          <p key={i} className={`text-[12px] text-slate-400 leading-relaxed pl-1${i > 0 ? ' border-t border-white/[0.04] pt-2 mt-2' : ''}`}>
+            {ticker && (
+              <TickerChartHover symbol={ticker}>
+                <span className={red ? MINI_CHIP_RED : MINI_CHIP}>{ticker}</span>
+              </TickerChartHover>
+            )}
+            {highlightBold(text, 'text-slate-200')}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 function ActionableSummary({ summary, trades, avoidStocks, sortKey, sortDir, onSort }: {
   summary: SummaryBlock;
   trades?: StockEntry[];
@@ -787,6 +819,7 @@ function ActionableSummary({ summary, trades, avoidStocks, sortKey, sortDir, onS
               ))}
             </div>
           )}
+          <SummaryProse lines={summary?.watchlist} />
         </div>
       </div>
 
@@ -808,6 +841,16 @@ function ActionableSummary({ summary, trades, avoidStocks, sortKey, sortDir, onS
               ))}
             </div>
           )}
+          <SummaryProse lines={summary?.traps} red />
+        </div>
+      )}
+
+      {Array.isArray(summary?.tomorrow) && summary.tomorrow.length > 0 && (
+        <div className="py-2 md:py-3 mt-4">
+          <div className="text-[9px] font-bold text-slate-500 tracking-wider uppercase mb-2">
+            What to Look For Tomorrow
+          </div>
+          <SummaryProse lines={summary.tomorrow} />
         </div>
       )}
     </SectionCard>
