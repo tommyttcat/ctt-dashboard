@@ -278,6 +278,8 @@ export type InstDirSetup =
   | 'ALGO BUY'
   | 'DISTRIBUTION'
   | 'ACCUMULATION'
+  | 'FLOW IN'
+  | 'FLOW OUT'
   | 'PRESSURE ON'
   | 'PRESSURE OFF'
   | 'CLEAR';
@@ -288,10 +290,18 @@ export interface InstDirOpts {
   vix9dPrice?: number | null;
   spyVolume?: number | null;
   spyAvgVolume?: number | null;
+  /** SPY Chaikin money flow, 0-100 centred on 50. See lib/indicators/moneyflow. */
+  spyMoneyFlow?: number | null;
 }
 
 /* Matches the noise floor `marketToneScore` applies to VIX. */
 const VIX_PRESSURE_PCT = 2;
+
+/* Money-flow bands, taken from the thresholds moneyflow.ts documents:
+   above 60 is strong accumulation, below 40 strong distribution. The mild
+   40-60 band is deliberately not a signal. */
+const MF_ACCUM = 60;
+const MF_DISTRIB = 40;
 
 export function instDirSetup(
   spyPrice: number, spyPdl: number | null, spyPct: number,
@@ -344,6 +354,18 @@ export function instDirSetup(
 
      Both now use 2%. Below that the card says CLEAR, which is the honest
      answer when no rule has actually matched. */
+  /* MONEY FLOW — the only reading here that measures which side actually got
+     filled. Everything above infers intent from price and volume; this weights
+     where each of 21 sessions closed inside its own range by that session's
+     volume. It is slower than the rules above, so it sits below them — but
+     above the VIX fallback, because three weeks of accumulation is a better
+     answer than today's volatility tick when nothing else has matched. */
+  const mf = opts?.spyMoneyFlow;
+  if (mf != null) {
+    if (mf >= MF_ACCUM) return 'FLOW IN';
+    if (mf <= MF_DISTRIB) return 'FLOW OUT';
+  }
+
   if (vixPct >= VIX_PRESSURE_PCT) return 'PRESSURE ON';
   if (vixPct <= -VIX_PRESSURE_PCT) return 'PRESSURE OFF';
 
@@ -351,10 +373,10 @@ export function instDirSetup(
 }
 
 const BULL_SETUPS: Set<InstDirSetup> = new Set([
-  'BEAR TRAP', 'PRESSURE OFF', 'EXHAUSTION', 'ALGO BUY', 'ACCUMULATION',
+  'BEAR TRAP', 'PRESSURE OFF', 'EXHAUSTION', 'ALGO BUY', 'ACCUMULATION', 'FLOW IN',
 ]);
 const BEAR_SETUPS: Set<InstDirSetup> = new Set([
-  'CONFIRMED ↓', '1% DIVG', 'PRESSURE ON', 'HEDGING', 'ALGO SELL', 'DISTRIBUTION',
+  'CONFIRMED ↓', '1% DIVG', 'PRESSURE ON', 'HEDGING', 'ALGO SELL', 'DISTRIBUTION', 'FLOW OUT',
 ]);
 
 export function instDirSignal(setup: InstDirSetup): InstDirSignal {
@@ -389,6 +411,8 @@ const MODERATE_SETUPS: Set<InstDirSetup> = new Set([
   'DISTRIBUTION',  // volume anomaly with a negative tape
   'ACCUMULATION',  // volume anomaly with a positive tape
   'HEDGING',       // term structure in backwardation
+  'FLOW IN',       // 21 sessions of accumulation
+  'FLOW OUT',      // 21 sessions of distribution
 ]);
 
 export function instDirStrength(setup: InstDirSetup): InstDirStrength {

@@ -616,6 +616,7 @@ export default function MacroScorecard() {
   const [instFlash, setInstFlash] = useState(false);
   /* Holds a changed reading until a second poll agrees with it. */
   const instPendingSetup = useRef<InstDirSetup | null>(null);
+  const [spyMoneyFlow, setSpyMoneyFlow] = useState<{ value: number; trend: number } | null>(null);
   const instInitialized = useRef(false);
   const [breadth, setBreadth] = useState<BreadthData | null>(null);
   const [t2108, setT2108] = useState<T2108Data | null>(null);
@@ -710,6 +711,7 @@ export default function MacroScorecard() {
         vix9dPrice: vix9d?.price ?? null,
         spyVolume: spy.volume ?? null,
         spyAvgVolume: spy.avgVolume ?? null,
+        spyMoneyFlow: spyMoneyFlow?.value ?? null,
       },
     );
     /* DEAD-BAND: a new reading must repeat before it is committed.
@@ -746,7 +748,7 @@ export default function MacroScorecard() {
     setTimeout(() => setInstFlash(false), 1500);
     setInstSetup(setup);
     setInstSignal(instDirSignal(setup));
-  }, [quotes]);
+  }, [quotes, spyMoneyFlow]);
 
   // --- A/D DIRECTION: compare each new ratio against the last one ---
   useEffect(() => {
@@ -798,6 +800,7 @@ export default function MacroScorecard() {
         setStockStatus('LIVE');
 
         if (data.breadth && typeof data.breadth.score === 'number') setBreadth(data.breadth);
+        if (data.moneyFlow && typeof data.moneyFlow.value === 'number') setSpyMoneyFlow(data.moneyFlow);
 
         setQuotes(prev => {
           const next = { ...prev };
@@ -1149,6 +1152,7 @@ export default function MacroScorecard() {
             setChopMode={setChopMode}
             bands={bands}
             divergence={divergence}
+            spyMoneyFlow={spyMoneyFlow}
             instSetup={instSetup}
             instSignal={instSignal}
             instPrevSetup={instPrevSetup}

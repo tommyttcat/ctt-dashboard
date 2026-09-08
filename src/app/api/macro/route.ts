@@ -7,6 +7,7 @@
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
+import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { getMarketSession } from '@/lib/indicators/marketScorecard';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 
@@ -101,6 +102,7 @@ export async function GET() {
      VIX is an index and this plan has no indices entitlement, so VIX carries
      no previous-day level — the institutional rules no longer depend on one. */
   const prevDay: Record<string, { high: number; low: number }> = {};
+  let spyMoneyFlow: { value: number; trend: number } | null = null;
 
   const polyKey = (process.env.POLYGON_API_KEY || '').trim();
   let polyVolume: { volume: number; avgVolume: number } | null = null;
@@ -113,8 +115,14 @@ export async function GET() {
        never fire. This response was already being fetched for SPY volume; only
        `day.v` was being read off it. */
     const AVG_VOL_DAYS = 20;
+    /* Money flow needs 21 sessions plus 5 more to read its trend. The same
+       aggregate call already serves the volume average, so this costs nothing
+       extra — only a wider limit. */
+    const MF_LENGTH = 21;
+    const MF_TREND_LOOKBACK = 5;
+    const AGG_BARS = MF_LENGTH + MF_TREND_LOOKBACK + 2;
     const aggTo = new Date();
-    const aggFrom = new Date(aggTo.getTime() - 45 * 86400000);
+    const aggFrom = new Date(aggTo.getTime() - 70 * 86400000);
     const ymdUTC = (d: Date) => d.toISOString().slice(0, 10);
 
     const [pdSnap, vix9dSnap, spyAggs] = await Promise.all([
@@ -130,7 +138,7 @@ export async function GET() {
          "1.5x the 20-day average" but was comparing against `prevDay.v` — one
          session, not an average — so it read 1.5x yesterday instead. */
       fetchSafeJson(
-        `https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day/${ymdUTC(aggFrom)}/${ymdUTC(aggTo)}?adjusted=true&sort=desc&limit=${AVG_VOL_DAYS + 1}&apiKey=${polyKey}`,
+        `https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day/${ymdUTC(aggFrom)}/${ymdUTC(aggTo)}?adjusted=true&sort=desc&limit=${AGG_BARS}&apiKey=${polyKey}`,
         null
       ),
     ]);
@@ -157,6 +165,21 @@ export async function GET() {
         ? priorVols.reduce((a, b) => a + b, 0) / priorVols.length
         : (spyT.prevDay?.v ?? 0);
       polyVolume = { volume: spyT.day.v, avgVolume: avg };
+
+      /* Chaikin accumulation/distribution over the same bars. This is the one
+         reading here that answers WHICH SIDE GOT FILLED rather than inferring
+         it from price direction: it weights where each session closed inside
+         its own range by that session's volume. Bars arrive newest-first. */
+      const mfBars = bars
+        .filter((b) => b?.h > 0 && b?.l > 0 && b?.c > 0 && b?.v > 0)
+        .map((b) => ({ h: b.h as number, l: b.l as number, c: b.c as number, v: b.v as number }));
+      const mfValue = computeMoneyFlow(mfBars, { order: 'desc', length: MF_LENGTH });
+      if (mfValue != null) {
+        spyMoneyFlow = {
+          value: mfValue,
+          trend: moneyFlowTrend(mfBars, { order: 'desc', length: MF_LENGTH, lookback: MF_TREND_LOOKBACK }),
+        };
+      }
     }
     const vix9dResult = vix9dSnap?.results?.[0];
     if (vix9dResult?.value > 0) vix9dPrice = vix9dResult.value;
@@ -195,7 +218,10 @@ export async function GET() {
     quotes['VIX9D'] = { price: vix9dPrice, baseline: vixBase ?? vix9dPrice, pct: 0 };
   }
 
-  const payload = { session, updatedAt: Date.now(), quotes };
+  /* moneyFlow rides alongside quotes rather than inside SPY's entry: it is a
+     21-session reading, not a live quote, and the client caches quote entries
+     per tick. */
+  const payload = { session, updatedAt: Date.now(), quotes, moneyFlow: spyMoneyFlow };
 
   // Only overwrite the cache if we actually got data — never cache an empty wipe.
   if (Object.keys(quotes).length > 0) {

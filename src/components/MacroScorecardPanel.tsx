@@ -49,6 +49,7 @@ import {
   type InstDirSetup,
   type InstDirSignal, instDirStrength, instDirStrengthPips,
 } from '@/lib/indicators/marketScorecard';
+import { mfLabelShort, mfArrow } from '@/lib/indicators/moneyflow';
 
 /* ---- Shared slot widths --------------------------------------------------
    The internals strips are one component shape rendered three times, so every
@@ -185,6 +186,8 @@ export interface MacroScorecardPanelProps {
   intraStale: boolean;
   intraLastBar: string | null;
   hourVal: number | null;
+  /** SPY Chaikin money flow, 0-100. Optional: the analyst page omits it. */
+  spyMoneyFlow?: { value: number; trend: number } | null;
   hourStale: boolean;
   hourLastBar: string | null;
   chopTooltipText: string;
@@ -220,6 +223,7 @@ export default function MacroScorecardPanel({
   intraStale,
   intraLastBar,
   hourVal,
+  spyMoneyFlow,
   hourStale,
   hourLastBar,
   chopTooltipText,
@@ -345,6 +349,12 @@ export default function MacroScorecardPanel({
               volLabel,
               volRatio != null
                 ? <>{(spyVol! / 1e6).toFixed(1)}M vs {(spyAvgVol! / 1e6).toFixed(1)}M 20-day avg = {volRatio.toFixed(2)}x</>
+                : <>unavailable</>
+            )}
+            {ttRow('Money Flow',
+              spyMoneyFlow ? `${mfLabelShort(spyMoneyFlow.value)} ${spyMoneyFlow.value.toFixed(0)}` : 'n/a',
+              spyMoneyFlow
+                ? <>21 sessions, volume-weighted close position {mfArrow(spyMoneyFlow.trend)} · above 60 accumulation, below 40 distribution</>
                 : <>unavailable</>
             )}
             {ttRow('Term Str',
