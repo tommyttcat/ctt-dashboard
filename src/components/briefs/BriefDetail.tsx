@@ -70,6 +70,32 @@ function richText(text: string): React.ReactNode[] {
   return parts;
 }
 
+/* The analyst writes every analysis as 2-4 paragraphs separated by blank
+   lines. This page rendered each one inside a single <p>, which collapsed all
+   of them into an unbroken slab — a closing brief's macro section is ~1,400
+   characters and arrived as one paragraph.
+
+   Two things make long-form prose readable and this had neither: paragraph
+   breaks, and a line short enough to track back to. The card is 1200px wide;
+   at 12px that is well over 150 characters a line, roughly twice the
+   comfortable measure, so the text also gets a max width of its own rather
+   than filling the card. */
+function Prose({ text }: { text: string }) {
+  const paras = String(text || '')
+    .split(/\n{2,}/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  if (!paras.length) return null;
+  return (
+    <div className="max-w-[68ch] flex flex-col gap-3">
+      {paras.map((para, i) => (
+        <p key={i} className="text-[12px] text-slate-200 leading-[1.75]">{richText(para)}</p>
+      ))}
+    </div>
+  );
+}
+
+
 function SectionCard({
   title,
   accent,
@@ -218,19 +244,19 @@ export default function BriefDetail({
                     {regime.regime && regime.regime.length > 30 && (
                       <div>
                         <div className="text-[12px] font-bold text-slate-500 tracking-wider uppercase mb-1">Assessment</div>
-                        <p className="text-[12px] text-slate-200 leading-[1.7]">{richText(regime.regime)}</p>
+                        <Prose text={regime.regime} />
                       </div>
                     )}
                     {regime.caution && (
                       <div className={regime.regime && regime.regime.length > 30 ? 'pt-3 border-t border-white/[0.06]' : ''}>
                         <div className="text-[12px] font-bold text-slate-500 tracking-wider uppercase mb-1">Risk</div>
-                        <p className="text-[12px] text-slate-200 leading-[1.7]">{richText(regime.caution)}</p>
+                        <Prose text={regime.caution} />
                       </div>
                     )}
                     {regime.posture && (
                       <div className="pt-3 border-t border-white/[0.06]">
                         <div className="text-[12px] font-bold text-slate-500 tracking-wider uppercase mb-1">Structure</div>
-                        <p className="text-[12px] text-slate-200 leading-[1.7]">{richText(regime.posture)}</p>
+                        <Prose text={regime.posture} />
                       </div>
                     )}
                   </div>
@@ -240,14 +266,14 @@ export default function BriefDetail({
               {/* Macro snapshot */}
               {macroSection && (
                 <SectionCard title={macroSection.section} accent="#22d3ee">
-                  <p className="text-[12px] text-slate-200 leading-[1.7]">{richText(macroSection.analysis)}</p>
+                  <Prose text={macroSection.analysis} />
                 </SectionCard>
               )}
 
               {/* News */}
               {newsSection && (
                 <SectionCard title="Key news & catalysts" accent="#a78bfa">
-                  <p className="text-[12px] text-slate-200 leading-[1.7]">{richText(newsSection.analysis)}</p>
+                  <Prose text={newsSection.analysis} />
                 </SectionCard>
               )}
 
@@ -257,7 +283,7 @@ export default function BriefDetail({
                   <div className="space-y-0">
                     {summary.conviction.map((line, i) => (
                       <div key={i} className={i > 0 ? 'pt-3 mt-3 border-t border-white/[0.06]' : ''}>
-                        <p className="text-[12px] text-slate-200 leading-[1.7]">{richText(String(line))}</p>
+                        <Prose text={String(line)} />
                       </div>
                     ))}
                   </div>
@@ -309,21 +335,21 @@ export default function BriefDetail({
               {/* Sectors */}
               {sectorSection && (
                 <SectionCard title="Sectors & money flow" accent="#fbbf24">
-                  <p className="text-[12px] text-slate-200 leading-[1.7]">{richText(sectorSection.analysis)}</p>
+                  <Prose text={sectorSection.analysis} />
                 </SectionCard>
               )}
 
               {/* Gappers */}
               {gapperSection && (
                 <SectionCard title={gapperSection.section} accent="#34d399">
-                  <p className="text-[12px] text-slate-200 leading-[1.7]">{richText(gapperSection.analysis)}</p>
+                  <Prose text={gapperSection.analysis} />
                 </SectionCard>
               )}
 
               {/* Stocks in play */}
               {sipSection && sipSection.analysis && (
                 <SectionCard title="Stocks in play" accent="#8b5cf6">
-                  <p className="text-[12px] text-slate-200 leading-[1.7]">{richText(sipSection.analysis)}</p>
+                  <Prose text={sipSection.analysis} />
                 </SectionCard>
               )}
 
@@ -353,9 +379,9 @@ export default function BriefDetail({
                               </span>
                             )}
                           </div>
-                          <div className="space-y-2">
+                          <div className="max-w-[68ch] flex flex-col gap-3">
                             {(block.paragraphs || []).map((para, i) => (
-                              <p key={i} className="text-[12px] text-slate-300 leading-[1.7]">
+                              <p key={i} className="text-[12px] text-slate-300 leading-[1.75]">
                                 {richText(para)}
                               </p>
                             ))}
@@ -384,7 +410,7 @@ export default function BriefDetail({
                         <div className="text-[12px] font-bold text-slate-500 tracking-wider uppercase mb-2">Watchlist</div>
                         <div className="space-y-1">
                           {summary.watchlist.map((line, i) => (
-                            <p key={i} className="text-[12px] text-slate-200 leading-[1.7]">{richText(String(line))}</p>
+                            <Prose key={i} text={String(line)} />
                           ))}
                         </div>
                       </div>
@@ -394,7 +420,7 @@ export default function BriefDetail({
                         <div className="text-[12px] font-bold text-rose-400/80 tracking-wider uppercase mb-2">Traps</div>
                         <div className="space-y-1">
                           {summary.traps.map((line, i) => (
-                            <p key={i} className="text-[12px] text-slate-200 leading-[1.7]">{richText(String(line))}</p>
+                            <Prose key={i} text={String(line)} />
                           ))}
                         </div>
                       </div>
@@ -404,7 +430,7 @@ export default function BriefDetail({
                         <div className="text-[12px] font-bold text-slate-500 tracking-wider uppercase mb-2">Tomorrow</div>
                         <div className="space-y-1">
                           {(summary.tomorrow ?? []).map((line, i) => (
-                            <p key={i} className="text-[12px] text-slate-200 leading-[1.7]">{richText(String(line))}</p>
+                            <Prose key={i} text={String(line)} />
                           ))}
                         </div>
                       </div>
