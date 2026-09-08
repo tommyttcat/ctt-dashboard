@@ -241,7 +241,7 @@ export const vixPctTone = (pct: number): CellTone =>
 /** Tickers where a rising price is a bearish signal. */
 export const INVERSE_TICKERS = new Set(['VIX', 'UVXY', 'SQQQ', 'SPXS', 'SDOW', 'SOXS']);
 
-/* ---- Institutional Direction ------------------------------------------------
+/* ---- Tape Direction ------------------------------------------------
 
    Three-signal algo/institutional detection:
 
@@ -268,7 +268,7 @@ export const INVERSE_TICKERS = new Set(['VIX', 'UVXY', 'SQQQ', 'SPXS', 'SDOW', '
       case today: VIX9D is a Polygon index and the plan does not carry them,
       so HEDGING cannot currently fire. */
 
-export type InstDirSetup =
+export type TapeDirSetup =
   | 'BEAR TRAP'
   | 'CONFIRMED ↓'
   | '1% DIVG'
@@ -287,9 +287,9 @@ export type InstDirSetup =
   | 'PRESSURE OFF'
   | 'CLEAR';
 
-export type InstDirSignal = 'BULLS' | 'BEARS' | 'NEUTRAL';
+export type TapeDirSignal = 'BULLS' | 'BEARS' | 'NEUTRAL';
 
-export interface InstDirOpts {
+export interface TapeDirOpts {
   vix9dPrice?: number | null;
   spyVolume?: number | null;
   spyAvgVolume?: number | null;
@@ -319,12 +319,12 @@ const EQUITY_MOVE_PCT = 0.5;
 const TLT_BID_PCT = 0.3;
 const GLD_BID_PCT = 0.5;
 
-export function instDirSetup(
+export function tapeDirSetup(
   spyPrice: number, spyPdl: number | null, spyPct: number,
   qqqPrice: number, qqqPdl: number | null,
   vixPrice: number, vixPdh: number | null, vixPct: number,
-  opts?: InstDirOpts,
-): InstDirSetup {
+  opts?: TapeDirOpts,
+): TapeDirSetup {
   if (spyPct >= 1 && vixPct >= 1) return '1% DIVG';
   if (spyPct <= -1 && vixPct <= -1) return 'EXHAUSTION';
 
@@ -420,14 +420,14 @@ export function instDirSetup(
   return 'CLEAR';
 }
 
-const BULL_SETUPS: Set<InstDirSetup> = new Set([
+const BULL_SETUPS: Set<TapeDirSetup> = new Set([
   'BEAR TRAP', 'PRESSURE OFF', 'EXHAUSTION', 'ALGO BUY', 'ACCUMULATION', 'FLOW IN', 'RISK ON',
 ]);
-const BEAR_SETUPS: Set<InstDirSetup> = new Set([
+const BEAR_SETUPS: Set<TapeDirSetup> = new Set([
   'CONFIRMED ↓', '1% DIVG', 'PRESSURE ON', 'HEDGING', 'ALGO SELL', 'DISTRIBUTION', 'FLOW OUT', 'FLIGHT TO SAFETY',
 ]);
 
-export function instDirSignal(setup: InstDirSetup): InstDirSignal {
+export function tapeDirSignal(setup: TapeDirSetup): TapeDirSignal {
   if (BULL_SETUPS.has(setup)) return 'BULLS';
   if (BEAR_SETUPS.has(setup)) return 'BEARS';
   return 'NEUTRAL';
@@ -444,9 +444,9 @@ export function instDirSignal(setup: InstDirSetup): InstDirSignal {
    MODERATE  two conditions, or a single structural read.
    WEAK      one ordinary reading, including the fallback.                   */
 
-export type InstDirStrength = 'STRONG' | 'MODERATE' | 'WEAK';
+export type TapeDirStrength = 'STRONG' | 'MODERATE' | 'WEAK';
 
-const STRONG_SETUPS: Set<InstDirSetup> = new Set([
+const STRONG_SETUPS: Set<TapeDirSetup> = new Set([
   'CONFIRMED ↓',   // both indices through their previous-day lows, volatility confirming
   'FLIGHT TO SAFETY', // equities down and a haven bid — two asset classes agree
   'ALGO SELL',     // VIX 3%+ against a falling tape
@@ -455,7 +455,7 @@ const STRONG_SETUPS: Set<InstDirSetup> = new Set([
   'EXHAUSTION',    // index and volatility both down 1%+
 ]);
 
-const MODERATE_SETUPS: Set<InstDirSetup> = new Set([
+const MODERATE_SETUPS: Set<TapeDirSetup> = new Set([
   'BEAR TRAP',     // index broke its low, volatility declined to confirm
   'DISTRIBUTION',  // volume anomaly with a negative tape
   'ACCUMULATION',  // volume anomaly with a positive tape
@@ -466,31 +466,31 @@ const MODERATE_SETUPS: Set<InstDirSetup> = new Set([
   'ROTATION',      // equities down with no haven bid — contained, not systemic
 ]);
 
-export function instDirStrength(setup: InstDirSetup): InstDirStrength {
+export function tapeDirStrength(setup: TapeDirSetup): TapeDirStrength {
   if (STRONG_SETUPS.has(setup)) return 'STRONG';
   if (MODERATE_SETUPS.has(setup)) return 'MODERATE';
   return 'WEAK';
 }
 
 /** Filled/empty pips, so strength reads at a glance without another word. */
-export const instDirStrengthPips = (setup: InstDirSetup): string => {
-  const st = instDirStrength(setup);
+export const tapeDirStrengthPips = (setup: TapeDirSetup): string => {
+  const st = tapeDirStrength(setup);
   return st === 'STRONG' ? '●●●' : st === 'MODERATE' ? '●●○' : '●○○';
 };
 
-export const instDirCellTone = (s: InstDirSignal): CellTone =>
+export const tapeDirCellTone = (s: TapeDirSignal): CellTone =>
   s === 'BULLS' ? 'green' : s === 'BEARS' ? 'red' : 'amber';
 
-export function instDirCardStyle(s: InstDirSignal): { bg: string; border: string } {
+export function tapeDirCardStyle(s: TapeDirSignal): { bg: string; border: string } {
   if (s === 'BULLS') return { bg: 'bg-emerald-950/10', border: 'border-emerald-500/20' };
   if (s === 'BEARS') return { bg: 'bg-rose-950/10', border: 'border-rose-500/20' };
   return { bg: 'bg-[#161c2a]/60', border: 'border-white/10' };
 }
 
-export const instDirTextColor = (s: InstDirSignal): string =>
+export const tapeDirTextColor = (s: TapeDirSignal): string =>
   s === 'BULLS' ? 'text-emerald-400' : s === 'BEARS' ? 'text-rose-400' : 'text-slate-200';
 
-export function instDirSetupBadge(setup: InstDirSetup): string {
+export function tapeDirSetupBadge(setup: TapeDirSetup): string {
   if (BULL_SETUPS.has(setup)) return 'bg-emerald-500/10 text-emerald-400';
   if (BEAR_SETUPS.has(setup)) return 'bg-rose-500/10 text-rose-400';
   return 'bg-slate-500/10 text-slate-300';

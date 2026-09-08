@@ -2358,8 +2358,8 @@ export default function AnalystBrief() {
             setChopMode={macro.setChopMode}
             bands={macro.bands}
             divergence={macro.divergence}
-            instSetup={macro.instSetup}
-            instSignal={macro.instSignal}
+            tapeSetup={macro.tapeSetup}
+            tapeSignal={macro.tapeSignal}
             cellsOnly
           />
         </div>

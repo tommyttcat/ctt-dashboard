@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
-import { kv } from '@vercel/kv';
 import {
   type ChopMode,
   CHOP_BANDS as CHOP_MODE_BANDS,
@@ -28,9 +27,6 @@ import {
   mmTodayTone,
   mmCellTone,
   mmRatioLabel,
-  tapeDirSetup,
-  tapeDirSignal,
-  tapeDirCellTone,
 } from '@/lib/indicators/marketScorecard';
 import { dedupeByTicker, chgOf, dVolOf, advancingDollarShare } from '@/lib/indicators/marketMath';
 import { postToBluesky } from '@/lib/bluesky';
@@ -38,21 +34,19 @@ import { postToX } from '@/lib/twitter';
 import { stageHex as stageColor } from '@/lib/indicators/stage';
 import { cnfHex, rvolHex, rsHex } from '@/lib/indicators/columnColors';
 import { newsStarCount } from '@/lib/newsStars';
-import { isEtfSector, displaySector } from '@/lib/sectors';
+import { industryHeat } from '@/lib/sectors';
 import { getEmailRecipients } from '@/lib/users';
-import { getMarketDay } from '@/lib/marketCalendar';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 30;
 
-const PHASES = ['pre', 'morning', 'midday', 'power', 'closing'] as const;
+const PHASES = ['pre', 'morning', 'midday', 'closing'] as const;
 type Phase = (typeof PHASES)[number];
 
 const PHASE_LABELS: Record<Phase, string> = {
   pre: 'Pre-Market',
   morning: 'Morning',
   midday: 'Midday',
-  power: 'Power Hour',
   closing: 'Closing',
 };
 
@@ -91,56 +85,9 @@ const fmtVol = (v: number) => v >= 1e9 ? '$' + (v / 1e9).toFixed(1) + 'B' : v >=
 const fmtVolShort = (v: number) => v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? Math.round(v / 1e3) + 'K' : '—';
 const stripStage = (s: string) => String(s || '').replace(/Stage\s*/i, '').trim() || '';
 
-function trimToSentence(text: string, max: number): string {
-  if (text.length <= max) return text;
-  const chunk = text.slice(0, max);
-  const lastSentence = Math.max(chunk.lastIndexOf('. '), chunk.lastIndexOf('! '), chunk.lastIndexOf('? '), chunk.lastIndexOf('.\n'));
-  if (lastSentence > max * 0.3) return chunk.slice(0, lastSentence + 1).trim();
-  const lastEnd = Math.max(chunk.lastIndexOf('.'), chunk.lastIndexOf('!'), chunk.lastIndexOf('?'));
-  if (lastEnd > max * 0.3) return chunk.slice(0, lastEnd + 1).trim();
-  return chunk.slice(0, chunk.lastIndexOf(' ')).replace(/[,;:\s]+$/, '').trim();
-}
-
-const SOCIAL_INDEX_TICKERS = new Set(['SPY', 'QQQ', 'IWM', 'DIA', 'VIX', 'TLT', 'GLD', 'USO']);
-
-function extractBriefTickers(brief: any): Set<string> {
-  const tickers = new Set<string>();
-  for (const sec of (brief?.sections || [])) {
-    for (const s of (sec.stocks || [])) {
-      if (s.ticker) tickers.add(s.ticker.toUpperCase());
-    }
-  }
-  const sm = brief?.summary || {};
-  for (const arr of [sm.conviction, sm.watchlist, sm.traps, sm.tomorrow]) {
-    if (!Array.isArray(arr)) continue;
-    for (const line of arr) {
-      const str = String(line || '');
-      for (const m of str.matchAll(/\*\*([A-Z]{1,5})\*\*/g)) tickers.add(m[1]);
-      const lead = str.match(/^([A-Z]{1,5})(?:[\s,:]|'s|$)/);
-      if (lead) tickers.add(lead[1]);
-    }
-  }
-  return tickers;
-}
-
-function socialCashtags(text: string, brief: any, max?: number): string {
-  const tickers = new Set([...extractBriefTickers(brief), ...SOCIAL_INDEX_TICKERS]);
-  let result = text;
-  let count = 0;
-  for (const t of tickers) {
-    result = result.replace(new RegExp(`(?<!\\$)\\b${t}\\b`, 'g'), (match) => {
-      if (max != null && count >= max) return match;
-      count++;
-      return `$${match}`;
-    });
-    if (max != null && count >= max) break;
-  }
-  return result;
-}
-
-const BADGE = 'display:inline-block;font-size:8px;font-weight:700;border-radius:3px;padding:1px 4px;line-height:14px;text-align:center;border:1px solid';
+const BADGE = 'display:inline-block;font-size:6px;font-weight:700;border-radius:3px;width:18px;line-height:12px;text-align:center;border:1px solid';
 function rsPillHtml(rs: number | null | undefined): string {
-  if (rs == null) return '<span style="color:#475569;">-</span>';
+  if (rs == null) return '';
   const [bg, bc, tx] = rs >= 90 ? ['#3b0764','#6b21a8','#c084fc']
     : rs >= 80 ? ['#042f2e','#065f46','#34d399']
     : rs >= 70 ? ['#1e293b','#ffffff1a','#cbd5e1']
@@ -149,7 +96,7 @@ function rsPillHtml(rs: number | null | undefined): string {
 }
 function stagePillHtml(stage: string | null | undefined): string {
   const s = stripStage(String(stage || ''));
-  if (!s || s === '—') return '<span style="color:#475569;">-</span>';
+  if (!s || s === '—') return '';
   const u = s.toUpperCase();
   const [bg, bc, tx] = u.startsWith('2')
     ? (u === '2C' ? ['#422006','#854d0e','#fbbf24'] : u === '2B' ? ['#042f2e','#065f46','#6ee7b7'] : ['#042f2e','#065f46','#34d399'])
@@ -269,19 +216,11 @@ function colorPctsHtml(text: string): string {
   });
 }
 
-/* The brief's own vocabulary is never a chip, even if a scanner row happens to
-   carry the same symbol: these words appear as prose in every brief, so a
-   ticker match on them is always a false positive. */
-const RESERVED_WORDS = new Set([
-  'ARMED', 'WAIT', 'TRIGGERED', 'EXTENDED', 'FAILED', 'UNKNOWN', 'ACT', 'TODAY',
-  'PRE', 'TAPE', 'MIX', 'OPEN', 'CLOSE', 'POWER', 'HOUR',
-]);
-
 function richHtml(text: string, known: Set<string>): string {
   const stripped = String(text || '').replace(/\*\*/g, '');
   const colored = colorPctsHtml(stripped);
   return colored.replace(/(^|[\s(,])([A-Z]{1,5})(?='s|$|[\s),.:;])/g, (m, pre, tok) =>
-    known.has(tok) && !RESERVED_WORDS.has(tok) ? `${pre}${tickerChip(tok)}` : m
+    known.has(tok) ? `${pre}${tickerChip(tok)}` : m
   );
 }
 
@@ -319,11 +258,11 @@ function noteBlocksHtml(arr: string[], known: Set<string>, color = '#cbd5e1'): s
           : `<strong style="color:#f1f5f9;">${richHtml(lead, known)}</strong>`;
       /* No space before a comma or full stop — the lead is mid-sentence. */
       const glue = leadHtml && rest && !/^[,.;:!?)]/.test(rest) ? ' ' : '';
-      return `<div style="${sep}font-size:12px;color:${color};line-height:1.6;">${leadHtml}${glue}${richHtml(rest || (lead ? '' : s), known)}</div>`;
+      return `<div style="${sep}font-size:9px;color:${color};line-height:1.6;">${leadHtml}${glue}${richHtml(rest || (lead ? '' : s), known)}</div>`;
     }
 
     return `<div style="${sep}">
-      <div style="font-size:12px;font-weight:700;color:#f1f5f9;line-height:1.5;">${richHtml(lead, known)}</div>
+      <div style="font-size:9px;font-weight:700;color:#f1f5f9;line-height:1.5;">${richHtml(lead, known)}</div>
       <div style="font-size:8px;color:${color};line-height:1.5;padding-left:12px;margin-top:4px;">${richHtml(rest, known)}</div>
     </div>`;
   }).join('');
@@ -335,8 +274,8 @@ function parseLabeled(text: string): LabeledRow[] {
   const rows: LabeledRow[] = [];
   for (const line of String(text || '').split('\n')) {
     if (!line.trim()) continue;
-    const m = line.match(/^\*{0,2}([A-Za-z0-9\s/&']+?)\*{0,2}:(?!\d)\s*(.+)/);
-    if (!m || m[1].trim().length > 15) continue;
+    const m = line.match(/^\*{0,2}([A-Za-z0-9\s/&']+?)\*{0,2}:\s*(.+)/);
+    if (!m) continue;
     const label = m[1].trim().replace(/\*+/g, '');
     const rest = m[2].replace(/\*+/g, '').trim();
     const i = rest.indexOf(' — ');
@@ -352,15 +291,29 @@ function parseLabeled(text: string): LabeledRow[] {
 function formattedBlockHtml(text: string, known: Set<string>): string {
   const rows = parseLabeled(text);
   if (!rows.length) {
+    /* Mirrors the page's FormattedBlock: a line over 200 chars is split into
+       sentences so each becomes its own separated block. Without this the
+       email rendered multi-sentence analysis as one dense slab while the page
+       showed the same text as spaced paragraphs — the two surfaces read the
+       same brief and should look alike. Keep this rule in sync with
+       AnalystBrief.tsx if either side changes. */
     const rawLines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean);
-    return rawLines.map((p, i) =>
-      `<div style="border-left:2px solid #334155;padding-left:10px;${i > 0 ? 'margin-top:12px;' : ''}font-size:12px;color:#cbd5e1;line-height:1.7;">${richHtml(p, known)}</div>`
+    const paras: string[] = [];
+    for (const l of rawLines) {
+      if (l.length > 200) {
+        paras.push(...l.split(/(?<=\.)\s+(?=[A-Z])/).map((s) => s.trim()).filter(Boolean));
+      } else {
+        paras.push(l);
+      }
+    }
+    return paras.map((p, i) =>
+      `<div style="${i > 0 ? 'border-top:1px solid #ffffff0d;padding-top:8px;margin-top:8px;' : ''}font-size:9px;color:#cbd5e1;line-height:1.6;">${richHtml(p, known)}</div>`
     ).join('');
   }
   return rows.map((r, i) =>
     `<div style="${i > 0 ? 'border-top:1px solid #ffffff0d;padding-top:10px;margin-top:10px;' : ''}">
       <div style="font-size:8px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#64748b;margin-bottom:4px;">${r.label}</div>
-      <div style="font-size:12px;color:#cbd5e1;line-height:1.7;">${richHtml(r.value, known)}</div>
+      <div style="font-size:9px;color:#cbd5e1;line-height:1.7;">${richHtml(r.value, known)}</div>
       ${r.detail ? `<div style="font-size:8px;color:#94a3b8;line-height:1.6;margin-top:4px;">${richHtml(r.detail.charAt(0).toUpperCase() + r.detail.slice(1), known)}</div>` : ''}
     </div>`
   ).join('');
@@ -370,10 +323,10 @@ function formattedBlockHtml(text: string, known: Set<string>): string {
    indigo pill title with dot — mirrors AnalystBrief.tsx SectionCard. */
 function pageCard(title: string, accent: string, bodyHtml: string, _tint = '0a'): string {
   if (!bodyHtml) return '';
-  return `<div style="margin-bottom:16px;border-left:3px solid ${accent};padding-left:12px;">
-      <div style="margin-bottom:10px;">
-        <span style="display:inline-block;font-size:8px;font-weight:700;color:${accent};background:#161c2a66;border:1px solid #ffffff0d;padding:2px 8px;border-radius:4px;letter-spacing:0.14em;text-transform:uppercase;">
-          <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${accent};margin-right:6px;vertical-align:middle;"></span>${title}
+  return `<div style="margin-bottom:12px;border-radius:14px;border:1px solid #ffffff0f;padding:14px 16px;">
+      <div style="margin-bottom:10px;border-bottom:1px solid #ffffff08;padding-bottom:8px;">
+        <span style="display:inline-block;font-size:8px;font-weight:700;color:#7c8bfa;background:#161c2a;border:1px solid #ffffff0d;padding:3px 8px;border-radius:4px;letter-spacing:0.14em;text-transform:uppercase;">
+          <span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#7c8bfa;margin-right:6px;vertical-align:middle;"></span>${title}
         </span>
       </div>
       ${bodyHtml}
@@ -395,6 +348,32 @@ function parseSectorItems(raw: string): { name: string; pct: number }[] {
   return out;
 }
 
+function sectorBarsFromHeat(heat: { sector: string; avgChg: number; count: number }[]): string {
+  const all = heat.slice(0, 10).sort((a, b) => b.avgChg - a.avgChg);
+  if (!all.length) return '';
+  const maxAbs = Math.max(...all.map((s) => Math.abs(s.avgChg)), 0.01);
+  const spread = all[0].avgChg - all[all.length - 1].avgChg;
+
+  const rows = all.map((s) => {
+    const w = Math.max(2, Math.round((Math.abs(s.avgChg) / maxAbs) * 46));
+    const pos = s.avgChg >= 0;
+    const bar = pos
+      ? `<td width="50%" style="padding:0;"></td><td width="50%" style="padding:0;"><div style="width:${w * 2}%;height:14px;border-radius:3px;background:linear-gradient(90deg,#065f46,#34d399);"></div></td>`
+      : `<td width="50%" style="padding:0;text-align:right;"><div style="width:${w * 2}%;height:14px;border-radius:3px;background:linear-gradient(90deg,#fb7185,#7f1d3a);margin-left:auto;"></div></td><td width="50%" style="padding:0;"></td>`;
+    return `<tr>
+      <td width="26%" style="padding:3px 8px 3px 0;text-align:right;font-size:8px;color:${pos ? '#34d399' : '#cbd5e1'};">${s.sector}</td>
+      <td width="58%" style="padding:3px 0;"><table width="100%" style="border-collapse:collapse;"><tr>${bar}</tr></table></td>
+      <td width="16%" style="padding:3px 0 3px 8px;text-align:right;font-size:8px;font-weight:700;color:${pos ? '#34d399' : '#fb7185'};">${fmtPct(s.avgChg)}</td>
+    </tr>`;
+  }).join('');
+
+  return `<div style="padding:6px 8px;height:100%;box-sizing:border-box;border-left:3px solid #34d399;">
+    <table width="100%" style="border-collapse:collapse;margin:0 0 6px;"><tr>
+      <td style="text-align:right;font-size:8px;color:#475569;">Spread ${spread.toFixed(2)}%</td>
+    </tr></table>
+    <table width="100%" style="border-collapse:collapse;">${rows}</table>
+  </div>`;
+}
 
 /* Horizontal bars growing from a centre line, same as the page's sector chart. */
 function sectorBarsHtml(text: string): string {
@@ -442,63 +421,6 @@ function sectorBarsHtml(text: string): string {
    different pool with different prose, so the same section looked like three
    sections and reported different numbers. Rows, limits, shares and blurb
    wording below are SectorSection's. */
-function buildSetupPool(snapshot: any): any[] {
-  const sip = snapshot?.stocksInPlay || {};
-  const seen = new Set<string>();
-  const out: any[] = [];
-  const add = (arr: any[]) => {
-    for (const s of arr) {
-      const t = s?.ticker ?? s?.symbol;
-      if (!t || seen.has(t)) continue;
-      seen.add(t);
-      out.push({ ...s, ticker: t });
-    }
-  };
-  add(Array.isArray(sip.stocksInPlay) ? sip.stocksInPlay : []);
-  add(Array.isArray(sip.dailySetups) ? sip.dailySetups : []);
-  add(Array.isArray(snapshot?.ep9m?.candidates) ? snapshot.ep9m.candidates : []);
-  add(Array.isArray(snapshot?.swingCandidates?.candidates) ? snapshot.swingCandidates.candidates : []);
-  add(Array.isArray(snapshot?.vcp?.candidates) ? snapshot.vcp.candidates : []);
-  add(Array.isArray(snapshot?.multibagger?.candidates) ? snapshot.multibagger.candidates : []);
-  return out;
-}
-
-function sectorConcentrationHtml(pool: any[]): string {
-  const sectorMap: Record<string, { count: number; totalChg: number }> = {};
-  pool.forEach((s: any) => {
-    const sec = s.sector && s.sector !== '—' && !isEtfSector(s.sector) ? displaySector(s.sector) : null;
-    if (!sec || sec === '—' || sec.toLowerCase() === 'other') return;
-    if (!sectorMap[sec]) sectorMap[sec] = { count: 0, totalChg: 0 };
-    sectorMap[sec].count += 1;
-    sectorMap[sec].totalChg += Number(s.changePct ?? s.chg ?? 0);
-  });
-  const sectors = Object.entries(sectorMap)
-    .map(([sector, d]) => ({ sector, count: d.count, avgChg: d.totalChg / d.count }))
-    .sort((a, b) => b.count - a.count);
-  if (!sectors.length) return '';
-  const maxCount = sectors[0].count;
-  const rows = sectors.slice(0, 10).map((h) => {
-    const pos = h.avgChg >= 0;
-    const barPx = Math.max(6, Math.round((h.count / maxCount) * 120));
-    const barClr = pos ? '#34d399' : '#fb7185';
-    return `<tr>
-      <td style="padding:3px 0;font-size:10px;font-weight:500;color:#cbd5e1;white-space:nowrap;">${h.sector}</td>
-      <td style="padding:3px 8px;width:140px;">
-        <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:8px;overflow:hidden;">
-          <div style="width:${barPx}px;max-width:100%;height:100%;border-radius:4px;background:${barClr};opacity:0.6;"></div>
-        </div>
-      </td>
-      <td style="padding:3px 0;font-size:10px;font-weight:700;color:#94a3b8;text-align:right;width:24px;">${h.count}</td>
-      <td style="padding:3px 0 3px 8px;font-size:10px;font-weight:600;text-align:right;width:48px;color:${barClr};">${pos ? '+' : ''}${h.avgChg.toFixed(1)}%</td>
-    </tr>`;
-  }).join('');
-  return `<div style="padding:6px 12px;height:100%;box-sizing:border-box;border-left:3px solid #fbbf24;">
-    <div style="font-size:9px;font-weight:700;color:#fbbf24;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:4px;">Sector Concentration</div>
-    <div style="font-size:8px;color:#64748b;margin-bottom:6px;">Where scanner setups are clustering by sector.</div>
-    <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">${rows}</table>
-  </div>`;
-}
-
 function sectorsCardHtml(sectorText: string, snapshot: any): string {
   const movers = snapshot?.stocksInPlay?.topMovers || {};
 
@@ -520,11 +442,25 @@ function sectorsCardHtml(sectorText: string, snapshot: any): string {
   const mfShare = advancingDollarShare(flowAll);
   const totalDVol = flowAll.reduce((a: number, s: any) => a + dVolOf(s), 0);
 
-  const setupPool = buildSetupPool(snapshot);
-  const bars = sectorText ? sectorBarsHtml(sectorText) : '';
-  const concHtml = sectorConcentrationHtml(setupPool);
+  const heat = industryHeat(flowAll, chgOf);
+  const bars = heat.length >= 2 ? sectorBarsFromHeat(heat) : (sectorText ? sectorBarsHtml(sectorText) : '');
+  const heatHtml = heat.length >= 2 ? (() => {
+    const rows = heat.slice(0, 8).map((h: any) => {
+      const pos = h.avgChg >= 0;
+      return `<div style="display:flex;align-items:center;gap:6px;padding:1px 0;font-size:8px;">
+        <span style="font-weight:600;width:44px;text-align:right;flex-shrink:0;color:${pos ? '#34d399' : '#fb7185'};">${pos ? '+' : ''}${h.avgChg.toFixed(1)}%</span>
+        <span style="color:#cbd5e1;">${h.sector}</span>
+        <span style="color:#475569;font-size:8px;">(${h.count})</span>
+      </div>`;
+    }).join('');
+    return `<div style="padding:6px 12px;height:100%;box-sizing:border-box;border-left:3px solid #fbbf24;">
+      <div style="font-size:9px;font-weight:700;color:#fbbf24;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:4px;">Industry Heat</div>
+      <div style="font-size:8px;color:#64748b;margin-bottom:6px;">Sector rotation — where money is arriving and where it is leaving.</div>
+      ${rows}
+    </div>`;
+  })() : '';
 
-  const topRow = (bars || concHtml) ? twoColHtml(bars, concHtml) : '';
+  const topRow = (bars || heatHtml) ? twoColHtml(bars, heatHtml) : '';
   const tables = twoColHtml(
     flowTableHtml('ETF Flow', '#818cf8',
       `${etfShare}% of ETF dollars on the advancing side${etfShare >= 60 ? ' — chasing strength.' : etfShare <= 40 ? ' — favoring defense.' : ' — no clean bet.'}`,
@@ -556,14 +492,13 @@ function pageStockTable(stocks: any[], opts: { red?: boolean } = {}): string {
     const dv = s.dVol ?? s.dvol ?? (s.price && (s.vol || s.volume) ? s.price * (s.vol || s.volume) : 0);
     const grade = s.grade || '';
     const stage = stripStage(String(s.stage || ''));
-    const rsRaw = s.rs ?? s.rsRating ?? null;
-    const rs = (typeof rsRaw === 'number' && Number.isFinite(rsRaw)) ? rsRaw : (Number.isFinite(Number(rsRaw)) ? Number(rsRaw) : null);
+    const rs = s.rs ?? s.rsRating ?? null;
     return `<tr>
       <td class="d" style="padding-left:0;white-space:nowrap;">${opts.red ? tickerChipRed(s.ticker) : tickerChip(s.ticker, grade)}</td>
       <td class="d" style="text-align:center;">${cnfPill(s.score, grade)}</td>
       <td class="d" style="text-align:right;font-weight:700;color:${chgClr(chg)};white-space:nowrap;">${fmtPct(chg)}</td>
       <td class="d" style="text-align:right;color:#cbd5e1;">${fmtPrice(s.price)}</td>
-      <td class="d" style="text-align:right;color:${rvolHex(rv)};font-weight:700;">${rv != null ? (rv < 1 ? rv.toFixed(1) : Math.round(rv)) + 'x' : ''}</td>
+      <td class="d" style="text-align:right;color:${rvolHex(rv)};font-weight:700;">${rv != null ? rv.toFixed(2) : ''}</td>
       <td class="d" style="text-align:right;color:#94a3b8;">${s.vol || s.volume ? fmtVolShort(s.vol || s.volume) : ''}</td>
       <td class="d" style="text-align:right;color:#cbd5e1;">${dv ? fmtVol(dv) : ''}</td>
       <td class="d" style="text-align:center;">${rsPillHtml(rs)}</td>
@@ -610,7 +545,7 @@ function flowTableHtml(title: string, color: string, blurb: string, rows: any[])
       <td class="d" style="text-align:center;">${cnfPill(cnf, grade)}</td>
       <td class="d" style="text-align:right;font-weight:700;color:${chgClr(chg)};white-space:nowrap;">${fmtPct(chg)}</td>
       <td class="d" style="text-align:right;color:#cbd5e1;">${fmtPrice(r.price)}</td>
-      <td class="d" style="text-align:right;color:${rvol >= 2 ? '#34d399' : rvol >= 1 ? '#cbd5e1' : '#64748b'};font-weight:${rvol >= 2 ? '700' : '400'};">${rvol < 1 ? rvol.toFixed(1) : Math.round(rvol)}x</td>
+      <td class="d" style="text-align:right;color:${rvol >= 2 ? '#34d399' : rvol >= 1 ? '#cbd5e1' : '#64748b'};font-weight:${rvol >= 2 ? '700' : '400'};">${rvol.toFixed(2)}</td>
       <td class="d" style="text-align:right;color:#94a3b8;">${fmtVolShort(r.vol || 0)}</td>
       <td class="d" style="text-align:right;color:#94a3b8;">${fmtVol(dVolOf(r))}</td>
       <td class="d" style="text-align:center;">${rsPillHtml(rs || null)}</td>
@@ -620,7 +555,7 @@ function flowTableHtml(title: string, color: string, blurb: string, rows: any[])
   }).join('');
 
   const borderClr = color === '#818cf8' ? '#6366f1' : '#f43f5e';
-  return `<div style="padding:6px 0;">
+  return `<div style="border-left:3px solid ${borderClr};padding:6px 12px;">
     <div style="font-size:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${borderClr};margin-bottom:3px;">${title}</div>
     <div style="font-size:8px;color:#94a3b8;line-height:1.5;margin-bottom:4px;">${blurb}</div>
     <table width="100%" style="border-collapse:collapse;">
@@ -655,7 +590,7 @@ function twoColHtml(left: string, right: string): string {
 
 function panel(title: string, color: string, bodyHtml: string): string {
   if (!bodyHtml) return '';
-  return `<div style="overflow:hidden;height:100%;padding:6px 0;">
+  return `<div style="overflow:hidden;height:100%;border-left:3px solid ${color};padding:6px 12px;">
       <div style="font-size:8px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${color};margin-bottom:4px;">${title}</div>
       ${bodyHtml}
   </div>`;
@@ -895,23 +830,22 @@ function deriveDir(paragraphs: string[]): 'up' | 'down' | null {
   const avg = moves.reduce((a, b) => a + b, 0) / moves.length;
   return Math.abs(avg) < 0.25 ? null : avg > 0 ? 'up' : 'down';
 }
-function sessionUpdatesHtml(brief: any, known: Set<string>, latestOnly?: boolean): string {
+function sessionUpdatesHtml(brief: any, known: Set<string>): string {
   const su = brief?.sessionUpdates;
   if (!su) return '';
   const blocks: { key: string; block: any }[] = [];
-  for (const key of ['pre', 'morning', 'midday', 'power', 'closing']) {
+  for (const key of ['morning', 'midday', 'closing']) {
     if (su[key]) blocks.push({ key, block: su[key] });
   }
   if (!blocks.length) return '';
-  const toRender = latestOnly ? [blocks[blocks.length - 1]] : blocks;
-  const rendered = toRender.map(({ block }) => {
+  const rendered = blocks.map(({ block }) => {
     const dir = deriveDir(block.paragraphs || []);
     const themeKey = dir === 'up' ? 'emerald' : dir === 'down' ? 'rose' : (block.colorTheme || 'indigo');
     const st = SESSION_THEME[themeKey] || SESSION_THEME.indigo;
     const paras = (block.paragraphs || []).map((p: string) =>
-      `<div style="font-size:12px;color:#94a3b8;line-height:1.6;margin-bottom:6px;">${richHtml(p, known)}</div>`
+      `<div style="font-size:9px;color:#94a3b8;line-height:1.6;border-left:2px solid #334155;padding-left:8px;margin-bottom:6px;">${richHtml(p, known)}</div>`
     ).join('');
-    return `<div style="padding:6px 0;margin-top:8px;">
+    return `<div style="border-left:3px solid ${st.dot};padding:6px 12px;margin-top:8px;">
       <div style="margin-bottom:10px;">
         <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${st.dot};vertical-align:middle;margin-right:8px;"></span>
         <span style="font-size:8px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:${st.label};vertical-align:middle;">${block.phase || ''}</span>
@@ -919,7 +853,7 @@ function sessionUpdatesHtml(brief: any, known: Set<string>, latestOnly?: boolean
       </div>
       ${paras}
       <div style="border-left:4px solid ${st.boxBorder};padding:10px 12px;">
-        <div style="font-size:12px;line-height:1.6;color:${st.boxText};">${richHtml(block.takeaway || '', known)}</div>
+        <div style="font-size:9px;line-height:1.6;color:${st.boxText};">${richHtml(block.takeaway || '', known)}</div>
       </div>
     </div>`;
   }).join('');
@@ -1004,30 +938,6 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
       color: vixPctTone(Number(vixQ.pct ?? 0)),
     });
   }
-  {
-    const spyQ = quotes['SPY'];
-    const qqqQ = quotes['QQQ'];
-    if (spyQ?.price && qqqQ?.price && vixQ?.price) {
-      const vix9dQ = quotes['VIX9D'];
-      const setup = tapeDirSetup(
-        spyQ.price, spyQ.prevLow ?? null, spyQ.pct ?? 0,
-        qqqQ.price, qqqQ.prevLow ?? null,
-        vixQ.price, vixQ.prevHigh ?? null, vixQ.pct ?? 0,
-        {
-          vix9dPrice: vix9dQ?.price ?? null,
-          spyVolume: spyQ.volume ?? null,
-          spyAvgVolume: spyQ.avgVolume ?? null,
-        },
-      );
-      const signal = tapeDirSignal(setup);
-      scCells.push({
-        label: 'TAPE DIR',
-        value: signal,
-        sub: setup,
-        color: tapeDirCellTone(signal),
-      });
-    }
-  }
   if (chopVal != null) {
     scCells.push({
       label: 'CHOP',
@@ -1049,18 +959,7 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
     ...(movers['Gainers'] || []), ...(movers['Losers'] || []), ...(movers['Mega Caps'] || []),
   ]);
 
-  const scannerLookup: Record<string, any> = {};
-  for (const s of flowPool) if (s?.ticker) scannerLookup[s.ticker] = s;
-
-  const sections = (brief?.sections || []).map((sec: any) => ({
-    ...sec,
-    stocks: (sec.stocks || []).map((s: any) => {
-      const sc = scannerLookup[s.ticker];
-      if (!sc) return s;
-      const rsVal = s.rs != null && typeof s.rs === 'number' ? s.rs : null;
-      return { ...s, rs: rsVal ?? sc.rsRating ?? sc.rs ?? null, stage: s.stage || sc.stage || undefined };
-    }),
-  }));
+  const sections = brief?.sections || [];
   const summary = brief?.summary || {};
   const topTrades = sections.find((s: any) => s.section === 'Top Trades')?.stocks || [];
   const topAvoid = sections.find((s: any) => s.section === 'Top Avoid')?.stocks || [];
@@ -1134,14 +1033,11 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
   const downs = sortByChg(
     gapStocks.filter((s) => s.direction === 'down' || s.direction === 'short' || (!['up','long'].includes(s.direction) && (s.gapPct ?? s.changePct ?? 0) < 0))
   ).slice(0, 5);
-  const moversAnalysis = gapSec?.analysis
-    ? `<div style="margin-top:12px;">${formattedBlockHtml(gapSec.analysis, knownTickers)}</div>`
-    : '';
-  const moversHtml = (ups.length || downs.length || gapSec?.analysis)
+  const moversHtml = (ups.length || downs.length)
     ? pageCard('Top Movers', '#22d3ee', twoColHtml(
         ups.length ? panel('Movers Up', '#34d399', pageStockTable(ups)) : '',
         downs.length ? panel('Movers Down', '#fb7185', pageStockTable(downs, { red: true })) : '',
-      ) + moversAnalysis)
+      ))
     : '';
 
   /* ---- Stocks in Play — stock table first, analysis brief below ---------- */
@@ -1154,42 +1050,27 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
           ? twoColHtml(pageStockTable(sipStocks.slice(0, sipMid)), pageStockTable(sipStocks.slice(sipMid)))
           : '') +
         (sipSec?.analysis
-          ? `<div style="margin-top:10px;">${formattedBlockHtml(sipSec.analysis, knownTickers)}</div>`
+          ? `<div style="font-size:9px;color:#cbd5e1;line-height:1.6;margin-top:10px;">${richHtml(sipSec.analysis, knownTickers)}</div>`
           : ''))
     : '';
 
   /* ---- Actionable Summary ----------------------------------------------
-     summary.conviction IS THE RANKING. Both surfaces resolve the conviction
-     names by scraping **TICKER** out of it and fall back to the first two
-     Top Trades only when it yields no match, so the email and
-     ActionableSummary cannot disagree about which names are conviction.
-
-     Previously both used topTrades.slice(0, 2). That made the table
-     disagree with the prose printed directly beneath it: the analyst wrote
-     four conviction calls today and the table listed two, with the other two
-     appearing under Watchlist.
+     THE ORDER OF Top Trades IS THE RANKING — first two are the conviction
+     calls, the next five the watchlist, exactly as ActionableSummary slices
+     them. The email used to re-derive conviction by scraping **TICKER**
+     out of summary.conviction, which the page ignores entirely, so the two
+     surfaces could disagree about which names were the high-conviction ones.
 
      Traps sit INSIDE this card on the page rather than taking their own. */
   const convictionArr: string[] = Array.isArray(summary.conviction)
     ? summary.conviction
     : summary.conviction ? [String(summary.conviction)] : [];
   const watchlistArr: string[] = Array.isArray(summary.watchlist) ? summary.watchlist : [];
-
-  const convictionTickers = convictionArr
-    .map((l) => /\*\*([A-Z][A-Z0-9.\-]{0,9})\*\*/.exec(String(l))?.[1])
-    .filter((t): t is string => Boolean(t));
-  const matchedConviction = topTrades.filter((s: any) => convictionTickers.includes(s.ticker));
-  const usingWritten = matchedConviction.length > 0;
-
-  /* Select THEN sort, in that order — selection is by the analyst's ranking
-     and sorting only reorders within each panel. Sorting first would let a
-     high-CNF watchlist name climb into the conviction group. */
-  const conviction = sortByChg(usingWritten ? matchedConviction : topTrades.slice(0, 2));
-  const watchlistTrades = sortByChg(
-    usingWritten
-      ? topTrades.filter((s: any) => !convictionTickers.includes(s.ticker)).slice(0, 5)
-      : topTrades.slice(2, 7),
-  );
+  /* Slice THEN sort, in that order — the page ranks by position first and
+     only sorts within each panel. Sorting first would let a high-CNF
+     watchlist name climb into the conviction pair. */
+  const conviction = sortByChg(topTrades.slice(0, 2));
+  const watchlistTrades = sortByChg(topTrades.slice(2, 7));
 
   const proseList = (arr: string[], color: string) =>
     arr.length
@@ -1246,8 +1127,8 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
      under Gmail's clip threshold — see minify(). Colour and alignment stay
      inline so they survive a client that strips this block. */
   .d { padding: 2px 2px; font-size: 8px; }
-  .h { padding: 2px 2px; font-size: 8px; color: #475569; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; border-bottom: 1px solid #ffffff10; }
-  .tk { display: inline-block; background: #1b2434; border: 1px solid #2a3446; border-radius: 3px; padding: 1px 4px; font-size: 8px; font-weight: 700; letter-spacing: .06em; color: #cbd5e1; }
+  .h { padding: 2px 2px; font-size: 6px; color: #475569; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; border-bottom: 1px solid #ffffff10; }
+  .tk { display: inline-block; background: #1b2434; border: 1px solid #2a3446; border-radius: 3px; padding: 0px 3px; font-size: 6px; font-weight: 700; letter-spacing: .06em; color: #cbd5e1; }
   .tk.a { background: #042f2e; border-color: #115e59; color: #6ee7b7; }
   .tk.b { background: #422006; border-color: #854d0e; color: #fde68a; }
   .tk.r { background: #4c0519; border-color: #7f1d3a; color: #fecdd3; }
@@ -1264,30 +1145,27 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
 </head>
 <body style="margin:0;padding:0;background:#020408;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#020408;"><tr><td align="center" style="padding:0;">
-  <!--[if mso]><table width="900" cellpadding="0" cellspacing="0" align="center"><tr><td><![endif]-->
-  <table cellpadding="0" cellspacing="0" align="center" style="max-width:900px;width:100%;background:#05080f;border-left:1px solid #0f1729;border-right:1px solid #0f1729;"><tr><td style="padding:0;text-align:left;">
+  <div class="shell" style="max-width:900px;margin:0 auto;background:#05080f;border-left:1px solid #0f1729;border-right:1px solid #0f1729;text-align:left;">
     <table width="100%" cellpadding="0" cellspacing="0"><tr>
       <td style="height:3px;background:#6366f1;"></td>
     </tr></table>
-    <div style="padding:20px 20px;">
+    <div style="padding:20px 16px;">
 
     <div style="padding:10px 0 12px;border-bottom:1px solid #ffffff0d;margin-bottom:14px;">
       <table width="100%" style="border-collapse:collapse;"><tr>
         <td style="padding:0;vertical-align:middle;">
-          <a href="https://confluencetradingtools.com" style="text-decoration:none;">
-            <img src="https://ctt-dashboard.vercel.app/logo.svg" alt="CTT" style="height:24px;width:auto;vertical-align:middle;" />
-            <span style="font-size:11px;font-weight:800;color:#f1f5f9;vertical-align:middle;margin-left:8px;">Confluence Trading Tools</span>
-          </a>
+          <img src="https://ctt-dashboard.vercel.app/logo.svg" alt="CTT" style="height:24px;width:auto;vertical-align:middle;" />
+          <span style="font-size:11px;font-weight:800;color:#f1f5f9;vertical-align:middle;margin-left:8px;">Confluence Trading Tools</span>
           <div style="font-size:8px;font-weight:600;color:#64748b;letter-spacing:0.22em;text-transform:uppercase;margin-top:3px;margin-left:32px;">Market Briefing</div>
         </td>
       </tr></table>
       <div style="font-size:8px;color:#64748b;margin-top:6px;">${phaseLabel} &middot; ${now} ET${updatedTime ? ` &middot; Updated ${updatedTime} ET` : ''}</div>
     </div>
 
-    <div style="margin-bottom:16px;border-left:3px solid #818cf8;padding-left:12px;">
-      <div style="margin-bottom:10px;">
-        <span style="display:inline-block;font-size:8px;font-weight:700;color:#818cf8;background:#161c2a66;border:1px solid #ffffff0d;padding:2px 8px;border-radius:4px;letter-spacing:0.14em;text-transform:uppercase;">
-          <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#818cf8;margin-right:6px;vertical-align:middle;"></span>Macro Scorecard
+    <div style="margin-bottom:12px;border-radius:14px;border:1px solid #ffffff0f;padding:14px 16px;">
+      <div style="margin-bottom:10px;border-bottom:1px solid #ffffff08;padding-bottom:8px;">
+        <span style="display:inline-block;font-size:8px;font-weight:700;color:#7c8bfa;background:#161c2a;border:1px solid #ffffff0d;padding:3px 8px;border-radius:4px;letter-spacing:0.14em;text-transform:uppercase;">
+          <span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#7c8bfa;margin-right:6px;vertical-align:middle;"></span>Macro Scorecard
         </span>
       </div>
       ${scorecardHtml}
@@ -1297,31 +1175,22 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
     ${newsHtml}
     ${regimeHtml}
     ${sectorsHtml}
+    ${legendHtml()}
+    <div style="border-top:1px solid #ffffff1a;margin:0 0 14px;"></div>
     ${moversHtml}
     ${sipHtml}
+    ${summaryHtml}
     ${eventsHtml}
-    ${sessionUpdatesHtml(brief, knownTickers, true)}
+    ${tomorrowSecHtml}
+    ${sessionUpdatesHtml(brief, knownTickers)}
 
-    <div style="padding:20px 0;margin-top:18px;border-top:1px solid #0f1729;text-align:center;">
-      <a href="https://app.confluencetradingtools.com/pricing" style="display:inline-block;font-size:11px;font-weight:700;color:#fbbf24;background:#fbbf2415;border:1px solid #fbbf2430;padding:8px 20px;border-radius:8px;text-decoration:none;letter-spacing:0.02em;">
-        Upgrade Your Plan
-      </a>
-      <div style="font-size:9px;color:#475569;margin-top:8px;">
-        Unlock scanners, the live dashboard, and the full confluence report.
-      </div>
-    </div>
-
-    <div style="padding-top:10px;">
+    <div style="padding-top:14px;margin-top:18px;">
       <div style="font-size:8px;color:#475569;text-align:center;">
-        <a href="https://confluencetradingtools.com" style="color:#818cf8;text-decoration:none;">confluencetradingtools.com</a>
-      </div>
-      <div style="font-size:8px;color:#475569;text-align:center;margin-top:4px;">
-        Confluence Trading Tools LLC &copy; ${new Date().getFullYear()} &bull; Not investment advice.
+        Confluence Trading Tools &copy; ${new Date().getFullYear()} &bull; Not investment advice.
       </div>
     </div>
     </div>
-  </td></tr></table>
-  <!--[if mso]></td></tr></table><![endif]-->
+  </div>
   </td></tr></table>
 </body>
 </html>`);
@@ -1341,19 +1210,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  // Phase crons are `* * 1-5`, so they fire on market holidays. Without this
-  // the reader gets a briefing narrating a session that never opened — on
-  // 7 Sep 2026 (Labor Day) every sector read 0.00% and nothing errored. The
-  // guard sits above the fan-out below so a holiday costs one invocation
-  // rather than eight fetches, one of which is the 13-route snapshot.
-  // `?force=1` still sends, so a manual send is always possible.
-  if (!force) {
-    const marketDay = getMarketDay();
-    if (!marketDay.isTradingDay) {
-      return NextResponse.json({ skipped: true, reason: marketDay.reason, phase, market: marketDay });
-    }
-  }
-
   const apiKey = process.env.RESEND_API_KEY || '';
   if (!apiKey) {
     return NextResponse.json({ error: 'RESEND_API_KEY not configured' }, { status: 500 });
@@ -1361,66 +1217,15 @@ export async function GET(req: Request) {
 
   const origin = resolveOrigin(req);
 
-  /* Guards run cheapest-first, and that ordering is load-bearing. The seven
-     upstream fetches further down move ~305 KB per invocation, and
-     /api/claude/snapshot alone is 222 KB that fans out to 14 more sources.
-     These crons are scheduled to retry — the NX lock below makes a send
-     idempotent, so firing repeatedly is how the email survives not knowing
-     when the analyst actually posts — but that is only affordable while an
-     invocation that will skip returns before reaching the expensive part. */
-  const todayET = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York' });
-  const sentKey = `briefing_sent:${phase}:${todayET.replace(/\//g, '-')}`;
-  if (!force) {
-    const alreadySent = await kv.get(sentKey);
-    if (alreadySent) {
-      return NextResponse.json({ skipped: true, phase, reason: `${phase} email already sent today` });
-    }
-  }
+  const userRecipients = await getEmailRecipients('briefing', phase as any);
+  const fallback = process.env.BRIEFING_EMAIL || process.env.Email || 'thomasbeach@gmail.com';
+  const recipients = userRecipients.length > 0 ? userRecipients : [fallback];
 
-  /* Freshness gate — one cheap fetch, and the only one a skipping retry pays
-     for. The previous check asked whether a tape block merely *existed*,
-     which stays true from the prior session forever: on Monday it passed on
-     Friday's blocks. `pre` was exempted from it outright and so sent
-     unconditionally, which is how a pre-market email shipped the previous
-     session's brief. Compare the brief's own date instead, and apply it to
-     every phase — the cron fires on a wall clock that cannot know when the
-     analyst run lands, so the brief's date is the only honest signal. */
-  const brief = await fetchJson(`${origin}/api/analyst/brief`);
-  if (!force) {
-    const briefDateET = brief?.generatedAt
-      ? new Date(brief.generatedAt).toLocaleDateString('en-US', { timeZone: 'America/New_York' })
-      : null;
-    if (briefDateET !== todayET) {
-      return NextResponse.json({
-        skipped: true,
-        phase,
-        reason: 'brief is not from today — waiting for the analyst run',
-        briefDateET,
-        todayET,
-      });
-    }
-    /* The phase's own block, not any block. sessionUpdates accumulates across
-       the day, so `pre` still being there at 2 PM says nothing about whether
-       the power reading has been written yet. */
-    if (!brief?.sessionUpdates?.[phase]) {
-      return NextResponse.json({ skipped: true, phase, reason: `no ${phase} tape reading yet` });
-    }
-  }
-
-  const testTo = url.searchParams.get('to');
-  let recipients: string[];
-  if (testTo && force) {
-    recipients = [testTo];
-  } else {
-    const userRecipients = await getEmailRecipients('briefing', phase as any);
-    const fallback = process.env.BRIEFING_EMAIL || process.env.Email || 'thomasbeach@gmail.com';
-    recipients = userRecipients.length > 0 ? userRecipients : [fallback];
-  }
-
-  const [macro, chopData, t2108Data, snapshotRes, chopSetting, econRes, earningsRes] = await Promise.all([
+  const [macro, chopData, t2108Data, brief, snapshotRes, chopSetting, econRes, earningsRes] = await Promise.all([
     fetchJson(`${origin}/api/macro`),
     fetchJson(`${origin}/api/chop`),
     fetchJson(`${origin}/api/t2108/latest`),
+    fetchJson(`${origin}/api/analyst/brief`),
     fetchJson(`${origin}/api/claude/snapshot?full=1`),
     fetchJson(`${origin}/api/settings/chop`),
     /* Key Events reads these directly, the same two endpoints the page's
@@ -1443,84 +1248,13 @@ export async function GET(req: Request) {
     return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
   }
 
-  if (url.searchParams.get('testSocial') === '1') {
-    const su = brief?.sessionUpdates || {};
-    const block = ['closing', 'power', 'midday', 'morning', 'pre'].reduce((latest: any, k) => latest || su[k], null);
-    const takeaway = block?.takeaway || '';
-    const regime = brief?.regimeDetail?.regime || '';
-    const rawBlurb = (takeaway || regime).replace(/\*\*([^*]+)\*\*/g, '$1').trim();
-    const dashUrl = 'confluencetradingtools.com';
-    const phaseTag = `${PHASE_LABELS[phase]}: `;
-    const debug: any = {
-      hasBskyEnv: !!(process.env.BLUESKY_HANDLE && process.env.BLUESKY_APP_PASSWORD),
-      hasXEnv: !!(process.env.X_API_KEY && process.env.X_API_SECRET && process.env.X_ACCESS_TOKEN && process.env.X_ACCESS_TOKEN_SECRET),
-      hasBlurb: !!rawBlurb,
-      blurbLen: rawBlurb.length,
-      blurbPreview: rawBlurb.slice(0, 80),
-      phase,
-    };
-
-    let screenshotBuf: Buffer | null = null;
-    try {
-      const tapePageUrl = `${origin}/api/og/tape?phase=${phase}`;
-      const ssUrl = `${origin}/api/og/screenshot?force=1&url=${encodeURIComponent(tapePageUrl)}&w=800&h=1200&selector=${encodeURIComponent('#tape-card')}&minText=80`;
-      const ssRes = await fetch(ssUrl);
-      if (ssRes.ok && ssRes.headers.get('content-type')?.includes('image')) {
-        screenshotBuf = Buffer.from(await ssRes.arrayBuffer());
-        debug.screenshotBytes = screenshotBuf.length;
-      } else {
-        const errBody = await ssRes.text().catch(() => '');
-        debug.screenshotError = `status ${ssRes.status}: ${errBody.slice(0, 200)}`;
-      }
-    } catch (ssErr: any) {
-      debug.screenshotError = ssErr?.message || String(ssErr);
-    }
-
-    if (rawBlurb) {
-      const imagePayload = screenshotBuf
-        ? { data: screenshotBuf, alt: `CTT ${PHASE_LABELS[phase]} Tape Reading`, mimeType: 'image/png' }
-        : undefined;
-
-      const bskyCta = `Full tape + scanners → ${dashUrl}`;
-      const bskyAvail = 300 - phaseTag.length - 2 - bskyCta.length;
-      const bskyBlurb = socialCashtags(trimToSentence(rawBlurb, bskyAvail), brief);
-      const bskyText = `${phaseTag}${bskyBlurb}\n\n${bskyCta}`;
-      const linkStart = bskyText.indexOf(dashUrl);
-
-      const xCta = `Full tape + scanners → https://${dashUrl}`;
-      const xAvail = 280 - phaseTag.length - 2 - xCta.length;
-      const xBlurb = socialCashtags(trimToSentence(rawBlurb, xAvail), brief, 1);
-      const xText = `${phaseTag}${xBlurb}\n\n${xCta}`;
-
-      debug.bskyText = bskyText;
-      debug.xText = xText;
-
-      try {
-        const bsky = await postToBluesky(bskyText, [{ start: linkStart, end: linkStart + dashUrl.length, url: `https://${dashUrl}` }], imagePayload);
-        debug.bskyResult = bsky ?? 'returned null (env vars missing?)';
-      } catch (e: any) { debug.bskyError = e.message; }
-
-      try {
-        const x = await postToX(xText, screenshotBuf ? { data: screenshotBuf } : undefined);
-        debug.xResult = x ?? 'returned null (env vars missing?)';
-      } catch (e: any) { debug.xError = e.message; }
-
-    }
-    return NextResponse.json(debug);
+  const preview = url.searchParams.get('preview');
+  if (preview === '1') {
+    return new Response(html, { headers: { 'Content-Type': 'text/html' } });
   }
 
   const resend = new Resend(apiKey);
   const subject = `CTT ${phaseLabel} Briefing — ${new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })}`;
-
-  // Atomic lock: NX ensures only one invocation wins when two race
-  if (!force) {
-    const locked = await kv.set(sentKey, 1, { nx: true, ex: 86400 });
-    if (!locked) {
-      return NextResponse.json({ skipped: true, phase, reason: `${phase} email already sent today` });
-    }
-  } else {
-    await kv.set(sentKey, 1, { ex: 86400 });
-  }
 
   try {
     const results = await Promise.allSettled(
@@ -1545,176 +1279,45 @@ export async function GET(req: Request) {
 
     let bskyResult: any = null;
     let xResult: any = null;
-    let socialDebug: any = {};
     try {
       const su = brief?.sessionUpdates || {};
-      const block = ['closing', 'power', 'midday', 'morning', 'pre'].reduce((latest: any, k) => latest || su[k], null);
+      const block = su[phase] || su.morning || su.midday || su.closing;
       const takeaway = block?.takeaway || '';
       const regime = brief?.regimeDetail?.regime || '';
 
-      const rawBlurb = (takeaway || regime).replace(/\*\*([^*]+)\*\*/g, '$1').trim();
-      socialDebug.hasBlurb = !!rawBlurb;
-      socialDebug.blurbLen = rawBlurb.length;
-      socialDebug.hasBskyEnv = !!(process.env.BLUESKY_HANDLE && process.env.BLUESKY_APP_PASSWORD);
-      socialDebug.hasXEnv = !!(process.env.X_API_KEY && process.env.X_API_SECRET && process.env.X_ACCESS_TOKEN && process.env.X_ACCESS_TOKEN_SECRET);
-
-      if (rawBlurb) {
+      const blurb = (takeaway || regime).replace(/\*\*([^*]+)\*\*/g, '$1').trim();
+      if (blurb) {
         const dashUrl = 'confluencetradingtools.com';
-        const phaseTag = `${PHASE_LABELS[phase]}: `;
+        const header = `CTT ${PHASE_LABELS[phase]} Brief`;
 
-        let screenshotBuf: Buffer | null = null;
-        try {
-          const tapePageUrl = `${origin}/api/og/tape?phase=${phase}`;
-          const ssUrl = `${origin}/api/og/screenshot?force=1&url=${encodeURIComponent(tapePageUrl)}&w=800&h=1200&selector=${encodeURIComponent('#tape-card')}&minText=80`;
-          const ssRes = await fetch(ssUrl);
-          if (ssRes.ok && ssRes.headers.get('content-type')?.includes('image')) {
-            screenshotBuf = Buffer.from(await ssRes.arrayBuffer());
-            socialDebug.screenshotBytes = screenshotBuf.length;
-          } else {
-            socialDebug.screenshotError = `status ${ssRes.status}`;
-          }
-        } catch (ssErr: any) {
-          socialDebug.screenshotError = ssErr?.message || String(ssErr);
-        }
-
-        const imagePayload = screenshotBuf
-          ? { data: screenshotBuf, alt: `CTT ${PHASE_LABELS[phase]} Tape Reading`, mimeType: 'image/png' }
-          : undefined;
-
-        const bskyCta = `Full tape + scanners → ${dashUrl}`;
-        const bskyAvail = 300 - phaseTag.length - 2 - bskyCta.length;
-        const bskyBlurb = socialCashtags(trimToSentence(rawBlurb, bskyAvail), brief);
-        const bskyText = `${phaseTag}${bskyBlurb}\n\n${bskyCta}`;
+        const bskyMax = 300 - `${header}\n\n\n\n${dashUrl}`.length;
+        const bskyBlurb = blurb.length > bskyMax
+          ? blurb.slice(0, blurb.lastIndexOf(' ', bskyMax)).replace(/[,;:.\s]+$/, '') + '...'
+          : blurb;
+        const bskyText = `${header}\n\n${bskyBlurb}\n\n${dashUrl}`;
         const linkStart = bskyText.indexOf(dashUrl);
 
-        const xCta = `Full tape + scanners → https://${dashUrl}`;
-        const xAvail = 280 - phaseTag.length - 2 - xCta.length;
-        const xBlurb = socialCashtags(trimToSentence(rawBlurb, xAvail), brief, 1);
-        const xText = `${phaseTag}${xBlurb}\n\n${xCta}`;
+        const xMax = 280 - `${header}\n\n\n\nhttps://${dashUrl}`.length;
+        const xBlurb = blurb.length > xMax
+          ? blurb.slice(0, blurb.lastIndexOf(' ', xMax)).replace(/[,;:.\s]+$/, '') + '...'
+          : blurb;
+        const xText = `${header}\n\n${xBlurb}\n\nhttps://${dashUrl}`;
 
-        const results = await Promise.allSettled([
+        [bskyResult, xResult] = await Promise.allSettled([
           postToBluesky(bskyText, [{
             start: linkStart,
             end: linkStart + dashUrl.length,
             url: `https://${dashUrl}`,
-          }], imagePayload),
-          postToX(xText, screenshotBuf ? { data: screenshotBuf } : undefined),
-        ]);
-
-        socialDebug.bskyStatus = results[0].status;
-        socialDebug.xStatus = results[1].status;
-        if (results[0].status === 'rejected') socialDebug.bskyError = String((results[0] as PromiseRejectedResult).reason);
-        if (results[1].status === 'rejected') socialDebug.xError = String((results[1] as PromiseRejectedResult).reason);
-
-        bskyResult = results[0].status === 'fulfilled' ? results[0].value : null;
-        xResult = results[1].status === 'fulfilled' ? results[1].value : null;
-
-        console.log('[social]', JSON.stringify(socialDebug));
-      } else {
-        console.log('[social] no blurb — skipping posts', JSON.stringify(socialDebug));
+          }]),
+          postToX(xText),
+        ]).then(rs => rs.map(r => r.status === 'fulfilled' ? r.value : null));
       }
-    } catch (socialErr: any) {
-      console.error('[social] outer error:', socialErr?.message || socialErr);
-    }
-
-    // "Called it" archive + receipt post (closing phase only)
-    let calledItResult: string | null = null;
-    if (phase === 'closing') {
-      try {
-        const etFmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' });
-        const todayKey = etFmt.format(new Date());
-        const yd = new Date(); yd.setDate(yd.getDate() - 1);
-        const yesterdayKey = etFmt.format(yd);
-
-        const topSetups = (brief?.sections || [])
-          .flatMap((sec: any) => (sec.stocks || []))
-          .filter((s: any) => s.ticker && s.trigger)
-          .slice(0, 10)
-          .map((s: any) => ({
-            ticker: s.ticker,
-            trigger: s.trigger,
-            target: s.target,
-            price: s.price,
-          }));
-        if (topSetups.length) {
-          await kv.set(`social_calls:${todayKey}`, topSetups, { ex: 259200 });
-        }
-
-        const yesterdayCalls = await kv.get<any[]>(`social_calls:${yesterdayKey}`);
-        if (yesterdayCalls?.length) {
-          const [sipData, dsData] = await kv.mget<[any[], any[]]>('stocks_in_play_v6', 'daily_setups_v6');
-          const priceMap: Record<string, number> = {};
-          for (const pool of [sipData || [], dsData || []]) {
-            for (const s of (pool || [])) {
-              const t = s?.ticker || s?.symbol;
-              if (t && s?.price) priceMap[t] = s.price;
-            }
-          }
-
-          const comparisons: { ticker: string; trigger: number; current: number; gainPct: number; date: string }[] = [];
-          let best: { ticker: string; trigger: number; current: number; gain: number } | null = null;
-          for (const call of yesterdayCalls) {
-            const cur = priceMap[call.ticker];
-            if (!cur || !call.trigger) continue;
-            const gain = ((cur - call.trigger) / call.trigger) * 100;
-            comparisons.push({ ticker: call.ticker, trigger: call.trigger, current: cur, gainPct: gain, date: yesterdayKey });
-            if (gain > (best?.gain ?? 1)) {
-              best = { ticker: call.ticker, trigger: call.trigger, current: cur, gain };
-            }
-          }
-
-          // Accumulate weekly stats
-          if (comparisons.length) {
-            const mon = new Date(); mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
-            const weekKey = `social_weekly_stats:${etFmt.format(mon)}`;
-            const existing = await kv.get<any[]>(weekKey) || [];
-            await kv.set(weekKey, [...existing, ...comparisons], { ex: 1209600 });
-          }
-
-          if (best) {
-            const cdUrl = 'confluencetradingtools.com';
-            const calledBsky = `Yesterday CTT flagged $${best.ticker} at ${best.trigger.toFixed(2)}\n\nToday: ${best.current.toFixed(2)} (+${best.gain.toFixed(1)}%)\n\nDaily setups → ${cdUrl}`;
-            const calledX = `Yesterday CTT flagged $${best.ticker} at ${best.trigger.toFixed(2)}\n\nToday: ${best.current.toFixed(2)} (+${best.gain.toFixed(1)}%)\n\nDaily setups → https://${cdUrl}`;
-
-            const cdLinkPos = calledBsky.indexOf(cdUrl);
-            await Promise.allSettled([
-              postToBluesky(calledBsky, [{ start: cdLinkPos, end: cdLinkPos + cdUrl.length, url: `https://${cdUrl}` }]),
-              postToX(calledX),
-            ]);
-            calledItResult = `${best.ticker} +${best.gain.toFixed(1)}%`;
-            console.log('[social] called-it post:', calledItResult);
-          }
-        }
-      } catch (calledErr: any) {
-        console.error('[social] called-it error:', calledErr?.message || calledErr);
-      }
-
-      // Archive the full brief for the public /briefs page (one write/day)
-      try {
-        const etFmt2 = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' });
-        const archiveDate = etFmt2.format(new Date());
-        const archiveKey = `brief_archive:${archiveDate}`;
-        const indexKey = 'brief_archive_index';
-        const existing = await kv.get<any>(archiveKey);
-        if (!existing && brief) {
-          await kv.set(archiveKey, brief);
-          const idx = await kv.get<string[]>(indexKey) || [];
-          if (!idx.includes(archiveDate)) {
-            await kv.set(indexKey, [...idx, archiveDate]);
-          }
-          console.log('[archive] brief archived for', archiveDate);
-        }
-      } catch (archiveErr: any) {
-        console.error('[archive] error:', archiveErr?.message || archiveErr);
-      }
-    }
+    } catch { /* Social posts are best-effort */ }
 
     return NextResponse.json({
       success: true, phase, sent, failed, recipients: recipients.length,
       bluesky: bskyResult ? 'posted' : 'skipped',
       x: xResult ? 'posted' : 'skipped',
-      calledIt: calledItResult,
-      socialDebug,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Send failed' }, { status: 500 });

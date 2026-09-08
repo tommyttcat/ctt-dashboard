@@ -6,7 +6,7 @@ import {
   highsPct, highsCellTone,
   marketMonitorOf, mmTodayTone, mmCellTone, mmRatioLabel,
   mkmCellTone, vixPctTone, breadthSignalTone,
-  instDirSetup, instDirSignal, instDirCellTone,
+  tapeDirSetup, tapeDirSignal, tapeDirCellTone,
 } from '@/lib/indicators/marketScorecard';
 import {
   chopComposite, rawChopOf, chopZoneLabel, chopCellTone, bandsFor,
@@ -419,7 +419,7 @@ export async function GET(req: Request) {
         const qqqQ = quotes['QQQ'];
         if (spyQ?.price && qqqQ?.price && vixQ?.price) {
           const vix9dQ = quotes['VIX9D'];
-          const setup = instDirSetup(
+          const setup = tapeDirSetup(
             spyQ.price, spyQ.prevLow ?? null, spyQ.pct ?? 0,
             qqqQ.price, qqqQ.prevLow ?? null,
             vixQ.price, vixQ.prevHigh ?? null, vixQ.pct ?? 0,
@@ -429,8 +429,8 @@ export async function GET(req: Request) {
               spyAvgVolume: spyQ.avgVolume ?? null,
             },
           );
-          const signal = instDirSignal(setup);
-          cells.push({ label: 'INST DIR', value: signal, sub: setup, color: instDirCellTone(signal) });
+          const signal = tapeDirSignal(setup);
+          cells.push({ label: 'TAPE DIR', value: signal, sub: setup, color: tapeDirCellTone(signal) });
         }
       }
       if (chopVal != null) {

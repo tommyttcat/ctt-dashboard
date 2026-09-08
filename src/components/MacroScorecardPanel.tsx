@@ -45,9 +45,9 @@ import {
   mmTodayTone,
   mmCellTone,
   mmRatioLabel,
-  instDirCellTone,
-  type InstDirSetup,
-  type InstDirSignal, instDirStrength, instDirStrengthPips,
+  tapeDirCellTone,
+  type TapeDirSetup,
+  type TapeDirSignal, tapeDirStrength, tapeDirStrengthPips,
 } from '@/lib/indicators/marketScorecard';
 import { mfLabelShort, mfArrow } from '@/lib/indicators/moneyflow';
 
@@ -196,10 +196,10 @@ export interface MacroScorecardPanelProps {
   chopMode: ChopMode;
   setChopMode: (m: ChopMode) => void;
   bands: ChopBands;
-  instSetup?: InstDirSetup;
-  instSignal?: InstDirSignal;
-  instPrevSetup?: InstDirSetup | null;
-  instFlash?: boolean;
+  tapeSetup?: TapeDirSetup;
+  tapeSignal?: TapeDirSignal;
+  tapePrevSetup?: TapeDirSetup | null;
+  tapeFlash?: boolean;
   /* The briefing renders the cell grid alone — same cells, same thresholds,
      same styling, without the internals strips and CHOP regime card the
      dashboard carries underneath. */
@@ -233,10 +233,10 @@ export default function MacroScorecardPanel({
   chopMode,
   setChopMode,
   bands,
-  instSetup,
-  instSignal,
-  instPrevSetup,
-  instFlash,
+  tapeSetup,
+  tapeSignal,
+  tapePrevSetup,
+  tapeFlash,
   cellsOnly = false,
 }: MacroScorecardPanelProps) {
   /* The raw daily leg, straight off the API. `chopVal` is the composite —
@@ -290,7 +290,7 @@ export default function MacroScorecardPanel({
           </>),
         });
 
-        if (instSetup && instSignal) {
+        if (tapeSetup && tapeSignal) {
           const spyQ = quotes['SPY'];
           const vixQ2 = quotes['VIX'];
           const vix9dQ = quotes['VIX9D'];
@@ -316,7 +316,7 @@ export default function MacroScorecardPanel({
           const fmtPct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
           const dot = (on: boolean) => <span className={on ? 'text-amber-400' : 'text-emerald-400'}>{on ? '!' : '✓'}</span>;
 
-          /* Mirrors instDirSetup's own floor. Below 2% the card says CLEAR, so
+          /* Mirrors tapeDirSetup's own floor. Below 2% the card says CLEAR, so
              the tooltip must not claim pressure the rule did not find. */
           const VIX_PRESSURE_PCT = 2;
           const vixVelLabel = Math.abs(vixPctVal) >= 3
@@ -335,10 +335,10 @@ export default function MacroScorecardPanel({
             ? (termRatio > 1.05 ? 'HEDGING' : termRatio < 0.95 ? 'contango' : 'flat')
             : 'n/a';
 
-          const instTooltip = ttWrap(`${instSignal} — ${instSetup}`, <>
-            {ttRow('Strength', instDirStrength(instSetup),
-              instDirStrength(instSetup) === 'STRONG' ? <>several conditions agree</>
-                : instDirStrength(instSetup) === 'MODERATE' ? <>two conditions, or one structural read</>
+          const tapeTooltip = ttWrap(`${tapeSignal} — ${tapeSetup}`, <>
+            {ttRow('Strength', tapeDirStrength(tapeSetup),
+              tapeDirStrength(tapeSetup) === 'STRONG' ? <>several conditions agree</>
+                : tapeDirStrength(tapeSetup) === 'MODERATE' ? <>two conditions, or one structural read</>
                 : <>one ordinary reading — the fallback</>
             )}
             {/* Both index legs, because CONFIRMED needs SPY *and* QQQ through
@@ -396,17 +396,17 @@ export default function MacroScorecardPanel({
           </>);
 
           cells.push({
-            label: 'INST DIR',
-            value: instSignal,
+            label: 'TAPE DIR',
+            value: tapeSignal,
             /* Pips carry the strength: three filled means several conditions
                agree, one filled is the fallback. Without them CONFIRMED and
                PRESSURE ON looked like the same call. */
-            subNode: instPrevSetup && instPrevSetup !== instSetup
-              ? <>{instSetup} <span className="text-[7px] tracking-tighter opacity-70">{instDirStrengthPips(instSetup)}</span><br /><span className="text-[8px] text-slate-600">was {instPrevSetup}</span></>
-              : <>{instSetup} <span className="text-[7px] tracking-tighter opacity-70">{instDirStrengthPips(instSetup)}</span></>,
-            color: instDirCellTone(instSignal),
-            extraClass: instFlash ? 'animate-inst-flash' : '',
-            titleContent: instTooltip,
+            subNode: tapePrevSetup && tapePrevSetup !== tapeSetup
+              ? <>{tapeSetup} <span className="text-[7px] tracking-tighter opacity-70">{tapeDirStrengthPips(tapeSetup)}</span><br /><span className="text-[8px] text-slate-600">was {tapePrevSetup}</span></>
+              : <>{tapeSetup} <span className="text-[7px] tracking-tighter opacity-70">{tapeDirStrengthPips(tapeSetup)}</span></>,
+            color: tapeDirCellTone(tapeSignal),
+            extraClass: tapeFlash ? 'animate-inst-flash' : '',
+            titleContent: tapeTooltip,
           });
         }
 

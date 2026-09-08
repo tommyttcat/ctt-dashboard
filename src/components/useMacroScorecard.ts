@@ -33,11 +33,11 @@ import {
   marketTone,
   advPct as advPctOf,
   highsPct as highsPctOf,
-  instDirSetup,
-  instDirSignal,
+  tapeDirSetup,
+  tapeDirSignal,
   type MarketTone,
-  type InstDirSetup,
-  type InstDirSignal,
+  type TapeDirSetup,
+  type TapeDirSignal,
 } from '@/lib/indicators/marketScorecard';
 
 export interface MacroScorecardData {
@@ -65,8 +65,8 @@ export interface MacroScorecardData {
   setChopMode: (m: ChopMode) => void;
   bands: ChopBands;
   divergence: DivergenceRead;
-  instSetup: InstDirSetup;
-  instSignal: InstDirSignal;
+  tapeSetup: TapeDirSetup;
+  tapeSignal: TapeDirSignal;
   ready: boolean;
 }
 
@@ -149,7 +149,7 @@ export function useMacroScorecard(): MacroScorecardData {
   const vix = quotes['VIX'];
   const vix9d = quotes['VIX9D'];
   const iSetup = spy && qqq && vix
-    ? instDirSetup(
+    ? tapeDirSetup(
         spy.price ?? 0, spy.prevLow ?? null, spy.pct ?? 0,
         qqq.price ?? 0, qqq.prevLow ?? null,
         vix.price ?? 0, vix.prevHigh ?? null, vix.pct ?? 0,
@@ -159,8 +159,8 @@ export function useMacroScorecard(): MacroScorecardData {
           spyAvgVolume: spy.avgVolume ?? null,
         },
       )
-    : 'CLEAR' as InstDirSetup;
-  const iSignal = instDirSignal(iSetup);
+    : 'CLEAR' as TapeDirSetup;
+  const iSignal = tapeDirSignal(iSetup);
 
   const chopTooltipText = chopVal == null ? '' : [
     `CHOP ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal, bands)}   [${bands.label}]`,
@@ -207,8 +207,8 @@ export function useMacroScorecard(): MacroScorecardData {
     setChopMode,
     bands,
     divergence,
-    instSetup: iSetup,
-    instSignal: iSignal,
+    tapeSetup: iSetup,
+    tapeSignal: iSignal,
     ready,
   };
 }

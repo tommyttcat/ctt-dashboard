@@ -68,10 +68,10 @@ import TickerChartHover from './TickerChartHover';
 
 import {
   getMarketSession,
-  instDirSetup,
-  instDirSignal,
-  type InstDirSetup,
-  type InstDirSignal,
+  tapeDirSetup,
+  tapeDirSignal,
+  type TapeDirSetup,
+  type TapeDirSignal,
 } from '@/lib/indicators/marketScorecard';
 import {
   type ChopMode,
@@ -610,15 +610,15 @@ export default function MacroScorecard() {
   // riskMode removed — tone and breadth badges cover the same ground
   const [marketTone, setMarketTone] = useState<'BULLISH' | 'NEUTRAL' | 'BEARISH'>('NEUTRAL');
 
-  const [instSetup, setInstSetup] = useState<InstDirSetup>('CLEAR');
-  const [instSignal, setInstSignal] = useState<InstDirSignal>('NEUTRAL');
-  const [instPrevSetup, setInstPrevSetup] = useState<InstDirSetup | null>(null);
-  const [instFlash, setInstFlash] = useState(false);
+  const [tapeSetup, setTapeSetup] = useState<TapeDirSetup>('CLEAR');
+  const [tapeSignal, setTapeSignal] = useState<TapeDirSignal>('NEUTRAL');
+  const [tapePrevSetup, setTapePrevSetup] = useState<TapeDirSetup | null>(null);
+  const [tapeFlash, setTapeFlash] = useState(false);
   /* Holds a changed reading until a second poll agrees with it. */
-  const instPendingSetup = useRef<InstDirSetup | null>(null);
+  const tapePendingSetup = useRef<TapeDirSetup | null>(null);
   const [spyMoneyFlow, setSpyMoneyFlow] = useState<{ value: number; trend: number } | null>(null);
   const [qqqMoneyFlow, setQqqMoneyFlow] = useState<{ value: number; trend: number } | null>(null);
-  const instInitialized = useRef(false);
+  const tapeInitialized = useRef(false);
   const [breadth, setBreadth] = useState<BreadthData | null>(null);
   const [t2108, setT2108] = useState<T2108Data | null>(null);
   const [chop, setChop] = useState<ChopData | null>(null);
@@ -696,7 +696,7 @@ export default function MacroScorecard() {
     }
   }, [quotes, breadth]);
 
-  // --- ENGINE 1b: INSTITUTIONAL DIRECTION ---
+  // --- ENGINE 1b: TAPE DIRECTION ---
   useEffect(() => {
     const spy = quotes['SPY'];
     const qqq = quotes['QQQ'];
@@ -704,7 +704,7 @@ export default function MacroScorecard() {
     if (!spy?.synced || !qqq?.synced || !vix?.synced) return;
 
     const vix9d = quotes['VIX9D'];
-    const setup = instDirSetup(
+    const setup = tapeDirSetup(
       spy.price, spy.prevLow ?? null, spy.pct,
       qqq.price, qqq.prevLow ?? null,
       vix.price, vix.prevHigh ?? null, vix.pct,
@@ -728,30 +728,30 @@ export default function MacroScorecard() {
 
        Cost is one poll of latency on a genuine change, which is far cheaper
        than a card that cries wolf. The first reading commits immediately. */
-    if (!instInitialized.current) {
-      instInitialized.current = true;
-      instPendingSetup.current = null;
-      setInstSetup(setup);
-      setInstSignal(instDirSignal(setup));
+    if (!tapeInitialized.current) {
+      tapeInitialized.current = true;
+      tapePendingSetup.current = null;
+      setTapeSetup(setup);
+      setTapeSignal(tapeDirSignal(setup));
       return;
     }
 
-    if (setup === instSetup) {
-      instPendingSetup.current = null;   // reading reverted; nothing to confirm
+    if (setup === tapeSetup) {
+      tapePendingSetup.current = null;   // reading reverted; nothing to confirm
       return;
     }
 
-    if (instPendingSetup.current !== setup) {
-      instPendingSetup.current = setup;  // first sighting — wait for a repeat
+    if (tapePendingSetup.current !== setup) {
+      tapePendingSetup.current = setup;  // first sighting — wait for a repeat
       return;
     }
 
-    instPendingSetup.current = null;
-    setInstPrevSetup(instSetup);
-    setInstFlash(true);
-    setTimeout(() => setInstFlash(false), 1500);
-    setInstSetup(setup);
-    setInstSignal(instDirSignal(setup));
+    tapePendingSetup.current = null;
+    setTapePrevSetup(tapeSetup);
+    setTapeFlash(true);
+    setTimeout(() => setTapeFlash(false), 1500);
+    setTapeSetup(setup);
+    setTapeSignal(tapeDirSignal(setup));
   }, [quotes, spyMoneyFlow, qqqMoneyFlow]);
 
   // --- A/D DIRECTION: compare each new ratio against the last one ---
@@ -1162,10 +1162,10 @@ export default function MacroScorecard() {
             divergence={divergence}
             spyMoneyFlow={spyMoneyFlow}
             qqqMoneyFlow={qqqMoneyFlow}
-            instSetup={instSetup}
-            instSignal={instSignal}
-            instPrevSetup={instPrevSetup}
-            instFlash={instFlash}
+            tapeSetup={tapeSetup}
+            tapeSignal={tapeSignal}
+            tapePrevSetup={tapePrevSetup}
+            tapeFlash={tapeFlash}
           />
 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4 relative z-10">
