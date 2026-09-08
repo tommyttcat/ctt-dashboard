@@ -269,11 +269,19 @@ function colorPctsHtml(text: string): string {
   });
 }
 
+/* The brief's own vocabulary is never a chip, even if a scanner row happens to
+   carry the same symbol: these words appear as prose in every brief, so a
+   ticker match on them is always a false positive. */
+const RESERVED_WORDS = new Set([
+  'ARMED', 'WAIT', 'TRIGGERED', 'EXTENDED', 'FAILED', 'UNKNOWN', 'ACT', 'TODAY',
+  'PRE', 'TAPE', 'MIX', 'OPEN', 'CLOSE', 'POWER', 'HOUR',
+]);
+
 function richHtml(text: string, known: Set<string>): string {
   const stripped = String(text || '').replace(/\*\*/g, '');
   const colored = colorPctsHtml(stripped);
   return colored.replace(/(^|[\s(,])([A-Z]{1,5})(?='s|$|[\s),.:;])/g, (m, pre, tok) =>
-    known.has(tok) ? `${pre}${tickerChip(tok)}` : m
+    known.has(tok) && !RESERVED_WORDS.has(tok) ? `${pre}${tickerChip(tok)}` : m
   );
 }
 

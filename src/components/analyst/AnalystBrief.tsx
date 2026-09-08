@@ -231,6 +231,11 @@ const NOT_TICKERS = new Set([
   'USD','EUR','YTD','QTD','MTD','MOM','YOY','QOQ','EOD','IOT','UTC','UTC',
   'FOMC','FED','SEC','ECB','BOJ','FDIC','OTC','FAQ','API','FDA','ET',
   'MA','PM','AM','IV','OI','DTE','BP','RR','UI','IS','OR','AN','AS','AT','BY','DO','GO','IF','IN','IT','MY','NO','OF','ON','SO','TO','UP','WE',
+  /* Brief vocabulary: status tokens, the ACT TODAY marker and phase names.
+     Prose no longer scans bare capitals at all, but Top Trades theses are
+     plain text and still do. */
+  'ARMED','WAIT','TRIGGERED','EXTENDED','FAILED','UNKNOWN','ACT','TODAY',
+  'PRE','TAPE','MIX','OPEN','CLOSE','POWER','HOUR','CHOP','EIA','NFIB','ISM','JOLTS',
 ]);
 const INDEX_TICKERS = new Set(['SPY','QQQ','DIA','IWM','VIX','TLT','GLD','SLV','USO','XLF','XLK','XLE','XLV','XLI','XLB','XLC','XLRE','XLU','XLP','XLY']);
 
@@ -342,13 +347,17 @@ function colorPcts(text: string, keyBase: number): React.ReactNode[] {
   return parts;
 }
 
-function enrichSegment(seg: string, offset: number, pctColor?: boolean, tickers?: boolean, gradeMap?: Record<string, 'A' | 'B'>, avoidSet?: Set<string>): React.ReactNode[] {
-  if (!pctColor && !tickers) return [seg];
-  let nodes: React.ReactNode[] = pctColor ? colorPcts(seg, offset) : [seg];
-  if (tickers) {
-    nodes = nodes.flatMap((n, i) => typeof n === 'string' ? renderTickerChips(n, offset + i * 10000, gradeMap, avoidSet) : n);
-  }
-  return nodes;
+/* Prose is chipped from **TICKER** markers only — never from bare capitals.
+   The analyst prompt requires every ticker in a badge field to be wrapped, and
+   it is; scanning bare capitals only ever produced false positives, because
+   any short acronym in the prose looks like a ticker. The brief's own
+   vocabulary is full of them: ARMED, WAIT and ACT TODAY from the status
+   tokens, MIX / PRE / TAPE from the phase names, and CHOP, EIA and NFIB from
+   the data itself all rendered as chips on 8 Sep 2026. NOT_TICKERS could only
+   ever chase them one word at a time. */
+function enrichSegment(seg: string, offset: number, pctColor?: boolean, _tickers?: boolean, _gradeMap?: Record<string, 'A' | 'B'>, _avoidSet?: Set<string>): React.ReactNode[] {
+  if (!pctColor) return [seg];
+  return colorPcts(seg, offset);
 }
 
 function highlightBold(text: string, colorClass: string, pctColor?: boolean, tickers?: boolean, gradeMap?: Record<string, 'A' | 'B'>, avoidSet?: Set<string>): React.ReactNode {
