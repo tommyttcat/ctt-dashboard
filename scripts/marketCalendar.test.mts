@@ -1,4 +1,4 @@
-import { getMarketDay, isTradingDay, previousTradingDay, nextTradingDay, isMarketSessionWindow, etHour } from '../src/lib/marketCalendar.ts';
+import { getMarketDay, isTradingDay, previousTradingDay, nextTradingDay, isMarketSessionWindow, etHour, lastCompletedSession, sessionsBetween } from '../src/lib/marketCalendar.ts';
 
 let pass = 0, fail = 0;
 const eq = (label: string, got: unknown, want: unknown) => {
@@ -75,6 +75,36 @@ eq('01:00 ET Labor Day status', getMarketDay(new Date('2026-09-07T05:00:00Z')).s
 eq('23:00 ET stays same day', getMarketDay(new Date('2026-09-08T03:00:00Z')).date, '2026-09-07');
 eq('midnight ET hour is 0', etHour(new Date('2026-09-08T04:00:00Z')), 0);
 eq('noon ET hour is 12', etHour(new Date('2026-09-08T16:00:00Z')), 12);
+
+// --- session helpers: RS staleness depends on these ---
+const at = (iso: string) => new Date(iso);
+
+// --- lastCompletedSession ---
+eq('Tue 10:00 ET after Labor Day -> Friday', lastCompletedSession(at('2026-09-08T14:00:00Z')), '2026-09-04');
+eq('Tue 17:00 ET after Labor Day -> Tuesday', lastCompletedSession(at('2026-09-08T21:00:00Z')), '2026-09-08');
+eq('Labor Day itself 10:00 ET -> Friday', lastCompletedSession(at('2026-09-07T14:00:00Z')), '2026-09-04');
+eq('Sat -> Friday', lastCompletedSession(at('2026-09-12T16:00:00Z')), '2026-09-11');
+eq('normal Tue 10:00 ET -> Monday', lastCompletedSession(at('2026-09-15T14:00:00Z')), '2026-09-14');
+// Fri 27 Nov 2026 is a 13:00 early close
+eq('day after Thanksgiving 12:00 ET -> Wednesday', lastCompletedSession(at('2026-11-27T17:00:00Z')), '2026-11-25');
+eq('day after Thanksgiving 14:00 ET -> itself', lastCompletedSession(at('2026-11-27T19:00:00Z')), '2026-11-27');
+
+// --- sessionsBetween ---
+eq('same session', sessionsBetween('2026-09-04', '2026-09-04'), 0);
+eq('Fri -> Tue across Labor Day', sessionsBetween('2026-09-04', '2026-09-08'), 1);
+eq('Fri -> Mon normal weekend', sessionsBetween('2026-09-11', '2026-09-14'), 1);
+eq('Mon -> Tue', sessionsBetween('2026-09-14', '2026-09-15'), 1);
+eq('Fri -> Wed (three sessions behind)', sessionsBetween('2026-09-11', '2026-09-16'), 3);
+eq('Thu 24 Dec -> Mon 28 Dec across Christmas', sessionsBetween('2026-12-24', '2026-12-28'), 1);
+
+// --- the regression, end to end: age in sessions vs the old 4-day cap ---
+const laborDayAge = sessionsBetween('2026-09-04', lastCompletedSession(at('2026-09-08T14:00:00Z')));
+eq('Labor Day Tue: Friday map is current (0 sessions)', laborDayAge, 0);
+const xmasAge = sessionsBetween('2026-12-24', lastCompletedSession(at('2026-12-28T15:00:00Z')));
+eq('28 Dec: 24 Dec map is current (0 sessions)', xmasAge, 0);
+// genuinely stale: RS job dead for three sessions
+eq('three sessions behind is refused (>1)', sessionsBetween('2026-09-11', '2026-09-17') > 1, true);
+
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -279,6 +279,31 @@ export function nextTradingDay(date?: string | Date): string {
   return d;
 }
 
+/* The ET date of the most recent session that has finished. Before today's
+   close that is the previous trading day, not today. */
+export function lastCompletedSession(now: Date = new Date()): string {
+  const today = etDateString(now);
+  const day = getMarketDay(today);
+  if (day.isTradingDay) {
+    const closeHour = parseInt((day.closesAtET || '16:00').slice(0, 2), 10);
+    if (etHour(now) >= closeHour) return today;
+  }
+  return previousTradingDay(today);
+}
+
+/* Sessions strictly after `from`, up to and including `to`. 0 when they are
+   the same session, or when `from` is already at/after `to`. */
+export function sessionsBetween(from: string, to: string): number {
+  if (!from || !to || from >= to) return 0;
+  let d = from;
+  let n = 0;
+  while (d < to && n <= 30) {
+    d = nextTradingDay(d);
+    if (d <= to) n++;
+  }
+  return n;
+}
+
 /**
  * Replacement for the weekday-only 4 AM – 8 PM ET checks that were duplicated
  * across scannerLatest, analyst/generate and market-summary. True only inside

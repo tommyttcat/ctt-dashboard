@@ -15,6 +15,7 @@
    ================================================================== */
 
 import { kv } from '@vercel/kv';
+import { isTradingDay, lastCompletedSession, sessionsBetween } from '@/lib/marketCalendar';
 
 export const RS_KEY = 'rs_ratings_v1';
 
@@ -27,19 +28,25 @@ export interface RsPayload {
   sortedRaws?: number[];
 }
 
-/* How old the map may be before it is refused.
+/* How stale the map may be before it is refused.
 
-   FOUR DAYS, NOT ONE. A one-day rule would blank every rating across a
-   weekend. Friday's ratings are perfectly good on Monday because no
-   session has traded since. The asOf date parses to midnight UTC, so
-   Friday midnight → Monday afternoon is already ~3.85 calendar days;
-   a 3-day cap rejects valid weekend data. Four days covers a normal
-   weekend with margin and most single-day holidays.
+   MEASURED IN TRADING SESSIONS, NOT CALENDAR DAYS. The previous rule was
+   MAX_AGE_DAYS = 4 calendar days, which blanked every RS rating on the
+   Tuesday after Labor Day 2026: Friday's asOf parses to midnight UTC, so by
+   Tuesday morning it was 4.6 days old and refused — even though Friday was
+   still the most recent completed session and the ratings were exactly
+   current. Christmas week 2026 would have done the same thing on 28 Dec.
 
-   NULL RATHER THAN STALE is the rule throughout. A missing rating renders
-   as an em-dash and any RS filter drops the row; a stale one would pass
-   filters and be acted on. */
-const MAX_AGE_DAYS = 4;
+   Calendar days cannot express "no session has traded since", which is the
+   only question that matters. Sessions can. Freshness is now the number of
+   completed sessions between the map's asOf and the most recent completed
+   session; zero means current, and one session of slack covers the window
+   between a close and the next morning's RS run.
+
+   NULL RATHER THAN STALE is still the rule. A missing rating renders as an
+   em-dash and any RS filter drops the row; a stale one would pass filters
+   and be acted on. */
+const MAX_AGE_SESSIONS = 1;
 
 export interface RsLookup {
   /* Rating for a symbol, or null when unrated. Unrated is common and
@@ -82,24 +89,34 @@ export async function loadRsRatings(): Promise<RsLookup> {
   }
 
   const asOf = payload.asOf ?? null;
-  let ageDays: number | null = null;
 
-  if (asOf) {
-    const t = new Date(asOf).getTime();
-    if (!Number.isNaN(t)) ageDays = (Date.now() - t) / 86400000;
-  }
-
-  if (ageDays == null) {
+  if (!asOf || Number.isNaN(new Date(asOf).getTime())) {
     return { ...EMPTY, reason: 'RS map has no usable asOf date' };
   }
 
-  if (ageDays > MAX_AGE_DAYS) {
+  const ageDays = +((Date.now() - new Date(asOf).getTime()) / 86400000).toFixed(1);
+
+  /* An asOf that is not itself a session means the RS job ranked a day the
+     market never traded — refuse it rather than reason about its age. */
+  if (!isTradingDay(asOf)) {
     return {
       ...EMPTY,
       asOf,
       ranked: payload.ranked ?? 0,
-      ageDays: +ageDays.toFixed(1),
-      reason: `RS map is ${ageDays.toFixed(1)} days old — refusing to serve stale percentiles`,
+      ageDays,
+      reason: `RS map asOf ${asOf} is not a trading day — refusing to serve`,
+    };
+  }
+
+  const ageSessions = sessionsBetween(asOf, lastCompletedSession());
+
+  if (ageSessions > MAX_AGE_SESSIONS) {
+    return {
+      ...EMPTY,
+      asOf,
+      ranked: payload.ranked ?? 0,
+      ageDays,
+      reason: `RS map is ${ageSessions} sessions behind (asOf ${asOf}, last close ${lastCompletedSession()}) — refusing to serve stale percentiles`,
     };
   }
 
@@ -113,7 +130,7 @@ export async function loadRsRatings(): Promise<RsLookup> {
     available: true,
     asOf,
     ranked: payload.ranked ?? Object.keys(ratings).length,
-    ageDays: +ageDays.toFixed(1),
+    ageDays,
     reason: null,
     sortedRaws: Array.isArray(payload.sortedRaws) ? payload.sortedRaws : [],
   };
