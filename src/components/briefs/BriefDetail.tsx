@@ -45,8 +45,14 @@ function regimeColor(regime: string): { text: string; bg: string; border: string
 
 function richText(text: string): React.ReactNode[] {
   const parts: React.ReactNode[] = [];
-  const regex = /\*\*([^*]+)\*\*|\$([A-Z]{1,5})\b|\b([A-Z]{2,5})\b/g;
-  const NOISE = new Set(['THE', 'AND', 'FOR', 'NOT', 'BUT', 'ARE', 'WAS', 'HAS', 'HAD', 'CAN', 'MAY', 'ALL', 'ANY', 'ITS', 'NEW', 'LOW', 'HIGH', 'NOW', 'ETF', 'IPO', 'GDP', 'CPI', 'PCE', 'PPI', 'FOMC', 'FED', 'SEC', 'AM', 'PM', 'EST', 'EDT', 'UTC']);
+  /* Bold markers and an explicit $TICKER only — never bare capitals. The
+     analyst wraps every ticker in **, so scanning bare capitals could only
+     ever produce false positives, and it produced them with a $ bolted on:
+     the status tokens rendered as $ARMED and $WAIT, and a company name in
+     "(MARA Holdings, fintech)" became "($MARA Holdings, fintech)". The live
+     dashboard and the phase email were fixed the same way on 8 Sep; this
+     renderer is a separate copy that was missed. */
+  const regex = /\*\*([^*]+)\*\*|\$([A-Z]{1,5})\b/g;
   let last = 0;
   let match;
   while ((match = regex.exec(text)) !== null) {
@@ -56,10 +62,6 @@ function richText(text: string): React.ReactNode[] {
     } else if (match[2]) {
       parts.push(
         <span key={match.index} className="text-cyan-400 font-bold">${match[2]}</span>,
-      );
-    } else if (match[3] && !NOISE.has(match[3])) {
-      parts.push(
-        <span key={match.index} className="text-cyan-400 font-bold">${match[3]}</span>,
       );
     } else {
       parts.push(match[0]);
