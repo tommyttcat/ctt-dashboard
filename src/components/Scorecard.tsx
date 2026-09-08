@@ -617,6 +617,7 @@ export default function MacroScorecard() {
   /* Holds a changed reading until a second poll agrees with it. */
   const instPendingSetup = useRef<InstDirSetup | null>(null);
   const [spyMoneyFlow, setSpyMoneyFlow] = useState<{ value: number; trend: number } | null>(null);
+  const [qqqMoneyFlow, setQqqMoneyFlow] = useState<{ value: number; trend: number } | null>(null);
   const instInitialized = useRef(false);
   const [breadth, setBreadth] = useState<BreadthData | null>(null);
   const [t2108, setT2108] = useState<T2108Data | null>(null);
@@ -712,6 +713,7 @@ export default function MacroScorecard() {
         spyVolume: spy.volume ?? null,
         spyAvgVolume: spy.avgVolume ?? null,
         spyMoneyFlow: spyMoneyFlow?.value ?? null,
+        qqqMoneyFlow: qqqMoneyFlow?.value ?? null,
       },
     );
     /* DEAD-BAND: a new reading must repeat before it is committed.
@@ -748,7 +750,7 @@ export default function MacroScorecard() {
     setTimeout(() => setInstFlash(false), 1500);
     setInstSetup(setup);
     setInstSignal(instDirSignal(setup));
-  }, [quotes, spyMoneyFlow]);
+  }, [quotes, spyMoneyFlow, qqqMoneyFlow]);
 
   // --- A/D DIRECTION: compare each new ratio against the last one ---
   useEffect(() => {
@@ -800,7 +802,11 @@ export default function MacroScorecard() {
         setStockStatus('LIVE');
 
         if (data.breadth && typeof data.breadth.score === 'number') setBreadth(data.breadth);
-        if (data.moneyFlow && typeof data.moneyFlow.value === 'number') setSpyMoneyFlow(data.moneyFlow);
+        if (data.moneyFlow) {
+          const spyMf = data.moneyFlow.spy ?? data.moneyFlow;   // `.spy` is the explicit shape; the flat one is the original
+          if (typeof spyMf?.value === 'number') setSpyMoneyFlow(spyMf);
+          setQqqMoneyFlow(typeof data.moneyFlow.qqq?.value === 'number' ? data.moneyFlow.qqq : null);
+        }
 
         setQuotes(prev => {
           const next = { ...prev };
@@ -1153,6 +1159,7 @@ export default function MacroScorecard() {
             bands={bands}
             divergence={divergence}
             spyMoneyFlow={spyMoneyFlow}
+            qqqMoneyFlow={qqqMoneyFlow}
             instSetup={instSetup}
             instSignal={instSignal}
             instPrevSetup={instPrevSetup}

@@ -292,6 +292,8 @@ export interface InstDirOpts {
   spyAvgVolume?: number | null;
   /** SPY Chaikin money flow, 0-100 centred on 50. See lib/indicators/moneyflow. */
   spyMoneyFlow?: number | null;
+  /** QQQ money flow, same scale. */
+  qqqMoneyFlow?: number | null;
 }
 
 /* Matches the noise floor `marketToneScore` applies to VIX. */
@@ -360,10 +362,21 @@ export function instDirSetup(
      volume. It is slower than the rules above, so it sits below them — but
      above the VIX fallback, because three weeks of accumulation is a better
      answer than today's volatility tick when nothing else has matched. */
-  const mf = opts?.spyMoneyFlow;
-  if (mf != null) {
-    if (mf >= MF_ACCUM) return 'FLOW IN';
-    if (mf <= MF_DISTRIB) return 'FLOW OUT';
+  /* BOTH INDICES MUST AGREE. One index at an extreme is as often rotation as
+     direction — money leaving the broad market for mega-cap tech reads as SPY
+     distribution while QQQ accumulates, and calling that FLOW OUT would be
+     wrong. Requiring agreement means the setup fires less often and means
+     something when it does; a split reading falls through and both numbers
+     stay visible in the tooltip, which is where the rotation shows. */
+  const mfSpy = opts?.spyMoneyFlow;
+  const mfQqq = opts?.qqqMoneyFlow;
+  if (mfSpy != null && mfQqq != null) {
+    if (Math.min(mfSpy, mfQqq) >= MF_ACCUM) return 'FLOW IN';
+    if (Math.max(mfSpy, mfQqq) <= MF_DISTRIB) return 'FLOW OUT';
+  } else if (mfSpy != null) {
+    /* QQQ unavailable — fall back to the broad-market read alone. */
+    if (mfSpy >= MF_ACCUM) return 'FLOW IN';
+    if (mfSpy <= MF_DISTRIB) return 'FLOW OUT';
   }
 
   if (vixPct >= VIX_PRESSURE_PCT) return 'PRESSURE ON';

@@ -103,6 +103,7 @@ export async function GET() {
      no previous-day level — the institutional rules no longer depend on one. */
   const prevDay: Record<string, { high: number; low: number }> = {};
   let spyMoneyFlow: { value: number; trend: number } | null = null;
+  let qqqMoneyFlow: { value: number; trend: number } | null = null;
 
   const polyKey = (process.env.POLYGON_API_KEY || '').trim();
   let polyVolume: { volume: number; avgVolume: number } | null = null;
@@ -125,7 +126,7 @@ export async function GET() {
     const aggFrom = new Date(aggTo.getTime() - 70 * 86400000);
     const ymdUTC = (d: Date) => d.toISOString().slice(0, 10);
 
-    const [pdSnap, vix9dSnap, spyAggs] = await Promise.all([
+    const [pdSnap, vix9dSnap, spyAggs, qqqAggs] = await Promise.all([
       fetchSafeJson(
         `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=SPY,QQQ&apiKey=${polyKey}`,
         null
@@ -141,7 +142,31 @@ export async function GET() {
         `https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day/${ymdUTC(aggFrom)}/${ymdUTC(aggTo)}?adjusted=true&sort=desc&limit=${AGG_BARS}&apiKey=${polyKey}`,
         null
       ),
+      /* QQQ daily bars, for its own money-flow reading. Polygon is unmetered
+         on this plan and these are daily bars, so the delayed feed costs the
+         reading nothing. */
+      fetchSafeJson(
+        `https://api.polygon.io/v2/aggs/ticker/QQQ/range/1/day/${ymdUTC(aggFrom)}/${ymdUTC(aggTo)}?adjusted=true&sort=desc&limit=${AGG_BARS}&apiKey=${polyKey}`,
+        null
+      ),
     ]);
+
+    /* Chaikin accumulation/distribution over daily bars. This is the one
+       reading on the card that answers WHICH SIDE GOT FILLED rather than
+       inferring it from price direction: it weights where each session closed
+       inside its own range by that session's volume. Bars arrive newest-first.
+       The newest is today's partial bar, which is normal for a live reading. */
+    const readMoneyFlow = (raw: any[]): { value: number; trend: number } | null => {
+      const mfBars = (raw || [])
+        .filter((b) => b?.h > 0 && b?.l > 0 && b?.c > 0 && b?.v > 0)
+        .map((b) => ({ h: b.h as number, l: b.l as number, c: b.c as number, v: b.v as number }));
+      const value = computeMoneyFlow(mfBars, { order: 'desc', length: MF_LENGTH });
+      if (value == null) return null;
+      return {
+        value,
+        trend: moneyFlowTrend(mfBars, { order: 'desc', length: MF_LENGTH, lookback: MF_TREND_LOOKBACK }),
+      };
+    };
 
     const snapTickers: any[] = Array.isArray(pdSnap?.tickers) ? pdSnap.tickers : [];
     for (const t of snapTickers) {
@@ -166,21 +191,13 @@ export async function GET() {
         : (spyT.prevDay?.v ?? 0);
       polyVolume = { volume: spyT.day.v, avgVolume: avg };
 
-      /* Chaikin accumulation/distribution over the same bars. This is the one
-         reading here that answers WHICH SIDE GOT FILLED rather than inferring
-         it from price direction: it weights where each session closed inside
-         its own range by that session's volume. Bars arrive newest-first. */
       const mfBars = bars
         .filter((b) => b?.h > 0 && b?.l > 0 && b?.c > 0 && b?.v > 0)
         .map((b) => ({ h: b.h as number, l: b.l as number, c: b.c as number, v: b.v as number }));
-      const mfValue = computeMoneyFlow(mfBars, { order: 'desc', length: MF_LENGTH });
-      if (mfValue != null) {
-        spyMoneyFlow = {
-          value: mfValue,
-          trend: moneyFlowTrend(mfBars, { order: 'desc', length: MF_LENGTH, lookback: MF_TREND_LOOKBACK }),
-        };
-      }
+      spyMoneyFlow = readMoneyFlow(bars);
     }
+
+    qqqMoneyFlow = readMoneyFlow(Array.isArray(qqqAggs?.results) ? qqqAggs.results : []);
     const vix9dResult = vix9dSnap?.results?.[0];
     if (vix9dResult?.value > 0) vix9dPrice = vix9dResult.value;
     else if (vix9dResult?.session?.close > 0) vix9dPrice = vix9dResult.session.close;
@@ -221,7 +238,15 @@ export async function GET() {
   /* moneyFlow rides alongside quotes rather than inside SPY's entry: it is a
      21-session reading, not a live quote, and the client caches quote entries
      per tick. */
-  const payload = { session, updatedAt: Date.now(), quotes, moneyFlow: spyMoneyFlow };
+  /* `moneyFlow` keeps SPY's reading at the top level so a client running the
+     previous shape (or a KV payload written by it) still resolves; `spy` and
+     `qqq` are the explicit form. */
+  const payload = {
+    session,
+    updatedAt: Date.now(),
+    quotes,
+    moneyFlow: spyMoneyFlow ? { ...spyMoneyFlow, spy: spyMoneyFlow, qqq: qqqMoneyFlow } : null,
+  };
 
   // Only overwrite the cache if we actually got data — never cache an empty wipe.
   if (Object.keys(quotes).length > 0) {

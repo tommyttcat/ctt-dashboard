@@ -188,6 +188,8 @@ export interface MacroScorecardPanelProps {
   hourVal: number | null;
   /** SPY Chaikin money flow, 0-100. Optional: the analyst page omits it. */
   spyMoneyFlow?: { value: number; trend: number } | null;
+  /** QQQ money flow, same scale. */
+  qqqMoneyFlow?: { value: number; trend: number } | null;
   hourStale: boolean;
   hourLastBar: string | null;
   chopTooltipText: string;
@@ -224,6 +226,7 @@ export default function MacroScorecardPanel({
   intraLastBar,
   hourVal,
   spyMoneyFlow,
+  qqqMoneyFlow,
   hourStale,
   hourLastBar,
   chopTooltipText,
@@ -351,10 +354,21 @@ export default function MacroScorecardPanel({
                 ? <>{(spyVol! / 1e6).toFixed(1)}M vs {(spyAvgVol! / 1e6).toFixed(1)}M 20-day avg = {volRatio.toFixed(2)}x</>
                 : <>unavailable</>
             )}
+            {/* Both indices, because the setup only fires when they agree —
+                a split reading is rotation, not direction, and this is where
+                the reader sees which way it is rotating. */}
             {ttRow('Money Flow',
-              spyMoneyFlow ? `${mfLabelShort(spyMoneyFlow.value)} ${spyMoneyFlow.value.toFixed(0)}` : 'n/a',
               spyMoneyFlow
-                ? <>21 sessions, volume-weighted close position {mfArrow(spyMoneyFlow.trend)} · above 60 accumulation, below 40 distribution</>
+                ? (qqqMoneyFlow
+                    ? `${spyMoneyFlow.value.toFixed(0)} / ${qqqMoneyFlow.value.toFixed(0)}`
+                    : `${mfLabelShort(spyMoneyFlow.value)} ${spyMoneyFlow.value.toFixed(0)}`)
+                : 'n/a',
+              spyMoneyFlow
+                ? <>SPY {spyMoneyFlow.value.toFixed(0)} {mfArrow(spyMoneyFlow.trend)}
+                    {qqqMoneyFlow && <> &nbsp; QQQ {qqqMoneyFlow.value.toFixed(0)} {mfArrow(qqqMoneyFlow.trend)}</>}
+                    <br />21 sessions, volume-weighted close position · above 60 accumulation, below 40 distribution
+                    {qqqMoneyFlow && <><br />both must agree for a flow call; split reads as rotation</>}
+                  </>
                 : <>unavailable</>
             )}
             {ttRow('Term Str',
