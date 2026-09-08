@@ -139,6 +139,44 @@ function captionedImage(src: string, size = 'normal'): any {
   };
 }
 
+/* The mark goes on here, not in the prompt. An image model cannot reproduce a
+   specific logo — it draws something close and subtly wrong every time — so the
+   real file is composited over the generated cover instead. Sized to a fifteenth
+   of the frame in the lower right, which is where the generator is told to leave
+   the corner empty. Returns the original bytes untouched if anything fails; a
+   cover without a mark still beats no cover. */
+async function stampLogo(image: Buffer): Promise<Buffer> {
+  try {
+    const sharp = (await import('sharp')).default;
+    const fs = await import('node:fs/promises');
+    const path = await import('node:path');
+    const logoPath = path.join(process.cwd(), 'public', 'logo-mark.png');
+    const logo = await fs.readFile(logoPath).catch(() => null);
+    if (!logo) return image;
+
+    const meta = await sharp(image).metadata();
+    const W = meta.width ?? 0;
+    const H = meta.height ?? 0;
+    if (!W || !H) return image;
+
+    const targetH = Math.round(H * 0.075);
+    const mark = await sharp(logo).resize({ height: targetH }).png().toBuffer();
+    const markMeta = await sharp(mark).metadata();
+    const margin = Math.round(H * 0.045);
+
+    return await sharp(image)
+      .composite([{
+        input: mark,
+        left: W - (markMeta.width ?? targetH) - margin,
+        top: H - targetH - margin,
+      }])
+      .png()
+      .toBuffer();
+  } catch {
+    return image;
+  }
+}
+
 async function uploadImageToSubstack(
   pubUrl: string,
   session: string,
@@ -754,8 +792,9 @@ export async function GET(req: Request) {
       const r = await fetch(String(brief.coverImageUrl), { cache: 'no-store' });
       const ct = (r.headers.get('content-type') || '').split(';')[0];
       if (r.ok && ct.startsWith('image/')) {
-        const buf = Buffer.from(await r.arrayBuffer());
-        const cdn = await uploadImageToSubstack(pubUrl, session, `data:${ct};base64,${buf.toString('base64')}`);
+        const raw = Buffer.from(await r.arrayBuffer());
+        const buf = await stampLogo(raw);
+        const cdn = await uploadImageToSubstack(pubUrl, session, `data:image/png;base64,${buf.toString('base64')}`);
         if (cdn) {
           coverImageUrl = cdn;
           dashScreenshotCdn = cdn;
