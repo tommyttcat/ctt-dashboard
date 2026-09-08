@@ -1296,11 +1296,13 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
     ${macroHtml}
     ${newsHtml}
     ${regimeHtml}
+    ${summaryHtml}
     ${sectorsHtml}
     ${moversHtml}
     ${sipHtml}
     ${eventsHtml}
     ${sessionUpdatesHtml(brief, knownTickers, true)}
+    ${tomorrowSecHtml}
 
     <div style="padding:20px 0;margin-top:18px;border-top:1px solid #0f1729;text-align:center;">
       <a href="https://app.confluencetradingtools.com/pricing" style="display:inline-block;font-size:11px;font-weight:700;color:#fbbf24;background:#fbbf2415;border:1px solid #fbbf2430;padding:8px 20px;border-radius:8px;text-decoration:none;letter-spacing:0.02em;">
