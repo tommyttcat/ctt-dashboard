@@ -499,7 +499,7 @@ function sectorConcentrationHtml(pool: any[]): string {
   </div>`;
 }
 
-function sectorsCardHtml(sectorText: string, snapshot: any): string {
+function sectorsCardHtml(sectorText: string, snapshot: any, known: Set<string>): string {
   const movers = snapshot?.stocksInPlay?.topMovers || {};
 
   const etfAll = dedupeByTicker([...(movers['ETF Gainers'] || []), ...(movers['ETF Losers'] || [])]);
@@ -520,11 +520,20 @@ function sectorsCardHtml(sectorText: string, snapshot: any): string {
   const mfShare = advancingDollarShare(flowAll);
   const totalDVol = flowAll.reduce((a: number, s: any) => a + dVolOf(s), 0);
 
-  const setupPool = buildSetupPool(snapshot);
-  const bars = sectorText ? sectorBarsHtml(sectorText) : '';
-  const concHtml = sectorConcentrationHtml(setupPool);
+  /* The two bar charts that sat above these tables — sector performance drawn
+     from the analyst's Leading/Lagging lines, and setup concentration — are
+     gone: the ETF and stock tables below already show the movement visually.
+     What replaces them is the analyst's own read of where the money went,
+     which this card received as `sectorText` and threw away. */
+  const narrative = String(sectorText || '')
+    .split('\n')
+    .filter((line) => !/^\s*\*\*(Leading|Lagging)/i.test(line))
+    .join('\n')
+    .trim();
+  const narrativeHtml = narrative
+    ? `<div style="border-top:1px solid #ffffff0f;margin-top:14px;padding-top:12px;">${formattedBlockHtml(narrative, known)}</div>`
+    : '';
 
-  const topRow = (bars || concHtml) ? twoColHtml(bars, concHtml) : '';
   const tables = twoColHtml(
     flowTableHtml('ETF Flow', '#818cf8',
       `${etfShare}% of ETF dollars on the advancing side${etfShare >= 60 ? ' — chasing strength.' : etfShare <= 40 ? ' — favoring defense.' : ' — no clean bet.'}`,
@@ -534,8 +543,8 @@ function sectorsCardHtml(sectorText: string, snapshot: any): string {
       flowRows),
   );
 
-  if (!topRow && !tables) return '';
-  return pageCard('Sectors &amp; Money Flow', '#22d3ee', topRow + tables);
+  if (!tables && !narrativeHtml) return '';
+  return pageCard('Sectors &amp; Money Flow', '#22d3ee', tables + narrativeHtml);
 }
 
 function sortByChg<T extends any>(stocks: T[]): T[] {
@@ -1123,7 +1132,7 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
     : '';
 
   const sectorSec = sections.find((s: any) => s.section === 'Top Sectors & Money Flow');
-  const sectorsHtml = sectorsCardHtml(sectorSec?.analysis || '', snapshot);
+  const sectorsHtml = sectorsCardHtml(sectorSec?.analysis || '', snapshot, knownTickers);
 
   /* ---- Top Movers — five a side inside one card, as on the page --------- */
   const gapSec = sections.find((s: any) => /Gappers|Intraday Movers/i.test(s.section));

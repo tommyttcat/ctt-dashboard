@@ -1559,129 +1559,22 @@ function SectorSection({ section, scannerData, auxScanData }: { section: Section
   const mfAdvShare = advancingDollarShare(flowAll);
   const totalDVol = flowAll.reduce((a: number, s: any) => a + dVolOf(s), 0);
 
+  /* The Leading/Lagging lines are chart input, not prose — they exist so a bar
+     chart can be drawn from them. Everything after them is the analyst's read
+     of where the money actually went, which this card was discarding. */
+  const sectorNarrative = String(section.analysis || '')
+    .split('\n')
+    .filter((line) => !/^\s*\*\*(Leading|Lagging)/i.test(line))
+    .join('\n')
+    .trim();
+
   return (
     <SectionCard title="Sectors & Money Flow" accent="#fbbf24">
-    {/* Sector Performance bars beside Sector Concentration, then ETF Flow
-        beside Money Flow — matches dashboard layout. */}
+    {/* The two bar charts that sat here — Sector Performance and Sector
+        Concentration — were removed: the ETF and stock tables below already
+        show the movement visually, and the analyst's own read of where the
+        money went now sits underneath them instead. */}
     <div className="space-y-2.5 md:space-y-4">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 md:gap-3 items-stretch">
-      {allSectors.length > 0 && (() => {
-        const best = allSectors[0];
-        const worst = allSectors[allSectors.length - 1];
-        const spread = best.pct - worst.pct;
-        return (
-          <div className="overflow-hidden">
-            <div className="flex items-center justify-end pb-0.5 pt-1">
-              <span className="text-[9px] text-slate-600 tabular-nums">
-                Spread {spread.toFixed(2)}%
-              </span>
-            </div>
-            <div className="overflow-hidden px-1.5 py-1.5">
-              {allSectors.map((s, i) => {
-                const barWidth = (Math.abs(s.pct) / maxAbs) * 40;
-                const isPositive = s.pct >= 0;
-                const isFirst = i === 0;
-                const isLast = i === allSectors.length - 1;
-                return (
-                  <div
-                    key={i}
-                    className="group flex items-center px-3 py-[1px] rounded transition-colors hover:bg-white/[0.02]"
-                  >
-                    <span className={`text-[9px] w-[140px] text-right shrink-0 pr-4 transition-colors ${isFirst ? 'text-emerald-300/90 font-medium' : isLast ? 'text-rose-300/90 font-medium' : 'text-slate-400 group-hover:text-slate-300'}`}>
-                      {s.name}
-                    </span>
-                    <div className="flex-1 h-[20px] flex items-center">
-                      <div className="relative w-full h-full">
-                        <div className="absolute left-1/2 top-[2px] bottom-[2px] w-px bg-slate-700/40" />
-                        {isPositive ? (
-                          <div
-                            className="absolute left-1/2 top-[2px] bottom-[2px] rounded-r-[3px]"
-                            style={{
-                              width: `${barWidth}%`,
-                              background: isFirst
-                                ? 'linear-gradient(90deg, rgba(16,185,129,0.3) 0%, rgba(16,185,129,0.85) 100%)'
-                                : 'linear-gradient(90deg, rgba(16,185,129,0.2) 0%, rgba(16,185,129,0.55) 100%)',
-                              boxShadow: isFirst ? '0 0 10px rgba(16,185,129,0.15)' : 'none',
-                            }}
-                          />
-                        ) : (
-                          <div
-                            className="absolute right-1/2 top-[2px] bottom-[2px] rounded-l-[3px]"
-                            style={{
-                              width: `${barWidth}%`,
-                              background: isLast
-                                ? 'linear-gradient(270deg, rgba(244,63,94,0.3) 0%, rgba(244,63,94,0.85) 100%)'
-                                : 'linear-gradient(270deg, rgba(244,63,94,0.2) 0%, rgba(244,63,94,0.55) 100%)',
-                              boxShadow: isLast ? '0 0 10px rgba(244,63,94,0.15)' : 'none',
-                            }}
-                          />
-                        )}
-                      </div>
-                    </div>
-                    <span className={`text-[9px] font-semibold tabular-nums w-[58px] text-right shrink-0 pl-2 ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {isPositive ? '+' : ''}{s.pct.toFixed(2)}%
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })()}
-
-      {(() => {
-        const sips: any[] = Array.isArray(scannerData?.stocksInPlay) ? scannerData.stocksInPlay : [];
-        const daily: any[] = Array.isArray(scannerData?.dailySetups) ? scannerData.dailySetups : [];
-        const aux: any[] = Array.isArray(auxScanData) ? auxScanData : [];
-        const allPool = [...sips, ...daily, ...aux];
-        const poolSeen = new Set<string>();
-        const poolDeduped = allPool.filter(s => {
-          const t = (s?.ticker ?? s?.symbol ?? '').toUpperCase();
-          if (!t || poolSeen.has(t)) return false;
-          poolSeen.add(t);
-          return true;
-        });
-        const sectorMap: Record<string, { count: number; totalChg: number }> = {};
-        poolDeduped.forEach((s: any) => {
-          const sec = s.sector && s.sector !== '—' && !isEtfSector(s.sector) ? displaySector(s.sector) : null;
-          if (!sec || sec === '—' || sec.toLowerCase() === 'other') return;
-          if (!sectorMap[sec]) sectorMap[sec] = { count: 0, totalChg: 0 };
-          sectorMap[sec].count += 1;
-          sectorMap[sec].totalChg += Number(s.changePct ?? chgOf(s) ?? 0);
-        });
-        const sectors = Object.entries(sectorMap)
-          .map(([sector, d]) => ({ sector, count: d.count, avgChg: d.totalChg / d.count }))
-          .sort((a, b) => b.count - a.count);
-        const maxCount = sectors[0]?.count ?? 1;
-        if (sectors.length === 0) return null;
-        return (
-          <div className="flex flex-col">
-            <div className="pt-1 pb-1">
-              <div className="text-[9px] font-bold text-amber-400 tracking-wider uppercase">Sector Concentration</div>
-              <p className="text-[9px] text-slate-500 mt-1">Where scanner setups are clustering by sector.</p>
-            </div>
-            <div className="flex-1 flex flex-col justify-center gap-[3px] py-1.5">
-              {sectors.slice(0, 10).map((h, i) => (
-                <div key={i} className="flex items-center gap-2 py-[1px] text-[9px] tabular-nums">
-                  <span className="text-slate-300 font-medium w-[72px] truncate shrink-0">{h.sector}</span>
-                  <div className="flex-1 h-[6px] rounded-full bg-white/5 overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${h.avgChg >= 0 ? 'bg-emerald-500/50' : 'bg-rose-500/50'}`}
-                      style={{ width: `${(h.count / maxCount) * 100}%` }}
-                    />
-                  </div>
-                  <span className="text-slate-400 font-bold w-[16px] text-right shrink-0">{h.count}</span>
-                  <span className={`font-semibold w-[42px] text-right shrink-0 ${h.avgChg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {h.avgChg >= 0 ? '+' : ''}{h.avgChg.toFixed(1)}%
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })()}
-      </div>
-
       {(etfRows.length > 0 || flowRows.length > 0) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 md:gap-3 items-start">
           {etfRows.length > 0 && (
@@ -1700,6 +1593,16 @@ function SectorSection({ section, scannerData, auxScanData }: { section: Section
               rows={flowRows}
             />
           )}
+        </div>
+      )}
+
+      {sectorNarrative && (
+        <div className="border-t border-white/[0.06] pt-3 max-w-[72ch] flex flex-col gap-3">
+          {sectorNarrative.split(/\n\n+/).filter((t) => t.trim()).map((para, i) => (
+            <p key={i} className="text-[12px] text-slate-200 leading-[1.75]">
+              {highlightBold(para.replace(/\n/g, ' '), 'text-slate-100', true)}
+            </p>
+          ))}
         </div>
       )}
     </div>
