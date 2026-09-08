@@ -247,7 +247,10 @@ export const INVERSE_TICKERS = new Set(['VIX', 'UVXY', 'SQQQ', 'SPXS', 'SDOW', '
 
    1. VIX-ES CORRELATION — the original signal. VIX pricing drives ~90% of
       S&P algorithmic volume. Rising VIX = put demand = sell programs.
-      Reference: SPY/QQQ vs previous-day low (PDL), VIX vs previous-day high.
+      Reference: SPY/QQQ vs previous-day low (PDL), both from Polygon's
+      snapshot `prevDay`. VIX has no previous-day level — it is an index and
+      this plan has no Polygon indices entitlement — so its day move stands in
+      for one when judging whether a break is being hedged.
 
    2. VIX VELOCITY — a VIX move of 3%+ intraday is algo-driven, not retail.
       Retail traders don't move the VIX 3% in a session. When VIX spikes
@@ -261,7 +264,9 @@ export const INVERSE_TICKERS = new Set(['VIX', 'UVXY', 'SQQQ', 'SPXS', 'SDOW', '
    4. VIX TERM STRUCTURE — VIX vs VIX9D. When VIX > VIX9D (backwardation),
       institutions are bidding up short-dated protection: hedging urgency.
       When VIX < VIX9D (contango), hedges are being unwound. Optional —
-      degrades to the other signals when VIX9D is unavailable. */
+      degrades to the other signals when VIX9D is unavailable, which is the
+      case today: VIX9D is a Polygon index and the plan does not carry them,
+      so HEDGING cannot currently fire. */
 
 export type InstDirSetup =
   | 'BEAR TRAP'
@@ -296,10 +301,22 @@ export function instDirSetup(
 
   const spyBrokePdl = spyPdl != null && spyPrice < spyPdl;
   const qqqBrokePdl = qqqPdl != null && qqqPrice < qqqPdl;
-  const vixAbovePdh = vixPdh != null && vixPrice >= vixPdh;
 
-  if (spyBrokePdl && qqqBrokePdl && vixAbovePdh) return 'CONFIRMED ↓';
-  if (spyBrokePdl && !vixAbovePdh) return 'BEAR TRAP';
+  /* Is volatility confirming the break? Prefer the previous-day high when it
+     is available, but this plan has no Polygon indices entitlement, so VIX
+     carries no level and the day's move stands in for it.
+
+     THE ABSENCE OF A LEVEL MUST NOT READ AS "NOT CONFIRMING". The old code
+     wrote `!vixAbovePdh`, which was true whenever the level was missing — so
+     once the index levels started arriving, every genuine breakdown would have
+     been labelled BEAR TRAP, a bullish read, on the strength of data that was
+     simply absent. Confirming and dismissive are now separate tests with an
+     ambiguous band between them that falls through to the rest of the chain. */
+  const vixConfirming = vixPdh != null ? vixPrice >= vixPdh : vixPct >= 1;
+  const vixDismissive = vixPdh != null ? vixPrice < vixPdh : vixPct <= 0;
+
+  if (spyBrokePdl && qqqBrokePdl && vixConfirming) return 'CONFIRMED ↓';
+  if (spyBrokePdl && vixDismissive) return 'BEAR TRAP';
 
   const v9d = opts?.vix9dPrice;
   if (v9d != null && v9d > 0 && vixPrice / v9d > 1.05) return 'HEDGING';

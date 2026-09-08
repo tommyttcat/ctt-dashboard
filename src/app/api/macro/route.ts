@@ -97,26 +97,66 @@ export async function GET() {
   }
 
   // Polygon supplementary data — SPY snapshot for volume, VIX9D for term structure.
+  /* Previous-day high/low, keyed by quote id. Polygon-sourced (see below).
+     VIX is an index and this plan has no indices entitlement, so VIX carries
+     no previous-day level — the institutional rules no longer depend on one. */
+  const prevDay: Record<string, { high: number; low: number }> = {};
+
   const polyKey = (process.env.POLYGON_API_KEY || '').trim();
   let polyVolume: { volume: number; avgVolume: number } | null = null;
   let vix9dPrice: number | null = null;
   if (polyKey) {
-    const [spySnap, vix9dSnap] = await Promise.all([
+    /* One snapshot call covers both index ETFs. It carries `prevDay` with the
+       previous session's high, low and volume, which is where the previous-day
+       levels now come from — FMP's historical-chart call was returning nothing,
+       so PDL/PDH never reached the client and the two breakdown rules could
+       never fire. This response was already being fetched for SPY volume; only
+       `day.v` was being read off it. */
+    const AVG_VOL_DAYS = 20;
+    const aggTo = new Date();
+    const aggFrom = new Date(aggTo.getTime() - 45 * 86400000);
+    const ymdUTC = (d: Date) => d.toISOString().slice(0, 10);
+
+    const [pdSnap, vix9dSnap, spyAggs] = await Promise.all([
       fetchSafeJson(
-        `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/SPY?apiKey=${polyKey}`,
+        `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=SPY,QQQ&apiKey=${polyKey}`,
         null
       ),
       fetchSafeJson(
         `https://api.polygon.io/v3/snapshot?ticker.any_of=I:VIX9D&apiKey=${polyKey}`,
         null
       ),
+      /* A genuine 20-session average. The volume-anomaly rule is documented as
+         "1.5x the 20-day average" but was comparing against `prevDay.v` — one
+         session, not an average — so it read 1.5x yesterday instead. */
+      fetchSafeJson(
+        `https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day/${ymdUTC(aggFrom)}/${ymdUTC(aggTo)}?adjusted=true&sort=desc&limit=${AVG_VOL_DAYS + 1}&apiKey=${polyKey}`,
+        null
+      ),
     ]);
-    const spyT = spySnap?.ticker ?? spySnap?.tickers?.[0] ?? null;
+
+    const snapTickers: any[] = Array.isArray(pdSnap?.tickers) ? pdSnap.tickers : [];
+    for (const t of snapTickers) {
+      const pd = t?.prevDay;
+      if (t?.ticker && pd?.h > 0 && pd?.l > 0) {
+        prevDay[t.ticker] = { high: pd.h, low: pd.l };
+      }
+    }
+
+    const spyT = snapTickers.find((t) => t?.ticker === 'SPY') ?? null;
     if (spyT?.day?.v > 0) {
-      polyVolume = {
-        volume: spyT.day.v,
-        avgVolume: spyT.prevDay?.v ?? 0,
-      };
+      /* Drop today's own bar before averaging — sort=desc puts it first when
+         the session is open, and including it makes the ratio self-referential. */
+      const bars: any[] = Array.isArray(spyAggs?.results) ? spyAggs.results : [];
+      const todayYmd = ymdUTC(new Date());
+      const priorVols = bars
+        .filter((b) => b?.v > 0 && ymdUTC(new Date(b.t)) !== todayYmd)
+        .slice(0, AVG_VOL_DAYS)
+        .map((b) => b.v as number);
+      const avg = priorVols.length >= 5
+        ? priorVols.reduce((a, b) => a + b, 0) / priorVols.length
+        : (spyT.prevDay?.v ?? 0);
+      polyVolume = { volume: spyT.day.v, avgVolume: avg };
     }
     const vix9dResult = vix9dSnap?.results?.[0];
     if (vix9dResult?.value > 0) vix9dPrice = vix9dResult.value;
@@ -124,25 +164,6 @@ export async function GET() {
     else if (vix9dResult?.last?.price > 0) vix9dPrice = vix9dResult.last.price;
   }
 
-  // Previous-day high/low for SPY, QQQ, VIX (institutional direction).
-  const PDH_SYMS = ['SPY', 'QQQ', '^VIX'];
-  const pdhBars = await Promise.all(
-    PDH_SYMS.map((sym) =>
-      fetchSafeJson(
-        `https://financialmodelingprep.com/stable/historical-chart/1day?symbol=${encodeURIComponent(sym)}&timeseries=2&apikey=${fmpApiKey}`,
-        []
-      )
-    )
-  );
-  const prevDay: Record<string, { high: number; low: number }> = {};
-  PDH_SYMS.forEach((sym, i) => {
-    const bars = pdhBars[i];
-    const bar = Array.isArray(bars) && bars.length >= 2 ? bars[1] : null;
-    if (bar && bar.high > 0 && bar.low > 0) {
-      const id = sym === '^VIX' ? 'VIX' : sym;
-      prevDay[id] = { high: bar.high, low: bar.low };
-    }
-  });
 
   // Build the per-symbol payload. Tick direction is computed on the client.
   const quotes: Record<string, any> = {};
