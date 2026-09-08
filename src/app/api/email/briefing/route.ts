@@ -1548,10 +1548,16 @@ export async function GET(req: Request) {
     const sent = results.filter((r) => r.status === 'fulfilled').length;
     const failed = results.filter((r) => r.status === 'rejected').length;
 
+    /* The publish response carries the post URL. It used to be discarded, so
+       the social posts pointed at the dashboard home page instead of the
+       briefing that had just gone out. */
+    let substackUrl: string | null = null;
     try {
-      await fetch(`${origin}/api/email/substack?publish=1&phase=${phase}`, {
+      const subRes = await fetch(`${origin}/api/email/substack?publish=1&phase=${phase}`, {
         headers: cronSecret ? { Authorization: `Bearer ${cronSecret}` } : {},
       });
+      const subJson: any = await subRes.json().catch(() => null);
+      substackUrl = subJson?.url ?? null;
     } catch { /* Substack publish is best-effort */ }
 
     let bskyResult: any = null;
@@ -1592,24 +1598,42 @@ export async function GET(req: Request) {
           ? { data: screenshotBuf, alt: `CTT ${PHASE_LABELS[phase]} Tape Reading`, mimeType: 'image/png' }
           : undefined;
 
-        const bskyCta = `Full tape + scanners → ${dashUrl}`;
+        /* The destination is the Substack post when there is one, so the
+           picture people see is the door into the writing rather than the end
+           of it. Falls back to the dashboard if the publish failed. */
+        const target = substackUrl || `https://${dashUrl}`;
+        const targetLabel = substackUrl ? 'Read the briefing' : 'Full tape + scanners';
+
+        const bskyCta = `${targetLabel} → ${target}`;
         const bskyAvail = 300 - phaseTag.length - 2 - bskyCta.length;
         const bskyBlurb = socialCashtags(trimToSentence(rawBlurb, bskyAvail), brief);
         const bskyText = `${phaseTag}${bskyBlurb}\n\n${bskyCta}`;
-        const linkStart = bskyText.indexOf(dashUrl);
+        const linkStart = bskyText.indexOf(target);
 
-        const xCta = `Full tape + scanners → https://${dashUrl}`;
-        const xAvail = 280 - phaseTag.length - 2 - xCta.length;
+        /* X: NO attached media. A tweet carrying an image suppresses the link
+           card entirely, so uploading the picture is what stops the post from
+           unfurling into something clickable. Substack serves the cover as the
+           post's og:image with a large-image card, so posting the bare link
+           renders the same picture — and clicking it opens the briefing. */
+        const xCta = target;
+        const xAvail = 280 - phaseTag.length - 2 - 23;
         const xBlurb = socialCashtags(trimToSentence(rawBlurb, xAvail), brief, 1);
         const xText = `${phaseTag}${xBlurb}\n\n${xCta}`;
 
         const results = await Promise.allSettled([
-          postToBluesky(bskyText, [{
-            start: linkStart,
-            end: linkStart + dashUrl.length,
-            url: `https://${dashUrl}`,
-          }], imagePayload),
-          postToX(xText, screenshotBuf ? { data: screenshotBuf } : undefined),
+          postToBluesky(
+            bskyText,
+            [{ start: linkStart, end: linkStart + target.length, url: target }],
+            imagePayload,
+            substackUrl
+              ? {
+                  uri: substackUrl,
+                  title: `CTT ${PHASE_LABELS[phase]} Briefing`,
+                  description: trimToSentence(rawBlurb, 180),
+                }
+              : undefined,
+          ),
+          postToX(xText),
         ]);
 
         socialDebug.bskyStatus = results[0].status;

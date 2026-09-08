@@ -743,7 +743,31 @@ export async function GET(req: Request) {
   let dashScreenshotCdn: string | undefined;
   let coverImageUrl: string | undefined;
   let coverDebug = '';
-  try {
+
+  /* Generated cover first. The analyst routine produces one per run and puts
+     its URL on the brief; it becomes the post's cover and social image, which
+     is what X and Bluesky unfurl into a link card. The tape screenshot below
+     stays as the fallback for any brief written before this existed, or when
+     generation failed. */
+  if (brief?.coverImageUrl) {
+    try {
+      const r = await fetch(String(brief.coverImageUrl), { cache: 'no-store' });
+      const ct = (r.headers.get('content-type') || '').split(';')[0];
+      if (r.ok && ct.startsWith('image/')) {
+        const buf = Buffer.from(await r.arrayBuffer());
+        const cdn = await uploadImageToSubstack(pubUrl, session, `data:${ct};base64,${buf.toString('base64')}`);
+        if (cdn) {
+          coverImageUrl = cdn;
+          dashScreenshotCdn = cdn;
+          coverDebug = `generated cover: ${cdn}`;
+        }
+      }
+    } catch (e: any) {
+      coverDebug = `generated cover failed: ${e.message || String(e)}`;
+    }
+  }
+
+  if (!coverImageUrl) try {
     // Same tape-reading capture the briefing route posts to Bluesky/X: the
     // #tape-<phase> session block on /analyst, not a full-dashboard clip.
     // Falls back to the latest populated sessionUpdates phase (same resolution

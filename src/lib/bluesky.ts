@@ -57,6 +57,16 @@ export async function postToBluesky(
   text: string,
   links: LinkFacet[] = [],
   image?: { data: Buffer | Uint8Array; alt: string; mimeType?: string },
+  /* A link card. An image embed opens the image; only an external embed makes
+     the whole card click through to a URL, which is the difference between a
+     post people look at and one that sends them somewhere. When both are
+     given the card wins, and the image becomes its thumbnail. */
+  external?: {
+    uri: string;
+    title: string;
+    description?: string;
+    thumb?: { data: Buffer | Uint8Array; mimeType?: string };
+  },
 ): Promise<{ uri: string; cid: string } | null> {
   const handle = process.env.BLUESKY_HANDLE;
   const password = process.env.BLUESKY_APP_PASSWORD;
@@ -74,7 +84,19 @@ export async function postToBluesky(
     record.facets = buildFacets(text, links);
   }
 
-  if (image) {
+  if (external?.uri) {
+    const thumbSrc = external.thumb ?? (image ? { data: image.data, mimeType: image.mimeType } : null);
+    const thumb = thumbSrc ? await uploadBlob(session, thumbSrc.data, thumbSrc.mimeType) : undefined;
+    record.embed = {
+      $type: 'app.bsky.embed.external',
+      external: {
+        uri: external.uri,
+        title: external.title,
+        description: external.description || '',
+        ...(thumb ? { thumb } : {}),
+      },
+    };
+  } else if (image) {
     const blob = await uploadBlob(session, image.data, image.mimeType);
     record.embed = {
       $type: 'app.bsky.embed.images',
