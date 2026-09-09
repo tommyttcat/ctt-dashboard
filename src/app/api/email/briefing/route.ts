@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { kv } from '@vercel/kv';
+import { posterForSocial } from '@/lib/socialCover';
 import {
   type ChopMode,
   CHOP_BANDS as CHOP_MODE_BANDS,
@@ -1561,7 +1562,14 @@ export async function GET(req: Request) {
        briefing that had just gone out. */
     let substackUrl: string | null = null;
     try {
-      const subRes = await fetch(`${origin}/api/email/substack?publish=1&phase=${phase}`, {
+      /* `force` propagates. Without it the Substack route's own NX lock stops
+         a republish that this route was explicitly forced into, and the only
+         symptom is `url: null` here — which silently downgrades both social
+         posts to linking the dashboard home page instead of the briefing that
+         just went out. Forcing the send and not the publish is never what the
+         caller meant, and the alternative was hand-deleting the sent key out
+         of KV before every republish. */
+      const subRes = await fetch(`${origin}/api/email/substack?publish=1&phase=${phase}${force ? '&force=1' : ''}`, {
         headers: cronSecret ? { Authorization: `Bearer ${cronSecret}` } : {},
       });
       const subJson: any = await subRes.json().catch(() => null);
@@ -1589,23 +1597,19 @@ export async function GET(req: Request) {
         const dashUrl = 'confluencetradingtools.com';
         const phaseTag = `${PHASE_LABELS[phase]}: `;
 
-        let screenshotBuf: Buffer | null = null;
-        try {
-          const tapePageUrl = `${origin}/api/og/tape?phase=${phase}`;
-          const ssUrl = `${origin}/api/og/screenshot?force=1&url=${encodeURIComponent(tapePageUrl)}&w=800&h=1200&selector=${encodeURIComponent('#tape-card')}&minText=80`;
-          const ssRes = await fetch(ssUrl);
-          if (ssRes.ok && ssRes.headers.get('content-type')?.includes('image')) {
-            screenshotBuf = Buffer.from(await ssRes.arrayBuffer());
-            socialDebug.screenshotBytes = screenshotBuf.length;
-          } else {
-            socialDebug.screenshotError = `status ${ssRes.status}`;
-          }
-        } catch (ssErr: any) {
-          socialDebug.screenshotError = ssErr?.message || String(ssErr);
-        }
+        /* The picture is the generated poster, never the tape screenshot. A
+           screenshot of the session block is a wall of tickers and levels
+           shrunk to thumbnail size — unreadable in a feed, and meaningless to
+           anyone who has not already opened the dashboard, which is everyone
+           this post is trying to reach. The poster carries one legible claim
+           and the logo. If there is no poster, the post goes out with no
+           picture at all rather than falling back to the screenshot. */
+        const cover = await posterForSocial((brief as any)?.coverImageUrl);
+        socialDebug.coverBytes = cover?.data.length ?? 0;
+        if (!cover) socialDebug.coverMissing = true;
 
-        const imagePayload = screenshotBuf
-          ? { data: screenshotBuf, alt: `CTT ${PHASE_LABELS[phase]} Tape Reading`, mimeType: 'image/png' }
+        const imagePayload = cover
+          ? { data: cover.data, alt: `CTT ${PHASE_LABELS[phase]} Briefing`, mimeType: cover.mimeType }
           : undefined;
 
         /* The destination is the Substack post when there is one, so the
@@ -1644,6 +1648,7 @@ export async function GET(req: Request) {
                   uri: substackUrl,
                   title: `CTT ${PHASE_LABELS[phase]} Briefing`,
                   description: trimToSentence(rawBlurb, 180),
+                  thumb: cover ? { data: cover.data, mimeType: cover.mimeType } : undefined,
                 }
               : undefined,
           ),
@@ -1758,10 +1763,15 @@ export async function GET(req: Request) {
       }
     }
 
+    /* Report the ids, not the word 'posted'. postToX resolves to
+       `{ id: data.data?.id }`, which is a truthy object even when the id is
+       absent, so a truthiness check reported a successful post for a response
+       that carried no tweet. The id is the only thing that proves one exists. */
     return NextResponse.json({
       success: true, phase, sent, failed, recipients: recipients.length,
-      bluesky: bskyResult ? 'posted' : 'skipped',
-      x: xResult ? 'posted' : 'skipped',
+      bluesky: bskyResult?.uri ?? null,
+      x: xResult?.id ?? null,
+      substackUrl,
       calledIt: calledItResult,
       socialDebug,
     });

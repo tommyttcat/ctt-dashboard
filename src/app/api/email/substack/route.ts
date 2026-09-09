@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
+import { stampLogo, fetchImageBytes, socialImage } from '@/lib/socialCover';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -139,44 +140,6 @@ function captionedImage(src: string, size = 'normal'): any {
   };
 }
 
-/* The mark goes on here, not in the prompt. An image model cannot reproduce a
-   specific logo — it draws something close and subtly wrong every time — so the
-   real file is composited over the generated cover instead. Sized to a fifteenth
-   of the frame in the lower right, which is where the generator is told to leave
-   the corner empty. Returns the original bytes untouched if anything fails; a
-   cover without a mark still beats no cover. */
-async function stampLogo(image: Buffer): Promise<Buffer> {
-  try {
-    const sharp = (await import('sharp')).default;
-    const fs = await import('node:fs/promises');
-    const path = await import('node:path');
-    const logoPath = path.join(process.cwd(), 'public', 'logo-mark.png');
-    const logo = await fs.readFile(logoPath).catch(() => null);
-    if (!logo) return image;
-
-    const meta = await sharp(image).metadata();
-    const W = meta.width ?? 0;
-    const H = meta.height ?? 0;
-    if (!W || !H) return image;
-
-    const targetH = Math.round(H * 0.075);
-    const mark = await sharp(logo).resize({ height: targetH }).png().toBuffer();
-    const markMeta = await sharp(mark).metadata();
-    const margin = Math.round(H * 0.045);
-
-    return await sharp(image)
-      .composite([{
-        input: mark,
-        left: W - (markMeta.width ?? targetH) - margin,
-        top: H - targetH - margin,
-      }])
-      .png()
-      .toBuffer();
-  } catch {
-    return image;
-  }
-}
-
 async function uploadImageToSubstack(
   pubUrl: string,
   session: string,
@@ -203,9 +166,10 @@ async function uploadImageBytesToSubstack(
   session: string,
   imageBuffer: ArrayBuffer,
   filename = 'screenshot.png',
+  mimeType = 'image/png',
 ): Promise<string | null> {
   const boundary = '----SubstackUpload' + Date.now();
-  const header = `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="${filename}"\r\nContent-Type: image/png\r\n\r\n`;
+  const header = `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="${filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`;
   const footer = `\r\n--${boundary}--\r\n`;
 
   const headerBytes = new TextEncoder().encode(header);
@@ -789,18 +753,27 @@ export async function GET(req: Request) {
      generation failed. */
   if (brief?.coverImageUrl) {
     try {
-      const r = await fetch(String(brief.coverImageUrl), { cache: 'no-store' });
-      const ct = (r.headers.get('content-type') || '').split(';')[0];
-      if (r.ok && ct.startsWith('image/')) {
-        const raw = Buffer.from(await r.arrayBuffer());
-        const buf = await stampLogo(raw);
-        const cdn = await uploadImageToSubstack(pubUrl, session, `data:image/png;base64,${buf.toString('base64')}`);
-        if (cdn) {
-          coverImageUrl = cdn;
-          dashScreenshotCdn = cdn;
-          coverDebug = `generated cover: ${cdn}`;
-        }
-      }
+      const raw = await fetchImageBytes(String(brief.coverImageUrl));
+      if (!raw) throw new Error('cover url returned no image');
+      /* Downscale BEFORE the data URI, which is the whole fix. Substack's
+         /api/v1/image takes the image as a urlencoded `image=` field, so the
+         payload is ~1.4x the file; the raw 2752px cover is 4-7 MB and became a
+         ~9 MB field that Substack answered with a 400, which the catch below
+         turned into a silently cover-less post. At 1600px JPEG the poster is
+         under 100 KB. (The multipart uploader below is not the answer here —
+         that endpoint rejects a file part outright.) */
+      const img = await socialImage(await stampLogo(raw));
+      if (!img) throw new Error('cover downscale returned nothing');
+      const bytes = Buffer.from(img.data);
+      const cdn = await uploadImageToSubstack(
+        pubUrl,
+        session,
+        `data:${img.mimeType};base64,${bytes.toString('base64')}`,
+      );
+      if (!cdn) throw new Error('substack upload returned no url');
+      coverImageUrl = cdn;
+      dashScreenshotCdn = cdn;
+      coverDebug = `generated cover: ${cdn} (${bytes.length} bytes, ${img.mimeType})`;
     } catch (e: any) {
       coverDebug = `generated cover failed: ${e.message || String(e)}`;
     }
@@ -831,9 +804,9 @@ export async function GET(req: Request) {
       dashScreenshotCdn = cdnUrl;
       coverImageUrl = cdnUrl;
     }
-    coverDebug = cdnUrl ? `ok: ${cdnUrl}` : 'upload returned null';
+    coverDebug = [coverDebug, cdnUrl ? `tape fallback ok: ${cdnUrl}` : 'tape fallback upload returned null'].filter(Boolean).join(' | ');
   } catch (e: any) {
-    coverDebug = `error: ${e.message || String(e)}`;
+    coverDebug = [coverDebug, `tape fallback error: ${e.message || String(e)}`].filter(Boolean).join(' | ');
   }
 
   const bodyJson = formatForSubstack(brief, dashScreenshotCdn, phase);
@@ -860,8 +833,14 @@ export async function GET(req: Request) {
         error: pub.error,
       }, { status: 502 });
     }
+    /* `url` is what the caller came for. /api/email/briefing reads it to point
+       the X and Bluesky posts at the briefing that just went out; without it
+       that read is `undefined`, the posts silently fall back to linking the
+       dashboard home page, and nothing anywhere reports an error. The value
+       was already computed in substackPublish and simply never returned. */
     return NextResponse.json({
       success: true,
+      url: pub.url ?? null,
       draftId: draft.id,
       published: true,
       sent: send,
