@@ -1499,12 +1499,13 @@ export async function GET(req: Request) {
 
       /* Same copy the real path builds, so a repost is not a different post. */
       const target = overrideLink || `https://${dashUrl}`;
-      const bskyCta = overrideLink ? `Read the briefing → ${target}` : `Full tape + scanners → ${target}`;
-      const bskyAvail = 300 - phaseTag.length - 2 - bskyCta.length;
+      const hasCard = !!overrideLink;
+      const bskyCta = hasCard ? '' : `Full tape + scanners → ${target}`;
+      const bskyAvail = 300 - phaseTag.length - (hasCard ? 0 : 2 + bskyCta.length);
       const bskyBlurb = blurbIsPlainRead
         ? trimToSentence(rawBlurb, bskyAvail)
         : socialCashtags(trimToSentence(rawBlurb, bskyAvail), brief);
-      const bskyText = `${phaseTag}${bskyBlurb}\n\n${bskyCta}`;
+      const bskyText = hasCard ? `${phaseTag}${bskyBlurb}` : `${phaseTag}${bskyBlurb}\n\n${bskyCta}`;
       const linkStart = bskyText.indexOf(target);
 
       const xAvail = 280 - phaseTag.length - 2 - 23;
@@ -1519,7 +1520,7 @@ export async function GET(req: Request) {
       if (only !== 'x') try {
         const bsky = await postToBluesky(
           bskyText,
-          [{ start: linkStart, end: linkStart + target.length, url: target }],
+          linkStart >= 0 ? [{ start: linkStart, end: linkStart + target.length, url: target }] : [],
           imagePayload,
           overrideLink
             ? { uri: target, title: `CTT ${PHASE_LABELS[phase]} Briefing`, description: trimToSentence(rawBlurb, 180),
@@ -1627,12 +1628,19 @@ export async function GET(req: Request) {
         const target = substackUrl || `https://${dashUrl}`;
         const targetLabel = substackUrl ? 'Read the briefing' : 'Full tape + scanners';
 
-        const bskyCta = `${targetLabel} → ${target}`;
-        const bskyAvail = 300 - phaseTag.length - 2 - bskyCta.length;
+        /* With a link card the URL in the text is dead weight. Spelling out a
+           ~105-character Substack URL inside a 300-character limit was costing
+           the last sentence of `socialTake` — the one that gives someone a
+           reason to click — while the card above it already clicks through.
+           Dropped when there is a card; kept when there is not, since then the
+           text is the only way out of the post. */
+        const hasCard = !!substackUrl;
+        const bskyCta = hasCard ? '' : `${targetLabel} → ${target}`;
+        const bskyAvail = 300 - phaseTag.length - (hasCard ? 0 : 2 + bskyCta.length);
         const bskyBlurb = blurbIsPlainRead
           ? trimToSentence(rawBlurb, bskyAvail)
           : socialCashtags(trimToSentence(rawBlurb, bskyAvail), brief);
-        const bskyText = `${phaseTag}${bskyBlurb}\n\n${bskyCta}`;
+        const bskyText = hasCard ? `${phaseTag}${bskyBlurb}` : `${phaseTag}${bskyBlurb}\n\n${bskyCta}`;
         const linkStart = bskyText.indexOf(target);
 
         /* X carries the poster as attached media. X suppresses link previews
@@ -1652,7 +1660,7 @@ export async function GET(req: Request) {
         const results = await Promise.allSettled([
           postToBluesky(
             bskyText,
-            [{ start: linkStart, end: linkStart + target.length, url: target }],
+            linkStart >= 0 ? [{ start: linkStart, end: linkStart + target.length, url: target }] : [],
             imagePayload,
             substackUrl
               ? {
