@@ -1480,25 +1480,15 @@ export async function GET(req: Request) {
       phase,
     };
 
-    let screenshotBuf: Buffer | null = null;
-    try {
-      const tapePageUrl = `${origin}/api/og/tape?phase=${phase}`;
-      const ssUrl = `${origin}/api/og/screenshot?force=1&url=${encodeURIComponent(tapePageUrl)}&w=800&h=1200&selector=${encodeURIComponent('#tape-card')}&minText=80`;
-      const ssRes = await fetch(ssUrl);
-      if (ssRes.ok && ssRes.headers.get('content-type')?.includes('image')) {
-        screenshotBuf = Buffer.from(await ssRes.arrayBuffer());
-        debug.screenshotBytes = screenshotBuf.length;
-      } else {
-        const errBody = await ssRes.text().catch(() => '');
-        debug.screenshotError = `status ${ssRes.status}: ${errBody.slice(0, 200)}`;
-      }
-    } catch (ssErr: any) {
-      debug.screenshotError = ssErr?.message || String(ssErr);
-    }
+    /* Same picture the real path posts: the generated poster, never the tape
+       screenshot. This debug branch kept its own copy of the social logic and
+       so kept posting the screenshot after the real path stopped. */
+    const cover = await posterForSocial((brief as any)?.coverImageUrl);
+    debug.coverBytes = cover?.data.length ?? 0;
 
     if (rawBlurb) {
-      const imagePayload = screenshotBuf
-        ? { data: screenshotBuf, alt: `CTT ${PHASE_LABELS[phase]} Tape Reading`, mimeType: 'image/png' }
+      const imagePayload = cover
+        ? { data: cover.data, alt: `CTT ${PHASE_LABELS[phase]} Briefing`, mimeType: cover.mimeType }
         : undefined;
 
       const bskyCta = `Full tape + scanners → ${dashUrl}`;
@@ -1521,7 +1511,7 @@ export async function GET(req: Request) {
       } catch (e: any) { debug.bskyError = e.message; }
 
       try {
-        const x = await postToX(xText, screenshotBuf ? { data: screenshotBuf } : undefined);
+        const x = await postToX(xText, cover ? { data: cover.data } : undefined);
         debug.xResult = x ?? 'returned null (env vars missing?)';
       } catch (e: any) { debug.xError = e.message; }
 
@@ -1626,11 +1616,17 @@ export async function GET(req: Request) {
         const bskyText = `${phaseTag}${bskyBlurb}\n\n${bskyCta}`;
         const linkStart = bskyText.indexOf(target);
 
-        /* X: NO attached media. A tweet carrying an image suppresses the link
-           card entirely, so uploading the picture is what stops the post from
-           unfurling into something clickable. Substack serves the cover as the
-           post's og:image with a large-image card, so posting the bare link
-           renders the same picture — and clicking it opens the briefing. */
+        /* X: attach the poster. The rule here used to be the opposite — no
+           media, because media suppresses the link card and the card was how
+           the picture got shown. That reasoning only holds while a card is
+           possible, and for a Substack link on X it is not: X has suppressed
+           previews on substack.com links since 2023. Checked on this post —
+           Substack serves twitter:card=summary_large_image plus a
+           twitter:image and X rendered a bare blue link anyway, while the same
+           account unfurled a full card for confluencetradingtools.com, which
+           carries no twitter: tags at all. So there is no card to protect and
+           attaching the image costs nothing. The Substack link stays in the
+           text as the way through to the briefing. */
         const xCta = target;
         const xAvail = 280 - phaseTag.length - 2 - 23;
         const xBlurb = blurbIsPlainRead
@@ -1652,7 +1648,7 @@ export async function GET(req: Request) {
                 }
               : undefined,
           ),
-          postToX(xText),
+          postToX(xText, cover ? { data: cover.data } : undefined),
         ]);
 
         socialDebug.bskyStatus = results[0].status;
