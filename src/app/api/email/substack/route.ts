@@ -732,11 +732,13 @@ export async function GET(req: Request) {
   let coverImageUrl: string | undefined;
   let coverDebug = '';
 
-  /* Generated cover first. The analyst routine produces one per run and puts
-     its URL on the brief; it becomes the post's cover and social image, which
-     is what X and Bluesky unfurl into a link card. The tape screenshot below
-     stays as the fallback for any brief written before this existed, or when
-     generation failed. */
+  /* Two images, two jobs. The poster is the cover and the social image: one
+     legible claim that survives being 200px wide in a feed, which is what earns
+     the click. The tape screenshot below is the first image in the body, where
+     it renders full width for someone who has already arrived — the substance
+     the poster promised. Putting the poster in both places wasted the body slot
+     on a picture the reader had just clicked. The tape also still covers for a
+     failed or missing poster. */
   if (brief?.coverImageUrl) {
     try {
       const raw = await fetchImageBytes(String(brief.coverImageUrl));
@@ -758,16 +760,14 @@ export async function GET(req: Request) {
       );
       if (!cdn) throw new Error('substack upload returned no url');
       coverImageUrl = cdn;
-      dashScreenshotCdn = cdn;
       coverDebug = `generated cover: ${cdn} (${bytes.length} bytes, ${img.mimeType})`;
     } catch (e: any) {
       coverDebug = `generated cover failed: ${e.message || String(e)}`;
     }
   }
 
-  if (!coverImageUrl) try {
-    // Same tape-reading capture the briefing route posts to Bluesky/X: the
-    // #tape-<phase> session block on /analyst, not a full-dashboard clip.
+  try {
+    // The #tape-<phase> session block on /analyst, not a full-dashboard clip.
     // Falls back to the latest populated sessionUpdates phase (same resolution
     // order the briefing route uses) when no phase param is passed.
     const su = brief?.sessionUpdates || {};
@@ -788,11 +788,12 @@ export async function GET(req: Request) {
     const cdnUrl = await uploadImageToSubstack(pubUrl, session, dataUri);
     if (cdnUrl) {
       dashScreenshotCdn = cdnUrl;
-      coverImageUrl = cdnUrl;
+      /* Only stands in as the cover when the poster is absent. */
+      if (!coverImageUrl) coverImageUrl = cdnUrl;
     }
-    coverDebug = [coverDebug, cdnUrl ? `tape fallback ok: ${cdnUrl}` : 'tape fallback upload returned null'].filter(Boolean).join(' | ');
+    coverDebug = [coverDebug, cdnUrl ? `tape body image: ${cdnUrl}` : 'tape upload returned null'].filter(Boolean).join(' | ');
   } catch (e: any) {
-    coverDebug = [coverDebug, `tape fallback error: ${e.message || String(e)}`].filter(Boolean).join(' | ');
+    coverDebug = [coverDebug, `tape error: ${e.message || String(e)}`].filter(Boolean).join(' | ');
   }
 
   const bodyJson = formatForSubstack(brief, dashScreenshotCdn, phase);
