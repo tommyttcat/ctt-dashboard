@@ -1511,7 +1511,7 @@ export async function GET(req: Request) {
       } catch (e: any) { debug.bskyError = e.message; }
 
       try {
-        const x = await postToX(xText, cover ? { data: cover.data } : undefined);
+        const x = await postToX(xText);
         debug.xResult = x ?? 'returned null (env vars missing?)';
       } catch (e: any) { debug.xError = e.message; }
 
@@ -1616,17 +1616,15 @@ export async function GET(req: Request) {
         const bskyText = `${phaseTag}${bskyBlurb}\n\n${bskyCta}`;
         const linkStart = bskyText.indexOf(target);
 
-        /* X: attach the poster. The rule here used to be the opposite — no
-           media, because media suppresses the link card and the card was how
-           the picture got shown. That reasoning only holds while a card is
-           possible, and for a Substack link on X it is not: X has suppressed
-           previews on substack.com links since 2023. Checked on this post —
-           Substack serves twitter:card=summary_large_image plus a
-           twitter:image and X rendered a bare blue link anyway, while the same
-           account unfurled a full card for confluencetradingtools.com, which
-           carries no twitter: tags at all. So there is no card to protect and
-           attaching the image costs nothing. The Substack link stays in the
-           text as the way through to the briefing. */
+        /* X: no attached media, and not by choice. These credentials are on
+           X's Free tier, which allows POST /2/tweets and essentially nothing
+           else — the v1.1 and v2 media upload endpoints both refuse them
+           (400 code 215 / 401), as does GET /2/users/me, while posting a
+           tweet with the same signer succeeds. Uploading would throw and take
+           the whole tweet with it. X also suppresses link previews on
+           substack.com links, so the post is text plus a bare link until
+           either the plan changes or the link points at a domain X will
+           unfurl. */
         const xCta = target;
         const xAvail = 280 - phaseTag.length - 2 - 23;
         const xBlurb = blurbIsPlainRead
@@ -1648,7 +1646,7 @@ export async function GET(req: Request) {
                 }
               : undefined,
           ),
-          postToX(xText, cover ? { data: cover.data } : undefined),
+          postToX(xText),
         ]);
 
         socialDebug.bskyStatus = results[0].status;
