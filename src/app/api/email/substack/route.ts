@@ -80,34 +80,23 @@ function bulletList(items: string[]): any {
   };
 }
 
+/* The Leading/Lagging lines are chart input, not prose. The briefing page
+   regex-parses them to draw the sector bars and strips them before rendering;
+   Substack has no chart, so they are simply removed. They were previously the
+   first two "sentences" of the sector analysis, which meant the bullet
+   extractor published the raw chart inputs and clipped the actual writing. */
+function stripChartLines(raw: string): string {
+  return String(raw || '')
+    .split('\n')
+    .filter((line) => !/^\s*\*\*(Leading|Lagging)/i.test(line))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function analysisToNodes(raw: string): any[] {
   if (!raw) return [];
   return String(raw).split(/\n\n+/).filter(Boolean).map(p => paraText(p));
-}
-
-function trimAnalysis(raw: string, maxSentences = 2, maxChars = 280): string {
-  if (!raw) return '';
-  const sentences = String(raw).split(/(?<=[.!])\s+/).filter(Boolean);
-  let result = '';
-  for (let i = 0; i < Math.min(sentences.length, maxSentences); i++) {
-    const next = result ? result + ' ' + sentences[i] : sentences[i];
-    if (next.length > maxChars) break;
-    result = next;
-  }
-  if (!result && sentences[0]) {
-    result = sentences[0].length > maxChars
-      ? sentences[0].slice(0, maxChars - 3) + '...'
-      : sentences[0];
-  }
-  return result;
-}
-
-function extractBullets(raw: string, maxBullets = 3, maxLen = 140): string[] {
-  if (!raw) return [];
-  const sentences = String(raw).split(/(?<=[.!])\s+/).filter(Boolean);
-  return sentences.slice(0, maxBullets).map(s =>
-    s.length > maxLen ? s.slice(0, maxLen - 3) + '...' : s
-  );
 }
 
 function stockTableMarkdown(stocks: any[], cols: { key: string; label: string; fmt?: (v: any) => string }[]): any[] {
@@ -214,11 +203,9 @@ function formatForSubstack(brief: any, dashScreenshotUrl?: string, phase?: strin
 
   /* ── Regime: the lead ── */
   if (rd.regime) {
-    nodes.push(blockquote([paraText(trimAnalysis(rd.regime, 1, 200))]));
-    if (rd.posture) {
-      const bullets = extractBullets(rd.posture);
-      if (bullets.length) nodes.push(bulletList(bullets));
-    }
+    nodes.push(blockquote([paraText(rd.regime)]));
+    if (rd.caution) nodes.push(...analysisToNodes(rd.caution));
+    if (rd.posture) nodes.push(...analysisToNodes(rd.posture));
     nodes.push(hr());
   }
 
@@ -226,9 +213,7 @@ function formatForSubstack(brief: any, dashScreenshotUrl?: string, phase?: strin
   const macroSec = sectionByName(/Futures.*Macro|Macro.*Snapshot/i);
   if (macroSec?.analysis) {
     nodes.push(heading(2, 'Macro'));
-    const bullets = extractBullets(macroSec.analysis);
-    if (bullets.length) nodes.push(bulletList(bullets));
-    else nodes.push(paraText(trimAnalysis(macroSec.analysis, 1, 200)));
+    nodes.push(...analysisToNodes(stripChartLines(macroSec.analysis)));
     nodes.push(hr());
   }
 
@@ -236,9 +221,7 @@ function formatForSubstack(brief: any, dashScreenshotUrl?: string, phase?: strin
   const newsSec = sectionByName(/Key News/i);
   if (newsSec?.analysis) {
     nodes.push(heading(2, 'News & Catalysts'));
-    const bullets = extractBullets(newsSec.analysis);
-    if (bullets.length) nodes.push(bulletList(bullets));
-    else nodes.push(paraText(trimAnalysis(newsSec.analysis, 1, 200)));
+    nodes.push(...analysisToNodes(stripChartLines(newsSec.analysis)));
     nodes.push(hr());
   }
 
@@ -246,9 +229,7 @@ function formatForSubstack(brief: any, dashScreenshotUrl?: string, phase?: strin
   const sentimentSec = sectionByName(/Sentiment.*Breadth/i);
   if (sentimentSec?.analysis) {
     nodes.push(heading(2, 'Breadth'));
-    const bullets = extractBullets(sentimentSec.analysis);
-    if (bullets.length) nodes.push(bulletList(bullets));
-    else nodes.push(paraText(trimAnalysis(sentimentSec.analysis, 1, 200)));
+    nodes.push(...analysisToNodes(stripChartLines(sentimentSec.analysis)));
     nodes.push(hr());
   }
 
@@ -256,9 +237,7 @@ function formatForSubstack(brief: any, dashScreenshotUrl?: string, phase?: strin
   const sectorSec = sectionByName(/Sectors.*Money Flow/i);
   if (sectorSec?.analysis) {
     nodes.push(heading(2, 'Sectors'));
-    const bullets = extractBullets(sectorSec.analysis);
-    if (bullets.length) nodes.push(bulletList(bullets));
-    else nodes.push(paraText(trimAnalysis(sectorSec.analysis, 1, 200)));
+    nodes.push(...analysisToNodes(stripChartLines(sectorSec.analysis)));
     nodes.push(hr());
   }
 
@@ -267,10 +246,8 @@ function formatForSubstack(brief: any, dashScreenshotUrl?: string, phase?: strin
   const earnSec = sectionByName(/^Earnings$/i);
   if (econSec?.analysis || earnSec?.analysis) {
     nodes.push(heading(2, 'Calendar'));
-    const calBullets: string[] = [];
-    if (econSec?.analysis) calBullets.push(trimAnalysis(econSec.analysis, 1, 140));
-    if (earnSec?.analysis) calBullets.push(trimAnalysis(earnSec.analysis, 1, 140));
-    if (calBullets.length) nodes.push(bulletList(calBullets));
+    if (econSec?.analysis) nodes.push(...analysisToNodes(econSec.analysis));
+    if (earnSec?.analysis) nodes.push(...analysisToNodes(earnSec.analysis));
     nodes.push(hr());
   }
 
@@ -280,7 +257,7 @@ function formatForSubstack(brief: any, dashScreenshotUrl?: string, phase?: strin
   if (avoids.length) {
     nodes.push(heading(2, 'Stay Away'));
     avoids.forEach((s: any) => {
-      const reason = s.reason ? trimAnalysis(s.reason, 1) : '';
+      const reason = String(s.reason || '').trim();
       nodes.push(paraText(`**${s.ticker}** ${fmtPct(s.changePct ?? 0)} — ${reason}`));
     });
     nodes.push(hr());
