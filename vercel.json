@@ -103,6 +103,14 @@
     {
       "path": "/api/analyst/ledger/write",
       "schedule": "50 21 * * 1-5"
+    },
+    {
+      "path": "/api/social/scorecard?slot=open",
+      "schedule": "0 14 * * 1-5"
+    },
+    {
+      "path": "/api/social/scorecard?slot=power",
+      "schedule": "50 17 * * 1-5"
     }
   ]
 }

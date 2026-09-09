@@ -1096,7 +1096,11 @@ export default function MacroScorecard() {
   ].filter(Boolean).join('\n');
 
   return (
-    <div className="bg-[#101623] border-0 md:border md:border-white/10 md:rounded-2xl p-2 md:p-8 relative overflow-hidden md:shadow-xl">
+    /* id is the capture hook for /api/social/scorecard, which screenshots this
+       card for the daily X and Bluesky posts. The dashboard is behind login, so
+       the screenshot service reaches it with the _ss=CRON_SECRET escape the
+       middleware honours — same route the Daily Setups cover uses. */
+    <div id="macro-scorecard-card" className="bg-[#101623] border-0 md:border md:border-white/10 md:rounded-2xl p-2 md:p-8 relative overflow-hidden md:shadow-xl">
 
       <div className="absolute right-0 top-0 w-64 h-64 bg-indigo-500/5 blur-3xl rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
 
