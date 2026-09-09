@@ -1456,6 +1456,12 @@ export async function GET(req: Request) {
   }
 
   if (url.searchParams.get('testSocial') === '1') {
+    /* `only` and `link` exist for recovery: when one network posts wrongly, a
+       repost there should not mean republishing Substack to its subscribers
+       and duplicating the post that came out right. `only=x|bsky` picks the
+       network; `link` supplies an already-published URL to point at. */
+    const only = url.searchParams.get('only');
+    const overrideLink = url.searchParams.get('link');
     const su = brief?.sessionUpdates || {};
     const block = ['closing', 'power', 'midday', 'morning', 'pre'].reduce((latest: any, k) => latest || su[k], null);
     const takeaway = block?.takeaway || '';
@@ -1491,28 +1497,41 @@ export async function GET(req: Request) {
         ? { data: cover.data, alt: `CTT ${PHASE_LABELS[phase]} Briefing`, mimeType: cover.mimeType }
         : undefined;
 
-      const bskyCta = `Full tape + scanners → ${dashUrl}`;
+      /* Same copy the real path builds, so a repost is not a different post. */
+      const target = overrideLink || `https://${dashUrl}`;
+      const bskyCta = overrideLink ? `Read the briefing → ${target}` : `Full tape + scanners → ${target}`;
       const bskyAvail = 300 - phaseTag.length - 2 - bskyCta.length;
-      const bskyBlurb = socialCashtags(trimToSentence(rawBlurb, bskyAvail), brief);
+      const bskyBlurb = blurbIsPlainRead
+        ? trimToSentence(rawBlurb, bskyAvail)
+        : socialCashtags(trimToSentence(rawBlurb, bskyAvail), brief);
       const bskyText = `${phaseTag}${bskyBlurb}\n\n${bskyCta}`;
-      const linkStart = bskyText.indexOf(dashUrl);
+      const linkStart = bskyText.indexOf(target);
 
-      const xCta = `Full tape + scanners → https://${dashUrl}`;
-      const xAvail = 280 - phaseTag.length - 2 - xCta.length;
-      const xBlurb = socialCashtags(trimToSentence(rawBlurb, xAvail), brief, 1);
-      const xText = `${phaseTag}${xBlurb}\n\n${xCta}`;
+      const xAvail = 280 - phaseTag.length - 2 - 23;
+      const xBlurb = blurbIsPlainRead
+        ? trimToSentence(rawBlurb, xAvail)
+        : socialCashtags(trimToSentence(rawBlurb, xAvail), brief, 1);
+      const xText = `${phaseTag}${xBlurb}\n\n${target}`;
 
       debug.bskyText = bskyText;
       debug.xText = xText;
 
-      try {
-        const bsky = await postToBluesky(bskyText, [{ start: linkStart, end: linkStart + dashUrl.length, url: `https://${dashUrl}` }], imagePayload);
-        debug.bskyResult = bsky ?? 'returned null (env vars missing?)';
+      if (only !== 'x') try {
+        const bsky = await postToBluesky(
+          bskyText,
+          [{ start: linkStart, end: linkStart + target.length, url: target }],
+          imagePayload,
+          overrideLink
+            ? { uri: target, title: `CTT ${PHASE_LABELS[phase]} Briefing`, description: trimToSentence(rawBlurb, 180),
+                thumb: cover ? { data: cover.data, mimeType: cover.mimeType } : undefined }
+            : undefined,
+        );
+        debug.bskyResult = bsky?.uri ?? 'returned null (env vars missing?)';
       } catch (e: any) { debug.bskyError = e.message; }
 
-      try {
-        const x = await postToX(xText);
-        debug.xResult = x ?? 'returned null (env vars missing?)';
+      if (only !== 'bsky') try {
+        const x = await postToX(xText, cover ? { data: cover.data } : undefined);
+        debug.xResult = x?.id ?? 'returned null (env vars missing?)';
       } catch (e: any) { debug.xError = e.message; }
 
     }
@@ -1616,15 +1635,13 @@ export async function GET(req: Request) {
         const bskyText = `${phaseTag}${bskyBlurb}\n\n${bskyCta}`;
         const linkStart = bskyText.indexOf(target);
 
-        /* X: no attached media, and not by choice. These credentials are on
-           X's Free tier, which allows POST /2/tweets and essentially nothing
-           else — the v1.1 and v2 media upload endpoints both refuse them
-           (400 code 215 / 401), as does GET /2/users/me, while posting a
-           tweet with the same signer succeeds. Uploading would throw and take
-           the whole tweet with it. X also suppresses link previews on
-           substack.com links, so the post is text plus a bare link until
-           either the plan changes or the link points at a domain X will
-           unfurl. */
+        /* X carries the poster as attached media. X suppresses link previews
+           on substack.com links — verified on this post: Substack serves
+           twitter:card=summary_large_image and a twitter:image and X still
+           rendered a bare blue link, while the same account unfurled a full
+           card for confluencetradingtools.com. So there is no link card to
+           suppress and attaching the image is the only way a picture reaches
+           the feed. The Substack link stays in the text as the way through. */
         const xCta = target;
         const xAvail = 280 - phaseTag.length - 2 - 23;
         const xBlurb = blurbIsPlainRead
@@ -1646,7 +1663,7 @@ export async function GET(req: Request) {
                 }
               : undefined,
           ),
-          postToX(xText),
+          postToX(xText, cover ? { data: cover.data } : undefined),
         ]);
 
         socialDebug.bskyStatus = results[0].status;
