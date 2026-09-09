@@ -370,7 +370,16 @@ function buildTitle(brief: any, phase?: string): string {
   return `CTT AI Analyst ${label} Briefing — ${dateStr}`;
 }
 
+/* The subtitle is the same line X and Bluesky carry: `socialTake`, written in
+   plain English for someone who has not opened the dashboard. It used to be the
+   session takeaway, which opens with a list of tickers and a flip level — the
+   reader arriving from a social post hit a data dump as the first thing under
+   the title. The takeaway remains the fallback for briefs written before
+   socialTake existed. */
 function buildSubtitle(brief: any): string {
+  const take = String(brief?.socialTake || '').replace(/\*\*/g, '').trim();
+  if (take.length > 10) return take.length > 200 ? take.slice(0, 197) + '...' : take;
+
   const su = brief?.sessionUpdates || {};
   const phases = ['closing', 'power', 'midday', 'morning', 'pre'];
   for (const p of phases) {
