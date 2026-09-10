@@ -17,6 +17,7 @@ import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 import { getMarketDay, previousTradingDay, isMarketSessionWindow } from '@/lib/marketCalendar';
+import { webullConfigured, webullSnapshot } from '@/lib/webull';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -367,27 +368,50 @@ export async function GET(request: Request) {
       }
     };
 
-    // 1. Tape quotes — live snapshot on weekdays; frozen data detection
+    // 1. Tape quotes — live snapshot on weekdays; frozen data detection.
+    // Webull's real-time Level 1 snapshot first (one call, the extended-hours
+    // print included), Polygon's 15-minute-delayed snapshot as the fallback.
     const quotes: Record<string, TapeQuote> = {};
     let snapshotUsable = false;
+    let tapeSource: 'webull' | 'polygon' | 'grouped_bars' | 'none' = 'none';
     if (!isNonSessionDay) {
-      try {
-        const snapshotUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${TAPE_TICKERS.join(',')}&apiKey=${polygonKey}`;
-        const snapRes = await fetch(snapshotUrl, { cache: 'no-store' });
-        const snapData = await snapRes.json();
-        for (const t of snapData?.tickers || []) {
-          const price = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || null;
-          let pct = typeof t.todaysChangePerc === 'number' ? t.todaysChangePerc : 0;
-          if ((!pct || pct === 0) && price && t.prevDay?.c) {
-            pct = ((price - t.prevDay.c) / t.prevDay.c) * 100;
+      const isExtendedNow = (currentHourDecimal >= 4 && currentHourDecimal < 9.5) || (currentHourDecimal >= 16 && currentHourDecimal < 20);
+      if (webullConfigured()) {
+        try {
+          const rows = await webullSnapshot(TAPE_TICKERS, 'US_STOCK', { extendedHours: isExtendedNow });
+          for (const r of rows) {
+            const base = r.preClose || r.open;
+            const price = isExtendedNow && r.extPrice != null && r.extPrice > 0 ? r.extPrice : r.price;
+            if (!(price > 0)) continue;
+            const pct = base > 0 ? ((price - base) / base) * 100 : 0;
+            quotes[r.symbol] = { ticker: r.symbol, pct: Number.isFinite(pct) ? pct : 0, price };
           }
-          quotes[t.ticker] = { ticker: t.ticker, pct: Number.isFinite(pct) ? pct : 0, price };
+          snapshotUsable = Object.values(quotes).some(q => q.pct !== 0);
+          if (snapshotUsable) tapeSource = 'webull';
+        } catch (e) {
+          console.error('Tape snapshot (Webull) failed:', (e as Error)?.message || e);
         }
-        // Snapshot counts as usable only if at least one print is nonzero —
-        // a fully-zeroed snapshot means Polygon has reset it (holiday, outage).
-        snapshotUsable = Object.values(quotes).some(q => q.pct !== 0);
-      } catch (e) {
-        console.error('Tape snapshot failed:', e);
+      }
+      if (!snapshotUsable) {
+        try {
+          const snapshotUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${TAPE_TICKERS.join(',')}&apiKey=${polygonKey}`;
+          const snapRes = await fetch(snapshotUrl, { cache: 'no-store' });
+          const snapData = await snapRes.json();
+          for (const t of snapData?.tickers || []) {
+            const price = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || null;
+            let pct = typeof t.todaysChangePerc === 'number' ? t.todaysChangePerc : 0;
+            if ((!pct || pct === 0) && price && t.prevDay?.c) {
+              pct = ((price - t.prevDay.c) / t.prevDay.c) * 100;
+            }
+            quotes[t.ticker] = { ticker: t.ticker, pct: Number.isFinite(pct) ? pct : 0, price };
+          }
+          // Snapshot counts as usable only if at least one print is nonzero —
+          // a fully-zeroed snapshot means Polygon has reset it (holiday, outage).
+          snapshotUsable = Object.values(quotes).some(q => q.pct !== 0);
+          if (snapshotUsable) tapeSource = 'polygon';
+        } catch (e) {
+          console.error('Tape snapshot failed:', e);
+        }
       }
     }
 
@@ -419,6 +443,7 @@ export async function GET(request: Request) {
               const prev = prevBars.get(sym);
               if (now && prev && prev.c > 0) {
                 quotes[sym] = { ticker: sym, pct: ((now.c - prev.c) / prev.c) * 100, price: now.c };
+                tapeSource = 'grouped_bars';
               }
             }
           }
@@ -473,6 +498,7 @@ export async function GET(request: Request) {
       closing,
       breadth,
       breadthSource,
+      tapeSource,
       generatedAt: new Date().toISOString(),
     };
 
