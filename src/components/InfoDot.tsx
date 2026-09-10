@@ -5,25 +5,35 @@ import { createPortal } from 'react-dom';
 
 const POPUP_W = 288; // w-72 = 18rem = 288px
 const EDGE = 8;
+const GAP = 6;      // distance between the dot and the panel
+const MAX_H = 520;  // tallest the panel gets before it scrolls
 
 export default function InfoDot({ text, content }: { text?: string; content?: React.ReactNode }) {
   const [show, setShow] = useState(false);
-  const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
+  const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number } | null>(null);
   const dotRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
     if (show && dotRef.current) {
       const rect = dotRef.current.getBoundingClientRect();
       const vw = window.innerWidth;
-      const above = rect.top > 180;
+      const vh = window.innerHeight;
+      /* Open on whichever side has more room and let the panel use that
+         room (capped), instead of a fixed 240px that clipped long tooltips
+         like TAPE DIR mid-row. overflow-y-auto stays as the last resort. */
+      const spaceAbove = rect.top - GAP - EDGE;
+      const spaceBelow = vh - rect.bottom - GAP - EDGE;
+      const above = spaceAbove > spaceBelow;
+      const maxHeight = Math.min(MAX_H, Math.max(120, above ? spaceAbove : spaceBelow));
       let left = rect.left + rect.width / 2 - POPUP_W / 2;
       if (left < EDGE) left = EDGE;
       if (left + POPUP_W > vw - EDGE) left = vw - EDGE - POPUP_W;
       setPos({
         left,
+        maxHeight,
         ...(above
-          ? { bottom: window.innerHeight - rect.top + 6 }
-          : { top: rect.bottom + 6 }),
+          ? { bottom: vh - rect.top + GAP }
+          : { top: rect.bottom + GAP }),
       });
     } else {
       setPos(null);
@@ -32,7 +42,7 @@ export default function InfoDot({ text, content }: { text?: string; content?: Re
 
   const popup = show && pos && createPortal(
     <span
-      className="fixed z-[9999] w-72 max-h-60 overflow-y-auto px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 normal-case tracking-normal font-normal whitespace-normal text-left"
+      className="fixed z-[9999] w-72 overflow-y-auto px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 normal-case tracking-normal font-normal whitespace-normal text-left"
       style={pos}
     >
       {content ?? (text ? text.split('\n').map((line, i, arr) => (
