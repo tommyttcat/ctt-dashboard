@@ -70,6 +70,9 @@ import {
   getMarketSession,
   tapeDirSetup,
   tapeDirSignal,
+  readCapitalFlow,
+  largeOrdersReady,
+  type CapitalFlowRead,
   type TapeDirSetup,
   type TapeDirSignal,
 } from '@/lib/indicators/marketScorecard';
@@ -601,24 +604,6 @@ const ProportionalBar = ({
   </div>
 );
 
-/* Reduce Webull's daily capital-flow rows (oldest first, newest last) to
-   today's large-order reading. Large orders are the institutional-sized
-   bucket; medium and small are ignored here on purpose. */
-export type CapitalFlowRead = { buyShare: number; net: number; trend: number; date: string };
-export function readCapitalFlow(rows: any): CapitalFlowRead | null {
-  if (!Array.isArray(rows) || rows.length === 0) return null;
-  const share = (r: any): number | null => {
-    const inn = Number(r?.largeIn), out = Number(r?.largeOut);
-    return inn + out > 0 ? inn / (inn + out) : null;
-  };
-  const last = rows[rows.length - 1];
-  const s = share(last);
-  if (s == null) return null;
-  const prev = rows.length > 1 ? share(rows[rows.length - 2]) : null;
-  const trend = prev == null ? 0 : s - prev > 0.02 ? 1 : prev - s > 0.02 ? -1 : 0;
-  return { buyShare: s, net: Number(last.largeIn) - Number(last.largeOut), trend, date: String(last.date || '') };
-}
-
 export default function MacroScorecard() {
   const [quotes, setQuotes] = useState<Record<string, TickData>>({});
   const [stockStatus, setStockStatus] = useState<'CONNECTING' | 'LIVE' | 'ERROR' | 'AUTH_ERROR'>('CONNECTING');
@@ -738,6 +723,8 @@ export default function MacroScorecard() {
         spyAvgVolume: spy.avgVolume ?? null,
         spyMoneyFlow: spyMoneyFlow?.value ?? null,
         qqqMoneyFlow: qqqMoneyFlow?.value ?? null,
+        spyLargeBuyShare: spyCapitalFlow?.buyShare ?? null,
+        qqqLargeBuyShare: qqqCapitalFlow?.buyShare ?? null,
         tltPct: quotes['TLT']?.synced ? quotes['TLT'].pct : null,
         gldPct: quotes['GLD']?.synced ? quotes['GLD'].pct : null,
       },
@@ -776,7 +763,7 @@ export default function MacroScorecard() {
     setTimeout(() => setTapeFlash(false), 1500);
     setTapeSetup(setup);
     setTapeSignal(tapeDirSignal(setup));
-  }, [quotes, spyMoneyFlow, qqqMoneyFlow]);
+  }, [quotes, spyMoneyFlow, qqqMoneyFlow, spyCapitalFlow, qqqCapitalFlow]);
 
   // --- A/D DIRECTION: compare each new ratio against the last one ---
   useEffect(() => {

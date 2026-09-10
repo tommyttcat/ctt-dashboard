@@ -283,6 +283,8 @@ export type TapeDirSetup =
   | 'RISK ON'
   | 'FLOW IN'
   | 'FLOW OUT'
+  | 'LARGE BUYERS'
+  | 'LARGE SELLERS'
   | 'PRESSURE ON'
   | 'PRESSURE OFF'
   | 'CLEAR';
@@ -301,6 +303,48 @@ export interface TapeDirOpts {
   tltPct?: number | null;
   /** Day move of the gold proxy, percent. The other haven. */
   gldPct?: number | null;
+  /** Webull large-order buy share for today, 0-1 (dollars bought / all
+      large-order dollars). See readCapitalFlow. */
+  spyLargeBuyShare?: number | null;
+  qqqLargeBuyShare?: number | null;
+  /** Whether the large-order reading is mature enough to drive the signal.
+      Defaults to largeOrdersReady() — after 11:00 ET on a session day. */
+  largeOrdersReady?: boolean;
+}
+
+/* Large-order thresholds. Buy share above 60% = size is buying, below 40% =
+   size is selling. The 40-60 middle is not a signal, as with money flow. */
+const LO_BUY = 0.60;
+const LO_SELL = 0.40;
+/* The reading is a running total from the open, so before this hour it is a
+   handful of prints and swings wildly. It stays visible in the tooltip; it
+   just does not get a vote. */
+export const LARGE_ORDERS_READY_HOUR_ET = 11;
+
+export function largeOrdersReady(now: Date = new Date()): boolean {
+  const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const dow = et.getDay();
+  if (dow === 0 || dow === 6) return false;
+  const h = et.getHours() + et.getMinutes() / 60;
+  return h >= LARGE_ORDERS_READY_HOUR_ET && h < 20;
+}
+
+/* Reduce Webull's daily capital-flow rows (oldest first, newest last) to
+   today's large-order reading. Large orders are the institutional-sized
+   bucket; medium and small are ignored here on purpose. */
+export type CapitalFlowRead = { buyShare: number; net: number; trend: number; date: string };
+export function readCapitalFlow(rows: any): CapitalFlowRead | null {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const share = (r: any): number | null => {
+    const inn = Number(r?.largeIn), out = Number(r?.largeOut);
+    return inn + out > 0 ? inn / (inn + out) : null;
+  };
+  const last = rows[rows.length - 1];
+  const sh = share(last);
+  if (sh == null) return null;
+  const prev = rows.length > 1 ? share(rows[rows.length - 2]) : null;
+  const trend = prev == null ? 0 : sh - prev > 0.02 ? 1 : prev - sh > 0.02 ? -1 : 0;
+  return { buyShare: sh, net: Number(last.largeIn) - Number(last.largeOut), trend, date: String(last.date || '') };
 }
 
 /* Matches the noise floor `marketToneScore` applies to VIX. */
@@ -403,6 +447,20 @@ export function tapeDirSetup(
      wrong. Requiring agreement means the setup fires less often and means
      something when it does; a split reading falls through and both numbers
      stay visible in the tooltip, which is where the rotation shows. */
+  /* LARGE ORDERS — today's size read. Webull buckets every print by order
+     size and reports dollars in vs out; the large bucket is the one with a
+     direct institutional claim, which is more than money flow can say. It
+     sits above money flow because it is today's tape rather than three
+     weeks of it, and it needs BOTH indices to agree for the same reason.
+     Gated until 11:00 ET: it is a running total from the open. */
+  const loSpy = opts?.spyLargeBuyShare;
+  const loQqq = opts?.qqqLargeBuyShare;
+  const loReady = opts?.largeOrdersReady ?? largeOrdersReady();
+  if (loReady && loSpy != null && loQqq != null) {
+    if (Math.min(loSpy, loQqq) >= LO_BUY) return 'LARGE BUYERS';
+    if (Math.max(loSpy, loQqq) <= LO_SELL) return 'LARGE SELLERS';
+  }
+
   const mfSpy = opts?.spyMoneyFlow;
   const mfQqq = opts?.qqqMoneyFlow;
   if (mfSpy != null && mfQqq != null) {
@@ -421,10 +479,10 @@ export function tapeDirSetup(
 }
 
 const BULL_SETUPS: Set<TapeDirSetup> = new Set([
-  'BEAR TRAP', 'PRESSURE OFF', 'EXHAUSTION', 'ALGO BUY', 'ACCUMULATION', 'FLOW IN', 'RISK ON',
+  'BEAR TRAP', 'PRESSURE OFF', 'EXHAUSTION', 'ALGO BUY', 'ACCUMULATION', 'FLOW IN', 'RISK ON', 'LARGE BUYERS',
 ]);
 const BEAR_SETUPS: Set<TapeDirSetup> = new Set([
-  'CONFIRMED ↓', '1% DIVG', 'PRESSURE ON', 'HEDGING', 'ALGO SELL', 'DISTRIBUTION', 'FLOW OUT', 'FLIGHT TO SAFETY',
+  'CONFIRMED ↓', '1% DIVG', 'PRESSURE ON', 'HEDGING', 'ALGO SELL', 'DISTRIBUTION', 'FLOW OUT', 'FLIGHT TO SAFETY', 'LARGE SELLERS',
 ]);
 
 export function tapeDirSignal(setup: TapeDirSetup): TapeDirSignal {
@@ -462,6 +520,8 @@ const MODERATE_SETUPS: Set<TapeDirSetup> = new Set([
   'HEDGING',       // term structure in backwardation
   'FLOW IN',       // 21 sessions of accumulation
   'FLOW OUT',      // 21 sessions of distribution
+  'LARGE BUYERS',  // today's large-order dollars 60%+ on the buy side, both indices
+  'LARGE SELLERS', // today's large-order dollars 60%+ on the sell side, both indices
   'RISK ON',       // equities up, money leaving the long end
   'ROTATION',      // equities down with no haven bid — contained, not systemic
 ]);

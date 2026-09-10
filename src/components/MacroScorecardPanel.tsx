@@ -48,6 +48,7 @@ import {
   tapeDirCellTone,
   type TapeDirSetup,
   type TapeDirSignal, tapeDirStrength, tapeDirStrengthPips,
+  largeOrdersReady, LARGE_ORDERS_READY_HOUR_ET,
 } from '@/lib/indicators/marketScorecard';
 import { mfLabelShort, mfArrow } from '@/lib/indicators/moneyflow';
 
@@ -406,6 +407,7 @@ export default function MacroScorecardPanel({
                 ? <>SPY {fmtNet(spyCapitalFlow.net)} {cfArrow(spyCapitalFlow.trend)}
                     {qqqCapitalFlow && <> &nbsp; QQQ {fmtNet(qqqCapitalFlow.net)} {cfArrow(qqqCapitalFlow.trend)}</>}
                     <br />large-order dollars bought as a share of all large-order dollars, today · above 60% buyers, below 40% sellers
+                    <br />{largeOrdersReady() ? <>both must agree for a size call; split reads as rotation</> : <span className="text-amber-400">running total — no vote until {LARGE_ORDERS_READY_HOUR_ET}:00 ET</span>}
                   </>
                 : <>unavailable</>
             )}
