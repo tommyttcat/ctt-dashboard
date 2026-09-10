@@ -1307,6 +1307,10 @@ async function runScan(request: Request) {
     const regularStocksRaw = viableSetups.filter((t: any) => !ETF_TARGET_MAP[t.ticker] && !MEGA_CAP_TICKERS.has(t.ticker));
     let gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= SCANNER.minChange).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 40);
     let losersRaw = [...regularStocksRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 40);
+    /* Surfaced to the Top Movers card via scan_meta so it can label the
+       Gainers/Losers tabs as pre-market or after-hours when they come from
+       Webull's extended-session ranking. */
+    let topMoversSession: 'Pre-Market' | 'Post-Market' | null = null;
 
     /* Pre-market and after-hours: take the Gainers/Losers ranking from Webull,
        which measures the extended session itself in real time. The Polygon
@@ -1347,6 +1351,7 @@ async function runScan(request: Request) {
         if (g.length > 0 || l.length > 0) {
           if (g.length > 0) gainersRaw = g;
           if (l.length > 0) losersRaw = l;
+          topMoversSession = currentMarketStatus;
           console.log(`[scanner] top movers from Webull ${rankType}: ${g.length} gainers, ${l.length} losers`);
         }
       } catch (e) {
@@ -2043,7 +2048,7 @@ async function runScan(request: Request) {
       await kv.set('stocks_in_play_v6', finalSip);
       await kv.set('top_movers_v6', finalTopMovers);
       await kv.set('last_scan_time_v6', finalScanTime);
-      await kv.set('scan_meta_v6', scanMeta);
+      await kv.set('scan_meta_v6', { ...scanMeta, topMovers: { ...TOPMOVERS_META, moversSession: topMoversSession } });
       await kv.set('high_beta_v6', finalHighBeta);
     } else {
       console.warn('Scan produced no movers; preserving previous KV snapshot.');
