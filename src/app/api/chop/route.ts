@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 import { choppiness, CHOP_PERIOD_DEFAULT } from '@/lib/indicators/chop';
+import { webullConfigured, webullBars, webullDailyBarsWithToday } from '@/lib/webull';
 
 /* CHOP regime route — v1.2
    ------------------------------------------------------------------
@@ -72,10 +73,12 @@ const CACHE_KEY = 'chop_regime_v2';
 const INTRADAY_BAR_MINUTES = 15;
 const HOURLY_BAR_MINUTES = 60;
 
-/* Feed delay, in minutes. Declared rather than inferred because the
-   component needs it to label the marker, and because if the plan ever
-   changes to realtime this is the one line that has to move. */
+/* Feed delay, in minutes, FOR THE POLYGON FALLBACK. Since 10 Sep 2026 the
+   bars come from Webull's real-time Level 1 feed first (delay 0); each leg
+   records the delay of whichever feed actually served it, and the payload
+   carries that per leg so the component labels the marker honestly. */
 const FEED_DELAY_MINUTES = 15;
+const WEBULL_DELAY_MINUTES = 0;
 
 /* Daily leg: a daily-bar metric, so this is generous. Intraday leg: one bar
    period — never more than a single bar behind what the feed can offer, and
@@ -150,8 +153,37 @@ async function fetchBars(
   return all;
 }
 
-const fetchDailyBars = (symbol: string, apiKey: string) =>
-  fetchBars(symbol, apiKey, { multiplier: 1, timespan: 'day', lookbackDays: LOOKBACK_DAYS, limit: 120 });
+/* Webull first, Polygon on any failure or empty result. Returns the bars and
+   the delay of the feed that produced them. Webull bars arrive oldest-first
+   with the same open-time stamping as Polygon, so dropForming() and the
+   hourly bucketing below work unchanged. */
+type Sourced = { bars: Bar[]; delayMinutes: number };
+async function withFallback(
+  webull: () => Promise<Bar[]>,
+  polygon: () => Promise<Bar[]>,
+): Promise<Sourced> {
+  if (webullConfigured()) {
+    try {
+      const bars = await webull();
+      if (bars.length > 0) return { bars, delayMinutes: WEBULL_DELAY_MINUTES };
+    } catch (e) {
+      console.error('[chop] Webull bars failed, using Polygon:', (e as Error)?.message || e);
+    }
+  }
+  return { bars: await polygon(), delayMinutes: FEED_DELAY_MINUTES };
+}
+
+const sinceMs = (days: number) => Date.now() - days * 86_400_000;
+const toBar = (b: { t: number; h: number; l: number; c: number }): Bar => ({ t: b.t, h: b.h, l: b.l, c: b.c });
+
+/* Daily bars include today's forming bar on both feeds, as the daily leg
+   always has (the previous reading is the same window shifted one bar).
+   Webull serves closed daily bars only, so today's is built from the snapshot. */
+const fetchDailyBars = (symbol: string, apiKey: string): Promise<Sourced> =>
+  withFallback(
+    async () => (await webullDailyBarsWithToday(symbol, 80)).filter(b => b.t >= sinceMs(LOOKBACK_DAYS)).map(toBar),
+    () => fetchBars(symbol, apiKey, { multiplier: 1, timespan: 'day', lookbackDays: LOOKBACK_DAYS, limit: 120 }),
+  );
 
 /* 15-minute bars. Extended-hours bars are NOT filtered out, deliberately: a
    pre-market range that price then respects all session is part of the
@@ -159,17 +191,24 @@ const fetchDailyBars = (symbol: string, apiKey: string) =>
    depend on bars that no longer exist by mid-morning. The cost is that a thin
    overnight session can inflate the range term; the alternative — a window
    that silently changes shape at 09:30 — is worse. */
-const fetchIntradayBars = (symbol: string, apiKey: string) =>
-  fetchBars(symbol, apiKey, { multiplier: 15, timespan: 'minute', lookbackDays: LOOKBACK_INTRADAY_DAYS, limit: 400 });
+const EXT_SESSIONS: Array<'PRE' | 'RTH' | 'ATH'> = ['PRE', 'RTH', 'ATH'];
+const fetchIntradayBars = (symbol: string, apiKey: string): Promise<Sourced> =>
+  withFallback(
+    async () => (await webullBars(symbol, 'M15', 400, { sessions: EXT_SESSIONS })).filter(b => b.t >= sinceMs(LOOKBACK_INTRADAY_DAYS)).map(toBar),
+    () => fetchBars(symbol, apiKey, { multiplier: 15, timespan: 'minute', lookbackDays: LOOKBACK_INTRADAY_DAYS, limit: 400 }),
+  );
 
-async function fetchHourlyBars(symbol: string, apiKey: string): Promise<Bar[]> {
-  const raw = await fetchBars(symbol, apiKey, {
-    multiplier: 15,
-    timespan: 'minute',
-    lookbackDays: LOOKBACK_HOURLY_DAYS,
-    limit: 500,
-    paginate: true,
-  });
+async function fetchHourlyBars(symbol: string, apiKey: string): Promise<Sourced> {
+  const { bars: raw, delayMinutes } = await withFallback(
+    async () => (await webullBars(symbol, 'M15', 1200, { sessions: EXT_SESSIONS })).filter(b => b.t >= sinceMs(LOOKBACK_HOURLY_DAYS)).map(toBar),
+    () => fetchBars(symbol, apiKey, {
+      multiplier: 15,
+      timespan: 'minute',
+      lookbackDays: LOOKBACK_HOURLY_DAYS,
+      limit: 500,
+      paginate: true,
+    }),
+  );
   const byHour = new Map<number, Bar[]>();
   for (const b of raw) {
     const hourKey = Math.floor(b.t / 3_600_000) * 3_600_000;
@@ -177,7 +216,7 @@ async function fetchHourlyBars(symbol: string, apiKey: string): Promise<Bar[]> {
     if (!bucket) { bucket = []; byHour.set(hourKey, bucket); }
     bucket.push(b);
   }
-  return Array.from(byHour.entries())
+  const bars = Array.from(byHour.entries())
     .sort(([a], [b]) => a - b)
     .map(([t, bars]) => ({
       t,
@@ -185,6 +224,7 @@ async function fetchHourlyBars(symbol: string, apiKey: string): Promise<Bar[]> {
       l: Math.min(...bars.map(b => b.l)),
       c: bars[bars.length - 1].c,
     }));
+  return { bars, delayMinutes };
 }
 
 /* Drop the newest bar if its period has not elapsed.
@@ -221,6 +261,7 @@ interface DailyLeg {
   blended: number | null;
   blendedPrev: number | null;
   barsUsed: { qqq: number; spy: number };
+  feedDelayMinutes: number;
   computedAt: string;
 }
 
@@ -231,14 +272,19 @@ interface IntradayLeg {
   barsUsed: { qqq: number; spy: number };
   droppedForming: boolean;
   lastBarAt: string | null;
+  feedDelayMinutes: number;
   computedAt: string;
 }
 
 async function computeDailyLeg(apiKey: string): Promise<DailyLeg> {
-  const [qqqBars, spyBars] = await Promise.all([
-    fetchDailyBars('QQQ', apiKey).catch(() => [] as Bar[]),
-    fetchDailyBars('SPY', apiKey).catch(() => [] as Bar[]),
+  const empty: Sourced = { bars: [], delayMinutes: FEED_DELAY_MINUTES };
+  const [qqqSrc, spySrc] = await Promise.all([
+    fetchDailyBars('QQQ', apiKey).catch(() => empty),
+    fetchDailyBars('SPY', apiKey).catch(() => empty),
   ]);
+  const qqqBars = qqqSrc.bars;
+  const spyBars = spySrc.bars;
+  const feedDelayMinutes = Math.max(qqqSrc.delayMinutes, spySrc.delayMinutes);
 
   // The previous reading uses the same window shifted back one bar, so `prev`
   // is genuinely yesterday's CHOP rather than a stale copy of today's.
@@ -255,15 +301,20 @@ async function computeDailyLeg(apiKey: string): Promise<DailyLeg> {
     blended: blend(qqq, spy),
     blendedPrev: blend(qqqPrev, spyPrev),
     barsUsed: { qqq: qqqBars.length, spy: spyBars.length },
+    feedDelayMinutes,
     computedAt: new Date().toISOString(),
   };
 }
 
 async function computeIntradayLeg(apiKey: string): Promise<IntradayLeg> {
-  const [rawQqq, rawSpy] = await Promise.all([
-    fetchIntradayBars('QQQ', apiKey).catch(() => [] as Bar[]),
-    fetchIntradayBars('SPY', apiKey).catch(() => [] as Bar[]),
+  const empty: Sourced = { bars: [], delayMinutes: FEED_DELAY_MINUTES };
+  const [qqqSrc, spySrc] = await Promise.all([
+    fetchIntradayBars('QQQ', apiKey).catch(() => empty),
+    fetchIntradayBars('SPY', apiKey).catch(() => empty),
   ]);
+  const rawQqq = qqqSrc.bars;
+  const rawSpy = spySrc.bars;
+  const feedDelayMinutes = Math.max(qqqSrc.delayMinutes, spySrc.delayMinutes);
 
   const qqqBars = dropForming(rawQqq, INTRADAY_BAR_MINUTES);
   const spyBars = dropForming(rawSpy, INTRADAY_BAR_MINUTES);
@@ -289,15 +340,20 @@ async function computeIntradayLeg(apiKey: string): Promise<IntradayLeg> {
     barsUsed: { qqq: qqqBars.length, spy: spyBars.length },
     droppedForming,
     lastBarAt: newest > 0 ? new Date(newest).toISOString() : null,
+    feedDelayMinutes,
     computedAt: new Date().toISOString(),
   };
 }
 
 async function computeHourlyLeg(apiKey: string): Promise<IntradayLeg> {
-  const [rawQqq, rawSpy] = await Promise.all([
-    fetchHourlyBars('QQQ', apiKey).catch(() => [] as Bar[]),
-    fetchHourlyBars('SPY', apiKey).catch(() => [] as Bar[]),
+  const empty: Sourced = { bars: [], delayMinutes: FEED_DELAY_MINUTES };
+  const [qqqSrc, spySrc] = await Promise.all([
+    fetchHourlyBars('QQQ', apiKey).catch(() => empty),
+    fetchHourlyBars('SPY', apiKey).catch(() => empty),
   ]);
+  const rawQqq = qqqSrc.bars;
+  const rawSpy = spySrc.bars;
+  const feedDelayMinutes = Math.max(qqqSrc.delayMinutes, spySrc.delayMinutes);
 
   const qqqBars = dropForming(rawQqq, HOURLY_BAR_MINUTES);
   const spyBars = dropForming(rawSpy, HOURLY_BAR_MINUTES);
@@ -318,6 +374,7 @@ async function computeHourlyLeg(apiKey: string): Promise<IntradayLeg> {
     barsUsed: { qqq: qqqBars.length, spy: spyBars.length },
     droppedForming,
     lastBarAt: newest > 0 ? new Date(newest).toISOString() : null,
+    feedDelayMinutes,
     computedAt: new Date().toISOString(),
   };
 }
@@ -398,9 +455,10 @@ export async function GET(request: Request) {
         zone: intraday.blended != null ? zoneOf(intraday.blended) : 'unknown',
         windowMinutes: CHOP_PERIOD * INTRADAY_BAR_MINUTES,
         barMinutes: INTRADAY_BAR_MINUTES,
-        /* Stated so the component can label the marker honestly rather than
-           implying the intraday reading is live. */
-        feedDelayMinutes: FEED_DELAY_MINUTES,
+        /* Stated so the component can label the marker honestly. 0 when the
+           bars came from Webull; legs cached under the old shape carry none
+           and are labelled with the Polygon delay they were computed on. */
+        feedDelayMinutes: intraday.feedDelayMinutes ?? FEED_DELAY_MINUTES,
       },
 
       hourly: {
@@ -408,7 +466,7 @@ export async function GET(request: Request) {
         zone: hourly.blended != null ? zoneOf(hourly.blended) : 'unknown',
         windowMinutes: CHOP_PERIOD * HOURLY_BAR_MINUTES,
         barMinutes: HOURLY_BAR_MINUTES,
-        feedDelayMinutes: FEED_DELAY_MINUTES,
+        feedDelayMinutes: hourly.feedDelayMinutes ?? FEED_DELAY_MINUTES,
       },
 
       spread:
