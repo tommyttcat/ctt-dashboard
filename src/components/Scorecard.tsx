@@ -601,6 +601,24 @@ const ProportionalBar = ({
   </div>
 );
 
+/* Reduce Webull's daily capital-flow rows (oldest first, newest last) to
+   today's large-order reading. Large orders are the institutional-sized
+   bucket; medium and small are ignored here on purpose. */
+export type CapitalFlowRead = { buyShare: number; net: number; trend: number; date: string };
+export function readCapitalFlow(rows: any): CapitalFlowRead | null {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const share = (r: any): number | null => {
+    const inn = Number(r?.largeIn), out = Number(r?.largeOut);
+    return inn + out > 0 ? inn / (inn + out) : null;
+  };
+  const last = rows[rows.length - 1];
+  const s = share(last);
+  if (s == null) return null;
+  const prev = rows.length > 1 ? share(rows[rows.length - 2]) : null;
+  const trend = prev == null ? 0 : s - prev > 0.02 ? 1 : prev - s > 0.02 ? -1 : 0;
+  return { buyShare: s, net: Number(last.largeIn) - Number(last.largeOut), trend, date: String(last.date || '') };
+}
+
 export default function MacroScorecard() {
   const [quotes, setQuotes] = useState<Record<string, TickData>>({});
   const [stockStatus, setStockStatus] = useState<'CONNECTING' | 'LIVE' | 'ERROR' | 'AUTH_ERROR'>('CONNECTING');
@@ -618,6 +636,12 @@ export default function MacroScorecard() {
   const tapePendingSetup = useRef<TapeDirSetup | null>(null);
   const [spyMoneyFlow, setSpyMoneyFlow] = useState<{ value: number; trend: number } | null>(null);
   const [qqqMoneyFlow, setQqqMoneyFlow] = useState<{ value: number; trend: number } | null>(null);
+  /* Webull large-order capital flow, today's session, per index. `buyShare`
+     is large-order dollars bought as a fraction of all large-order dollars;
+     `net` is in vs out in USD; `trend` compares buyShare with the prior
+     session (+1 rising, -1 falling, 0 flat/unknown). */
+  const [spyCapitalFlow, setSpyCapitalFlow] = useState<CapitalFlowRead | null>(null);
+  const [qqqCapitalFlow, setQqqCapitalFlow] = useState<CapitalFlowRead | null>(null);
   const tapeInitialized = useRef(false);
   const [breadth, setBreadth] = useState<BreadthData | null>(null);
   const [t2108, setT2108] = useState<T2108Data | null>(null);
@@ -809,6 +833,8 @@ export default function MacroScorecard() {
           if (typeof spyMf?.value === 'number') setSpyMoneyFlow(spyMf);
           setQqqMoneyFlow(typeof data.moneyFlow.qqq?.value === 'number' ? data.moneyFlow.qqq : null);
         }
+        setSpyCapitalFlow(readCapitalFlow(data.capitalFlow?.spy));
+        setQqqCapitalFlow(readCapitalFlow(data.capitalFlow?.qqq));
 
         setQuotes(prev => {
           const next = { ...prev };
@@ -1168,6 +1194,8 @@ export default function MacroScorecard() {
             divergence={divergence}
             spyMoneyFlow={spyMoneyFlow}
             qqqMoneyFlow={qqqMoneyFlow}
+            spyCapitalFlow={spyCapitalFlow}
+            qqqCapitalFlow={qqqCapitalFlow}
             tapeSetup={tapeSetup}
             tapeSignal={tapeSignal}
             tapePrevSetup={tapePrevSetup}

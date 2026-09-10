@@ -190,6 +190,9 @@ export interface MacroScorecardPanelProps {
   spyMoneyFlow?: { value: number; trend: number } | null;
   /** QQQ money flow, same scale. */
   qqqMoneyFlow?: { value: number; trend: number } | null;
+  /** Webull large-order capital flow for today, per index. Optional. */
+  spyCapitalFlow?: { buyShare: number; net: number; trend: number; date: string } | null;
+  qqqCapitalFlow?: { buyShare: number; net: number; trend: number; date: string } | null;
   hourStale: boolean;
   hourLastBar: string | null;
   chopTooltipText: string;
@@ -227,6 +230,8 @@ export default function MacroScorecardPanel({
   hourVal,
   spyMoneyFlow,
   qqqMoneyFlow,
+  spyCapitalFlow,
+  qqqCapitalFlow,
   hourStale,
   hourLastBar,
   chopTooltipText,
@@ -246,6 +251,13 @@ export default function MacroScorecardPanel({
      show; it now gets a track of its own above the hour. */
   const dayVal: number | null = chop?.daily?.blended ?? chop?.blended ?? null;
 
+  /* Net large-order dollars, signed, in billions or millions. */
+  const fmtNet = (n: number) => {
+    const sign = n >= 0 ? '+' : '−';
+    const a = Math.abs(n);
+    return a >= 1e9 ? `${sign}$${(a / 1e9).toFixed(1)}B` : `${sign}$${(a / 1e6).toFixed(0)}M`;
+  };
+  const cfArrow = (trend: number) => (trend > 0 ? '↑' : trend < 0 ? '↓' : '→');
   const ttRow = (label: string, reading: string, detail?: React.ReactNode) => (
     <div className="flex items-start gap-1.5 py-[3px]">
       <span className="text-slate-500 shrink-0 w-[70px]">{label}</span>
@@ -377,6 +389,23 @@ export default function MacroScorecardPanel({
                     {qqqMoneyFlow && <> &nbsp; QQQ {qqqMoneyFlow.value.toFixed(0)} {mfArrow(qqqMoneyFlow.trend)}</>}
                     <br />21 sessions, volume-weighted close position · above 60 accumulation, below 40 distribution
                     {qqqMoneyFlow && <><br />both must agree for a flow call; split reads as rotation</>}
+                  </>
+                : <>unavailable</>
+            )}
+            {/* Large-order flow is the one reading here with a direct size
+                claim: Webull buckets each print by order size and reports the
+                dollars in vs out. Today's session, so intraday it is a running
+                total. Both indices shown for the same reason as money flow. */}
+            {ttRow('Large Orders',
+              spyCapitalFlow
+                ? (qqqCapitalFlow
+                    ? `${Math.round(spyCapitalFlow.buyShare * 100)}% / ${Math.round(qqqCapitalFlow.buyShare * 100)}%`
+                    : `${Math.round(spyCapitalFlow.buyShare * 100)}% buy`)
+                : 'n/a',
+              spyCapitalFlow
+                ? <>SPY {fmtNet(spyCapitalFlow.net)} {cfArrow(spyCapitalFlow.trend)}
+                    {qqqCapitalFlow && <> &nbsp; QQQ {fmtNet(qqqCapitalFlow.net)} {cfArrow(qqqCapitalFlow.trend)}</>}
+                    <br />large-order dollars bought as a share of all large-order dollars, today · above 60% buyers, below 40% sellers
                   </>
                 : <>unavailable</>
             )}
