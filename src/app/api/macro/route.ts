@@ -42,7 +42,7 @@ const CAPITAL_FLOW_SYMBOLS = ['SPY', 'QQQ'] as const;
 const CAPITAL_FLOW_DAYS = 5;
 
 const CACHE_KEY = 'macro_quotes_v1';
-const CACHE_TTL_MS = 55 * 1000; // serve cache for ~1 min before hitting FMP again
+const CACHE_TTL_MS = 25 * 1000; // serve cache for ~30s before hitting Webull/FMP again (client polls at 30s)
 
 
 const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 10000) => {
@@ -73,7 +73,7 @@ export async function GET() {
   try {
     const cached = await kv.get<any>(CACHE_KEY);
     if (cached && cached.updatedAt && Date.now() - cached.updatedAt < CACHE_TTL_MS) {
-      return NextResponse.json({ ...cached, breadth, cached: true }, { headers: cacheHeaders(CACHE.LIVE) });
+      return NextResponse.json({ ...cached, breadth, cached: true }, { headers: cacheHeaders(CACHE.TICK) });
     }
   } catch (e) {
     // KV miss/error — fall through and fetch fresh.
@@ -324,5 +324,5 @@ export async function GET() {
     }
   }
 
-  return NextResponse.json({ ...payload, breadth }, { headers: cacheHeaders(CACHE.LIVE) });
+  return NextResponse.json({ ...payload, breadth }, { headers: cacheHeaders(CACHE.TICK) });
 }

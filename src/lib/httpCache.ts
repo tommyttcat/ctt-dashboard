@@ -47,6 +47,9 @@ export type CacheProfile = {
  * Tuning throughput happens here, not in seventeen route files.
  */
 export const CACHE = {
+  /** Real-time quote payloads polled every 30s (macro card). Short edge hold so
+      a poll never lands on a copy older than the client's own interval. */
+  TICK: { sMaxAge: 10, swr: 30 },
   /** Carries live price/change data — kept tight so ticks stay current. */
   LIVE: { sMaxAge: 20, swr: 120 },
   /** Scan output: rewritten only when a cron /run route completes. */

@@ -840,9 +840,11 @@ export default function MacroScorecard() {
 
     fetchMacro();
 
+    /* 30s: matches the macro route's KV window so each poll has a fair chance
+       of a fresh Webull print. Faster than this doubles KV reads per tab. */
     const pollingInterval = setInterval(() => {
       if (isMounted) fetchMacro();
-    }, 60000);
+    }, 30000);
 
     return () => {
       isMounted = false;
