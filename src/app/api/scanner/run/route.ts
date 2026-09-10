@@ -129,6 +129,7 @@ import {
   EXT_HARD_ATRS, EXT_PARABOLIC_ATRS, EXT_HARD_PCT_NO_ATR, EXT_PARABOLIC_PCT_NO_ATR,
 } from '@/lib/indicators/confluence';
 import { SCANNER, SCANNER_SIP_META, SCANNER_DAILY_META, TOPMOVERS_META } from '@/lib/scanConfig';
+import { webullConfigured, webullGainersLosers } from '@/lib/webull';
 import { enrichWithFundamentals } from '@/lib/indicators/fundamentals';
 
 export const dynamic = 'force-dynamic';
@@ -1304,8 +1305,54 @@ async function runScan(request: Request) {
     const etfGainersRaw = [...knownEtfsRaw].sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 20);
     const etfLosersRaw = [...knownEtfsRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 20);
     const regularStocksRaw = viableSetups.filter((t: any) => !ETF_TARGET_MAP[t.ticker] && !MEGA_CAP_TICKERS.has(t.ticker));
-    const gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= SCANNER.minChange).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 40);
-    const losersRaw = [...regularStocksRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 40);
+    let gainersRaw = [...regularStocksRaw].filter((t: any) => t._liveChg >= SCANNER.minChange).sort((a: any, b: any) => b._liveChg - a._liveChg).slice(0, 40);
+    let losersRaw = [...regularStocksRaw].sort((a: any, b: any) => a._liveChg - b._liveChg).slice(0, 40);
+
+    /* Pre-market and after-hours: take the Gainers/Losers ranking from Webull,
+       which measures the extended session itself in real time. The Polygon
+       snapshot is 15 minutes delayed and its change is regular-session based,
+       so at 7am the "gappers" it produces are yesterday's movers with a stale
+       print. Rows are mapped back onto the snapshot entry for the same ticker
+       so every downstream field (day OHLC, vwap, enrichment) keeps its shape;
+       only price, change and volume are overridden with Webull's. Universe
+       gates are the same as the Polygon lists. Any failure or empty result
+       leaves the Polygon lists in place. */
+    if ((currentMarketStatus === 'Pre-Market' || currentMarketStatus === 'Post-Market') && webullConfigured()) {
+      const rankType = currentMarketStatus === 'Pre-Market' ? 'PRE_MARKET' : 'AFTER_MARKET';
+      try {
+        const [wbGainers, wbLosers] = await Promise.all([
+          webullGainersLosers(rankType, 'gainers'),
+          webullGainersLosers(rankType, 'losers'),
+        ]);
+        const bySymbol = new Map<string, any>(regularStocksRaw.map((t: any) => [t.ticker, t]));
+        const mapRows = (rows: typeof wbGainers, wantGainers: boolean) => {
+          const out: any[] = [];
+          for (const r of rows) {
+            const base = bySymbol.get(r.symbol);
+            if (!base || r.price < SCANNER.minPrice) continue;
+            const chg = r.changeRatio * 100;
+            if (wantGainers ? chg < SCANNER.minChange : chg >= 0) continue;
+            out.push({
+              ...base,
+              _livePrice: r.price,
+              _liveChg: Math.round(chg * 100) / 100,
+              _liveVol: Math.max(base._liveVol || 0, r.volume || 0),
+            });
+            if (out.length >= 40) break;
+          }
+          return out;
+        };
+        const g = mapRows(wbGainers, true);
+        const l = mapRows(wbLosers, false);
+        if (g.length > 0 || l.length > 0) {
+          if (g.length > 0) gainersRaw = g;
+          if (l.length > 0) losersRaw = l;
+          console.log(`[scanner] top movers from Webull ${rankType}: ${g.length} gainers, ${l.length} losers`);
+        }
+      } catch (e) {
+        console.error('[scanner] Webull gainers/losers failed, keeping Polygon lists:', (e as Error)?.message || e);
+      }
+    }
 
     const todayDate = new Date();
     const lookbackDate = new Date();

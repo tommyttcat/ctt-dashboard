@@ -174,3 +174,39 @@ export async function webullCapitalFlow(symbol: string, count = 5): Promise<Webu
     smallOut: num(r.small_out),
   }));
 }
+
+export type WebullRankRow = {
+  symbol: string;
+  price: number;
+  preClose: number;
+  changeRatio: number; // fraction, e.g. 0.0721 = +7.21%
+  volume: number;
+  marketValue: number;
+  exchangeCode: string;
+};
+
+/* Market-wide gainers/losers ranking, computed server-side by Webull. The
+   PRE_MARKET and AFTER_MARKET rank types measure the extended session itself,
+   which is what a "gapper" list needs and what a delayed RTH snapshot cannot
+   give. Non-paginated v3 endpoint: top 200 rows. */
+export async function webullGainersLosers(
+  rankType: 'PRE_MARKET' | 'AFTER_MARKET' | 'DAY_1',
+  side: 'gainers' | 'losers',
+): Promise<WebullRankRow[]> {
+  const raw = await webullGet<any>('/market-data/screeners/gainers-losers/list', {
+    rank_type: rankType,
+    category: 'US_STOCK',
+    sort_by: 'CHANGE_RATIO',
+    direction: side === 'gainers' ? 'DESC' : 'ASC',
+  }, 10000);
+  const rows: any[] = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
+  return rows.map((r) => ({
+    symbol: String(r.symbol || ''),
+    price: num(r.price),
+    preClose: num(r.pre_close),
+    changeRatio: num(r.change_ratio),
+    volume: num(r.volume),
+    marketValue: num(r.market_value),
+    exchangeCode: String(r.exchange_code || ''),
+  }));
+}
