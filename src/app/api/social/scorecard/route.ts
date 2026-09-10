@@ -281,7 +281,7 @@ export async function GET(req: Request) {
   const { text: blurb, why } = composeBlurb(macro, t2108, chop, slot);
   const cta = `Live scorecard → ${DASH_URL}`;
   const bskyText = `${blurb}\n\n${cta}`;
-  const xText = `${blurb}\n\n${cta}`;
+  const xText = bskyText;
 
   if (preview) {
     return NextResponse.json({
@@ -298,7 +298,19 @@ export async function GET(req: Request) {
     });
   }
 
-  /* One post per slot per day. NX so a retrying cron cannot double-post. */
+  return publish({ origin, slot, today, blurb, why, force, author: 'composer' });
+}
+
+/* Shared by the cron (composer copy) and the cloud routine (written copy), so
+   the lock, the screenshot and the two posts behave identically either way. */
+async function publish(opts: {
+  origin: string; slot: Slot; today: string; blurb: string; why: string;
+  force: boolean; author: 'composer' | 'routine';
+}) {
+  const { origin, slot, today, blurb, why, force, author } = opts;
+
+  /* One post per slot per day. NX so neither a retrying cron nor the routine
+     and its own fallback cron can double-post. */
   const lockKey = `scorecard_sent:${slot}:${today}`;
   if (!force) {
     const locked = await kv.set(lockKey, 1, { nx: true, ex: 86400 });
@@ -307,18 +319,21 @@ export async function GET(req: Request) {
     await kv.set(lockKey, 1, { ex: 86400 });
   }
 
+  const cta = `Live scorecard → ${DASH_URL}`;
+  const text = `${blurb}\n\n${cta}`;
+
   const card = await fetchCard(origin);
-  const debug: any = { slot, why, blurb, cardBytes: card?.length ?? 0 };
+  const debug: any = { slot, author, why, blurb, cardBytes: card?.length ?? 0 };
   if (!card) debug.cardMissing = true;
 
-  const linkStart = bskyText.indexOf(DASH_URL);
+  const linkStart = text.indexOf(DASH_URL);
   const results = await Promise.allSettled([
     postToBluesky(
-      bskyText,
+      text,
       linkStart >= 0 ? [{ start: linkStart, end: linkStart + DASH_URL.length, url: `https://${DASH_URL}` }] : [],
       card ? { data: card, alt: 'CTT Macro Scorecard', mimeType: 'image/png' } : undefined,
     ),
-    postToX(xText, card ? { data: card } : undefined),
+    postToX(text, card ? { data: card } : undefined),
   ]);
 
   if (results[0].status === 'rejected') debug.bskyError = String((results[0] as PromiseRejectedResult).reason);
@@ -330,4 +345,35 @@ export async function GET(req: Request) {
     x: results[1].status === 'fulfilled' ? (results[1].value as any)?.id ?? null : null,
     ...debug,
   });
+}
+
+/* The cloud routine posts here with its own caption. Unauthenticated, the same
+   way /api/analyst/brief accepts the analyst routine's POST — a cloud routine
+   has no way to hold CRON_SECRET, and putting one in a routine prompt would be
+   a plaintext credential. The NX lock means a replay cannot post twice, and the
+   copy is validated before it reaches a feed. */
+export async function POST(req: Request) {
+  try {
+    const body = await req.json().catch(() => null);
+    const slot = (body?.slot || '') as Slot;
+    if (slot !== 'open' && slot !== 'power') {
+      return NextResponse.json({ error: "slot must be 'open' or 'power'" }, { status: 400 });
+    }
+    const text = String(body?.text || '').trim().replace(/\s+/g, ' ');
+    if (text.length < 40) return NextResponse.json({ error: 'text too short' }, { status: 400 });
+    if (text.length > 240) return NextResponse.json({ error: `text is ${text.length} chars, max 240` }, { status: 400 });
+    if (/https?:\/\//i.test(text)) return NextResponse.json({ error: 'text may not contain a link' }, { status: 400 });
+    if (/\*\*/.test(text)) return NextResponse.json({ error: 'text may not contain markdown' }, { status: 400 });
+
+    const today = etDateString();
+    if (!isTradingDay(today)) {
+      return NextResponse.json({ skipped: true, reason: `market closed ${today}` });
+    }
+    return await publish({
+      origin: resolveOrigin(req), slot, today, blurb: text,
+      why: 'written by the scorecard routine', force: false, author: 'routine',
+    });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || 'bad request' }, { status: 400 });
+  }
 }
