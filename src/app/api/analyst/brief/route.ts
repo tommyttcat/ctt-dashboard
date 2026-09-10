@@ -171,6 +171,11 @@ export async function POST(req: Request) {
        its cover and social image, which is what X and Bluesky unfurl, so it is
        the picture that has to make someone click. */
     ...(body.coverImageUrl ? { coverImageUrl: String(body.coverImageUrl) } : {}),
+    /* Stored so the NEXT run can read its own last headline out of
+       prior.json and pick a different shape. Every poster was coming out as
+       two clipped facts and a negation because nothing carried the memory of
+       what the last one said. */
+    ...(body.coverHeadline ? { coverHeadline: String(body.coverHeadline) } : {}),
     /* One plain-English line written for X and Bluesky, where the reader has
        not opened the dashboard and a list of levels means nothing. */
     ...(body.socialTake ? { socialTake: String(body.socialTake) } : {}),
