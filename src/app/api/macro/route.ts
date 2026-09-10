@@ -1,32 +1,45 @@
 // Deploy to: app/api/macro/route.ts
 //
-// Server-side, KV-cached macro quotes. The whole point: FMP gets hit at most
-// once per minute TOTAL — not once per browser tab, not once per user. Every
-// client reads the cached payload. This also keeps the FMP key server-side
-// instead of shipping it to the browser.
+// Server-side, KV-cached macro quotes. The whole point: upstream providers get
+// hit at most once per minute TOTAL — not once per browser tab, not once per
+// user. Every client reads the cached payload. This also keeps every API key
+// server-side instead of shipping it to the browser.
+//
+// Quote sources (10 Sep 2026): the eight ETFs come from Webull's real-time
+// Level 1 snapshot, which also carries the pre/post-market print so the FMP
+// 5-minute extended chart is no longer needed. VIX is an index Webull does not
+// serve, so it stays on FMP. If Webull is unconfigured or fails, every symbol
+// falls back to the FMP quote exactly as before. Polygon still supplies the
+// previous-day levels, daily bars (money flow, 20-day volume) and VIX9D.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { getMarketSession } from '@/lib/indicators/marketScorecard';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
+import { webullConfigured, webullSnapshot, webullCapitalFlow, type WebullCapitalFlowDay } from '@/lib/webull';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 // 9 equity/ETF symbols. Crypto (BTC/ETH/SOL) stays on the free Coinbase
 // WebSocket on the client, so it never touches this route.
-const STOCK_SYMBOLS = [
-  { id: 'SPY', fmp: 'SPY' },
-  { id: 'QQQ', fmp: 'QQQ' },
-  { id: 'DIA', fmp: 'DIA' },
-  { id: 'IWM', fmp: 'IWM' },
-  { id: 'VIX', fmp: '^VIX' },
-  { id: 'TLT', fmp: 'TLT' },
-  { id: 'GLD', fmp: 'GLD' },
-  { id: 'SLV', fmp: 'SLV' },
-  { id: 'USO', fmp: 'USO' },
+const STOCK_SYMBOLS: { id: string; fmp: string; webull?: string }[] = [
+  { id: 'SPY', fmp: 'SPY', webull: 'SPY' },
+  { id: 'QQQ', fmp: 'QQQ', webull: 'QQQ' },
+  { id: 'DIA', fmp: 'DIA', webull: 'DIA' },
+  { id: 'IWM', fmp: 'IWM', webull: 'IWM' },
+  { id: 'VIX', fmp: '^VIX' }, // index — not on Webull Level 1
+  { id: 'TLT', fmp: 'TLT', webull: 'TLT' },
+  { id: 'GLD', fmp: 'GLD', webull: 'GLD' },
+  { id: 'SLV', fmp: 'SLV', webull: 'SLV' },
+  { id: 'USO', fmp: 'USO', webull: 'USO' },
 ];
+
+/* Capital flow (large/medium/small order in-vs-out, USD) for the two index
+   ETFs. Daily granularity — intraday the newest row is today's running total. */
+const CAPITAL_FLOW_SYMBOLS = ['SPY', 'QQQ'] as const;
+const CAPITAL_FLOW_DAYS = 5;
 
 const CACHE_KEY = 'macro_quotes_v1';
 const CACHE_TTL_MS = 55 * 1000; // serve cache for ~1 min before hitting FMP again
@@ -69,10 +82,45 @@ export async function GET() {
   const session = getMarketSession();
   const isExtended = session === 'Pre-Market' || session === 'Post-Market';
 
-  // Standard quotes (always).
+  /* Webull real-time snapshot first. One call covers all eight ETFs, and the
+     extended-hours print rides on the same response. Any symbol Webull does
+     not return (or every symbol, if the call fails) drops to FMP below. */
+  type LiveQuote = { price: number; baseline: number; volume: number; extPrice: number | null };
+  const live: Record<string, LiveQuote> = {};
+  const sources: { quotes: 'webull' | 'fmp' | 'mixed'; webullError?: string } = { quotes: 'fmp' };
+  let capitalFlow: Record<string, WebullCapitalFlowDay[]> | null = null;
+
+  if (webullConfigured()) {
+    const wbSymbols = STOCK_SYMBOLS.filter((s) => s.webull).map((s) => s.webull as string);
+    const [snapRes, ...flowRes] = await Promise.allSettled([
+      webullSnapshot(wbSymbols, 'US_ETF', { extendedHours: isExtended }),
+      ...CAPITAL_FLOW_SYMBOLS.map((sym) => webullCapitalFlow(sym, CAPITAL_FLOW_DAYS)),
+    ]);
+    if (snapRes.status === 'fulfilled') {
+      for (const q of snapRes.value) {
+        if (q.price > 0) {
+          live[q.symbol] = { price: q.price, baseline: q.preClose || q.open || q.price, volume: q.volume, extPrice: q.extPrice };
+        }
+      }
+    } else {
+      sources.webullError = String(snapRes.reason?.message || snapRes.reason).slice(0, 200);
+    }
+    const flows: Record<string, WebullCapitalFlowDay[]> = {};
+    CAPITAL_FLOW_SYMBOLS.forEach((sym, i) => {
+      const r = flowRes[i];
+      if (r?.status === 'fulfilled' && r.value.length > 0) flows[sym.toLowerCase()] = r.value;
+      else if (r?.status === 'rejected' && !sources.webullError) {
+        sources.webullError = String(r.reason?.message || r.reason).slice(0, 200);
+      }
+    });
+    if (Object.keys(flows).length > 0) capitalFlow = flows;
+  }
+
+  // FMP quotes for whatever Webull did not cover (always VIX; everything on a Webull failure).
+  const fmpSymbols = STOCK_SYMBOLS.filter((s) => !(s.webull && live[s.webull]));
   const quoteResults = (
     await Promise.all(
-      STOCK_SYMBOLS.map((s) =>
+      fmpSymbols.map((s) =>
         fetchSafeJson(
           `https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(s.fmp)}&apikey=${fmpApiKey}`,
           []
@@ -80,12 +128,14 @@ export async function GET() {
       )
     )
   ).flat();
+  const liveCount = Object.keys(live).length;
+  sources.quotes = liveCount === 0 ? 'fmp' : fmpSymbols.length <= 1 ? 'webull' : 'mixed';
 
-  // 5-min extended chart ONLY during real pre/post (never overnight/weekends).
+  // 5-min extended chart ONLY during real pre/post, and only for FMP-served symbols.
   const ahData: Record<string, number> = {};
   if (isExtended) {
     const ahResults = await Promise.all(
-      STOCK_SYMBOLS.map((s) =>
+      fmpSymbols.map((s) =>
         fetchSafeJson(
           `https://financialmodelingprep.com/stable/historical-chart/5min?symbol=${encodeURIComponent(s.fmp)}&extended=true&apikey=${fmpApiKey}`,
           []
@@ -208,12 +258,22 @@ export async function GET() {
   // Build the per-symbol payload. Tick direction is computed on the client.
   const quotes: Record<string, any> = {};
   for (const s of STOCK_SYMBOLS) {
-    const q = quoteResults.find((x: any) => x?.symbol === s.fmp);
-    if (!q) continue;
-    const ahPrice = ahData[s.fmp];
-    const useAh = isExtended && ahPrice !== undefined && ahPrice > 0;
-    const price = useAh ? ahPrice : q.price || 0;
-    const baseline = q.previousClose || q.open || price;
+    const wb = s.webull ? live[s.webull] : undefined;
+    const q = wb ? null : quoteResults.find((x: any) => x?.symbol === s.fmp);
+    if (!wb && !q) continue;
+    let price: number;
+    let baseline: number;
+    let useAh: boolean;
+    if (wb) {
+      useAh = isExtended && wb.extPrice != null && wb.extPrice > 0;
+      price = useAh ? (wb.extPrice as number) : wb.price;
+      baseline = wb.baseline || price;
+    } else {
+      const ahPrice = ahData[s.fmp];
+      useAh = isExtended && ahPrice !== undefined && ahPrice > 0;
+      price = useAh ? ahPrice : q.price || 0;
+      baseline = q.previousClose || q.open || price;
+    }
     const pct = baseline > 0 ? ((price - baseline) / baseline) * 100 : 0;
     if (price > 0) {
       const entry: any = { price, baseline, pct, isExtended: useAh };
@@ -221,7 +281,8 @@ export async function GET() {
         entry.prevHigh = prevDay[s.id].high;
         entry.prevLow = prevDay[s.id].low;
       }
-      if (q.volume > 0) entry.volume = q.volume;
+      const vol = wb ? wb.volume : q.volume;
+      if (vol > 0) entry.volume = vol;
       if (s.id === 'SPY' && polyVolume) {
         entry.volume = polyVolume.volume;
         entry.avgVolume = polyVolume.avgVolume;
@@ -241,11 +302,17 @@ export async function GET() {
   /* `moneyFlow` keeps SPY's reading at the top level so a client running the
      previous shape (or a KV payload written by it) still resolves; `spy` and
      `qqq` are the explicit form. */
+  /* `capitalFlow` is Webull's daily large/medium/small order flow for SPY and
+     QQQ, newest row last. Null when Webull is unconfigured or the call failed.
+     `sources` says where the quotes came from so a production payload can be
+     read for provenance without digging through logs. */
   const payload = {
     session,
     updatedAt: Date.now(),
     quotes,
     moneyFlow: spyMoneyFlow ? { ...spyMoneyFlow, spy: spyMoneyFlow, qqq: qqqMoneyFlow } : null,
+    capitalFlow,
+    sources,
   };
 
   // Only overwrite the cache if we actually got data — never cache an empty wipe.
