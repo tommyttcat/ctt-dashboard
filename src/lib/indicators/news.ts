@@ -336,11 +336,14 @@ const tierOf = (tag: string, causal: boolean, pubTier: PublisherTier): CatalystT
    a filler headline in the same slot is neither. */
 export function pickBestNews(
   results: PolygonNewsRaw[] | null | undefined,
-  symbol: string
+  symbol: string,
+  /* The clock article age is measured against. Live callers leave it at
+     Date.now(); the backtest passes the historical scan time so a headline is
+     judged by how old it was THEN, not how old it is today. */
+  now: number = Date.now()
 ): NewsItem | null {
   if (!Array.isArray(results) || results.length === 0) return null;
 
-  const now = Date.now();
   const candidates: NewsItem[] = [];
 
   for (const item of results) {

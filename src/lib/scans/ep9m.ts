@@ -1,0 +1,328 @@
+// lib/scans/ep9m.ts — the pure half of the EP9M scan.
+//
+// Everything here is a function of its arguments: no fetch, no KV, no clock.
+// The live route (app/api/ep9m/run) does the I/O and calls into this file;
+// the historical backtest (scripts/backtest) replays past sessions through the
+// SAME functions. Keeping one implementation is the point — a backtest that
+// scores a copy of the rules is testing the copy, and the two drift apart the
+// first time someone tunes a threshold in one place.
+//
+// Moved verbatim from the route on 11 Sep 2026; no behaviour change.
+
+import { EP9M } from '@/lib/scanConfig';
+import type { NewsItem } from '@/lib/indicators/news';
+
+export interface Bar { t: number; o: number; h: number; l: number; c: number; v: number; }
+export interface LiteBar { c: number; h: number; l: number; v: number; }
+
+export interface SnapInfo {
+  price: number;
+  prevClose: number;
+  changePct: number;
+  vol: number;
+  vwap: number | null;
+  dayHigh: number | null;
+  dayLow: number | null;
+  dayOpen: number | null;
+}
+
+// Prior swing high window. 63 sessions back, EXCLUDING the most recent five —
+// without that exclusion a name that just ran becomes its own resistance and
+// every fresh mover reports a trigger already blocked. Matters more here than
+// anywhere else: an EP9M name IS a fresh mover by definition.
+const SWING_HIGH_LOOKBACK = 63;
+const SWING_HIGH_EXCLUDE_RECENT = 5;
+
+// Highest high in the lookback window, excluding the most recent few bars.
+// Bars arrive sorted ascending, so the recent end is the tail.
+export function priorSwingHighOf(bars: Bar[]): number | null {
+  if (bars.length < 20) return null;
+  const end = bars.length - SWING_HIGH_EXCLUDE_RECENT;
+  const start = Math.max(0, bars.length - SWING_HIGH_LOOKBACK);
+  if (end <= start) return null;
+  const win = bars.slice(start, end);
+  if (win.length === 0) return null;
+  return Math.max(...win.map(b => b.h));
+}
+
+// ---------------------------------------------------------------
+// Stage 3: abnormality shortlist.
+//
+// Grouped history includes today's partial bar during a live session, so the
+// trailing window is taken from bars BEFORE the last one — otherwise today's
+// spike inflates its own baseline and suppresses the very signal we want.
+// ---------------------------------------------------------------
+export interface Abnormality {
+  sym: string;
+  avgVol: number;
+  rvol: number;
+  vol60dMax: number | null;
+  volVs60dMax: number | null;
+  unprecedented: boolean;
+}
+
+export function shortlistAbnormal(
+  series: Map<string, LiteBar[]>,
+  snapMap: Map<string, SnapInfo>
+): Abnormality[] {
+  const picks: Abnormality[] = [];
+
+  series.forEach((bars, sym) => {
+    const snap = snapMap.get(sym);
+    if (!snap) return;
+    if (bars.length < 25) return;
+
+    const prior = bars.slice(0, -1);
+    if (prior.length < 20) return;
+
+    const recent20 = prior.slice(-20).map(b => b.v).filter(v => v > 0);
+    if (recent20.length < 15) return;
+    const avgVol = recent20.reduce((a, b) => a + b, 0) / recent20.length;
+    if (avgVol <= 0) return;
+
+    const rvol = snap.vol / avgVol;
+    if (rvol < EP9M.minRvol) return;
+
+    const dVol = snap.vol * snap.price;
+    if (dVol < EP9M.minDollarVol) return;
+
+    const priorVols = prior.map(b => b.v).filter(v => v > 0);
+    const vol60dMax = priorVols.length > 0 ? Math.max(...priorVols) : null;
+    const volVs60dMax = vol60dMax && vol60dMax > 0 ? snap.vol / vol60dMax : null;
+
+    picks.push({
+      sym,
+      avgVol,
+      rvol,
+      vol60dMax,
+      volVs60dMax,
+      // "Never traded anywhere near this level" — literally, not rhetorically.
+      unprecedented: volVs60dMax != null && volVs60dMax >= 1.0,
+    });
+  });
+
+  picks.sort((a, b) => b.rvol - a.rvol);
+  return picks.slice(0, EP9M.shortlistSize);
+}
+
+// Share-count derived inputs. Float falls back to market cap / price when the
+// reference data has no share-class count; `||` (not `??`) is deliberate — a
+// reported 0 is missing data, not a zero float.
+export function shareMetrics(p: {
+  marketCap: number | null | undefined;
+  sharesOutstanding: number | null | undefined;
+  shortInterest: number | null | undefined;
+  price: number;
+  vol: number;
+  avgVol: number;
+}): {
+  mktCap: number | null;
+  float: number | null;
+  shortPct: number | null;
+  daysToCover: number | null;
+  floatTurnover: number | null;
+} {
+  const mktCap = p.marketCap || null;
+  const float = p.sharesOutstanding || (mktCap && p.price ? mktCap / p.price : null);
+
+  let shortPct: number | null = null;
+  let daysToCover: number | null = null;
+  const si = p.shortInterest;
+  if (si && float && float > 0) shortPct = (si / float) * 100;
+  if (si && p.avgVol > 0) daysToCover = si / p.avgVol;
+
+  const floatTurnover = float && float > 0 ? p.vol / float : null;
+  return { mktCap, float, shortPct, daysToCover, floatTurnover };
+}
+
+// Where the close sits in the day's range, 0 = low, 1 = high.
+export function closeStrengthOf(price: number, dayHigh: number | null, dayLow: number | null): number | null {
+  if (dayHigh != null && dayLow != null && dayHigh > dayLow) {
+    return (price - dayLow) / (dayHigh - dayLow);
+  }
+  return null;
+}
+
+export type CatalystTier = 'strong' | 'neutral' | 'negative' | 'none';
+
+/* The news lib's tier maps straight onto scoreEp9m's, with one adjustment:
+   'headline' has no slot there, and the honest translation is 'none' rather
+   than 'neutral'. A tier of 'headline' means something was published that did
+   NOT explain the move — exactly the filler this scan should not be paid for.
+   Rounding it up to neutral would hand +9 points to a Zacks rank update.
+
+   Negative sentiment on a strong tag demotes to neutral, same as the scanner:
+   "Reports Q2 Results" tags Earnings whether it beat or missed, and the price
+   action is already in the score, so applying a penalty here would count the
+   same fact twice. */
+export function catalystTierOf(news: NewsItem | null): CatalystTier {
+  if (!news) return 'none';
+  return news.tier === 'headline' ? 'none'
+    : news.tier === 'strong' && news.sentiment === 'negative' ? 'neutral'
+    : news.tier;
+}
+
+// ---------------------------------------------------------------
+// EP9M score (0-100), on the same grade lines as CNF (A>=70, B>=50)
+//
+// Volume abnormality carries half the weight because it IS the setup.
+// Close strength matters more than it looks: a stock that traded 12M shares
+// and closed on its low moved that volume from buyers to sellers.
+//
+// Money Flow is a modifier. Close strength is one day; MF is 21. A name can
+// close strong on the trigger day while the prior month was steady
+// distribution — that combination is a trap, and only MF sees it.
+//
+// NOTE: this score says nothing about whether the name is enterable. That is
+// the trade plan's job, and the two are deliberately kept apart — a 90 here
+// means the volume event is exceptional, not that there is room to be paid.
+//
+// v1.6: chop14 is NOT a component here, for the same reason. It measures the
+// regime the volume landed in, which is a third question again — a 90 in a
+// chop regime is still an exceptional volume event, it just has nowhere to go.
+// ---------------------------------------------------------------
+export function scoreEp9m(q: {
+  rvol: number;
+  volVs60dMax: number | null;
+  floatTurnover: number | null;
+  daysToCover: number | null;
+  closeStrength: number | null;
+  mf: number | null;
+  catalystTier: CatalystTier;
+  priorTriggers: number;
+}): { score: number; grade: string; breakdown: Record<string, number> } {
+  const b: Record<string, number> = {};
+
+  b.rvol = 0;
+  if (q.rvol >= 10) b.rvol = 30;
+  else if (q.rvol >= 7) b.rvol = 26;
+  else if (q.rvol >= 5) b.rvol = 22;
+  else if (q.rvol >= 4) b.rvol = 17;
+  else if (q.rvol >= 3) b.rvol = 12;
+
+  b.unprecedented = 0;
+  if (q.volVs60dMax != null) {
+    if (q.volVs60dMax >= 2.0) b.unprecedented = 20;
+    else if (q.volVs60dMax >= 1.5) b.unprecedented = 16;
+    else if (q.volVs60dMax >= 1.0) b.unprecedented = 12;
+    else if (q.volVs60dMax >= 0.7) b.unprecedented = 5;
+  }
+
+  b.floatTurnover = 0;
+  if (q.floatTurnover != null) {
+    if (q.floatTurnover >= 1.0) b.floatTurnover = 15;
+    else if (q.floatTurnover >= 0.5) b.floatTurnover = 12;
+    else if (q.floatTurnover >= 0.25) b.floatTurnover = 8;
+    else if (q.floatTurnover >= 0.10) b.floatTurnover = 4;
+  }
+
+  b.catalyst = 0;
+  if (q.catalystTier === 'strong') b.catalyst = 15;
+  else if (q.catalystTier === 'neutral') b.catalyst = 9;
+  else if (q.catalystTier === 'negative') b.catalyst = -20;
+
+  b.closeStrength = 0;
+  if (q.closeStrength != null) {
+    if (q.closeStrength >= 0.85) b.closeStrength = 10;
+    else if (q.closeStrength >= 0.70) b.closeStrength = 7;
+    else if (q.closeStrength >= 0.50) b.closeStrength = 3;
+    else if (q.closeStrength <= 0.25) b.closeStrength = -8;
+  }
+
+  b.moneyFlow = 0;
+  if (q.mf != null) {
+    if (q.mf >= 65) b.moneyFlow = 8;
+    else if (q.mf >= 55) b.moneyFlow = 5;
+    else if (q.mf <= 35) b.moneyFlow = -10;
+    else if (q.mf <= 45) b.moneyFlow = -5;
+  }
+
+  b.daysToCover = 0;
+  if (q.daysToCover != null) {
+    if (q.daysToCover >= 5) b.daysToCover = 10;
+    else if (q.daysToCover >= 3) b.daysToCover = 6;
+    else if (q.daysToCover >= 1.5) b.daysToCover = 3;
+  }
+
+  b.repeatOffender = q.priorTriggers >= 2 ? 5 : q.priorTriggers === 1 ? 3 : 0;
+
+  const raw = Object.values(b).reduce((s, v) => s + v, 0);
+  const score = Math.max(0, Math.min(100, Math.round(raw)));
+  const grade = score >= 70 ? 'A' : score >= 50 ? 'B' : 'C';
+  return { score, grade, breakdown: b };
+}
+
+// ---------------------------------------------------------------
+// EP TYPE CLASSIFICATION — the Bonde framework.
+//
+// Five variations, checked in priority order. A name can match multiple
+// types; the first match wins because it is the most actionable read.
+//
+//   1. Delayed Reaction — re-trigger 3–20 days after a prior EP. The initial
+//      gap is priced; this is the re-break after a pullback, tighter stop.
+//   2. Classical Growth — explosive revenue surprise (50%+ sales growth).
+//   3. Turnaround — CEO change, or a cheap stock posting results.
+//   4. Stories & Themes — narrative drives the move, not fundamentals.
+//   5. Volume (default) — pure abnormality, no specific classification.
+// ---------------------------------------------------------------
+
+const EP_THEMES: { name: string; rx: RegExp }[] = [
+  { name: 'AI', rx: /\b(?:artificial intelligence|machine learning|deep learning|neural|large language|generative ai|computer vision)\b|\bai\b/i },
+  { name: 'Quantum', rx: /\bquantum\b/i },
+  { name: 'Crypto', rx: /\b(?:bitcoin|crypto(?:currency)?|blockchain|digital asset)\b/i },
+  { name: 'Space', rx: /\b(?:spacecraft|spaceflight|satellite|rocket|launch vehicle|orbital|lunar)\b/i },
+  { name: 'Nuclear', rx: /\b(?:nuclear|uranium|reactor)\b/i },
+  { name: 'Defense', rx: /\b(?:defense|defence|military|weapon|missile|unmanned)\b/i },
+  { name: 'GLP-1', rx: /\b(?:glp.?1|anti.?obes|semaglutide|tirzepatide|incretin)\b/i },
+];
+
+export function classifyEpType(params: {
+  fund: { attrs: { revGrowthPct: number | null; pe: number | null } } | null;
+  newsTag: string | null;
+  companyName: string;
+  sector: string;
+  catalyst: string | null;
+  priorTriggers: number;
+  mostRecentPriorDaysAgo: number | null;
+}): { epType: 'growth' | 'turnaround' | 'delayed' | 'theme' | 'volume'; epTheme: string | null } {
+  const { fund, newsTag, companyName, sector, catalyst, priorTriggers, mostRecentPriorDaysAgo } = params;
+  const revGrowth = fund?.attrs?.revGrowthPct ?? null;
+  const pe = fund?.attrs?.pe ?? null;
+
+  // 1. Delayed Reaction — re-trigger 3–20 trading days after prior EP.
+  if (priorTriggers > 0 && mostRecentPriorDaysAgo != null &&
+      mostRecentPriorDaysAgo >= 3 && mostRecentPriorDaysAgo <= 20) {
+    return { epType: 'delayed', epTheme: null };
+  }
+
+  // 2. Classical Growth — triple-digit sales growth is the headline case;
+  //    50%+ with an earnings catalyst is the broader definition.
+  const isEarningsCatalyst = newsTag === 'Earnings' || newsTag === 'Guidance';
+  if (revGrowth != null && revGrowth >= 100 && isEarningsCatalyst) {
+    return { epType: 'growth', epTheme: null };
+  }
+  if (revGrowth != null && revGrowth >= 50 && newsTag === 'Earnings') {
+    return { epType: 'growth', epTheme: null };
+  }
+
+  // 3. Turnaround — CEO/CFO change, or cheap stock posting results.
+  if (newsTag === 'Management') {
+    return { epType: 'turnaround', epTheme: null };
+  }
+  if (pe != null && pe > 0 && pe < 15 && isEarningsCatalyst) {
+    return { epType: 'turnaround', epTheme: null };
+  }
+
+  // 4. Stories & Themes — narrative drives the move, not fundamentals.
+  //    Only fires when there is no strong fundamental story.
+  const hasStrongFundamentals = revGrowth != null && revGrowth >= 25;
+  if (!hasStrongFundamentals) {
+    const text = `${companyName} ${sector} ${catalyst || ''}`;
+    for (const t of EP_THEMES) {
+      if (t.rx.test(text)) return { epType: 'theme', epTheme: t.name };
+    }
+  }
+
+  // 5. Default — pure volume anomaly.
+  return { epType: 'volume', epTheme: null };
+}
