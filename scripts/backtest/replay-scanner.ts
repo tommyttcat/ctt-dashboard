@@ -25,10 +25,15 @@
 //   - The $10M market-cap gate is skipped: it needs point-in-time reference
 //     data per name-day, and the $5M dollar-volume and $2 price floors already
 //     exclude nearly everything it would.
-//   - No CNF score. computeCnfScore needs live context (catalyst tier, earnings
-//     calendar, breadth signal, hot sector, scan streaks) that cannot be
-//     rebuilt honestly for a past date, and a CNF computed with those inputs
-//     defaulted would be a different score wearing the same name.
+//   - CNF is computed with its BAR-DERIVED inputs only (RVOL, gap, range
+//     expansion, relative strength vs SPY, setup, stage, golden cross,
+//     off-high, dot, EMA position, plan fields, ATR%, RME, VWAP, scan streak
+//     rebuilt from this replay's own history). The live-context inputs —
+//     catalyst tier, earnings calendar, breadth signal, hot sector — are held
+//     NEUTRAL because they cannot be rebuilt per past date. So `cnfPartial` is
+//     not the live CNF; it is the part of CNF the bars can justify, which is
+//     exactly what a re-weighting argument has to be built on. Rows carry the
+//     breakdown so each component can be tested on its own.
 //   - Common-stock check from the cached reference list.
 
 import fs from 'node:fs';
@@ -45,6 +50,8 @@ import {
   passesSipFinal, passesDailyFinal, detectPattern, type ScannerBar,
 } from '@/lib/scans/scanner';
 import { computeDotDetail } from '@/lib/indicators/dots';
+import { computeCnfScore } from '@/lib/indicators/confluence';
+import { computeRMEDetail } from '@/lib/indicators/rme';
 import { computeMoneyFlow } from '@/lib/indicators/moneyflow';
 import { choppiness, CHOP_PERIOD_DEFAULT } from '@/lib/indicators/chop';
 import { computeTradePlan } from '@/lib/indicators/tradeplan';
@@ -65,6 +72,9 @@ function main() {
   const ref = loadReference();
   const rsFor = makeRsFor(cache);
   const spy = idOf.get('SPY');
+  /* Consecutive sessions a name has been on either list — the live scan's
+     scanStreak, rebuilt from this replay rather than read from KV. */
+  const streak = new Map<string, { sIdx: number; n: number }>();
 
   fs.mkdirSync(OUT, { recursive: true });
   const regOut = fs.createWriteStream(path.join(OUT, 'scanner_registry.jsonl'));
@@ -102,6 +112,14 @@ function main() {
       .sort((a, b) => (b.price * b.vol) - (a.price * a.vol)).slice(0, DAILY_CANDIDATE_CAP);
 
     const rs = rsFor(s - 1);
+    // SPY context for the CNF inputs that compare against the market.
+    let spyChgToday = 0, spyAbove21: boolean | null = null;
+    if (spy !== undefined) {
+      const sc = barsOf(spy, s - 40, s).map(b => b.c);
+      if (sc.length > 1) spyChgToday = ((sc[sc.length - 1] / sc[sc.length - 2]) - 1) * 100;
+      const e21spy = ema(sc, 21);
+      if (e21spy != null) spyAbove21 = sc[sc.length - 1] > e21spy;
+    }
     const wanted = new Map<string, Cand>();
     for (const t of [...sipCandidates, ...dailyCandidates]) wanted.set(t.sym, t);
 
@@ -138,12 +156,15 @@ function main() {
       }
 
       const rvol = avgVol > 0 ? t.asV / avgVol : null;
+      const todayBar = asc[asc.length - 1];
       const dot = computeDotDetail(desc, { order: 'desc' });
       const pattern = detectPattern(desc, t.price, t.open, t.vwap, rvol, dot.kind, dot.stochK);
       const closes = asc.map(b => b.c);
       const e10 = ema(closes, 10), e21 = ema(closes, 21), e50 = ema(closes, 50);
       const s50 = sma(closes, 50), s200 = sma(closes, 200);
       const gapPct = ((t.open - (asc[asc.length - 2]?.c ?? t.open)) / (asc[asc.length - 2]?.c ?? t.open)) * 100;
+      const hi52 = Math.max(...asc.slice(-252).map(b => b.h));
+      const pctOffHigh = hi52 > 0 ? ((hi52 - t.price) / hi52) * 100 : null;
       const plan = computeTradePlan({
         price: t.price, adrPct, atrPct: t.price > 0 ? (atr / t.price) * 100 : null, changePct: t.chg,
         ema10: e10, ema21: e21, ema50: e50, dayHigh: H[id][s], priorSwingHigh: null,
@@ -153,6 +174,49 @@ function main() {
       });
       const r2 = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 
+      /* CNF, bar-derived half. atr14 here is the same 14-bar ATR the route
+         builds from its descending series, and rsVsMkt is today's move minus
+         SPY's, exactly as live. */
+      let atr14 = 0, trN = 0;
+      for (let i = 0; i < Math.min(14, desc.length - 1); i++) {
+        const prevClose = desc[i + 1].c;
+        atr14 += Math.max(desc[i].h - desc[i].l, Math.abs(desc[i].h - prevClose), Math.abs(desc[i].l - prevClose));
+        trN++;
+      }
+      atr14 = trN > 0 ? atr14 / trN : 0;
+      const atrExpansion = atr14 > 0 && todayBar ? (todayBar.h - todayBar.l) / atr14 : null;
+      const rsVsMkt = t.chg - spyChgToday;
+      const prevStreak = streak.get(sym);
+      const scanStreak = prevStreak && prevStreak.sIdx === s - 1 ? prevStreak.n + 1 : 1;
+      const rme = computeRMEDetail(asc, { maLength: 21, lookback: 250 }).rme;
+      const cnf = computeCnfScore(rvol, gapPct, atrExpansion, rsVsMkt, {
+        catalystTier: 'none',          // live-context input, held neutral
+        hasEarnings: false,            // live-context input, held neutral
+        scanStreak,
+        rme,
+        vwapStatus: t.price >= t.vwap ? 'above' : 'below',
+        tradeType: '',
+        setupName: pattern.name,
+        breadthSignal: 'NEUTRAL',      // live-context input, held neutral
+        spyAbove21,
+        inHotSector: false,            // live-context input, held neutral
+        stageNum: pattern.stageNum,
+        goldenCross: s50 != null && s200 != null ? s50 > s200 : null,
+        pctOffHigh,
+        dotKind: dot.kind,
+        dotBarsSince: dot.barsSinceExtreme,
+        isBearInstrument: false,
+        aboveEma10: e10 != null ? t.price >= e10 : null,
+        planTradeable: plan.tradeable,
+        planResistanceR: plan.resistanceR ?? null,
+        planClear: plan.clear ?? false,
+        planCollapsed: plan.collapsed ?? false,
+        distToEma21: e21 ? ((t.price - e21) / e21) * 100 : null,
+        atrPct: t.price > 0 ? (atr / t.price) * 100 : null,
+        adrPct,
+        closeStrength: H[id][s] > L[id][s] ? (t.price - L[id][s]) / (H[id][s] - L[id][s]) : null,
+      });
+
       enriched.set(sym, {
         date, sIdx: s, ticker: sym, name: rec?.name ?? null,
         price: r2(t.price), priceAsTraded: t.asC, vol: t.asV, dVol: Math.round(t.asC * t.asV),
@@ -161,6 +225,9 @@ function main() {
         vwapStatus: t.price >= t.vwap ? 'above' : 'below',
         closeStrength: H[id][s] > L[id][s] ? r2((t.price - L[id][s]) / (H[id][s] - L[id][s])) : null,
         setupName: pattern.name, stage: pattern.stage, stageNum: pattern.stageNum,
+        cnfPartial: cnf.score, cnfGrade: cnf.grade, cnfBreakdown: cnf.breakdown,
+        cnfCeiling: cnf.ceiling, atrExpansion: r2(atrExpansion), rsVsMkt: r2(rsVsMkt),
+        scanStreak, rme: r2(rme),
         dotKind: dot.kind, stochK: r2(dot.stochK),
         rsRating: rs.ratings.get(sym) ?? null,
         mf: computeMoneyFlow(asc, { length: 21 }),
@@ -188,6 +255,12 @@ function main() {
         spyAbove200: s200 != null ? px > s200 : null,
         spy50Rising: s50 != null && s50p != null ? s50 > s50p : null,
       };
+    }
+
+    for (const r of [...finalSip, ...finalDaily]) {
+      const sym = r!.ticker as string;
+      const prev = streak.get(sym);
+      streak.set(sym, { sIdx: s, n: prev && prev.sIdx === s - 1 ? prev.n + 1 : 1 });
     }
 
     const sipSet = new Set(finalSip.map(r => r!.ticker as string));

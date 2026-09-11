@@ -70,13 +70,23 @@ export const computeCnfScore = (
     planCollapsed: boolean;
     distToEma21: number | null;
     atrPct: number | null;
+    /* v6.19 — both measured on the 5-year backtest of these tables and both
+       consistent across halves. adrPct: the name's normal daily travel; a
+       name that cannot move cannot pay, and one that moves too much cannot
+       be stopped. closeStrength: where the close sat in the day's range. */
+    adrPct?: number | null;
+    closeStrength?: number | null;
   }
 ): { score: number; grade: string; breakdown: Record<string, number>; ceiling: number; ceilingReason: string | null } => {
   const b: Record<string, number> = {};
 
+  /* v6.19: the 30-point tier is gone. Measured over 11,551 scored rows,
+     RVOL 3x+ averaged +0.087R while the 2-3x tier averaged +0.292R — the
+     extreme prints are exhaustion as often as demand, so the scale now tops
+     out where the evidence does. */
   b.rvol = 0;
   if (rvol != null) {
-    if (rvol >= 3) b.rvol = 30;
+    if (rvol >= 3) b.rvol = 24;
     else if (rvol >= 2) b.rvol = 24;
     else if (rvol >= 1.5) b.rvol = 18;
     else if (rvol >= 1) b.rvol = 10;
@@ -90,12 +100,11 @@ export const computeCnfScore = (
     else if (g >= 1.5) b.gap = 8;
   }
 
+  /* v6.19: flattened. A range 2x+ its own ATR scored 20 points and returned
+     -0.001R; the 8-point tier returned +0.244R. Expansion says the name woke
+     up, which is worth a few points, and says nothing beyond that. */
   b.rangeExpansion = 0;
-  if (atrExpansion != null) {
-    if (atrExpansion >= 2) b.rangeExpansion = 20;
-    else if (atrExpansion >= 1.5) b.rangeExpansion = 15;
-    else if (atrExpansion >= 1) b.rangeExpansion = 8;
-  }
+  if (atrExpansion != null && atrExpansion >= 1) b.rangeExpansion = 8;
 
   b.relStrength = 0;
   if (rsVsMkt != null) {
@@ -120,9 +129,18 @@ export const computeCnfScore = (
   // RME is a PERCENTILE and saturates. It cannot tell 7% above the anchor
   // from 198% above — both read 100. The absolute ceiling below is what
   // separates them.
-  b.extension = rmeScoreAdjustment(q.rme, isReversalSetupName(q.setupName));
+  /* v6.19: the RME extension penalty is retired. Rows carrying its full -12
+     averaged +0.318R — the best bucket on the table — because a name extended
+     above its anchor is a name in demand. The ABSOLUTE extension ceiling
+     below is kept: 20 ATRs above the anchor is still un-enterable, and that
+     is a different claim from "above average is bad". */
+  b.extension = 0;
 
-  b.vwap = q.vwapStatus === 'below' ? -(q.tradeType === 'Day Trade' ? 12 : 4) : 0;
+  /* v6.19: the below-VWAP penalty is retired for swing rows — those rows
+     averaged +0.227R against +0.136R for above-VWAP. The day-trade penalty
+     stays: VWAP is the day trader's line, and that population is not what
+     the backtest measured. */
+  b.vwap = q.vwapStatus === 'below' && q.tradeType === 'Day Trade' ? -12 : 0;
 
   b.regime = 0;
   const isBreakout = isBreakoutSetupName(q.setupName);
@@ -146,15 +164,34 @@ export const computeCnfScore = (
   // plan with no resistance reading scores 0 rather than a penalty — that is
   // the overextended case from tradeplan v1.4, and the ceiling below handles
   // it properly.
+  /* v6.19: the penalties are gone, the reward stays. Rows docked -10 for no
+     runway averaged +0.199R and rows docked -2 averaged -0.023R: the ladder
+     ran backwards. Overhead resistance is a reason to size smaller, not a
+     reason to rank a name below one with a collapsed plan. The collapse
+     CEILING below still caps those rows at 44. */
   b.runway = 0;
-  if (q.planCollapsed) {
-    b.runway = -10;
-  } else if (q.planTradeable) {
-    if (q.planClear) b.runway = 8;
-    else if (q.planResistanceR == null) b.runway = 0;
-    else if (q.planResistanceR >= 1.0) b.runway = -2;
-    else if (q.planResistanceR >= 0.5) b.runway = -6;
-    else b.runway = -10;
+  if (!q.planCollapsed && q.planTradeable && q.planClear) b.runway = 8;
+
+  /* v6.19 — ADR band. The strongest filter the backtest found on these
+     tables, consistent in both halves: ADR above 9% averaged -0.27R while
+     6-9% averaged +0.29R. Too little travel cannot pay for the spread; too
+     much cannot be stopped inside a normal day. */
+  b.adr = 0;
+  if (q.adrPct != null) {
+    if (q.adrPct > 9) b.adr = -15;
+    else if (q.adrPct >= 6) b.adr = 10;
+    else if (q.adrPct >= 4) b.adr = 6;
+    else if (q.adrPct >= 3) b.adr = 3;
+  }
+
+  /* v6.19 — close strength. Who won the day's fight, and the cleanest
+     one-day read on both tables: a close in the top 10% of the range
+     averaged +0.26R against +0.01R for a mid-range close. */
+  b.closeStrength = 0;
+  if (q.closeStrength != null) {
+    if (q.closeStrength >= 0.9) b.closeStrength = 10;
+    else if (q.closeStrength >= 0.75) b.closeStrength = 5;
+    else if (q.closeStrength < 0.5) b.closeStrength = -6;
   }
 
   // NOTE (v6.18): chop14 is deliberately NOT a component here. It is emitted
@@ -245,6 +282,10 @@ export const computeCnfScore = (
     structuralReason;
 
   const score = Math.max(0, Math.min(ceiling, Math.round(raw)));
-  const grade = score >= 70 ? 'A' : score >= 50 ? 'B' : 'C';
+  /* v6.19 thresholds, set where the outcomes actually change. On the 5-year
+     backtest the new scale ran -0.10R below 30, +0.06R at 30-44, +0.17R at
+     45-59 and +0.38R at 60-74, so A starts at 60 and B at 45. The old 70/50
+     lines were inherited from the pre-v6.19 scale and put the best rows in B. */
+  const grade = score >= 60 ? 'A' : score >= 45 ? 'B' : 'C';
   return { score, grade, breakdown: b, ceiling, ceilingReason };
 };

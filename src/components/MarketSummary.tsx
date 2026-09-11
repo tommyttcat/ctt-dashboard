@@ -558,6 +558,12 @@ const edgeOf = (s: Parameters<typeof priceOf>[0]): EdgeTier | null => {
   return (price - lo) / (hi - lo) >= 0.9 ? 'green' : 'yellow';
 };
 
+const EDGE_FILTER_TIP: Record<EdgeTier, string> = {
+  green: 'cleared both losing filters and closed in the top 10% of the day\'s range (+0.26R in the 5-year test)',
+  yellow: 'cleared the filters but closed lower in the range',
+  red: 'ADR above 9% (-0.27R) or price $5-10 (-0.15R) — both lost in every half of the test',
+};
+
 const EDGE_TINT: Record<EdgeTier, string> = {
   green: 'bg-emerald-500/[0.07]',
   yellow: 'bg-amber-400/[0.05]',
@@ -2739,18 +2745,15 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
     setActiveKey(prev => prev === key ? null : key);
   };
 
+  const [edgeKey, setEdgeKey] = React.useState<EdgeTier | null>(null);
+
   const filtered = React.useMemo(() => {
     const activeFilter = activeKey ? ALL_SETUP_FILTERS.find(f => f.key === activeKey) : null;
     let base = activeFilter ? taggedPool.filter(activeFilter.match) : taggedPool;
     if (sf) {
       base = base.filter(item => passesPoolFilter(sf, item));
     }
-    /* Green only. This card is the shortlist, so it carries just the names
-       that clear both losing filters from the backtest (ADR 9%+, $5-10) AND
-       closed in the top 10% of the day's range — the +0.26R bucket. The full
-       lists, tinted rather than filtered, are on the individual cards. */
-    const green = base.filter(item => edgeOf(item) === 'green');
-    base = green;
+    if (edgeKey) base = base.filter(item => edgeOf(item) === edgeKey);
     const cmp = (a: any, b: any) => {
       let av = 0, bv = 0;
       switch (sortKey) {
@@ -2765,23 +2768,52 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
       return sortDir === 'desc' ? bv - av : av - bv;
     };
     return [...base].sort(cmp).slice(0, 20);
-  }, [taggedPool, activeKey, sortKey, sortDir, sf]);
+  }, [taggedPool, activeKey, edgeKey, sortKey, sortDir, sf]);
 
   const tickers = filtered.map(s => s.ticker).filter(Boolean);
 
   if (taggedPool.length === 0) return null;
 
+  /* Colour quick-filter. Same single-select behaviour as the other pills:
+     click to isolate, click again for all. Counts come from the same pool the
+     rows do, so an empty state is visible before it is clicked. */
+  const EDGE_FILTERS: { key: EdgeTier; label: string; cls: string }[] = [
+    { key: 'green', label: 'GREEN', cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
+    { key: 'yellow', label: 'YELLOW', cls: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
+    { key: 'red', label: 'RED', cls: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
+  ];
+
+  const edgePills = () =>
+    EDGE_FILTERS.map(f => {
+      const count = taggedPool.filter(item => edgeOf(item) === f.key).length;
+      if (count === 0) return null;
+      const on = edgeKey === f.key;
+      return (
+        <button
+          key={f.key}
+          onClick={() => setEdgeKey(edgeKey === f.key ? null : f.key)}
+          title={`${f.label} rows — ${EDGE_FILTER_TIP[f.key]}`}
+          className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border transition-all duration-150 ${
+            on ? f.cls : edgeKey == null ? f.cls : 'text-slate-600 bg-transparent border-white/5'
+          }`}
+        >
+          {f.label} {count}
+        </button>
+      );
+    });
+
   const pills = (filters: SetupFilter[]) =>
     filters.map(f => {
       const on = activeKey === f.key;
       const count = taggedPool.filter(f.match).length;
+      // A pill with nothing behind it is noise: hide it rather than grey it.
+      if (count === 0) return null;
       return (
         <button
           key={f.key}
-          onClick={() => count > 0 ? toggle(f.key) : undefined}
+          onClick={() => toggle(f.key)}
           className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border transition-all duration-150 ${
-            count === 0 ? 'text-slate-700 bg-transparent border-white/[0.03] cursor-default'
-              : on ? f.cls : activeKey == null ? f.cls : 'text-slate-600 bg-transparent border-white/5'
+            on ? f.cls : activeKey == null ? f.cls : 'text-slate-600 bg-transparent border-white/5'
           }`}
         >
           {f.label} {count}
@@ -2794,6 +2826,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
       <div className="flex items-center gap-1.5 flex-wrap mb-2">
         {pills(SETUP_SOURCE_FILTERS)}
         {pills(SETUP_PATTERN_FILTERS)}
+        {edgePills()}
       </div>
       {filtered.length === 0 ? (
         <p className="text-[10px] text-slate-500 font-medium">No names match the active filter.</p>
@@ -2832,7 +2865,9 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
               scanner backtest and only use traits that held in both halves —
               the tooltip carries the numbers so the line stays one row. */}
           <p className="relative group/edge text-[10px] text-slate-500 font-medium mt-1 cursor-help inline-flex items-center gap-2">
-            <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-500/30" />shortlist only — cleared the backtested filters and closed strong</span>
+            <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-500/30" />green</span>
+            <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-400/30" />yellow</span>
+            <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-rose-500/30" />red</span>
             <span className="absolute bottom-full left-0 mb-2 w-72 px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 font-normal whitespace-normal opacity-0 pointer-events-none group-hover/edge:opacity-100 transition-opacity z-[9999]">
               This card shows only the green rows: names that closed in the top 10% of the day&apos;s range (+0.26R) AND avoided the two filters that lost money in both halves of the 5-year backtest — ADR above 9% (−0.27R) and price $5–10 (−0.15R). The individual scan cards still show everything, tinted green/yellow/red.
             </span>

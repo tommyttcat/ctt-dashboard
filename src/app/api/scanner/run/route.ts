@@ -1733,6 +1733,10 @@ async function runScan(request: Request) {
           planClear: t.plan?.clear === true,
           planCollapsed: t.plan?.collapsed === true,
           distToEma21: t.distToEma21 ?? null,
+          adrPct: t.adrPct ?? null,
+          closeStrength: (t.dayHigh != null && t.dayLow != null && t.dayHigh > t.dayLow)
+            ? (t.price - t.dayLow) / (t.dayHigh - t.dayLow)
+            : null,
           atrPct: t.atrPct ?? null,
         }
       );
