@@ -3799,8 +3799,11 @@ export default function MarketSummary() {
                             const rvol = h.avgVol ? h.vol / h.avgVol : 0;
                             const fmtV = (v: number) => v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : '—';
                             const fmtDV = (v: number) => v >= 1e9 ? `$${(v / 1e9).toFixed(1)}B` : v >= 1e6 ? `$${(v / 1e6).toFixed(0)}M` : v > 0 ? `$${(v / 1e3).toFixed(0)}K` : '—';
+                            /* Same edge tint as the scan cards, via the shared
+                               per-ticker map so every card agrees. */
+                            const hrsEdge = macroInsights?.edgeMap?.[h.symbol] ?? null;
                             return (
-                              <div key={h.symbol} className="flex items-center whitespace-nowrap py-[1px]">
+                              <div key={h.symbol} className={`flex items-center whitespace-nowrap py-[1px] ${hrsEdge ? `${EDGE_TINT[hrsEdge]} rounded-sm` : ''}`}>
                                 <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={h.symbol} /></span></span>
                                 <TickerChartHover symbol={h.symbol}><span className={`${gradeChipCls(hrsGrade, false)} w-[38px] md:w-[44px]`}>{h.symbol}</span></TickerChartHover>
                                 <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-0.5 w-[28px] md:w-[30px] leading-[14px] text-center ${h.score >= 70 ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/10' : h.score >= 50 ? 'text-amber-400 border-amber-500/20 bg-amber-500/10' : 'text-slate-400 border-white/5 bg-white/[0.03]'}`}>{h.score}</span>
@@ -4323,8 +4326,11 @@ export default function MarketSummary() {
                                     const fmtDv = dv >= 1e9 ? '$' + (dv / 1e9).toFixed(1) + 'B' : dv >= 1e6 ? '$' + (dv / 1e6).toFixed(0) + 'M' : dv > 0 ? '$' + (dv / 1e3).toFixed(0) + 'K' : '';
                                     const isAvoid = macroInsights.avoidSet?.has(s.symbol) || s.dotKind === 'red';
                                     const isBlueDot = s.dotKind === 'blue';
+                                    /* Same edge tint as the scan cards, from the
+                                       shared per-ticker map so every card agrees. */
+                                    const edge = macroInsights.edgeMap?.[s.symbol] ?? null;
                                     return (
-                                      <div key={idx} className="flex items-center whitespace-nowrap py-[1px]">
+                                      <div key={idx} className={`flex items-center whitespace-nowrap py-[1px] ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}>
                                         <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={s.symbol} /></span></span>
                                         <TickerChartHover symbol={s.symbol}><span className={`${gradeChipCls(s.grade, isAvoid)} w-[38px] md:w-[44px]`}>{s.symbol}</span></TickerChartHover>
                                         <span className="inline-block w-[12px] text-center leading-none shrink-0" />
