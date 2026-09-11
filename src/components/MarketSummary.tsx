@@ -2332,7 +2332,9 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
       } else if (/^TR \d/.test(ex) || /^ST \d/.test(ex)) {
         // removed from the summary — trigger and stop live in the plan tooltip
       } else if (CATALYST_TAGS_SET.has(ex)) {
-        extraEls.push(<span key={`ex${ei}`} className="hidden md:inline text-[7px] font-medium text-amber-400/80 ml-1">{ex}</span>);
+        /* Catalyst tags are not rendered on the summary row: the star is the
+           news marker and its tooltip already carries the tag, publisher, age
+           and headline. The tag beside it was the same fact twice. */
       } else if (ex && ex !== '∅') {
         extraEls.push(<span key={`ex${ei}`} className="hidden md:inline text-[7px] text-slate-500 ml-1">{ex}</span>);
       }
