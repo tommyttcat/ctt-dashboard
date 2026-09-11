@@ -2645,8 +2645,10 @@ const renderSetupRow = (
   const indicatorLabel = overlap >= 2 ? overlap + '×' : rpt ? `EP${rpt.count}` : '';
   const indicatorColor = overlap >= 2 ? 'text-indigo-400/80' : rpt ? 'text-fuchsia-400/80' : 'text-slate-500';
   const mbGradeCls = mbf ? (mbf.grade === 'A' ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/10' : mbf.grade === 'B' ? 'text-sky-400 border-sky-500/20 bg-sky-500/10' : mbf.grade === 'C' ? 'text-amber-400 border-amber-500/20 bg-amber-500/10' : 'text-slate-400 border-slate-500/20 bg-slate-500/10') : '';
+  const edge = edgeOf(s);
+
   return (
-    <div key={`ss-${s.ticker}-${i}`} className="flex items-center gap-0">
+    <div key={`ss-${s.ticker}-${i}`} className={`flex items-center gap-0 ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}>
       <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={s.ticker} /></span></span>
       <div className="w-[28px] shrink-0 flex items-center justify-end pr-1.5 gap-0.5">
         {hasIndicator && (
@@ -2818,6 +2820,17 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
           })()}
           <p className="text-[10px] text-slate-500 font-medium mt-2">
             {filtered.length} name{filtered.length !== 1 ? 's' : ''}{activeKey ? ` — ${ALL_SETUP_FILTERS.find(f => f.key === activeKey)?.label ?? activeKey}` : ' — all scans'}.
+          </p>
+          {/* Legend for the row tint. The three states come from the 5-year
+              scanner backtest and only use traits that held in both halves —
+              the tooltip carries the numbers so the line stays one row. */}
+          <p className="relative group/edge text-[10px] text-slate-500 font-medium mt-1 cursor-help inline-flex items-center gap-2">
+            <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-500/30" />closed strong</span>
+            <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-400/30" />mid-range</span>
+            <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-rose-500/30" />ADR &gt; 9% or $5–10</span>
+            <span className="absolute bottom-full left-0 mb-2 w-72 px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 font-normal whitespace-normal opacity-0 pointer-events-none group-hover/edge:opacity-100 transition-opacity z-[9999]">
+              From the 5-year backtest of these tables (Sep 2022–Sep 2026, next-open entry, trailing 21 EMA). Green: closed in the top 10% of the day&apos;s range — +0.26R. Red: ADR above 9% (−0.27R) or price $5–10 (−0.15R); both lost money in the first two-thirds of the period and the last third. Yellow: clears those but closed lower in the range.
+            </span>
           </p>
         </>
       )}
