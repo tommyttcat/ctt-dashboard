@@ -2745,7 +2745,10 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
     setActiveKey(prev => prev === key ? null : key);
   };
 
-  const [edgeKey, setEdgeKey] = React.useState<EdgeTier | null>(null);
+  /* Green by default: the card is the shortlist, so it opens on the names
+     that cleared both losing filters and closed strong. The pills switch to
+     yellow, red, or all with one click. */
+  const [edgeKey, setEdgeKey] = React.useState<EdgeTier | null>('green');
 
   const filtered = React.useMemo(() => {
     const activeFilter = activeKey ? ALL_SETUP_FILTERS.find(f => f.key === activeKey) : null;
