@@ -185,6 +185,7 @@ interface MacroInsights {
   priceMap?: Record<string, number>;
   rsMap?: Record<string, number>;
   stageMap?: Record<string, string>;
+  edgeMap?: Record<string, EdgeTier>;
   avoidSet?: Set<string>;
   topCatalyst?: TopCatalyst | null;
   topCatalysts?: TopCatalyst[];
@@ -528,6 +529,39 @@ const dVolOf = (s: any): number => {
    not industries — they belong in ETF Flow, not Sector Concentration, and never in
    the 10/21 thesis. */
 const priceOf = (s: any): number | null => numOrNull(s?.price ?? s?.last ?? s?.close);
+
+/* ---- Edge tint -----------------------------------------------------------
+   Three states from the 5-year scanner backtest (Sep 2022 - Sep 2026, SIP +
+   Daily rows, next-open entry trailing the 21 EMA). Only traits that held in
+   BOTH halves of the period are used:
+
+     red     ADR above 9% (-0.27R) or price $5-10 (-0.15R). Both lost money
+             in the first two-thirds AND the last third.
+     green   clears those and closed in the top 10% of the day's range
+             (+0.26R, the strongest consistent trait).
+     yellow  clears them but closed lower in the range — fine, not the best
+             version of the setup.
+
+   Null when ADR or the day's range is missing: no tint beats a guessed one. */
+type EdgeTier = 'green' | 'yellow' | 'red';
+
+const edgeOf = (s: Parameters<typeof priceOf>[0]): EdgeTier | null => {
+  const adr = numOrNull(s?.adrPct);
+  const price = priceOf(s);
+  if (adr == null || price == null) return null;
+  if (adr > 9) return 'red';
+  if (price >= 5 && price < 10) return 'red';
+  const hi = numOrNull(s?.dayHigh);
+  const lo = numOrNull(s?.dayLow);
+  if (hi == null || lo == null || !(hi > lo)) return 'yellow';
+  return (price - lo) / (hi - lo) >= 0.9 ? 'green' : 'yellow';
+};
+
+const EDGE_TINT: Record<EdgeTier, string> = {
+  green: 'bg-emerald-500/[0.07]',
+  yellow: 'bg-amber-400/[0.05]',
+  red: 'bg-rose-500/[0.07]',
+};
 const fmtPrc = (p: number | null | undefined): string => {
   if (p == null || p === 0) return '';
   if (p >= 1000) return p.toFixed(0);
@@ -1803,6 +1837,7 @@ const buildLocalInsights = (
   const priceMap: Record<string, number> = {};
   const rsMap: Record<string, number> = {};
   const stageMap: Record<string, string> = {};
+  const edgeMap: Record<string, EdgeTier> = {};
   for (const s of pool) {
     const t = s?.ticker;
     if (!t || gradeMap[t]) continue;
@@ -1819,6 +1854,8 @@ const buildLocalInsights = (
     if (rs != null && isFinite(rs) && !rsMap[t]) rsMap[t] = rs;
     const st = stageOf(s);
     if (st && st !== '—' && !stageMap[t]) stageMap[t] = st;
+    const edge = edgeOf(s);
+    if (edge && !edgeMap[t]) edgeMap[t] = edge;
   }
   for (const arr of [...Object.values(movers), swingList, consolList, vcpList, mbList, dvolList]) {
     if (!Array.isArray(arr)) continue;
@@ -1828,6 +1865,7 @@ const buildLocalInsights = (
       if (!priceMap[t]) { const prc = priceOf(s); if (prc != null) priceMap[t] = prc; }
       if (!rsMap[t]) { const rs = s?.rsRating != null ? Number(s.rsRating) : null; if (rs != null && isFinite(rs)) rsMap[t] = rs; }
       if (!stageMap[t]) { const st = stageOf(s); if (st && st !== '—') stageMap[t] = st; }
+      if (!edgeMap[t]) { const edge = edgeOf(s); if (edge) edgeMap[t] = edge; }
     }
   }
 
@@ -1843,6 +1881,7 @@ const buildLocalInsights = (
     priceMap,
     rsMap,
     stageMap,
+    edgeMap,
     topCatalyst,
     topCatalysts,
     setupPool,
@@ -2297,7 +2336,7 @@ const EXTRA_TOKEN_RX = new RegExp(
   'g'
 );
 
-const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>, chartHover?: boolean, priceMap?: Record<string, number>, rsMap?: Record<string, number>, stageMap?: Record<string, string>, skipWatchlistBtn?: boolean): React.ReactNode => {
+const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>, chartHover?: boolean, priceMap?: Record<string, number>, rsMap?: Record<string, number>, stageMap?: Record<string, string>, skipWatchlistBtn?: boolean, edgeMap?: Record<string, EdgeTier>): React.ReactNode => {
   const mapGrade = gradeMap?.[p.ticker] ?? null;
   const cnfGrade: 'A' | 'B' | null = p.cnf >= 70 ? 'A' : p.cnf >= 50 ? 'B' : null;
   const grade = cnfGrade === 'A' ? 'A' : mapGrade ?? cnfGrade;
@@ -2341,8 +2380,10 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
     });
   }
 
+  const edge = edgeMap?.[p.ticker] ?? null;
+
   return (
-    <div key={idx} className="flex items-center">
+    <div key={idx} className={`flex items-center ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}>
       {!skipWatchlistBtn && <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={p.ticker} /></span></span>}
       <div className={`${scrollRowCls} flex-1 min-w-0`} style={scrollRowStyle}>
       <div className="flex items-center whitespace-nowrap py-[1px]">
@@ -2485,10 +2526,10 @@ const renderEarningsRow = (p: ParsedEarningsRow, idx: number): React.ReactNode =
   );
 };
 
-const renderBodyLine = (line: string, li: number, aligned: boolean, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>, priceMap?: Record<string, number>, rsMap?: Record<string, number>, stageMap?: Record<string, string>): React.ReactNode => {
+const renderBodyLine = (line: string, li: number, aligned: boolean, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>, priceMap?: Record<string, number>, rsMap?: Record<string, number>, stageMap?: Record<string, string>, edgeMap?: Record<string, EdgeTier>): React.ReactNode => {
   if (aligned) {
     const parsed = parseStdLine(line);
-    if (parsed) return renderStdRow(parsed, li, gradeMap, dotMap, postureMap, avoidSet, true, priceMap, rsMap, stageMap);
+    if (parsed) return renderStdRow(parsed, li, gradeMap, dotMap, postureMap, avoidSet, true, priceMap, rsMap, stageMap, false, edgeMap);
     const evParsed = parseEventLine(line);
     if (evParsed) return renderEventRow(evParsed, li);
     const earnParsed = parseEarningsLine(line);
@@ -3944,7 +3985,7 @@ export default function MarketSummary() {
                                               </div>
                                             );
                                           }
-                                          els.push(renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap));
+                                          els.push(renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, macroInsights?.edgeMap));
                                           return els;
                                         });
                                       };
@@ -3954,7 +3995,7 @@ export default function MarketSummary() {
                                           const [heading, ...rows] = colLines;
                                           const isHeading = heading && heading.trim().endsWith(':');
                                           const render = (line: string, li: number) =>
-                                            renderBodyLine(line, li, true, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap);
+                                            renderBodyLine(line, li, true, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, macroInsights?.edgeMap);
                                           const earnHeader = (
                                             <div className={scrollRowCls} style={scrollRowStyle}>
                                               <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5 min-w-[344px]">
@@ -4011,7 +4052,7 @@ export default function MarketSummary() {
                                             return (
                                               <div className="space-y-1.5 mt-4 pt-3 border-t border-white/5">
                                                 {acLines.map((line, li) =>
-                                                  renderBodyLine(line, li, false, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap)
+                                                  renderBodyLine(line, li, false, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, macroInsights?.edgeMap)
                                                 )}
                                               </div>
                                             );
@@ -4034,7 +4075,7 @@ export default function MarketSummary() {
                                                   return <p key={li} className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5">{line.replace(/:$/, '')}</p>;
                                                 }
                                                 const els: React.ReactNode[] = [];
-                                                els.push(renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap));
+                                                els.push(renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, macroInsights?.edgeMap));
                                                 return els;
                                               });
                                             })()}
@@ -4058,7 +4099,7 @@ export default function MarketSummary() {
                                           const leftLines = sortedLines.slice(0, Math.ceil(sortedLines.length / 2));
                                           const rightLines = sortedLines.slice(Math.ceil(sortedLines.length / 2));
                                           const render = (line: string, li: number) =>
-                                            renderBodyLine(line, li, true, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap);
+                                            renderBodyLine(line, li, true, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, macroInsights?.edgeMap);
                                           const hdr = <SortableHeader sortKey={secSort.key} sortDir={secSort.dir} onSort={(k) => handleSectionSort(secSortKey, k)} />;
                                           return (
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
@@ -4073,7 +4114,7 @@ export default function MarketSummary() {
                                             const [heading, ...rows] = colLines;
                                             const isHeading = heading && heading.trim().endsWith(':');
                                             const render = (line: string, li: number) =>
-                                              renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap);
+                                              renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, macroInsights?.edgeMap);
                                             const isVcp = label === 'VCP Thesis';
                                             const isKeyEv = label === 'Key Events';
                                             const colSortKey = `${label}-${ci}`;
@@ -4150,7 +4191,7 @@ export default function MarketSummary() {
                                         {afterCols && (() => {
                                           const acLines = afterCols.trim().split('\n').filter(Boolean);
                                           const acRender = (line: string, li: number) =>
-                                            renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap);
+                                            renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, macroInsights?.edgeMap);
                                           const acHeader = sectionAligns && SECTION_HEADERS[label!] ? <SortableHeader sortKey={null} sortDir={'desc'} onSort={() => {}} isVcp={label === 'VCP Thesis'} /> : null;
                                           const acGroups: { heading: string | null; rows: string[] }[] = [];
                                           let acCur: { heading: string | null; rows: string[] } = { heading: null, rows: [] };
@@ -4188,7 +4229,7 @@ export default function MarketSummary() {
                                     const ss = sectionSorts[sk] ?? null;
                                     const bodyLines = body.split('\n').filter(Boolean);
                                     const renderLine = (line: string, li: number) =>
-                                      renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap);
+                                      renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, macroInsights?.edgeMap);
                                     if (!sectionAligns) {
                                       return <div className="space-y-2">{bodyLines.map(renderLine)}</div>;
                                     }
