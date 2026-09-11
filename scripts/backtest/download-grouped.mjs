@@ -11,9 +11,10 @@
 //   adj   — split-adjusted. Indicators and forward returns span splits, so
 //           they need one consistent price series.
 //
-// KEY HANDLING: reads ONLY trade-dash/.env.backtest. That file holds the
-// Polygon key and nothing else — deliberately no KV credentials, so nothing
-// run from here can reach production KV. The key is never logged.
+// KEY HANDLING: reads ONLY CTT/.env.backtest (one level above trade-dash, so
+// `vercel --prod` never uploads it). That file holds the Polygon key and
+// nothing else — deliberately no KV credentials, so nothing run from here can
+// reach production KV. The key is never logged.
 //
 // Resumable: a session already on disk is skipped. Holidays are written as an
 // empty marker so they are not re-requested. Throttled to stay well clear of
@@ -38,7 +39,7 @@ const GAP_MS = 250;
 const FIELDS = ['T', 'o', 'h', 'l', 'c', 'v', 'vw'];
 
 function readKey() {
-  const file = path.join(APP, '.env.backtest');
+  const file = path.resolve(APP, '../.env.backtest');
   const line = fs.readFileSync(file, 'utf8').split('\n').find(l => l.startsWith('POLYGON_API_KEY='));
   const key = line?.slice('POLYGON_API_KEY='.length).trim().replace(/^["']|["']$/g, '');
   if (!key || key === 'PASTE_KEY_HERE') throw new Error(`No POLYGON_API_KEY in ${file}`);
