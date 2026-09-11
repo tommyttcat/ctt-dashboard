@@ -30,6 +30,21 @@
 //     counted from it; days-ago in calendar days, as live.
 //   - Indicators via the same lib calls with the same parameters as the route.
 //
+// v2 (`npx tsx scripts/backtest/replay-ep9m.ts v2`, after download-lookups.mjs)
+// closes the three biggest v1 gaps with point-in-time data for every
+// shortlisted name — scored through the same shareMetrics / catalystTierOf /
+// pickBestNews the live route uses:
+//   - float + market cap + type from /v3/reference/tickers/{t}?date=D
+//   - short interest: latest settlement at least SI_LAG_DAYS before D (FINRA
+//     publishes ~7 business days after settlement, so anything newer was not
+//     yet public). NOTE the live routes currently read the OLDEST record —
+//     a bug, flagged separately; v2 scores the intended behaviour.
+//   - news: Polygon /v2/reference/news as of D 21:00 UTC (after the close),
+//     judged by pickBestNews with that clock. The live Benzinga index has no
+//     history, so v2 news is the Polygon feed only.
+//   Float turnover and days-to-cover use AS-TRADED volume, because share
+//   counts are as of D while the adjusted bars are scaled for later splits.
+//
 // Approximations in v1 (each one a named v2 item, not a silent gap):
 //   - EOD only. Live scans every 15 min and keeps the best intraday score;
 //     this equals the post-close scan. Entry is assumed next session.
@@ -52,8 +67,8 @@ import { APP, DATA, readDay, loadAdjusted } from './cache';
 import { EP9M } from '@/lib/scanConfig';
 import {
   shortlistAbnormal, scoreEp9m, classifyEpType, priorSwingHighOf,
-  closeStrengthOf, passesUniverseGate,
-  type LiteBar, type SnapInfo,
+  closeStrengthOf, passesUniverseGate, shareMetrics, catalystTierOf,
+  type LiteBar, type SnapInfo, type CatalystTier,
 } from '@/lib/scans/ep9m';
 import { computeRMV } from '@/lib/indicators/rmv';
 import { computeRMEDetail } from '@/lib/indicators/rme';
@@ -63,8 +78,39 @@ import { computeTradePlan } from '@/lib/indicators/tradeplan';
 import { choppiness, CHOP_PERIOD_DEFAULT } from '@/lib/indicators/chop';
 import { sma, ema, atr, adrPct, stochK } from '@/lib/indicators/marketMath';
 import { rawRsScore, percentileRank } from '@/lib/indicators/vcp';
+import { pickBestNews, type PolygonNewsRaw, type NewsItem } from '@/lib/indicators/news';
+import { cleanSectorDescription } from '@/lib/sectors';
+
+const VERSION = process.argv[2] === 'v2' ? 'v2' : 'v1';
+const SI_LAG_DAYS = 11;
+const NEWS_CLOCK_UTC = 'T21:00:00Z';
 
 const OUT = path.join(DATA, 'replay');
+const LOOKUPS = path.join(DATA, 'lookups');
+
+/* ── v2 point-in-time lookups ───────────────────────────────────────────── */
+
+interface Details { type?: string | null; market_cap?: number | null; share_class_shares_outstanding?: number | null; name?: string | null; sic_description?: string | null }
+interface DayLookups { [ticker: string]: { details?: Details | null; news?: PolygonNewsRaw[] } }
+
+function readDayLookups(date: string): DayLookups | null {
+  const f = path.join(LOOKUPS, 'bydate', date.slice(0, 4), `${date}.json.gz`);
+  return fs.existsSync(f) ? JSON.parse(zlib.gunzipSync(fs.readFileSync(f)).toString()) : null;
+}
+
+const shortCache = new Map<string, [string, number][]>();
+function shortInterestAsOf(sym: string, date: string): number | null {
+  let rows = shortCache.get(sym);
+  if (!rows) {
+    const f = path.join(LOOKUPS, 'shorts', `${sym}.json.gz`);
+    rows = fs.existsSync(f) ? JSON.parse(zlib.gunzipSync(fs.readFileSync(f)).toString()) : [];
+    shortCache.set(sym, rows!);
+  }
+  const cutoff = new Date(Date.parse(`${date}T00:00:00Z`) - SI_LAG_DAYS * 86_400_000).toISOString().slice(0, 10);
+  let best: number | null = null;
+  for (const [settled, si] of rows!) { if (settled <= cutoff) best = si; else break; }
+  return best;
+}
 
 const DAY_MS = 86_400_000;
 const PROFILE_SESSIONS = EP9M.volProfileDays;   // 60, as live
@@ -145,8 +191,12 @@ function main() {
   };
 
   fs.mkdirSync(OUT, { recursive: true });
-  const regOut = fs.createWriteStream(path.join(OUT, 'ep9m_v1_registry.jsonl'));
-  const sesOut = fs.createWriteStream(path.join(OUT, 'ep9m_v1_sessions.jsonl'));
+  const regOut = fs.createWriteStream(path.join(OUT, `ep9m_${VERSION}_registry.jsonl`));
+  const sesOut = fs.createWriteStream(path.join(OUT, `ep9m_${VERSION}_sessions.jsonl`));
+  // Every shortlisted name per session — the shortlist depends on bars only,
+  // so it is identical in v1 and v2 and drives download-lookups.mjs.
+  const slOut = fs.createWriteStream(path.join(OUT, 'ep9m_shortlist.jsonl'));
+  let missingLookups = 0;
 
   type RegEntry = { ticker: string; date: string; dateMs: number; score: number };
   let registry: RegEntry[] = [];
@@ -191,6 +241,9 @@ function main() {
 
     // Stage 3 — abnormality shortlist (shared code).
     const shortlist = shortlistAbnormal(series, snapMap);
+    slOut.write(JSON.stringify({ date, tickers: shortlist.map(a => a.sym) }) + '\n');
+    const dayLk = VERSION === 'v2' ? readDayLookups(date) : null;
+    if (VERSION === 'v2' && shortlist.length && !dayLk) missingLookups++;
 
     // Registry context, as the live route reads it.
     const cutoff = dMs - REGISTRY_DAYS * DAY_MS;
@@ -232,7 +285,8 @@ function main() {
       const sym = ab.sym;
       const snap = snapMap.get(sym)!;
       const refRec = refAt(ref, sym, date);
-      const tickerType = (refRec?.type || '').toUpperCase();
+      const lk = dayLk?.[sym];
+      const tickerType = ((VERSION === 'v2' && lk?.details ? lk.details.type : refRec?.type) || '').toUpperCase();
       if (tickerType && tickerType !== 'CS' && tickerType !== 'ADRC') { typeDropped++; continue; }
 
       const id = idOf.get(sym)!;
@@ -281,17 +335,36 @@ function main() {
       });
 
       const priorTriggers = priorCounts.get(sym) || 0;
+      const at = asTraded.get(sym)!;
+
+      // v2 inputs. v1 leaves them empty, which scores 0 / 'none' as before.
+      let sm: ReturnType<typeof shareMetrics> | null = null;
+      let news: NewsItem | null = null;
+      let tier: CatalystTier = 'none';
+      let sector = '';
+      if (VERSION === 'v2') {
+        const splitFactor = snap.vol > 0 ? at.v / snap.vol : 1;   // adjusted → as-traded shares
+        sm = shareMetrics({
+          marketCap: lk?.details?.market_cap,
+          sharesOutstanding: lk?.details?.share_class_shares_outstanding,
+          shortInterest: shortInterestAsOf(sym, date),
+          price: at.c, vol: at.v, avgVol: ab.avgVol * splitFactor,
+        });
+        news = pickBestNews(lk?.news ?? [], sym, Date.parse(`${date}${NEWS_CLOCK_UTC}`));
+        tier = catalystTierOf(news);
+        sector = cleanSectorDescription(lk?.details?.sic_description ?? undefined, undefined, undefined) || '';
+      }
+
       const scored = scoreEp9m({
         rvol: ab.rvol, volVs60dMax: ab.volVs60dMax,
-        floatTurnover: null, daysToCover: null,           // v2: point-in-time float + short interest
-        closeStrength, mf, catalystTier: 'none', priorTriggers, // v2: historical news
+        floatTurnover: sm?.floatTurnover ?? null, daysToCover: sm?.daysToCover ?? null,
+        closeStrength, mf, catalystTier: tier, priorTriggers,
       });
       const cls = classifyEpType({
-        fund: null, newsTag: null, companyName: refRec?.name || sym, sector: '',
-        catalyst: null, priorTriggers, mostRecentPriorDaysAgo: priorRecent.get(sym) ?? null,
+        fund: null, newsTag: news?.tag ?? null, companyName: lk?.details?.name || refRec?.name || sym, sector,
+        catalyst: news?.title ?? null, priorTriggers, mostRecentPriorDaysAgo: priorRecent.get(sym) ?? null,
       });
 
-      const at = asTraded.get(sym)!;
       const r4 = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
       candidates.push({
         date, sIdx: s, ticker: sym, name: refRec?.name ?? null,
@@ -310,6 +383,13 @@ function main() {
         distToEma21: e21 ? r4(((price - e21) / e21) * 100) : null,
         pctOffHigh: r4(pctOffHigh), rsRating, stage: computeStage(closes, { price }),
         priorTriggers, epType: cls.epType, epTheme: cls.epTheme,
+        ...(VERSION === 'v2' ? {
+          float: sm?.float ?? null, mktCap: sm?.mktCap ?? null, shortPct: r4(sm?.shortPct), daysToCover: r4(sm?.daysToCover),
+          floatTurnover: r4(sm?.floatTurnover), catalystTier: tier, newsTag: news?.tag ?? null,
+          newsPublisher: news?.publisher ?? null, newsAgeHours: news?.ageHours ?? null,
+          newsSentiment: news?.sentiment ?? null, newsCausal: news?.causal ?? null, sector: sector || null,
+          hasDetails: !!lk?.details,
+        } : {}),
         plan: {
           family: plan.family, tradeable: plan.tradeable, trigger: r4(plan.trigger), stop: r4(plan.stop),
           target: r4(plan.target), stopPct: r4(plan.stopPct), rMultiple: plan.rMultiple ?? null,
@@ -341,11 +421,12 @@ function main() {
     }
   }
 
-  regOut.end(); sesOut.end();
+  regOut.end(); sesOut.end(); slOut.end();
+  if (missingLookups) console.warn(`WARNING: ${missingLookups} sessions had no lookups file — run download-lookups.mjs first`);
   let commit = 'unknown';
   try { commit = execSync('git rev-parse --short HEAD', { cwd: APP }).toString().trim(); } catch { /* not fatal */ }
-  fs.writeFileSync(path.join(OUT, 'ep9m_v1_meta.json'), JSON.stringify({
-    version: 'v1-bars-only', commit, generatedAt: new Date().toISOString(),
+  fs.writeFileSync(path.join(OUT, `ep9m_${VERSION}_meta.json`), JSON.stringify({
+    version: VERSION === 'v2' ? 'v2-point-in-time' : 'v1-bars-only', siLagDays: SI_LAG_DAYS, newsClockUtc: NEWS_CLOCK_UTC, commit, generatedAt: new Date().toISOString(),
     firstScan: sessions[PROFILE_SESSIONS], lastScan: sessions[N - 1], sessionsScanned: N - PROFILE_SESSIONS,
     totalFinal, totalShadow, config: EP9M,
   }, null, 2));

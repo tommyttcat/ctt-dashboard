@@ -1,31 +1,36 @@
 """scripts/backtest/analyze_ep9m.py — slice the EP9M backtest outcomes.
 
-Run from trade-dash after replay + score:  python3 scripts/backtest/analyze_ep9m.py
-Reads  CTT/backtest-data/replay/ep9m_v1_{registry,outcomes}.jsonl
-Writes CTT/backtest-data/replay/ep9m_v1_summary.json  (and prints the headline tables)
+Run from trade-dash after replay + score:  python3 scripts/backtest/analyze_ep9m.py [v1|v2]
+Reads  CTT/backtest-data/replay/ep9m_<v>_{registry,outcomes}.jsonl
+Writes CTT/backtest-data/replay/ep9m_<v>_summary.json  (and prints the headline tables)
+
+Entry-based metrics are computed per ENTRY method (plan / open1 / pullback,
+see score-ep9m.ts); slices report the `plan` entry unless stated.
 
 Every slice is reported twice: IS = the earlier two-thirds of scan dates,
 OOS = the last third. A pattern that only shows up in one half is noise until
 proven otherwise — that split is the guard against fitting the score to the
 past. Slices under MIN_N are marked thin and should not be read.
 """
-import json, os, statistics as st
+import json, os, sys, statistics as st
 from collections import defaultdict
 
 HERE = os.getcwd()
 REPLAY = os.path.abspath(os.path.join(HERE, '..', 'backtest-data', 'replay'))
 MIN_N = 40
 EXITS = ['fixedTarget', 'trail10', 'trail21', 'hold20']
+ENTRIES = ['plan', 'open1', 'pullback']
+VERSION = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in ('v1', 'v2') else 'v1'
 
 
 def load():
     reg = {}
-    with open(os.path.join(REPLAY, 'ep9m_v1_registry.jsonl')) as f:
+    with open(os.path.join(REPLAY, f'ep9m_{VERSION}_registry.jsonl')) as f:
         for line in f:
             r = json.loads(line)
             reg[(r['date'], r['ticker'], r['inFinal'])] = r
     rows = []
-    with open(os.path.join(REPLAY, 'ep9m_v1_outcomes.jsonl')) as f:
+    with open(os.path.join(REPLAY, f'ep9m_{VERSION}_outcomes.jsonl')) as f:
         for line in f:
             o = json.loads(line)
             r = reg.get((o['date'], o['ticker'], o['inFinal']))
@@ -43,10 +48,14 @@ def bucket(v, edges, labels):
     return labels[-1]
 
 
-def stats(group):
-    """Plan-based metrics over triggered trades + plan-free forward metrics over all flags."""
-    matured = [g for g in group if g['out']['status'] in ('traded', 'no_trade')]
-    traded = [g['out'] for g in group if g['out']['status'] == 'traded']
+def entry(g, method):
+    return (g['out'].get('entries') or {}).get(method) or {'status': g['out']['status']}
+
+
+def stats(group, method='plan'):
+    """Entry-based metrics over filled trades + plan-free forward metrics over all flags."""
+    matured = [g for g in group if entry(g, method)['status'] in ('traded', 'no_trade')]
+    traded = [entry(g, method) for g in group if entry(g, method)['status'] == 'traded']
     fwd = [g['out']['fwd'] for g in group if g['out'].get('fwd') and g['out']['fwd'].get('ret20') is not None]
     s = {'n': len(group), 'matured': len(matured), 'traded': len(traded)}
     s['triggerRate'] = round(len(traded) / len(matured) * 100, 1) if matured else None
@@ -98,6 +107,13 @@ SLICES = {
     'dVol': lambda r: bucket(r['dVol'], [5e7, 1e8, 3e8, 1e9], ['<50M', '50-100M', '100-300M', '300M-1B', '1B+']),
     'stopPct': lambda r: bucket(r['plan'].get('stopPct'), [3, 5, 8, 12], ['<3', '3-5', '5-8', '8-12', '12+']),
     'year': lambda r: r['date'][:4],
+    # v2-only inputs (absent in v1 rows -> 'n/a')
+    'catalystTier': lambda r: r.get('catalystTier', 'n/a'),
+    'newsTag': lambda r: r.get('newsTag') or 'none',
+    'floatTurnover': lambda r: bucket(r.get('floatTurnover'), [0.1, 0.25, 0.5, 1], ['<.1', '.1-.25', '.25-.5', '.5-1', '1+']),
+    'daysToCover': lambda r: bucket(r.get('daysToCover'), [1.5, 3, 5], ['<1.5', '1.5-3', '3-5', '5+']),
+    'shortPct': lambda r: bucket(r.get('shortPct'), [5, 10, 20], ['<5', '5-10', '10-20', '20+']),
+    'mktCap': lambda r: bucket(r.get('mktCap'), [3e8, 2e9, 1e10], ['<300M', '300M-2B', '2-10B', '10B+']),
 }
 
 
@@ -113,6 +129,7 @@ def main():
         'window': [dates[0], dates[-1]], 'splitAt': cut,
         'all': {'ALL': stats(final), 'IS': stats(halves['IS']), 'OOS': stats(halves['OOS'])},
         'changeGate': {'passed (final list)': stats(final), 'dropped (red day)': stats(shadow)},
+        'entries': {m: {'ALL': stats(final, m), 'IS': stats(halves['IS'], m), 'OOS': stats(halves['OOS'], m)} for m in ENTRIES},
         'slices': {},
     }
     for name, fn in SLICES.items():
@@ -123,7 +140,7 @@ def main():
             out[k]['ALL'] = stats([r for r in final if str(fn(r)) == k])
         summary['slices'][name] = out
 
-    with open(os.path.join(REPLAY, 'ep9m_v1_summary.json'), 'w') as f:
+    with open(os.path.join(REPLAY, f'ep9m_{VERSION}_summary.json'), 'w') as f:
         json.dump(summary, f, indent=1)
 
     a = summary['all']['ALL']
@@ -132,6 +149,11 @@ def main():
     print(f"HOME RUN held {a.get('hrHeld')}%  path {a.get('hrPath')}%  median peak {a.get('medPeakPct')}%")
     for ex in EXITS:
         print(f"  {ex:12s} avgR {a.get(ex + '_avgR')}  win {a.get(ex + '_win')}%   IS {summary['all']['IS'].get(ex + '_avgR')}  OOS {summary['all']['OOS'].get(ex + '_avgR')}")
+    print('entry methods, avg R per exit as ALL/IS/OOS:')
+    for m in ENTRIES:
+        e = summary['entries'][m]
+        cols = '  '.join(f"{ex} {e['ALL'].get(ex + '_avgR')}/{e['IS'].get(ex + '_avgR')}/{e['OOS'].get(ex + '_avgR')}" for ex in EXITS)
+        print(f"  {m:9s} fill {e['ALL']['triggerRate']}%  HRheld {e['ALL'].get('hrHeld')}%  {cols}")
     cg = summary['changeGate']
     for k, v in cg.items():
         print(f"change gate — {k:20s} n={v['n']} ret20 avg {v.get('ret20_avg')} med {v.get('ret20_med')}  run60≥50% {v.get('run60_50plus')}%")

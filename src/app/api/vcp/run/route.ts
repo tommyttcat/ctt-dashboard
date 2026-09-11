@@ -109,18 +109,16 @@ import {
   analyzeVcp,
   evaluateTrendTemplate,
   scoreVcp,
-  atrPercent,
-  findPivots,
-  extractContractions,
-  PIVOT_ATR_MULTIPLE,
-  VCP_MIN_CONTRACTIONS,
-  VCP_MAX_CONTRACTIONS,
-  VCP_MAX_FINAL_DEPTH,
-  VCP_SHALLOWING_TOLERANCE,
   type VcpBar,
-  type VcpResult,
   type TrendTemplate,
 } from '@/lib/indicators/vcp';
+/* Universe gate, liquidity floors, structural prefilter and the trade levels
+   live in lib/scans/vcp so the historical backtest replays the identical
+   rules. This route keeps only the I/O. */
+import {
+  VCP_EXCLUDED_ETFS, passesVcpUniverseGate, avgVolume20, passesVcpLiquidity,
+  prefilterVcp, buildLevels,
+} from '@/lib/scans/vcp';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { computeStage } from '@/lib/indicators/stage';
 import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
@@ -162,20 +160,6 @@ const ENRICH_CONCURRENCY = 8;
 const TRADING_TO_CALENDAR = 1.45;
 const ANCHOR_MAX_ATTEMPTS = 6;
 
-// ETFs that clear the liquidity floors. Most would fail the structural test
-// anyway, but leveraged products can produce textbook-looking contractions
-// that mean nothing — there is no company being accumulated. Backstopped by
-// a ticker `type` check at confirmation.
-const EXCLUDED_ETFS = new Set([
-  'SPY', 'QQQ', 'IWM', 'DIA', 'VOO', 'VTI', 'EEM', 'EFA', 'XLF', 'XLE', 'XLK',
-  'XLI', 'XLV', 'XLU', 'XLP', 'XLY', 'XLB', 'XLRE', 'XLC', 'SMH', 'SOXX',
-  'TQQQ', 'SQQQ', 'QLD', 'QID', 'SOXL', 'SOXS', 'TECL', 'TECS', 'SPXL', 'SPXS',
-  'SPXU', 'UPRO', 'SDS', 'SSO', 'TNA', 'TZA', 'FAS', 'FAZ', 'LABU', 'LABD',
-  'UVXY', 'UVIX', 'SVIX', 'VIXY', 'VXX', 'FNGU', 'FNGD', 'GLD', 'SLV', 'GDX',
-  'GDXJ', 'USO', 'UNG', 'TLT', 'HYG', 'LQD', 'ARKK', 'IBIT', 'BITO', 'BITX',
-  'NUGT', 'DUST', 'JNUG', 'ERX', 'ERY', 'BOIL', 'KOLD', 'NAIL', 'URAA',
-  'MSTX', 'MSTU', 'CONL', 'NVDL', 'TSLL', 'AAPU', 'MSFU', 'AMZU',
-]);
 
 interface SnapInfo {
   price: number;
@@ -288,11 +272,9 @@ async function getUniverse(): Promise<{ symbols: Set<string>; snapMap: Map<strin
 
   for (const t of tickers) {
     const sym: string = t.ticker ?? '';
-    if (!/^[A-Z]{1,5}$/.test(sym)) continue;
-    if (EXCLUDED_ETFS.has(sym)) continue;
-
     const price = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || 0;
-    if (price < VCP_GATES.minPrice || price > VCP_GATES.maxPrice) continue;
+    // Symbol shape, fund exclusion and price band — shared with the backtest.
+    if (!passesVcpUniverseGate(sym, price)) continue;
 
     const vol = t.day?.v || t.prevDay?.v || 0;
     const prevClose = t.prevDay?.c || 0;
@@ -378,47 +360,6 @@ async function fetchRecentWindow(
 }
 
 
-/* ---- Stage 4b: structural prefilter -------------------------------------
-   DELIBERATELY LOOSER THAN THE REAL TEST, for a reason that matters.
-
-   analyzeVcp() gates on the prior advance — at least 25% up into the base,
-   because without an advance there is no supply overhang to absorb and the
-   "base" is just a quiet stock. Measuring that needs bars from BEFORE the
-   base began, and a 90-bar window whose base occupies the last 40 leaves
-   only 50 bars of prior history. On a base that formed after a long run,
-   that truncation understates the advance and would reject the name.
-
-   So this pass checks only what 90 bars can answer honestly — are there two
-   or more contractions, is the final one tight, are they shallowing — and
-   defers every judgement that needs deeper history to the confirmation pass,
-   which fetches 400 bars per survivor.
-
-   A prefilter that is stricter than the real test silently loses candidates
-   and no downstream count will ever reveal it. Looser is the safe direction:
-   the cost is a few extra per-ticker fetches. */
-function prefilterVcp(bars: VcpBar[]): boolean {
-  if (bars.length < 60) return false;
-
-  const atrP = atrPercent(bars, 14);
-  if (atrP == null || atrP <= 0) return false;
-
-  const threshold = Math.max(1.5, Math.min(12, atrP * PIVOT_ATR_MULTIPLE));
-  const pivots = findPivots(bars, threshold);
-  const all = extractContractions(bars, pivots);
-  if (all.length < VCP_MIN_CONTRACTIONS) return false;
-
-  const cons = all.slice(-VCP_MAX_CONTRACTIONS);
-  const depths = cons.map(c => c.depthPct);
-
-  if (depths[depths.length - 1] > VCP_MAX_FINAL_DEPTH) return false;
-
-  for (let i = 1; i < depths.length; i++) {
-    if (depths[i] > depths[i - 1] * VCP_SHALLOWING_TOLERANCE) return false;
-  }
-
-  return true;
-}
-
 // ---------------------------------------------------------------
 // Catalyst (optional, best-effort)
 // ---------------------------------------------------------------
@@ -431,52 +372,12 @@ function prefilterVcp(bars: VcpBar[]): boolean {
 const round2 = (v: number | null | undefined): number | null =>
   v == null || !Number.isFinite(v) ? null : parseFloat(v.toFixed(2));
 
-/* ---- The trade ----------------------------------------------------------
-   Trigger is the PIVOT — the high of the final contraction — not the day
-   high and not the base high. Minervini's buy point is the point at which
-   the last supply that defended the base gives way.
-
-   Stop is the low of the final contraction, which is what invalidates the
-   pattern: price back through the bottom of the tightest leg means the
-   absorption read was wrong. That is usually a tighter stop than an ATR
-   rule would produce, which is the reason to trade a VCP at all — the
-   pattern defines its own risk. A floor is applied so a freakishly tight
-   final leg does not produce a stop inside normal daily noise. */
-const MIN_STOP_PCT = 2.0;
-
 /* Age at which the chip gains "(Delayed)". Thirty-six hours is a long time
    on a momentum table and almost nothing on a base that has been forming for
    six weeks — but the label is about the READER's expectation, not the
    pattern's timescale, and a headline from yesterday should say so wherever
    it appears. */
 const DELAYED_AGE_HOURS = 36;
-
-function buildLevels(vcp: VcpResult, price: number): {
-  trigger: number | null;
-  stop: number | null;
-  stopPct: number | null;
-  target: number | null;
-} {
-  if (!vcp.valid || vcp.pivot == null || vcp.contractions.length === 0) {
-    return { trigger: null, stop: null, stopPct: null, target: null };
-  }
-
-  const finalLeg = vcp.contractions[vcp.contractions.length - 1];
-  const trigger = vcp.pivot;
-
-  let stop = finalLeg.low;
-  let stopPct = ((trigger - stop) / trigger) * 100;
-
-  if (stopPct < MIN_STOP_PCT) {
-    stopPct = MIN_STOP_PCT;
-    stop = trigger * (1 - MIN_STOP_PCT / 100);
-  }
-
-  const risk = trigger - stop;
-  const target = trigger + risk * 2;
-
-  return { trigger, stop, stopPct, target };
-}
 
 async function runScan(request: Request) {
   const started = Date.now();
@@ -526,11 +427,8 @@ async function runScan(request: Request) {
       const snap = snapMap.get(sym);
       if (!snap) return;
 
-      const avgVol = bars.length >= 20
-        ? bars.slice(-20).reduce((s, b) => s + (b.v || 0), 0) / 20
-        : 0;
-      if (avgVol < VCP_GATES.minAvgVolume) { liquidityRejects++; return; }
-      if (avgVol * snap.price < VCP_GATES.minDollarVol) { liquidityRejects++; return; }
+      const avgVol = avgVolume20(bars);
+      if (!passesVcpLiquidity(avgVol, snap.price)) { liquidityRejects++; return; }
 
       const rs = rsLookup.get(sym);
       if (rs == null || rs < VCP_GATES.minRsRating) { rsRejects++; return; }
@@ -590,16 +488,14 @@ async function runScan(request: Request) {
       const template = evaluateTrendTemplate(bars);
       const scored = scoreVcp({ vcp, rsRating: rs, template });
 
-      const avgVol = bars.length >= 20
-        ? bars.slice(-20).reduce((s, b) => s + (b.v || 0), 0) / 20
-        : 0;
+      const avgVol = avgVolume20(bars);
       const rvol = avgVol > 0 && snap.vol > 0 ? snap.vol / avgVol : null;
 
       const mf = computeMoneyFlow(bars, { length: 21 });
       const mfTrend = moneyFlowTrend(bars, { length: 21, lookback: 5 });
       const stage = computeStage(bars.map(b => b.c), { price: snap.price });
 
-      const levels = buildLevels(vcp, snap.price);
+      const levels = buildLevels(vcp);
 
       /* A base is quiet by construction, so null here is the expected
          outcome on most rows rather than a gap. What matters is that it is
