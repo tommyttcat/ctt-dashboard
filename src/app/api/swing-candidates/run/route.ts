@@ -1086,7 +1086,8 @@ async function runSwingScan() {
       const [bars, details, shortData] = await Promise.all([
         getDailyBars(sym),
         polygonSafe<any>(`/v3/reference/tickers/${sym}`, {}),
-        polygonSafe<any>(`/stocks/v1/short-interest?ticker=${sym}`, { results: [] }),
+        // Polygon defaults to oldest-first; without the sort, results[0] is the 2017 record.
+        polygonSafe<any>(`/stocks/v1/short-interest?ticker=${sym}&sort=settlement_date.desc&limit=1`, { results: [] }),
       ]);
       const swing = analyze(sym, bars, rsLookup, details, shortData, snapMap.get(sym));
       const consol = analyzeConsolidation(sym, bars, rsLookup, details, shortData, snapMap.get(sym));
@@ -1098,7 +1099,8 @@ async function runSwingScan() {
       const [bars, details, shortData] = await Promise.all([
         getDailyBars(sym),
         polygonSafe<any>(`/v3/reference/tickers/${sym}`, {}),
-        polygonSafe<any>(`/stocks/v1/short-interest?ticker=${sym}`, { results: [] }),
+        // Polygon defaults to oldest-first; without the sort, results[0] is the 2017 record.
+        polygonSafe<any>(`/stocks/v1/short-interest?ticker=${sym}&sort=settlement_date.desc&limit=1`, { results: [] }),
       ]);
       return analyzeConsolidation(sym, bars, rsLookup, details, shortData, snapMapAll.get(sym));
     });

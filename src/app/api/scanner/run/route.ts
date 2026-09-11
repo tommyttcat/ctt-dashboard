@@ -1412,7 +1412,8 @@ async function runScan(request: Request) {
         fetchSafeJson(`https://api.polygon.io/v3/reference/tickers/${sym}?apiKey=${polygonApiKey}`, {}),
         fetchSafeJson(`https://api.polygon.io/v2/aggs/ticker/${sym}/range/1/day/${fromStr}/${toStr}?adjusted=true&sort=desc&limit=350&apiKey=${polygonApiKey}`, { results: [] }),
         fetchSafeJson(`https://api.polygon.io/v2/reference/news?ticker=${sym}&limit=50&order=desc&sort=published_utc&apiKey=${polygonApiKey}`, { results: [] }),
-        fetchSafeJson(`https://api.polygon.io/stocks/v1/short-interest?ticker=${sym}&apiKey=${polygonApiKey}`, { results: [] })
+        // Polygon defaults to oldest-first; without the sort, results[0] is the 2017 record.
+        fetchSafeJson(`https://api.polygon.io/stocks/v1/short-interest?ticker=${sym}&sort=settlement_date.desc&limit=1&apiKey=${polygonApiKey}`, { results: [] })
       ]);
 
       const marketCap = details?.results?.market_cap || 0;

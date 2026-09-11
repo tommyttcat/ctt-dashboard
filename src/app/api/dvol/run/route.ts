@@ -351,10 +351,12 @@ async function runScan(req: Request) {
         /* Short interest, for DTC. The only genuinely new call this enrichment
            added — everything else on the row is derived from payloads the scan
            was already fetching. Same endpoint scanner/run uses, so the two
-           tables report the same days-to-cover for the same stock. */
+           tables report the same days-to-cover for the same stock. Polygon
+           defaults to oldest-first; without the sort, results[0] is the 2017
+           record. */
         Promise.all(batch.map(r =>
           safeJson<{ results?: any[] }>(
-            `https://api.polygon.io/stocks/v1/short-interest?ticker=${encodeURIComponent(r.ticker)}&apiKey=${POLYGON_KEY}`,
+            `https://api.polygon.io/stocks/v1/short-interest?ticker=${encodeURIComponent(r.ticker)}&sort=settlement_date.desc&limit=1&apiKey=${POLYGON_KEY}`,
             { results: [] },
             8000
           )

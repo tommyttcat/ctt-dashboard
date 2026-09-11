@@ -530,7 +530,8 @@ async function runScan(request: Request) {
           { results: [] }
         ),
         polygonSafe<any>(`/v3/reference/tickers/${sym}`, {}),
-        polygonSafe<any>(`/stocks/v1/short-interest?ticker=${sym}`, { results: [] }),
+        // Polygon defaults to oldest-first; without the sort, results[0] is the 2017 record.
+        polygonSafe<any>(`/stocks/v1/short-interest?ticker=${sym}&sort=settlement_date.desc&limit=1`, { results: [] }),
         /* v1.8 — news, in the same round trip as everything else. Sequencing
            it after the bars would add a full latency hop per name for a
            field that has no dependency on them. */
