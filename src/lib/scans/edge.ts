@@ -51,9 +51,9 @@ export function edgeTier(row: EdgeInput | null | undefined): EdgeTier | null {
 }
 
 export const EDGE_TINT: Record<EdgeTier, string> = {
-  green: 'bg-emerald-500/[0.07]',
-  yellow: 'bg-amber-400/[0.05]',
-  red: 'bg-rose-500/[0.07]',
+  green: 'bg-emerald-500/[0.11]',
+  yellow: 'bg-amber-400/[0.08]',
+  red: 'bg-rose-500/[0.11]',
 };
 
 export const EDGE_FILTER_TIP: Record<EdgeTier, string> = {
