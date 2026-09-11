@@ -2745,6 +2745,12 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
     if (sf) {
       base = base.filter(item => passesPoolFilter(sf, item));
     }
+    /* Green only. This card is the shortlist, so it carries just the names
+       that clear both losing filters from the backtest (ADR 9%+, $5-10) AND
+       closed in the top 10% of the day's range — the +0.26R bucket. The full
+       lists, tinted rather than filtered, are on the individual cards. */
+    const green = base.filter(item => edgeOf(item) === 'green');
+    base = green;
     const cmp = (a: any, b: any) => {
       let av = 0, bv = 0;
       switch (sortKey) {
@@ -2826,11 +2832,9 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
               scanner backtest and only use traits that held in both halves —
               the tooltip carries the numbers so the line stays one row. */}
           <p className="relative group/edge text-[10px] text-slate-500 font-medium mt-1 cursor-help inline-flex items-center gap-2">
-            <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-500/30" />closed strong</span>
-            <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-400/30" />mid-range</span>
-            <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-rose-500/30" />ADR &gt; 9% or $5–10</span>
+            <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-500/30" />shortlist only — cleared the backtested filters and closed strong</span>
             <span className="absolute bottom-full left-0 mb-2 w-72 px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 font-normal whitespace-normal opacity-0 pointer-events-none group-hover/edge:opacity-100 transition-opacity z-[9999]">
-              From the 5-year backtest of these tables (Sep 2022–Sep 2026, next-open entry, trailing 21 EMA). Green: closed in the top 10% of the day&apos;s range — +0.26R. Red: ADR above 9% (−0.27R) or price $5–10 (−0.15R); both lost money in the first two-thirds of the period and the last third. Yellow: clears those but closed lower in the range.
+              This card shows only the green rows: names that closed in the top 10% of the day&apos;s range (+0.26R) AND avoided the two filters that lost money in both halves of the 5-year backtest — ADR above 9% (−0.27R) and price $5–10 (−0.15R). The individual scan cards still show everything, tinted green/yellow/red.
             </span>
           </p>
         </>
