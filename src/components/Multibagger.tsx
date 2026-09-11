@@ -10,6 +10,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { cachedJson } from '@/lib/scannerLatest';
 import { MULTIBAGGER } from '@/lib/scanConfig';
 import { rsBadge } from '@/lib/indicators/rs';
+import { multibaggerTier, MULTIBAGGER_TIP, EDGE_TINT } from '@/lib/scans/edge';
 
 import { useMarketData } from './MarketDataContext';
 import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
@@ -587,10 +588,13 @@ export default function Multibagger() {
               <tbody className="divide-y divide-white/5">
                 {filtered.map((c, idx) => {
                   const isExpanded = expandedRow === c.ticker;
+                  /* Row tint from the 100-Bagger's own backtest — see lib/scans/edge. */
+                  const mbTier = multibaggerTier({ revGrowthPct: c.attrs.revGrowthPct, marketCap: c.marketCap });
                   return (
                     <React.Fragment key={c.ticker}>
                       <tr
-                        className="hover:bg-white/[0.02] transition-colors cursor-pointer group"
+                        className={`hover:bg-white/[0.02] transition-colors cursor-pointer group ${mbTier ? EDGE_TINT[mbTier] : ''}`}
+                        title={mbTier ? MULTIBAGGER_TIP[mbTier] : undefined}
                         onClick={() => setExpandedRow(isExpanded ? null : c.ticker)}
                       >
                         {/* Ticker */}

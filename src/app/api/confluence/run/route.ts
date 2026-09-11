@@ -56,7 +56,7 @@ interface ScanStock {
   plan?: any; cnfBreakdown?: any;
   dVol?: number; dvol?: number;
   stochK?: number; mf?: number; mfTrend?: number;
-  adrPct?: number; pctOffHigh?: number;
+  adrPct?: number; pctOffHigh?: number; dayHigh?: number; dayLow?: number;
   ema10?: number; ema21?: number; ema50?: number;
   float?: number; mktCap?: number; sector?: string; name?: string;
 }
@@ -432,6 +432,13 @@ export async function GET(request: Request) {
         mf: stock.mf ?? null,
         mfTrend: stock.mfTrend ?? null,
         adrPct: stock.adrPct ?? null,
+        /* One extra number per row so the report can carry the same tint as
+           the scan cards: where the close sat in the day's range. Computed
+           here from levels the scan row already holds — no new fetch, no new
+           KV read, and the payload grows by ~20 bytes a row. */
+        closeStrength: (stock.dayHigh != null && stock.dayLow != null && stock.dayHigh > stock.dayLow && stock.price != null)
+          ? +((stock.price - stock.dayLow) / (stock.dayHigh - stock.dayLow)).toFixed(3)
+          : null,
         pctOffHigh: stock.pctOffHigh ?? null,
         float: stock.float ?? null,
         mktCap: stock.mktCap ?? null,

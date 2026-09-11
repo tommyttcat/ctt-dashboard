@@ -106,6 +106,7 @@ import { isTradingDay } from '@/lib/marketCalendar';
 import TickerChartHover, { ActiveChartProvider, WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
 import { hrsEdgeGrade } from '@/lib/scans/hrs';
+import { edgeTier as edgeOf, EDGE_TINT, EDGE_FILTER_TIP, type EdgeTier } from '@/lib/scans/edge';
 import { newsStarCount } from '@/lib/newsStars';
 import { rsColor, rsBadge } from '@/lib/indicators/rs';
 import { toCanonicalSector, isEtfSector, industryHeat, displaySector } from '@/lib/sectors';
@@ -531,44 +532,6 @@ const dVolOf = (s: any): number => {
    the 10/21 thesis. */
 const priceOf = (s: any): number | null => numOrNull(s?.price ?? s?.last ?? s?.close);
 
-/* ---- Edge tint -----------------------------------------------------------
-   Three states from the 5-year scanner backtest (Sep 2022 - Sep 2026, SIP +
-   Daily rows, next-open entry trailing the 21 EMA). Only traits that held in
-   BOTH halves of the period are used:
-
-     red     ADR above 9% (-0.27R) or price $5-10 (-0.15R). Both lost money
-             in the first two-thirds AND the last third.
-     green   clears those and closed in the top 10% of the day's range
-             (+0.26R, the strongest consistent trait).
-     yellow  clears them but closed lower in the range — fine, not the best
-             version of the setup.
-
-   Null when ADR or the day's range is missing: no tint beats a guessed one. */
-type EdgeTier = 'green' | 'yellow' | 'red';
-
-const edgeOf = (s: Parameters<typeof priceOf>[0]): EdgeTier | null => {
-  const adr = numOrNull(s?.adrPct);
-  const price = priceOf(s);
-  if (adr == null || price == null) return null;
-  if (adr > 9) return 'red';
-  if (price >= 5 && price < 10) return 'red';
-  const hi = numOrNull(s?.dayHigh);
-  const lo = numOrNull(s?.dayLow);
-  if (hi == null || lo == null || !(hi > lo)) return 'yellow';
-  return (price - lo) / (hi - lo) >= 0.9 ? 'green' : 'yellow';
-};
-
-const EDGE_FILTER_TIP: Record<EdgeTier, string> = {
-  green: 'cleared both losing filters and closed in the top 10% of the day\'s range (+0.26R in the 5-year test)',
-  yellow: 'cleared the filters but closed lower in the range',
-  red: 'ADR above 9% (-0.27R) or price $5-10 (-0.15R) — both lost in every half of the test',
-};
-
-const EDGE_TINT: Record<EdgeTier, string> = {
-  green: 'bg-emerald-500/[0.07]',
-  yellow: 'bg-amber-400/[0.05]',
-  red: 'bg-rose-500/[0.07]',
-};
 const fmtPrc = (p: number | null | undefined): string => {
   if (p == null || p === 0) return '';
   if (p >= 1000) return p.toFixed(0);

@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ThemeToggle } from './ThemeProvider';
 import DashNav from './DashNav';
+import { edgeTier, EDGE_TINT, EDGE_FILTER_TIP } from '@/lib/scans/edge';
 import TickerChartHover, { ActiveChartProvider } from './TickerChartHover';
 import HelpModal from './HelpModal';
 import { WatchlistProvider } from './WatchlistContext';
@@ -54,6 +55,7 @@ interface Report {
   stochK: number | null;
   mf: number | null;
   adrPct: number | null;
+  closeStrength: number | null;
   pctOffHigh: number | null;
   float: number | null;
   mktCap: number | null;
@@ -313,8 +315,10 @@ function AiSummaryCard({ summary, reports, activeSector, onSectorFilter, lastSca
                   const chg = rpt?.changePct ?? 0;
                   const prc = rpt?.price ?? 0;
                   const stg = p.stage ? p.stage.replace(/^Stage\s*/i, '').trim() : '';
+                  // Same tint as the scan cards, from the shared rules.
+                  const tier = edgeTier(rpt ?? null);
                   return (
-                    <tr key={p.ticker}>
+                    <tr key={p.ticker} className={tier ? EDGE_TINT[tier] : undefined} title={tier ? EDGE_FILTER_TIP[tier] : undefined}>
                       <td className={`${TD}`}>
                         <TickerChartHover symbol={p.ticker}>
                           <span className={`${chipForGrade(p.grade)} w-[38px] cursor-pointer`}>{p.ticker}</span>
