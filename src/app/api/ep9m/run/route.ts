@@ -153,7 +153,7 @@ import { pickBestNews, polygonNewsPath, fetchBenzingaNewsIndex, type NewsItem } 
    exact same rules. This route keeps only the I/O. */
 import {
   shortlistAbnormal, scoreEp9m, classifyEpType, priorSwingHighOf,
-  shareMetrics, closeStrengthOf, catalystTierOf,
+  shareMetrics, closeStrengthOf, catalystTierOf, passesUniverseGate,
   type Bar, type LiteBar, type SnapInfo, type CatalystTier,
 } from '@/lib/scans/ep9m';
 
@@ -182,20 +182,6 @@ const WINDOW = {
 // reporting threshold — it identifies names whose range is big enough that
 // the churn actually costs something.
 const CHOP_TRAP_MIN_ADR = 5;
-
-// ETFs that clear 9M shares on any ordinary day. Most would fail the RVOL gate
-// anyway, but leveraged products spike hard enough to sneak through, and they
-// aren't EP candidates — there's no company to re-rate. Backstopped by a
-// ticker `type` check at enrichment.
-const HIGH_VOLUME_ETFS = new Set([
-  'SPY', 'QQQ', 'IWM', 'DIA', 'VOO', 'VTI', 'EEM', 'EFA', 'XLF', 'XLE', 'XLK',
-  'XLI', 'XLV', 'XLU', 'XLP', 'XLY', 'XLB', 'XLRE', 'XLC', 'SMH', 'SOXX',
-  'TQQQ', 'SQQQ', 'QLD', 'QID', 'SOXL', 'SOXS', 'TECL', 'TECS', 'SPXL', 'SPXS',
-  'SPXU', 'UPRO', 'SDS', 'SSO', 'TNA', 'TZA', 'FAS', 'FAZ', 'LABU', 'LABD',
-  'UVXY', 'UVIX', 'SVIX', 'VIXY', 'VXX', 'FNGU', 'FNGD', 'GLD', 'SLV', 'GDX',
-  'GDXJ', 'USO', 'UNG', 'TLT', 'HYG', 'LQD', 'ARKK', 'IBIT', 'BITO', 'BITX',
-  'NUGT', 'DUST', 'JNUG', 'ERX', 'ERY', 'BOIL', 'KOLD', 'NAIL', 'URAA',
-]);
 
 interface TradePlanOut {
   family?: string;
@@ -370,15 +356,11 @@ async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, 
 
   for (const t of tickers) {
     const sym: string = t.ticker ?? '';
-    if (!/^[A-Z]{1,5}$/.test(sym)) continue;
-    if (HIGH_VOLUME_ETFS.has(sym)) continue;
-
     const price = t.lastTrade?.p || t.min?.c || t.day?.c || t.prevDay?.c || 0;
     const vol = t.day?.v || 0;
-    if (price < EP9M.minPrice || price > EP9M.maxPrice) continue;
-
-    // The namesake gate.
-    if (vol < EP9M.minVolume) continue;
+    // Symbol shape, ETF exclusion, price band and the 9M floor — shared with
+    // the backtest via lib/scans/ep9m.
+    if (!passesUniverseGate(sym, price, vol)) continue;
 
     const prevClose = t.prevDay?.c || 0;
     let changePct = 0;

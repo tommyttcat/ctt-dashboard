@@ -26,6 +26,30 @@ export interface SnapInfo {
   dayOpen: number | null;
 }
 
+// ETFs that clear 9M shares on any ordinary day. Most would fail the RVOL gate
+// anyway, but leveraged products spike hard enough to sneak through, and they
+// aren't EP candidates — there's no company to re-rate. Backstopped by a
+// ticker `type` check at enrichment.
+export const HIGH_VOLUME_ETFS = new Set([
+  'SPY', 'QQQ', 'IWM', 'DIA', 'VOO', 'VTI', 'EEM', 'EFA', 'XLF', 'XLE', 'XLK',
+  'XLI', 'XLV', 'XLU', 'XLP', 'XLY', 'XLB', 'XLRE', 'XLC', 'SMH', 'SOXX',
+  'TQQQ', 'SQQQ', 'QLD', 'QID', 'SOXL', 'SOXS', 'TECL', 'TECS', 'SPXL', 'SPXS',
+  'SPXU', 'UPRO', 'SDS', 'SSO', 'TNA', 'TZA', 'FAS', 'FAZ', 'LABU', 'LABD',
+  'UVXY', 'UVIX', 'SVIX', 'VIXY', 'VXX', 'FNGU', 'FNGD', 'GLD', 'SLV', 'GDX',
+  'GDXJ', 'USO', 'UNG', 'TLT', 'HYG', 'LQD', 'ARKK', 'IBIT', 'BITO', 'BITX',
+  'NUGT', 'DUST', 'JNUG', 'ERX', 'ERY', 'BOIL', 'KOLD', 'NAIL', 'URAA',
+]);
+
+// Universe gates applied to the full-market snapshot, before any history is
+// read. Symbol shape excludes warrants/units/preferreds with suffixes.
+export function passesUniverseGate(sym: string, price: number, vol: number): boolean {
+  if (!/^[A-Z]{1,5}$/.test(sym)) return false;
+  if (HIGH_VOLUME_ETFS.has(sym)) return false;
+  if (price < EP9M.minPrice || price > EP9M.maxPrice) return false;
+  // The namesake gate.
+  return vol >= EP9M.minVolume;
+}
+
 // Prior swing high window. 63 sessions back, EXCLUDING the most recent five —
 // without that exclusion a name that just ran becomes its own resistance and
 // every fresh mover reports a trigger already blocked. Matters more here than
