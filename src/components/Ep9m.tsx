@@ -77,13 +77,14 @@ import { WatchlistToggle } from './WatchlistPanel';
 import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews, NewsStars } from '@/lib/catalyst';
 import { displaySector } from '@/lib/sectors';
 import { rsBadge, rsTooltip } from '@/lib/indicators/rs';
-import { adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, rvolColorHighFloor as getRvolColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
+import { adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, rvolColorHighFloor as getRvolColor, tickerChipCls, scoreCellCls } from '@/lib/indicators/columnColors';
+import { epMoveOdds, EP_MOVE_ODDS_TIP } from '@/lib/scans/ep9m';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: "Symbol. Hover shows the company name. Fuchsia dot = unprecedented (today's volume beat its own 60-day high); ★ = repeat EP9M offender. Hover the fuchsia dot on a choppy name — record volume inside a range that will not resolve is the most misread row on this table." },
   CNF: {
     what: 'Episodic Pivot score 0–100 — volume abnormality, vs-60-day-high, float turnover, catalyst, close strength, Money Flow, days-to-cover, and repeat-trigger history. Hover the number for the per-row breakdown.',
-    colour: 'The grade is on the ticker, not here: green 70+ (A) · amber 50+ (B) · grey below (C).',
+    colour: 'The ticker colour is BIG-MOVE ODDS, not quality: green = float turnover 0.5x+ or cap under $300M (17-23% ran +50%, but the worst average outcome), amber = 0.25x+ or under $2B, grey = single-digit odds.',
   },
   RTR: {
     what: 'Room to resistance. How far the nearest overhead level sits above the trigger, measured in stop-widths (R = trigger minus stop). This scan has no trend gate, so RTR is the column that separates abnormal volume you can trade from abnormal volume you cannot — and it is where over-extension shows up, since there is no posture filter on this table.',
@@ -1152,7 +1153,7 @@ export default function Ep9m() {
                           <td className={tdBase}>
                             <div className="flex items-center justify-start gap-1.5">
                               <WatchlistBtn symbol={row.ticker} />
-                              <TickerChartHover symbol={row.ticker}><span title={tickerTitle(row.name, row.ticker, row.score)} className={tickerChipForScore(row.score)}>{row.ticker}</span></TickerChartHover>
+                              <TickerChartHover symbol={row.ticker}><span title={`${row.name || row.ticker} — ${epMoveOdds(row) ?? 'no letter'}: ${EP_MOVE_ODDS_TIP}`} className={tickerChipCls(epMoveOdds(row))}>{row.ticker}</span></TickerChartHover>
                             </div>
                           </td>
                           <td className={tdBase}><NewsStars row={row} /></td>

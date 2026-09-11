@@ -399,3 +399,32 @@ export function classifyEpType(params: {
   // 5. Default — pure volume anomaly.
   return { epType: 'volume', epTheme: null };
 }
+
+/* ---- Big-move odds -------------------------------------------------------
+   The letter on an EP row is NOT a quality grade. The 5-year backtest
+   (11,696 flags, Sep 2022 - Sep 2026) is unambiguous: the EP9M score does not
+   rank outcomes at all — grades A/B/C averaged -0.10R, -0.16R and -0.12R, and
+   score-versus-realised-R correlates 0.01. What the inputs DO predict is the
+   size of the tail:
+
+       float turnover 1x+     23.5% ran +50%   but -0.30R and a -27% median
+       market cap under 300M  23.1%            but -0.26R and a -24% median
+       float turnover .5-1    17.5%
+       market cap 10B+         5.4%
+
+   So the letter answers "how likely is a big move", and the tooltip says the
+   other half out loud: the same names have the worst average outcome. This is
+   a hunting list with a tight stop and small size, not a quality ranking. */
+export function epMoveOdds(r: { floatTurnover?: number | null; mktCap?: number | null }): 'A' | 'B' | null {
+  const ft = r.floatTurnover ?? null;
+  const cap = r.mktCap ?? null;
+  if ((ft != null && ft >= 0.5) || (cap != null && cap < 3e8)) return 'A';
+  if ((ft != null && ft >= 0.25) || (cap != null && cap < 2e9)) return 'B';
+  return null;
+}
+
+export const EP_MOVE_ODDS_TIP =
+  'Odds of a BIG MOVE, not quality. A: float turnover 0.5x+ or market cap under $300M — ' +
+  '17-23% of these ran +50% within 60 sessions. The same names had the WORST average outcome ' +
+  '(-0.26R to -0.30R, median 20-day -24%), so they need a tight stop and small size. ' +
+  'B: float turnover 0.25x+ or cap under $2B. Unlettered: single-digit odds of a big move.';

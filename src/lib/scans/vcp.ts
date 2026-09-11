@@ -131,3 +131,34 @@ export function buildLevels(vcp: VcpResult): {
 
   return { trigger, stop, stopPct, target };
 }
+
+/* ---- Edge grade ----------------------------------------------------------
+   What the letter on a VCP row means, rebuilt from the 5-year backtest
+   (1,812 distinct bases, Sep 2022 - Sep 2026, pivot entry).
+
+   The old grade came from the pattern score, and the pattern score rewards
+   tightness — which is precisely the trait that lost money. Measured, both
+   halves of the period agreeing:
+
+       ATR under 2%      -0.03R,  0% home runs
+       ATR 3.5-5%        +0.22R,  5.5%
+       ATR 5%+           +0.39R, 19.4%
+       stop under 3%     -0.53R
+       stop 8%+          +0.23R, 6.9%
+
+   A base too quiet to travel cannot pay for its own spread, and a 2% stop on
+   such a name sits inside ordinary noise, so it is taken out before the move
+   it was built for. The letter now says "has room to pay", not "is tight". */
+export function vcpEdgeGrade(r: { atrPct?: number | null; stopPct?: number | null }): 'A' | 'B' | null {
+  const atr = r.atrPct ?? null;
+  const stop = r.stopPct ?? null;
+  if (atr == null) return null;
+  if (atr >= 3.5 && stop != null && stop >= 8) return 'A';
+  if (atr >= 2.5) return 'B';
+  return null;
+}
+
+export const VCP_EDGE_GRADE_TIP =
+  'A: ATR 3.5%+ with an 8%+ stop — the bases that paid (+0.22R to +0.39R, up to 19% ran +50%). ' +
+  'B: ATR 2.5%+. Unlettered: the tightest bases, which lost money in both halves of the 5-year test ' +
+  '(ATR under 2% = −0.03R and zero home runs; stops under 3% = −0.53R).';

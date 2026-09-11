@@ -6,7 +6,8 @@ import { useMarketData } from './MarketDataContext';
 import { HRS } from '@/lib/scanConfig';
 import { rsBadge } from '@/lib/indicators/rs';
 import { stageShort, stageBadge } from '@/lib/indicators/stage';
-import { tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
+import { tickerChipCls, scoreCellCls } from '@/lib/indicators/columnColors';
+import { hrsEdgeGrade, HRS_EDGE_GRADE_TIP } from '@/lib/scans/hrs';
 import { displaySector } from '@/lib/sectors';
 import { NewsStars, type CatalystRow } from '@/lib/catalyst';
 import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
@@ -401,7 +402,7 @@ export default function HiddenRelativeStrength() {
                             <div className="flex items-center justify-start gap-1.5">
                               <WatchlistBtn symbol={row.symbol} />
                               <TickerChartHover symbol={row.symbol}>
-                                <span className={tickerChipForScore(row.cnfScore)} title={tickerTitle(row.name, row.symbol, row.cnfScore)}>
+                                <span className={tickerChipCls(hrsEdgeGrade(row))} title={`${row.name || row.symbol} — ${hrsEdgeGrade(row) ?? 'no letter'}: ${HRS_EDGE_GRADE_TIP}`}>
                                   {row.symbol}
                                 </span>
                               </TickerChartHover>

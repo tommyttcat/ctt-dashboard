@@ -82,7 +82,8 @@ import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
 import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews, NewsStars } from '@/lib/catalyst';
 import { displaySector } from '@/lib/sectors';
-import { tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
+import { tickerChipCls, scoreCellCls } from '@/lib/indicators/columnColors';
+import { vcpEdgeGrade, VCP_EDGE_GRADE_TIP } from '@/lib/scans/vcp';
 
 /* A breakout further than this above the pivot has run away from its own
    entry. Three percent is roughly one ordinary session on a liquid mid-cap —
@@ -98,7 +99,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   },
   CNF: {
     what: 'Pattern score 0–100. Weights the contraction shape most heavily (final leg tightness and how far the legs contract), then volume drying, then RS Rating, then the Trend Template. Hover the number for the per-row breakdown.',
-    colour: 'The grade is on the ticker, not here: green 70+ (A) · amber 50+ (B) · grey below (C).',
+    colour: 'The ticker colour is the EDGE grade, not the pattern score: green = ATR 3.5%+ with an 8%+ stop, amber = ATR 2.5%+, grey = the tightest bases, which lost money across the 5-year backtest.',
   },
   RS: {
     what: 'Minervini / IBD Relative Strength Rating — a PERCENTILE against every liquid stock in the market, not a spread versus SPY. 88 means stronger than 88% of the market over the trailing year, with the most recent quarter double-weighted. Minervini gates at 70 and prefers 80–90+.',
@@ -919,7 +920,7 @@ export default function Vcp() {
                           <td className={tdBase}>
                             <div className="flex items-center justify-start gap-1.5">
                               <WatchlistBtn symbol={row.symbol} />
-                              <TickerChartHover symbol={row.symbol}><span title={tickerTitle(row.name, row.symbol, row.score)} className={tickerChipForScore(row.score)}>{row.symbol}</span></TickerChartHover>
+                              <TickerChartHover symbol={row.symbol}><span title={`${row.name || row.symbol} — ${vcpEdgeGrade(row) ?? 'no letter'}: ${VCP_EDGE_GRADE_TIP}`} className={tickerChipCls(vcpEdgeGrade(row))}>{row.symbol}</span></TickerChartHover>
                             </div>
                           </td>
                           <td className={tdBase}><NewsStars row={row} /></td>

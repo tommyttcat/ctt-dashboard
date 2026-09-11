@@ -264,3 +264,31 @@ export function scoreHrs(
     rs: +rsPts.toFixed(1),
   };
 }
+
+/* ---- Edge grade ----------------------------------------------------------
+   The old grade was dead weight: the prefilter's gates (weak-day
+   outperformance, stacked rising SMAs, within 15% of the 52-week high, RS
+   floor) already max every score component, so 27,712 of 27,865 filled rows
+   in the 5-year backtest scored 75+ and 99.8% graded A. A letter that every
+   row earns ranks nothing.
+
+   These two traits did separate outcomes, in both halves:
+       price $5-15   +0.15R, 11.2% ran +50%   (vs +0.01R for the rest)
+       RS 95+        +0.05R,  9.9%            (vs 3.4% at RS 85-94)
+
+   Note this is the OPPOSITE of the momentum tables, where $5-10 names lost
+   0.15R — hidden strength and hidden weakness live in the same price band. */
+export function hrsEdgeGrade(r: { rsRating?: number | null; price?: number | null }): 'A' | 'B' | null {
+  const rs = r.rsRating ?? null;
+  const price = r.price ?? null;
+  const cheapEnough = price != null && price >= 5 && price <= 15;
+  const strongEnough = rs != null && rs >= 95;
+  if (cheapEnough && strongEnough) return 'A';
+  if (cheapEnough || strongEnough) return 'B';
+  return null;
+}
+
+export const HRS_EDGE_GRADE_TIP =
+  'A: RS 95+ and price $5-15 — the only combination that separated outcomes in the 5-year test ' +
+  '(+0.15R, 11% ran +50%). B: one of the two. Unlettered: neither, which averaged about zero. ' +
+  'The old grade is gone because the scan gates already guaranteed it — 99.8% of rows were grade A.';

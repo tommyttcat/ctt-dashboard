@@ -105,6 +105,7 @@ import { cachedJson, fetchScannerLatest } from '@/lib/scannerLatest';
 import { isTradingDay } from '@/lib/marketCalendar';
 import TickerChartHover, { ActiveChartProvider, WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
+import { hrsEdgeGrade } from '@/lib/scans/hrs';
 import { newsStarCount } from '@/lib/newsStars';
 import { rsColor, rsBadge } from '@/lib/indicators/rs';
 import { toCanonicalSector, isEtfSector, industryHeat, displaySector } from '@/lib/sectors';
@@ -3794,7 +3795,9 @@ export default function MarketSummary() {
                           const hrsRight = hrsSorted.slice(5, 10);
                           const hrsIsOpen = !collapsedSections.has('hrsTop');
                           const hrsRowEl = (h: HrsRow) => {
-                            const hrsGrade: 'A' | 'B' | null = h.score >= 70 ? 'A' : h.score >= 50 ? 'B' : null;
+                            /* The HRS scan's own grade is saturated — 99.8% of rows graded A across the
+                               5-year backtest — so the chip carries the edge grade instead. */
+                            const hrsGrade: 'A' | 'B' | null = hrsEdgeGrade({ rsRating: h.rsRating, price: h.price });
                             const nc = newsStarCount({ catalyst: h.catalyst, catalystUrl: h.catalystUrl, newsCausal: h.newsCausal });
                             const rvol = h.avgVol ? h.vol / h.avgVol : 0;
                             const fmtV = (v: number) => v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : '—';
