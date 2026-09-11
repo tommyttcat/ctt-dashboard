@@ -116,7 +116,6 @@ import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { computeRMV } from '@/lib/indicators/rmv';
 import { computeRMEDetail, rmeScoreAdjustment } from '@/lib/indicators/rme';
-import { computeStageDetail } from '@/lib/indicators/stage';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { computeDotDetail } from '@/lib/indicators/dots';
 import { computeTradePlan } from '@/lib/indicators/tradeplan';
@@ -129,6 +128,12 @@ import {
   EXT_HARD_ATRS, EXT_PARABOLIC_ATRS, EXT_HARD_PCT_NO_ATR, EXT_PARABOLIC_PCT_NO_ATR,
 } from '@/lib/indicators/confluence';
 import { SCANNER, SCANNER_SIP_META, SCANNER_DAILY_META, TOPMOVERS_META } from '@/lib/scanConfig';
+/* Universe, candidate tests, final gates and setup naming live in
+   lib/scans/scanner so the historical backtest replays the identical rules. */
+import {
+  passesScannerUniverse, isSipCandidate, isDailyCandidate,
+  passesSipFinal, passesDailyFinal, detectPattern,
+} from '@/lib/scans/scanner';
 import { webullConfigured, webullGainersLosers } from '@/lib/webull';
 import { enrichWithFundamentals } from '@/lib/indicators/fundamentals';
 
@@ -641,149 +646,6 @@ const buildMacroBriefing = (i: BriefingInput): { theme: string; briefing: string
   return { theme, briefing: sentences.join(' '), watching: [] };
 };
 
-const detectPattern = (
-  bars: any[],
-  currentPrice: number,
-  currentOpen: number,
-  vwap: number,
-  rvol: number | null,
-  dotKind: 'blue' | 'red' | null,
-  stochK: number | null
-): { name: string | null, stage: string, stageNum: number | null } => {
-  let stage = '-';
-  if (!bars || bars.length < 80) return { name: null, stage, stageNum: null };
-
-  const yest = bars[1];
-  const day3 = bars[2];
-
-  const warmUpBars = Math.min(100, bars.length - 1);
-  let ema20 = bars[warmUpBars].c;
-  const k20 = 2 / (20 + 1);
-  for (let i = warmUpBars - 1; i >= 0; i--) {
-    ema20 = (bars[i].c * k20) + (ema20 * (1 - k20));
-  }
-
-  const stageDetail = computeStageDetail(bars, { order: 'desc', price: currentPrice });
-  stage = stageDetail.label;
-  const stageNum = stageDetail.stage;
-
-  const checkSqueeze = (offset: number) => {
-    let sum = 0;
-    for(let i=offset; i<offset+20; i++) sum += bars[i].c;
-    const sma = sum / 20;
-    let variance = 0;
-    for(let i=offset; i<offset+20; i++) variance += Math.pow(bars[i].c - sma, 2);
-    const stdDev = Math.sqrt(variance / 20);
-    const upperBB_25 = sma + (2.5 * stdDev);
-    const lowerBB_25 = sma - (2.5 * stdDev);
-    const upperBB_35 = sma + (3.5 * stdDev);
-    const lowerBB_35 = sma - (3.5 * stdDev);
-    let sumTR = 0;
-    for(let i=offset; i<offset+20; i++) {
-      const high = bars[i].h;
-      const low = bars[i].l;
-      const prevClose = bars[i+1] ? bars[i+1].c : low;
-      sumTR += Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
-    }
-    const avgTR = sumTR / 20;
-    const upperKC = sma + (1.5 * avgTR);
-    const lowerKC = sma - (1.5 * avgTR);
-    return (upperBB_25 < upperKC && lowerBB_25 > lowerKC) || (upperBB_35 < upperKC && lowerBB_35 > lowerKC);
-  };
-
-  const isSqueezingToday = checkSqueeze(0);
-  const wasSqueezingYest = checkSqueeze(1);
-
-  if (wasSqueezingYest && !isSqueezingToday && currentPrice > ema20) {
-    return { name: 'BB SQZ Fired', stage, stageNum };
-  }
-
-  if (dotKind === 'blue') {
-    return { name: 'Blue Dot Rev', stage, stageNum };
-  }
-
-  const hasConvictionVol = rvol !== null && rvol >= 1.0;
-
-  const windowRange = (start: number, len: number) => {
-    const slice = bars.slice(start, start + len);
-    const hi = Math.max(...slice.map(b => b.h));
-    const lo = Math.min(...slice.map(b => b.l));
-    return lo > 0 ? (hi - lo) / lo : 1;
-  };
-  const windowVol = (start: number, len: number) => {
-    const slice = bars.slice(start, start + len);
-    return slice.reduce((s, b) => s + (b.v || 0), 0) / Math.max(slice.length, 1);
-  };
-  if ((stageNum === 2 || stageNum === 3) && bars.length >= 50) {
-    const rNear = windowRange(1, 12), rMid = windowRange(13, 12), rFar = windowRange(25, 12);
-    const vNear = windowVol(1, 12), vMid = windowVol(13, 12), vFar = windowVol(25, 12);
-    const contracting = rNear < rMid && rMid < rFar;
-    const volDrying = (vNear > 0 && vMid > 0 && vFar > 0) ? (vNear < vMid && vMid < vFar) : true;
-    const tightFinalLeg = rNear < 0.15;
-    const baseHigh = Math.max(...bars.slice(1, 37).map(b => b.h));
-    if (contracting && volDrying && tightFinalLeg && currentPrice > baseHigh && hasConvictionVol) {
-      return { name: 'VCP', stage, stageNum };
-    }
-  }
-
-  if (rvol !== null && rvol >= 2.0 && currentOpen >= yest.c * 1.04 && currentPrice >= currentOpen * 0.98) {
-    return { name: 'Episodic Pivot', stage, stageNum };
-  }
-
-  const priorATH = Math.max(...bars.slice(1).map(b => b.h));
-  const recentBaseHigh = Math.max(...bars.slice(1, 64).map(b => b.h));
-  const baseOldEnough = recentBaseHigh < priorATH * 0.999;
-  if (hasConvictionVol && currentPrice > priorATH && yest.c <= priorATH && baseOldEnough) {
-    return { name: 'GLB', stage, stageNum };
-  }
-
-  if (hasConvictionVol && currentOpen > (yest.h * 1.01) && currentPrice >= currentOpen) {
-    return { name: 'Gap & Go', stage, stageNum };
-  }
-
-  if (hasConvictionVol && currentOpen <= yest.c && currentPrice > yest.c) {
-    return { name: 'R2G', stage, stageNum };
-  }
-
-  if (hasConvictionVol && yest.h < day3.h && yest.l > day3.l && currentPrice > yest.h) {
-    return { name: 'Inside Day BRK', stage, stageNum };
-  }
-
-  if (currentPrice > ema20 && yest.l <= (ema20 * 1.02) && currentPrice > yest.h) {
-    return { name: '20 EMA PB', stage, stageNum };
-  }
-
-  if (isSqueezingToday) {
-    return { name: 'BB SQZ Building', stage, stageNum };
-  }
-
-  if (currentPrice > ema20 && currentPrice > vwap) {
-    return { name: 'Trend Hold', stage, stageNum };
-  }
-
-  let ema10 = bars[warmUpBars].c;
-  let ema21 = bars[warmUpBars].c;
-  const k10 = 2 / (10 + 1);
-  const k21 = 2 / (21 + 1);
-  for (let i = warmUpBars - 1; i >= 0; i--) {
-    ema10 = (bars[i].c * k10) + (ema10 * (1 - k10));
-    ema21 = (bars[i].c * k21) + (ema21 * (1 - k21));
-  }
-
-  const upToday = currentPrice > yest.c;
-  const underThe21 = currentPrice < ema21;
-
-  if (upToday && underThe21) {
-    const reclaimedTen = currentPrice > ema10;
-    const washedOut = stochK != null && stochK <= 35;
-    if (reclaimedTen || washedOut) {
-      return { name: 'Reversal', stage, stageNum };
-    }
-  }
-
-  return { name: null, stage, stageNum };
-};
-
 const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 20000, headers?: Record<string, string>) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
@@ -1046,7 +908,7 @@ async function runScan(request: Request) {
       });
     }
 
-    const viableSetups = processedSnapshot.filter((t: any) => /^[A-Z]{1,5}$/.test(t.ticker) && t._livePrice >= SCANNER.minPrice && t._liveVol >= SCANNER.minVolume);
+    const viableSetups = processedSnapshot.filter((t: any) => passesScannerUniverse(t.ticker, t._livePrice, t._liveVol));
     const spyChgToday = processedSnapshot.find((t: any) => t.ticker === 'SPY')?._liveChg ?? 0;
 
     // Lightweight {ticker: [changePct, price]} map from the full snapshot.
@@ -1289,12 +1151,12 @@ async function runScan(request: Request) {
     } catch (e) { console.error('ATHI/ATLO failed (non-blocking):', e); }
 
     const dailyCandidates = [...viableSetups]
-      .filter((t: any) => t._liveChg >= SCANNER.minChange)
+      .filter((t: any) => isDailyCandidate(t._liveChg))
       .sort((a: any, b: any) => (b._livePrice * b._liveVol) - (a._livePrice * a._liveVol))
       .slice(0, 30);
 
     const sipCandidates = [...viableSetups]
-      .filter((t: any) => Math.abs(t._liveChg) >= SCANNER.minChange && t._livePrice >= t._liveVwap)
+      .filter((t: any) => isSipCandidate(t._liveChg, t._livePrice, t._liveVwap))
       .sort((a: any, b: any) => b._liveVol - a._liveVol)
       .slice(0, 40);
 
@@ -1900,26 +1762,12 @@ async function runScan(request: Request) {
        watched long enough to know what it costs. */
     const finalSip = sipCandidates
       .map((t: any) => enrichedMap.get(t.ticker))
-      .filter((r: any) =>
-         r !== undefined &&
-         r.vol >= SCANNER.minVolume &&
-         r.dVol >= SCANNER.minDollarVol &&
-         r.changePct >= SCANNER.minChange &&
-         r.atr >= SCANNER.minAtr &&
-         r.avgVol >= SCANNER.minAvgVol &&
-         r.adrPct != null && r.adrPct >= SCANNER.minAdrPct
-      )
+      .filter((r: any) => r !== undefined && passesSipFinal(r))
       .slice(0, SCANNER.finalSize);
 
     const finalDaily = dailyCandidates
       .map((t: any) => enrichedMap.get(t.ticker))
-      .filter((r: any) =>
-         r !== undefined &&
-         r.vol >= SCANNER.minVolume &&
-         r.dVol >= SCANNER.minDollarVol &&
-         r.changePct >= SCANNER.minChange &&
-         r.adrPct != null && r.adrPct >= SCANNER.minAdrPct
-      )
+      .filter((r: any) => r !== undefined && passesDailyFinal(r))
       .slice(0, SCANNER.finalSize);
 
     // Enrich with fundamentals — cross-reference multibagger KV first, Polygon for the rest
