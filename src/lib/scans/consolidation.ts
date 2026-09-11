@@ -12,8 +12,12 @@ import { computeRMV } from '@/lib/indicators/rmv';
 import { computeStage } from '@/lib/indicators/stage';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
 import { computeTradePlan } from '@/lib/indicators/tradeplan';
-import { choppiness, CHOP_PERIOD_DEFAULT } from '@/lib/indicators/chop';
+import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN } from '@/lib/indicators/chop';
 import { CONSOL, SWING } from '@/lib/scanConfig';
+
+/* ADR at which a name is "wide" for the chop-trap read — a reporting
+   threshold, not a gate, moved with the analyser that uses it. */
+const CHOP_TRAP_MIN_ADR = 5;
 import { type RsLookup } from '@/lib/indicators/rs';
 import { cleanSectorDescription } from '@/lib/sectors';
 import { sma, ema, atr, adrPct, stochK } from '@/lib/indicators/marketMath';
@@ -489,4 +493,181 @@ export function shortlistConsolidation(series: Map<string, LiteBar[]>): string[]
 
   picks.sort((a, b) => a.ratio - b.ratio);
   return picks.slice(0, GROUPED.shortlistSize).map(p => p.sym);
+}
+
+/* ---- The swing analyser --------------------------------------------------
+   Moved verbatim from app/api/swing-candidates/run on 11 Sep 2026, for the
+   same reason as analyzeConsolidation above: the historical replay has to run
+   the rules production runs, not a copy of them. It shares every helper in
+   this file (RS fraction, prior swing high, the plan serialiser, the row
+   shape), which is why the two live together. */
+export function analyze(
+  symbol: string,
+  bars: Bar[],
+  rsLookup: RsLookup,
+  details: any,
+  shortData: any,
+  snap: SnapInfo | undefined
+): Candidate | null {
+  if (bars.length < 210) return null;
+
+  const closes = bars.map(b => b.c);
+  const price = closes[closes.length - 1];
+
+  const sma50 = sma(closes, 50);
+  const sma200 = sma(closes, 200);
+  const ema10 = ema(closes, 10);
+  const ema21 = ema(closes, 21);
+  const ema50 = ema(closes, 50);
+  const ema21Prev = ema(closes.slice(0, -3), 21);
+  const atr14 = atr(bars, 14);
+  const kVal = stochK(bars, 10, 4);
+
+  if (!sma50 || !sma200 || !ema10 || !ema21 || !atr14 || kVal == null) return null;
+
+  const atrPctVal = (atr14 / price) * 100;
+  const adr = adrPct(bars, 20);
+
+  /* --- CHOP (v1.9) ------------------------------------------------------
+     NO REVERSE NEEDED. getDailyBars fetches with sort=asc, so bars are
+     already oldest-first, which is what choppiness() expects. The scanner
+     route sorts descending and has to reverse a slice; this one does not.
+     Silent either way — a wrongly ordered array returns a plausible number
+     computed from the wrong end of the series — so the confirmation is that
+     every other helper here treats bars[bars.length - 1] as today.
+
+     THIS IS THE FILTER THAT MATTERS ON THE SWING TABLE. A pullback into a
+     trending name and a pullback inside a range are indistinguishable on the
+     EMAs and behave nothing alike. Nothing else computed here separates
+     them. */
+  const chop14 = choppiness(bars, CHOP_PERIOD_DEFAULT);
+
+  const rmv = computeRMV(bars, { lookback: 15 });
+  // Money Flow (21) — on a pullback candidate this is the key confirmation:
+  // price pulling back with MF still above 55 is orderly profit-taking, not
+  // distribution.
+  const mf = computeMoneyFlow(bars, { length: 21 });
+  const mfTrend = moneyFlowTrend(bars, { length: 21, lookback: 5 });
+  const hi52 = Math.max(...bars.slice(-252).map(b => b.h));
+  const pctOffHigh = ((hi52 - price) / hi52) * 100;
+  const distToEma21 = ((price - ema21) / ema21) * 100;
+  const distToEma10 = ((price - ema10) / ema10) * 100;
+  const ema21Rising = ema21Prev != null && ema21 > ema21Prev;
+
+  const dollarVols = bars.slice(-20).map(b => b.c * b.v);
+  const avgDollarVol = dollarVols.reduce((a, b) => a + b, 0) / dollarVols.length;
+
+  const vols = bars.slice(-20).map(b => b.v).filter(v => v > 0);
+  const avgVol = vols.length > 0 ? vols.reduce((a, b) => a + b, 0) / vols.length : 0;
+
+  /* A lookup, not a calculation. Null means the name is unrated — below the
+     ranking floor, or listed less than a quarter ago — and an unrated name
+     fails the gate below rather than passing on a missing value. */
+  const rsRating = rsLookup.get(symbol);
+
+  if (avgDollarVol < SWING.minAvgDollarVol) return null;
+  if (price < sma50) return null;
+  if (price < sma200) return null;
+  if (atrPctVal < SWING.minAtrPct || atrPctVal > SWING.maxAtrPct) return null;
+  if (pctOffHigh < SWING.minPctOffHigh || pctOffHigh > SWING.maxPctOffHigh) return null;
+  if (Math.abs(distToEma21) > SWING.maxDistToEma21) return null;
+  if (kVal > SWING.maxStochK) return null;
+  if (rsRating == null || rsRating < RS_GATE) return null;
+
+  const rsScore = rsFraction(rsRating) * 35;
+  const pullbackScore =
+    (1 - Math.abs(distToEma21) / SWING.maxDistToEma21) * 15 +
+    (1 - kVal / SWING.maxStochK) * 15;
+  const volScore = Math.max(0, (1 - Math.abs(atrPctVal - 3.0) / 3.0) * 20);
+  const trendScore = (sma50 > sma200 ? 10 : 0) + (ema21Rising ? 5 : 0);
+  const score = Math.round(Math.max(0, rsScore + pullbackScore + volScore + trendScore));
+
+  // Live snapshot price when available — the 30 and 50 SMAs sit close
+  // together, so a stale close misclassifies 2A/2B.
+  const stage = computeStage(closes, { price: snap?.livePrice ?? price });
+
+  const changePct = snap?.changePct ?? 0;
+  const vol = snap?.vol || bars[bars.length - 1].v || 0;
+  const rvolVal = avgVol > 0 && vol > 0 ? +(vol / avgVol).toFixed(2) : null;
+
+  let vwapStatus: 'above' | 'below' | 'neutral' = 'neutral';
+  if (snap?.vwap && snap?.livePrice) {
+    vwapStatus = snap.livePrice >= snap.vwap ? 'above' : 'below';
+  }
+
+  const name = details?.results?.name || symbol;
+  const mktCap = details?.results?.market_cap || null;
+  const float = details?.results?.share_class_shares_outstanding || (mktCap && price ? mktCap / price : null);
+  const sector = cleanSectorDescription(details?.results?.sic_description, details?.results?.sector, details?.results?.industry);
+
+  let shortPct: number | null = null;
+  let daysToCover: number | null = null;
+  const shortInterest = shortData?.results?.[0]?.short_interest;
+  if (shortInterest && float) shortPct = +((shortInterest / float) * 100).toFixed(1);
+  if (shortInterest && avgVol > 0) daysToCover = +(shortInterest / avgVol).toFixed(1);
+
+  // --- TRADE PLAN (v1.8) ---------------------------------------------------
+  // Tagged 'EMA PB', which resolves to the first-touch family and triggers
+  // off today's high. This is a pullback into a rising trend: price has
+  // already come back to the 10/21 and the entry is the level that says the
+  // pullback is finished, not a moving average it is already sitting on.
+  const lastBar = bars[bars.length - 1];
+  const setupName = 'EMA PB';
+  const plan = computeTradePlan({
+    price,
+    adrPct: adr,
+    atrPct: atrPctVal,
+    changePct,
+    ema10,
+    ema21,
+    ema50,
+    dayHigh: lastBar?.h ?? null,
+    priorSwingHigh: priorSwingHighOf(bars),
+    aboveEma10: price >= ema10,
+    aboveEma21: price >= ema21,
+    setupName,
+  });
+
+  return {
+    symbol,
+    name,
+    sector,
+    price: +price.toFixed(2),
+    score,
+    changePct: +changePct.toFixed(2),
+    vol,
+    dVol: Math.round(price * vol),
+    rvol: rvolVal,
+    float,
+    shortPct,
+    daysToCover,
+    mktCap,
+    stage,
+    vwapStatus,
+    atrPct: +atrPctVal.toFixed(2),
+    adrPct: adr != null ? +adr.toFixed(2) : undefined,
+    chop14: chop14 != null ? +chop14.toFixed(1) : null,
+    chopTrap: chop14 != null && adr != null && adr >= CHOP_TRAP_MIN_ADR && chop14 >= CHOP_CHOP_MIN,
+    rmv,
+    mf,
+    mfTrend,
+    pctOffHigh: +pctOffHigh.toFixed(1),
+    distToEma21: +distToEma21.toFixed(2),
+    distToEma10: +distToEma10.toFixed(2),
+    aboveEma10: price >= ema10,
+    aboveEma21: price >= ema21,
+    stochK: +kVal.toFixed(1),
+    rsRating,
+    avgDollarVolM: Math.round(avgDollarVol / 1e6),
+    goldenCross: sma50 > sma200,
+    ema21Rising,
+    setupName,
+    ema10: round2(ema10),
+    ema21: round2(ema21),
+    ema50: round2(ema50),
+    dayHigh: round2(lastBar?.h ?? null),
+    dayLow: round2(lastBar?.l ?? null),
+    priorSwingHigh: round2(priorSwingHighOf(bars)),
+    plan: serialisePlan(plan),
+  };
 }

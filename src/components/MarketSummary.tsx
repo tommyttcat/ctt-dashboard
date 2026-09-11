@@ -2675,7 +2675,7 @@ const SETUP_SOURCE_FILTERS: SetupFilter[] = [
 
 const ALL_SETUP_FILTERS = [...SETUP_PATTERN_FILTERS, ...SETUP_SOURCE_FILTERS];
 
-const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter: sf, rsMap, stageMap, topSet }: {
+const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter: sf, rsMap, stageMap, topSet, onVisibleChange }: {
   pool: any[];
   gradeMap?: Record<string, 'A' | 'B'>;
   dotMap?: Record<string, 'blue' | 'red'>;
@@ -2685,6 +2685,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
   rsMap?: Record<string, number>;
   stageMap?: Record<string, string>;
   topSet?: Set<string>;
+  onVisibleChange?: (tickers: string[]) => void;
 }) => {
   const taggedPool = React.useMemo(() => {
     if (!topSet?.size) return pool;
@@ -2737,6 +2738,14 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
   }, [taggedPool, activeKey, edgeKey, sortKey, sortDir, sf]);
 
   const tickers = filtered.map(s => s.ticker).filter(Boolean);
+
+  /* Copy should copy what the reader can see. The card's own filters (colour,
+     setup, source) live in here, so the header — which owns the Copy and TXT
+     buttons — has to be told what survived them. */
+  const visibleKey = tickers.join(',');
+  React.useEffect(() => {
+    onVisibleChange?.(visibleKey ? visibleKey.split(',') : []);
+  }, [visibleKey, onVisibleChange]);
 
   if (taggedPool.length === 0) return null;
 
@@ -3425,6 +3434,10 @@ export default function MarketSummary() {
   );
   const [scanFilter, setScanFilter] = useState<ScanFilterKey>(null);
   const [moverView, setMoverView] = useState<'stocks' | 'etf'>('stocks');
+  /* What the Setups Summary is actually displaying after its own filters, so
+     Copy and TXT hand over the visible rows rather than the whole pool. */
+  const [setupVisible, setSetupVisible] = useState<string[]>([]);
+  const onSetupVisible = React.useCallback((t: string[]) => setSetupVisible(t), []);
   const macroRef = useRef<MacroInsights | null>(null);
   macroRef.current = macroInsights;
   const handleScanFilter = useCallback((k: ScanFilterKey) => {
@@ -3747,11 +3760,25 @@ export default function MarketSummary() {
                             ? macroInsights.etfMoversPara : rawBody;
                           const st = sectionStyles(color);
                           const bodyTickers = label === 'Setups Summary'
-                            ? (macroInsights?.setupPool ?? []).map((s: any) => s.ticker).filter(Boolean)
+                            // What the card is showing, not the pool behind it.
+                            ? setupVisible
                             : (() => {
                                 const lines = body.replace(/\|\|\|/g, '\n').split('\n').filter(Boolean);
                                 const parsed = lines.map(l => parseStdLine(l)).filter(Boolean);
-                                if (parsed.length > 0) return Array.from(new Set(parsed.map(p => p!.ticker)));
+                                /* Copy what is on screen. When a scan filter is
+                                   active the rows are filtered at render with
+                                   this same predicate, so the button has to use
+                                   it too — otherwise it offers ten tickers over
+                                   a three-row table. */
+                                const visible = scanFilter
+                                  ? parsed.filter(p => passesScanFilter(scanFilter, p!, {
+                                      gradeMap: macroInsights?.gradeMap,
+                                      postureMap: macroInsights?.postureMap,
+                                      avoidSet: macroInsights?.avoidSet,
+                                      dotMap: macroInsights?.dotMap,
+                                    }))
+                                  : parsed;
+                                if (visible.length > 0) return Array.from(new Set(visible.map(p => p!.ticker)));
                                 return Array.from(new Set(
                                   (body.match(/\b[A-Z]{2,5}\b/g) || []).filter(t => !TICKER_STOPWORDS.has(t))
                                 ));
@@ -3933,6 +3960,7 @@ export default function MarketSummary() {
                                   rsMap={macroInsights?.rsMap}
                                   stageMap={macroInsights?.stageMap}
                                   topSet={macroInsights?.watching?.length ? new Set(macroInsights.watching.map((w: any) => w.symbol)) : undefined}
+                                  onVisibleChange={onSetupVisible}
                                 />
                               ) : isOpen && label === 'Sector Performance' ? (
                                 <SectorBars body={body} heat={macroInsights?.sectorHeat} />
