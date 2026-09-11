@@ -48,6 +48,8 @@ export async function GET() {
       candidates: Array.isArray(candidates) ? candidates : [],
       lastScanTime: lastScanTime || null,
       raw9m: meta?.raw9m ?? null,
+      // Snapshot rows the last run dropped as the previous session's bar.
+      staleDropped: meta?.staleDropped ?? null,
       shortlisted: meta?.shortlisted ?? null,
       count: meta?.count ?? (Array.isArray(candidates) ? candidates.length : 0),
       minRvol: meta?.minRvol ?? null,

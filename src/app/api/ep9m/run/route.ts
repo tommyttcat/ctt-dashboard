@@ -153,9 +153,10 @@ import { pickBestNews, polygonNewsPath, fetchBenzingaNewsIndex, type NewsItem } 
    exact same rules. This route keeps only the I/O. */
 import {
   shortlistAbnormal, scoreEp9m, classifyEpType, priorSwingHighOf,
-  shareMetrics, closeStrengthOf, catalystTierOf, passesUniverseGate,
-  type Bar, type LiteBar, type SnapInfo, type CatalystTier,
+  shareMetrics, closeStrengthOf, catalystTierOf, passesUniverseGate, priorSessionRows,
+  type Bar, type LiteBar, type OhlcvBar, type SnapInfo, type CatalystTier,
 } from '@/lib/scans/ep9m';
+import { getMarketDay, previousTradingDay } from '@/lib/marketCalendar';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -379,6 +380,7 @@ async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, 
       dayHigh: t.day?.h ?? null,
       dayLow: t.day?.l ?? null,
       dayOpen: t.day?.o ?? null,
+      dayClose: t.day?.c ?? null,
     });
     symbols.push(sym);
   }
@@ -391,7 +393,17 @@ async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, 
 // ~60 calls total for every US stock's recent history — the only affordable
 // way to answer "is 9M abnormal FOR THIS NAME" across the whole market.
 // ---------------------------------------------------------------
-async function getVolumeProfile(validSymbols: Set<string>): Promise<Map<string, LiteBar[]>> {
+//
+// Also returns the full bars for `priorSession` — the previous trading day —
+// which the stale-row check compares the snapshot against. That day is
+// already in the fetch, so this costs no extra call. `prior` is null when it
+// came back empty: polygonSafe swallows errors, so a failed fetch and an
+// unpublished day both land here, and either way there is nothing to check
+// against.
+async function getVolumeProfile(
+  validSymbols: Set<string>,
+  priorSession: string
+): Promise<{ series: Map<string, LiteBar[]>; prior: Map<string, OhlcvBar> | null }> {
   const dates: string[] = [];
   for (let d = WINDOW.maxCalendarDays; d >= 1; d--) {
     const dt = new Date(Date.now() - d * 86400000);
@@ -429,7 +441,16 @@ async function getVolumeProfile(validSymbols: Set<string>): Promise<Map<string, 
       arr.push({ c: t.c, h: t.h, l: t.l, v: t.v });
     }
   }
-  return series;
+
+  const priorDay = dayResults.find(d => d.date === priorSession);
+  let prior: Map<string, OhlcvBar> | null = null;
+  if (priorDay) {
+    prior = new Map();
+    for (const t of priorDay.results) {
+      if (validSymbols.has(t.T)) prior.set(t.T, { o: t.o, h: t.h, l: t.l, c: t.c, v: t.v });
+    }
+  }
+  return { series, prior };
 }
 
 /* fetchBenzingaWiims, classifyWiim and isNegativeHeadline used to live here.
@@ -471,7 +492,20 @@ async function runScan(request: Request) {
       return NextResponse.json({ success: false, error: 'Missing Polygon API Key' }, { status: 500 });
     }
 
-    const today = dateStr(0);
+    /* The session this run stamps onto the registry, in ET. It was the UTC
+       date, which is the same thing for every cron run but rolls to tomorrow
+       for a manual run after 8 PM ET.
+
+       NO SESSION, NO SCAN. On a weekend or holiday the snapshot still holds
+       the last session, and rerunning it stamps that session under a date on
+       which nothing traded — the 14 registry entries dated Sunday 16 Aug 2026
+       came from exactly that. Nothing is read or written: the previous
+       session's final scan stays on screen with its own timestamp. */
+    const market = getMarketDay();
+    const today = market.date;
+    if (!market.isTradingDay) {
+      return NextResponse.json({ success: true, skipped: true, reason: market.reason, date: today });
+    }
 
     /* One lookup for the whole scan. Loading it here rather than inside the
        per-ticker enrichment matters: that runs once per shortlisted name
@@ -499,7 +533,26 @@ async function runScan(request: Request) {
       });
     }
 
-    const profile = await getVolumeProfile(new Set(symbols));
+    const priorSession = previousTradingDay(today);
+    const { series: profile, prior } = await getVolumeProfile(new Set(symbols), priorSession);
+
+    /* Without the previous session's bars a stale snapshot row cannot be told
+       from today's, and a stale row is how yesterday's EPs got registered as
+       today's. Same response as the DVOL scan to a missing grouped day: write
+       nothing and let the next run try again. */
+    if (!prior) {
+      return NextResponse.json({
+        success: false, priorSession,
+        error: `No grouped data for ${priorSession} — cannot check the snapshot for stale rows; leaving the previous scan in place`,
+      }, { status: 503 });
+    }
+
+    // Rows whose day bar is still the previous session — see priorSessionRows.
+    // Dropped from the snapshot map, so shortlistAbnormal never sees them.
+    const stale = priorSessionRows(snapMap, prior);
+    for (const sym of stale) snapMap.delete(sym);
+    const raw9m = symbols.length - stale.length;
+
     const shortlist = shortlistAbnormal(profile, snapMap);
 
     const registry = await readRegistry();
@@ -851,11 +904,14 @@ async function runScan(request: Request) {
     await kv.set('ep9m_v1', finalList);
     await kv.set('ep9m_last_scan_v1', scanTime);
     await kv.set('ep9m_meta_v1', {
-      raw9m: symbols.length,
+      raw9m,
       shortlisted: shortlist.length,
       count: finalList.length,
       minRvol: EP9M.minRvol,
       minVolume: EP9M.minVolume,
+      // Snapshot rows dropped as the previous session. Nonzero only while
+      // Polygon has not yet rolled `day` — i.e. before the open.
+      staleDropped: stale.length,
       // Gate metadata for the on-screen key — the config this run enforced.
       scanMeta: EP9M_META,
     });
@@ -906,7 +962,11 @@ async function runScan(request: Request) {
     return NextResponse.json({
       success: true,
       lastScanTime: scanTime,
-      raw9m: symbols.length,
+      date: today,
+      priorSession,
+      raw9m,
+      staleDropped: stale.length,
+      staleSample: stale.slice(0, 10),
       shortlisted: shortlist.length,
       count: finalList.length,
       registrySize: nextRegistry.length,

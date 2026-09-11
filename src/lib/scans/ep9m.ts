@@ -8,12 +8,15 @@
 // first time someone tunes a threshold in one place.
 //
 // Moved verbatim from the route on 11 Sep 2026; no behaviour change.
+// + isPriorSessionBar / priorSessionRows (11 Sep 2026) — a live-only guard;
+//   the backtest has no snapshot and does not call them.
 
 import { EP9M } from '@/lib/scanConfig';
 import type { NewsItem } from '@/lib/indicators/news';
 
 export interface Bar { t: number; o: number; h: number; l: number; c: number; v: number; }
 export interface LiteBar { c: number; h: number; l: number; v: number; }
+export interface OhlcvBar { o: number; h: number; l: number; c: number; v: number; }
 
 export interface SnapInfo {
   price: number;
@@ -24,6 +27,52 @@ export interface SnapInfo {
   dayHigh: number | null;
   dayLow: number | null;
   dayOpen: number | null;
+  /* The snapshot day bar's own close — not `price`, which prefers the latest
+     minute. Only the stale-bar check reads it; optional so the backtest, which
+     has no snapshot, need not supply it. */
+  dayClose?: number | null;
+}
+
+// ---------------------------------------------------------------
+// Stale snapshot rows — the previous session wearing today's date.
+//
+// Before the open, Polygon's full-market snapshot can still carry the PRIOR
+// session in `day` while `min` already holds a fresh premarket print. The row
+// looks current (price, `updated` and `min.t` are all today) but its volume is
+// yesterday's, so yesterday's EPs were registered under today's date: 11
+// entries on 13 and 18 Aug 2026, each within 0.2% of the prior session's
+// volume, each with a premarket price. A timestamp check cannot see this —
+// only the bar itself can.
+//
+// The test is identity with the ticker's grouped bar for the previous trading
+// day. Measured 11 Sep 2026: the snapshot `day` equals the grouped bar to the
+// cent on O/H/L/C for 283/283 names at 9M+, volume within 0.36%. Across five
+// years of grouped history (292,020 name-days at 9M+) no genuine session
+// matched the one before it on all four prices with volume within 1%. H/L/C
+// alone did once (SH), which is why the open is part of the test.
+// ---------------------------------------------------------------
+const STALE_PRICE_EPS = 1e-4;
+const STALE_VOL_TOL = 0.01;
+
+export function isPriorSessionBar(
+  day: { o: number | null; h: number | null; l: number | null; c: number | null; v: number },
+  prior: OhlcvBar | undefined
+): boolean {
+  if (!prior || !(prior.v > 0)) return false;
+  if (day.o == null || day.h == null || day.l == null || day.c == null) return false;
+  const same = (a: number, b: number) => Math.abs(a - b) <= STALE_PRICE_EPS;
+  return same(day.o, prior.o) && same(day.h, prior.h) && same(day.l, prior.l) && same(day.c, prior.c)
+    && Math.abs(day.v / prior.v - 1) <= STALE_VOL_TOL;
+}
+
+/** Symbols whose snapshot day bar is really the previous session's. */
+export function priorSessionRows(snapMap: Map<string, SnapInfo>, prior: Map<string, OhlcvBar>): string[] {
+  const stale: string[] = [];
+  snapMap.forEach((s, sym) => {
+    const day = { o: s.dayOpen, h: s.dayHigh, l: s.dayLow, c: s.dayClose ?? null, v: s.vol };
+    if (isPriorSessionBar(day, prior.get(sym))) stale.push(sym);
+  });
+  return stale;
 }
 
 // ETFs that clear 9M shares on any ordinary day. Most would fail the RVOL gate
