@@ -239,29 +239,54 @@ export function scoreHrs(
   pctBelow52wHigh: number,
   rs: number | null
 ): Record<string, number> {
-  // Relative alpha on weak days: 0–40 pts
+  /* --- v2 (11 Sep 2026) ---------------------------------------------------
+     The old score could not rank: its four terms all saturate on names that
+     already cleared the gates, so 27,712 of 27,865 backtested rows scored 75+
+     and 99.8% graded A. A letter everything earns is decoration.
+
+     What separated outcomes over 30,028 rows (Sep 2022 - Sep 2026), both
+     halves agreeing:
+
+         RS 95+                  +0.05R, 9.9% ran +50%   (RS 85-94: 3.4%)
+         price $5-15             +0.15R, 11.2%           (the rest: +0.01R)
+         6-9 weak days measured  +0.06R                  (10+: -0.01R)
+         moderate pullback       +0.13R                  (severe: -0.05R)
+
+     Note the price band is the OPPOSITE of the momentum tables, where $5-10
+     was the worst bucket in the market. Hidden strength and hidden weakness
+     live in the same place, which is why this scan scores it itself.
+
+     Proximity and the SMA stack are gates, not signals, so they no longer
+     carry 45 points between them. */
   const alphaRaw = Math.max(0, c.avgDailyAlpha);
-  const alphaPts = Math.min(alphaRaw / 2, 1) * 30 + Math.min(c.weakDayOutperformPct / 100, 1) * 10;
+  const alphaPts = Math.min(alphaRaw / 2, 1) * 20 + Math.min(c.weakDayOutperformPct / 100, 1) * 5;
 
-  // Proximity to 52-week high: 0–25 pts
-  const proxPts = pctBelow52wHigh <= 3 ? 25
-    : pctBelow52wHigh <= 5 ? 22
-    : pctBelow52wHigh <= 8 ? 18
-    : pctBelow52wHigh <= 12 ? 12
-    : pctBelow52wHigh <= 15 ? 6 : 0;
+  // The sample the alpha was measured over. A short, sharp stretch of weak
+  // days reads better than a long grind: 6-9 beat 10+ in both halves.
+  const n = c.weakDayDetail.length;
+  const samplePts = n >= 10 ? 4 : n >= 6 ? 12 : n >= 3 ? 8 : 4;
 
-  // SMA quality: 0–20 pts
-  const smaStackPts = 10; // already gated on 10 > 20
-  const slopePts = Math.min((c.sma10Slope + c.sma20Slope) / 2, 1) * 10;
+  // Kept, at a fraction of the old weight — it is a gate at 15%.
+  const proxPts = pctBelow52wHigh <= 3 ? 10
+    : pctBelow52wHigh <= 8 ? 8
+    : pctBelow52wHigh <= 12 ? 5 : 3;
 
-  // RS Rating: 0–15 pts
-  const rsPts = rs != null ? Math.min(Math.max(rs - 60, 0) / 30, 1) * 15 : 0;
+  const slopePts = Math.min((c.sma10Slope + c.sma20Slope) / 2, 1) * 5;
+
+  // Step-shaped, not linear: only the top of the range meant anything.
+  const rsPts = rs == null ? 0 : rs >= 95 ? 25 : rs >= 85 ? 8 : rs >= 70 ? 10 : 6;
+
+  // The band that paid on THIS scan.
+  const px = c.bars[c.bars.length - 1]?.c ?? null;
+  const pricePts = px != null && px >= 5 && px <= 15 ? 15 : 0;
 
   return {
     alpha: +alphaPts.toFixed(1),
+    sample: +samplePts.toFixed(1),
     proximity: +proxPts.toFixed(1),
-    smaStack: +(smaStackPts + slopePts).toFixed(1),
+    smaStack: +slopePts.toFixed(1),
     rs: +rsPts.toFixed(1),
+    priceBand: +pricePts.toFixed(1),
   };
 }
 

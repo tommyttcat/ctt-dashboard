@@ -21,6 +21,12 @@ import type { BarCache } from './cache';
 import { ema } from '@/lib/indicators/marketMath';
 
 export const HOLD = 60;
+/* A stop closer than this to the fill is not a stop, it is the spread. Without
+   a floor, R-multiples explode: one Hidden RS row whose 10-day low sat a
+   fraction of a percent under the fill turned a normal move into a four-figure
+   R and dragged an entire table's average with it. Floored, not skipped, so
+   the trade still counts — it just cannot claim infinite leverage. */
+export const MIN_RISK_PCT = 0.5;
 export const HR_PCT = 0.5;
 export const HR_R = 10;
 
@@ -29,10 +35,12 @@ export type Trade = Record<string, unknown>;
 
 export function simulate(
   c: BarCache, id: number, flagIdx: number, entryIdx: number,
-  fill: number, stop: number, target: number | null,
+  fill: number, stopIn: number, target: number | null,
 ): Trade {
   const { O, H, L, C } = c;
   const N = c.sessions.length;
+  const minRisk = fill * (MIN_RISK_PCT / 100);
+  const stop = fill - stopIn < minRisk ? fill - minRisk : stopIn;
   const risk = fill - stop;
   const hrLevel = Math.min(fill * (1 + HR_PCT), fill + HR_R * risk);
   const last = Math.min(N - 1, entryIdx + HOLD - 1);

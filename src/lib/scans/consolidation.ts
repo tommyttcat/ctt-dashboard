@@ -574,17 +574,35 @@ export function analyze(
   if (kVal > SWING.maxStochK) return null;
   if (rsRating == null || rsRating < RS_GATE) return null;
 
-  const rsScore = rsFraction(rsRating) * 35;
+  /* --- Score v2 (11 Sep 2026) -------------------------------------------
+     Measured on 3,224 replayed rows (Sep 2022 - Sep 2026, next-open entry
+     trailing the 21 EMA), both halves of the period agreeing:
+
+         RS 95+              +0.94R, 16.3% ran +50%
+         RS 85-94            -0.03R  <- the old linear ladder's second-best band
+         Money Flow 65+      +0.53R, 13.8%
+         Money Flow 45-55    +0.03R
+         Stage 1 base        -0.19R, 5.5%  <- the only losing bucket
+         stochastic under 15 +0.25R vs +0.13R at 15-25
+
+     So RS goes step-shaped instead of linear (the middle of the range carried
+     no information), money flow enters the score for the first time, a Stage 1
+     base takes a hard penalty rather than passing unremarked, and the deepest
+     washouts score best rather than worst. */
+  const rsScore = rsRating >= 95 ? 35 : rsRating >= 85 ? 18 : rsRating >= 70 ? 20 : rsFraction(rsRating) * 20;
   const pullbackScore =
-    (1 - Math.abs(distToEma21) / SWING.maxDistToEma21) * 15 +
+    (1 - Math.abs(distToEma21) / SWING.maxDistToEma21) * 10 +
     (1 - kVal / SWING.maxStochK) * 15;
-  const volScore = Math.max(0, (1 - Math.abs(atrPctVal - 3.0) / 3.0) * 20);
-  const trendScore = (sma50 > sma200 ? 10 : 0) + (ema21Rising ? 5 : 0);
-  const score = Math.round(Math.max(0, rsScore + pullbackScore + volScore + trendScore));
+  const flowScore = mf == null ? 0 : mf >= 65 ? 15 : mf >= 55 ? 8 : mf >= 45 ? 0 : 4;
+  const volScore = Math.max(0, (1 - Math.abs(atrPctVal - 2.5) / 3.0) * 12);
+  const trendScore = (sma50 > sma200 ? 8 : 0) + (ema21Rising ? 5 : 0);
+  const stageForScore = computeStage(closes, { price: snap?.livePrice ?? price });
+  const stagePenalty = stageForScore.startsWith('Stage 1') ? -20 : 0;
+  const score = Math.round(Math.max(0, rsScore + pullbackScore + flowScore + volScore + trendScore + stagePenalty));
 
   // Live snapshot price when available — the 30 and 50 SMAs sit close
   // together, so a stale close misclassifies 2A/2B.
-  const stage = computeStage(closes, { price: snap?.livePrice ?? price });
+  const stage = stageForScore;
 
   const changePct = snap?.changePct ?? 0;
   const vol = snap?.vol || bars[bars.length - 1].v || 0;
