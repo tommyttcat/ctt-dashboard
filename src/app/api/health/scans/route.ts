@@ -89,7 +89,12 @@ export async function GET(request: Request) {
   const now = Date.now();
   const checks: Check[] = WATCHED.map(w => {
     const payload = byKey.get(w.key);
-    const rows = Array.isArray(payload) ? payload.length : payload == null ? null : -1;
+    /* Most keys hold an array of rows; rs_ratings_v1 holds a symbol->rating
+       map. Counting its entries is what makes an empty map visible — as an
+       array-only check it was "present, therefore fine". */
+    const rows = Array.isArray(payload) ? payload.length
+      : payload && typeof payload === 'object' ? Object.keys(payload as Record<string, unknown>).length
+      : payload == null ? null : -1;
     const tsRaw = w.tsKey ? byKey.get(w.tsKey) : null;
     const ts = typeof tsRaw === 'number' ? tsRaw : null;
     const ageMin = ts ? Math.round((now - ts) / 60000) : null;
