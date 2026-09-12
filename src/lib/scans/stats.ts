@@ -28,6 +28,8 @@ export interface ScanStat {
   headline: string;
   /** The full detail, for the hover. */
   detail: string;
+  /** The same figures as numbers, so the live record can be shown beside them. */
+  bt: { n: number; fixedAvgR: number | null; hold20AvgR: number | null; hrRate: number | null; winRate: number | null };
 }
 
 export const SCAN_STATS: Record<StatScan, ScanStat> = {
@@ -38,6 +40,7 @@ export const SCAN_STATS: Record<StatScan, ScanStat> = {
       'Fixed 2R +0.04R · trail 21 EMA +0.14R · hold 20 sessions +0.15R.\n' +
       '13.0% reached +50% before the stop; 28.8% got there at some point whether or not you were still in.\n' +
       '35% of trades closed positive on the 2R version. Costs not modelled.',
+    bt: { n: 11551, fixedAvgR: 0.04, hold20AvgR: 0.15, hrRate: 13.0, winRate: 35 }
   },
   swing: {
     headline: '5-year test: +0.30R per trade held 20 sessions — the best exit measured on any table here.',
@@ -46,6 +49,7 @@ export const SCAN_STATS: Record<StatScan, ScanStat> = {
       'Fixed 2R +0.02R · trail 21 EMA +0.16R · hold 20 sessions +0.30R.\n' +
       '9.8% reached +50% before the stop (27.3% at some point). 35% closed positive on the 2R version.\n' +
       'The Stage 1 rows are the only bucket that lost (-0.19R) — see the row shading.',
+    bt: { n: 2814, fixedAvgR: 0.02, hold20AvgR: 0.30, hrRate: 9.8, winRate: 35 }
   },
   vcp: {
     headline: '5-year test: +0.07R per trade taking the 2R, and the 2R is the right exit here. Only 3% ran +50%.',
@@ -54,6 +58,7 @@ export const SCAN_STATS: Record<StatScan, ScanStat> = {
       'Fixed 2R +0.07R · trail 21 EMA -0.03R · hold 20 sessions +0.01R — the one table where the target wins.\n' +
       '3.2% reached +50% before the stop, and every one of those came from the wider bases (green rows: 10.7%; red: zero in five years).\n' +
       '44% of trades closed positive. The scan also swung with the tape — negative through 2022-24, positive since — so treat the average as regime-dependent.',
+    bt: { n: 5587, fixedAvgR: 0.07, hold20AvgR: 0.01, hrRate: 3.2, winRate: 44 }
   },
   consolidation: {
     headline: '5-year test: -0.09R per trade. No exit produced an edge — this is a watchlist, not a trade signal.',
@@ -62,6 +67,7 @@ export const SCAN_STATS: Record<StatScan, ScanStat> = {
       'Fixed 2R -0.09R · trail 21 EMA -0.07R · hold 20 sessions -0.06R. Nothing tested was positive.\n' +
       '4.1% reached +50% before the stop; 32% of trades closed positive.\n' +
       'One bucket did pay: a coil 3x+ ATR with the stochastic above 75 (+0.13R, ~7% of rows) — the green shading.',
+    bt: { n: 11580, fixedAvgR: -0.09, hold20AvgR: -0.06, hrRate: 4.1, winRate: 32 }
   },
   ep9m: {
     headline: '5-year test: +0.02R per trade on the pullback entry, 14% ran +50%. Thin on average, fat in the tail.',
@@ -70,6 +76,7 @@ export const SCAN_STATS: Record<StatScan, ScanStat> = {
       'Fixed 2R +0.02R · trail 10 EMA +0.05R · trail 21 EMA +0.03R · hold 20 sessions -0.00R.\n' +
       'The retired day-high entry, for comparison: -0.13R and -0.19R.\n' +
       '14.4% reached +50% before the stop — the highest of any table here, and where the return lives. 35% closed positive.',
+    bt: { n: 6874, fixedAvgR: 0.02, hold20AvgR: -0.00, hrRate: 14.4, winRate: 35 }
   },
   hrs: {
     headline: '5-year test: +0.06R per trade, 7% ran +50%. Reads as a watchlist of quiet leaders.',
@@ -78,6 +85,7 @@ export const SCAN_STATS: Record<StatScan, ScanStat> = {
       'Fixed 2R +0.06R · trail 10 EMA +0.05R · trail 21 EMA +0.03R — flat whichever way you exit.\n' +
       '7.4% reached +50% before the stop; 43% of trades closed positive.\n' +
       'The $5-15 band is the one that separated (+0.14R, 10% ran +50%) — the green shading.',
+    bt: { n: 27786, fixedAvgR: 0.06, hold20AvgR: 0.05, hrRate: 7.4, winRate: 43 }
   },
   multibagger: {
     headline: '5-year test: measured in months, not R — 17.8% of the green rows doubled inside a year against a 5.8% base rate.',
@@ -86,5 +94,6 @@ export const SCAN_STATS: Record<StatScan, ScanStat> = {
       'Revenue growth 10-25% with a cap under $3B: +13.0% excess at 12 months, 62% beat the median, 17.8% doubled in 12 months and 28.9% in 24.\n' +
       'Revenue growth 50%+: -12.4% excess, and only 3.6% doubled — below the 5.8% universe base rate.\n' +
       'This screen is a holding period, not a trade: there is no stop in the measurement.',
+    bt: { n: 1425, fixedAvgR: null, hold20AvgR: null, hrRate: null, winRate: null }
   },
 };

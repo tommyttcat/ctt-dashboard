@@ -8,6 +8,7 @@ const LINKS: readonly { href: string; label: string; proOnly?: boolean }[] = [
   { href: '/scanners', label: 'Scanners', proOnly: true },
   { href: '/analyst', label: 'Briefing' },
   { href: '/confluence', label: 'Confluence', proOnly: true },
+  { href: '/track', label: 'Track Record' },
   { href: '/briefs', label: 'Archive' },
 ];
 
