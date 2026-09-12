@@ -26,7 +26,8 @@
 import React, { useEffect, useState } from 'react';
 import { ThemeToggle } from './ThemeProvider';
 import DashNav from './DashNav';
-import TickerChartHover from './TickerChartHover';
+import TickerChartHover, { ActiveChartProvider } from './TickerChartHover';
+import { WatchlistProvider } from './WatchlistContext';
 import { SCAN_STATS, type StatScan } from '@/lib/scans/stats';
 
 interface ScanRecord {
@@ -152,7 +153,9 @@ function PositionTable({ detail }: { detail: Detail }) {
             return (
               <tr key={`${p.t}-${p.d}`} className={`border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors ${live ? '' : 'opacity-80'}`}>
                 <td className="text-[10px] px-2 py-1.5 text-left font-semibold text-slate-200 whitespace-nowrap">
-                  <TickerChartHover symbol={p.t}><span>{p.t}</span></TickerChartHover>
+                  <TickerChartHover symbol={p.t}>
+                    <span className="border-b border-dotted border-white/25 hover:border-white/60 hover:text-white transition-colors" title={`${p.t} — hover for the chart`}>{p.t}</span>
+                  </TickerChartHover>
                   {p.hr && <span className="ml-1.5 text-[9px] font-bold text-emerald-400" title="Ran +50% (or +10R) before the stop">+50%</span>}
                 </td>
                 <td className="text-[10px] px-2 py-1.5 text-left text-slate-500 whitespace-nowrap tabular-nums">{p.d}</td>
@@ -220,6 +223,12 @@ export default function TrackRecord() {
   const totalSettled = Object.values(results).reduce((n, r) => n + (r?.settled ?? 0), 0);
 
   return (
+    /* The chart preview needs both providers: ActiveChartProvider owns the
+       popup and the single "which ticker is open" state, WatchlistProvider
+       backs the star inside it. Without them TickerChartHover renders its
+       children and nothing happens on hover. */
+    <WatchlistProvider>
+    <ActiveChartProvider>
     <div className="min-h-screen bg-[#0b0f1a] text-slate-300 px-3 md:px-6 py-4 max-w-[1100px] mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 mb-5">
@@ -255,7 +264,7 @@ export default function TrackRecord() {
         <p className="text-[10px] text-slate-500 leading-relaxed mt-2">
           <strong className="text-slate-300">Click any scan</strong> to see the individual picks behind its
           numbers — every ticker, when it was picked, where it filled, where the stop was, and what it has
-          done since.
+          done since. Hover a ticker for its chart.
         </p>
       </div>
 
@@ -370,5 +379,7 @@ export default function TrackRecord() {
         bracket and the 20-session hold bracket the trailing result on every table tested.
       </p>
     </div>
+    </ActiveChartProvider>
+    </WatchlistProvider>
   );
 }
