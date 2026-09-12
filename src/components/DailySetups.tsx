@@ -151,6 +151,8 @@ interface TradePlanRow {
   family?: string;
   trigger?: number | null;
   triggerLabel?: string;
+  trail?: number | null;
+  trailLabel?: string;
   stop?: number | null;
   stopPct?: number | null;
   target?: number | null;
@@ -433,7 +435,13 @@ const planTooltip = (row: SetupData): string => {
   if (tt) lines.push('');
   lines.push(`Trigger  ${p.trigger != null ? p.trigger.toFixed(2) : '—'}  (${p.triggerLabel || '—'})`);
   lines.push(`Stop     ${p.stop != null ? p.stop.toFixed(2) : '—'}  (${p.stopPct != null ? `−${p.stopPct.toFixed(1)}%` : '—'})`);
-  lines.push(`Target   ${p.target != null ? p.target.toFixed(2) : '—'}  (2R)`);
+  /* The measured exit comes first and the target is labelled as what it is —
+     a reference level, not the plan. On this table the fixed 2R was the worst
+     exit tested; see EXIT_GUIDANCE for the numbers. */
+  if (p.trail != null) {
+    lines.push(`Exit     trail the ${p.trailLabel || '21 EMA'}, now ${p.trail.toFixed(2)}`);
+  }
+  lines.push(`Target   ${p.target != null ? p.target.toFixed(2) : '—'}  (2R — reference only)`);
   if (p.trigger != null && p.stop != null) {
     lines.push(`Risk     ${(p.trigger - p.stop).toFixed(2)} per share`);
   }
@@ -467,7 +475,7 @@ const planTooltip = (row: SetupData): string => {
   }
 
   lines.push('');
-  lines.push('Stop is the wider of 1.25× ADR or 2.5%. Target is a fixed 2R.');
+  lines.push('Stop is the wider of 1.25× ADR or 2.5%. The 2R level is shown for sizing; it is not the exit this table measured best.');
   lines.push('');
   lines.push(EXIT_GUIDANCE['scanner']);
   return lines.join('\n');

@@ -36,6 +36,22 @@ export const EXIT_GUIDANCE: Record<ScanKey, string> = {
     'Exit: flat either way (2R +0.06R, trail 10 EMA +0.05R). This table reads as a watchlist of quiet leaders rather than a trade signal.',
 };
 
+/* Which exit the card should PRESENT as the plan, from the table above. The
+   text in EXIT_GUIDANCE explains it; this is the same decision in a form the
+   plan renderer can act on, so the two cannot drift.
+
+     trail   the fixed target is the worst exit measured — trail instead
+     target  the fixed target is the best exit measured — take it
+     none    nothing tested was positive on this table */
+export const EXIT_STYLE: Record<ScanKey, 'trail' | 'target' | 'none'> = {
+  scanner: 'trail',        // 2R +0.04R vs trail 21 EMA +0.14R, hold 20 +0.15R
+  swing: 'trail',          // 2R +0.02R vs trail 21 EMA +0.16R, hold 20 +0.30R
+  vcp: 'target',           // 2R +0.12R vs trail 21 EMA -0.01R — the one table where it wins
+  consolidation: 'none',   // nothing tested was positive
+  ep9m: 'trail',           // 2R +0.02R vs trail 10 EMA +0.05R
+  hrs: 'none',             // flat either way
+};
+
 /** The plan footnote for a table: how the levels are built, then what the backtest says to do with them. */
 export const planFootnote = (scan: ScanKey, levelsNote = 'Stop is the wider of 1.25× ADR or 2.5%. Target is a fixed 2R.'): string =>
   `${levelsNote}\n\n${EXIT_GUIDANCE[scan]}`;

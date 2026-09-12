@@ -183,6 +183,8 @@ interface TradePlanRow {
   family?: string;
   trigger?: number | null;
   triggerLabel?: string;
+  trail?: number | null;
+  trailLabel?: string;
   stop?: number | null;
   stopPct?: number | null;
   target?: number | null;
@@ -548,8 +550,21 @@ const planOf = (c: ConsolidationCandidate): TradePlanRow | null => {
 const PLAN_SORT_CLEAR = 99;
 const PLAN_SORT_NONE = -1;
 
+/* The plan on this table is gated on the shading, and that is the whole
+   point of the change made on 11 Sep 2026.
+   Over 11,580 pivot entries the breakout plan averaged -0.09R and no exit
+   tested was positive — EXCEPT in one bucket: a coil 3x+ ATR with the
+   stochastic above 75 returned +0.13R and broke out 89% of the time. That
+   bucket is the green shading and it is about 7% of the table.
+   So the levels still render for every row, because knowing where the coil
+   resolves is useful, but the card only calls it a PLAN where the evidence
+   says the plan paid. Everything else reads WATCH. The scan stays the net;
+   the card is where the picking happens. */
+const planTradeable = (c: ConsolidationCandidate): boolean => consolidationTier(c) === 'green';
+
 const planSortValue = (c: ConsolidationCandidate): number => {
   const p = planOf(c);
+  if (!planTradeable(c)) return PLAN_SORT_NONE;
   if (!p || p.tradeable !== true) return PLAN_SORT_NONE;
   if (p.collapsed) return PLAN_SORT_NONE;
   if (p.overextended) return PLAN_SORT_NONE;
@@ -559,6 +574,7 @@ const planSortValue = (c: ConsolidationCandidate): number => {
 
 const planShort = (c: ConsolidationCandidate): string => {
   const p = planOf(c);
+  if (p && p.tradeable === true && !planTradeable(c)) return 'WATCH';
   if (!p) return '—';
   if (p.collapsed) return '✕';
   if (p.tradeable !== true) return '—';
@@ -570,6 +586,7 @@ const planShort = (c: ConsolidationCandidate): string => {
 
 const planBadge = (c: ConsolidationCandidate): string => {
   const p = planOf(c);
+  if (p && p.tradeable === true && !planTradeable(c)) return 'bg-white/[0.02] text-slate-500 border-white/10';
   if (!p) return 'bg-white/[0.02] text-slate-600 border-white/5';
   if (p.collapsed) return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
   if (p.tradeable !== true) return 'bg-white/[0.02] text-slate-600 border-white/5';
@@ -605,8 +622,17 @@ const planTooltip = (c: ConsolidationCandidate): string => {
     lines.push(p.note);
   }
   lines.push('');
-  lines.push('Stop is the wider of 1.25× ADR or 2.5%. Target is a fixed 2R.');
+  lines.push('Stop is the wider of 1.25× ADR or 2.5%. The 2R level is shown for sizing.');
   lines.push('');
+  if (!planTradeable(c)) {
+    lines.push(
+      'WATCH, not a plan. Over 11,580 of these breakouts the trade averaged -0.09R and no exit tested was ' +
+      'positive. The one exception is a coil 3x+ ATR with the stochastic above 75 — the green rows — which ' +
+      'returned +0.13R and broke out 89% of the time. The levels above are where this coil resolves; the ' +
+      'evidence does not support taking the break on this row.',
+    );
+    lines.push('');
+  }
   lines.push(EXIT_GUIDANCE['consolidation']);
   return lines.join('\n');
 };

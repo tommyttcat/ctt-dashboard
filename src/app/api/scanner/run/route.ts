@@ -1535,6 +1535,8 @@ async function runScan(request: Request) {
           family: plan.family,
           trigger: round2(plan.trigger),
           triggerLabel: plan.triggerLabel,
+          trail: round2(plan.trail ?? null),
+          trailLabel: plan.trailLabel ?? '',
           stop: round2(plan.stop),
           stopPct: plan.stopPct != null ? parseFloat(plan.stopPct.toFixed(2)) : null,
           target: round2(plan.target),

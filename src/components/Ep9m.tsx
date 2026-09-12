@@ -152,6 +152,8 @@ interface TradePlanRow {
   family?: string;
   trigger?: number | null;
   triggerLabel?: string;
+  trail?: number | null;
+  trailLabel?: string;
   stop?: number | null;
   stopPct?: number | null;
   target?: number | null;

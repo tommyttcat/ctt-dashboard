@@ -34,6 +34,15 @@ export const TRACK_CLOSED_KEY = 'track_closed_v1';
 export const CLOSED_CAP = 1200;
 
 export const HOLD_SESSIONS = 60;
+/* 100-Bagger is not a trade and was never measured as one: the replay scored
+   it as 12-month excess return over the same month's universe median, with no
+   stop anywhere in the measurement. Tracking it on a 60-session R model would
+   produce a number that looks like the other rows and means something else,
+   so it runs in RETURN mode — no stop, no R, held for a year and scored on
+   the return itself. */
+export const RETURN_SCANS = new Set<string>(['multibagger']);
+export const RETURN_HOLD = 252;      // ~12 months of sessions
+export const DOUBLE_PCT = 100;       // what "it worked" means on that screen
 export const HOLD20 = 20;
 export const MIN_RISK_PCT = 0.5;
 export const TARGET_R = 2;
@@ -70,6 +79,7 @@ export interface OpenPosition {
   exitFixed: number | null;  // realised R on the 2R/stop bracket
   exitHold20: number | null; // realised R at the 20th session
   last?: number | null;      // most recent close, so the drill-down can show an open position's current R
+  retPct?: number | null;    // RETURN-mode only: return since the fill, in percent
 }
 
 /** What a position looks like in the drill-down, open or closed. */
@@ -79,7 +89,10 @@ export function statusOf(p: OpenPosition): PositionStatus {
   if (p.fill == null) return 'pending';
   if (p.stopped) return 'stopped';
   if (p.exitFixed != null && p.exitFixed > 0) return 'target';
-  if (p.n >= HOLD_SESSIONS) return 'closed';
+  // RETURN-mode positions run for a year, so the 60-session window that closes
+  // a trade would retire them three quarters early.
+  const window = RETURN_SCANS.has(p.scan) ? RETURN_HOLD : HOLD_SESSIONS;
+  if (p.n >= window) return 'closed';
   return 'running';
 }
 
@@ -98,6 +111,23 @@ export interface ScanRecord {
   hold20AvgR: number | null;
   winRate: number | null;
   byTier: Record<string, { n: number; avgR: number | null; hr: number | null }>;
+  /* RETURN-mode scans report in percent, not R. */
+  retAvgPct?: number | null;
+  doubleRate?: number | null;
+  /* In progress: positions whose bracket has already resolved but whose
+     60-session window has not closed, so they are not in the settled numbers
+     yet. Without this the page shows nothing at all for three months even
+     though most of those trades are already decided. Recomputed from the open
+     book every tick rather than accumulated, so it can never double-count. */
+  interim?: {
+    n: number;
+    fixedAvgR: number | null;
+    hold20AvgR: number | null;
+    winRate: number | null;
+    hrRate: number | null;
+    retAvgPct?: number | null;
+    doubleRate?: number | null;
+  } | null;
 }
 
 export type TrackResults = Record<string, ScanRecord> & { updatedAt?: string };

@@ -159,6 +159,9 @@ export function vcpEdgeGrade(r: { atrPct?: number | null; stopPct?: number | nul
 }
 
 export const VCP_EDGE_GRADE_TIP =
-  'A: ATR 3.5%+ with an 8%+ stop — the bases that paid (+0.22R to +0.39R, up to 19% ran +50%). ' +
-  'B: ATR 2.5%+. Unlettered: the tightest bases, which lost money in both halves of the 5-year test ' +
-  '(ATR under 2% = −0.03R and zero home runs; stops under 3% = −0.53R).';
+  'A: ATR 3.5%+ with an 8%+ stop. B: ATR 2.5%+. Unlettered: the tightest bases. ' +
+  'What separates them is the TAIL, not the average: 10.7% of the widest bases ran +50%, against 1.7% ' +
+  'for the middle and ZERO for the tightest in five years. The averages swing with the tape — this scan ' +
+  'was negative through 2022-24 and positive since — so an R figure per bucket says more about which ' +
+  'half it fell in than about the base. A base too quiet to travel, with a stop too tight to survive ' +
+  'noise, cannot produce the move the pattern is drawn for.';

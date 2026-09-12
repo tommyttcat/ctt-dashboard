@@ -13,7 +13,9 @@
 // users — nothing here happens on a page view. ~11 KB of new rows a day; the
 // open-position key peaks near 200 KB because positions retire after 60
 // sessions. On a day where something settles, one further read and write for
-// the closed log (capped at CLOSED_CAP rows, ~150 KB full).
+// the closed log (capped at CLOSED_CAP rows, ~150 KB full). 100-Bagger runs
+// in RETURN mode: no stop, no R, held RETURN_HOLD sessions and scored on the
+// return itself — the basis its own replay used.
 //
 // Idempotent per session: a second run on the same bar date is a no-op, so a
 // retry or a manual poke cannot double-count.
@@ -22,7 +24,8 @@ import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import {
   TRACK_OPEN_KEY, TRACK_RESULTS_KEY, TRACK_META_KEY, TRACK_CLOSED_KEY, TRACKED_SCANS,
-  CLOSED_CAP, HOLD_SESSIONS, HOLD20, rMultiple, homeRunLevel, targetFor,
+  CLOSED_CAP, HOLD_SESSIONS, HOLD20, RETURN_SCANS, RETURN_HOLD, DOUBLE_PCT,
+  rMultiple, homeRunLevel, targetFor,
   type OpenPosition, type TrackResults, type ScanRecord,
 } from '@/lib/track';
 import { edgeTier, multibaggerTier, swingTier, consolidationTier, ep9mTier, vcpTier, hrsTier } from '@/lib/scans/edge';
@@ -91,11 +94,20 @@ export async function GET() {
     const bar = bars.get(p.t);
     if (!bar) continue;
 
+    const isReturn = RETURN_SCANS.has(p.scan);
+
     if (p.fill == null) {
       if (!(bar.o > 0)) continue;
       p.fill = bar.o;
-      if (p.stop == null || !(p.stop < p.fill)) p.stop = bar.l < p.fill ? bar.l : p.fill * 0.99;
-      p.target = targetFor(p.fill, p.stop);
+      if (!isReturn) {
+        if (p.stop == null || !(p.stop < p.fill)) p.stop = bar.l < p.fill ? bar.l : p.fill * 0.99;
+        p.target = targetFor(p.fill, p.stop);
+      } else {
+        // No stop and no target: this screen is a holding period, and the
+        // measurement it was validated on has neither.
+        p.stop = null;
+        p.target = null;
+      }
       p.peak = bar.h;
       p.n = 1;
     } else {
@@ -105,6 +117,18 @@ export async function GET() {
     // One number per position so the drill-down can show what an open trade is
     // worth today without re-fetching a bar per row.
     p.last = bar.c;
+
+    /* RETURN mode: score the return, not an R-multiple. `hr` is reused to mean
+       "doubled", which is the bar this screen was measured against (17.8% of
+       the green rows inside 12 months, against a 5.8% universe base rate). */
+    if (isReturn) {
+      if (p.fill > 0) {
+        p.retPct = +(((bar.c - p.fill) / p.fill) * 100).toFixed(2);
+        if ((p.peak ?? 0) >= p.fill * (1 + DOUBLE_PCT / 100)) p.hr = true;
+      }
+      if (p.n >= RETURN_HOLD) settledToday.push(p);
+      continue;
+    }
 
     if (p.fill == null || p.stop == null) continue;
     const hrLevel = homeRunLevel(p.fill, p.stop);
@@ -136,6 +160,17 @@ export async function GET() {
     const tierKey = p.tier || 'untinted';
     const t = (rec.byTier[tierKey] ||= { n: 0, avgR: null, hr: null });
     const roll = (prev: number | null, n: number, v: number) => (prev == null ? v : (prev * (n - 1) + v) / n);
+
+    if (RETURN_SCANS.has(p.scan)) {
+      if (p.retPct != null) {
+        rec.retAvgPct = +(roll(rec.retAvgPct ?? null, rec.settled, p.retPct)).toFixed(2);
+        t.n += 1;
+        t.avgR = +(roll(t.avgR, t.n, p.retPct)).toFixed(2);   // percent on this scan, labelled as such on the page
+        t.hr = +(roll(t.hr, t.n, p.hr ? 100 : 0)).toFixed(2);
+      }
+      rec.doubleRate = +(roll(rec.doubleRate ?? null, rec.settled, p.hr ? 100 : 0)).toFixed(2);
+      continue;
+    }
     if (p.exitFixed != null) {
       rec.fixedAvgR = +(roll(rec.fixedAvgR, rec.settled, p.exitFixed)).toFixed(4);
       rec.winRate = +(roll(rec.winRate, rec.settled, p.exitFixed > 0 ? 100 : 0)).toFixed(2);
@@ -188,6 +223,36 @@ export async function GET() {
       rec.picks += 1;
       added += 1;
     }
+  }
+
+  /* In-progress numbers. A trade that hit its target in week one is not in
+     the settled record until its 60-session window closes, so without this
+     the page reads empty for three months while most of its trades are
+     already decided. Recomputed from scratch each tick — never accumulated —
+     so it cannot drift or double-count. */
+  for (const { scan } of TRACKED_SCANS) {
+    const rec = (results[scan] ||= emptyRecord());
+    const mine = kept.filter(p => p.scan === scan && p.fill != null);
+    if (RETURN_SCANS.has(scan)) {
+      const withRet = mine.filter(p => p.retPct != null);
+      rec.interim = withRet.length === 0 ? null : {
+        n: withRet.length,
+        fixedAvgR: null, hold20AvgR: null, winRate: null,
+        hrRate: +(100 * withRet.filter(p => p.hr).length / withRet.length).toFixed(2),
+        retAvgPct: +(withRet.reduce((a, p) => a + (p.retPct ?? 0), 0) / withRet.length).toFixed(2),
+        doubleRate: +(100 * withRet.filter(p => p.hr).length / withRet.length).toFixed(2),
+      };
+      continue;
+    }
+    const decided = mine.filter(p => p.exitFixed != null);
+    const held20 = mine.filter(p => p.exitHold20 != null);
+    rec.interim = decided.length === 0 && held20.length === 0 ? null : {
+      n: decided.length,
+      fixedAvgR: decided.length ? +(decided.reduce((a, p) => a + (p.exitFixed ?? 0), 0) / decided.length).toFixed(4) : null,
+      hold20AvgR: held20.length ? +(held20.reduce((a, p) => a + (p.exitHold20 ?? 0), 0) / held20.length).toFixed(4) : null,
+      winRate: decided.length ? +(100 * decided.filter(p => (p.exitFixed ?? 0) > 0).length / decided.length).toFixed(2) : null,
+      hrRate: mine.length ? +(100 * mine.filter(p => p.hr).length / mine.length).toFixed(2) : null,
+    };
   }
 
   results.updatedAt = new Date().toISOString();

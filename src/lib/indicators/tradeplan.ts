@@ -101,6 +101,14 @@ export interface TradePlan {
   family: SetupFamily;
   trigger: number | null;
   triggerLabel: string;
+  /* The level to trail, and what it is. Added 11 Sep 2026: on the momentum
+     and swing tables the 5-year replay says the fixed target is the worst
+     exit tested (+0.04R against +0.14R trailing the 21 EMA on 11,551 entries,
+     +0.02R against +0.16R on swing), so the plan has to carry the exit the
+     evidence supports rather than leaving it to a tooltip. Null when there is
+     no 21 EMA to trail. Which scans should USE it is in lib/scans/exits. */
+  trail?: number | null;
+  trailLabel?: string;
   stop: number | null;
   stopPct: number | null;
   target: number | null;
@@ -355,6 +363,8 @@ export function computeTradePlan(i: TradePlanInput): TradePlan {
     family,
     trigger: triggerPrice,
     triggerLabel,
+    trail: ema21 ?? ema10 ?? null,
+    trailLabel: ema21 != null ? '21 EMA' : ema10 != null ? '10 EMA' : '',
     stop,
     stopPct,
     target,

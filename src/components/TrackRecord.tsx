@@ -34,6 +34,16 @@ import {
   MULTIBAGGER_TIP, HRS_TIP, type EdgeTier,
 } from '@/lib/scans/edge';
 
+interface Interim {
+  n: number;
+  fixedAvgR: number | null;
+  hold20AvgR: number | null;
+  winRate: number | null;
+  hrRate: number | null;
+  retAvgPct?: number | null;
+  doubleRate?: number | null;
+}
+
 interface ScanRecord {
   picks: number;
   entered: number;
@@ -43,6 +53,9 @@ interface ScanRecord {
   hold20AvgR: number | null;
   winRate: number | null;
   byTier: Record<string, { n: number; avgR: number | null; hr: number | null }>;
+  retAvgPct?: number | null;
+  doubleRate?: number | null;
+  interim?: Interim | null;
 }
 
 interface Position {
@@ -73,15 +86,19 @@ interface Payload {
 }
 
 /** Display order, the label the reader sees, and which backtest it compares to. */
-const ROWS: { scan: string; label: string; stat: StatScan }[] = [
-  { scan: 'sip', label: 'Stocks in Play', stat: 'scanner' },
-  { scan: 'daily', label: 'Daily Setups', stat: 'scanner' },
-  { scan: 'ep9m', label: 'EP9M', stat: 'ep9m' },
-  { scan: 'swing', label: 'Swing Candidates', stat: 'swing' },
-  { scan: 'vcp', label: 'VCP', stat: 'vcp' },
-  { scan: 'consolidation', label: '10/21 Coils', stat: 'consolidation' },
-  { scan: 'hrs', label: 'Hidden RS', stat: 'hrs' },
-  { scan: 'multibagger', label: '100-Bagger', stat: 'multibagger' },
+/* `mode` is the measuring stick, not a display preference. 100-Bagger was
+   validated as 12-month excess return with no stop anywhere in it, so an R
+   column on that row would be a number that looks like the others and means
+   something else. It reports in percent and says so. */
+const ROWS: { scan: string; label: string; stat: StatScan; mode: 'r' | 'return' }[] = [
+  { scan: 'sip', label: 'Stocks in Play', stat: 'scanner', mode: 'r' },
+  { scan: 'daily', label: 'Daily Setups', stat: 'scanner', mode: 'r' },
+  { scan: 'ep9m', label: 'EP9M', stat: 'ep9m', mode: 'r' },
+  { scan: 'swing', label: 'Swing Candidates', stat: 'swing', mode: 'r' },
+  { scan: 'vcp', label: 'VCP', stat: 'vcp', mode: 'r' },
+  { scan: 'consolidation', label: '10/21 Coils', stat: 'consolidation', mode: 'r' },
+  { scan: 'hrs', label: 'Hidden RS', stat: 'hrs', mode: 'r' },
+  { scan: 'multibagger', label: '100-Bagger', stat: 'multibagger', mode: 'return' },
 ];
 
 const TIER_CLS: Record<string, string> = {
@@ -380,6 +397,13 @@ export default function TrackRecord() {
           numbers — every ticker, when it was picked, where it filled, where the stop was, and what it has
           done since. Hover a ticker for its chart.
         </p>
+        <p className="text-[10px] text-slate-500 leading-relaxed mt-2">
+          A trade stays in the book for 60 sessions even after it hits its target or its stop, because the
+          +50% test needs the whole window — so an <strong className="text-slate-300">In progress</strong> line
+          shows what the already-decided trades are doing before they reach the settled column.
+          <strong className="text-slate-300"> 100-Bagger is measured differently</strong>: it was validated as
+          12-month return with no stop anywhere in it, so that row reports percent and doubles rather than R.
+        </p>
       </div>
 
       {/* Totals */}
@@ -417,12 +441,14 @@ export default function TrackRecord() {
               </tr>
             </thead>
             <tbody>
-              {orderedRows.map(({ scan, label, stat }) => {
+              {orderedRows.map(({ scan, label, stat, mode }) => {
                 const r = results[scan];
                 const bt = SCAN_STATS[stat].bt;
                 const tiers = Object.entries(r?.byTier ?? {}).filter(([, v]) => v.n > 0);
                 const isOpen = openScan === scan;
                 const detail = details[scan];
+                const isReturn = mode === 'return';
+                const interim = r?.interim ?? null;
                 return (
                   <React.Fragment key={scan}>
                     <tr
@@ -437,10 +463,23 @@ export default function TrackRecord() {
                       <td className={`${TD} text-slate-300`}>{r?.picks ?? 0}</td>
                       <td className={`${TD} text-slate-400`}>{openByScan[scan] ?? 0}</td>
                       <td className={`${TD} text-slate-400`}>{r?.settled ?? 0}</td>
-                      <td className={`${TD} text-slate-300`}>{fmtPct(r?.winRate)}</td>
-                      <td className={`${TD} font-semibold ${rCls(r?.fixedAvgR)}`}>{fmtR(r?.fixedAvgR)}</td>
-                      <td className={`${TD} font-semibold ${rCls(r?.hold20AvgR)}`}>{fmtR(r?.hold20AvgR)}</td>
-                      <td className={`${TD} text-slate-300`}>{fmtPct(r?.hrRate)}</td>
+                      {isReturn ? (
+                        <>
+                          <td className={`${TD} text-slate-600`} title="No stop in this screen's measurement, so there is no win rate to report">—</td>
+                          <td className={`${TD} font-semibold ${rCls(r?.retAvgPct)}`} title="Average return since the pick — this row is measured in percent over 12 months, not in R">
+                            {r?.retAvgPct == null ? '—' : `${r.retAvgPct >= 0 ? '+' : ''}${r.retAvgPct.toFixed(1)}%`}
+                          </td>
+                          <td className={`${TD} text-slate-600`} title="A 20-session hold means nothing on a 12-month screen">—</td>
+                          <td className={`${TD} text-slate-300`} title="Share that doubled — the bar this screen was measured against (5.8% universe base rate)">{fmtPct(r?.doubleRate)}</td>
+                        </>
+                      ) : (
+                        <>
+                          <td className={`${TD} text-slate-300`}>{fmtPct(r?.winRate)}</td>
+                          <td className={`${TD} font-semibold ${rCls(r?.fixedAvgR)}`}>{fmtR(r?.fixedAvgR)}</td>
+                          <td className={`${TD} font-semibold ${rCls(r?.hold20AvgR)}`}>{fmtR(r?.hold20AvgR)}</td>
+                          <td className={`${TD} text-slate-300`}>{fmtPct(r?.hrRate)}</td>
+                        </>
+                      )}
                       <td className={`${TD} text-slate-500`} title={SCAN_STATS[stat].detail}>
                         {bt.fixedAvgR == null ? 'n/a' : `${fmtR(bt.fixedAvgR)} · ${fmtPct(bt.hrRate)}`}
                         <span className="block text-[9px] text-slate-600">n={bt.n.toLocaleString()}</span>
@@ -458,6 +497,34 @@ export default function TrackRecord() {
                           ) : (
                             <PositionTable detail={detail} />
                           )}
+                        </td>
+                      </tr>
+                    )}
+                    {interim && interim.n > 0 && (
+                      <tr className="border-b border-white/[0.04] bg-white/[0.01]">
+                        <td colSpan={9} className="px-2 py-1.5">
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-slate-500">
+                            <span
+                              className="text-slate-600 font-bold tracking-widest uppercase"
+                              title={isReturn
+                                ? 'Picks that have filled and are inside their 12-month window. Not in the settled numbers yet.'
+                                : 'Trades whose bracket has already resolved but whose 60-session window has not closed. They are not in the settled numbers yet, which is why this line exists — otherwise a decided trade is invisible for three months.'}
+                            >In progress</span>
+                            <span className="text-slate-400 tabular-nums">n={interim.n}</span>
+                            {isReturn ? (
+                              <>
+                                <span className={`tabular-nums ${rCls(interim.retAvgPct)}`}>{interim.retAvgPct == null ? '—' : `${interim.retAvgPct >= 0 ? '+' : ''}${interim.retAvgPct.toFixed(1)}%`} avg return</span>
+                                <span className="tabular-nums">{fmtPct(interim.doubleRate)} doubled</span>
+                              </>
+                            ) : (
+                              <>
+                                <span className={`tabular-nums ${rCls(interim.fixedAvgR)}`}>{fmtR(interim.fixedAvgR)} on the 2R</span>
+                                <span className={`tabular-nums ${rCls(interim.hold20AvgR)}`}>{fmtR(interim.hold20AvgR)} held 20</span>
+                                <span className="tabular-nums">{fmtPct(interim.winRate)} positive</span>
+                                <span className="tabular-nums">{fmtPct(interim.hrRate)} ran +50%</span>
+                              </>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     )}

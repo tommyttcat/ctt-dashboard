@@ -47,6 +47,8 @@ export interface TradePlanOut {
   family?: string;
   trigger?: number | null;
   triggerLabel?: string;
+  trail?: number | null;
+  trailLabel?: string;
   stop?: number | null;
   stopPct?: number | null;
   target?: number | null;
@@ -142,6 +144,8 @@ export function serialisePlan(p: ReturnType<typeof computeTradePlan>): TradePlan
     family: p.family,
     trigger: round2(p.trigger),
     triggerLabel: p.triggerLabel,
+    trail: round2(p.trail ?? null),
+    trailLabel: p.trailLabel ?? '',
     stop: round2(p.stop),
     stopPct: p.stopPct != null ? parseFloat(p.stopPct.toFixed(2)) : null,
     target: round2(p.target),
