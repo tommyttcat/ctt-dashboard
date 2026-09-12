@@ -614,15 +614,41 @@ export function scoreVcp(input: VcpScoreInput): VcpScore {
   const b: Record<string, number> = {};
   const { vcp, rsRating, template } = input;
 
-  // --- Contraction quality (35) ---
-  // Tightness of the final leg, which is the readiness signal.
+  /* --- Final leg (v2, 11 Sep 2026) ---
+     INVERTED from v1, which paid 20 points for a final leg under 5%. Measured
+     over 1,812 distinct bases (Sep 2022 - Sep 2026), both halves agreeing:
+
+         final leg under 4%   -0.12R and ZERO home runs
+         4-7%                 -0.02R
+         7-10%                +0.15R
+         10%+                 +0.28R, 11.2% ran +50%
+
+     A base that has contracted to nothing has no energy left to release, and
+     its stop sits inside the daily noise. The 15% ceiling in the GATE still
+     rejects bases that never finished contracting; this is about where inside
+     that band the money was. */
   b.finalTightness = 0;
   if (vcp.finalDepthPct != null) {
     const d = vcp.finalDepthPct;
-    if (d <= 5) b.finalTightness = 20;
-    else if (d <= 8) b.finalTightness = 16;
-    else if (d <= 11) b.finalTightness = 11;
-    else if (d <= 15) b.finalTightness = 6;
+    if (d >= 10) b.finalTightness = 20;
+    else if (d >= 7) b.finalTightness = 15;
+    else if (d >= 4) b.finalTightness = 6;
+    else b.finalTightness = -8;
+  }
+
+  /* --- Room to travel (v2) ---
+     The single strongest split the backtest found on this scan, and the one
+     the old score had no term for at all: ATR under 2% returned -0.03R with
+     no home runs at all, while 5%+ returned +0.39R with 19.4% running +50%.
+     A base too quiet to move cannot pay for its own spread. */
+  b.roomToTravel = 0;
+  if (vcp.atrPct != null) {
+    const a = vcp.atrPct;
+    if (a >= 5) b.roomToTravel = 18;
+    else if (a >= 3.5) b.roomToTravel = 14;
+    else if (a >= 2.5) b.roomToTravel = 7;
+    else if (a >= 2) b.roomToTravel = 0;
+    else b.roomToTravel = -12;
   }
 
   // Degree of contraction across the whole base. Each leg roughly halving is
@@ -639,13 +665,15 @@ export function scoreVcp(input: VcpScoreInput): VcpScore {
   // --- Volume (20) ---
   // Drying volume across the base is the absorption signature. Without it a
   // contracting price is just a stock nobody is trading.
+  /* v2: the peak moved. Drying to 0.6-0.8 of normal returned +0.29R with a
+     58.7% win rate — the best volume bucket — while drying below 0.55 was no
+     better than not drying at all. Absorption shows up as quiet, not silent. */
   b.volumeDrying = 0;
   if (vcp.volumeDryingRatio != null) {
     const r = vcp.volumeDryingRatio;
-    if (r <= 0.55) b.volumeDrying = 12;
-    else if (r <= 0.70) b.volumeDrying = 9;
-    else if (r <= 0.85) b.volumeDrying = 5;
-    else if (r <= 1.0) b.volumeDrying = 2;
+    if (r <= 0.55) b.volumeDrying = 8;
+    else if (r <= 0.80) b.volumeDrying = 12;
+    else if (r <= 1.0) b.volumeDrying = 6;
   }
 
   b.finalLegVolume = 0;
@@ -659,44 +687,54 @@ export function scoreVcp(input: VcpScoreInput): VcpScore {
   // --- RS Rating (25) ---
   // Minervini's floor is 70; he prefers 80-90+. Scored steeply because a
   // laggard with a perfect base is still a laggard.
+  /* v2: only the top of the range separated outcomes. RS 95+ produced 9.7%
+     home runs and a 20.4% median peak; 90-94 was the WORST bucket on this scan
+     (-0.01R), no better than 70-79. The steep 90/80 ladder was reading a
+     difference that was not there. */
   b.rsRating = 0;
   if (rsRating != null) {
-    if (rsRating >= 90) b.rsRating = 25;
-    else if (rsRating >= 80) b.rsRating = 20;
+    if (rsRating >= 95) b.rsRating = 25;
     else if (rsRating >= 70) b.rsRating = 13;
     else if (rsRating >= 60) b.rsRating = 5;
     else b.rsRating = -8;
   }
 
   // --- Trend Template (12) ---
+  /* v2: weight halved. A full 7/7 returned +0.10R against +0.13R for 6/7 and
+     +0.44R for 4/7 — the template describes the trend but did not rank the
+     trade, so it no longer swings 18 points of the score. */
   b.trendTemplate = 0;
   if (template) {
     const frac = template.passed / template.total;
-    if (frac === 1) b.trendTemplate = 12;
-    else if (frac >= 0.85) b.trendTemplate = 8;
-    else if (frac >= 0.7) b.trendTemplate = 4;
-    else b.trendTemplate = -6;
+    if (frac === 1) b.trendTemplate = 6;
+    else if (frac >= 0.85) b.trendTemplate = 5;
+    else if (frac >= 0.7) b.trendTemplate = 3;
+    else b.trendTemplate = -3;
   }
 
   // --- Base maturity (8) ---
   // Minervini's guidance is a base of at least three weeks. Shorter ones can
   // work but fail more often — not enough time has passed for supply to
   // actually change hands.
+  /* v2: three weeks to eight is the band that paid (+0.40R to +0.50R). Bases
+     older than about two months returned +0.07R — supply stops changing hands
+     and the "base" becomes a range. */
   b.baseLength = 0;
   if (vcp.baseLengthBars != null) {
     const n = vcp.baseLengthBars;
-    if (n >= 25) b.baseLength = 8;
-    else if (n >= 15) b.baseLength = 6;
-    else if (n >= 10) b.baseLength = 3;
+    if (n >= 40) b.baseLength = 3;
+    else if (n >= 15) b.baseLength = 8;
+    else if (n >= 10) b.baseLength = 5;
     else b.baseLength = -4;
   }
 
   // --- Contraction count bonus ---
   // Three or four legs is the sweet spot: enough repetitions to prove supply
   // is thinning, not so many that the base has become a stalled range.
+  /* v2: two and three legs paid the same (+0.14R / +0.11R) and four paid
+     nothing (+0.00R), so the sweet-spot bonus flattens. */
   b.legCount = 0;
-  if (vcp.contractionCount === 3 || vcp.contractionCount === 4) b.legCount = 5;
-  else if (vcp.contractionCount === 2) b.legCount = 2;
+  if (vcp.contractionCount === 2 || vcp.contractionCount === 3) b.legCount = 4;
   else if (vcp.contractionCount >= 5) b.legCount = -3;
 
   const raw = Object.values(b).reduce((s, v) => s + v, 0);
@@ -707,7 +745,8 @@ export function scoreVcp(input: VcpScoreInput): VcpScore {
 }
 
 export const VCP_SCORE_LABELS: Record<string, string> = {
-  finalTightness: 'Final contraction tightness',
+  finalTightness: 'Final contraction depth',
+  roomToTravel: 'Room to travel (ATR)',
   contractionRatio: 'Degree of contraction',
   volumeDrying: 'Volume drying across base',
   finalLegVolume: 'Final leg volume',
