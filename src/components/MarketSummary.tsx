@@ -2661,10 +2661,17 @@ const SETUP_PATTERN_FILTERS: SetupFilter[] = [
 ];
 
 const SETUP_SOURCE_FILTERS: SetupFilter[] = [
+  /* SIP has its own pill. Its names were always in the pool, but they were
+     only reachable through DAY or SWING depending on how the row looked,
+     so there was no way to ask the card "what is in play right now?" —
+     which is the question the Stocks in Play scan exists to answer. SWING
+     no longer claims them, so the two pills do not overlap. */
+  { key: 'sip',   label: 'SIP',   cls: 'text-sky-400 bg-sky-500/10 border-sky-500/20',
+    match: s => s._source === 'sip' },
   { key: 'day',   label: 'DAY',   cls: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
     match: s => isDayName(s) },
   { key: 'swing', label: 'SWING', cls: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
-    match: s => s._source === 'swing' || (!isDayName(s) && (s._source === 'daily' || s._source === 'sip')) },
+    match: s => s._source === 'swing' || (!isDayName(s) && s._source === 'daily') },
   { key: 'vcp',   label: 'VCP',   cls: 'text-teal-400 bg-teal-500/10 border-teal-500/20',
     match: s => s._source === 'vcp' },
   { key: 'ep9',   label: 'EP9',   cls: 'text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/20',
