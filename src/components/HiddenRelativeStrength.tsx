@@ -14,6 +14,7 @@ import { displaySector } from '@/lib/sectors';
 import { NewsStars, type CatalystRow } from '@/lib/catalyst';
 import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
+import ScanStatsNote from './ScanStatsNote';
 
 const SCORE_LABELS: Record<string, string> = {
   alpha: 'Weak-day alpha & consistency',
@@ -587,6 +588,7 @@ export default function HiddenRelativeStrength() {
                   })}
                 </tbody>
               </table>
+              <ScanStatsNote scan="hrs" />
             </div>
           )}
         </>

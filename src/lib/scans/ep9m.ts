@@ -478,12 +478,14 @@ export const EP_MOVE_ODDS_TIP =
 
      break of the day high, 2R target        -0.13R per trade
      break of the day high, trail 21 EMA     -0.19R
-     buy the next open, stop at the EP low   -0.05R
+     buy the next open, stop at the EP low   -0.03R
      pullback to the EP-day midpoint         +0.02R with a 2R target
-                                             +0.09R trailing the 21 EMA
+                                             +0.05R trailing the 10 EMA
 
-   Only the last one is positive, and it was positive in both halves of the
-   period. It is also the only entry that gets paid for the thing the scan
+   (6,874 pullback fills on the published table, n=6,287 for the day-high
+   plan.) Only the pullback is positive, and it was positive in both halves
+   of the period (+0.02 / +0.02 on the target). It is thin: 14.4% of these
+   run +50%, and that tail is where the return is. It is also the only entry that gets paid for the thing the scan
    actually detects: heavy volume marks a price where size changed hands, and
    the midpoint of that day is where you can buy it back from the people who
    bought the high.
@@ -498,7 +500,7 @@ export const EP_MOVE_ODDS_TIP =
                just traded 9M+ shares is noise.
      cancel    a close below the EP low before any fill kills the setup.
      target    a fixed 2R, with the caveat in EXIT_GUIDANCE that trailing the
-               21 EMA did better (+0.09R against +0.02R).
+               10 EMA did better (+0.05R against +0.02R).
 
    Note what this means for the reader: the trigger sits BELOW the last price,
    which is the opposite of every other table here. That is deliberate. You

@@ -87,6 +87,7 @@ import { vcpEdgeGrade, VCP_EDGE_GRADE_TIP } from '@/lib/scans/vcp';
 import { vcpTier, VCP_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import { EXIT_GUIDANCE } from '@/lib/scans/exits';
+import ScanStatsNote from './ScanStatsNote';
 
 /* A breakout further than this above the pivot has run away from its own
    entry. Three percent is roughly one ordinary session on a liquid mid-cap —
@@ -1114,6 +1115,7 @@ export default function Vcp() {
               </tbody>
             </table>
           </div>
+          <ScanStatsNote scan="vcp" />
 
           {funnelNote && (
             <div className="relative z-10 mt-3 text-center">

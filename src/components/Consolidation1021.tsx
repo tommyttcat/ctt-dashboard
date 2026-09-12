@@ -111,6 +111,7 @@ import { CONSOL, COLUMN_NOTES, columnTip } from '@/lib/scanConfig';
 import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
 import { rvolColor as getRvolColor, adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, floatColor as getFloatColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
+import ScanStatsNote from './ScanStatsNote';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The blue dot marks an oversold stochastic reset firing on the daily.' },
@@ -1349,6 +1350,7 @@ export default function Consolidation1021() {
               </tbody>
             </table>
           </div>
+          <ScanStatsNote scan="consolidation" />
         </>
       )}
     </div>

@@ -142,6 +142,7 @@ import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
 import { rvolColor as getRvolColor, adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, floatColor as getFloatColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
 import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
+import ScanStatsNote from './ScanStatsNote';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The setup name sits directly beneath it.' },
@@ -1316,6 +1317,7 @@ export default function SwingCandidates() {
               </tbody>
             </table>
           </div>
+          <ScanStatsNote scan="swing" />
         </>
       )}
     </div>

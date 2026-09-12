@@ -105,6 +105,7 @@ import { rvolColor as getRvolColor, adrColor as getAdrColor, dtcColor as getDtcC
 import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
 import { edgeTier, EDGE_FILTER_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
+import ScanStatsNote from './ScanStatsNote';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The setup name sits directly beneath it.' },
@@ -1239,6 +1240,7 @@ export default function StocksInPlay() {
               </tbody>
             </table>
           </div>
+          <ScanStatsNote scan="scanner" />
         </>
       )}
     </div>

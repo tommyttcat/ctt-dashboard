@@ -511,7 +511,7 @@ function InteractionsTab() {
       <Li title="SWING">Hold it — 2R +0.03R, trail 21 EMA +0.16R, hold 20 sessions +0.30R. The best exit measured anywhere on the dashboard.</Li>
       <Li title="VCP">Take the 2R — the one table where the fixed target wins (+0.12R vs −0.01R trailing). A base breakout that works reaches 2R fast and gives it back.</Li>
       <Li title="10/21">No exit produced an edge (2R −0.10R, trailing −0.08R). Worth watching, not yet worth trading.</Li>
-      <Li title="EP9M">The entry is the problem, not the exit: breaking the day high lost with every exit. A pullback to the EP day&apos;s midpoint was the only positive version (+0.09R trailing).</Li>
+      <Li title="EP9M">The entry was the problem, not the exit: breaking the day high lost with every exit (-0.13R to -0.19R), so since 11 Sep 2026 the card plans the pullback to the EP day&apos;s midpoint instead, stop at that day&apos;s low. That version is positive in both halves but thin (+0.02R on a 2R target, +0.05R trailing the 10 EMA) — the return is in the 14% that run +50%.</Li>
       <Li title="HIDDEN RS">Flat either way. Read it as a watchlist of quiet leaders.</Li>
       <P>
         The same guidance appears in each table&apos;s PLAN tooltip, next to that row&apos;s own levels.

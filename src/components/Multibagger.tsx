@@ -20,6 +20,7 @@ import { NewsStars } from '@/lib/catalyst';
 import { stageColor as stgColor, stageBadge, stageShort as stgShort, stageDescription } from '@/lib/indicators/stage';
 import { rvolColorLowFloor as rvolColor, tickerChipCls, scoreCellCls } from '@/lib/indicators/columnColors';
 import { displaySector } from '@/lib/sectors';
+import ScanStatsNote from './ScanStatsNote';
 
 const ATTR_LABELS: Record<string, string> = {
   revenueGrowth: 'Revenue Growth',
@@ -823,6 +824,7 @@ export default function Multibagger() {
                 })}
               </tbody>
             </table>
+            <ScanStatsNote scan="multibagger" />
           </div>
         )}
       </div>

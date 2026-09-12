@@ -82,6 +82,7 @@ import { adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStoc
 import { epMoveOdds, EP_MOVE_ODDS_TIP } from '@/lib/scans/ep9m';
 import { ep9mTier, EP9M_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
+import ScanStatsNote from './ScanStatsNote';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: "Symbol. Hover shows the company name. Fuchsia dot = unprecedented (today's volume beat its own 60-day high); ★ = repeat EP9M offender. Hover the fuchsia dot on a choppy name — record volume inside a range that will not resolve is the most misread row on this table." },
@@ -1349,6 +1350,7 @@ export default function Ep9m() {
               </tbody>
             </table>
           </div>
+          <ScanStatsNote scan="ep9m" />
 
           {funnelNote && (
             <div className="relative z-10 mt-3 text-center">
