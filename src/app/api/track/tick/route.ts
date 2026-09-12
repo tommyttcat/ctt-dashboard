@@ -25,7 +25,7 @@ import {
   CLOSED_CAP, HOLD_SESSIONS, HOLD20, rMultiple, homeRunLevel, targetFor,
   type OpenPosition, type TrackResults, type ScanRecord,
 } from '@/lib/track';
-import { edgeTier, multibaggerTier, swingTier, consolidationTier } from '@/lib/scans/edge';
+import { edgeTier, multibaggerTier, swingTier, consolidationTier, ep9mTier, vcpTier, hrsTier } from '@/lib/scans/edge';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -60,8 +60,10 @@ function tierOf(scan: string, row: Record<string, unknown>): string | null {
   if (scan === 'multibagger') return multibaggerTier({ revGrowthPct: (row.attrs as { revGrowthPct?: number })?.revGrowthPct ?? null, marketCap: row.marketCap as number ?? null });
   if (scan === 'swing') return swingTier(row as never);
   if (scan === 'consolidation') return consolidationTier(row as never);
-  if (scan === 'hrs') return null;         // deliberately untinted — see lib/scans/edge
-  return edgeTier(row as never);
+  if (scan === 'ep9m') return ep9mTier(row as never);
+  if (scan === 'vcp') return vcpTier(row as never);
+  if (scan === 'hrs') return hrsTier(row as never);
+  return edgeTier(row as never);           // sip + daily, the tables it was measured on
 }
 
 function emptyRecord(): ScanRecord {
@@ -169,12 +171,17 @@ export async function GET() {
     for (const row of rows) {
       const t = String(row[sym] ?? '').toUpperCase();
       if (!t || live.has(`${scan}|${t}`)) continue;
+      /* Stop, in order of preference: the row's own plan, a stop the scan
+         publishes at the top level (VCP and 10/21 do), then the pick day's
+         low. A row with none of the three fills its stop from the entry
+         bar's low on the next tick rather than going untracked. */
       const plan = row.plan as { stop?: number | null } | undefined;
+      const rowStop = typeof row.stop === 'number' ? row.stop : null;
       kept.push({
         scan: scan as OpenPosition['scan'], t, d: date,
         score: typeof row.score === 'number' ? row.score : typeof row.cnfScore === 'number' ? row.cnfScore : null,
         tier: tierOf(scan, row),
-        fill: null, stop: plan?.stop ?? (typeof row.dayLow === 'number' ? row.dayLow : null),
+        fill: null, stop: plan?.stop ?? rowStop ?? (typeof row.dayLow === 'number' ? row.dayLow : null),
         target: null, n: 0, peak: null, hr: false, stopped: false, exitFixed: null, exitHold20: null,
       });
       live.add(`${scan}|${t}`);
