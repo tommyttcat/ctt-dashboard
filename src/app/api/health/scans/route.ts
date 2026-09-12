@@ -33,7 +33,14 @@ export const dynamic = 'force-dynamic';
 /* The payload key each card reads, and the timestamp key beside it. Keep this
    list matched to TRACKED_SCANS in lib/track and to the /latest routes — a key
    that is missing from here is a card nothing is watching. */
-const WATCHED: { label: string; key: string; tsKey: string | null; minRows: number }[] = [
+const WATCHED: {
+  label: string; key: string; tsKey: string | null; minRows: number;
+  /* Some payloads are not a list of rows. RS is an object whose `ratings`
+     field holds the symbol map and whose `generatedAt` field is its own
+     timestamp — counting its top-level keys returned 6 and would have passed
+     an empty ratings map, which is the exact failure this route exists for. */
+  rowsPath?: string; tsField?: string;
+}[] = [
   { label: 'Stocks in Play', key: 'stocks_in_play_v6', tsKey: 'last_scan_time_v6', minRows: 1 },
   { label: 'Daily Setups', key: 'daily_setups_v6', tsKey: 'last_scan_time_v6', minRows: 1 },
   { label: 'EP9M', key: 'ep9m_v1', tsKey: 'ep9m_last_scan_v1', minRows: 0 },
@@ -44,7 +51,7 @@ const WATCHED: { label: string; key: string; tsKey: string | null; minRows: numb
   { label: '100-Bagger', key: 'multibagger_v1', tsKey: 'multibagger_last_scan_v1', minRows: 1 },
   { label: '$Vol', key: 'dvol_rows_v1', tsKey: 'dvol_last_scan_v1', minRows: 1 },
   { label: 'Confluence', key: 'confluence_report_v1', tsKey: 'confluence_last_scan_v1', minRows: 0 },
-  { label: 'RS ratings', key: 'rs_ratings_v1', tsKey: null, minRows: 1 },
+  { label: 'RS ratings', key: 'rs_ratings_v1', tsKey: null, minRows: 100, rowsPath: 'ratings', tsField: 'generatedAt' },
 ];
 
 /* EP9M and the pattern scans legitimately return nothing on a quiet day, which
@@ -88,21 +95,30 @@ export async function GET(request: Request) {
 
   const now = Date.now();
   const checks: Check[] = WATCHED.map(w => {
-    const payload = byKey.get(w.key);
-    /* Most keys hold an array of rows; rs_ratings_v1 holds a symbol->rating
-       map. Counting its entries is what makes an empty map visible — as an
-       array-only check it was "present, therefore fine". */
+    const raw = byKey.get(w.key);
+    const payload = w.rowsPath && raw && typeof raw === 'object'
+      ? (raw as Record<string, unknown>)[w.rowsPath]
+      : raw;
     const rows = Array.isArray(payload) ? payload.length
       : payload && typeof payload === 'object' ? Object.keys(payload as Record<string, unknown>).length
       : payload == null ? null : -1;
-    const tsRaw = w.tsKey ? byKey.get(w.tsKey) : null;
-    const ts = typeof tsRaw === 'number' ? tsRaw : null;
+
+    /* The timestamp is either a sibling key or a field on the payload itself. */
+    let ts: number | null = null;
+    if (w.tsKey) {
+      const tsRaw = byKey.get(w.tsKey);
+      ts = typeof tsRaw === 'number' ? tsRaw : null;
+    } else if (w.tsField && raw && typeof raw === 'object') {
+      const v = (raw as Record<string, unknown>)[w.tsField];
+      const parsed = typeof v === 'string' ? Date.parse(v) : typeof v === 'number' ? v : NaN;
+      ts = Number.isFinite(parsed) ? parsed : null;
+    }
     const ageMin = ts ? Math.round((now - ts) / 60000) : null;
 
     let problem: string | null = null;
-    if (payload == null) problem = 'key missing — the scan has never written, or it was cleared';
-    else if (rows === 0 && w.minRows > 0) problem = 'wrote an empty list';
-    else if (ageMin == null && w.tsKey) problem = 'no timestamp — cannot tell whether it is current';
+    if (raw == null) problem = 'key missing — the scan has never written, or it was cleared';
+    else if (rows != null && rows >= 0 && rows < w.minRows) problem = `only ${rows} row${rows === 1 ? '' : 's'} (expected at least ${w.minRows})`;
+    else if (ageMin == null && (w.tsKey || w.tsField)) problem = 'no timestamp — cannot tell whether it is current';
     else if (ageMin != null && inSession && ageMin > SESSION_MAX_AGE_MIN) {
       problem = `${ageMin} minutes old during the session (expected under ${SESSION_MAX_AGE_MIN})`;
     } else if (ageMin != null && !inSession && ageMin > OVERNIGHT_MAX_AGE_H * 60) {
