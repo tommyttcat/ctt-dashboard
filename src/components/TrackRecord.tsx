@@ -29,6 +29,10 @@ import DashNav from './DashNav';
 import TickerChartHover, { ActiveChartProvider } from './TickerChartHover';
 import { WatchlistProvider } from './WatchlistContext';
 import { SCAN_STATS, type StatScan } from '@/lib/scans/stats';
+import {
+  EDGE_TINT, EDGE_FILTER_TIP, EP9M_TIP, VCP_TIP, SWING_TIP, CONSOLIDATION_TIP,
+  MULTIBAGGER_TIP, HRS_TIP, type EdgeTier,
+} from '@/lib/scans/edge';
 
 interface ScanRecord {
   picks: number;
@@ -96,6 +100,9 @@ const rCls = (v: number | null | undefined) =>
 
 const TH = 'text-[9px] font-bold tracking-widest uppercase text-slate-500 px-2 py-2 text-right';
 const TD = 'text-[10px] px-2 py-2 text-right tabular-nums';
+const TH_SCAN = `${TH} cursor-pointer hover:text-slate-300 transition-colors select-none`;
+
+type ScanSortKey = 'default' | 'label' | 'picks' | 'open' | 'settled' | 'win' | 'avgR' | 'hold20' | 'hr' | 'bt';
 
 const STATUS_META: Record<Position['status'], { label: string; cls: string; tip: string }> = {
   pending: { label: 'Pending', cls: 'text-slate-400 bg-white/[0.04] border-white/10', tip: 'Picked after the close — fills at the next session\'s open.' },
@@ -108,19 +115,82 @@ const STATUS_META: Record<Position['status'], { label: string; cls: string; tip:
 const fmtNum = (v: number | null | undefined, dp = 2) => (v == null ? '—' : v.toFixed(dp));
 
 /* ---- the drill-down table ------------------------------------------------
-   Open positions first, because that is what a reader can still act on, then
-   the closed ones newest first. Both carry the same columns so the eye does
-   not have to re-learn the row halfway down.
+   The rows carry the same shading as the scan cards, so the colour a pick was
+   given at the time is visible on the record of what it then did — which is
+   the only way to check the claim the colour makes. Every column sorts; the
+   default is open positions first, newest pick first, because that is what a
+   reader can still act on.
 
    "Open R" on a live position is marked at the last close and is unrealised;
    the R columns on a closed one are what the bracket actually realised. They
-   are kept in separate columns for that reason rather than blended into one
-   number that means two different things. */
+   are kept apart for that reason rather than blended into one number that
+   means two different things. */
+
+const TIER_TIPS: Record<string, Record<string, string>> = {
+  sip: EDGE_FILTER_TIP, daily: EDGE_FILTER_TIP, ep9m: EP9M_TIP, vcp: VCP_TIP,
+  swing: SWING_TIP, consolidation: CONSOLIDATION_TIP, hrs: HRS_TIP, multibagger: MULTIBAGGER_TIP,
+};
+
+type PosSortKey = 'default' | 'ticker' | 'd' | 'fill' | 'stop' | 'target' | 'n' | 'peakPct' | 'openR' | 'exitFixed' | 'exitHold20' | 'status';
+
+const STATUS_ORDER: Record<Position['status'], number> = { target: 5, running: 4, pending: 3, closed: 2, stopped: 1 };
+
 function PositionTable({ detail }: { detail: Detail }) {
-  const rows: { p: Position; live: boolean }[] = [
-    ...detail.open.map(p => ({ p, live: true })),
-    ...detail.closed.map(p => ({ p, live: false })),
-  ];
+  const [sortKey, setSortKey] = useState<PosSortKey>('default');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const toggleSort = (k: PosSortKey) => {
+    if (sortKey === k) {
+      // desc -> asc -> back to the default view, the same three-state cycle the
+      // scan tables use.
+      if (sortDir === 'desc') setSortDir('asc');
+      else { setSortKey('default'); setSortDir('desc'); }
+    } else {
+      setSortKey(k); setSortDir('desc');
+    }
+  };
+
+  const arrow = (k: PosSortKey) => (sortKey === k ? (sortDir === 'desc' ? ' ▼' : ' ▲') : '');
+
+  const rows = React.useMemo(() => {
+    const all: { p: Position; live: boolean }[] = [
+      ...detail.open.map(p => ({ p, live: true })),
+      ...detail.closed.map(p => ({ p, live: false })),
+    ];
+    if (sortKey === 'default') {
+      return all.sort((a, b) =>
+        (a.live === b.live ? 0 : a.live ? -1 : 1) || (a.p.d < b.p.d ? 1 : a.p.d > b.p.d ? -1 : 0));
+    }
+    const num = (p: Position): number | null => {
+      switch (sortKey) {
+        case 'fill': return p.fill;
+        case 'stop': return p.stop;
+        case 'target': return p.target;
+        case 'n': return p.fill == null ? null : p.n;
+        case 'peakPct': return p.peakPct;
+        case 'openR': return p.openR;
+        case 'exitFixed': return p.exitFixed;
+        case 'exitHold20': return p.exitHold20;
+        case 'status': return STATUS_ORDER[p.status];
+        default: return null;
+      }
+    };
+    const dir = sortDir === 'desc' ? -1 : 1;
+    return all.sort((a, b) => {
+      if (sortKey === 'ticker') return dir * (a.p.t < b.p.t ? -1 : a.p.t > b.p.t ? 1 : 0);
+      if (sortKey === 'd') return dir * (a.p.d < b.p.d ? -1 : a.p.d > b.p.d ? 1 : 0);
+      const av = num(a.p), bv = num(b.p);
+      // A row with no value sorts to the bottom whichever way the column runs —
+      // an empty cell is missing information, not a small number.
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return dir * (av - bv);
+    });
+  }, [detail, sortKey, sortDir]);
+
+  const tips = TIER_TIPS[detail.scan] ?? EDGE_FILTER_TIP;
+  const TH_SORT = `${TH} cursor-pointer hover:text-slate-300 transition-colors select-none`;
 
   return (
     <div className="overflow-x-auto custom-scrollbar">
@@ -128,30 +198,35 @@ function PositionTable({ detail }: { detail: Detail }) {
         {detail.openCount} open · {detail.closedCount} closed
         {detail.truncated ? ' · showing the 150 most recent of each' : ''}
         {' · '}a position is followed for {detail.holdSessions} sessions after it fills, so a trade that
-        hits its target or its stop still shows here until that window is up.
+        hits its target or its stop still shows here until that window is up. Row colour is the shading the
+        pick carried on the day it was made.
       </div>
-      <table className="w-full min-w-[760px] border-collapse">
+      <table className="w-full min-w-[720px] border-collapse">
         <thead>
           <tr className="border-b border-white/5">
-            <th className={`${TH} !text-left`}>Ticker</th>
-            <th className={`${TH} !text-left`}>Picked</th>
-            <th className={TH} title="The row shading at the time of the pick">Shade</th>
-            <th className={TH} title="Next session's open">Fill</th>
-            <th className={TH}>Stop</th>
-            <th className={TH} title="Fill + 2R">Target</th>
-            <th className={TH} title="Sessions since the fill">Held</th>
-            <th className={TH} title="Best print since the fill, in percent">Peak</th>
-            <th className={TH} title="Marked at the last close — unrealised">Open R</th>
-            <th className={TH} title="Realised R on the 2R-or-stop bracket">2R</th>
-            <th className={TH} title="Realised R at the close of the 20th session">Hold 20</th>
-            <th className={TH}>Status</th>
+            <th className={`${TH_SORT} !text-left`} onClick={() => toggleSort('ticker')}>Ticker{arrow('ticker')}</th>
+            <th className={`${TH_SORT} !text-left`} onClick={() => toggleSort('d')}>Picked{arrow('d')}</th>
+            <th className={TH_SORT} onClick={() => toggleSort('fill')} title="Next session's open">Fill{arrow('fill')}</th>
+            <th className={TH_SORT} onClick={() => toggleSort('stop')}>Stop{arrow('stop')}</th>
+            <th className={TH_SORT} onClick={() => toggleSort('target')} title="Fill + 2R">Target{arrow('target')}</th>
+            <th className={TH_SORT} onClick={() => toggleSort('n')} title="Sessions since the fill">Held{arrow('n')}</th>
+            <th className={TH_SORT} onClick={() => toggleSort('peakPct')} title="Best print since the fill, in percent">Peak{arrow('peakPct')}</th>
+            <th className={TH_SORT} onClick={() => toggleSort('openR')} title="Marked at the last close — unrealised">Open R{arrow('openR')}</th>
+            <th className={TH_SORT} onClick={() => toggleSort('exitFixed')} title="Realised R on the 2R-or-stop bracket">2R{arrow('exitFixed')}</th>
+            <th className={TH_SORT} onClick={() => toggleSort('exitHold20')} title="Realised R at the close of the 20th session">Hold 20{arrow('exitHold20')}</th>
+            <th className={TH_SORT} onClick={() => toggleSort('status')}>Status{arrow('status')}</th>
           </tr>
         </thead>
         <tbody>
           {rows.map(({ p, live }) => {
             const st = STATUS_META[p.status];
+            const tint = p.tier ? EDGE_TINT[p.tier as EdgeTier] ?? '' : '';
             return (
-              <tr key={`${p.t}-${p.d}`} className={`border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors ${live ? '' : 'opacity-80'}`}>
+              <tr
+                key={`${p.t}-${p.d}`}
+                className={`border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors ${tint} ${live ? '' : 'opacity-80'}`}
+                title={p.tier ? `${p.tier.toUpperCase()} at pick time — ${tips[p.tier] ?? ''}` : undefined}
+              >
                 <td className="text-[10px] px-2 py-1.5 text-left font-semibold text-slate-200 whitespace-nowrap">
                   <TickerChartHover symbol={p.t}>
                     <span className="border-b border-dotted border-white/25 hover:border-white/60 hover:text-white transition-colors" title={`${p.t} — hover for the chart`}>{p.t}</span>
@@ -159,7 +234,6 @@ function PositionTable({ detail }: { detail: Detail }) {
                   {p.hr && <span className="ml-1.5 text-[9px] font-bold text-emerald-400" title="Ran +50% (or +10R) before the stop">+50%</span>}
                 </td>
                 <td className="text-[10px] px-2 py-1.5 text-left text-slate-500 whitespace-nowrap tabular-nums">{p.d}</td>
-                <td className={`${TD} ${p.tier ? TIER_CLS[p.tier] ?? 'text-slate-500' : 'text-slate-600'}`}>{p.tier ?? '—'}</td>
                 <td className={`${TD} text-slate-300`}>{fmtNum(p.fill)}</td>
                 <td className={`${TD} text-slate-400`}>{fmtNum(p.stop)}</td>
                 <td className={`${TD} text-slate-400`}>{fmtNum(p.target)}</td>
@@ -217,10 +291,50 @@ export default function TrackRecord() {
     return () => { alive = false; };
   }, []);
 
+  /* The scan table sorts too. Default is the reading order in ROWS — the
+     tables as they appear on the dashboard — and any column click sorts,
+     desc then asc then back to that default. */
+  const [scanSort, setScanSort] = useState<ScanSortKey>('default');
+  const [scanDir, setScanDir] = useState<'asc' | 'desc'>('desc');
+  const toggleScanSort = (k: ScanSortKey) => {
+    if (scanSort === k) {
+      if (scanDir === 'desc') setScanDir('asc');
+      else { setScanSort('default'); setScanDir('desc'); }
+    } else { setScanSort(k); setScanDir('desc'); }
+  };
+  const scanArrow = (k: ScanSortKey) => (scanSort === k ? (scanDir === 'desc' ? ' ▼' : ' ▲') : '');
+
   const results = data?.results ?? {};
   const openByScan = data?.openByScan ?? {};
   const totalPicks = Object.values(results).reduce((n, r) => n + (r?.picks ?? 0), 0);
   const totalSettled = Object.values(results).reduce((n, r) => n + (r?.settled ?? 0), 0);
+
+  const orderedRows = React.useMemo(() => {
+    if (scanSort === 'default') return ROWS;
+    const val = (scan: string, stat: StatScan): number | null => {
+      const r = results[scan];
+      switch (scanSort) {
+        case 'picks': return r?.picks ?? 0;
+        case 'open': return openByScan[scan] ?? 0;
+        case 'settled': return r?.settled ?? 0;
+        case 'win': return r?.winRate ?? null;
+        case 'avgR': return r?.fixedAvgR ?? null;
+        case 'hold20': return r?.hold20AvgR ?? null;
+        case 'hr': return r?.hrRate ?? null;
+        case 'bt': return SCAN_STATS[stat].bt.fixedAvgR;
+        default: return null;
+      }
+    };
+    const dir = scanDir === 'desc' ? -1 : 1;
+    return [...ROWS].sort((a, b) => {
+      if (scanSort === 'label') return dir * (a.label < b.label ? -1 : a.label > b.label ? 1 : 0);
+      const av = val(a.scan, a.stat), bv = val(b.scan, b.stat);
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return dir * (av - bv);
+    });
+  }, [results, openByScan, scanSort, scanDir]);
 
   return (
     /* The chart preview needs both providers: ActiveChartProvider owns the
@@ -291,19 +405,19 @@ export default function TrackRecord() {
           <table className="w-full min-w-[820px] border-collapse">
             <thead>
               <tr className="border-b border-white/5">
-                <th className={`${TH} !text-left`}>Scan</th>
-                <th className={TH} title="Names published by this scan and recorded before the outcome was known">Picks</th>
-                <th className={TH} title="Still open — inside the 20-session window and not yet stopped">Open</th>
-                <th className={TH} title="Reached the target, the stop, or the 20th session">Settled</th>
-                <th className={TH} title="Share of settled trades that closed positive">Win</th>
-                <th className={TH} title="Average R on the 2R-or-stop bracket">Avg R</th>
-                <th className={TH} title="Average R holding to the close of the 20th session">Hold 20</th>
-                <th className={TH} title="Reached +50% or +10R before the stop">+50%</th>
-                <th className={TH} title="The same measure over the 5-year backtest, for comparison">5-yr test</th>
+                <th className={`${TH_SCAN} !text-left`} onClick={() => toggleScanSort('label')}>Scan{scanArrow('label')}</th>
+                <th className={TH_SCAN} onClick={() => toggleScanSort('picks')} title="Names published by this scan and recorded before the outcome was known">Picks{scanArrow('picks')}</th>
+                <th className={TH_SCAN} onClick={() => toggleScanSort('open')} title="Still being followed">Open{scanArrow('open')}</th>
+                <th className={TH_SCAN} onClick={() => toggleScanSort('settled')} title="Finished their window and folded into the averages">Settled{scanArrow('settled')}</th>
+                <th className={TH_SCAN} onClick={() => toggleScanSort('win')} title="Share of settled trades that closed positive">Win{scanArrow('win')}</th>
+                <th className={TH_SCAN} onClick={() => toggleScanSort('avgR')} title="Average R on the 2R-or-stop bracket">Avg R{scanArrow('avgR')}</th>
+                <th className={TH_SCAN} onClick={() => toggleScanSort('hold20')} title="Average R holding to the close of the 20th session">Hold 20{scanArrow('hold20')}</th>
+                <th className={TH_SCAN} onClick={() => toggleScanSort('hr')} title="Reached +50% or +10R before the stop">+50%{scanArrow('hr')}</th>
+                <th className={TH_SCAN} onClick={() => toggleScanSort('bt')} title="The same measure over the 5-year backtest, for comparison">5-yr test{scanArrow('bt')}</th>
               </tr>
             </thead>
             <tbody>
-              {ROWS.map(({ scan, label, stat }) => {
+              {orderedRows.map(({ scan, label, stat }) => {
                 const r = results[scan];
                 const bt = SCAN_STATS[stat].bt;
                 const tiers = Object.entries(r?.byTier ?? {}).filter(([, v]) => v.n > 0);
