@@ -19,7 +19,7 @@ export const eq = (label: string, got: unknown, want: unknown) => {
 };
 
 /** Floating-point comparison, because 0.1 + 0.2 is not 0.3 and never will be. */
-export const near = (label: string, got: number | null, want: number, tol = 1e-6) => {
+export const near = (label: string, got: number | null | undefined, want: number, tol = 1e-6) => {
   if (got != null && Math.abs(got - want) <= tol) pass++;
   else failures.push(`${label}\n    got  ${got}\n    want ${want} (±${tol})`);
 };
