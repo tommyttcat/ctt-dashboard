@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { etGate } from '@/lib/etCron';
 import { kv } from '@vercel/kv';
 import { buildLedger, LEDGER_KEY, LEDGER_INDEX_KEY } from '@/lib/setupLedger';
 
@@ -40,6 +41,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
   }
+
+  /* 17:50 ET — see lib/etCron. The cron fires at both candidate UTC hours and
+     this gate decides which one is the real one. */
+  const gate = etGate([17], 'analyst ledger');
+  if (gate) return gate;
 
   const date = todayET();
 

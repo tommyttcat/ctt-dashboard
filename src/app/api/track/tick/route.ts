@@ -22,6 +22,7 @@
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
+import { etGate } from '@/lib/etCron';
 import {
   TRACK_OPEN_KEY, TRACK_RESULTS_KEY, TRACK_META_KEY, TRACK_CLOSED_KEY, TRACKED_SCANS,
   CLOSED_CAP, HOLD_SESSIONS, HOLD20, RETURN_SCANS, RETURN_HOLD, DOUBLE_PCT,
@@ -74,6 +75,12 @@ function emptyRecord(): ScanRecord {
 }
 
 export async function GET() {
+  /* 20:10 ET. The cron fires at both candidate UTC hours so the tick keeps
+     landing after the last scan of the day across the DST boundary; this is
+     what makes the other firing a no-op. See lib/etCron. */
+  const gate = etGate([20], 'tracking tick');
+  if (gate) return gate;
+
   if (!POLYGON_KEY) return NextResponse.json({ success: false, error: 'no polygon key' }, { status: 500 });
 
   const market = await latestBars();

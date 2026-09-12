@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { etGate } from '@/lib/etCron';
 import { Resend } from 'resend';
 import { getEmailRecipients } from '@/lib/users';
 import { postToBluesky } from '@/lib/bluesky';
@@ -680,6 +681,13 @@ export async function GET(req: Request) {
   const debug = url.searchParams.get('debug');
 
   const force = url.searchParams.get('force') === '1';
+
+  /* 17:30 ET on Sunday, whichever side of the DST boundary the year is on —
+     see lib/etCron. Previews and forced sends bypass. */
+  if (!force && !preview && !test) {
+    const gate = etGate([17], 'weekly summary');
+    if (gate) return gate;
+  }
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = req.headers.get('authorization');
   if (cronSecret && !preview && !test && !force && authHeader !== `Bearer ${cronSecret}`) {

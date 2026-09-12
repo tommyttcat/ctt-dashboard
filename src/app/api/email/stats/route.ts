@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
+import { etGate } from '@/lib/etCron';
 import { getUsers } from '@/lib/users';
 import { getStripe, tierFromPriceId } from '@/lib/stripe';
 
@@ -12,6 +13,12 @@ export async function GET(req: NextRequest) {
   const force = req.nextUrl.searchParams.get('force') === '1';
   if (cronSecret && authHeader !== `Bearer ${cronSecret}` && !force) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+
+  /* 21:00 ET — see lib/etCron. */
+  if (!force) {
+    const gate = etGate([21], 'email stats');
+    if (gate) return gate;
   }
 
   const apiKey = process.env.RESEND_API_KEY;

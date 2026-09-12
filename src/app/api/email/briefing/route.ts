@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { etGate } from '@/lib/etCron';
 import { Resend } from 'resend';
 import { kv } from '@vercel/kv';
 import { posterForSocial } from '@/lib/socialCover';
@@ -1351,6 +1352,20 @@ export async function GET(req: Request) {
   const authHeader = req.headers.get('authorization');
   if (cronSecret && authHeader !== `Bearer ${cronSecret}` && !force) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+
+  /* DST guard. The crons are UTC and fire at BOTH candidate hours so one of
+     them is always the right ET time; this is what makes the other one a
+     no-op. Without it, every phase moves an hour earlier on 1 Nov 2026 and
+     the pre-market send goes out before the data it summarises exists. The
+     hours below are New York hours — the ones the reader experiences.
+     `?force=1` bypasses, so a manual send is always possible. */
+  const ET_HOURS: Record<Phase, number[]> = {
+    pre: [8, 9], morning: [10, 11], midday: [12, 13], power: [14, 15], closing: [16, 17],
+  };
+  if (!force) {
+    const gate = etGate(ET_HOURS[phase] ?? [], `briefing ${phase}`);
+    if (gate) return gate;
   }
 
   // Phase crons are `* * 1-5`, so they fire on market holidays. Without this

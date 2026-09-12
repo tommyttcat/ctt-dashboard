@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { etGate } from '@/lib/etCron';
 import { kv } from '@vercel/kv';
 import { postToBluesky } from '@/lib/bluesky';
 import { postToX } from '@/lib/twitter';
@@ -254,6 +255,12 @@ export async function GET(req: Request) {
   const slot = (url.searchParams.get('slot') || 'open') as Slot;
   if (slot !== 'open' && slot !== 'power') {
     return NextResponse.json({ error: "slot must be 'open' or 'power'" }, { status: 400 });
+  }
+  /* 10:55 and 13:55 ET. A post an hour early lands before the open reads
+     anything — see lib/etCron for why the cron alone cannot hold the time. */
+  if (!force && !preview) {
+    const gate = etGate(slot === 'power' ? [13] : [10], `scorecard ${slot}`);
+    if (gate) return gate;
   }
 
   const secret = process.env.CRON_SECRET;

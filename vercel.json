@@ -26,47 +26,47 @@
     },
     {
       "path": "/api/email/briefing?phase=pre",
-      "schedule": "45 12 * * 1-5"
+      "schedule": "45 12,13 * * 1-5"
     },
     {
       "path": "/api/email/briefing?phase=pre",
-      "schedule": "0,15,30,45 13 * * 1-5"
+      "schedule": "0,15,30 13,14 * * 1-5"
     },
     {
       "path": "/api/email/briefing?phase=morning",
-      "schedule": "45 14 * * 1-5"
+      "schedule": "45 14,15 * * 1-5"
     },
     {
       "path": "/api/email/briefing?phase=morning",
-      "schedule": "0,15,30,45 15 * * 1-5"
+      "schedule": "0,15,30 15,16 * * 1-5"
     },
     {
       "path": "/api/email/briefing?phase=midday",
-      "schedule": "45 16 * * 1-5"
+      "schedule": "45 16,17 * * 1-5"
     },
     {
       "path": "/api/email/briefing?phase=midday",
-      "schedule": "0,15,30,45 17 * * 1-5"
+      "schedule": "0,15,30 17,18 * * 1-5"
     },
     {
       "path": "/api/email/briefing?phase=power",
-      "schedule": "45 18 * * 1-5"
+      "schedule": "45 18,19 * * 1-5"
     },
     {
       "path": "/api/email/briefing?phase=power",
-      "schedule": "0,15,30,45 19 * * 1-5"
+      "schedule": "0,15,30 19,20 * * 1-5"
     },
     {
       "path": "/api/email/briefing?phase=closing",
-      "schedule": "45 20 * * 1-5"
+      "schedule": "45 20,21 * * 1-5"
     },
     {
       "path": "/api/email/briefing?phase=closing",
-      "schedule": "0,15,30,45 21 * * 1-5"
+      "schedule": "0,15,30 21,22 * * 1-5"
     },
     {
       "path": "/api/email/weekly",
-      "schedule": "30 21 * * 0"
+      "schedule": "30 21,22 * * 0"
     },
     {
       "path": "/api/multibagger/run",
@@ -98,23 +98,27 @@
     },
     {
       "path": "/api/email/stats",
-      "schedule": "0 1 * * *"
+      "schedule": "0 1,2 * * *"
     },
     {
       "path": "/api/analyst/ledger/write",
-      "schedule": "50 21 * * 1-5"
+      "schedule": "50 21,22 * * 1-5"
     },
     {
       "path": "/api/social/scorecard?slot=open",
-      "schedule": "55 14 * * 1-5"
+      "schedule": "55 14,15 * * 1-5"
     },
     {
       "path": "/api/social/scorecard?slot=power",
-      "schedule": "55 17 * * 1-5"
+      "schedule": "55 17,18 * * 1-5"
     },
     {
       "path": "/api/track/tick",
-      "schedule": "10 0 * * 2-6"
+      "schedule": "10 0,1 * * 2-6"
+    },
+    {
+      "path": "/api/health/scans?alert=1",
+      "schedule": "30 19,20 * * 1-5"
     }
   ]
 }
