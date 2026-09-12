@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:calendar": "node --experimental-strip-types --no-warnings scripts/marketCalendar.test.mts"
+    "test:calendar": "node --experimental-strip-types --no-warnings scripts/marketCalendar.test.mts",
+    "test": "tsx scripts/edge.test.mts && tsx scripts/track.test.mts && tsx scripts/etCron.test.mts && tsx scripts/plan.test.mts && npm run test:calendar"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
