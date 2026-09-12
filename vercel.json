@@ -111,6 +111,10 @@
     {
       "path": "/api/social/scorecard?slot=power",
       "schedule": "55 17 * * 1-5"
+    },
+    {
+      "path": "/api/track/tick",
+      "schedule": "10 0 * * 2-6"
     }
   ]
 }
