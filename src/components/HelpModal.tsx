@@ -528,16 +528,31 @@ function InteractionsTab() {
       <Li title="RED">ADR above 9% (−0.27R) or price between $5 and $10 (−0.15R). Both lost money in every half of the test.</Li>
       <Li title="NO TINT">ADR or the day&apos;s range is missing, so no claim is made.</Li>
       <P>
-        Hover any tinted row for the numbers behind its colour. The Setups Summary adds GREEN / YELLOW / RED
-        filter pills and opens on green, which is the shortlist.
+        Hover any tinted row for the numbers behind its colour. <strong className="text-slate-200">Every card
+        carries GREEN / YELLOW / RED filter pills</strong> and opens on green, which is the shortlist. Click a
+        pill again for all rows; a colour with nothing behind it today is hidden rather than greyed.
       </P>
       <P>
-        <strong className="text-slate-200">The rules are per-scan, not universal.</strong> The 100-Bagger
-        uses its own: red is revenue growth above 50% (those picks trailed their own universe by 12% and only
-        3.6% doubled within a year, below the 5.8% base rate), green is growth of 10–25% with a market cap
-        under $3B (+13% excess, 18% doubled in a year). Hidden Relative Strength is deliberately left untinted —
-        the $5–10 band that loses on the momentum tables is the best band there, so borrowing the colours
-        would mark its strongest names as its worst.
+        <strong className="text-slate-200">The rules are per-scan, not universal</strong> — each one was measured
+        on its own five-year replay, and on the entry that card actually plans:
+      </P>
+      <Li title="SIPS / DAILY / CONFLUENCE">Above. The Confluence report is built from these tables, so it uses their rules.</Li>
+      <Li title="EP9M">Red = ADR above 9%, float turnover 1x+, or cap under $300M (−0.14R). Green = clears those with money flow 65+ or a $50+ price (+0.22R). Note the red bucket has the HIGHEST rate of +50% runs (19%) and the worst average — it is the lottery bucket, not a dead one.</Li>
+      <Li title="SWING">Red = a Stage 1 base, the only bucket that lost (−0.19R). Green = RS 95+ or money flow 65+ (+0.58R).</Li>
+      <Li title="VCP">Green = ATR 3.5%+ with a final contraction of 10%+ — 10.7% of those ran +50%, against 1.7% for yellow and ZERO for red (ATR under 2.5% or a stop under 5%) in five years. Tightness, the thing the pattern is named for, is what loses.</Li>
+      <Li title="10/21">Green = a coil 3x+ ATR with the stochastic above 75 (+0.13R, breaks out 89% of the time), roughly 7% of the table. Red = the tight-coil majority and anything more than 11% off its high.</Li>
+      <Li title="HIDDEN RS">Green = price $5–15 (+0.14R, 10% ran +50%) — the band that LOSES on the momentum tables. There is no red here: nothing on this scan lost consistently.</Li>
+      <Li title="100-BAGGER">Red = revenue growth above 50% (trailed its own universe by 12%, only 3.6% doubled inside a year against a 5.8% base rate). Green = growth of 10–25% with a cap under $3B (+13% excess, 18% doubled in a year).</Li>
+
+      <H>Track Record</H>
+      <P>
+        Every scan card carries a one-line summary of what its plan has been worth over five years — hover it
+        for the full breakdown. The <strong className="text-slate-200">Track Record</strong> page goes further:
+        it records every name each scan publishes on the evening it appears, before the outcome is known, and
+        scores it on the same measuring stick as the backtest (next-open entry, the row&apos;s own stop, settle
+        at the 2R target, the stop, or the 20th session). The five-year figure sits beside the live one, and
+        nothing is added later or removed for looking bad. Early samples are far too small to conclude anything
+        from — that is what the sample-size column is for.
       </P>
 
       <H>Ticker Colour by Table</H>
