@@ -25,6 +25,13 @@
 export const TRACK_OPEN_KEY = 'track_open_v1';
 export const TRACK_RESULTS_KEY = 'track_results_v1';
 export const TRACK_META_KEY = 'track_meta_v1';
+/* The closed log. The running averages in TRACK_RESULTS_KEY answer "how is
+   this scan doing"; this answers "show me the trades", which is the only
+   version of a track record anyone should trust. Capped, newest first, so the
+   key cannot grow without bound — the averages are cumulative regardless, so
+   dropping the oldest rows loses the detail, never the record. */
+export const TRACK_CLOSED_KEY = 'track_closed_v1';
+export const CLOSED_CAP = 1200;
 
 export const HOLD_SESSIONS = 60;
 export const HOLD20 = 20;
@@ -62,6 +69,24 @@ export interface OpenPosition {
   stopped: boolean;
   exitFixed: number | null;  // realised R on the 2R/stop bracket
   exitHold20: number | null; // realised R at the 20th session
+  last?: number | null;      // most recent close, so the drill-down can show an open position's current R
+}
+
+/** What a position looks like in the drill-down, open or closed. */
+export type PositionStatus = 'pending' | 'running' | 'target' | 'stopped' | 'closed';
+
+export function statusOf(p: OpenPosition): PositionStatus {
+  if (p.fill == null) return 'pending';
+  if (p.stopped) return 'stopped';
+  if (p.exitFixed != null && p.exitFixed > 0) return 'target';
+  if (p.n >= HOLD_SESSIONS) return 'closed';
+  return 'running';
+}
+
+/** Open R on the last close — what the position is worth right now, unrealised. */
+export function openR(p: OpenPosition): number | null {
+  if (p.fill == null || p.stop == null || p.last == null) return null;
+  return rMultiple(p.fill, p.stop, p.last);
 }
 
 export interface ScanRecord {

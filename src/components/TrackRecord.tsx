@@ -17,12 +17,16 @@
  *
  * Data: /api/track/latest — aggregates only, ~1.2 KB, cached at the edge for
  * ten minutes (stale-while-revalidate an hour), so this page costs about one
- * KV read per ten minutes no matter how many people open it.
+ * KV read per ten minutes no matter how many people open it. Clicking a scan
+ * fetches /api/track/detail?scan=… once and keeps it; that route is cached on
+ * the same profile and keyed by scan name, so the drill-down is flat in users
+ * too. Nothing polls.
  */
 
 import React, { useEffect, useState } from 'react';
 import { ThemeToggle } from './ThemeProvider';
 import DashNav from './DashNav';
+import TickerChartHover from './TickerChartHover';
 import { SCAN_STATS, type StatScan } from '@/lib/scans/stats';
 
 interface ScanRecord {
@@ -34,6 +38,25 @@ interface ScanRecord {
   hold20AvgR: number | null;
   winRate: number | null;
   byTier: Record<string, { n: number; avgR: number | null; hr: number | null }>;
+}
+
+interface Position {
+  t: string; d: string; tier: string | null; score: number | null;
+  fill: number | null; stop: number | null; target: number | null; last: number | null;
+  n: number; hr: boolean; status: 'pending' | 'running' | 'target' | 'stopped' | 'closed';
+  peakPct: number | null; openR: number | null;
+  exitFixed: number | null; exitHold20: number | null;
+}
+
+interface Detail {
+  success: boolean;
+  scan: string;
+  holdSessions: number;
+  openCount: number;
+  closedCount: number;
+  open: Position[];
+  closed: Position[];
+  truncated: boolean;
 }
 
 interface Payload {
@@ -73,10 +96,109 @@ const rCls = (v: number | null | undefined) =>
 const TH = 'text-[9px] font-bold tracking-widest uppercase text-slate-500 px-2 py-2 text-right';
 const TD = 'text-[10px] px-2 py-2 text-right tabular-nums';
 
+const STATUS_META: Record<Position['status'], { label: string; cls: string; tip: string }> = {
+  pending: { label: 'Pending', cls: 'text-slate-400 bg-white/[0.04] border-white/10', tip: 'Picked after the close — fills at the next session\'s open.' },
+  running: { label: 'Running', cls: 'text-sky-400 bg-sky-500/10 border-sky-500/20', tip: 'Filled, not stopped, target not reached yet.' },
+  target: { label: 'Target', cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20', tip: 'Reached the 2R target before the stop. Still followed to the end of the window for the +50% test.' },
+  stopped: { label: 'Stopped', cls: 'text-rose-400 bg-rose-500/10 border-rose-500/20', tip: 'Traded through the stop. The R shown is what the bracket realised.' },
+  closed: { label: 'Closed', cls: 'text-slate-300 bg-white/[0.04] border-white/10', tip: 'Ran the full window without hitting either bracket — marked at the close.' },
+};
+
+const fmtNum = (v: number | null | undefined, dp = 2) => (v == null ? '—' : v.toFixed(dp));
+
+/* ---- the drill-down table ------------------------------------------------
+   Open positions first, because that is what a reader can still act on, then
+   the closed ones newest first. Both carry the same columns so the eye does
+   not have to re-learn the row halfway down.
+
+   "Open R" on a live position is marked at the last close and is unrealised;
+   the R columns on a closed one are what the bracket actually realised. They
+   are kept in separate columns for that reason rather than blended into one
+   number that means two different things. */
+function PositionTable({ detail }: { detail: Detail }) {
+  const rows: { p: Position; live: boolean }[] = [
+    ...detail.open.map(p => ({ p, live: true })),
+    ...detail.closed.map(p => ({ p, live: false })),
+  ];
+
+  return (
+    <div className="overflow-x-auto custom-scrollbar">
+      <div className="text-[10px] text-slate-500 mb-2">
+        {detail.openCount} open · {detail.closedCount} closed
+        {detail.truncated ? ' · showing the 150 most recent of each' : ''}
+        {' · '}a position is followed for {detail.holdSessions} sessions after it fills, so a trade that
+        hits its target or its stop still shows here until that window is up.
+      </div>
+      <table className="w-full min-w-[760px] border-collapse">
+        <thead>
+          <tr className="border-b border-white/5">
+            <th className={`${TH} !text-left`}>Ticker</th>
+            <th className={`${TH} !text-left`}>Picked</th>
+            <th className={TH} title="The row shading at the time of the pick">Shade</th>
+            <th className={TH} title="Next session's open">Fill</th>
+            <th className={TH}>Stop</th>
+            <th className={TH} title="Fill + 2R">Target</th>
+            <th className={TH} title="Sessions since the fill">Held</th>
+            <th className={TH} title="Best print since the fill, in percent">Peak</th>
+            <th className={TH} title="Marked at the last close — unrealised">Open R</th>
+            <th className={TH} title="Realised R on the 2R-or-stop bracket">2R</th>
+            <th className={TH} title="Realised R at the close of the 20th session">Hold 20</th>
+            <th className={TH}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ p, live }) => {
+            const st = STATUS_META[p.status];
+            return (
+              <tr key={`${p.t}-${p.d}`} className={`border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors ${live ? '' : 'opacity-80'}`}>
+                <td className="text-[10px] px-2 py-1.5 text-left font-semibold text-slate-200 whitespace-nowrap">
+                  <TickerChartHover symbol={p.t}><span>{p.t}</span></TickerChartHover>
+                  {p.hr && <span className="ml-1.5 text-[9px] font-bold text-emerald-400" title="Ran +50% (or +10R) before the stop">+50%</span>}
+                </td>
+                <td className="text-[10px] px-2 py-1.5 text-left text-slate-500 whitespace-nowrap tabular-nums">{p.d}</td>
+                <td className={`${TD} ${p.tier ? TIER_CLS[p.tier] ?? 'text-slate-500' : 'text-slate-600'}`}>{p.tier ?? '—'}</td>
+                <td className={`${TD} text-slate-300`}>{fmtNum(p.fill)}</td>
+                <td className={`${TD} text-slate-400`}>{fmtNum(p.stop)}</td>
+                <td className={`${TD} text-slate-400`}>{fmtNum(p.target)}</td>
+                <td className={`${TD} text-slate-500`}>{p.fill == null ? '—' : p.n}</td>
+                <td className={`${TD} ${(p.peakPct ?? 0) > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>{p.peakPct == null ? '—' : `${p.peakPct >= 0 ? '+' : ''}${p.peakPct.toFixed(1)}%`}</td>
+                <td className={`${TD} ${rCls(p.openR)}`}>{live ? fmtR(p.openR) : '—'}</td>
+                <td className={`${TD} font-semibold ${rCls(p.exitFixed)}`}>{fmtR(p.exitFixed)}</td>
+                <td className={`${TD} ${rCls(p.exitHold20)}`}>{fmtR(p.exitHold20)}</td>
+                <td className="px-2 py-1.5 text-right">
+                  <span className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border ${st.cls}`} title={st.tip}>{st.label}</span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function TrackRecord() {
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  /* Drill-down. One scan open at a time, fetched the first time it is opened
+     and kept after that — the detail route is edge-cached, so reopening a row
+     costs nothing, and closing one should not throw the rows away. */
+  const [openScan, setOpenScan] = useState<string | null>(null);
+  const [details, setDetails] = useState<Record<string, Detail>>({});
+  const [detailLoading, setDetailLoading] = useState<string | null>(null);
+
+  const toggleScan = React.useCallback((scan: string) => {
+    setOpenScan(prev => (prev === scan ? null : scan));
+    if (details[scan] || detailLoading === scan) return;
+    setDetailLoading(scan);
+    fetch(`/api/track/detail?scan=${encodeURIComponent(scan)}`)
+      .then(r => r.json())
+      .then(j => { if (j?.success) setDetails(d => ({ ...d, [scan]: j })); })
+      .catch(() => {})
+      .finally(() => setDetailLoading(cur => (cur === scan ? null : cur)));
+  }, [details, detailLoading]);
 
   useEffect(() => {
     let alive = true;
@@ -130,6 +252,11 @@ export default function TrackRecord() {
           hundreds of settled trades before its average means much, and the backtest column is there as the
           reminder of what that looks like.
         </p>
+        <p className="text-[10px] text-slate-500 leading-relaxed mt-2">
+          <strong className="text-slate-300">Click any scan</strong> to see the individual picks behind its
+          numbers — every ticker, when it was picked, where it filled, where the stop was, and what it has
+          done since.
+        </p>
       </div>
 
       {/* Totals */}
@@ -171,10 +298,19 @@ export default function TrackRecord() {
                 const r = results[scan];
                 const bt = SCAN_STATS[stat].bt;
                 const tiers = Object.entries(r?.byTier ?? {}).filter(([, v]) => v.n > 0);
+                const isOpen = openScan === scan;
+                const detail = details[scan];
                 return (
                   <React.Fragment key={scan}>
-                    <tr className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
-                      <td className="text-[10px] px-2 py-2 text-left font-semibold text-slate-200 whitespace-nowrap">{label}</td>
+                    <tr
+                      className={`border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors cursor-pointer ${isOpen ? 'bg-white/[0.03]' : ''}`}
+                      onClick={() => toggleScan(scan)}
+                      title={isOpen ? 'Hide the individual picks' : 'Show the individual picks behind these numbers'}
+                    >
+                      <td className="text-[10px] px-2 py-2 text-left font-semibold text-slate-200 whitespace-nowrap">
+                        <span className={`inline-block mr-1.5 text-slate-500 transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}>▸</span>
+                        {label}
+                      </td>
                       <td className={`${TD} text-slate-300`}>{r?.picks ?? 0}</td>
                       <td className={`${TD} text-slate-400`}>{openByScan[scan] ?? 0}</td>
                       <td className={`${TD} text-slate-400`}>{r?.settled ?? 0}</td>
@@ -187,6 +323,21 @@ export default function TrackRecord() {
                         <span className="block text-[9px] text-slate-600">n={bt.n.toLocaleString()}</span>
                       </td>
                     </tr>
+                    {isOpen && (
+                      <tr className="border-b border-white/[0.06] bg-[#0d1220]">
+                        <td colSpan={9} className="px-2 py-3">
+                          {detailLoading === scan && !detail ? (
+                            <div className="py-4 text-center text-[10px] text-slate-500 tracking-widest uppercase animate-pulse">Loading picks…</div>
+                          ) : !detail ? (
+                            <div className="py-4 text-center text-[10px] text-slate-500">Detail unavailable.</div>
+                          ) : detail.open.length === 0 && detail.closed.length === 0 ? (
+                            <div className="py-4 text-center text-[10px] text-slate-500">No picks recorded for this scan yet.</div>
+                          ) : (
+                            <PositionTable detail={detail} />
+                          )}
+                        </td>
+                      </tr>
+                    )}
                     {tiers.length > 0 && (
                       <tr className="border-b border-white/[0.04] bg-white/[0.01]">
                         <td colSpan={9} className="px-2 py-1.5">

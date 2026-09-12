@@ -12,7 +12,8 @@
 // positions + results), 2 KV writes, 1 Polygon grouped-daily call. Flat in
 // users — nothing here happens on a page view. ~11 KB of new rows a day; the
 // open-position key peaks near 200 KB because positions retire after 60
-// sessions.
+// sessions. On a day where something settles, one further read and write for
+// the closed log (capped at CLOSED_CAP rows, ~150 KB full).
 //
 // Idempotent per session: a second run on the same bar date is a no-op, so a
 // retry or a manual poke cannot double-count.
@@ -20,8 +21,8 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import {
-  TRACK_OPEN_KEY, TRACK_RESULTS_KEY, TRACK_META_KEY, TRACKED_SCANS,
-  HOLD_SESSIONS, HOLD20, rMultiple, homeRunLevel, targetFor,
+  TRACK_OPEN_KEY, TRACK_RESULTS_KEY, TRACK_META_KEY, TRACK_CLOSED_KEY, TRACKED_SCANS,
+  CLOSED_CAP, HOLD_SESSIONS, HOLD20, rMultiple, homeRunLevel, targetFor,
   type OpenPosition, type TrackResults, type ScanRecord,
 } from '@/lib/track';
 import { edgeTier, multibaggerTier, swingTier, consolidationTier } from '@/lib/scans/edge';
@@ -99,6 +100,9 @@ export async function GET() {
       p.n += 1;
       if (bar.h > (p.peak ?? 0)) p.peak = bar.h;
     }
+    // One number per position so the drill-down can show what an open trade is
+    // worth today without re-fetching a bar per row.
+    p.last = bar.c;
 
     if (p.fill == null || p.stop == null) continue;
     const hrLevel = homeRunLevel(p.fill, p.stop);
@@ -144,6 +148,15 @@ export async function GET() {
   const settledKeys = new Set(settledToday.map(p => `${p.scan}|${p.t}|${p.d}`));
   const kept = open.filter(p => !settledKeys.has(`${p.scan}|${p.t}|${p.d}`));
 
+  /* Retire the settled trades into the closed log rather than dropping them.
+     Newest first and capped: the averages above are cumulative, so an evicted
+     row costs the detail view its oldest entries, never the record itself. */
+  let closed: OpenPosition[] = [];
+  if (settledToday.length > 0) {
+    const prior = (await kv.get<OpenPosition[]>(TRACK_CLOSED_KEY)) || [];
+    closed = [...settledToday, ...prior].slice(0, CLOSED_CAP);
+  }
+
   // 3. Record today's picks. A name already open for the same scan is not
   //    re-added — a base that sits on the table for six weeks is one idea.
   const live = new Set(kept.map(p => `${p.scan}|${p.t}`));
@@ -173,6 +186,7 @@ export async function GET() {
   results.updatedAt = new Date().toISOString();
   await kv.set(TRACK_OPEN_KEY, kept);
   await kv.set(TRACK_RESULTS_KEY, results);
+  if (closed.length > 0) await kv.set(TRACK_CLOSED_KEY, closed);
   await kv.set(TRACK_META_KEY, { lastBarDate: date, tickedAt: new Date().toISOString(), open: kept.length });
 
   return NextResponse.json({
