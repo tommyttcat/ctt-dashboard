@@ -14,6 +14,7 @@ import { stageBadge } from '@/lib/indicators/stage';
 import { formatSetupName } from '@/lib/setupName';
 import { ChartLevelsCtx } from './analyst/MiniChart';
 import type { ExternalLevel } from './analyst/MiniChart';
+import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 
 // ---- types ------------------------------------------------------------------
 
@@ -478,6 +479,10 @@ function StockCard({ report }: { report: Report }) {
               <div className="text-amber-400 font-semibold">{r.tradeRec.rr}</div>
             </div>
           </div>
+          {/* The take-profit above is a drawn level. What the 5-year replay of
+              these same tables says to do with it, so the plan and the
+              evidence sit in one place. */}
+          <p className="mt-2 text-[10px] leading-snug text-slate-400">{EXIT_GUIDANCE.scanner}</p>
         </div>
       )}
     </div>

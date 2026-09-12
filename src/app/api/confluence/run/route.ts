@@ -17,6 +17,8 @@ import { ema, sma, atr } from '@/lib/indicators/marketMath';
 import { rsi, rsiLabel } from '@/lib/indicators/rsi';
 import { macd, macdLabel } from '@/lib/indicators/macd';
 import type { Bar } from '@/lib/indicators/marketMath';
+import { edgeTier } from '@/lib/scans/edge';
+import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -239,8 +241,15 @@ function generateAiSummary(reports: any[]): AiSummary {
       : overallBias === 'BEARISH' ? 'Confluence is weak across timeframes — wait for higher-quality setups or play defense.'
       : 'Mixed signals across timeframes — be selective, favor highest-confluence names only.');
 
+  /* Ranking. CNF and RS as before, then the 5-year row tint applied as a
+     tiebreaker — a row carrying a trait that lost money in BOTH halves of the
+     test (ADR above 9%, or price $5-10) should never be handed to a reader as
+     "primary focus" just because its CNF is high. Green is the trait that
+     paid (+0.26R); red is the pair that did not. */
+  const tierRank: Record<string, number> = { green: 25, yellow: 0, red: -40 };
   const sorted = [...reports].sort((a, b) => {
-    const sc = (r: any) => r.cnfScore * 2 + r.rsRating + (r.biasScore / r.biasMax) * 50;
+    const sc = (r: any) => r.cnfScore * 2 + r.rsRating + (r.biasScore / r.biasMax) * 50
+      + (tierRank[edgeTier(r) ?? 'yellow'] ?? 0);
     return sc(b) - sc(a);
   });
 
@@ -293,8 +302,18 @@ function generateAiSummary(reports: any[]): AiSummary {
   const lowRvol = reports.filter(r => r.rvol < 1);
   if (lowRvol.length > 0) riskNotes.push(`${lowRvol.map((r: any) => r.ticker).join(', ')} trading below average volume — confirmation needed.`);
 
-  const wideAdr = reports.filter(r => r.adrPct != null && r.adrPct >= 10);
-  if (wideAdr.length > 0) riskNotes.push(`${wideAdr.map((r: any) => r.ticker).join(', ')} ${wideAdr.length > 1 ? 'have' : 'has'} ADR > 10% — size accordingly.`);
+  /* The next three notes are the measured ones. The thresholds are the row
+     tint's (lib/scans/edge.ts) so the report never contradicts the shading on
+     the cards it is built from: 9% ADR, not 10%, is where these tables turned
+     negative, and it held in both halves of the 5-year test. */
+  const wideAdr = reports.filter(r => r.adrPct != null && r.adrPct > 9);
+  if (wideAdr.length > 0) riskNotes.push(`${wideAdr.map((r: any) => r.ticker).join(', ')} ${wideAdr.length > 1 ? 'have' : 'has'} ADR above 9% — that bucket averaged -0.27R per trade across 5 years of these scans, in both halves. Size down or skip.`);
+
+  const lowPrice = reports.filter(r => r.price >= 5 && r.price < 10);
+  if (lowPrice.length > 0) riskNotes.push(`${lowPrice.map(r => r.ticker).join(', ')} ${lowPrice.length > 1 ? 'are' : 'is'} in the $5-10 band — the worst price bucket on these tables (-0.15R, both halves).`);
+
+  const weakClose = reports.filter(r => r.closeStrength != null && r.closeStrength < 0.5);
+  if (weakClose.length > 0) riskNotes.push(`${weakClose.map(r => r.ticker).join(', ')} closed in the lower half of the day's range — the top-10% closers averaged +0.26R against -0.06R for these.`);
 
   if (riskNotes.length === 0) riskNotes.push('No elevated risk signals detected across the scan.');
 
@@ -302,7 +321,13 @@ function generateAiSummary(reports: any[]): AiSummary {
   const actionPlan = bestRR
     ? `Primary focus: ${bestRR.ticker} — ${bestRR.tradeRec.direction} from ${bestRR.tradeRec.entry}, stop ${bestRR.tradeRec.stopLoss}, target ${bestRR.tradeRec.takeProfit} (${bestRR.tradeRec.rr}). ` +
       (topPicks.length > 1 ? `Secondary: ${topPicks[1].ticker}. ` : '') +
-      `${overallBias === 'BULLISH' ? 'Environment supports aggressive positioning.' : overallBias === 'BEARISH' ? 'Reduce exposure, tighten stops.' : 'Be selective — only trade A+ setups.'}`
+      `${overallBias === 'BULLISH' ? 'Environment supports aggressive positioning.' : overallBias === 'BEARISH' ? 'Reduce exposure, tighten stops.' : 'Be selective — only trade A+ setups.'} ` +
+      /* The R:R above is a fixed target, which is how the levels are drawn —
+         but this report is built from Daily Setups, Stocks in Play and Swing
+         Candidates, and on all three the fixed target was the worst exit
+         measured. Say so next to the plan rather than only in the scan
+         tooltips. */
+      EXIT_GUIDANCE.scanner
     : 'No actionable trade setups meet minimum criteria.';
 
   return { overallBias, biasRationale, topPicks, keyLevels, sectorThemes, riskNotes, actionPlan };
