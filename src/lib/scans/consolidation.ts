@@ -287,15 +287,37 @@ export function analyzeConsolidation(
   if (pctOffHigh > CONSOL.maxPctOffHigh) return null;
   if (rsRating == null || rsRating < RS_GATE) return null;
 
-  const tightScore = Math.max(0, Math.min(1,
-    (CONSOL.maxCoilRatio - coilRatio) / (CONSOL.maxCoilRatio - 2.0)
-  )) * 30;
+  /* --- Score v2 (11 Sep 2026) -------------------------------------------
+     The old score paid 30 points for tightness, on the premise that a tighter
+     coil is a better coil. Replayed over 7,472 distinct coils (Sep 2022 - Sep
+     2026) that is exactly backwards, and it is why the table averaged -0.10R:
+
+         coil 2-2.5x ATR   -0.15R      coil 3-3.5x ATR   +0.10R
+         coil 2.5-3x       -0.16R      coil 3.5-4x       -0.02R (+0.22R trailing)
+         stoch 25-50       -0.19R, breaks out 63% of the time
+         stoch 75+         +0.04R, breaks out 89% of the time
+         off-high 11-15%   -0.26R      off-high under 3%  -0.02R
+         ADR 4-5.5%        -0.21R      ADR 3-4%           -0.06R
+         money flow 65+    -0.19R      money flow 45-65   -0.07R
+
+     Coil >= 3x ATR with the stochastic above 75 — price pressed against the
+     top of its own range rather than resting in the middle — returned +0.13R
+     in both halves. That is about 7% of the current table, and it is where the
+     edge lives; everything else is the drag. The gates are untouched, so the
+     net still catches the same coils: this only changes the order and, through
+     the row tint, how loudly the table says which ones matter. */
+  const coilScore = coilRatio >= 3 ? 30 : coilRatio >= 2.5 ? 8 : 0;
+  const pressureScore = kVal >= 75 ? 20 : kVal >= 50 ? 5 : 0;
   const proxScore =
-    (1 - Math.abs(distToEma10) / CONSOL.maxDistToEma10) * 15 +
-    Math.max(0, 1 - Math.abs(distToEma21) / CONSOL.maxAboveEma21) * 10;
-  const rsScore = rsFraction(rsRating) * 30;
-  const trendScore = 10 + (pctOffHigh <= 7 ? 5 : 0);
-  const score = Math.round(Math.max(0, Math.min(100, tightScore + proxScore + rsScore + trendScore)));
+    (1 - Math.abs(distToEma10) / CONSOL.maxDistToEma10) * 5 +
+    Math.max(0, 1 - Math.abs(distToEma21) / CONSOL.maxAboveEma21) * 5;
+  const rsScore = rsRating >= 90 ? 10 : rsRating >= 80 ? 8 : rsRating >= 70 ? 3 : 0;
+  const trendScore = pctOffHigh <= 3 ? 10 : pctOffHigh <= 7 ? 6 : pctOffHigh <= 11 ? 5 : -8;
+  const rangeScore = adr >= 5.5 ? -12 : adr >= 4 ? -8 : 0;
+  const gapScore = ema1021GapPct == null ? 0 : ema1021GapPct >= 0 && ema1021GapPct <= 1 ? 6 : ema1021GapPct <= 2.5 ? 2 : 0;
+  const flowScore = mf != null && mf >= 65 ? -5 : 0;
+  const score = Math.round(Math.max(0, Math.min(100,
+    coilScore + pressureScore + proxScore + rsScore + trendScore + rangeScore + gapScore + flowScore)));
 
   const stage = computeStage(closes, { price: snap?.livePrice ?? price });
   const vol = snap?.vol || bars[bars.length - 1].v || 0;

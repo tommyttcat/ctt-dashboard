@@ -97,6 +97,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { EXIT_GUIDANCE } from '@/lib/scans/exits';
+import { consolidationTier, CONSOLIDATION_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import { cachedJson } from '@/lib/scannerLatest';
 import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription, stageBadge } from '@/lib/indicators/stage';
@@ -1185,9 +1186,14 @@ export default function Consolidation1021() {
                     const rdy = rdyBySymbol.get(row.symbol) ?? computeRdy(row);
                     const plan = planOf(row);
                     const gap = gap1021Of(row);
+                    /* The coil's own tint — see lib/scans/edge. Green is the
+                       ~7% of this table that carried the edge in the 5-year
+                       replay; the tight-coil majority is red. */
+                    const tier = consolidationTier(row);
                     return (
                       <React.Fragment key={row.symbol}>
-                        <tr className="hover:bg-white/[0.02] transition-colors group">
+                        <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
+                          title={tier ? `${tier.toUpperCase()} — ${CONSOLIDATION_TIP[tier]}` : undefined}>
                           <td className={tdBase}>
                             <div className="flex items-center justify-start gap-1.5">
                               <WatchlistBtn symbol={row.symbol} />

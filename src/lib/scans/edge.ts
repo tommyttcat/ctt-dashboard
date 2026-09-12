@@ -127,3 +127,35 @@ export const SWING_TIP: Record<EdgeTier, string> = {
   yellow: 'passes the scan but neither strength marker — +0.09R',
   red: 'Stage 1 base — the only bucket that lost (-0.19R, both halves), 5.5% ran +50%',
 };
+
+/* ---- 10/21 Consolidation tint --------------------------------------------
+   Same lesson as VCP, and the same inversion: the scan's premise is tightness
+   and tightness is what lost. Over 7,472 distinct coils (Sep 2022 - Sep 2026,
+   pivot entry, 2R target), both halves agreeing:
+
+     whole table                    -0.10R   <- as shipped before 11 Sep 2026
+     coil 2-3x ATR (the tight end)  -0.15R
+     coil 3x+ ATR                   +0.07R
+     coil 3x+ AND stochastic 75+    +0.13R   (n=361, breaks out 89% of the time)
+     off-high 11-15%                -0.26R
+
+   Green is that last row and nothing else — roughly 7% of the table. Red is
+   the tight-coil majority and the names repairing from more than 11% off
+   their high, which is where the losses concentrated. */
+export function consolidationTier(row: { coilRatio?: number | null; stochK?: number | null; pctOffHigh?: number | null } | null | undefined): EdgeTier | null {
+  if (!row) return null;
+  const coil = num(row.coilRatio);
+  const stoch = num(row.stochK);
+  const off = num(row.pctOffHigh);
+  if (coil == null) return null;
+  if (off != null && off > 11) return 'red';
+  if (coil < 2.5) return 'red';
+  if (coil >= 3 && stoch != null && stoch >= 75) return 'green';
+  return 'yellow';
+}
+
+export const CONSOLIDATION_TIP: Record<EdgeTier, string> = {
+  green: 'coil 3x+ ATR with the stochastic above 75 — price pressed against the top of its range. +0.13R in both halves, breaks out 89% of the time.',
+  yellow: 'inside the coil range but not pressed against its high — around breakeven at best',
+  red: 'tight coil (under 2.5x ATR) or more than 11% off the high — the buckets that lost (-0.15R and -0.26R)',
+};
