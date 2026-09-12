@@ -91,12 +91,25 @@ export function scoreMultibagger(
     revCagr = validGrowths[0];
   }
 
+  /* --- Revenue growth v2 (11 Sep 2026) ------------------------------------
+     The old ladder paid more the faster revenue grew, topping out at 30%+.
+     Replayed over 1,425 month-end picks (Dec 2021 - Aug 2026) and measured as
+     excess over the SAME month's universe median, that is backwards at the top:
+
+         growth 50%+     -12.4% excess at 12 months, 28% beat rate, and only
+                         3.6% doubled inside a year — BELOW the 5.8% rate of
+                         the universe it was picked from
+         growth 25-50%    +2.1% excess, 9.7% doubled
+         growth 15-25%   +11.2% excess, 63% beat rate, 12.9% doubled
+         growth 10-15%    +4.8% excess, 69% beat rate
+
+     Triple-digit growth is usually a one-off comparison, and it is already in
+     the price. The compounders came from the boring band. */
   if (revCagr != null) {
-    if (revCagr >= 30) b.revenueGrowth = 25;
-    else if (revCagr >= 25) b.revenueGrowth = 22;
-    else if (revCagr >= 20) b.revenueGrowth = 19;
-    else if (revCagr >= 15) b.revenueGrowth = 15;
-    else if (revCagr >= 10) b.revenueGrowth = 10;
+    if (revCagr >= 50) b.revenueGrowth = -15;
+    else if (revCagr >= 25) b.revenueGrowth = 12;
+    else if (revCagr >= 15) b.revenueGrowth = 25;
+    else if (revCagr >= 10) b.revenueGrowth = 20;
     else if (revCagr >= 5) b.revenueGrowth = 5;
   }
 
