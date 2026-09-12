@@ -67,7 +67,7 @@ function emptyRecord(): ScanRecord {
   return { picks: 0, entered: 0, settled: 0, hrRate: null, fixedAvgR: null, hold20AvgR: null, winRate: null, byTier: {} };
 }
 
-export async function GET(request: Request) {
+export async function GET() {
   if (!POLYGON_KEY) return NextResponse.json({ success: false, error: 'no polygon key' }, { status: 500 });
 
   const market = await latestBars();
@@ -147,7 +147,8 @@ export async function GET(request: Request) {
   // 3. Record today's picks. A name already open for the same scan is not
   //    re-added — a base that sits on the table for six weeks is one idea.
   const live = new Set(kept.map(p => `${p.scan}|${p.t}`));
-  let added = 0, emptyScans: string[] = [];
+  let added = 0;
+  const emptyScans: string[] = [];
   for (const { scan, key, sym } of TRACKED_SCANS) {
     const rows = (await kv.get<Record<string, unknown>[]>(key)) || [];
     if (!rows.length) { emptyScans.push(scan); continue; }
