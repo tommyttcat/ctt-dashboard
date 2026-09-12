@@ -84,6 +84,7 @@ import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews, NewsStars } 
 import { displaySector } from '@/lib/sectors';
 import { tickerChipCls, scoreCellCls } from '@/lib/indicators/columnColors';
 import { vcpEdgeGrade, VCP_EDGE_GRADE_TIP } from '@/lib/scans/vcp';
+import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 
 /* A breakout further than this above the pivot has run away from its own
    entry. Three percent is roughly one ordinary session on a liquid mid-cap —
@@ -458,6 +459,9 @@ const planTooltip = (row: VcpCandidate): string => {
 
   lines.push('');
   lines.push('The stop is the pattern\'s own invalidation — price back under the tightest leg means the absorption read was wrong. That is usually tighter than an ATR stop, and it is the reason to trade a VCP at all.');
+
+  lines.push('');
+  lines.push(EXIT_GUIDANCE.vcp);
 
   const eff = effStatusOf(row);
   if (eff === 'extended') {

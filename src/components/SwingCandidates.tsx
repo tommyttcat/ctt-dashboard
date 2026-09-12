@@ -120,6 +120,7 @@
 //       exists to prevent.
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 import { cachedJson } from '@/lib/scannerLatest';
 import { swingTier, SWING_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import { useMarketData } from './MarketDataContext';
@@ -530,6 +531,8 @@ const planTooltip = (c: SwingCandidate): string => {
 
   lines.push('');
   lines.push('Stop is the wider of 1.25× ADR or 2.5%. Target is a fixed 2R.');
+  lines.push('');
+  lines.push(EXIT_GUIDANCE['swing']);
   return lines.join('\n');
 };
 

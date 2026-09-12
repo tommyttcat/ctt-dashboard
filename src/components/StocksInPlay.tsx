@@ -83,6 +83,7 @@
 //       unscored name is not evidence of a trend.
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 import { fetchScannerLatest } from '@/lib/scannerLatest';
 import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription, stageBadge } from '@/lib/indicators/stage';
@@ -472,6 +473,8 @@ const planTooltip = (row: StockInPlay): string => {
 
   lines.push('');
   lines.push('Stop is the wider of 1.25× ADR or 2.5%. Target is a fixed 2R.');
+  lines.push('');
+  lines.push(EXIT_GUIDANCE['scanner']);
   return lines.join('\n');
 };
 

@@ -501,6 +501,22 @@ function InteractionsTab() {
         in local storage.
       </P>
 
+      <H>Exits — what the backtest says to do after the trigger</H>
+      <P>
+        Every table shows the same plan shape: trigger, stop, fixed 2R target. Five years of replays say
+        that shape is right on some tables and wrong on others, so the guidance differs per scan. Figures are
+        average R per trade, Sep 2022 – Sep 2026, before costs.
+      </P>
+      <Li title="SIPS / DAILY">Trailing beats the target: 2R +0.04R, trail the 21 EMA +0.14R, hold 20 sessions +0.15R.</Li>
+      <Li title="SWING">Hold it — 2R +0.03R, trail 21 EMA +0.16R, hold 20 sessions +0.30R. The best exit measured anywhere on the dashboard.</Li>
+      <Li title="VCP">Take the 2R — the one table where the fixed target wins (+0.12R vs −0.01R trailing). A base breakout that works reaches 2R fast and gives it back.</Li>
+      <Li title="10/21">No exit produced an edge (2R −0.10R, trailing −0.08R). Worth watching, not yet worth trading.</Li>
+      <Li title="EP9M">The entry is the problem, not the exit: breaking the day high lost with every exit. A pullback to the EP day&apos;s midpoint was the only positive version (+0.09R trailing).</Li>
+      <Li title="HIDDEN RS">Flat either way. Read it as a watchlist of quiet leaders.</Li>
+      <P>
+        The same guidance appears in each table&apos;s PLAN tooltip, next to that row&apos;s own levels.
+      </P>
+
       <H>Row Shading (green / yellow / red)</H>
       <P>
         Rows are tinted by what a five-year backtest of these scans actually paid, not by the score.
