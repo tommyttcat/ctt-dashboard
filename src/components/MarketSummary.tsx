@@ -2353,7 +2353,8 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
   const edge = edgeMap?.[p.ticker] ?? null;
 
   return (
-    <div key={idx} className={`flex items-center ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}>
+    <div key={idx} className={`flex items-center ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
+      title={edge ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : undefined}>
       {!skipWatchlistBtn && <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={p.ticker} /></span></span>}
       <div className={`${scrollRowCls} flex-1 min-w-0`} style={scrollRowStyle}>
       <div className="flex items-center whitespace-nowrap py-[1px]">
@@ -2618,7 +2619,8 @@ const renderSetupRow = (
   const edge = edgeOf(s);
 
   return (
-    <div key={`ss-${s.ticker}-${i}`} className={`flex items-center gap-0 ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}>
+    <div key={`ss-${s.ticker}-${i}`} className={`flex items-center gap-0 ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
+      title={edge ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : undefined}>
       <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={s.ticker} /></span></span>
       <div className="w-[28px] shrink-0 flex items-center justify-end pr-1.5 gap-0.5">
         {hasIndicator && (
@@ -4371,7 +4373,8 @@ export default function MarketSummary() {
                                        shared per-ticker map so every card agrees. */
                                     const edge = macroInsights.edgeMap?.[s.symbol] ?? null;
                                     return (
-                                      <div key={idx} className={`flex items-center whitespace-nowrap py-[1px] ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}>
+                                      <div key={idx} className={`flex items-center whitespace-nowrap py-[1px] ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
+                                        title={edge ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : undefined}>
                                         <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={s.symbol} /></span></span>
                                         <TickerChartHover symbol={s.symbol}><span className={`${gradeChipCls(s.grade, isAvoid)} w-[38px] md:w-[44px]`}>{s.symbol}</span></TickerChartHover>
                                         <span className="inline-block w-[12px] text-center leading-none shrink-0" />

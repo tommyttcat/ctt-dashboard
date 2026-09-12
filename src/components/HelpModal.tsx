@@ -218,11 +218,11 @@ function DashboardTab({ tier }: { tier: string }) {
       <H>Stocks in Play (SIPs)</H>
       <P>
         The primary scanner. Stocks scored 0–100 on how many independent confluence factors align: relative volume,
-        gap, range expansion, RS Rating, catalyst quality, persistence, VWAP, market regime, sector heat, dots, and runway.
-        Grade A = 70+, B = 50–69.
+        gap, range expansion, RS Rating, catalyst quality, persistence, VWAP, market regime, sector heat, dots, runway,
+        ADR band and close strength. Grade A = 60+, B = 45–59.
       </P>
       <P>Filters narrow the board without changing the scores:</P>
-      <Li title="CNF">Grade filter — show only A or B names.</Li>
+      <Li title="CNF">Grade filter — show only A or B names (A = CNF 60+, B = 45–59).</Li>
       <Li title="POSTURE">Price vs 10/21 EMAs. First Touch = pullback to 21 EMA. Stacked = above both. Extended = stretched far above.</Li>
       <Li title="PLAN">Room-to-resistance filter. 1R = any plan exists. 2R+ = target is at least 2 stop-widths from trigger.</Li>
       <Li title="VWAP">Above or below session VWAP.</Li>
@@ -501,9 +501,41 @@ function InteractionsTab() {
         in local storage.
       </P>
 
+      <H>Row Shading (green / yellow / red)</H>
+      <P>
+        Rows are tinted by what a five-year backtest of these scans actually paid, not by the score.
+        Every rule below held in the first two-thirds of the test period AND the last third; anything
+        that only worked in one half was left out.
+      </P>
+      <Li title="GREEN">Cleared both losing filters and closed in the top 10% of the day&apos;s range — the strongest single trait, worth about +0.26R per trade.</Li>
+      <Li title="YELLOW">Cleared the filters but closed lower in the range. Tradeable, just not the best version.</Li>
+      <Li title="RED">ADR above 9% (−0.27R) or price between $5 and $10 (−0.15R). Both lost money in every half of the test.</Li>
+      <Li title="NO TINT">ADR or the day&apos;s range is missing, so no claim is made.</Li>
+      <P>
+        Hover any tinted row for the numbers behind its colour. The Setups Summary adds GREEN / YELLOW / RED
+        filter pills and opens on green, which is the shortlist.
+      </P>
+      <P>
+        <strong className="text-slate-200">The rules are per-scan, not universal.</strong> The 100-Bagger
+        uses its own: red is revenue growth above 50% (those picks trailed their own universe by 12% and only
+        3.6% doubled within a year, below the 5.8% base rate), green is growth of 10–25% with a market cap
+        under $3B (+13% excess, 18% doubled in a year). Hidden Relative Strength is deliberately left untinted —
+        the $5–10 band that loses on the momentum tables is the best band there, so borrowing the colours
+        would mark its strongest names as its worst.
+      </P>
+
+      <H>Ticker Colour by Table</H>
+      <P>
+        The letter grade on the ticker means something different on each table, because each was measured separately:
+      </P>
+      <Li title="VCP">Green = ATR 3.5%+ with an 8%+ stop, the bases that paid. The tightest bases lost money, so they carry no colour.</Li>
+      <Li title="HIDDEN RS">Green = RS 95+ and price $5–15, the only combination that separated outcomes there.</Li>
+      <Li title="EP9M">Odds of a big move, not quality: green = float turnover 0.5x+ or market cap under $300M. 17–23% of those ran +50% in 60 sessions — and they also had the worst average outcome, so they need a tight stop and small size.</Li>
+      <Li title="SIPS / DAILY">Still the CNF grade. A = 60+, B = 45–59 after the v6.19 re-weight.</Li>
+
       <H>Column Key</H>
       <P>Common columns across scanner tables:</P>
-      <Li title="CNF">Confluence score 0–100. Grades: A (70+), B (50–69), C (&lt;50).</Li>
+      <Li title="CNF">Confluence score 0–100. Grades: A (60+), B (45–59), C (&lt;45). Re-weighted in v6.19 from the backtest: the extension, runway and below-VWAP penalties were retired (all three ranked backwards), the RVOL and range-expansion top tiers were flattened, and ADR band plus close strength were added. Grade A now averages +0.34R against grade C&apos;s +0.01R; it used to be the other way round.</Li>
       <Li title="CHG%">Today&apos;s price change percentage. Green = up, red = down.</Li>
       <Li title="RVOL">Relative Volume — today&apos;s volume vs 20-day average. 1.0 = normal, 2.0+ = elevated.</Li>
       <Li title="$VOL">Dollar Volume — price × shares traded. Measures institutional liquidity.</Li>
