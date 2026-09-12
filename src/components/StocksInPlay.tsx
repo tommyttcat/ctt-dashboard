@@ -103,6 +103,8 @@ import TickerChartHover, { useFreezeWhileChartOpen, WatchlistBtn } from './Ticke
 import { WatchlistToggle } from './WatchlistPanel';
 import { rvolColor as getRvolColor, adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, floatColor as getFloatColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
 import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
+import { edgeTier, EDGE_FILTER_TIP, EDGE_TINT } from '@/lib/scans/edge';
+import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The setup name sits directly beneath it.' },
@@ -702,8 +704,17 @@ export default function StocksInPlay() {
   const handleSqueezeFilter = (val: SqueezeFilterType) => setSqueezeFilter(prev => prev === val ? 'All' : val);
   const toggleVwap = (status: 'above' | 'below') => setVwapFilter(prev => prev === status ? 'All' : status);
 
+  /* Counts come from the same population the table draws from — the
+     changePct/volume floor above is part of the scan, not a user filter. */
+  const edgeTally = useMemo(
+    () => edgeCounts(stocks.filter(s => s.changePct >= 4.0 && s.vol >= 500000 && s.mktCap !== null && s.mktCap >= 20000000), edgeTier),
+    [stocks],
+  );
+  const edge = useEdgeFilter(edgeTally);
+
   const computedStocks = useMemo(() => {
     let filtered = stocks.filter(s => s.changePct >= 4.0 && s.vol >= 500000 && s.mktCap !== null && s.mktCap >= 20000000);
+    if (edge.key) filtered = filtered.filter(s => edgeTier(s) === edge.key);
 
     if (marketCapFilter !== 'All') {
       filtered = filtered.filter(s => {
@@ -755,7 +766,7 @@ export default function StocksInPlay() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [stocks, sortConfig, marketCapFilter, cnfFilter, adrFilter, vwapFilter, catalystFilter, gapFilter, squeezeFilter]);
+  }, [stocks, sortConfig, marketCapFilter, cnfFilter, adrFilter, vwapFilter, catalystFilter, gapFilter, squeezeFilter, edge.key]);
 
   /* Held still while a chart is open — see useFreezeWhileChartOpen. */
   const filteredAndSortedStocks = useFreezeWhileChartOpen(computedStocks);
@@ -923,6 +934,10 @@ export default function StocksInPlay() {
                 <span className={`inline-block transition-transform duration-200 ${showFilters ? 'rotate-90' : ''}`}>▸</span>
                 Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
               </button>
+              {/* Colour filter lives OUTSIDE the collapsible block: it is the
+                  one filter used on every visit, so it should not cost a
+                  click. Rules per scan in lib/scans/edge. */}
+              <EdgeFilterPills counts={edgeTally} active={edge.key} onToggle={edge.toggle} tips={EDGE_FILTER_TIP} />
               <div className="flex items-center gap-2.5 text-[9px] font-semibold text-slate-500">
                 <span onClick={() => toggleVwap('above')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'above' ? 'text-emerald-400' : ''}`} title={vwapFilter === 'above' ? 'Filtering above VWAP — click to show all' : 'Click to filter above VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 ${vwapFilter === 'above' ? 'ring-1 ring-white/40' : ''}`}></span>Above VWAP</span>
                 <span onClick={() => toggleVwap('below')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'below' ? 'text-rose-400' : ''}`} title={vwapFilter === 'below' ? 'Filtering below VWAP — click to show all' : 'Click to filter below VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-rose-500 ${vwapFilter === 'below' ? 'ring-1 ring-white/40' : ''}`}></span>Below</span>
@@ -1065,9 +1080,13 @@ export default function StocksInPlay() {
                     const mf = mfOf(row);
                     const plan = planOf(row);
                     const posture = postureOf(row);
+                    /* The momentum tint — these are the tables it was measured
+                       on (lib/scans/edge edgeTier). */
+                    const tier = edgeTier(row);
                     return (
                       <React.Fragment key={i}>
-                        <tr className="hover:bg-white/[0.02] transition-colors group">
+                        <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
+                          title={tier ? `${tier.toUpperCase()} — ${EDGE_FILTER_TIP[tier]}` : undefined}>
                           <td className={tdBase}>
                             <div className="flex items-center justify-start gap-1.5">
                               <WatchlistBtn symbol={row.ticker} />

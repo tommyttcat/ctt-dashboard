@@ -123,6 +123,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 import { cachedJson } from '@/lib/scannerLatest';
 import { swingTier, SWING_TIP, EDGE_TINT } from '@/lib/scans/edge';
+import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription, stageBadge } from '@/lib/indicators/stage';
 import { rmeLabel } from '@/lib/indicators/rme';
@@ -745,8 +746,15 @@ export default function SwingCandidates() {
     if (!anyChop && chopFilter !== 'All') setChopFilter('All');
   }, [anyChop, chopFilter]);
 
+  /* GREEN / YELLOW / RED quick filter. The counts come from the whole scan,
+     not the filtered view, so an empty bucket is visible before it is
+     clicked. Rules: lib/scans/edge swingTier. */
+  const edgeTally = useMemo(() => edgeCounts(candidates, swingTier), [candidates]);
+  const edge = useEdgeFilter(edgeTally);
+
   const filteredAndSorted = useMemo(() => {
     let filtered = [...candidates];
+    if (edge.key) filtered = filtered.filter(c => swingTier(c) === edge.key);
     if (showReadyOnly) filtered = filtered.filter(isReady);
     if (postureFilter !== 'All') {
       filtered = filtered.filter(c => postureOf(c) === postureFilter);
@@ -812,7 +820,7 @@ export default function SwingCandidates() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, showReadyOnly, postureFilter, chopFilter, marketCapFilter, cnfFilter, adrFilter, vwapFilter, planFilter]);
+  }, [candidates, sortConfig, showReadyOnly, postureFilter, chopFilter, marketCapFilter, cnfFilter, adrFilter, vwapFilter, planFilter, edge.key]);
 
   /* Header count, from the FULL scan rather than the filtered view. Unlike
      Daily and SIPs this table already has a readiness filter (STAT), so the
@@ -978,6 +986,10 @@ export default function SwingCandidates() {
                 <span className={`inline-block transition-transform duration-200 ${showFilters ? 'rotate-90' : ''}`}>▸</span>
                 Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
               </button>
+              {/* Colour filter sits OUTSIDE the collapsible block: it is the
+                  one filter a reader uses on every visit, so it should not
+                  cost a click to reach. */}
+              <EdgeFilterPills counts={edgeTally} active={edge.key} onToggle={edge.toggle} tips={SWING_TIP} />
               <div className="flex items-center gap-2.5 text-[9px] font-semibold text-slate-500">
                 <span onClick={() => toggleVwap('above')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'above' ? 'text-emerald-400' : ''}`} title={vwapFilter === 'above' ? 'Filtering above VWAP — click to show all' : 'Click to filter above VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 ${vwapFilter === 'above' ? 'ring-1 ring-white/40' : ''}`}></span>Above VWAP</span>
                 <span onClick={() => toggleVwap('below')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'below' ? 'text-rose-400' : ''}`} title={vwapFilter === 'below' ? 'Filtering below VWAP — click to show all' : 'Click to filter below VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-rose-500 ${vwapFilter === 'below' ? 'ring-1 ring-white/40' : ''}`}></span>Below</span>

@@ -8,6 +8,8 @@ import { rsBadge } from '@/lib/indicators/rs';
 import { stageShort, stageBadge } from '@/lib/indicators/stage';
 import { tickerChipCls, scoreCellCls } from '@/lib/indicators/columnColors';
 import { hrsEdgeGrade, HRS_EDGE_GRADE_TIP } from '@/lib/scans/hrs';
+import { hrsTier, HRS_TIP, EDGE_TINT } from '@/lib/scans/edge';
+import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import { displaySector } from '@/lib/sectors';
 import { NewsStars, type CatalystRow } from '@/lib/catalyst';
 import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
@@ -153,11 +155,21 @@ export default function HiddenRelativeStrength() {
     return () => { mounted = false; clearInterval(iv); };
   }, []);
 
-  const sorted = useMemo(() => {
-    let rows = [...candidates]
+  /* Counts come from the gated population the table draws from, not the raw
+     candidate list — the three filters below are the scan, not the reader's. */
+  const gatedRows = useMemo(
+    () => candidates
       .filter(r => (r.rsRating ?? 0) >= 85)
       .filter(r => /^(Stage\s*)?[12]/i.test(r.stage || ''))
-      .filter(r => (r.dVol ?? 0) >= 10_000_000);
+      .filter(r => (r.dVol ?? 0) >= 10_000_000),
+    [candidates],
+  );
+  const edgeTally = useMemo(() => edgeCounts(gatedRows, hrsTier), [gatedRows]);
+  const edge = useEdgeFilter(edgeTally);
+
+  const sorted = useMemo(() => {
+    let rows = [...gatedRows];
+    if (edge.key) rows = rows.filter(r => hrsTier(r) === edge.key);
     if (gradeFilter !== 'All') {
       rows = rows.filter(r => gradeFilter === 'A' ? r.grade === 'A' : r.grade === 'A' || r.grade === 'B');
     }
@@ -180,7 +192,7 @@ export default function HiddenRelativeStrength() {
       return sortDir === 'desc' ? bv - av : av - bv;
     });
     return rows;
-  }, [candidates, sortKey, sortDir, gradeFilter]);
+  }, [gatedRows, sortKey, sortDir, gradeFilter, edge.key]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
@@ -350,6 +362,12 @@ export default function HiddenRelativeStrength() {
                 </button>
               ))}
             </div>
+            {/* Colour filter. This scan's OWN rules — the $5-15 band that pays
+                here is the band that loses on the momentum tables. */}
+            <div className="flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+              <span className="text-[11px] font-bold tracking-widest uppercase text-slate-400">Edge</span>
+              <EdgeFilterPills counts={edgeTally} active={edge.key} onToggle={edge.toggle} tips={HRS_TIP} />
+            </div>
           </div>
 
           {/* Table */}
@@ -391,11 +409,13 @@ export default function HiddenRelativeStrength() {
                     const catalystRow = toCatalystRow(row);
                     const tag = row.catalyst && row.catalyst !== 'Technical Momentum' ? row.catalyst.replace(/ \(Delayed\)$/, '') : null;
                     const headline = row.thesis;
+                    const tier = hrsTier(row);
                     return (
                       <React.Fragment key={row.symbol}>
                         {/* Row 1 — data */}
                         <tr
-                          className="hover:bg-white/[0.02] cursor-pointer transition-colors group"
+                          title={tier ? `${tier.toUpperCase()} — ${HRS_TIP[tier]}` : undefined}
+                          className={`hover:bg-white/[0.02] cursor-pointer transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
                           onClick={() => setExpandedRow(isRowExpanded ? null : row.symbol)}
                         >
                           <td className={tdBase}>

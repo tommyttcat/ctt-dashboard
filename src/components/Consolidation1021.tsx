@@ -98,6 +98,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 import { consolidationTier, CONSOLIDATION_TIP, EDGE_TINT } from '@/lib/scans/edge';
+import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import { cachedJson } from '@/lib/scannerLatest';
 import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription, stageBadge } from '@/lib/indicators/stage';
@@ -744,8 +745,12 @@ export default function Consolidation1021() {
     settingUpCount: candidates.filter(c => coilStat(c) === 'Setting Up').length,
   }), [candidates]);
 
+  const edgeTally = useMemo(() => edgeCounts(candidates, consolidationTier), [candidates]);
+  const edge = useEdgeFilter(edgeTally);
+
   const filteredAndSorted = useMemo(() => {
     let filtered = [...candidates];
+    if (edge.key) filtered = filtered.filter(c => consolidationTier(c) === edge.key);
     if (showStage2Only) filtered = filtered.filter(c => stageShort(c.stage).startsWith('2'));
     if (marketCapFilter !== 'All') {
       filtered = filtered.filter(c => {
@@ -825,7 +830,7 @@ export default function Consolidation1021() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, rdyBySymbol, sortConfig, showStage2Only, marketCapFilter, cnfFilter, rdyFilter, adrFilter, statFilter, volFilter, planFilter, vwapFilter]);
+  }, [candidates, rdyBySymbol, sortConfig, showStage2Only, marketCapFilter, cnfFilter, rdyFilter, adrFilter, statFilter, volFilter, planFilter, vwapFilter, edge.key]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1003,6 +1008,10 @@ export default function Consolidation1021() {
                 <span className={`inline-block transition-transform duration-200 ${showFilters ? 'rotate-90' : ''}`}>▸</span>
                 Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
               </button>
+              {/* Colour filter lives OUTSIDE the collapsible block: it is the
+                  one filter used on every visit, so it should not cost a
+                  click. Rules per scan in lib/scans/edge. */}
+              <EdgeFilterPills counts={edgeTally} active={edge.key} onToggle={edge.toggle} tips={CONSOLIDATION_TIP} />
               <div className="flex items-center gap-2.5 text-[9px] font-semibold text-slate-500">
                 <span onClick={() => toggleVwap('above')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'above' ? 'text-emerald-400' : ''}`}><span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 ${vwapFilter === 'above' ? 'ring-1 ring-white/40' : ''}`}></span>Above VWAP</span>
                 <span onClick={() => toggleVwap('below')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'below' ? 'text-rose-400' : ''}`}><span className={`w-1.5 h-1.5 rounded-full bg-rose-500 ${vwapFilter === 'below' ? 'ring-1 ring-white/40' : ''}`}></span>Below</span>

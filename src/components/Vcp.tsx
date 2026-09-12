@@ -84,6 +84,8 @@ import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews, NewsStars } 
 import { displaySector } from '@/lib/sectors';
 import { tickerChipCls, scoreCellCls } from '@/lib/indicators/columnColors';
 import { vcpEdgeGrade, VCP_EDGE_GRADE_TIP } from '@/lib/scans/vcp';
+import { vcpTier, VCP_TIP, EDGE_TINT } from '@/lib/scans/edge';
+import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 
 /* A breakout further than this above the pivot has run away from its own
@@ -539,8 +541,12 @@ export default function Vcp() {
   const handleLegsFilter = (v: LegsFilterType) => setLegsFilter(p => p === v ? 'All' : v);
   const toggleVwap = (status: 'above' | 'below') => setVwapFilter(prev => prev === status ? 'All' : status);
 
+  const edgeTally = useMemo(() => edgeCounts(candidates, vcpTier), [candidates]);
+  const edge = useEdgeFilter(edgeTally);
+
   const filteredAndSorted = useMemo(() => {
     let list = [...candidates];
+    if (edge.key) list = list.filter(c => vcpTier(c) === edge.key);
 
     /* STATUS is the filter that matters most on this table. Half the list
        can be names that already broke out and ran, and those are not
@@ -592,7 +598,7 @@ export default function Vcp() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, statusFilter, rsFilter, gradeFilter, ttFilter, legsFilter, vwapFilter]);
+  }, [candidates, sortConfig, statusFilter, rsFilter, gradeFilter, ttFilter, legsFilter, vwapFilter, edge.key]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -770,6 +776,10 @@ export default function Vcp() {
                 <span className={`inline-block transition-transform duration-200 ${showFilters ? 'rotate-90' : ''}`}>▸</span>
                 Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
               </button>
+              {/* Colour filter lives OUTSIDE the collapsible block: it is the
+                  one filter used on every visit, so it should not cost a
+                  click. Rules per scan in lib/scans/edge. */}
+              <EdgeFilterPills counts={edgeTally} active={edge.key} onToggle={edge.toggle} tips={VCP_TIP} />
               <div className="flex items-center gap-2.5 text-[9px] font-semibold text-slate-500">
                 <span onClick={() => toggleVwap('above')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'above' ? 'text-emerald-400' : ''}`}><span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 ${vwapFilter === 'above' ? 'ring-1 ring-white/40' : ''}`}></span>Above VWAP</span>
                 <span onClick={() => toggleVwap('below')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'below' ? 'text-rose-400' : ''}`}><span className={`w-1.5 h-1.5 rounded-full bg-rose-500 ${vwapFilter === 'below' ? 'ring-1 ring-white/40' : ''}`}></span>Below</span>
@@ -917,10 +927,14 @@ export default function Vcp() {
                     const isPositive = (row.changePct ?? 0) >= 0;
                     const sectorText = displaySector(row.sector, row.symbol);
                     const depths = row.depths ?? [];
+                    /* VCP's OWN tint — lib/scans/edge vcpTier. Tightness, the
+                       trait the pattern is named for, is the one that loses. */
+                    const tier = vcpTier(row);
 
                     return (
                       <React.Fragment key={row.symbol}>
-                        <tr className="hover:bg-white/[0.02] transition-colors group">
+                        <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
+                          title={tier ? `${tier.toUpperCase()} — ${VCP_TIP[tier]}` : undefined}>
                           <td className={tdBase}>
                             <div className="flex items-center justify-start gap-1.5">
                               <WatchlistBtn symbol={row.symbol} />

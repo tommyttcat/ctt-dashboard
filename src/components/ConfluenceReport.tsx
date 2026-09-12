@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ThemeToggle } from './ThemeProvider';
 import DashNav from './DashNav';
 import { edgeTier, EDGE_TINT, EDGE_FILTER_TIP } from '@/lib/scans/edge';
+import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import TickerChartHover, { ActiveChartProvider } from './TickerChartHover';
 import HelpModal from './HelpModal';
 import { WatchlistProvider } from './WatchlistContext';
@@ -376,23 +377,33 @@ function StockCard({ report }: { report: Report }) {
 
   const cardBorder = r.biasScore >= 4 ? 'border-l-emerald-400/60' : r.biasScore >= 3 ? 'border-l-emerald-400/30' : r.biasScore <= 1 ? 'border-l-rose-400/40' : 'border-l-amber-400/30';
 
+  /* Same shading as every scan row: the card's top two strips carry the tint
+     so a reader scanning the report sees what they see on the cards it was
+     built from. The left border still shows the bias score — two different
+     questions, so two different marks. */
+  const tier = edgeTier(r);
+  const tint = tier ? EDGE_TINT[tier] : '';
+  const tintTip = tier ? EDGE_FILTER_TIP[tier] : undefined;
+
   return (
     <div className={`bg-slate-900/60 border border-white/[0.06] border-l-[3px] ${cardBorder} rounded-lg overflow-hidden`}>
       {/* Header */}
-      <div className="px-3 md:px-5 py-3 md:py-4 border-b border-white/[0.06] flex items-center justify-between gap-3">
+      <div className={`px-3 md:px-5 py-3 md:py-4 border-b border-white/[0.06] flex items-center justify-between gap-3 ${tint}`} title={tintTip}>
         {/* Left: Ticker, Company, %CHG, Price, CNF, Bias */}
         <div className="flex items-center gap-3 min-w-0">
           <TickerChartHover symbol={r.ticker}>
             <span className={`${chipCls} w-[44px] md:w-[50px] text-[9px]`}>{r.ticker}</span>
           </TickerChartHover>
-          <span className={`${VAL} font-semibold shrink-0 ${r.changePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-            {r.changePct >= 0 ? '+' : ''}{r.changePct.toFixed(2)}%
-          </span>
-          <span className={`${VAL} text-slate-300 shrink-0`}>${fmtPrc(r.price)}</span>
+          {/* CNF sits against the ticker: it is the score for THAT name, and
+              reading it beside the symbol is the whole point of the badge. */}
           <div className="text-center shrink-0">
             <div className={`${LABEL} mb-0.5`}>CNF</div>
             <span className={`${CHIP_BASE} min-w-[24px] ${cnfBadgeCls(r.cnfScore)}`} title={`Confluence Score: ${r.cnfScore}/100`}>{r.cnfScore}</span>
           </div>
+          <span className={`${VAL} font-semibold shrink-0 ${r.changePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {r.changePct >= 0 ? '+' : ''}{r.changePct.toFixed(2)}%
+          </span>
+          <span className={`${VAL} text-slate-300 shrink-0`}>${fmtPrc(r.price)}</span>
           <div className="text-center shrink-0">
             <div className={`${LABEL} mb-0.5`}>BIAS</div>
             <span className={`${CHIP_BASE} min-w-[24px] ${biasBadgeCls(r.biasScore)}`} title={`Bias: ${r.biasScore}/${r.biasMax} ${r.confluenceLabel} (Weekly + Daily)`}>{r.biasScore}/{r.biasMax}</span>
@@ -416,7 +427,7 @@ function StockCard({ report }: { report: Report }) {
       </div>
 
       {/* Quick stats */}
-      <div className="px-3 md:px-5 py-2 flex flex-wrap gap-x-4 gap-y-1 border-b border-white/[0.06] text-[10px]">
+      <div className={`px-3 md:px-5 py-2 flex flex-wrap gap-x-4 gap-y-1 border-b border-white/[0.06] text-[10px] ${tint}`} title={tintTip}>
         <span><span className="text-slate-500">RVOL</span> <span className={`font-semibold ${r.rvol >= 2 ? 'text-amber-400' : r.rvol >= 1.5 ? 'text-emerald-400' : 'text-slate-300'}`}>{r.rvol < 1 ? r.rvol.toFixed(1) : Math.round(r.rvol)}x</span></span>
         <span><span className="text-slate-500">VOL</span> <span className="text-slate-300">{fmtVol(r.vol)}</span></span>
         <span><span className="text-slate-500">$VOL</span> <span className="text-slate-300">{fmtDvol(r.dVol)}</span></span>
@@ -500,6 +511,19 @@ export default function ConfluenceReport() {
   const [sectorFilter, setSectorFilter] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
 
+  /* Sector filter first, then colour — the sector pills in the summary card
+     are a question about the tape, the colour is a question about the row. */
+  const sectorReports = useMemo(
+    () => (sectorFilter ? reports.filter(r => r.sector === sectorFilter) : reports),
+    [reports, sectorFilter],
+  );
+  const edgeTally = useMemo(() => edgeCounts(sectorReports, edgeTier), [sectorReports]);
+  const edge = useEdgeFilter(edgeTally);
+  const visibleReports = useMemo(
+    () => (edge.key ? sectorReports.filter(r => edgeTier(r) === edge.key) : sectorReports),
+    [sectorReports, edge.key],
+  );
+
   const fetchData = useCallback(async () => {
     try {
       const res = await fetch('/api/confluence/latest');
@@ -576,10 +600,20 @@ export default function ConfluenceReport() {
         ) : (
           <>
             {aiSummary && <AiSummaryCard summary={aiSummary} reports={reports} activeSector={sectorFilter} onSectorFilter={setSectorFilter} lastScan={lastScan} />}
+            {/* Same colour filter as the scan cards. This report is built from
+                Daily Setups, Stocks in Play and Swing Candidates, so it uses
+                the momentum rules those tables were measured on. */}
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">Edge</span>
+              <EdgeFilterPills counts={edgeTally} active={edge.key} onToggle={edge.toggle} tips={EDGE_FILTER_TIP} />
+            </div>
             <div className="space-y-4">
-              {(sectorFilter ? reports.filter(r => r.sector === sectorFilter) : reports).map((r) => (
+              {visibleReports.map((r) => (
                 <StockCard key={r.ticker} report={r} />
               ))}
+              {visibleReports.length === 0 && (
+                <div className="text-slate-500 text-[11px] py-10 text-center">No names match the current filter.</div>
+              )}
             </div>
           </>
         )}

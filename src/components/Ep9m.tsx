@@ -80,6 +80,8 @@ import { displaySector } from '@/lib/sectors';
 import { rsBadge, rsTooltip } from '@/lib/indicators/rs';
 import { adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, rvolColorHighFloor as getRvolColor, tickerChipCls, scoreCellCls } from '@/lib/indicators/columnColors';
 import { epMoveOdds, EP_MOVE_ODDS_TIP } from '@/lib/scans/ep9m';
+import { ep9mTier, EP9M_TIP, EDGE_TINT } from '@/lib/scans/edge';
+import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: "Symbol. Hover shows the company name. Fuchsia dot = unprecedented (today's volume beat its own 60-day high); ★ = repeat EP9M offender. Hover the fuchsia dot on a choppy name — record volume inside a range that will not resolve is the most misread row on this table." },
@@ -476,18 +478,18 @@ const planTooltip = (c: Ep9mCandidate): string => {
     lines.push(p.note);
   }
 
-  /* The trigger on this table is the DAY HIGH, because an EP9M name has no
-     pattern by construction. That makes chop unusually corrosive here: a day
-     high inside a churning range is the level the range has been rejecting,
-     so the plan is keyed to precisely the price most likely to fail. */
+  /* Chop cuts the other way now. Since 11 Sep 2026 the trigger is the EP-day
+     MIDPOINT, not the day high — you are waiting for the name to come back to
+     you — so a churning range is what fills the order rather than what
+     rejects it. What chop threatens here is the hold after the fill. */
   const chop = chopOf(c);
   if (chop != null && chop >= CHOP_CHOP_MIN) {
     lines.push('');
-    lines.push(`CHOP ${chop.toFixed(0)} — the trigger is the day high, and in a churning range that is the level being rejected. Sound levels, poor odds.`);
+    lines.push(`CHOP ${chop.toFixed(0)} — a churning range fills this pullback easily but tends to give the 2R back. Expect to be stopped or to sit.`);
   }
 
   lines.push('');
-  lines.push('Stop is the wider of 1.25× ADR or 2.5%. Target is a fixed 2R.');
+  lines.push('Trigger is the midpoint of the EP day\'s range, stop is that day\'s LOW, target a fixed 2R. Valid for 10 sessions; a close below the low cancels it.');
   lines.push('');
   lines.push(EXIT_GUIDANCE['ep9m']);
   return lines.join('\n');
@@ -650,8 +652,12 @@ export default function Ep9m() {
     if (!anyChop && chopFilter !== 'All') setChopFilter('All');
   }, [anyChop, chopFilter]);
 
+  const edgeTally = useMemo(() => edgeCounts(candidates, ep9mTier), [candidates]);
+  const edge = useEdgeFilter(edgeTally);
+
   const filteredAndSorted = useMemo(() => {
     let list = [...candidates];
+    if (edge.key) list = list.filter(c => ep9mTier(c) === edge.key);
 
     if (epFilter !== 'All') {
       const minScore = EP_MIN_SCORE[epFilter];
@@ -718,7 +724,7 @@ export default function Ep9m() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, epFilter, rvolFilter, catalystFilter, planFilter, chopFilter, showUnprecedentedOnly, showSugarBabyOnly, showStage2Only, marketCapFilter, vwapFilter, epTypeFilter]);
+  }, [candidates, sortConfig, epFilter, rvolFilter, catalystFilter, planFilter, chopFilter, showUnprecedentedOnly, showSugarBabyOnly, showStage2Only, marketCapFilter, vwapFilter, epTypeFilter, edge.key]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -934,6 +940,10 @@ export default function Ep9m() {
                 <span className={`inline-block transition-transform duration-200 ${showFilters ? 'rotate-90' : ''}`}>▸</span>
                 Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
               </button>
+              {/* Colour filter lives OUTSIDE the collapsible block: it is the
+                  one filter used on every visit, so it should not cost a
+                  click. Rules per scan in lib/scans/edge. */}
+              <EdgeFilterPills counts={edgeTally} active={edge.key} onToggle={edge.toggle} tips={EP9M_TIP} />
               <div className="flex items-center gap-2.5 text-[9px] font-semibold text-slate-500">
                 <span onClick={() => toggleVwap('above')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'above' ? 'text-emerald-400' : ''}`} title={vwapFilter === 'above' ? 'Filtering above VWAP — click to show all' : 'Click to filter above VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 ${vwapFilter === 'above' ? 'ring-1 ring-white/40' : ''}`}></span>Above VWAP</span>
                 <span onClick={() => toggleVwap('below')} className={`flex items-center gap-1 cursor-pointer hover:text-slate-300 transition-colors ${vwapFilter === 'below' ? 'text-rose-400' : ''}`} title={vwapFilter === 'below' ? 'Filtering below VWAP — click to show all' : 'Click to filter below VWAP only'}><span className={`w-1.5 h-1.5 rounded-full bg-rose-500 ${vwapFilter === 'below' ? 'ring-1 ring-white/40' : ''}`}></span>Below</span>
@@ -1150,9 +1160,13 @@ export default function Ep9m() {
                     const mf = mfOf(row);
                     const vs60d = vs60dOf(row);
                     const plan = planOf(row);
+                    /* EP's OWN tint — lib/scans/edge ep9mTier, measured on the
+                       pullback entry this card ships, not the momentum rules. */
+                    const tier = ep9mTier(row);
                     return (
                       <React.Fragment key={row.ticker}>
-                        <tr className="hover:bg-white/[0.02] transition-colors group">
+                        <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
+                          title={tier ? `${tier.toUpperCase()} — ${EP9M_TIP[tier]}` : undefined}>
                           <td className={tdBase}>
                             <div className="flex items-center justify-start gap-1.5">
                               <WatchlistBtn symbol={row.ticker} />

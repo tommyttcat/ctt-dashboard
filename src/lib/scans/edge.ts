@@ -14,8 +14,20 @@
 //
 // SCOPE WARNING. These thresholds are the MOMENTUM tables' and do not
 // generalise. On Hidden Relative Strength the $5-15 band was the BEST bucket
-// (+0.15R) where $5-10 is the worst here, which is why that card is
-// deliberately untinted. Measure a scan before painting its rows.
+// (+0.14R) where $5-10 is the worst here. Every other scan therefore gets its
+// own function further down this file, measured on its own replay and on the
+// entry that card actually ships. Measure a scan before painting its rows.
+//
+// One function per scan, all returning the same three states so one filter
+// component can drive every card:
+//   edgeTier          Stocks in Play + Daily Setups (and the Confluence
+//                     report, which is built from them)
+//   ep9mTier          EP9M, on the pullback entry it ships since 11 Sep 2026
+//   vcpTier           VCP
+//   swingTier         Swing Candidates
+//   consolidationTier 10/21
+//   multibaggerTier   100-Bagger
+//   hrsTier           Hidden Relative Strength
 
 export type EdgeTier = 'green' | 'yellow' | 'red';
 
@@ -158,4 +170,120 @@ export const CONSOLIDATION_TIP: Record<EdgeTier, string> = {
   green: 'coil 3x+ ATR with the stochastic above 75 — price pressed against the top of its range. +0.13R in both halves, breaks out 89% of the time.',
   yellow: 'inside the coil range but not pressed against its high — around breakeven at best',
   red: 'tight coil (under 2.5x ATR) or more than 11% off the high — the buckets that lost (-0.15R and -0.26R)',
+};
+
+/* ---- EP9M tint -----------------------------------------------------------
+   Measured on the entry the card actually ships since 11 Sep 2026 — the
+   pullback to the EP-day midpoint, trailing the 21 EMA — over 10,559 filled
+   flags, Sep 2022 - Sep 2026. The old day-high entry is not what these
+   numbers describe, and the tint would be different if it were.
+
+   The traits that lost in BOTH halves, and they are the same names three ways
+   over (a tiny float trading many times over in a wide range):
+
+       ADR above 9%            -0.18R   (IS -0.24 / OOS -0.10)
+       float turnover 1x+      -0.29R   (IS -0.39 / OOS -0.17)
+       market cap under $300M  -0.18R   (IS -0.26 / OOS -0.10)
+
+   What paid, in both halves:
+
+       money flow 65+          +0.16R   (IS +0.19 / OOS +0.13)
+       price $50+              +0.26R   (IS +0.27 / OOS +0.25)
+
+   The composite below, on the same 10,559 fills:
+
+       green  n=2,873  +0.22R  (IS +0.28 / OOS +0.14)   9.0% ran +50%
+       yellow n=3,639  +0.07R  (IS +0.05 / OOS +0.10)   9.2%
+       red    n=4,047  -0.14R  (IS -0.18 / OOS -0.09)  19.1%
+
+   Read the last column before dismissing red: it has by far the HIGHEST rate
+   of +50% runs and the worst average. That is the whole character of this
+   scan — the lottery-ticket bucket. Red does not mean "will not move", it
+   means "pays for the ticket less often than it costs". */
+export function ep9mTier(row: {
+  adrPct?: number | null; floatTurnover?: number | null; mktCap?: number | null;
+  mf?: number | null; price?: number | null;
+} | null | undefined): EdgeTier | null {
+  if (!row) return null;
+  const adr = num(row.adrPct);
+  const price = num(row.price);
+  if (adr == null || price == null) return null;
+  const ft = num(row.floatTurnover);
+  const cap = num(row.mktCap);
+  if (adr > 9) return 'red';
+  if (ft != null && ft >= 1) return 'red';
+  if (cap != null && cap < 3e8) return 'red';
+  const mf = num(row.mf);
+  if ((mf != null && mf >= 65) || price >= 50) return 'green';
+  return 'yellow';
+}
+
+export const EP9M_TIP: Record<EdgeTier, string> = {
+  green: 'clears the three losing traits and has money flow 65+ or a $50+ price — +0.22R per trade on the pullback entry, both halves agreeing',
+  yellow: 'clears them but neither strength marker — +0.07R',
+  red: 'ADR above 9%, float turnover 1x+, or cap under $300M — -0.14R. These also run +50% most often (19%): the lottery bucket, so size it like one.',
+};
+
+/* ---- VCP tint ------------------------------------------------------------
+   5,587 pivot entries, Sep 2022 - Sep 2026. Read this one carefully, because
+   the honest finding is not the one a fixed-target table wants.
+
+   The whole scan swung with the tape — the first two-thirds averaged -0.04R
+   and the last third +0.21R — so ABSOLUTE numbers per bucket say more about
+   which half they fell in than about the trait. What is stable across both
+   halves is the TAIL: which bases are capable of a +50% run at all.
+
+       atr 5%+, final contraction 10%+ ....  green
+       green   n=1,292  10.7% ran +50%  (IS 6.2% / OOS 13.4%)  trail21 +0.13
+       yellow  n=2,494   1.7%           (IS 0.6% / OOS 2.7%)   trail21 -0.04
+       red     n=1,801   0.0%           (IS 0.0% / OOS 0.0%)   trail21 -0.14
+
+   Zero home runs in five years is the red bucket's whole story: a base too
+   quiet to travel with a stop too tight to survive noise cannot produce the
+   move the pattern is drawn for. Note green's fixed-2R average was NEGATIVE
+   in the weak first half (-0.25R) while its trailing average was flat — the
+   edge lives in the tail, which is an argument for trailing, not for the
+   target. Tightness, the thing the pattern is named for, is what loses. */
+export function vcpTier(row: { atrPct?: number | null; stopPct?: number | null; finalDepthPct?: number | null } | null | undefined): EdgeTier | null {
+  if (!row) return null;
+  const atr = num(row.atrPct);
+  if (atr == null) return null;
+  const stop = num(row.stopPct);
+  const depth = num(row.finalDepthPct);
+  const d = depth == null ? null : Math.abs(depth);
+  if (atr < 2.5 || (stop != null && stop < 5)) return 'red';
+  if (atr >= 3.5 && d != null && d >= 10) return 'green';
+  return 'yellow';
+}
+
+export const VCP_TIP: Record<EdgeTier, string> = {
+  green: 'ATR 3.5%+ with a final contraction of 10%+ — the only bucket that produces big runs (10.7% ran +50%, and it held at 6% and 13% across both halves)',
+  yellow: 'passes the pattern but without the room to travel — 1.7% ran +50%',
+  red: 'ATR under 2.5% or a stop under 5% — ZERO +50% runs in five years and the worst trailing outcome (-0.14R). Too quiet to pay for its own spread.',
+};
+
+/* ---- Hidden Relative Strength tint ---------------------------------------
+   This card was deliberately untinted until 11 Sep 2026 because the momentum
+   rules do not apply to it. They still do not — these are its own, from its
+   own replay (27,786 fills, open entry trailing the 10 EMA):
+
+       price $5-15   +0.14R, 10.0% ran +50%   (IS +0.10 / OOS +0.21)
+       everything else +0.01R, 6.3%           (IS -0.00 / OOS +0.04)
+
+   Exactly the band that LOSES on the momentum tables (-0.15R there). Hidden
+   strength and hidden weakness live in the same price band, which is why the
+   rules are kept apart. There is no red here: nothing on this scan lost
+   consistently, which is also why it reads as a watchlist rather than a
+   trade signal. */
+export function hrsTier(row: { price?: number | null } | null | undefined): EdgeTier | null {
+  if (!row) return null;
+  const px = num(row.price);
+  if (px == null) return null;
+  return px >= 5 && px <= 15 ? 'green' : 'yellow';
+}
+
+export const HRS_TIP: Record<EdgeTier, string> = {
+  green: 'price $5-15 — the band that paid on this scan (+0.14R, 10% ran +50%, in both halves). The same band loses on the momentum tables.',
+  yellow: 'outside that band — +0.01R, essentially flat',
+  red: 'unused on this scan: no bucket lost consistently',
 };

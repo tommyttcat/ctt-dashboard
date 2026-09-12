@@ -11,7 +11,8 @@
 //   swing                   target +0.03  trail21 +0.16  hold20 +0.30
 //   vcp                     target +0.12  trail21 -0.01  hold20 +0.02
 //   consolidation (10/21)   target -0.10  trail21 -0.08  (nothing worked)
-//   ep9m                    target -0.13  trail21 -0.19  (the entry is the problem)
+//   ep9m (day-high entry)   target -0.13  trail21 -0.19  <- retired 11 Sep 2026
+//   ep9m (pullback entry)   target +0.02  trail21 +0.09  <- what the card ships
 //   hrs                     target +0.06  trail10 +0.05  (flat either way)
 //
 // The pattern: on momentum tables the target caps the winners that pay for
@@ -30,7 +31,7 @@ export const EXIT_GUIDANCE: Record<ScanKey, string> = {
   consolidation:
     'Exit: no exit produced an edge on this table (2R -0.10R, trail 21 EMA -0.08R). The coil is worth watching; the breakout trade has not paid over 5 years.',
   ep9m:
-    'Exit: the entry is the problem, not the exit — breaking the day high averaged -0.13R with the 2R target and -0.19R trailing. Buying a pullback to the EP day midpoint was the only positive version (+0.09R trailing the 21 EMA).',
+    'Exit: trail the 21 EMA. This table now triggers on the pullback to the EP-day midpoint rather than the break of its high, because the high was the losing half of the trade (-0.13R with a 2R target, -0.19R trailing). On the pullback entry the 2R averaged +0.02R and trailing the 21 EMA +0.09R — positive in both halves of the 5 years, but thin. Small size.',
   hrs:
     'Exit: flat either way (2R +0.06R, trail 10 EMA +0.05R). This table reads as a watchlist of quiet leaders rather than a trade signal.',
 };

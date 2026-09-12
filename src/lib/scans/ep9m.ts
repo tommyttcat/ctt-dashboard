@@ -13,6 +13,7 @@
 
 import { EP9M } from '@/lib/scanConfig';
 import type { NewsItem } from '@/lib/indicators/news';
+import type { TradePlan } from '@/lib/indicators/tradeplan';
 
 export interface Bar { t: number; o: number; h: number; l: number; c: number; v: number; }
 export interface LiteBar { c: number; h: number; l: number; v: number; }
@@ -468,3 +469,108 @@ export const EP_MOVE_ODDS_TIP =
   '17-23% of these ran +50% within 60 sessions. The same names had the WORST average outcome ' +
   '(-0.26R to -0.30R, median 20-day -24%), so they need a tight stop and small size. ' +
   'B: float turnover 0.25x+ or cap under $2B. Unlettered: single-digit odds of a big move.';
+
+/* ---- The EP trade plan ---------------------------------------------------
+   Until 11 Sep 2026 this table shipped the generic plan: trigger the break of
+   the EP day's high, stop 1.25x ADR below, fixed 2R target. The 5-year replay
+   (11,696 flags, Sep 2022 - Sep 2026) says that entry is the reason the table
+   loses money, and that it is the ENTRY rather than the exit:
+
+     break of the day high, 2R target        -0.13R per trade
+     break of the day high, trail 21 EMA     -0.19R
+     buy the next open, stop at the EP low   -0.05R
+     pullback to the EP-day midpoint         +0.02R with a 2R target
+                                             +0.09R trailing the 21 EMA
+
+   Only the last one is positive, and it was positive in both halves of the
+   period. It is also the only entry that gets paid for the thing the scan
+   actually detects: heavy volume marks a price where size changed hands, and
+   the midpoint of that day is where you can buy it back from the people who
+   bought the high.
+
+   The rules below are the replay's, unchanged, so the card and the test agree:
+
+     trigger   the midpoint of the EP day's range
+     window    sessions 2-10 after the flag; the first touch fills. A gap that
+               opens below the midpoint but above the EP low fills at the open.
+     stop      the EP day's LOW — not an ADR multiple. The low is the level
+               that says the day was a fake; a volatility stop on a name that
+               just traded 9M+ shares is noise.
+     cancel    a close below the EP low before any fill kills the setup.
+     target    a fixed 2R, with the caveat in EXIT_GUIDANCE that trailing the
+               21 EMA did better (+0.09R against +0.02R).
+
+   Note what this means for the reader: the trigger sits BELOW the last price,
+   which is the opposite of every other table here. That is deliberate. You
+   are waiting for the name to come back to you, and if it never does, the
+   setup expires unfilled rather than chasing. */
+
+
+/** Same floor the backtest used — a stop this tight is inside the spread. */
+const EP_MIN_RISK_PCT = 0.5;
+const EP_TARGET_R = 2;
+export const EP_PULLBACK_WINDOW = 10;
+
+export interface EpPlanInput {
+  price: number | null | undefined;
+  dayHigh: number | null | undefined;
+  dayLow: number | null | undefined;
+  /** Nearest swing high above the EP day — the only overhead that is not fixed by construction. */
+  priorSwingHigh?: number | null;
+  changePct?: number | null;
+}
+
+const epNum = (v: unknown): number | null =>
+  typeof v === 'number' && Number.isFinite(v) ? v : null;
+
+export function epPullbackPlan(i: EpPlanInput): TradePlan {
+  const empty = (note: string, collapsed = false): TradePlan => ({
+    family: 'first-touch', trigger: null, triggerLabel: '—', stop: null, stopPct: null,
+    target: null, rMultiple: 0, resistanceR: null, resistanceLabel: null,
+    clear: false, collapsed, overextended: false, tradeable: false, note,
+  });
+
+  const price = epNum(i.price);
+  const hi = epNum(i.dayHigh);
+  const lo = epNum(i.dayLow);
+  const chg = epNum(i.changePct);
+
+  if (chg != null && chg <= -15) return empty('down more than 15% — not a long setup at any level', true);
+  if (hi == null || lo == null || !(hi > lo)) return empty('no EP-day range to place a pullback entry');
+
+  const trigger = (hi + lo) / 2;
+  const risk = trigger - lo;
+  const stopPct = (risk / trigger) * 100;
+  if (!(risk > 0) || stopPct < EP_MIN_RISK_PCT) return empty('EP-day range too tight to size a stop');
+
+  const target = trigger + EP_TARGET_R * risk;
+
+  /* Overhead. The EP day's own high sits exactly 1R above this entry by
+     construction, so quoting it as "resistance" would print the same number
+     on every row. The useful level is the swing high ABOVE that day. */
+  const swing = epNum(i.priorSwingHigh);
+  const resistance = swing != null && swing > hi ? swing : null;
+  const resistanceR = resistance != null ? (resistance - trigger) / risk : null;
+
+  const note = price != null && price < lo
+    ? `Setup dead — last ${price.toFixed(2)} is below the EP day's low. A close under the low cancels it.`
+    : `Wait for a pullback to ${trigger.toFixed(2)} (EP-day midpoint) within ${EP_PULLBACK_WINDOW} sessions. ` +
+      `A close below ${lo.toFixed(2)} cancels the setup; if it never pulls back, it expires unfilled.`;
+
+  return {
+    family: 'first-touch',
+    trigger,
+    triggerLabel: 'EP mid',
+    stop: lo,
+    stopPct,
+    target,
+    rMultiple: EP_TARGET_R,
+    resistanceR,
+    resistanceLabel: resistance != null ? 'prior swing high' : null,
+    clear: resistance == null,
+    collapsed: false,
+    overextended: false,
+    tradeable: !(price != null && price < lo),
+    note,
+  };
+}

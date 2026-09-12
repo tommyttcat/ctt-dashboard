@@ -11,6 +11,7 @@ import { cachedJson } from '@/lib/scannerLatest';
 import { MULTIBAGGER } from '@/lib/scanConfig';
 import { rsBadge } from '@/lib/indicators/rs';
 import { multibaggerTier, MULTIBAGGER_TIP, EDGE_TINT } from '@/lib/scans/edge';
+import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 
 import { useMarketData } from './MarketDataContext';
 import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
@@ -274,8 +275,18 @@ export default function Multibagger() {
     setTxtDone(true); setTimeout(() => setTxtDone(false), 1800);
   };
 
+  /* The tint's inputs live on the row's `attrs`, so the tier is taken through
+     one adapter rather than repeated at each call site. */
+  const mbTierOf = React.useCallback(
+    (c: typeof candidates[number]) => multibaggerTier({ revGrowthPct: c.attrs?.revGrowthPct, marketCap: c.marketCap }),
+    [],
+  );
+  const edgeTally = useMemo(() => edgeCounts(candidates, mbTierOf), [candidates, mbTierOf]);
+  const edge = useEdgeFilter(edgeTally);
+
   const filtered = useMemo(() => {
     let rows = [...candidates];
+    if (edge.key) rows = rows.filter(r => mbTierOf(r) === edge.key);
     if (gradeFilter !== 'All') {
       const minScore = gradeFilter === 'A' ? 70 : 50;
       rows = rows.filter(r => r.score >= minScore);
@@ -334,7 +345,7 @@ export default function Multibagger() {
     });
 
     return rows;
-  }, [candidates, gradeFilter, mcapFilter, hideDecline, minRvol, minRs, vwapFilter, sortKey, sortDir]);
+  }, [candidates, gradeFilter, mcapFilter, hideDecline, minRvol, minRs, vwapFilter, sortKey, sortDir, edge.key, mbTierOf]);
 
   const buildBreakdownTip = (c: Candidate): string => {
     const lines = Object.entries(c.breakdown).map(([k, v]) => {
@@ -467,6 +478,12 @@ export default function Multibagger() {
         {/* Filters */}
         {candidates.length > 0 && (
           <div className="px-5 py-2.5 border-b border-white/5 flex items-center gap-4 flex-wrap">
+            {/* Colour filter first: it is the one filter used on every visit.
+                Rules for this screen in lib/scans/edge multibaggerTier. */}
+            <div className="flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
+              <span className="text-[11px] font-bold tracking-widest uppercase text-slate-400">Edge</span>
+              <EdgeFilterPills counts={edgeTally} active={edge.key} onToggle={edge.toggle} tips={MULTIBAGGER_TIP} />
+            </div>
             <div className="flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0">
               <span className="text-[11px] font-bold tracking-widest uppercase text-slate-400">Grade</span>
               {GRADE_BUCKETS.map(b => (
@@ -589,7 +606,7 @@ export default function Multibagger() {
                 {filtered.map((c, idx) => {
                   const isExpanded = expandedRow === c.ticker;
                   /* Row tint from the 100-Bagger's own backtest — see lib/scans/edge. */
-                  const mbTier = multibaggerTier({ revGrowthPct: c.attrs.revGrowthPct, marketCap: c.marketCap });
+                  const mbTier = mbTierOf(c);
                   return (
                     <React.Fragment key={c.ticker}>
                       <tr

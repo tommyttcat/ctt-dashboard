@@ -138,7 +138,7 @@ import { computeRMV } from '@/lib/indicators/rmv';
 import { computeRMEDetail } from '@/lib/indicators/rme';
 import { computeStage } from '@/lib/indicators/stage';
 import { computeMoneyFlow, moneyFlowTrend } from '@/lib/indicators/moneyflow';
-import { computeTradePlan } from '@/lib/indicators/tradeplan';
+import type { TradePlan } from '@/lib/indicators/tradeplan';
 import { choppiness, CHOP_PERIOD_DEFAULT, CHOP_CHOP_MIN, CHOP_TREND_MAX } from '@/lib/indicators/chop';
 import { EP9M, EP9M_META } from '@/lib/scanConfig';
 import { enrichWithFundamentals } from '@/lib/indicators/fundamentals';
@@ -154,6 +154,7 @@ import { pickBestNews, polygonNewsPath, fetchBenzingaNewsIndex, type NewsItem } 
 import {
   shortlistAbnormal, scoreEp9m, classifyEpType, priorSwingHighOf,
   shareMetrics, closeStrengthOf, catalystTierOf, passesUniverseGate, priorSessionRows,
+  epPullbackPlan,
   type Bar, type LiteBar, type OhlcvBar, type SnapInfo, type CatalystTier,
 } from '@/lib/scans/ep9m';
 import { getMarketDay, previousTradingDay } from '@/lib/marketCalendar';
@@ -300,7 +301,7 @@ const round2 = (v: number | null | undefined): number | null =>
 // Serialises the planner output for the wire. Every numeric goes through
 // round2 so a NaN escaping a degenerate bar series cannot reach the component,
 // where it would render as "NaN" in a price field.
-function serialisePlan(p: ReturnType<typeof computeTradePlan>): TradePlanOut {
+function serialisePlan(p: TradePlan): TradePlanOut {
   if (!p.tradeable) {
     return {
       tradeable: false,
@@ -671,28 +672,23 @@ async function runScan(request: Request) {
         details?.results?.industry
       );
 
-      // --- TRADE PLAN (v1.5) -----------------------------------------------
-      // setupName left null on purpose — see the header note. The generic
-      // family triggers off the day high, which is the only defensible entry
-      // on a scan that gates on volume rather than shape.
+      // --- TRADE PLAN (v2, 11 Sep 2026) ------------------------------------
+      // This table no longer uses the generic planner. The 5-year replay says
+      // the break of the EP day's high is the reason the scan loses money and
+      // that the pullback to the day's midpoint is the only entry that paid,
+      // in both halves of the period. Rules and reasoning: epPullbackPlan.
       //
-      // Snapshot dayHigh preferred over the daily bar: during a live session
-      // the snapshot is minutes old while the aggregate bar can lag.
+      // Snapshot dayHigh/dayLow preferred over the daily bar: during a live
+      // session the snapshot is minutes old while the aggregate bar can lag.
       const dayHigh = snap.dayHigh ?? bars[bars.length - 1]?.h ?? null;
+      const dayLow = snap.dayLow ?? bars[bars.length - 1]?.l ?? null;
       const priorSwingHigh = priorSwingHighOf(bars);
-      const plan = computeTradePlan({
+      const plan = epPullbackPlan({
         price,
-        adrPct: adr,
-        atrPct: atrPctVal,
-        changePct: snap.changePct,
-        ema10: e10,
-        ema21: e21,
-        ema50: e50,
         dayHigh,
+        dayLow,
         priorSwingHigh,
-        aboveEma10: e10 != null ? price >= e10 : null,
-        aboveEma21: e21 != null ? price >= e21 : null,
-        setupName: null,
+        changePct: snap.changePct,
       });
 
       return {
