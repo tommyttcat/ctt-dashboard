@@ -254,6 +254,34 @@ export function catalystTierOf(news: NewsItem | null): CatalystTier {
 // regime the volume landed in, which is a third question again — a 90 in a
 // chop regime is still an exceptional volume event, it just has nowhere to go.
 // ---------------------------------------------------------------
+/* EP9M SCORE v2 — 11 Sep 2026.
+   This scan's job is finding names that MOVE, and the backtest is blunt about
+   what the old score was doing. Over 11,696 flags (Sep 2022 - Sep 2026) the
+   score had no relationship to outcome at all: grades A/B/C returned -0.10R,
+   -0.16R and -0.12R, and score-versus-realised-R correlated 0.01. Tuning one
+   component could not fix that — removing the repeat bonus moved the
+   correlation from 0.0101 to 0.0102.
+
+   What the inputs DO predict, consistently in both halves, is the size of the
+   tail — how often a flag ran +50% inside 60 sessions:
+
+       float turnover 1x+      23.5%        market cap under 300M   23.1%
+       float turnover .5-1     17.5%        market cap 300M-2B      14.1%
+       float turnover under .1  7.0%        market cap 10B+          5.4%
+       RVOL 10x+               15.2%        strong catalyst          8.5%  <- LOWEST
+       days to cover 5+        10.1%        days to cover under 1.5 20.1%
+
+   So the score now ranks BIG-MOVE ODDS honestly rather than pretending to rank
+   quality, and the two terms that pointed the wrong way are gone: the catalyst
+   bonus (a "strong" catalyst marked the LEAST explosive names — the news is
+   already in the price) and the days-to-cover ladder (inverted, the crowded
+   shorts moved least). The row still shows its catalyst; it just no longer
+   scores it.
+
+   Read an A here as "most likely to make a big move, in either direction" —
+   the same names carried the worst average outcome (-0.26R to -0.30R, median
+   20-day -24%), which is why the table's tooltip says so and why these need a
+   tight stop and small size. */
 export function scoreEp9m(q: {
   rvol: number;
   volVs60dMax: number | null;
@@ -263,6 +291,8 @@ export function scoreEp9m(q: {
   mf: number | null;
   catalystTier: CatalystTier;
   priorTriggers: number;
+  /** v2: market cap, the other half of "room to move". */
+  mktCap?: number | null;
 }): { score: number; grade: string; breakdown: Record<string, number> } {
   const b: Record<string, number> = {};
 
@@ -281,18 +311,31 @@ export function scoreEp9m(q: {
     else if (q.volVs60dMax >= 0.7) b.unprecedented = 5;
   }
 
+  /* v2: promoted to the biggest term, because it is the best predictor of a
+     big move the scan has — 23.5% of names that turned their whole float ran
+     +50%, against 7.0% of those that turned under a tenth of it. */
   b.floatTurnover = 0;
   if (q.floatTurnover != null) {
-    if (q.floatTurnover >= 1.0) b.floatTurnover = 15;
-    else if (q.floatTurnover >= 0.5) b.floatTurnover = 12;
-    else if (q.floatTurnover >= 0.25) b.floatTurnover = 8;
-    else if (q.floatTurnover >= 0.10) b.floatTurnover = 4;
+    if (q.floatTurnover >= 1.0) b.floatTurnover = 30;
+    else if (q.floatTurnover >= 0.5) b.floatTurnover = 22;
+    else if (q.floatTurnover >= 0.25) b.floatTurnover = 12;
+    else if (q.floatTurnover >= 0.10) b.floatTurnover = 5;
   }
 
+  /* v2 NEW: size is the other half of the same story — 23.1% of sub-$300M
+     names ran +50% against 5.4% of $10B+ names. Room to move is a property of
+     the company, not of today's tape. */
+  b.smallCap = 0;
+  if (q.mktCap != null) {
+    if (q.mktCap < 3e8) b.smallCap = 20;
+    else if (q.mktCap < 2e9) b.smallCap = 12;
+    else if (q.mktCap < 1e10) b.smallCap = 4;
+  }
+
+  /* v2: retired. "Strong" catalysts had the LOWEST big-move rate of the four
+     tiers (8.5%) and the -20 "dilutive/legal" tier had the best expectancy of
+     the four. A published explanation means the move is already priced. */
   b.catalyst = 0;
-  if (q.catalystTier === 'strong') b.catalyst = 15;
-  else if (q.catalystTier === 'neutral') b.catalyst = 9;
-  else if (q.catalystTier === 'negative') b.catalyst = -20;
 
   b.closeStrength = 0;
   if (q.closeStrength != null) {
@@ -310,12 +353,9 @@ export function scoreEp9m(q: {
     else if (q.mf <= 45) b.moneyFlow = -5;
   }
 
+  /* v2: inverted, so retired. Days-to-cover 5+ ran +50% in 10.1% of cases
+     against 20.1% for the UNDER-1.5 bucket — the crowded shorts moved least. */
   b.daysToCover = 0;
-  if (q.daysToCover != null) {
-    if (q.daysToCover >= 5) b.daysToCover = 10;
-    else if (q.daysToCover >= 3) b.daysToCover = 6;
-    else if (q.daysToCover >= 1.5) b.daysToCover = 3;
-  }
 
   b.repeatOffender = q.priorTriggers >= 2 ? 5 : q.priorTriggers === 1 ? 3 : 0;
 

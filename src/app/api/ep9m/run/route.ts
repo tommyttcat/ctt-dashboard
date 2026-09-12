@@ -774,6 +774,7 @@ async function runScan(request: Request) {
         daysToCover: raw.daysToCover,
         closeStrength: raw.closeStrength,
         mf: raw.mf,
+        mktCap: raw.mktCap,
         catalystTier: tier,
         priorTriggers,
       });

@@ -358,7 +358,7 @@ function main() {
       const scored = scoreEp9m({
         rvol: ab.rvol, volVs60dMax: ab.volVs60dMax,
         floatTurnover: sm?.floatTurnover ?? null, daysToCover: sm?.daysToCover ?? null,
-        closeStrength, mf, catalystTier: tier, priorTriggers,
+        closeStrength, mf, catalystTier: tier, priorTriggers, mktCap: sm?.mktCap ?? null,
       });
       const cls = classifyEpType({
         fund: null, newsTag: news?.tag ?? null, companyName: lk?.details?.name || refRec?.name || sym, sector,
