@@ -92,3 +92,38 @@ export const MULTIBAGGER_TIP: Record<EdgeTier, string> = {
   yellow: 'passes the screen but outside the band that outperformed',
   red: 'revenue growth 50%+ — -12% excess, only 3.6% doubled within a year, below the universe base rate',
 };
+
+/* ---- Swing Candidates tint -----------------------------------------------
+   Its own rules again, and one of them inverts the momentum rule: on this
+   scan a WEAK close is better, because the setup is a pullback into support
+   rather than a breakout (close in the bottom quarter: +0.36R against +0.08R
+   for a close in the top 10%). So close strength is left out entirely here.
+
+   From the 5-year replay (3,224 rows, Sep 2022 - Sep 2026, next-open entry
+   trailing the 21 EMA), both halves agreeing:
+
+     RS 95+                  +0.94R (IS +0.95 / OOS +0.89), 16.3% ran +50%
+     Money Flow 65+          +0.53R (IS +0.59 / OOS +0.32), 13.8%
+     either, not Stage 1     +0.58R (IS +0.61 / OOS +0.49), 13.9%
+     neither                 +0.09R
+     Stage 1                 -0.19R (IS -0.18 / OOS -0.24), 5.5%
+
+   A swing setup in a Stage 1 base is a name with nothing behind it yet; the
+   scan's own structure gates let those through and they are the only bucket
+   that loses. */
+export function swingTier(row: { rsRating?: number | null; mf?: number | null; stage?: string | null } | null | undefined): EdgeTier | null {
+  if (!row) return null;
+  const stage = (row.stage || '').trim();
+  if (stage.startsWith('Stage 1')) return 'red';
+  const rs = num(row.rsRating);
+  const mf = num(row.mf);
+  if (rs == null && mf == null) return null;
+  if ((rs != null && rs >= 95) || (mf != null && mf >= 65)) return 'green';
+  return 'yellow';
+}
+
+export const SWING_TIP: Record<EdgeTier, string> = {
+  green: 'RS 95+ or Money Flow 65+ — +0.58R per trade in the 5-year test, 14% ran +50%',
+  yellow: 'passes the scan but neither strength marker — +0.09R',
+  red: 'Stage 1 base — the only bucket that lost (-0.19R, both halves), 5.5% ran +50%',
+};

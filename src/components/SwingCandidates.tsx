@@ -121,6 +121,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { cachedJson } from '@/lib/scannerLatest';
+import { swingTier, SWING_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort, stageDescription, stageBadge } from '@/lib/indicators/stage';
 import { rmeLabel } from '@/lib/indicators/rme';
@@ -1150,9 +1151,14 @@ export default function SwingCandidates() {
                     const dot = dotOf(row);
                     const plan = planOf(row);
                     const posture = postureOf(row);
+                    /* Swing's OWN tint — see lib/scans/edge. Close strength is
+                       deliberately not part of it: on a pullback scan a weak
+                       close is the setup, the opposite of the momentum tables. */
+                    const tier = swingTier(row);
                     return (
                       <React.Fragment key={row.symbol}>
-                        <tr className="hover:bg-white/[0.02] transition-colors group">
+                        <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
+                          title={tier ? `${tier.toUpperCase()} — ${SWING_TIP[tier]}` : undefined}>
                           <td className={tdBase}>
                             <div className="flex items-center justify-start gap-1.5">
                               <WatchlistBtn symbol={row.symbol} />
