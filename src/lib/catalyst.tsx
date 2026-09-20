@@ -32,10 +32,32 @@ export type CatalystRow = {
   headline?: string | null;
 };
 
+/* Headlines arrive HTML-escaped from the wire and are STORED that way in KV,
+   so "Nvidia&#39;s" is what the scan rows carry. React escapes on render, so
+   the entity prints as itself — the apostrophe never comes back on its own.
+   Decoding has to happen here, on the way out, because the stored rows cannot
+   be rewritten without re-running the scans.
+
+   Named entities are limited to the five that actually appear in headlines
+   plus the two spaces; anything else is left alone rather than guessed at. The
+   ampersand is decoded LAST, so "&amp;#39;" — an escaped entity, which is a
+   real thing the feeds emit — becomes "&#39;" and stops there instead of
+   turning into an apostrophe that was never in the copy. */
+const NAMED: Record<string, string> = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', ensp: ' ', emsp: ' ',
+};
+
+export const decodeEntities = (raw: string): string =>
+  String(raw)
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&(lt|gt|quot|apos|nbsp|ensp|emsp);/g, (_, n) => NAMED[n])
+    .replace(/&amp;/g, '&');
+
 export const headlineOf = (row: CatalystRow): string | null => {
   const raw = row.thesis ?? row.news ?? row.headline ?? null;
   if (!raw) return null;
-  const s = String(raw).trim();
+  const s = decodeEntities(String(raw)).trim();
   return s.length > 0 ? s : null;
 };
 

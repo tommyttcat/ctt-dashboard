@@ -32,7 +32,7 @@ import { WatchlistProvider } from './WatchlistContext';
 import WatchlistPanel from './WatchlistPanel';
 import DashNav from './DashNav';
 import InfoDot from './InfoDot';
-import { CatalystChip, NewsStars, catalystTooltip, type CatalystRow } from '@/lib/catalyst';
+import { CatalystChip, NewsStars, catalystTooltip, headlineOf, decodeEntities, type CatalystRow } from '@/lib/catalyst';
 import { tickerChipForScore, tickerTitle } from '@/lib/indicators/columnColors';
 import { scoreCellCls } from '@/lib/indicators/columnColors';
 
@@ -118,7 +118,7 @@ const Card = ({ title, count, info, children, right }: {
 );
 
 function PoolRow({ it }: { it: PoolItem }) {
-  const headline = it.thesis ?? null;
+  const headline = headlineOf(it);
   const url = it.catalystUrl ?? null;
   const meta = [it.newsPublisher, it.newsAge].filter(Boolean).join(' · ');
   return (
@@ -185,7 +185,7 @@ function WireRow({ it, owned }: { it: WireItem; owned: boolean }) {
         className="block mt-1 text-[10px] leading-[1.5] text-slate-300 hover:text-indigo-300 transition-colors"
         style={{ textDecoration: 'none' }}
       >
-        {it.cleanHeadline || it.title}
+        {decodeEntities(it.cleanHeadline || it.title)}
       </a>
     </div>
   );

@@ -1217,12 +1217,18 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
         <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Closest to trigger</span>
         <InfoDot text={"The eight names above closest to the level their own plan is waiting for — the scanner's trigger, not a new one. Proximity picks the eight; they are then ordered by CNF, like the card above. Every column sorts, and sorting only reorders these eight rather than re-picking them, so the card stays the near list. Click AWAY for nearest-first.\n\n↑ means price has to RISE through the level to trigger (a breakout: Daily, SIP, Swing, VCP). ↓ means it has to FALL to it (EP9M, whose plan is a pullback to the EP-day midpoint).\n\nA name drops off this list once price is through its level: by then it is a position or a miss, not a watch. STOP is the plan's own invalidation.\n\nRow colour is each scan's OWN measured tier from its backtest — green, yellow, red — not one rule applied to all of them. Hover a row for what its colour means on that scan."} />
       </div>
+      {/* `min-w-0` on the scroller is load-bearing, not decoration. A grid item
+          defaults to min-width:auto, so without it the 470px table pushes its
+          column wider than the phone and the PAGE scrolls sideways instead of
+          the table — the scroller never engages at all. Same fix, same reason,
+          as the confluence report's pick tables. custom-scrollbar + thin is
+          how every scanner table on the site dresses its scroller. */}
       <div className={useTwoCols ? 'grid grid-cols-1 md:grid-cols-2 gap-x-6' : ''}>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto custom-scrollbar min-w-0" style={{ scrollbarWidth: 'thin' }}>
           <table className={dense}>{head}{body(rows.slice(0, mid))}</table>
         </div>
         {useTwoCols && (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto custom-scrollbar min-w-0" style={{ scrollbarWidth: 'thin' }}>
             <table className={dense}>{head}{body(rows.slice(mid))}</table>
           </div>
         )}
