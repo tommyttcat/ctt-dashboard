@@ -86,26 +86,25 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 import { fetchScannerLatest } from '@/lib/scannerLatest';
 import { useMarketData } from './MarketDataContext';
-import { stageColor, stageShort, stageDescription, stageBadge } from '@/lib/indicators/stage';
+import { stageColor} from '@/lib/indicators/stage';
 import { rmeLabel } from '@/lib/indicators/rme';
-import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
-import { rsColor, rsTooltip, rsBadge } from '@/lib/indicators/rs';
+import { rsColor} from '@/lib/indicators/rs';
 import { CatalystChip, NewsStars, catalystTooltip, isGenericCatalyst, hasNews } from '@/lib/catalyst';
 import { displaySector } from '@/lib/sectors';
 import {
   chopColor,
-  chopTooltip,
   CHOP_TREND_MAX,
   CHOP_CHOP_MIN,
 } from '@/lib/indicators/chop';
 import { SCANNER, COLUMN_NOTES, columnTip } from '@/lib/scanConfig';
-import TickerChartHover, { useFreezeWhileChartOpen, WatchlistBtn } from './TickerChartHover';
+import { useFreezeWhileChartOpen} from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
-import { rvolColor as getRvolColor, adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, floatColor as getFloatColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
 import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
 import { edgeTier, EDGE_FILTER_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import ScanStatsNote from './ScanStatsNote';
+import { SCAN, ScoreCell, RsCell, PriceCell, ChgCell, Ema1021Cell, VolCell, DollarVolCell, RvolCell, FloatCell, AdrCell, MfCell, StochCell, DtcCell, McapCell, StageCell, SectorCell } from './scan/ScanTable';
+import { TickerCell } from './scan/TickerCell';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The setup name sits directly beneath it.' },
@@ -296,20 +295,7 @@ const formatTime = (timestamp: number | Date) => {
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
 };
 
-const formatNumber = (num: number | null) => {
-  if (num === null || num === 0 || isNaN(num)) return '—';
-  if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
-  if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
-  if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
-  return num.toLocaleString();
-};
 
-const formatCurrency = (num: number | null) => {
-  if (num === null || num === 0 || isNaN(num)) return '—';
-  if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
-  if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
-  return '$' + num.toLocaleString();
-};
 
 // Price levels drop the cents on anything three digits or more — at $886 the
 // pennies are noise, at $4.18 they are the whole trade.
@@ -827,10 +813,6 @@ export default function StocksInPlay() {
 
   const getSortIcon = (columnKey: string) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
-  const emaDot = (state: boolean | null | undefined) => {
-    if (state === null || state === undefined) return 'bg-slate-600';
-    return state ? 'bg-emerald-400' : 'bg-rose-500';
-  };
 
   const displaySession = ['Pre-Market', 'Open', 'Post-Market', 'Closed'].includes(session) ? session : 'Closed';
   const getSessionTextColor = () => {
@@ -840,23 +822,13 @@ export default function StocksInPlay() {
     return 'text-slate-500';
   };
 
-  const thBase = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
-  const tdBase = "px-0.5 pt-2.5 pb-1.5 text-center";
+  const { th: thBase, td: tdBase, thStage, thSector, filterBtnActive, filterBtnIdle, pillWrap, pillLabel, pillBtn } = SCAN;
 
   // STAGE: left-aligned + 9px so short codes sit against the left edge.
-  const thStage = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
-  const tdStage = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
 
   // SECTOR: LEFT-aligned so it starts right after STAGE — right-alignment was
   // pinning it to the card edge and reopening the gap.
-  const thSector = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
-  const tdSector = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
 
-  const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
-  const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
-  const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
-  const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
-  const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
 
   const activeFilterCount =
     (marketCapFilter !== 'All' ? 1 : 0) +
@@ -1079,7 +1051,6 @@ export default function StocksInPlay() {
                   <tr><td colSpan={19} className="py-12 text-center text-slate-500 text-sm font-medium">{stocks.length > 0 ? 'No names match the current filters.' : 'No tracking instruments currently found matching criteria.'}</td></tr>
                 ) : (
                   filteredAndSortedStocks.map((row, i) => {
-                    const isPositive = row.changePct >= 0;
                     const tag = catalystTagOf(row);
                     const headline = headlineOf(row);
                     const sectorText = displaySector(row.sector, row.ticker);
@@ -1096,86 +1067,34 @@ export default function StocksInPlay() {
                       <React.Fragment key={i}>
                         <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
                           title={tier ? `${tier.toUpperCase()} — ${EDGE_FILTER_TIP[tier]}` : undefined}>
-                          <td className={tdBase}>
-                            <div className="flex items-center justify-start gap-1.5">
-                              <WatchlistBtn symbol={row.ticker} />
-                              <TickerChartHover symbol={row.ticker}><span title={tickerTitle(row.name, row.ticker, row.conviction)} className={tickerChipForScore(row.conviction)}>{row.ticker}</span></TickerChartHover>
-                            </div>
-                          </td>
+                          <TickerCell symbol={row.ticker} name={row.name} score={row.conviction} />
                           <td className={tdBase}><NewsStars row={row} /></td>
-                          <td className={tdBase}>
-                            <span
-                              title={cnfTooltip(row)}
-                              className={scoreCellCls(row.conviction)}
-                            >
-                              {row.conviction != null ? row.conviction : '--'}
-                            </span>
-                          </td>
-                          <td className={`${tdBase} whitespace-nowrap`} title={rsTooltip(row.rsRating)}>
-                            <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span>
-                          </td>
-                          <td className={`${tdBase} text-[10px] text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
-                            <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div onClick={(e) => { e.stopPropagation(); toggleVwap(row.vwapStatus as 'above' | 'below'); }} className={`w-1.5 h-1.5 rounded-full shrink-0 cursor-pointer ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'} ${vwapFilter === row.vwapStatus ? 'ring-1 ring-white/40' : ''}`} title={`VWAP: ${row.vwapStatus} — click to filter`}></div>)}</div>
-                          </td>
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
+                          <ScoreCell value={row.conviction} title={cnfTooltip(row)} />
+                          <RsCell value={row.rsRating} />
+                          <PriceCell price={row.price} vwapStatus={row.vwapStatus} vwapFilter={vwapFilter} onToggleVwap={toggleVwap} />
+                          <ChgCell value={row.changePct} />
                           <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${row.gapPct != null && row.gapPct >= 10 ? 'text-purple-400' : row.gapPct != null && row.gapPct >= 7 ? 'text-emerald-400' : 'text-slate-500'}`}>{row.gapPct != null ? `${row.gapPct >= 0 ? '+' : ''}${row.gapPct.toFixed(1)}%` : '—'}</td>
                           {/* The 10/21 dots ARE the posture read — above 21
                               and below 10 is a first touch, both green is
                               stacked. Hover states the bucket so the filter
                               and the column can never be read apart. */}
-                          <td className={`${tdBase} whitespace-nowrap`}>
-                            <div
-                              className="flex items-center justify-center gap-1"
-                              title={posture ? `Posture: ${POSTURE_META[posture as PostureFilterType]?.label ?? 'BELOW 21'}` : undefined}
-                            >
-                              <div className="flex items-center gap-px">
-                                <span className="text-[8px] font-bold text-slate-500">10</span>
-                                <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} title={`10 EMA: ${row.aboveEma10 == null ? 'n/a' : row.aboveEma10 ? 'above' : 'below'}`}></div>
-                              </div>
-                              <div className="flex items-center gap-px">
-                                <span className="text-[8px] font-bold text-slate-500">21</span>
-                                <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma21)}`} title={`21 EMA: ${row.aboveEma21 == null ? 'n/a' : row.aboveEma21 ? 'above' : 'below'}`}></div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
-                          <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol < 1 ? row.rvol.toFixed(1) : Math.round(row.rvol)}x` : '—'}</td>
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
+                          <Ema1021Cell above10={row.aboveEma10} above21={row.aboveEma21} title={posture ? `Posture: ${POSTURE_META[posture as PostureFilterType]?.label ?? 'BELOW 21'}` : undefined} />
+                          <VolCell value={row.vol} />
+                          <DollarVolCell value={row.dVol} />
+                          <RvolCell value={row.rvol} />
+                          <FloatCell value={row.float} />
                           {/* ADR over CHOP, one cell. See the v3.2 header: the
                               two are misleading apart, and separate columns
                               would let the eye take one without the other.
                               The word CHOP is printed so the second line is
                               self-explaining without a header change. */}
-                          <td
-                            className={`${tdBase} whitespace-nowrap tabular-nums cursor-help`}
-                            title={chopTooltip(chop, adr)}
-                          >
-                            <div className="flex flex-col leading-tight">
-                              <span className={`text-[10px] font-bold ${getAdrColor(adr)}`}>
-                                {adr != null ? `${adr.toFixed(1)}%` : '—'}
-                              </span>
-                            </div>
-                          </td>
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={mf != null ? `Money Flow ${mf.toFixed(0)} — ${mfLabel(mf)}` : undefined}>
-                            {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
-                          </td>
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`}>
-                            {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
-                          </td>
-                          <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
-                          <td className={`${tdStage} whitespace-nowrap border-l border-white/5`}>
-                            <span
-                              title={stageDescription(row.stage)}
-                              className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums tracking-wide cursor-help ${stageBadge(row.stage)}`}
-                            >
-                              {stageShort(row.stage)}
-                            </span>
-                          </td>
-                          <td className={tdSector}>
-                            <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
-                          </td>
+                          <AdrCell adr={adr} chop={chop} />
+                          <MfCell value={mf} trend={row.mfTrend} />
+                          <StochCell value={row.stochK} />
+                          <DtcCell value={row.daysToCover} />
+                          <McapCell value={row.mktCap} />
+                          <StageCell stage={row.stage} />
+                          <SectorCell text={sectorText} />
                         </tr>
                         {/* Sub-row starts at column 1 so the setup name sits
                             directly under the ticker rather than under CNF and

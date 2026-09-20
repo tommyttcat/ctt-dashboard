@@ -4,13 +4,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { fetchScannerLatest } from '@/lib/scannerLatest';
 import { useMarketData } from './MarketDataContext';
 import { stageBadge, stageShort, stageDescription } from '@/lib/indicators/stage';
-import { rsBadge, rsTooltip } from '@/lib/indicators/rs';
 import { CatalystChip, NewsStars, catalystTooltip } from '@/lib/catalyst';
 import { displaySector } from '@/lib/sectors';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import TickerChartHover, { useFreezeWhileChartOpen, WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
-import { rvolColor as getRvolColor, adrColor as getAdrColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
+import { adrColor as getAdrColor, tickerChipForScore, tickerTitle, scoreCellCls} from '@/lib/indicators/columnColors';
+import { SCAN, RsCell, ChgCell, VolCell, DollarVolCell, RvolCell, McapCell } from './scan/ScanTable';
 
 interface HighBetaRow {
   ticker: string;
@@ -45,8 +45,6 @@ interface HighBetaRow {
 type SortKey = keyof HighBetaRow;
 type SortDirection = 'asc' | 'desc';
 
-const formatNumber = (num: number | null) => { if (num === null || num === 0 || isNaN(num)) return '—'; if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B'; if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M'; if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K'; return num.toLocaleString(); };
-const formatCurrency = (num: number | null) => { if (num === null || num === 0 || isNaN(num)) return '—'; if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B'; if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M'; return '$' + num.toLocaleString(); };
 const formatTime = (ts: number | Date) => { if (!ts) return ''; return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }); };
 
 const betaColor = (b: number | null): string => {
@@ -158,12 +156,7 @@ export default function HighBeta() {
   const getSessionColor = () => { if (status.includes('Err') || status.includes('Offline')) return 'text-rose-500'; if (status.includes('Syncing')) return 'text-amber-500'; if (session === 'Pre-Market') return 'text-amber-500'; if (session === 'Open') return 'text-[#00e676]'; if (session === 'Post-Market') return 'text-indigo-400'; return 'text-slate-500'; };
   const emaDot = (state: boolean | null) => state === null ? 'bg-slate-600' : state ? 'bg-emerald-400' : 'bg-rose-500';
 
-  const thBase = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
-  const tdBase = "px-0.5 pt-2.5 pb-1.5 text-center";
-  const thStage = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
-  const tdStage = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
-  const thSector = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
-  const tdSector = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
+  const { th: thBase, td: tdBase, thStage, tdStage, thSector, tdSector } = SCAN;
 
   return (
     <div className="bg-[#101623] border-0 md:border md:border-white/5 md:rounded-2xl p-2 md:p-5 relative overflow-visible md:shadow-xl w-full max-w-[1280px] mx-auto">
@@ -224,7 +217,6 @@ export default function HighBeta() {
                 <tr><td colSpan={17} className="py-12 px-8 text-center"><span className="block text-slate-500 text-sm font-medium max-w-[560px] mx-auto leading-relaxed">No high-beta stocks in the current scan. Beta requires at least 30 paired daily returns with SPY — names with insufficient history are excluded.</span></td></tr>
               ) : (
                 sortedStocks.map((row, i) => {
-                  const isPositive = row.changePct >= 0;
                   return (
                     <tr key={i} className="hover:bg-white/[0.02] transition-colors group">
                       <td className={tdBase}>
@@ -236,18 +228,18 @@ export default function HighBeta() {
                       </td>
                       <td className={tdBase}><NewsStars row={row} /></td>
                       <td className={tdBase}><span className={scoreCellCls(row.conviction)}>{row.conviction != null ? row.conviction : '--'}</span></td>
-                      <td className={`${tdBase} whitespace-nowrap`} title={rsTooltip(row.rsRating)}><span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span></td>
+                      <RsCell value={row.rsRating} />
                       <td className={`${tdBase} text-[10px] text-slate-300 font-medium whitespace-nowrap tabular-nums`}>${row.price.toFixed(2)}</td>
-                      <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
+                      <ChgCell value={row.changePct} />
                       <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${betaColor(row.beta)}`} title={row.beta != null ? `Beta ${row.beta.toFixed(2)} — sensitivity to SPY over 60 trading days` : undefined}>{row.beta != null ? row.beta.toFixed(2) : '—'}</td>
                       <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${alphaColor(row.alpha)}`} title={row.alpha != null ? `Alpha ${row.alpha >= 0 ? '+' : ''}${row.alpha.toFixed(2)} — annualized excess return beyond what beta predicts` : undefined}>{row.alpha != null ? `${row.alpha >= 0 ? '+' : ''}${row.alpha.toFixed(2)}` : '—'}</td>
                       <td className={`${tdBase} whitespace-nowrap`}><div className="flex items-center justify-center gap-1.5"><div className="flex items-center gap-0.5"><span className="text-[9px] font-bold text-slate-500">10</span><div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} title={`10 EMA: ${row.aboveEma10 === null ? 'n/a' : row.aboveEma10 ? 'above' : 'below'}`}></div></div><div className="flex items-center gap-0.5"><span className="text-[9px] font-bold text-slate-500">21</span><div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma21)}`} title={`21 EMA: ${row.aboveEma21 === null ? 'n/a' : row.aboveEma21 ? 'above' : 'below'}`}></div></div></div></td>
-                      <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
-                      <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
-                      <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol < 1 ? row.rvol.toFixed(1) : Math.round(row.rvol)}x` : '—'}</td>
+                      <VolCell value={row.vol} />
+                      <DollarVolCell value={row.dVol} />
+                      <RvolCell value={row.rvol} />
                       <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${row.adrPct != null ? getAdrColor(row.adrPct) : 'text-slate-600'}`}>{row.adrPct != null ? `${row.adrPct.toFixed(1)}%` : '—'}</td>
                       <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${row.mf != null ? mfColor(row.mf) : 'text-slate-600'}`} title={row.mf != null ? `Money Flow ${row.mf.toFixed(0)} — ${mfLabel(row.mf)}` : undefined}>{row.mf != null ? `${row.mf.toFixed(0)}${mfArrow(row.mfTrend)}` : '—'}</td>
-                      <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
+                      <McapCell value={row.mktCap} />
                       <td className={`${tdStage} whitespace-nowrap border-l border-white/5`} title={stageDescription(row.stage)}>
                         <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums tracking-wide cursor-help ${stageBadge(row.stage)}`}>{stageShort(row.stage)}</span>
                       </td>

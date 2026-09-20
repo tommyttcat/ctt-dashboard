@@ -7,12 +7,13 @@ import { WatchlistToggle } from './WatchlistPanel';
 import { CatalystChip, NewsStars } from '@/lib/catalyst';
 import { rsBadge } from '@/lib/indicators/rs';
 import {
-  tickerChipForScore, scoreCellCls, stochColor, dtcColor, floatColor, rvolColor, adrColor,
+  tickerChipForScore, stochColor, dtcColor, floatColor, rvolColor, adrColor,
 } from '@/lib/indicators/columnColors';
 import { mfColor, mfLabel, mfLabelShort, mfArrow } from '@/lib/indicators/moneyflow';
 import { displaySector } from '@/lib/sectors';
 import { stageBadge, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { useMarketData } from './MarketDataContext';
+import { SCAN, ScoreCell } from './scan/ScanTable';
 
 /* This card's reading of negative news: the move already happened, so a
    bearish headline behind a +4% print is the thing to notice. */
@@ -319,17 +320,7 @@ export default function DollarVolumeScanner() {
 
   const rows = useFreezeWhileChartOpen(computed);
 
-  const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
-  const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
-  const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
-  const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
-  const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
-  const thBase = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
-  const tdBase = "px-0.5 pt-2.5 pb-1.5 text-center";
-  const thStage = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
-  const tdStage = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
-  const thSector = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
-  const tdSector = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
+  const { td: tdBase, tdStage, tdSector, filterBtnActive, filterBtnIdle, pillWrap, pillLabel, pillBtn } = SCAN;
 
   const sortIcon = (key: SortKey) =>
     sort.key === key ? <span className="text-indigo-400">{sort.dir === 'asc' ? ' ▲' : ' ▼'}</span> : null;
@@ -373,14 +364,7 @@ export default function DollarVolumeScanner() {
                 </div>
               </td>
               <td className={tdBase}><NewsStars row={row} /></td>
-              <td className={tdBase}>
-                <span
-                  title={cnfTooltip(row)}
-                  className={scoreCellCls(row.cnfScore)}
-                >
-                  {row.cnfScore != null ? row.cnfScore : '--'}
-                </span>
-              </td>
+              <ScoreCell value={row.cnfScore} title={cnfTooltip(row)} />
               <td className="px-0.5 pt-2.5 pb-1.5 text-center">
                 <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span>
               </td>

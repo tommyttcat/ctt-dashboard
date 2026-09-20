@@ -125,24 +125,23 @@ import { cachedJson } from '@/lib/scannerLatest';
 import { swingTier, SWING_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import { useMarketData } from './MarketDataContext';
-import { stageColor, stageShort, stageDescription, stageBadge } from '@/lib/indicators/stage';
+import { stageColor} from '@/lib/indicators/stage';
 import { rmeLabel } from '@/lib/indicators/rme';
-import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
-import { rsColor, rsTooltip, rsBadge } from '@/lib/indicators/rs';
+import { rsColor} from '@/lib/indicators/rs';
 import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews, NewsStars } from '@/lib/catalyst';
 import { displaySector } from '@/lib/sectors';
 import {
   chopColor,
-  chopTooltip,
   CHOP_TREND_MAX,
   CHOP_CHOP_MIN,
 } from '@/lib/indicators/chop';
 import { SWING, COLUMN_NOTES, columnTip } from '@/lib/scanConfig';
-import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
-import { rvolColor as getRvolColor, adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, floatColor as getFloatColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
+import { stochColor as getStochColor, scoreCellCls} from '@/lib/indicators/columnColors';
 import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
 import ScanStatsNote from './ScanStatsNote';
+import { SCAN, RsCell, PriceCell, ChgCell, VolCell, RvolCell, FloatCell, AdrCell, MfCell, DtcCell, McapCell, StageCell, SectorCell } from './scan/ScanTable';
+import { TickerCell } from './scan/TickerCell';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The setup name sits directly beneath it.' },
@@ -330,13 +329,6 @@ const formatTime = (timestamp: number | Date) => {
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
 };
 
-const formatNumber = (num: number | null | undefined) => {
-  if (num === null || num === undefined || num === 0 || isNaN(num)) return '—';
-  if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
-  if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
-  if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
-  return num.toLocaleString();
-};
 
 const formatCurrency = (num: number | null | undefined) => {
   if (num === null || num === undefined || num === 0 || isNaN(num)) return '—';
@@ -886,20 +878,10 @@ export default function SwingCandidates() {
     return 'text-slate-500';
   };
 
-  const thBase = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
-  const tdBase = "px-0.5 pt-2.5 pb-1.5 text-center";
+  const { th: thBase, td: tdBase, thStage, thSector, filterBtnActive, filterBtnIdle, pillWrap, pillLabel, pillBtn } = SCAN;
 
-  const thStage = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
-  const tdStage = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
 
-  const thSector = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
-  const tdSector = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
 
-  const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
-  const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
-  const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
-  const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
-  const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
 
   const activeFilterCount =
     (showReadyOnly ? 1 : 0) +
@@ -1163,7 +1145,6 @@ export default function SwingCandidates() {
                   <tr><td colSpan={18} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No candidates in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
                 ) : (
                   filteredAndSorted.map((row) => {
-                    const isPositive = (row.changePct ?? 0) >= 0;
                     const tag = catalystTagOf(row);
                     const headline = headlineOf(row);
                     const catUrl = catalystUrlOf(row);
@@ -1183,12 +1164,7 @@ export default function SwingCandidates() {
                       <React.Fragment key={row.symbol}>
                         <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
                           title={tier ? `${tier.toUpperCase()} — ${SWING_TIP[tier]}` : undefined}>
-                          <td className={tdBase}>
-                            <div className="flex items-center justify-start gap-1.5">
-                              <WatchlistBtn symbol={row.symbol} />
-                              <TickerChartHover symbol={row.symbol}><span title={tickerTitle(row.name, row.symbol, row.score)} className={tickerChipForScore(row.score)}>{row.symbol}</span></TickerChartHover>
-                            </div>
-                          </td>
+                          <TickerCell symbol={row.symbol} name={row.name} score={row.score} />
                           <td className={tdBase}><NewsStars row={row} /></td>
                           <td className={tdBase}>
                             <span
@@ -1198,13 +1174,9 @@ export default function SwingCandidates() {
                               {row.score}
                             </span>
                           </td>
-                          <td className={`${tdBase} whitespace-nowrap`} title={rsTooltip(row.rsRating)}>
-                            <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span>
-                          </td>
-                          <td className={`${tdBase} text-[10px] text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
-                            <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus && row.vwapStatus !== 'neutral' && (<div onClick={(e) => { e.stopPropagation(); toggleVwap(row.vwapStatus as 'above' | 'below'); }} className={`w-1.5 h-1.5 rounded-full shrink-0 cursor-pointer ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'} ${vwapFilter === row.vwapStatus ? 'ring-1 ring-white/40' : ''}`} title={`VWAP: ${row.vwapStatus} — click to filter`}></div>)}</div>
-                          </td>
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{row.changePct != null ? `${isPositive ? '+' : ''}${row.changePct.toFixed(2)}%` : '—'}</td>
+                          <RsCell value={row.rsRating} />
+                          <PriceCell price={row.price} vwapStatus={row.vwapStatus} vwapFilter={vwapFilter} onToggleVwap={toggleVwap} />
+                          <ChgCell value={row.changePct} />
                           {/* The 10/21 dots ARE the posture read — above 21
                               and below 10 is a first touch, both green is
                               stacked. Hover states the bucket so the filter
@@ -1224,43 +1196,21 @@ export default function SwingCandidates() {
                               </div>
                             </div>
                           </td>
-                          <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
+                          <VolCell value={row.vol} />
                           <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{row.dVol ? formatCurrency(row.dVol) : (row.avgDollarVolM ? `$${row.avgDollarVolM}M` : '—')}</td>
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol < 1 ? row.rvol.toFixed(1) : Math.round(row.rvol)}x` : '—'}</td>
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
+                          <RvolCell value={row.rvol} />
+                          <FloatCell value={row.float} />
                           {/* ADR over CHOP, one cell. On this table the pair
                               is the read: a wide-range name that never goes
                               anywhere looks like the best pullback candidate
                               on the board until you see the second line. */}
-                          <td
-                            className={`${tdBase} whitespace-nowrap tabular-nums cursor-help`}
-                            title={chopTooltip(chop, adr)}
-                          >
-                            <div className="flex flex-col leading-tight">
-                              <span className={`text-[10px] font-bold ${getAdrColor(adr)}`}>
-                                {adr != null ? `${adr.toFixed(1)}%` : '—'}
-                              </span>
-                            </div>
-                          </td>
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={mf != null ? `Money Flow ${mf.toFixed(0)} — ${mfLabel(mf)}` : undefined}>
-                            {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
-                          </td>
+                          <AdrCell adr={adr} chop={chop} />
+                          <MfCell value={mf} trend={row.mfTrend} />
                           <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK.toFixed(1)}</td>
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`}>
-                            {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
-                          </td>
-                          <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
-                          <td className={`${tdStage} whitespace-nowrap border-l border-white/5`}>
-                            <span
-                              title={stageDescription(row.stage)}
-                              className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums tracking-wide cursor-help ${stageBadge(row.stage)}`}
-                            >
-                              {stageShort(row.stage)}
-                            </span>
-                          </td>
-                          <td className={tdSector}>
-                            <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
-                          </td>
+                          <DtcCell value={row.daysToCover} />
+                          <McapCell value={row.mktCap} />
+                          <StageCell stage={row.stage} />
+                          <SectorCell text={sectorText} />
                         </tr>
                         {/* Sub-row starts at column 1 so the setup name sits
                             directly under the ticker. Order down the left edge:

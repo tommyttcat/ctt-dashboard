@@ -21,6 +21,7 @@ import { stageColor as stgColor, stageBadge, stageShort as stgShort, stageDescri
 import { rvolColorLowFloor as rvolColor, tickerChipCls, scoreCellCls } from '@/lib/indicators/columnColors';
 import { displaySector } from '@/lib/sectors';
 import ScanStatsNote from './ScanStatsNote';
+import { SCAN } from './scan/ScanTable';
 
 const ATTR_LABELS: Record<string, string> = {
   revenueGrowth: 'Revenue Growth',
@@ -362,8 +363,6 @@ export default function Multibagger() {
     return <span className="ml-0.5 text-[8px]">{sortDir === 'desc' ? '▼' : '▲'}</span>;
   };
 
-  const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
-  const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
   const pillBtnCls = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
   const Pill = ({ label, active, onClick, title }: { label: string; active: boolean; onClick: () => void; title?: string }) => (
     <button
@@ -375,12 +374,7 @@ export default function Multibagger() {
     </button>
   );
 
-  const thBase = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
-  const tdBase = "px-0.5 pt-2.5 pb-1.5 text-center";
-  const thStage = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
-  const tdStage = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
-  const thSector = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
-  const tdSector = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
+  const { th: thBase, td: tdBase, thStage, tdStage, thSector, tdSector, filterBtnActive, filterBtnIdle } = SCAN;
 
   return (
     <div className="bg-[#101623] border-0 md:border md:border-white/5 md:rounded-2xl p-2 md:p-5 relative overflow-visible md:shadow-xl w-full max-w-[1280px] mx-auto">

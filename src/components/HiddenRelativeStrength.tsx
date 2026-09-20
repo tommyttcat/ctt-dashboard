@@ -15,6 +15,7 @@ import { NewsStars, type CatalystRow } from '@/lib/catalyst';
 import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
 import ScanStatsNote from './ScanStatsNote';
+import { SCAN, VolCell } from './scan/ScanTable';
 
 const SCORE_LABELS: Record<string, string> = {
   alpha: 'Weak-day alpha & consistency',
@@ -246,12 +247,7 @@ export default function HiddenRelativeStrength() {
 
   const sev = regime ? SEVERITY_META[regime.severity] ?? SEVERITY_META.inactive : SEVERITY_META.inactive;
 
-  const thBase = 'px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center';
-  const tdBase = 'px-0.5 pt-2.5 pb-1.5 text-center';
-  const thStage = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
-  const tdStage = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
-  const thSector = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
-  const tdSector = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
+  const { th: thBase, td: tdBase, thStage, tdStage, thSector, tdSector } = SCAN;
   const COL_SPAN = 15;
 
   return (
@@ -455,13 +451,9 @@ export default function HiddenRelativeStrength() {
                               {row.changePct >= 0 ? '+' : ''}{row.changePct.toFixed(1)}%
                           </td>
 
-                          <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums hidden md:table-cell`}>
-                            {fmtNum(row.vol)}
-                          </td>
+                          <VolCell value={row.vol} className="hidden md:table-cell" />
 
-                          <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums hidden md:table-cell`}>
-                            {fmtNum(row.dVol)}
-                          </td>
+                          <VolCell value={row.dVol} className="hidden md:table-cell" />
 
                           <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums hidden md:table-cell ${rvol >= 2 ? 'text-emerald-400' : rvol >= 1.2 ? 'text-cyan-400' : 'text-slate-400'}`}>
                               {rvol < 1 ? rvol.toFixed(1) : Math.round(rvol)}x
@@ -479,9 +471,7 @@ export default function HiddenRelativeStrength() {
                               {row.pctBelow52wHigh <= 0.5 ? 'ATH' : `-${row.pctBelow52wHigh.toFixed(1)}%`}
                           </td>
 
-                          <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums hidden lg:table-cell`}>
-                            {fmtNum(row.mktCap)}
-                          </td>
+                          <VolCell value={row.mktCap} className="hidden lg:table-cell" />
 
                           <td className={`${tdStage} whitespace-nowrap hidden md:table-cell border-l border-white/5`}>
                             <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums tracking-wide cursor-help ${stageBadge(row.stage)}`}>

@@ -63,11 +63,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 import { cachedJson } from '@/lib/scannerLatest';
 import { useMarketData } from './MarketDataContext';
-import { stageColor, stageShort, stageDescription, stageBadge } from '@/lib/indicators/stage';
+import { stageColor, stageShort} from '@/lib/indicators/stage';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import {
   chopColor,
-  chopTooltip,
   chopLabel,
   CHOP_TREND_MAX,
   CHOP_CHOP_MIN,
@@ -77,12 +76,12 @@ import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
 import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews, NewsStars } from '@/lib/catalyst';
 import { displaySector } from '@/lib/sectors';
-import { rsBadge, rsTooltip } from '@/lib/indicators/rs';
-import { adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, rvolColorHighFloor as getRvolColor, tickerChipCls, scoreCellCls } from '@/lib/indicators/columnColors';
+import { dtcColor as getDtcColor, rvolColorHighFloor as getRvolColor, tickerChipCls, scoreCellCls} from '@/lib/indicators/columnColors';
 import { epMoveOdds, EP_MOVE_ODDS_TIP } from '@/lib/scans/ep9m';
 import { ep9mTier, EP9M_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import ScanStatsNote from './ScanStatsNote';
+import { SCAN, RsCell, PriceCell, DollarVolCell, AdrCell, StochCell, McapCell, StageCell, SectorCell } from './scan/ScanTable';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: "Symbol. Hover shows the company name. Fuchsia dot = unprecedented (today's volume beat its own 60-day high); ★ = repeat EP9M offender. Hover the fuchsia dot on a choppy name — record volume inside a range that will not resolve is the most misread row on this table." },
@@ -325,12 +324,6 @@ const formatNumber = (num: number | null | undefined) => {
   return num.toLocaleString();
 };
 
-const formatCurrency = (num: number | null | undefined) => {
-  if (num === null || num === undefined || num === 0 || isNaN(num)) return '—';
-  if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
-  if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
-  return '$' + num.toLocaleString();
-};
 
 // Price levels drop the cents on anything three digits or more — at $886 the
 // pennies are noise, at $4.18 they are the whole trade.
@@ -822,20 +815,10 @@ export default function Ep9m() {
     return 'text-slate-500';
   };
 
-  const thBase = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
-  const tdBase = "px-0.5 pt-2.5 pb-1.5 text-center";
+  const { th: thBase, td: tdBase, thStage, thSector, filterBtnActive, filterBtnIdle, pillWrap, pillLabel, pillBtn } = SCAN;
 
-  const thStage = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
-  const tdStage = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
 
-  const thSector = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
-  const tdSector = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
 
-  const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
-  const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
-  const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
-  const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
-  const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
 
   const activeFilterCount =
     (epFilter !== 'All' ? 1 : 0) +
@@ -1205,12 +1188,8 @@ export default function Ep9m() {
                               {row.score}
                             </span>
                           </td>
-                          <td className={`${tdBase} whitespace-nowrap`} title={rsTooltip(row.rsRating)}>
-                            <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span>
-                          </td>
-                          <td className={`${tdBase} text-[10px] text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
-                            <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus && row.vwapStatus !== 'neutral' && (<div onClick={(e) => { e.stopPropagation(); toggleVwap(row.vwapStatus as 'above' | 'below'); }} className={`w-1.5 h-1.5 rounded-full shrink-0 cursor-pointer ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'} ${vwapFilter === row.vwapStatus ? 'ring-1 ring-white/40' : ''}`} title={`VWAP: ${row.vwapStatus} — click to filter`}></div>)}</div>
-                          </td>
+                          <RsCell value={row.rsRating} />
+                          <PriceCell price={row.price} vwapStatus={row.vwapStatus} vwapFilter={vwapFilter} onToggleVwap={toggleVwap} />
                           <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getChgColor(row.changePct)}`}>
                             {row.changePct != null ? `${row.changePct >= 0 ? '+' : ''}${row.changePct.toFixed(2)}%` : '—'}
                           </td>
@@ -1233,7 +1212,7 @@ export default function Ep9m() {
                             <div className="text-[10px] font-bold leading-tight text-slate-200">{formatNumber(row.vol)}</div>
                             {row.avgVol ? (<div className="text-[9px] text-slate-500 font-medium leading-tight">avg {formatNumber(row.avgVol)}</div>) : null}
                           </td>
-                          <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
+                          <DollarVolCell value={row.dVol} />
                           <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`} title="Today's volume vs its own 20-day average">
                             {row.rvol ? `${row.rvol < 1 ? row.rvol.toFixed(1) : Math.round(row.rvol)}x` : '—'}
                           </td>
@@ -1244,35 +1223,17 @@ export default function Ep9m() {
                               the only reading that says whether the range the
                               volume landed in can resolve — there is no trend
                               gate anywhere in this scan. */}
-                          <td
-                            className={`${tdBase} whitespace-nowrap tabular-nums cursor-help`}
-                            title={chopTooltip(chop, adr)}
-                          >
-                            <div className="flex flex-col leading-tight">
-                              <span className={`text-[10px] font-bold ${getAdrColor(adr)}`}>
-                                {adr != null ? `${adr.toFixed(1)}%` : '—'}
-                              </span>
-                            </div>
-                          </td>
+                          <AdrCell adr={adr} chop={chop} />
                           <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={`Money Flow (21) — ${mfLabel(mf)}. Heavy volume with MF under 45 is distribution, however strong today's close. Arrow shows the 5-day direction.`}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
                           </td>
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
+                          <StochCell value={row.stochK} />
                           <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover — short interest divided by average daily volume. Squeeze fuel.">
                             {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
                           </td>
-                          <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
-                          <td className={`${tdStage} whitespace-nowrap border-l border-white/5`}>
-                            <span
-                              title={stageDescription(row.stage)}
-                              className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums tracking-wide cursor-help ${stageBadge(row.stage)}`}
-                            >
-                              {stageShort(row.stage)}
-                            </span>
-                          </td>
-                          <td className={tdSector}>
-                            <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
-                          </td>
+                          <McapCell value={row.mktCap} />
+                          <StageCell stage={row.stage} />
+                          <SectorCell text={sectorText} />
                         </tr>
                         {/* Levels lead, same slot the setup name occupies on
                             SIPs and Daily, then VS60D, which is the signal this

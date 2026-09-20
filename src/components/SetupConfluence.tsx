@@ -17,6 +17,7 @@ import { rsBadge } from '@/lib/indicators/rs';
 import { displaySector } from '@/lib/sectors';
 import { CatalystChip, NewsStars, headlineOf, isGenericCatalyst, catalystUrlOf } from '@/lib/catalyst';
 import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
+import { SCAN } from './scan/ScanTable';
 import {
   rvolColor as getRvolColor,
   adrColor as getAdrColor,
@@ -338,16 +339,13 @@ export default function SetupConfluence() {
     return state ? 'bg-emerald-400' : 'bg-rose-500';
   };
 
-  const thBase = 'px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center';
-  const tdBase = 'px-0.5 pt-2.5 pb-1.5 text-center';
-  const thStage = 'px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left';
-  const tdStage = 'px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left';
-  const thSector = 'px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left';
-  const tdSector = 'px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left';
+  const { th: thBase, td: tdBase, thStage, tdStage, thSector, tdSector, filterBtnActive, filterBtnIdle } = SCAN;
+  /* This table is the one that appends an explicit pointer cursor to its
+     filter pills; every other table relies on the button default. Kept as
+     written rather than folded into SCAN.pillBtn, which would change the
+     cursor on eleven other tables to fix a difference nobody asked about. */
+  const pillBtn = `${SCAN.pillBtn} cursor-pointer`;
 
-  const filterBtnActive = 'bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]';
-  const filterBtnIdle = 'text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]';
-  const pillBtn = 'px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap cursor-pointer';
 
   const overlapCounts = useMemo(() => {
     const c = { two: 0, three: 0, four: 0, fivePlus: 0 };

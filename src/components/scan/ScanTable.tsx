@@ -125,6 +125,13 @@ export const RedDot = ({ className = '', title = 'Red Dot — overbought reversa
   />
 );
 
+/* `className` is the responsive modifier some tables hang on a column
+   (`hidden md:table-cell`). It goes where those tables already put it — after
+   the static classes and before the colour helper — so the rendered string is
+   unchanged from the markup it replaces. */
+const cls = (base: string, extra?: string, colour?: string) =>
+  `${base}${extra ? ` ${extra}` : ''}${colour ? ` ${colour}` : ''}`;
+
 // ---- Cells ----------------------------------------------------------------
 // Each renders exactly what the two tables rendered inline. Props are values
 // rather than a row, so a table keeps its own row type and no normalisation
@@ -198,30 +205,30 @@ export function Ema1021Cell({ above10, above21, title }: {
   );
 }
 
-export function VolCell({ value }: { value: number | null | undefined }) {
-  return <td className={`${SCAN.td} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(value)}</td>;
+export function VolCell({ value, className }: { value: number | null | undefined; className?: string }) {
+  return <td className={cls(`${SCAN.td} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`, className)}>{formatNumber(value)}</td>;
 }
 
 /* `fallback` is the coil table's average dollar volume: a base that has gone
    quiet may have no dollar volume today worth printing. */
-export function DollarVolCell({ value, fallback }: { value: number | null | undefined; fallback?: string }) {
+export function DollarVolCell({ value, fallback, className }: { value: number | null | undefined; fallback?: string; className?: string }) {
   return (
-    <td className={`${SCAN.td} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>
+    <td className={cls(`${SCAN.td} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`, className)}>
       {value ? formatCurrency(value) : (fallback ?? '—')}
     </td>
   );
 }
 
-export function RvolCell({ value }: { value: number | null | undefined }) {
+export function RvolCell({ value, className }: { value: number | null | undefined; className?: string }) {
   return (
-    <td className={`${SCAN.td} text-[10px] font-bold whitespace-nowrap tabular-nums ${getRvolColor(value)}`}>
+    <td className={cls(`${SCAN.td} text-[10px] font-bold whitespace-nowrap tabular-nums`, className, getRvolColor(value))}>
       {value ? `${value < 1 ? value.toFixed(1) : Math.round(value)}x` : '—'}
     </td>
   );
 }
 
-export function FloatCell({ value }: { value: number | null | undefined }) {
-  return <td className={`${SCAN.td} text-[10px] font-bold whitespace-nowrap tabular-nums ${getFloatColor(value)}`}>{formatNumber(value)}</td>;
+export function FloatCell({ value, className }: { value: number | null | undefined; className?: string }) {
+  return <td className={cls(`${SCAN.td} text-[10px] font-bold whitespace-nowrap tabular-nums`, className, getFloatColor(value))}>{formatNumber(value)}</td>;
 }
 
 /* ADR, optionally carrying CHOP in the same cell. The momentum tables stack
@@ -255,8 +262,8 @@ export function MfCell({ value, trend }: { value: number | null; trend?: number 
   );
 }
 
-export function StochCell({ value }: { value: number | null | undefined }) {
-  return <td className={`${SCAN.td} text-[10px] font-bold whitespace-nowrap tabular-nums ${getStochColor(value)}`}>{value != null ? value.toFixed(1) : '—'}</td>;
+export function StochCell({ value, className }: { value: number | null | undefined; className?: string }) {
+  return <td className={cls(`${SCAN.td} text-[10px] font-bold whitespace-nowrap tabular-nums`, className, getStochColor(value))}>{value != null ? value.toFixed(1) : '—'}</td>;
 }
 
 export function DtcCell({ value }: { value: number | null | undefined }) {
@@ -267,8 +274,8 @@ export function DtcCell({ value }: { value: number | null | undefined }) {
   );
 }
 
-export function McapCell({ value }: { value: number | null | undefined }) {
-  return <td className={`${SCAN.td} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(value)}</td>;
+export function McapCell({ value, className }: { value: number | null | undefined; className?: string }) {
+  return <td className={cls(`${SCAN.td} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`, className)}>{formatNumber(value)}</td>;
 }
 
 export function StageCell({ stage }: { stage: string | null | undefined }) {

@@ -74,7 +74,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { cachedJson } from '@/lib/scannerLatest';
 import { useMarketData } from './MarketDataContext';
-import { stageColor, stageShort, stageDescription, stageBadge } from '@/lib/indicators/stage';
+import { stageColor} from '@/lib/indicators/stage';
 import { rsColor, rsBadge } from '@/lib/indicators/rs';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { VCP, columnTip } from '@/lib/scanConfig';
@@ -88,6 +88,7 @@ import { vcpTier, VCP_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 import ScanStatsNote from './ScanStatsNote';
+import { SCAN, StageCell, SectorCell } from './scan/ScanTable';
 
 /* A breakout further than this above the pivot has run away from its own
    entry. Three percent is roughly one ordinary session on a liquid mid-cap —
@@ -656,20 +657,10 @@ export default function Vcp() {
     return 'text-slate-500';
   };
 
-  const thBase = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
-  const tdBase = "px-0.5 pt-2.5 pb-1.5 text-center";
+  const { th: thBase, td: tdBase, thStage, thSector, filterBtnActive, filterBtnIdle, pillWrap, pillLabel, pillBtn } = SCAN;
 
-  const thStage = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
-  const tdStage = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
 
-  const thSector = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
-  const tdSector = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
 
-  const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
-  const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
-  const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
-  const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
-  const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
 
   const activeFilterCount =
     (statusFilter !== 'All' ? 1 : 0) +
@@ -1044,18 +1035,9 @@ export default function Vcp() {
                             {row.mf != null ? `${row.mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
                           </td>
 
-                          <td className={`${tdStage} whitespace-nowrap border-l border-white/5`}>
-                            <span
-                              title={stageDescription(row.stage)}
-                              className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums tracking-wide cursor-help ${stageBadge(row.stage)}`}
-                            >
-                              {stageShort(row.stage)}
-                            </span>
-                          </td>
+                          <StageCell stage={row.stage} />
 
-                          <td className={tdSector}>
-                            <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
-                          </td>
+                          <SectorCell text={sectorText} />
                         </tr>
 
                         {/* Sub-row: status word first, then the three levels,
