@@ -15,7 +15,8 @@ import { NewsStars, type CatalystRow } from '@/lib/catalyst';
 import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
 import ScanStatsNote from './ScanStatsNote';
-import { SCAN, VolCell } from './scan/ScanTable';
+import { SCAN, VolCell, ChgCell, RvolCell } from './scan/ScanTable';
+import { alphaOnWeakDaysColor, weakDayOutperformColor, pctBelow52wHighColor } from '@/lib/indicators/columnColors';
 
 const SCORE_LABELS: Record<string, string> = {
   alpha: 'Weak-day alpha & consistency',
@@ -447,27 +448,23 @@ export default function HiddenRelativeStrength() {
                             ) : <span className="text-slate-600">—</span>}
                           </td>
 
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${row.changePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              {row.changePct >= 0 ? '+' : ''}{row.changePct.toFixed(1)}%
-                          </td>
+                          <ChgCell value={row.changePct} />
 
                           <VolCell value={row.vol} className="hidden md:table-cell" />
 
                           <VolCell value={row.dVol} className="hidden md:table-cell" />
 
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums hidden md:table-cell ${rvol >= 2 ? 'text-emerald-400' : rvol >= 1.2 ? 'text-cyan-400' : 'text-slate-400'}`}>
-                              {rvol.toFixed(1)}x
-                          </td>
+                          <RvolCell value={rvol} className="hidden md:table-cell" />
 
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums hidden md:table-cell ${row.alphaOnWeakDays > 5 ? 'text-emerald-400' : row.alphaOnWeakDays > 2 ? 'text-cyan-400' : 'text-slate-300'}`}>
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums hidden md:table-cell ${alphaOnWeakDaysColor(row.alphaOnWeakDays)}`}>
                               +{row.alphaOnWeakDays.toFixed(1)}
                           </td>
 
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums hidden md:table-cell ${row.weakDayOutperformPct >= 80 ? 'text-emerald-400' : row.weakDayOutperformPct >= 60 ? 'text-cyan-400' : 'text-slate-400'}`}>
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums hidden md:table-cell ${weakDayOutperformColor(row.weakDayOutperformPct)}`}>
                               {row.weakDayOutperformPct}%
                           </td>
 
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums hidden lg:table-cell ${row.pctBelow52wHigh <= 3 ? 'text-emerald-400' : row.pctBelow52wHigh <= 8 ? 'text-cyan-400' : 'text-slate-400'}`}>
+                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums hidden lg:table-cell ${pctBelow52wHighColor(row.pctBelow52wHigh)}`}>
                               {row.pctBelow52wHigh <= 0.5 ? 'ATH' : `-${row.pctBelow52wHigh.toFixed(1)}%`}
                           </td>
 

@@ -190,6 +190,32 @@ export function floatColor(f: number | null | undefined): string {
 }
 
 /* ---- Change % ----------------------------------------------------------- */
+/* ---- Hidden RS columns --------------------------------------------------
+   These three measure things no other scan has: alpha earned specifically on
+   weak market days, how often the name outperformed on those days, and how
+   close it sits to its 52-week high. The thresholds are this scan's own and
+   are NOT the shared momentum bands — the backtest found the tint rules do
+   not transfer between scans ($5-10 is the best band on Hidden RS and the
+   worst on SIP/Daily). They live here so the table has no inline ternaries,
+   not because anything else should read them. */
+export function alphaOnWeakDaysColor(v: number): string {
+  if (v > 5) return 'text-emerald-400';
+  if (v > 2) return 'text-cyan-400';
+  return 'text-slate-300';
+}
+
+export function weakDayOutperformColor(v: number): string {
+  if (v >= 80) return 'text-emerald-400';
+  if (v >= 60) return 'text-cyan-400';
+  return 'text-slate-400';
+}
+
+export function pctBelow52wHighColor(v: number): string {
+  if (v <= 3) return 'text-emerald-400';
+  if (v <= 8) return 'text-cyan-400';
+  return 'text-slate-400';
+}
+
 export const changeColor = (v: number): string => (v >= 0 ? 'text-emerald-400' : 'text-rose-400');
 export const changeHex = (v: number): string => (v >= 0 ? '#34d399' : '#fb7185');
 
