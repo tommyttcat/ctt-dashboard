@@ -59,6 +59,9 @@ interface ScanRecord {
 }
 
 interface Position {
+  /* Present only in the cross-scan book, where a row is meaningless without
+     it. The per-scan drill-down already knows its own scan. */
+  scan?: string;
   t: string; d: string; tier: string | null; score: number | null;
   fill: number | null; stop: number | null; target: number | null; last: number | null;
   n: number; hr: boolean; status: 'pending' | 'running' | 'target' | 'stopped' | 'closed';
@@ -100,6 +103,9 @@ const ROWS: { scan: string; label: string; stat: StatScan; mode: 'r' | 'return' 
   { scan: 'hrs', label: 'Hidden RS', stat: 'hrs', mode: 'r' },
   { scan: 'multibagger', label: '100-Bagger', stat: 'multibagger', mode: 'return' },
 ];
+
+/* scan key -> the name a reader knows it by, for the cross-scan book. */
+const SCAN_LABEL: Record<string, string> = Object.fromEntries(ROWS.map(r => [r.scan, r.label]));
 
 const TIER_CLS: Record<string, string> = {
   green: 'text-emerald-400',
@@ -152,7 +158,7 @@ type PosSortKey = 'default' | 'ticker' | 'd' | 'fill' | 'stop' | 'target' | 'n' 
 
 const STATUS_ORDER: Record<Position['status'], number> = { target: 5, running: 4, pending: 3, closed: 2, stopped: 1 };
 
-function PositionTable({ detail }: { detail: Detail }) {
+function PositionTable({ detail, showScan = false }: { detail: Detail; showScan?: boolean }) {
   const [sortKey, setSortKey] = useState<PosSortKey>('default');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
@@ -222,6 +228,7 @@ function PositionTable({ detail }: { detail: Detail }) {
         <thead>
           <tr className="border-b border-white/5">
             <th className={`${TH_SORT} !text-left`} onClick={() => toggleSort('ticker')}>Ticker{arrow('ticker')}</th>
+            {showScan && <th className={`${TH} !text-left`}>Scan</th>}
             <th className={`${TH_SORT} !text-left`} onClick={() => toggleSort('d')}>Picked{arrow('d')}</th>
             <th className={TH_SORT} onClick={() => toggleSort('fill')} title="Next session's open">Fill{arrow('fill')}</th>
             <th className={TH_SORT} onClick={() => toggleSort('stop')}>Stop{arrow('stop')}</th>
@@ -250,6 +257,11 @@ function PositionTable({ detail }: { detail: Detail }) {
                   </TickerChartHover>
                   {p.hr && <span className="ml-1.5 text-[9px] font-bold text-emerald-400" title="Ran +50% (or +10R) before the stop">+50%</span>}
                 </td>
+                {showScan && (
+                  <td className="text-[10px] px-2 py-1.5 text-left text-slate-400 whitespace-nowrap">
+                    {SCAN_LABEL[p.scan ?? ''] ?? p.scan ?? '—'}
+                  </td>
+                )}
                 <td className="text-[10px] px-2 py-1.5 text-left text-slate-500 whitespace-nowrap tabular-nums">{p.d}</td>
                 <td className={`${TD} text-slate-300`}>{fmtNum(p.fill)}</td>
                 <td className={`${TD} text-slate-400`}>{fmtNum(p.stop)}</td>
@@ -282,6 +294,26 @@ export default function TrackRecord() {
   const [openScan, setOpenScan] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, Detail>>({});
   const [detailLoading, setDetailLoading] = useState<string | null>(null);
+
+  /* The cross-scan book. The per-scan drill-down answers "how did THIS scan
+     do"; this answers "what is open right now", which used to mean expanding
+     all eight rows and holding the answer in your head. Fetched on first
+     open, so the page costs nothing extra for a reader who never asks. */
+  const [liveOpen, setLiveOpen] = useState(false);
+  const [live, setLive] = useState<Detail | null>(null);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const [liveStatus, setLiveStatus] = useState<'all' | Position['status']>('all');
+
+  const toggleLive = React.useCallback(() => {
+    setLiveOpen(prev => !prev);
+    if (live || liveLoading) return;
+    setLiveLoading(true);
+    fetch('/api/track/detail?scan=all')
+      .then(r => r.json())
+      .then(j => { if (j?.success) setLive(j); })
+      .catch(() => {})
+      .finally(() => setLiveLoading(false));
+  }, [live, liveLoading]);
 
   const toggleScan = React.useCallback((scan: string) => {
     setOpenScan(prev => (prev === scan ? null : scan));
@@ -413,6 +445,72 @@ export default function TrackRecord() {
         <span><span className="text-slate-500">Settled</span> <span className="text-slate-200 font-semibold tabular-nums">{totalSettled.toLocaleString()}</span></span>
         {data?.meta?.lastBarDate && (
           <span><span className="text-slate-500">Through</span> <span className="text-slate-200 font-semibold">{data.meta.lastBarDate}</span></span>
+        )}
+      </div>
+
+      {/* ---- The live book ------------------------------------------------
+           What is open right now, every scan in one list. The scan table
+           below answers a different question — how each scan has done — and
+           reaching this from it meant opening all eight rows. */}
+      <div className="mb-4 border border-white/[0.06] rounded-lg bg-slate-900/40 overflow-hidden">
+        <button
+          onClick={toggleLive}
+          className="w-full flex items-center justify-between gap-3 px-3 md:px-5 py-2.5 text-left hover:bg-white/[0.02] transition-colors"
+        >
+          <span className="text-[11px] font-bold tracking-widest uppercase text-slate-300">
+            <span className="inline-block w-3">{liveOpen ? '▾' : '▸'}</span> Open right now
+            <span className="ml-2 text-slate-500 font-medium tabular-nums normal-case tracking-normal">
+              {(data?.openCount ?? 0).toLocaleString()} positions across {Object.keys(data?.openByScan ?? {}).length} scans
+            </span>
+          </span>
+          <span className="text-[10px] text-slate-500 whitespace-nowrap">{liveOpen ? 'hide' : 'show'}</span>
+        </button>
+
+        {liveOpen && (
+          <div className="px-3 md:px-5 pb-3 border-t border-white/[0.06]">
+            {liveLoading && !live ? (
+              <div className="py-8 text-center text-[10px] text-slate-500 tracking-widest uppercase animate-pulse">Loading the book…</div>
+            ) : !live ? (
+              <div className="py-8 text-center text-[11px] text-rose-400">Could not load the open positions.</div>
+            ) : (
+              <>
+                <div className="text-[10px] text-slate-500 py-2.5">
+                  Every position that has not finished its window, newest pick first. Marked at the
+                  {data?.meta?.lastBarDate ? ` ${data.meta.lastBarDate} ` : ' last '}
+                  close — these are not intraday prices. <strong className="text-slate-400">Running</strong> and
+                  <strong className="text-slate-400"> pending</strong> are the ones still live; a position that already
+                  hit its target or its stop stays here until its window is up.
+                </div>
+                {/* Status chips: the book mixes still-live trades with decided
+                    ones, and "what is live" usually means the first two. */}
+                <div className="flex flex-wrap items-center gap-1.5 pb-2.5">
+                  {(['all', 'running', 'pending', 'target', 'stopped'] as const).map(k => {
+                    const n = k === 'all' ? live.open.length : live.open.filter(p => p.status === k).length;
+                    const on = liveStatus === k;
+                    return (
+                      <button
+                        key={k}
+                        onClick={() => setLiveStatus(k)}
+                        className={`px-2.5 py-1 rounded text-[10px] font-bold tracking-wide uppercase border transition-colors ${
+                          on ? 'bg-[#1e293b] text-indigo-400 border-indigo-500/30' : 'text-slate-500 border-white/5 hover:text-slate-300'
+                        }`}
+                      >
+                        {k === 'all' ? 'All' : STATUS_META[k]?.label ?? k} <span className="tabular-nums">{n}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <PositionTable
+                  showScan
+                  detail={{
+                    ...live,
+                    open: liveStatus === 'all' ? live.open : live.open.filter(p => p.status === liveStatus),
+                    closed: [],
+                  }}
+                />
+              </>
+            )}
+          </div>
         )}
       </div>
 
