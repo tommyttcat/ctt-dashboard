@@ -68,26 +68,30 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 import { fetchScannerLatest } from '@/lib/scannerLatest';
 import { useMarketData } from './MarketDataContext';
-import { stageColor, stageShort, stageDescription, stageBadge } from '@/lib/indicators/stage';
 import { rmeLabel } from '@/lib/indicators/rme';
-import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
-import { rsColor, rsTooltip, rsBadge } from '@/lib/indicators/rs';
 import { CatalystChip, NewsStars, catalystTooltip, isGenericCatalyst, hasNews } from '@/lib/catalyst';
 import { displaySector } from '@/lib/sectors';
-import {
-  chopColor,
-  chopTooltip,
-  CHOP_TREND_MAX,
-  CHOP_CHOP_MIN,
-} from '@/lib/indicators/chop';
+import { CHOP_TREND_MAX, CHOP_CHOP_MIN } from '@/lib/indicators/chop';
 import { SCANNER, COLUMN_NOTES, columnTip } from '@/lib/scanConfig';
-import TickerChartHover, { useFreezeWhileChartOpen, WatchlistBtn } from './TickerChartHover';
+import { useFreezeWhileChartOpen } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
-import { rvolColor as getRvolColor, adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, floatColor as getFloatColor, tickerChipForScore, tickerTitle, scoreCellCls } from '@/lib/indicators/columnColors';
 import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
 import { edgeTier, EDGE_FILTER_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import ScanStatsNote from './ScanStatsNote';
+import {
+  formatTime,
+  planShortOf, planBadgeOf, planSortValueOf, cnfBreakdownLines, matchesCapFilter,
+  CNF_BUCKETS, CNF_MIN_SCORE, ADR_BUCKETS, PLAN_BUCKETS, CAP_BUCKETS,
+  type TradePlanRow, type SortDirection, type CnfFilterType, type VwapFilterType,
+  type AdrFilterType, type PlanFilterType, type CapFilterType,
+} from '@/lib/scans/tableFormat';
+import {
+  SCAN, SortHeader, FilterPillGroup, BlueDot, RedDot,
+  ScoreCell, RsCell, PriceCell, ChgCell, Ema1021Cell, VolCell, DollarVolCell,
+  RvolCell, FloatCell, AdrCell, MfCell, StochCell, DtcCell, McapCell, StageCell, SectorCell,
+} from './scan/ScanTable';
+import { TickerCell } from './scan/TickerCell';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The setup name sits directly beneath it.' },
@@ -147,25 +151,6 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
 
 const colTip = (key: string): string | undefined => columnTip(key, FALLBACK_NOTES);
 
-interface TradePlanRow {
-  family?: string;
-  trigger?: number | null;
-  triggerLabel?: string;
-  trail?: number | null;
-  trailLabel?: string;
-  stop?: number | null;
-  stopPct?: number | null;
-  target?: number | null;
-  rMultiple?: number;
-  resistanceR?: number | null;
-  resistanceLabel?: string | null;
-  clear?: boolean;
-  collapsed?: boolean;
-  overextended?: boolean;
-  tradeable?: boolean;
-  note?: string;
-}
-
 interface SetupData {
   ticker: string;
   name: string;
@@ -215,21 +200,10 @@ interface SetupData {
   plan?: TradePlanRow | null;
 }
 
-type SortDirection = 'asc' | 'desc';
-type CnfFilterType = 'All' | 'A' | 'B';
-type VwapFilterType = 'All' | 'above' | 'below';
-type AdrFilterType = 'All' | '5' | '10';
-type PlanFilterType = 'All' | '1R' | '2R';
-type CapFilterType = 'All' | 'Small' | 'Large';
 type PostureFilterType = 'All' | 'first-touch' | 'stacked' | 'extended';
 type HoldFilterType = 'All' | 'DAY' | 'SWING';
 type ChopFilterType = 'All' | 'trend' | 'nochop';
 
-const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
-const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
-const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
-const PLAN_BUCKETS: PlanFilterType[] = ['1R', '2R'];
-const CAP_BUCKETS: CapFilterType[] = ['Small', 'Large'];
 const POSTURE_BUCKETS: PostureFilterType[] = ['first-touch', 'stacked', 'extended'];
 const HOLD_BUCKETS: HoldFilterType[] = ['DAY', 'SWING'];
 const CHOP_BUCKETS: ChopFilterType[] = ['trend', 'nochop'];
@@ -246,75 +220,16 @@ const CHOP_META: Record<ChopFilterType, { label: string; title: string }> = {
   },
 };
 
-const CNF_LABELS: Record<string, string> = {
-  rvol: 'Relative volume',
-  gap: 'Gap',
-  rangeExpansion: 'Range expansion',
-  relStrength: 'RS vs market',
-  catalyst: 'Catalyst',
-  earnings: 'Earnings proximity',
-  persistence: 'Scan persistence',
-  extension: 'Extension (RME)',
-  vwap: 'VWAP',
-  regime: 'Market regime',
-  sector: 'Sector heat',
-  moneyFlow: 'Money Flow',
-  dot: 'Blue dot',
-  reclaim: '10 EMA reclaimed',
-  runway: 'Runway to target',
-};
 
-const formatTime = (timestamp: number | Date) => {
-  if (!timestamp) return '';
-  const date = new Date(timestamp);
-  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
-};
 
-const formatNumber = (num: number | null) => {
-  if (num === null || num === 0 || isNaN(num)) return '—';
-  if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
-  if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
-  if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
-  return num.toLocaleString();
-};
 
-const formatCurrency = (num: number | null) => {
-  if (num === null || num === 0 || isNaN(num)) return '—';
-  if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
-  if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
-  return '$' + num.toLocaleString();
-};
 
 // Price levels drop the cents on anything three digits or more — at $886 the
 // pennies are noise, at $4.18 they are the whole trade.
-const formatLevel = (v: number | null | undefined): string => {
-  if (v == null || isNaN(Number(v))) return '—';
-  const n = Number(v);
-  if (n >= 100) return n.toFixed(0);
-  if (n >= 10) return n.toFixed(1);
-  return n.toFixed(2);
-};
-
-const statePair = (rmv: number | null, rme: number | null): string => {
-  const v = rmv == null ? '—' : String(Math.round(rmv));
-  const e = rme == null ? '—' : String(Math.round(rme));
-  return `${v}/${e}`;
-};
 
 
-const BlueDot = ({ className = '' }: { className?: string }) => (
-  <span
-    title="Blue Dot Reversal"
-    className={`inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)] align-middle shrink-0 ${className}`}
-  />
-);
 
-const RedDot = ({ className = '' }: { className?: string }) => (
-  <span
-    title="Red Dot — overbought reversal against a long"
-    className={`inline-block w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_5px_rgba(244,63,94,0.6)] align-middle shrink-0 ${className}`}
-  />
-);
+
 
 
 /* Mechanics live in @/lib/catalyst so all seven tables render a catalyst the
@@ -383,42 +298,12 @@ const planOf = (row: SetupData): TradePlanRow | null => {
   return p && typeof p === 'object' ? p : null;
 };
 
-const PLAN_SORT_CLEAR = 99;
-const PLAN_SORT_NONE = -1;
 
-const planSortValue = (row: SetupData): number => {
-  const p = planOf(row);
-  if (!p || p.tradeable !== true) return PLAN_SORT_NONE;
-  if (p.collapsed) return PLAN_SORT_NONE;
-  if (p.overextended) return PLAN_SORT_NONE;
-  if (p.clear) return p.resistanceR != null ? p.resistanceR : PLAN_SORT_CLEAR;
-  return p.resistanceR != null ? p.resistanceR : PLAN_SORT_NONE;
-};
+const planSortValue = (row: SetupData): number => planSortValueOf(planOf(row));
 
-const planShort = (row: SetupData): string => {
-  const p = planOf(row);
-  if (!p) return '—';
-  if (p.collapsed) return '✕';
-  if (p.tradeable !== true) return '—';
-  if (p.overextended) return 'EXT';
-  if (p.clear) return p.resistanceR != null ? `${p.resistanceR.toFixed(1)}R` : '2R+';
-  if (p.resistanceR == null) return '—';
-  return `${p.resistanceR.toFixed(1)}R`;
-};
+const planShort = (row: SetupData): string => planShortOf(planOf(row));
 
-const planBadge = (row: SetupData): string => {
-  const p = planOf(row);
-  if (!p) return 'bg-white/[0.02] text-slate-600 border-white/5';
-  if (p.collapsed) return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
-  if (p.tradeable !== true) return 'bg-white/[0.02] text-slate-600 border-white/5';
-  if (p.overextended) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-  if (p.clear) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-  const r = p.resistanceR;
-  if (r == null) return 'bg-white/[0.02] text-slate-600 border-white/5';
-  if (r >= 1.0) return 'bg-slate-500/10 text-slate-300 border-white/10';
-  if (r >= 0.5) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-  return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
-};
+const planBadge = (row: SetupData): string => planBadgeOf(planOf(row));
 
 // Holding period leads the tooltip. It also has its own filter now, but the
 // tooltip is where you are already looking when you care about the levels,
@@ -544,18 +429,7 @@ const cnfTooltip = (row: SetupData): string => {
     score != null ? `CNF ${score} — ${score >= 70 ? 'A' : score >= 50 ? 'B' : 'C'}` : 'CNF — not scored',
   ];
 
-  const bd = row.cnfBreakdown;
-  if (bd && typeof bd === 'object') {
-    const entries = Object.entries(bd)
-      .filter(([, v]) => typeof v === 'number' && v !== 0)
-      .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
-    if (entries.length > 0) {
-      lines.push('');
-      for (const [k, v] of entries) {
-        lines.push(`${v > 0 ? '+' : ''}${v}  ${CNF_LABELS[k] || k}`);
-      }
-    }
-  }
+  lines.push(...cnfBreakdownLines(row.cnfBreakdown));
 
   // A capped score is a different claim than a low one — the tape may have
   // scored well and been overruled. Say which.
@@ -758,13 +632,7 @@ export default function DailySetups() {
       filtered = filtered.filter(s => tradeTypeLabel(s.tradeType) === holdFilter);
     }
     if (marketCapFilter !== 'All') {
-      filtered = filtered.filter(s => {
-        const mc = s.mktCap;
-        if (!mc) return true;
-        if (marketCapFilter === 'Large') return mc >= 2e9;
-        if (marketCapFilter === 'Small') return mc < 2e9;
-        return true;
-      });
+      filtered = filtered.filter(s => matchesCapFilter(s.mktCap, marketCapFilter));
     }
     if (cnfFilter !== 'All') {
       const minScore = CNF_MIN_SCORE[cnfFilter];
@@ -860,10 +728,7 @@ export default function DailySetups() {
 
   const getSortIcon = (columnKey: string) => sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
-  const emaDot = (state: boolean | null | undefined) => {
-    if (state === null || state === undefined) return 'bg-slate-600';
-    return state ? 'bg-emerald-400' : 'bg-rose-500';
-  };
+  const { td: tdBase } = SCAN;
 
   const displaySession = ['Pre-Market', 'Open', 'Post-Market', 'Closed'].includes(session) ? session : 'Closed';
   const getSessionTextColor = () => {
@@ -873,22 +738,6 @@ export default function DailySetups() {
     return 'text-slate-500';
   };
 
-  const thBase = "px-0.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-center";
-  const tdBase = "px-0.5 pt-2.5 pb-1.5 text-center";
-
-  // STAGE: left-aligned + 9px so short codes sit against the left edge.
-  const thStage = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
-  const tdStage = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
-
-  // SECTOR: LEFT-aligned so it starts right after STAGE.
-  const thSector = "px-0.5 pl-1.5 py-2.5 text-[10px] text-slate-500 font-bold tracking-wide leading-tight cursor-pointer hover:text-slate-300 transition-colors text-left";
-  const tdSector = "px-0.5 pl-1.5 pt-2.5 pb-1.5 text-left";
-
-  const filterBtnActive = "bg-[#1e293b] text-indigo-400 border border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]";
-  const filterBtnIdle = "text-slate-500 border border-transparent hover:text-slate-300 hover:bg-white/[0.02]";
-  const pillWrap = "flex items-center gap-3 px-4 py-1 bg-[#161c2a] border border-white/5 rounded-lg shrink-0";
-  const pillLabel = "text-[11px] font-bold tracking-widest uppercase text-slate-400";
-  const pillBtn = "px-3 py-1 rounded-lg text-[11px] font-bold tracking-widest uppercase transition-all duration-300 whitespace-nowrap";
 
   const activeFilterCount =
     (postureFilter !== 'All' ? 1 : 0) +
@@ -994,120 +843,68 @@ export default function DailySetups() {
                 {/* POSTURE and CHOP lead together — they are the two questions
                     about whether a row is enterable at all. Posture asks where
                     price sits; chop asks whether the range resolves. */}
-                <div className={pillWrap}>
-                  <span className={pillLabel}>POSTURE</span>
-                  <div className="flex items-center gap-1">
-                    {POSTURE_BUCKETS.map((opt) => (
-                      <button
-                        key={opt}
-                        onClick={() => handlePostureFilter(opt)}
-                        title={POSTURE_META[opt].title}
-                        className={`${pillBtn} ${postureFilter === opt ? filterBtnActive : filterBtnIdle}`}
-                      >
-                        {POSTURE_META[opt].label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <FilterPillGroup
+                  label="POSTURE"
+                  options={POSTURE_BUCKETS}
+                  active={postureFilter}
+                  onSelect={handlePostureFilter}
+                  labelOf={(opt) => POSTURE_META[opt].label}
+                  titleOf={(opt) => POSTURE_META[opt].title}
+                />
                 {anyChop && (
-                  <div className={pillWrap}>
-                    <span className={pillLabel}>CHOP</span>
-                    <div className="flex items-center gap-1">
-                      {CHOP_BUCKETS.map((opt) => (
-                        <button
-                          key={opt}
-                          onClick={() => handleChopFilter(opt)}
-                          title={CHOP_META[opt].title}
-                          className={`${pillBtn} ${chopFilter === opt ? filterBtnActive : filterBtnIdle}`}
-                        >
-                          {CHOP_META[opt].label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  <FilterPillGroup
+                    label="CHOP"
+                    options={CHOP_BUCKETS}
+                    active={chopFilter}
+                    onSelect={handleChopFilter}
+                    labelOf={(opt) => CHOP_META[opt].label}
+                    titleOf={(opt) => CHOP_META[opt].title}
+                  />
                 )}
-                <div className={pillWrap}>
-                  <span className={pillLabel}>PLAN</span>
-                  <div className="flex items-center gap-1">
-                    {PLAN_BUCKETS.map((opt) => (
-                      <button
-                        key={opt}
-                        onClick={() => handlePlanFilter(opt)}
-                        title={opt === '2R'
-                          ? 'At least two stop-widths to the nearest overhead level, or clear air above the trigger'
-                          : 'At least one stop-width to the nearest overhead level'}
-                        className={`${pillBtn} ${planFilter === opt ? filterBtnActive : filterBtnIdle}`}
-                      >
-                        {opt === '1R' ? '1R+' : '2R+'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <FilterPillGroup
+                  label="PLAN"
+                  options={PLAN_BUCKETS}
+                  active={planFilter}
+                  onSelect={handlePlanFilter}
+                  labelOf={(opt) => (opt === '1R' ? '1R+' : '2R+')}
+                  titleOf={(opt) => (opt === '2R'
+                    ? 'At least two stop-widths to the nearest overhead level, or clear air above the trigger'
+                    : 'At least one stop-width to the nearest overhead level')}
+                />
                 {/* HOLD is unique to this table — SIPs has no tradeType. It is
                     also the group most worth pairing with CHOP: a swing hold
                     is exactly the exposure a churning range punishes. */}
-                <div className={pillWrap}>
-                  <span className={pillLabel}>HOLD</span>
-                  <div className="flex items-center gap-1">
-                    {HOLD_BUCKETS.map((opt) => (
-                      <button
-                        key={opt}
-                        onClick={() => handleHoldFilter(opt)}
-                        title={opt === 'DAY'
-                          ? 'Intraday only — the setup does not survive an overnight hold'
-                          : 'Multi-day hold viable. Worth pairing with the CHOP filter: a multi-day hold inside a churning range gives the range time to take it back.'}
-                        className={`${pillBtn} ${holdFilter === opt ? filterBtnActive : filterBtnIdle}`}
-                      >
-                        {opt}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>CNF</span>
-                  <div className="flex items-center gap-1">
-                    {CNF_BUCKETS.map((g) => (
-                      <button
-                        key={g}
-                        onClick={() => handleCnfFilter(g)}
-                        title={g === 'A' ? 'A only — CNF 70 and above' : 'B and above — includes A (CNF 50+)'}
-                        className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}
-                      >
-                        {g}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>ADR</span>
-                  <div className="flex items-center gap-1">
-                    {ADR_BUCKETS.map((opt) => (
-                      <button
-                        key={opt}
-                        onClick={() => handleAdrFilter(opt)}
-                        title={`20-day average daily range of ${opt}% and above — scan floor is 3%. Pair with the CHOP filter: a wide ADR that is also choppy is range without direction.`}
-                        className={`${pillBtn} ${adrFilter === opt ? filterBtnActive : filterBtnIdle}`}
-                      >
-                        {opt}%+
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>CAP</span>
-                  <div className="flex items-center gap-1">
-                    {CAP_BUCKETS.map((cap) => (
-                      <button
-                        key={cap}
-                        onClick={() => handleCapFilter(cap)}
-                        title={cap === 'Large' ? 'Market cap $2B and above' : 'Market cap under $2B'}
-                        className={`${pillBtn} ${marketCapFilter === cap ? filterBtnActive : filterBtnIdle}`}
-                      >
-                        {cap}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <FilterPillGroup
+                  label="HOLD"
+                  options={HOLD_BUCKETS}
+                  active={holdFilter}
+                  onSelect={handleHoldFilter}
+                  titleOf={(opt) => (opt === 'DAY'
+                    ? 'Intraday only — the setup does not survive an overnight hold'
+                    : 'Multi-day hold viable. Worth pairing with the CHOP filter: a multi-day hold inside a churning range gives the range time to take it back.')}
+                />
+                <FilterPillGroup
+                  label="CNF"
+                  options={CNF_BUCKETS}
+                  active={cnfFilter}
+                  onSelect={handleCnfFilter}
+                  titleOf={(g) => (g === 'A' ? 'A only — CNF 70 and above' : 'B and above — includes A (CNF 50+)')}
+                />
+                <FilterPillGroup
+                  label="ADR"
+                  options={ADR_BUCKETS}
+                  active={adrFilter}
+                  onSelect={handleAdrFilter}
+                  labelOf={(opt) => `${opt}%+`}
+                  titleOf={(opt) => `20-day average daily range of ${opt}% and above — scan floor is 3%. Pair with the CHOP filter: a wide ADR that is also choppy is range without direction.`}
+                />
+                <FilterPillGroup
+                  label="CAP"
+                  options={CAP_BUCKETS}
+                  active={marketCapFilter}
+                  onSelect={handleCapFilter}
+                  titleOf={(cap) => (cap === 'Large' ? 'Market cap $2B and above' : 'Market cap under $2B')}
+                />
               </div>
             )}
           </div>
@@ -1117,27 +914,27 @@ export default function DailySetups() {
             <table className="w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
-                  <th className={`${thBase} w-[7%] !text-left pl-1`} title={colTip('TICKER')} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
-                  <th className={`${thBase} w-[2%]`} title="News — ★ has an article, ★★ has a causal catalyst from a primary source">N</th>
-                  <th className={`${thBase} w-[4%]`} title={colTip('CNF')} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
-                  <th className={`${thBase} w-[4%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
-                  <th className={`${thBase} w-[6%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('10/21')}>10/21</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('VOL')} onClick={() => handleSort('vol')}>VOL{getSortIcon('vol')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('$VOL')} onClick={() => handleSort('dVol')}>$VOL{getSortIcon('dVol')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('RVOL')} onClick={() => handleSort('rvol')}>RVOL{getSortIcon('rvol')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('FLOAT')} onClick={() => handleSort('float')}>FLOAT{getSortIcon('float')}</th>
+                  <SortHeader label="TICKER" width="w-[7%]" className="!text-left pl-1" title={colTip('TICKER')} icon={getSortIcon('ticker')} onSort={() => handleSort('ticker')} />
+                  <SortHeader label="N" width="w-[2%]" title="News — ★ has an article, ★★ has a causal catalyst from a primary source" />
+                  <SortHeader label="CNF" width="w-[4%]" title={colTip('CNF')} icon={getSortIcon('conviction')} onSort={() => handleSort('conviction')} />
+                  <SortHeader label="RS" width="w-[4%]" title={colTip('RS')} icon={getSortIcon('rsRating')} onSort={() => handleSort('rsRating')} />
+                  <SortHeader label="PRICE" width="w-[6%]" title={colTip('PRICE')} icon={getSortIcon('price')} onSort={() => handleSort('price')} />
+                  <SortHeader label="CHG%" width="w-[5%]" title={colTip('CHG%')} icon={getSortIcon('changePct')} onSort={() => handleSort('changePct')} />
+                  <SortHeader label="10/21" width="w-[5%]" title={colTip('10/21')} />
+                  <SortHeader label="VOL" width="w-[5%]" title={colTip('VOL')} icon={getSortIcon('vol')} onSort={() => handleSort('vol')} />
+                  <SortHeader label="$VOL" width="w-[5%]" title={colTip('$VOL')} icon={getSortIcon('dVol')} onSort={() => handleSort('dVol')} />
+                  <SortHeader label="RVOL" width="w-[5%]" title={colTip('RVOL')} icon={getSortIcon('rvol')} onSort={() => handleSort('rvol')} />
+                  <SortHeader label="FLOAT" width="w-[5%]" title={colTip('FLOAT')} icon={getSortIcon('float')} onSort={() => handleSort('float')} />
                   {/* One header, two stacked readings. Clicking sorts by ADR;
                       CHOP is filtered rather than sorted, since a single
                       header cannot carry two sort keys. */}
-                  <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
-                  <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
-                  <th className={`${thStage} w-[5%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thSector} w-[7%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <SortHeader label="ADR" width="w-[5%]" title={colTip('ADR')} icon={getSortIcon('adrPct')} onSort={() => handleSort('adrPct')} />
+                  <SortHeader label="MF" width="w-[4%]" title={colTip('MF')} icon={getSortIcon('mf')} onSort={() => handleSort('mf')} />
+                  <SortHeader label="STOCH" width="w-[5%]" title={colTip('STOCH')} icon={getSortIcon('stochK')} onSort={() => handleSort('stochK')} />
+                  <SortHeader label="DTC" width="w-[5%]" title={colTip('DTC')} icon={getSortIcon('daysToCover')} onSort={() => handleSort('daysToCover')} />
+                  <SortHeader label="MCAP" width="w-[5%]" title={colTip('MCAP')} icon={getSortIcon('mktCap')} onSort={() => handleSort('mktCap')} />
+                  <SortHeader label="STAGE" width="w-[5%]" className="border-l border-white/5" variant="stage" title={colTip('STAGE')} icon={getSortIcon('stage')} onSort={() => handleSort('stage')} />
+                  <SortHeader label="SECTOR" width="w-[7%]" variant="sector" title={colTip('SECTOR')} icon={getSortIcon('sector')} onSort={() => handleSort('sector')} />
                 </tr>
               </thead>
 
@@ -1148,7 +945,6 @@ export default function DailySetups() {
                   <tr><td colSpan={18} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">{setups.length > 0 ? 'No names match the current filters.' : 'No active tracking items currently matching momentum criteria.'}</td></tr>
                 ) : (
                   filteredAndSortedSetups.map((row, i) => {
-                    const isPositive = row.changePct >= 0;
                     const tag = catalystTagOf(row);
                     const headline = headlineOf(row);
                     const sectorText = displaySector(row.sector, row.ticker);
@@ -1163,85 +959,37 @@ export default function DailySetups() {
                       <React.Fragment key={i}>
                         <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
                           title={tier ? `${tier.toUpperCase()} — ${EDGE_FILTER_TIP[tier]}` : undefined}>
-                          <td className={tdBase}>
-                            <div className="flex items-center justify-start gap-1.5">
-                              <WatchlistBtn symbol={row.ticker} />
-                              <TickerChartHover symbol={row.ticker}><span title={tickerTitle(row.name, row.ticker, row.conviction)} className={tickerChipForScore(row.conviction)}>{row.ticker}</span></TickerChartHover>
-                            </div>
-                          </td>
+                          <TickerCell symbol={row.ticker} name={row.name} score={row.conviction} />
                           <td className={tdBase}><NewsStars row={row} /></td>
-                          <td className={tdBase}>
-                            <span
-                              title={cnfTooltip(row)}
-                              className={scoreCellCls(row.conviction)}
-                            >
-                              {row.conviction != null ? row.conviction : '--'}
-                            </span>
-                          </td>
-                          <td className={`${tdBase} whitespace-nowrap`} title={rsTooltip(row.rsRating)}>
-                            <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${rsBadge(row.rsRating)}`}>{row.rsRating ?? '—'}</span>
-                          </td>
-                          <td className={`${tdBase} text-[10px] text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
-                            <div className="flex items-center justify-center gap-1">${row.price.toFixed(2)}{row.vwapStatus !== 'neutral' && (<div onClick={(e) => { e.stopPropagation(); toggleVwap(row.vwapStatus as 'above' | 'below'); }} className={`w-1.5 h-1.5 rounded-full shrink-0 cursor-pointer ${row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'} ${vwapFilter === row.vwapStatus ? 'ring-1 ring-white/40' : ''}`} title={`VWAP: ${row.vwapStatus} — click to filter`}></div>)}</div>
-                          </td>
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>{isPositive ? '+' : ''}{row.changePct.toFixed(2)}%</td>
+                          <ScoreCell value={row.conviction} title={cnfTooltip(row)} />
+                          <RsCell value={row.rsRating} />
+                          <PriceCell price={row.price} vwapStatus={row.vwapStatus} vwapFilter={vwapFilter} onToggleVwap={toggleVwap} />
+                          <ChgCell value={row.changePct} />
                           {/* The 10/21 dots ARE the posture read — above 21
                               and below 10 is a first touch, both green is
                               stacked. Hover states the bucket so the filter
                               and the column can never be read apart. */}
-                          <td className={`${tdBase} whitespace-nowrap`}>
-                            <div
-                              className="flex items-center justify-center gap-1"
-                              title={posture ? `Posture: ${POSTURE_META[posture as PostureFilterType]?.label ?? 'BELOW 21'}` : undefined}
-                            >
-                              <div className="flex items-center gap-px">
-                                <span className="text-[8px] font-bold text-slate-500">10</span>
-                                <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} title={`10 EMA: ${row.aboveEma10 == null ? 'n/a' : row.aboveEma10 ? 'above' : 'below'}`}></div>
-                              </div>
-                              <div className="flex items-center gap-px">
-                                <span className="text-[8px] font-bold text-slate-500">21</span>
-                                <div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma21)}`} title={`21 EMA: ${row.aboveEma21 == null ? 'n/a' : row.aboveEma21 ? 'above' : 'below'}`}></div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.vol)}</td>
-                          <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(row.dVol)}</td>
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol < 1 ? row.rvol.toFixed(1) : Math.round(row.rvol)}x` : '—'}</td>
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getFloatColor(row.float)}`}>{formatNumber(row.float)}</td>
+                          <Ema1021Cell
+                            above10={row.aboveEma10}
+                            above21={row.aboveEma21}
+                            title={posture ? `Posture: ${POSTURE_META[posture as PostureFilterType]?.label ?? 'BELOW 21'}` : undefined}
+                          />
+                          <VolCell value={row.vol} />
+                          <DollarVolCell value={row.dVol} />
+                          <RvolCell value={row.rvol} />
+                          <FloatCell value={row.float} />
                           {/* ADR over CHOP, one cell. See the v2.2 header: the
                               two are misleading apart, and separate columns
                               would let the eye take one without the other.
                               The word CHOP is printed so the second line is
                               self-explaining without a header change. */}
-                          <td
-                            className={`${tdBase} whitespace-nowrap tabular-nums cursor-help`}
-                            title={chopTooltip(chop, adr)}
-                          >
-                            <div className="flex flex-col leading-tight">
-                              <span className={`text-[10px] font-bold ${getAdrColor(adr)}`}>
-                                {adr != null ? `${adr.toFixed(1)}%` : '—'}
-                              </span>
-                            </div>
-                          </td>
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={mf != null ? `Money Flow ${mf.toFixed(0)} — ${mfLabel(mf)}` : undefined}>
-                            {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
-                          </td>
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getStochColor(row.stochK)}`}>{row.stochK != null ? row.stochK.toFixed(1) : '—'}</td>
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`}>
-                            {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
-                          </td>
-                          <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(row.mktCap)}</td>
-                          <td className={`${tdStage} whitespace-nowrap border-l border-white/5`}>
-                            <span
-                              title={stageDescription(row.stage)}
-                              className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums tracking-wide cursor-help ${stageBadge(row.stage)}`}
-                            >
-                              {stageShort(row.stage)}
-                            </span>
-                          </td>
-                          <td className={tdSector}>
-                            <span title={sectorText} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{sectorText}</span>
-                          </td>
+                          <AdrCell adr={adr} chop={chop} />
+                          <MfCell value={mf} trend={row.mfTrend} />
+                          <StochCell value={row.stochK} />
+                          <DtcCell value={row.daysToCover} />
+                          <McapCell value={row.mktCap} />
+                          <StageCell stage={row.stage} />
+                          <SectorCell text={sectorText} />
                         </tr>
                         {/* Sub-row starts at column 1 so the setup name sits
                             directly under the ticker. Order down the left edge:
