@@ -62,6 +62,19 @@ function weekRange(now: Date): string {
 
 const cnfTone = (v: number) => (v >= 70 ? green : v >= 50 ? amber : muted);
 
+/* The narrative writes its headings for the POST, where each one sits under
+   its own ticker sub-head: "HOOD — Top of the board, but it already went
+   (CNF 97 · A)". On the card the ticker is already the biggest thing in the
+   row and the score is already a badge, so that prefix and suffix would
+   print the ticker twice and the score three times, in the one place with no
+   room to spare. Strip both and let the line be the reason. */
+function headingText(raw: string, ticker: string): string {
+  return raw
+    .replace(new RegExp(`^\\s*\\$?${ticker}\\s*[—–-]\\s*`, 'i'), '')
+    .replace(/\s*\((?:CNF\s*)?\d+(?:\s*[·|,/]\s*[A-F][+-]?)?\)\s*$/i, '')
+    .trim();
+}
+
 /* The heading is editorial prose of unknown length and the row gives it one
    line. Cut on a word so a clipped line never ends mid-word. */
 function clip(s: string, max: number): string {
@@ -132,7 +145,7 @@ export async function GET(req: Request) {
                 }}>{Math.round(score)}</div>
               )}
               <div style={{ display: 'flex', flex: 1, fontSize: 21, color: subtle }}>
-                {clip(s.heading || '', score != null ? 58 : 66)}
+                {clip(headingText(s.heading || '', ticker), score != null ? 64 : 72)}
               </div>
             </div>
           );
