@@ -213,8 +213,29 @@ function resolveOrigin(req: Request): string {
   return `${proto}://${host}`;
 }
 
+/* Who may write here. Both write paths take the same key.
+
+   `force` USED TO SKIP THIS CHECK — the condition was
+   `if (!preview && !force && secret)` — which meant
+   `?force=1&publish=1` published a post to Substack and fired the X and
+   Bluesky shares for anyone who typed the URL, no credential at all. `force`
+   means "ignore the once-a-day lock", and it should never have meant "and
+   also skip the door".
+
+   Accepts SOCIAL_POST_KEY or CRON_SECRET: the Saturday routine carries the
+   former, and anything invoked as a Vercel cron arrives with the latter. */
+function authorized(req: Request): boolean {
+  const keys = [process.env.SOCIAL_POST_KEY, process.env.CRON_SECRET].filter(Boolean) as string[];
+  if (keys.length === 0) return true;  // nothing configured — as open as it was before
+  const provided = (req.headers.get('authorization') || '').replace('Bearer ', '');
+  return keys.some(k => provided === k);
+}
+
 /* ── POST: store the generated narrative ── */
 export async function POST(req: Request) {
+  /* This stores the narrative that BECOMES next Saturday's post. It had no
+     check of any kind, so anyone could overwrite what CTT publishes. */
+  if (!authorized(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   try {
     const body = (await req.json()) as Narrative;
     if (!body || !body.title || !Array.isArray(body.setups) || !body.setups.length) {
@@ -233,13 +254,10 @@ export async function GET(req: Request) {
   const preview = url.searchParams.get('preview') === '1';
   const publish = url.searchParams.get('publish') === '1';
   const send = url.searchParams.get('send') === '1';   // default OFF: no subscriber email
-  const force = url.searchParams.get('force') === '1';
 
-  const secret = process.env.CRON_SECRET;
-  if (!preview && !force && secret) {
-    if ((req.headers.get('authorization') || '') !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-    }
+  // `preview` is read-only and stays open; everything else writes or publishes.
+  if (!preview && !authorized(req)) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
   const origin = resolveOrigin(req);
@@ -300,9 +318,14 @@ export async function GET(req: Request) {
     return NextResponse.json({ success: true, draftId: draft.id, published: false, coverUploaded: !!coverCdn, note: 'Draft created. Add ?publish=1 to publish.' });
   }
 
-  // Idempotency lock — one publish per ET day, independent of `force`. `force`
-  // only bypasses auth (the cloud routine has no secret header); it must never
-  // enable a double-publish if the routine retries mid-run.
+  /* Idempotency lock — one publish per ET day, so a routine that retries
+     mid-run cannot double-publish.
+
+     There used to be a `force` parameter here. It did NOT bypass this lock;
+     its only effect was skipping the auth check, because the cloud routine
+     had no secret to send. The routine now carries SOCIAL_POST_KEY, so the
+     parameter is gone rather than left lying around as a lever that reads
+     like it overrides the lock. A stray `&force=1` in a caller is ignored. */
   const locked = await kv.set(subKey, 1, { nx: true, ex: 86400 });
   if (!locked) return NextResponse.json({ skipped: true, reason: 'Top Setups already published today' });
 
