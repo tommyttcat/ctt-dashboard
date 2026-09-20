@@ -11,7 +11,7 @@ export const maxDuration = 60;
    Mirrors the Weekly Wrap flow. A Saturday cloud routine writes the prose
    (model output lives in the cloud, never in a Vercel/Anthropic-API call),
    POSTs it here to store in KV, then GET ?publish=1 builds the Substack post,
-   attaches a live screenshot of the Daily Setups scanner as the cover,
+   attaches the weekly Top Setups card (/api/og/top-setups) as the cover,
    publishes, and shares the post link + tags to X and Bluesky.
 
    send defaults to OFF: publish to the Substack site + archive without emailing
@@ -186,16 +186,20 @@ function socialText(n: Narrative, postUrl: string, max: number, maxCashtags = 99
   return `${head}\n\n${tail}`;
 }
 
+/* The cover is the week's five names, drawn by /api/og/top-setups from the
+   same KV narrative this post is built from.
+
+   IT USED TO BE A SCREENSHOT of the live Daily Setups scanner
+   (/api/og/screenshot against /scanners?expand=1, 1400x1700). That picture
+   was wrong three ways: on a Saturday the scanner holds FRIDAY'S session
+   while this post recaps a WEEK, eighteen columns of 10px text are
+   unreadable at feed thumbnail size, and it made the weekly flagship look
+   identical to the daily posts. The card is 1200x630 — the landscape ratio
+   X, Bluesky and Substack all take without cropping — and it cannot
+   disagree with the body, because it reads the body's own source. */
 async function fetchCover(origin: string): Promise<ArrayBuffer | null> {
   try {
-    // Screenshot the live Daily Setups scanner (expanded). The screenshot route
-    // appends _ss=CRON_SECRET for confluencetradingtools.com hosts, which the
-    // middleware honors to grant headless access to the gated /scanners page.
-    const boardUrl = 'https://app.confluencetradingtools.com/scanners?expand=1';
-    const shotUrl = `${origin}/api/og/screenshot?force=1&w=1400&h=1700`
-      + `&url=${encodeURIComponent(boardUrl)}`
-      + `&selector=${encodeURIComponent('#daily-setups-card')}&minText=200`;
-    const res = await fetch(shotUrl, { cache: 'no-store' });
+    const res = await fetch(`${origin}/api/og/top-setups`, { cache: 'no-store' });
     if (!res.ok || !res.headers.get('content-type')?.includes('image')) return null;
     return await res.arrayBuffer();
   } catch { return null; }
@@ -245,7 +249,16 @@ export async function GET(req: Request) {
   }
 
   if (preview) {
-    return NextResponse.json({ title: n.title, subtitle: n.subtitle, setups: n.setups.map(s => s.heading), tags: n.tags, cashtags: n.cashtags, hashtags: n.hashtags });
+    /* The cover is fetched here too, and reported as a byte count, so that
+       "does the post still have a picture" is answerable BEFORE Saturday
+       rather than after. A null means fetchCover returned nothing and the
+       post would publish coverless — which is silent in every other view. */
+    const coverBuf = await fetchCover(origin);
+    return NextResponse.json({
+      title: n.title, subtitle: n.subtitle, setups: n.setups.map(s => s.heading),
+      tags: n.tags, cashtags: n.cashtags, hashtags: n.hashtags,
+      cover: coverBuf ? { source: '/api/og/top-setups', bytes: coverBuf.byteLength } : null,
+    });
   }
 
   // X-only retry — reshare the last published post to X without republishing
