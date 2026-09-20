@@ -413,11 +413,15 @@ export default function TrackRecord() {
       <div className="mb-4 px-3 md:px-5 py-3 bg-slate-900/50 border border-white/[0.06] rounded-lg">
         <p className="text-[10px] text-slate-400 leading-relaxed">
           Every name each scan publishes is recorded the evening it appears, before anything is known about
-          what it does next. Entry is the <strong className="text-slate-200">next session&apos;s open</strong>;
-          the stop is the row&apos;s own plan stop, or that day&apos;s low when it has none; a trade settles at
-          the 2R target, the stop, or the close of the 20th session — whichever comes first. Nothing is added
-          later, nothing is removed for looking bad, and the five-year backtest figure sits beside the live one
-          so you can see which scans are keeping up with their own test.
+          what it does next. Entry is the <strong className="text-slate-200">next session&apos;s open</strong> —
+          <strong className="text-slate-200"> it does not wait for the trigger</strong> the scan names, so a
+          setup that never traded its level is in here too, bought at the open and judged from there. That is
+          deliberate: the next open is the one entry that can be recorded without a judgement call, and it was
+          the best entry the five-year backtest measured. The stop is the row&apos;s own plan stop, or that
+          day&apos;s low when it has none; a position closes at the 2R target, at the stop, or at the end of its
+          60-session window, and the Hold 20 column is a second, fixed-length read of the same trade. Nothing is
+          added later, nothing is removed for looking bad, and the five-year backtest figure sits beside the
+          live one so you can see which scans are keeping up with their own test.
         </p>
         <p className="text-[10px] text-slate-500 leading-relaxed mt-2">
           Costs are not modelled. Early samples are far too small to conclude anything from — a scan needs
@@ -547,6 +551,24 @@ export default function TrackRecord() {
                 const detail = details[scan];
                 const isReturn = mode === 'return';
                 const interim = r?.interim ?? null;
+                /* Which numbers this row can honestly show. Settled ones when
+                   they exist; otherwise the in-progress ones, marked, because
+                   a column of em dashes for three months reads as "this does
+                   not work" when the truth is "the window has not closed". */
+                const fromInterim = (r?.settled ?? 0) === 0 && (interim?.n ?? 0) > 0;
+                const src: Interim | ScanRecord | null = fromInterim ? interim : (r ?? null);
+                const m = {
+                  winRate: src?.winRate ?? null,
+                  fixedAvgR: src?.fixedAvgR ?? null,
+                  hold20AvgR: src?.hold20AvgR ?? null,
+                  hrRate: src?.hrRate ?? null,
+                  retAvgPct: src?.retAvgPct ?? null,
+                  doubleRate: src?.doubleRate ?? null,
+                  mark: fromInterim ? <span className="text-amber-400/70 font-normal" aria-hidden>*</span> : null,
+                  tip: (base: string) => (fromInterim
+                    ? `${base}. IN PROGRESS: ${interim?.n} trade${interim?.n === 1 ? '' : 's'} whose bracket has resolved but whose window has not closed. Not a settled figure.`
+                    : base),
+                };
                 return (
                   <React.Fragment key={scan}>
                     <tr
@@ -558,24 +580,29 @@ export default function TrackRecord() {
                         <span className={`inline-block mr-1.5 text-slate-500 transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}>▸</span>
                         {label}
                       </td>
+                      {/* A settled number needs the full 60-session window, and
+                          tracking began in September — so for the first three
+                          months these columns were all empty while `interim`
+                          quietly held real, resolved results. Show those, marked,
+                          rather than showing nothing. */}
                       <td className={`${TD} text-slate-300`}>{r?.picks ?? 0}</td>
                       <td className={`${TD} text-slate-400`}>{openByScan[scan] ?? 0}</td>
                       <td className={`${TD} text-slate-400`}>{r?.settled ?? 0}</td>
                       {isReturn ? (
                         <>
                           <td className={`${TD} text-slate-600`} title="No stop in this screen's measurement, so there is no win rate to report">—</td>
-                          <td className={`${TD} font-semibold ${rCls(r?.retAvgPct)}`} title="Average return since the pick — this row is measured in percent over 12 months, not in R">
-                            {r?.retAvgPct == null ? '—' : `${r.retAvgPct >= 0 ? '+' : ''}${r.retAvgPct.toFixed(1)}%`}
+                          <td className={`${TD} font-semibold ${rCls(m.retAvgPct)}`} title={m.tip('Average return since the pick — this row is measured in percent over 12 months, not in R')}>
+                            {m.retAvgPct == null ? '—' : `${m.retAvgPct >= 0 ? '+' : ''}${m.retAvgPct.toFixed(1)}%`}{m.mark}
                           </td>
                           <td className={`${TD} text-slate-600`} title="A 20-session hold means nothing on a 12-month screen">—</td>
-                          <td className={`${TD} text-slate-300`} title="Share that doubled — the bar this screen was measured against (5.8% universe base rate)">{fmtPct(r?.doubleRate)}</td>
+                          <td className={`${TD} text-slate-300`} title={m.tip('Share that doubled — the bar this screen was measured against (5.8% universe base rate)')}>{fmtPct(m.doubleRate)}{m.mark}</td>
                         </>
                       ) : (
                         <>
-                          <td className={`${TD} text-slate-300`}>{fmtPct(r?.winRate)}</td>
-                          <td className={`${TD} font-semibold ${rCls(r?.fixedAvgR)}`}>{fmtR(r?.fixedAvgR)}</td>
-                          <td className={`${TD} font-semibold ${rCls(r?.hold20AvgR)}`}>{fmtR(r?.hold20AvgR)}</td>
-                          <td className={`${TD} text-slate-300`}>{fmtPct(r?.hrRate)}</td>
+                          <td className={`${TD} text-slate-300`} title={m.tip('Share of trades that closed positive')}>{fmtPct(m.winRate)}{m.mark}</td>
+                          <td className={`${TD} font-semibold ${rCls(m.fixedAvgR)}`} title={m.tip('Average R on the 2R-or-stop bracket')}>{fmtR(m.fixedAvgR)}{m.mark}</td>
+                          <td className={`${TD} font-semibold ${rCls(m.hold20AvgR)}`} title={m.tip('Average R at the close of the 20th session')}>{fmtR(m.hold20AvgR)}{m.mark}</td>
+                          <td className={`${TD} text-slate-300`} title={m.tip('Share that ran +50% before the stop')}>{fmtPct(m.hrRate)}{m.mark}</td>
                         </>
                       )}
                       <td className={`${TD} text-slate-500`} title={SCAN_STATS[stat].detail}>
@@ -649,6 +676,17 @@ export default function TrackRecord() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* The marker's meaning, next to the marks rather than buried above. */}
+      {!loading && !error && totalPicks > 0 && (
+        <p className="mt-2 text-[10px] text-slate-500 leading-relaxed">
+          <span className="text-amber-400/70">*</span> in progress — the trade&apos;s bracket has resolved but its
+          60-session window has not closed, so it is not a settled figure yet. A settled number needs the whole
+          window; tracking began in September, so the first ones appear around the start of December. Until then
+          these are the real results of trades that have already hit their target or their stop, which is a truer
+          picture than an empty column.
+        </p>
       )}
 
       <p className="mt-4 text-[10px] text-slate-600 leading-relaxed">
