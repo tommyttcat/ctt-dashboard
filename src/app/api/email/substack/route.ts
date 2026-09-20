@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { internalAuthHeaders } from '@/lib/apiAuth';
 import { kv } from '@vercel/kv';
 import { stampLogo, fetchImageBytes, socialImage } from '@/lib/socialCover';
 
@@ -774,10 +775,11 @@ export async function GET(req: Request) {
     const tapeKey = phase || ['closing', 'power', 'midday', 'morning', 'pre'].find(k => su[k]);
     if (!tapeKey) throw new Error('no phase and no populated sessionUpdates for tape selector');
     const tapePageUrl = `${origin}/api/og/tape?phase=${tapeKey}`;
-    const screenshotUrl = `${origin}/api/og/screenshot?force=1`
-      + `&url=${encodeURIComponent(tapePageUrl)}`
+    const screenshotUrl = `${origin}/api/og/screenshot`
+      + `?url=${encodeURIComponent(tapePageUrl)}`
       + `&w=800&h=1200&selector=${encodeURIComponent('#tape-card')}&minText=80`;
-    const imgRes = await fetch(screenshotUrl, { cache: 'no-store' });
+    // That route renders a gated page, so it takes a key now.
+    const imgRes = await fetch(screenshotUrl, { cache: 'no-store', headers: internalAuthHeaders() });
     if (!imgRes.ok) throw new Error(`tape screenshot ${imgRes.status}`);
     if (!imgRes.headers.get('content-type')?.includes('image')) {
       throw new Error(`tape screenshot returned ${imgRes.headers.get('content-type')}`);

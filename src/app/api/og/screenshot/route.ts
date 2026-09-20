@@ -1,3 +1,4 @@
+import { authorized } from '@/lib/apiAuth';
 import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
 
@@ -22,13 +23,15 @@ export async function GET(req: Request) {
   // Pass minText=0 to opt a non-text element out of the check.
   const minText = parseInt(url.searchParams.get('minText') || '120');
 
-  const secret = process.env.CRON_SECRET;
-  const force = url.searchParams.get('force') === '1';
-  if (!force && secret) {
-    const auth = req.headers.get('authorization') || '';
-    if (auth !== `Bearer ${secret}`) {
-      return new Response('unauthorized', { status: 401 });
-    }
+  /* THIS ROUTE CAN READ PAST THE PAYWALL. It appends `_ss=CRON_SECRET` to the
+     target above, which the middleware honours, so it renders subscriber-only
+     pages. `?force=1` used to skip the check below — meaning anyone who knew
+     the URL could have any gated page rendered to a PNG: the dashboard, the
+     scanners, the briefing. The parameter is gone; its only effect was
+     skipping the door. Both callers (the scorecard post and the Substack
+     cover) run server-side and now send the key. */
+  if (!authorized(req)) {
+    return new Response('unauthorized', { status: 401 });
   }
 
   let browser;

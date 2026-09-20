@@ -36,3 +36,14 @@ export function authorized(req: Request): boolean {
   const provided = (req.headers.get('authorization') || '').replace('Bearer ', '');
   return keys.some(k => provided === k);
 }
+
+/* Header for one of our own routes calling another. The screenshot route is
+   the case that needs it: it injects `_ss=CRON_SECRET` into the page it
+   loads, so it can render a PAYWALLED page, and it used to accept `?force=1`
+   instead of a credential — which turned it into a public reader for any
+   gated page on the site. Its callers are server-side, so unlike a cloud
+   routine they can simply hold the key. */
+export function internalAuthHeaders(): Record<string, string> {
+  const key = process.env.SOCIAL_POST_KEY || process.env.CRON_SECRET || '';
+  return key ? { authorization: `Bearer ${key}` } : {};
+}

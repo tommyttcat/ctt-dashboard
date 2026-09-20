@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { authorized } from '@/lib/apiAuth';
+import { authorized, internalAuthHeaders } from '@/lib/apiAuth';
 import { etGate } from '@/lib/etCron';
 import { kv } from '@vercel/kv';
 import { postToBluesky } from '@/lib/bluesky';
@@ -240,10 +240,11 @@ export function composeBlurb(
 
 async function fetchCard(origin: string): Promise<Uint8Array | null> {
   try {
-    const shot = `${origin}/api/og/screenshot?force=1&w=1600&h=1100`
+    const shot = `${origin}/api/og/screenshot?w=1600&h=1100`
       + `&url=${encodeURIComponent(CARD_URL)}`
       + `&selector=${encodeURIComponent(SELECTOR)}&minText=200`;
-    const res = await fetch(shot, { cache: 'no-store' });
+    // That route renders a gated page, so it takes a key now.
+    const res = await fetch(shot, { cache: 'no-store', headers: internalAuthHeaders() });
     if (!res.ok || !res.headers.get('content-type')?.includes('image')) return null;
     return new Uint8Array(await res.arrayBuffer());
   } catch { return null; }
