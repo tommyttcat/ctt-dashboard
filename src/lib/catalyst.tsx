@@ -131,12 +131,19 @@ export function CatalystChip({
   note,
   neutralNote,
   className = '',
+  size = 'xs',
 }: {
   row: CatalystRow;
   headline?: string | null;
   note?: string;
   neutralNote?: string;
   className?: string;
+  /* 'xs' is the table cell, where the chip shares a row with 10px numbers and
+     has to give way to them. 'sm' is for prose — the news page, where the chip
+     is one of the few badges on the line and a 7px one would be the odd size
+     out. Both are written in full because a class built by concatenation is
+     invisible to Tailwind's scanner. */
+  size?: 'xs' | 'sm';
 }) {
   const tag = baseTag(row.catalyst);
   if (isGenericCatalyst(tag) || !hasNews(row, headline)) return null;
@@ -153,7 +160,9 @@ export function CatalystChip({
 
   const chipEl = (
     <span
-      className={`inline-block rounded border px-1 leading-none text-[7px] font-bold tracking-wide ${cls} ${delayed ? 'opacity-60' : ''} ${className}`}
+      className={`inline-block rounded border font-bold tracking-wide ${
+        size === 'sm' ? 'px-1 py-[1px] text-[9px] leading-none' : 'px-1 leading-none text-[7px]'
+      } ${cls} ${delayed ? 'opacity-60' : ''} ${className}`}
       title={catalystTooltip(row, { headline, note, neutralNote })}
     >
       {chip.label}

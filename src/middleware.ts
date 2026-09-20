@@ -10,6 +10,9 @@ const ROUTE_TIERS: [string, string[]][] = [
   ['/admin', ['__admin__']],
   ['/dashboard', [...FULL_ACCESS_TIERS, 'core']],
   ['/analyst', [...FULL_ACCESS_TIERS, 'core']],
+  /* Built entirely from the scan pool the dashboard already shows core, so
+     it is gated the same way rather than one tier tighter. */
+  ['/news', [...FULL_ACCESS_TIERS, 'core']],
   ['/confluence', [...FULL_ACCESS_TIERS]],
   /* The track record is the credibility surface — every paying tier sees it,
      including core, the same as the dashboard and the briefing. */
@@ -95,5 +98,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/login', '/dashboard', '/analyst', '/confluence', '/track', '/scanners', '/admin', '/invite'],
+  matcher: ['/', '/login', '/dashboard', '/analyst', '/news', '/confluence', '/track', '/scanners', '/admin', '/invite'],
 };
