@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { authorized } from '@/lib/apiAuth';
 import { etGate } from '@/lib/etCron';
 import { Resend } from 'resend';
 import { getEmailRecipients } from '@/lib/users';
@@ -688,9 +689,14 @@ export async function GET(req: Request) {
     const gate = etGate([17], 'weekly summary');
     if (gate) return gate;
   }
-  const cronSecret = process.env.CRON_SECRET;
-  const authHeader = req.headers.get('authorization');
-  if (cronSecret && !preview && !test && !force && authHeader !== `Bearer ${cronSecret}`) {
+  /* `force` and `test` used to skip this check as well as the clock gate
+     above, which meant `?force=1` let anyone send the weekly wrap to every
+     subscriber and push it to Substack, X and Bluesky.
+
+     `force` KEEPS its real job — the routine fires at 15:00 ET and needs it
+     to pass the 17:00 ET gate — it just no longer opens the door on the way
+     through. `preview` stays open: it renders the email and sends nothing. */
+  if (!preview && !authorized(req)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
@@ -1075,6 +1081,9 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  /* This stores the narrative the wrap is written from. It had no check, so
+     anyone could put words in Sunday's email to every subscriber. */
+  if (!authorized(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   try {
     const narrative = await req.json();
     if (!narrative?.priceAction) {
