@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { authorized } from '@/lib/apiAuth';
 import { etGate } from '@/lib/etCron';
 import { kv } from '@vercel/kv';
 import { postToBluesky } from '@/lib/bluesky';
@@ -263,11 +264,12 @@ export async function GET(req: Request) {
     if (gate) return gate;
   }
 
-  const secret = process.env.CRON_SECRET;
-  if (!preview && !force && secret) {
-    if ((req.headers.get('authorization') || '') !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-    }
+  /* `force` used to skip this check, which meant anyone could fire the
+     scorecard post to X and Bluesky by typing a URL. It now only does what
+     its name says. `preview` stays open: it renders a caption, posts
+     nothing. */
+  if (!preview && !authorized(req)) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
   const today = etDateString();
@@ -354,12 +356,19 @@ async function publish(opts: {
   });
 }
 
-/* The cloud routine posts here with its own caption. Unauthenticated, the same
-   way /api/analyst/brief accepts the analyst routine's POST — a cloud routine
-   has no way to hold CRON_SECRET, and putting one in a routine prompt would be
-   a plaintext credential. The NX lock means a replay cannot post twice, and the
-   copy is validated before it reaches a feed. */
+/* The cloud routine posts its caption here, and this call reaches X and
+   Bluesky.
+
+   IT USED TO BE UNAUTHENTICATED, on the reasoning written here before: a
+   cloud routine cannot hold CRON_SECRET, and a plaintext credential in a
+   routine prompt seemed worse than an open door. The NX lock and the copy
+   validation were the compensating controls.
+
+   That trade was real but it was the wrong way round — the lock stops a
+   replay, not a stranger's first post. SOCIAL_POST_KEY is the key a routine
+   CAN carry, and the routine now sends it. */
 export async function POST(req: Request) {
+  if (!authorized(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   try {
     const body = await req.json().catch(() => null);
     const slot = (body?.slot || '') as Slot;

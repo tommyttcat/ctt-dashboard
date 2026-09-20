@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { authorized } from '@/lib/apiAuth';
 import { kv } from '@vercel/kv';
 import { postToX } from '@/lib/twitter';
 import { postToBluesky } from '@/lib/bluesky';
@@ -211,24 +212,6 @@ function resolveOrigin(req: Request): string {
   const host = h.get('x-forwarded-host') || h.get('host') || 'localhost:3000';
   const proto = h.get('x-forwarded-proto') || (host.startsWith('localhost') ? 'http' : 'https');
   return `${proto}://${host}`;
-}
-
-/* Who may write here. Both write paths take the same key.
-
-   `force` USED TO SKIP THIS CHECK — the condition was
-   `if (!preview && !force && secret)` — which meant
-   `?force=1&publish=1` published a post to Substack and fired the X and
-   Bluesky shares for anyone who typed the URL, no credential at all. `force`
-   means "ignore the once-a-day lock", and it should never have meant "and
-   also skip the door".
-
-   Accepts SOCIAL_POST_KEY or CRON_SECRET: the Saturday routine carries the
-   former, and anything invoked as a Vercel cron arrives with the latter. */
-function authorized(req: Request): boolean {
-  const keys = [process.env.SOCIAL_POST_KEY, process.env.CRON_SECRET].filter(Boolean) as string[];
-  if (keys.length === 0) return true;  // nothing configured — as open as it was before
-  const provided = (req.headers.get('authorization') || '').replace('Bearer ', '');
-  return keys.some(k => provided === k);
 }
 
 /* ── POST: store the generated narrative ── */
