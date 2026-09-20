@@ -21,7 +21,7 @@ import { stageColor as stgColor, stageBadge, stageShort as stgShort, stageDescri
 import { rvolColorLowFloor as rvolColor, tickerChipCls, scoreCellCls } from '@/lib/indicators/columnColors';
 import { displaySector } from '@/lib/sectors';
 import ScanStatsNote from './ScanStatsNote';
-import { SCAN } from './scan/ScanTable';
+import { SCAN, VolCell, DollarVolCell } from './scan/ScanTable';
 
 const ATTR_LABELS: Record<string, string> = {
   revenueGrowth: 'Revenue Growth',
@@ -148,19 +148,6 @@ const chgColor = (v: number): string => {
   return 'text-red-500';
 };
 
-
-const fmtVol = (v: number): string => {
-  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
-  if (v >= 1e3) return `${(v / 1e3).toFixed(0)}K`;
-  return String(v);
-};
-
-const fmtDvol = (v: number): string => {
-  if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
-  if (v >= 1e6) return `$${(v / 1e6).toFixed(0)}M`;
-  if (v >= 1e3) return `$${(v / 1e3).toFixed(0)}K`;
-  return `$${v}`;
-};
 
 type SortKey = 'score' | 'chg' | 'vol' | 'dvol' | 'rvol' | 'rs' | 'stage' | 'revGrowth' | 'roic' | 'debt' | 'pe' | 'mcap' | 'fcf';
 type GradeFilter = 'All' | 'A' | 'B';
@@ -655,14 +642,10 @@ export default function Multibagger() {
                         </td>
 
                         {/* Volume */}
-                        <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums hidden md:table-cell`}>
-                          {fmtVol(c.vol)}
-                        </td>
+                        <VolCell value={c.vol} className="hidden md:table-cell" />
 
                         {/* Dollar Volume */}
-                        <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums hidden md:table-cell`}>
-                          {fmtDvol(c.dvol)}
-                        </td>
+                        <DollarVolCell value={c.dvol} className="hidden md:table-cell" />
 
                         {/* RVol */}
                         <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${rvolColor(c.rvol)}`}>
