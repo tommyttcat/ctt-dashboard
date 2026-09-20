@@ -555,7 +555,7 @@ export default function SetupConfluence() {
                               </td>
 
                               {/* Price + VWAP dot */}
-                              <td className={`${tdBase} text-[11px] font-semibold tabular-nums text-slate-200`}>
+                              <td className={`${tdBase} text-[10px] font-semibold tabular-nums text-slate-200`}>
                                 {row.price >= 100 ? row.price.toFixed(0) : row.price >= 10 ? row.price.toFixed(1) : row.price.toFixed(2)}
                                 {row.vwapStatus && (
                                   <span className={`inline-block w-1.5 h-1.5 rounded-full ml-1 align-middle ${
@@ -565,7 +565,7 @@ export default function SetupConfluence() {
                               </td>
 
                               {/* CHG% */}
-                              <td className={`${tdBase} text-[11px] font-semibold tabular-nums ${changeColor(row.changePct)}`}>
+                              <td className={`${tdBase} text-[10px] font-semibold tabular-nums ${changeColor(row.changePct)}`}>
                                 {row.changePct >= 0 ? '+' : ''}{row.changePct.toFixed(1)}%
                               </td>
 
@@ -580,32 +580,32 @@ export default function SetupConfluence() {
                               </td>
 
                               {/* VOL */}
-                              <td className={`${tdBase} text-[11px] text-slate-400 tabular-nums`}>
+                              <td className={`${tdBase} text-[10px] text-slate-400 tabular-nums`}>
                                 {formatNumber(row.vol)}
                               </td>
 
                               {/* $VOL */}
-                              <td className={`${tdBase} text-[11px] text-slate-400 tabular-nums`}>
+                              <td className={`${tdBase} text-[10px] text-slate-400 tabular-nums`}>
                                 {formatCurrency(row.dVol)}
                               </td>
 
                               {/* RVOL */}
-                              <td className={`${tdBase} text-[11px] font-semibold tabular-nums ${getRvolColor(row.rvol)}`}>
+                              <td className={`${tdBase} text-[10px] font-semibold tabular-nums ${getRvolColor(row.rvol)}`}>
                                 {row.rvol != null ? row.rvol.toFixed(1) + 'x' : '—'}
                               </td>
 
                               {/* FLOAT */}
-                              <td className={`${tdBase} text-[11px] tabular-nums ${getFloatColor(row.float)}`}>
+                              <td className={`${tdBase} text-[10px] tabular-nums ${getFloatColor(row.float)}`}>
                                 {formatNumber(row.float)}
                               </td>
 
                               {/* ADR */}
-                              <td className={`${tdBase} text-[11px] font-semibold tabular-nums ${getAdrColor(row.adrPct)}`}>
+                              <td className={`${tdBase} text-[10px] font-semibold tabular-nums ${getAdrColor(row.adrPct)}`}>
                                 {row.adrPct != null ? row.adrPct.toFixed(1) + '%' : '—'}
                               </td>
 
                               {/* MF */}
-                              <td className={`${tdBase} text-[11px] font-semibold tabular-nums ${mfColor(row.mf)}`}>
+                              <td className={`${tdBase} text-[10px] font-semibold tabular-nums ${mfColor(row.mf)}`}>
                                 {row.mf != null ? (
                                   <span title={mfLabel(row.mf)}>
                                     {Math.round(row.mf)}{mfArrow(row.mfTrend ?? 0)}
@@ -614,12 +614,12 @@ export default function SetupConfluence() {
                               </td>
 
                               {/* STOCH */}
-                              <td className={`${tdBase} text-[11px] font-semibold tabular-nums ${getStochColor(row.stochK)}`}>
+                              <td className={`${tdBase} text-[10px] font-semibold tabular-nums ${getStochColor(row.stochK)}`}>
                                 {row.stochK != null ? Math.round(row.stochK) : '—'}
                               </td>
 
                               {/* DTC */}
-                              <td className={`${tdBase} text-[11px] font-semibold tabular-nums ${getDtcColor(row.daysToCover)}`}>
+                              <td className={`${tdBase} text-[10px] font-semibold tabular-nums ${getDtcColor(row.daysToCover)}`}>
                                 {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
                               </td>
 
