@@ -393,8 +393,9 @@ export default function TrackRecord() {
     <WatchlistProvider>
     <ActiveChartProvider>
     <div className="min-h-screen bg-[#0b0f1a] text-slate-300 px-3 md:px-6 py-4 max-w-[1100px] mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3 mb-5">
+      {/* Header — stacks on a phone. Left unstacked with a `shrink-0` nav, the
+          links cannot wrap or shrink and the page itself scrolls sideways. */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5">
         <a href="/dashboard" className="flex items-center gap-3 min-w-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo.svg" alt="CTT" className="w-8 h-8 md:w-10 md:h-10 opacity-80" />
@@ -403,7 +404,7 @@ export default function TrackRecord() {
             <p className="text-[10px] text-slate-500 tracking-widest uppercase">Live picks, scored as they mature</p>
           </div>
         </a>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 flex-wrap">
           <ThemeToggle />
           <DashNav />
         </div>

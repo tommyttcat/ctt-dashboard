@@ -574,16 +574,21 @@ export default function ConfluenceReport() {
     <ActiveChartProvider>
       <ChartLevelsCtx.Provider value={levelsMap}>
       <div className="min-h-screen bg-[var(--bg-primary)] text-slate-300 px-3 md:px-6 py-4 md:py-6 max-w-5xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-4 md:mb-6">
-          <a href="https://confluencetradingtools.com" className="flex items-center gap-3 no-underline" style={{ textDecoration: 'none' }}>
+        {/* Header
+            Every other page stacks this on a phone (flex-col until md) and
+            this one did not: the nav sat in a `shrink-0` box beside the logo,
+            so seven links at 13px could not wrap and could not shrink, and the
+            PAGE scrolled sideways to fit them. The tables were already in
+            their own scrollers — this header was what was actually sliding. */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4 md:mb-6">
+          <a href="https://confluencetradingtools.com" className="flex items-center gap-3 no-underline min-w-0" style={{ textDecoration: 'none' }}>
             <img src="/logo.svg" alt="CTT" className="w-8 h-8 md:w-10 md:h-10 opacity-80" />
             <div>
               <h1 className="text-lg md:text-xl font-bold text-slate-100 tracking-tight">Confluence Report</h1>
               <p className="text-[10px] text-slate-500 tracking-widest uppercase">Multi-Timeframe Analysis</p>
             </div>
           </a>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 flex-wrap">
             <ThemeToggle />
             <DashNav />
             <button
