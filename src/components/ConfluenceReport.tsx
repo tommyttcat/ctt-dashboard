@@ -298,7 +298,14 @@ function AiSummaryCard({ summary, reports, activeSector, onSectorFilter, lastSca
           const cols = [picks.slice(0, mid), picks.slice(mid)];
           const TH = `${LABEL} py-0.5 px-[3px] whitespace-nowrap`;
           const TD = 'py-0.5 px-[3px]';
+          /* Seven columns do not fit a phone. Every other table on the site
+             sits in its own horizontal scroller so the PAGE never scrolls
+             sideways; this one did not, which is the whole of what made the
+             report feel unlike the rest of the site on mobile. `min-w-0` is
+             load-bearing next to it: without it the flex item refuses to
+             shrink below its content and the scroller never engages. */
           const PickTable = ({ rows }: { rows: typeof picks }) => (
+            <div className="overflow-x-auto custom-scrollbar min-w-0 flex-1" style={{ scrollbarWidth: 'thin' }}>
             <table className="text-[10px]" style={{ borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
@@ -337,6 +344,7 @@ function AiSummaryCard({ summary, reports, activeSector, onSectorFilter, lastSca
                 })}
               </tbody>
             </table>
+            </div>
           );
           return (
             <div>
@@ -472,7 +480,7 @@ function StockCard({ report }: { report: Report }) {
           <div className={`${SECTION_LABEL} text-cyan-400 mb-2`}>
             Trade Recommendation: <span className={`${r.tradeRec.direction === 'LONG' ? 'text-emerald-400' : 'text-rose-400'}`}>{r.tradeRec.direction}</span>
           </div>
-          <div className="grid grid-cols-4 gap-2 text-[10px]">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px]">
             <div>
               <div className="text-slate-500 text-[7px] font-bold tracking-widest uppercase">Entry</div>
               <div className="text-slate-200 font-semibold">{r.tradeRec.entry}</div>
