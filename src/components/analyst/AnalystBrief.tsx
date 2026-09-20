@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { fetchScannerLatest } from '@/lib/scannerLatest';
+import { levelNum } from '@/lib/briefLevel';
 import { ThemeToggle } from '../ThemeProvider';
 import HelpModal from '../HelpModal';
 import DashNav from '../DashNav';
@@ -942,22 +943,31 @@ function AnalystCard({ stock, rank }: { stock: StockEntry; rank: number }) {
         )}
       </div>
 
-      {(stock.trigger != null || stock.stop != null || stock.target != null) && (
+      {(() => {
+      /* Read through levelNum: these are declared numbers but arrive as
+         JSON from the routine, and a string passes a `!= null` guard and
+         then throws on .toFixed. See lib/briefLevel. */
+      const trigger = levelNum(stock.trigger);
+      const stop = levelNum(stock.stop);
+      const target = levelNum(stock.target);
+      const rMultiple = levelNum(stock.rMultiple);
+      return (trigger != null || stop != null || target != null) && (
         <div className="flex items-center gap-4 mt-3 pt-2.5 border-t border-white/[0.04] text-[9px] tabular-nums">
-          {stock.trigger != null && (
-            <span className="text-slate-500">Trigger <span className="text-slate-200 font-semibold">${stock.trigger.toFixed(2)}</span></span>
+          {trigger != null && (
+            <span className="text-slate-500">Trigger <span className="text-slate-200 font-semibold">${trigger.toFixed(2)}</span></span>
           )}
-          {stock.stop != null && (
-            <span className="text-slate-500">Stop <span className="text-rose-400 font-semibold">${stock.stop.toFixed(2)}</span></span>
+          {stop != null && (
+            <span className="text-slate-500">Stop <span className="text-rose-400 font-semibold">${stop.toFixed(2)}</span></span>
           )}
-          {stock.target != null && (
-            <span className="text-slate-500">Target <span className="text-emerald-400 font-semibold">${stock.target.toFixed(2)}</span></span>
+          {target != null && (
+            <span className="text-slate-500">Target <span className="text-emerald-400 font-semibold">${target.toFixed(2)}</span></span>
           )}
-          {stock.rMultiple != null && (
-            <span className="text-cyan-400 font-semibold">{stock.rMultiple.toFixed(1)}R</span>
+          {rMultiple != null && (
+            <span className="text-cyan-400 font-semibold">{rMultiple.toFixed(1)}R</span>
           )}
         </div>
-      )}
+      );
+      })()}
     </div>
   );
 }

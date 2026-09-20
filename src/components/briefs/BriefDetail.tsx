@@ -4,6 +4,7 @@ import Link from 'next/link';
 import DashNav from '../DashNav';
 import type { BriefData, UpdateBlock } from '../../lib/briefArchive';
 import { ThemeToggle } from '../ThemeProvider';
+import { levelText } from '../../lib/briefLevel';
 
 const PHASE_ORDER = ['pre', 'morning', 'midday', 'power', 'closing'] as const;
 const PHASE_LABELS: Record<string, string> = {
@@ -141,18 +142,9 @@ function formatBriefDate(dateStr: string) {
  * That is what puts the brief text in the server HTML for crawlers, and it
  * drops the second function invocation + KV read that every view used to cost.
  */
-/* A level as it renders in the table.
-   THE STORED VALUE IS NOT ALWAYS A NUMBER. The brief for 14 Sep 2026 was
-   written with `trigger` and `stop` as strings ("266.10"), and `.toFixed` on
-   a string is a TypeError — which, on a statically generated route, is not a
-   broken cell but a failed prerender that takes the whole build with it. That
-   one brief blocked every deploy from 14 Sep until it was found on 20 Sep,
-   and served a 500 on /briefs/2026-09-14 the entire time.
-   Coercing here fixes the symptom. The write side is the actual bug. */
-const money = (v: unknown): string => {
-  const n = Number(v);
-  return Number.isFinite(n) && n !== 0 ? n.toFixed(2) : '—';
-};
+/* A level as it renders in the table. The coercion and the reason for it
+   live in lib/briefLevel, which the analyst brief uses too. */
+const money = (v: unknown): string => levelText(v);
 
 export default function BriefDetail({
   date,
