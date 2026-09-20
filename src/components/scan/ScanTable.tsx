@@ -158,16 +158,26 @@ export function RsCell({ value }: { value: number | null | undefined }) {
 }
 
 /* The VWAP dot is a filter control, not decoration — clicking it filters the
-   table to that side, and the ring shows when it is the active filter. */
+   table to that side, and the ring shows when it is the active filter.
+
+   WITHOUT `onToggleVwap` the dot is just a reading: no pointer cursor and no
+   click hint in the title, because a table with no VWAP filter state has
+   nothing to filter and a cursor that promises otherwise is a lie. Setup
+   Confluence is that table. */
 export function PriceCell({ price, vwapStatus, vwapFilter, onToggleVwap }: {
   price: number;
   vwapStatus?: 'above' | 'below' | 'neutral' | null;
   vwapFilter?: string;
   onToggleVwap?: (side: 'above' | 'below') => void;
 }) {
+  const dot = vwapStatus && vwapStatus !== 'neutral' ? (
+    onToggleVwap
+      ? <div onClick={(e) => { e.stopPropagation(); onToggleVwap(vwapStatus as 'above' | 'below'); }} className={`w-1.5 h-1.5 rounded-full shrink-0 cursor-pointer ${vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'} ${vwapFilter === vwapStatus ? 'ring-1 ring-white/40' : ''}`} title={`VWAP: ${vwapStatus} — click to filter`}></div>
+      : <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${vwapStatus}`}></div>
+  ) : null;
   return (
     <td className={`${SCAN.td} text-[10px] text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
-      <div className="flex items-center justify-center gap-1">${price.toFixed(2)}{vwapStatus && vwapStatus !== 'neutral' && (<div onClick={(e) => { e.stopPropagation(); onToggleVwap?.(vwapStatus as 'above' | 'below'); }} className={`w-1.5 h-1.5 rounded-full shrink-0 cursor-pointer ${vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'} ${vwapFilter === vwapStatus ? 'ring-1 ring-white/40' : ''}`} title={`VWAP: ${vwapStatus} — click to filter`}></div>)}</div>
+      <div className="flex items-center justify-center gap-1">${price.toFixed(2)}{dot}</div>
     </td>
   );
 }

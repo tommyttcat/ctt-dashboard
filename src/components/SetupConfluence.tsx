@@ -8,27 +8,18 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { cachedJson, fetchScannerLatest } from '@/lib/scannerLatest';
-import TickerChartHover, { useFreezeWhileChartOpen, WatchlistBtn } from './TickerChartHover';
+import { useFreezeWhileChartOpen} from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
 import { useMarketData } from './MarketDataContext';
-import { stageShort, stageDescription, stageBadge } from '@/lib/indicators/stage';
-import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
-import { rsBadge } from '@/lib/indicators/rs';
 import { displaySector } from '@/lib/sectors';
 import { CatalystChip, NewsStars, headlineOf, isGenericCatalyst, catalystUrlOf } from '@/lib/catalyst';
 import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
-import { SCAN } from './scan/ScanTable';
 import {
-  rvolColor as getRvolColor,
-  adrColor as getAdrColor,
-  stochColor as getStochColor,
-  dtcColor as getDtcColor,
-  floatColor as getFloatColor,
-  tickerChipForScore,
-  tickerTitle,
-  scoreCellCls,
-  changeColor,
-} from '@/lib/indicators/columnColors';
+  SCAN, ScoreCell, RsCell, PriceCell, ChgCell, Ema1021Cell, VolCell, DollarVolCell,
+  RvolCell, FloatCell, AdrCell, MfCell, StochCell, DtcCell, McapCell, StageCell, SectorCell,
+} from './scan/ScanTable';
+import { TickerCell } from './scan/TickerCell';
+import { formatTime } from '@/lib/scans/tableFormat';
 
 /* ---- Scanner definitions ------------------------------------------------ */
 
@@ -174,27 +165,6 @@ function buildConfluenceRows(scannerData: Map<ScannerKey, any[]>, streakMap: Rec
 
 /* ---- Formatting --------------------------------------------------------- */
 
-const formatNumber = (num: number | null | undefined) => {
-  if (num === null || num === undefined || num === 0 || isNaN(num)) return '—';
-  if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
-  if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
-  if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
-  return num.toLocaleString();
-};
-
-const formatCurrency = (num: number | null | undefined) => {
-  if (num === null || num === undefined || num === 0 || isNaN(num)) return '—';
-  if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
-  if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
-  return '$' + num.toLocaleString();
-};
-
-const formatTime = (timestamp: number | Date) => {
-  if (!timestamp) return '';
-  const date = new Date(timestamp);
-  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
-};
-
 /* ---- Overlap badge color ------------------------------------------------ */
 
 function overlapBadgeCls(n: number): string {
@@ -334,12 +304,8 @@ export default function SetupConfluence() {
   const getSortIcon = (columnKey: string) =>
     sortConfig?.key === columnKey ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
 
-  const emaDot = (state: boolean | null | undefined) => {
-    if (state === null || state === undefined) return 'bg-slate-600';
-    return state ? 'bg-emerald-400' : 'bg-rose-500';
-  };
 
-  const { th: thBase, td: tdBase, thStage, tdStage, thSector, tdSector, filterBtnActive, filterBtnIdle } = SCAN;
+  const { th: thBase, td: tdBase, thStage, thSector, filterBtnActive, filterBtnIdle } = SCAN;
   /* This table is the one that appends an explicit pointer cursor to its
      filter pills; every other table relies on the button default. Kept as
      written rather than folded into SCAN.pillBtn, which would change the
@@ -523,125 +489,58 @@ export default function SetupConfluence() {
                             {/* Data row */}
                             <tr className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
                               {/* Ticker */}
-                              <td className={tdBase}>
-                                <div className="flex items-center justify-start gap-1.5">
-                                  <WatchlistBtn symbol={row.ticker} />
-                                  <TickerChartHover symbol={row.ticker}>
-                                    <span
-                                      className={tickerChipForScore(row.cnfScore)}
-                                      title={tickerTitle(row.name, row.ticker, row.cnfScore)}
-                                    >
-                                      {row.ticker}
-                                    </span>
-                                  </TickerChartHover>
-                                </div>
-                              </td>
+                              <TickerCell symbol={row.ticker} name={row.name} score={row.cnfScore} />
 
                               {/* N — news stars */}
                               <td className={tdBase}><NewsStars row={row} /></td>
 
                               {/* CNF Score */}
-                              <td className={tdBase}>
-                                {row.cnfScore != null ? (
-                                  <span className={scoreCellCls(row.cnfScore)}>{Math.round(row.cnfScore)}</span>
-                                ) : (
-                                  <span className="text-[10px] text-slate-600">—</span>
-                                )}
-                              </td>
+                              <ScoreCell value={row.cnfScore != null ? Math.round(row.cnfScore) : null} />
 
                               {/* RS */}
-                              <td className={`${tdBase} whitespace-nowrap`}>
-                                <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums ${rsBadge(row.rsRating)}`}>{row.rsRating != null ? Math.round(row.rsRating) : '—'}</span>
-                              </td>
+                              <RsCell value={row.rsRating != null ? Math.round(row.rsRating) : null} />
 
                               {/* Price + VWAP dot */}
-                              <td className={`${tdBase} text-[10px] font-semibold tabular-nums text-slate-200`}>
-                                {row.price >= 100 ? row.price.toFixed(0) : row.price >= 10 ? row.price.toFixed(1) : row.price.toFixed(2)}
-                                {row.vwapStatus && (
-                                  <span className={`inline-block w-1.5 h-1.5 rounded-full ml-1 align-middle ${
-                                    row.vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'
-                                  }`} title={`${row.vwapStatus === 'above' ? 'Above' : 'Below'} VWAP`} />
-                                )}
-                              </td>
+                              <PriceCell price={row.price} vwapStatus={row.vwapStatus as 'above' | 'below' | 'neutral' | null} />
 
                               {/* CHG% */}
-                              <td className={`${tdBase} text-[10px] font-semibold tabular-nums ${changeColor(row.changePct)}`}>
-                                {row.changePct >= 0 ? '+' : ''}{row.changePct.toFixed(1)}%
-                              </td>
+                              <ChgCell value={row.changePct} />
 
                               {/* 10/21 EMA dots */}
-                              <td className={tdBase}>
-                                <div className="flex items-center justify-center gap-1">
-                                  <span className="text-[9px] text-slate-600">10</span>
-                                  <span className={`inline-block w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} />
-                                  <span className="text-[9px] text-slate-600">21</span>
-                                  <span className={`inline-block w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma21)}`} />
-                                </div>
-                              </td>
+                              <Ema1021Cell above10={row.aboveEma10} above21={row.aboveEma21} />
 
                               {/* VOL */}
-                              <td className={`${tdBase} text-[10px] text-slate-400 tabular-nums`}>
-                                {formatNumber(row.vol)}
-                              </td>
+                              <VolCell value={row.vol} />
 
                               {/* $VOL */}
-                              <td className={`${tdBase} text-[10px] text-slate-400 tabular-nums`}>
-                                {formatCurrency(row.dVol)}
-                              </td>
+                              <DollarVolCell value={row.dVol} />
 
                               {/* RVOL */}
-                              <td className={`${tdBase} text-[10px] font-semibold tabular-nums ${getRvolColor(row.rvol)}`}>
-                                {row.rvol != null ? row.rvol.toFixed(1) + 'x' : '—'}
-                              </td>
+                              <RvolCell value={row.rvol} />
 
                               {/* FLOAT */}
-                              <td className={`${tdBase} text-[10px] tabular-nums ${getFloatColor(row.float)}`}>
-                                {formatNumber(row.float)}
-                              </td>
+                              <FloatCell value={row.float} />
 
                               {/* ADR */}
-                              <td className={`${tdBase} text-[10px] font-semibold tabular-nums ${getAdrColor(row.adrPct)}`}>
-                                {row.adrPct != null ? row.adrPct.toFixed(1) + '%' : '—'}
-                              </td>
+                              <AdrCell adr={row.adrPct} />
 
                               {/* MF */}
-                              <td className={`${tdBase} text-[10px] font-semibold tabular-nums ${mfColor(row.mf)}`}>
-                                {row.mf != null ? (
-                                  <span title={mfLabel(row.mf)}>
-                                    {Math.round(row.mf)}{mfArrow(row.mfTrend ?? 0)}
-                                  </span>
-                                ) : '—'}
-                              </td>
+                              <MfCell value={row.mf} trend={row.mfTrend} />
 
                               {/* STOCH */}
-                              <td className={`${tdBase} text-[10px] font-semibold tabular-nums ${getStochColor(row.stochK)}`}>
-                                {row.stochK != null ? Math.round(row.stochK) : '—'}
-                              </td>
+                              <StochCell value={row.stochK} />
 
                               {/* DTC */}
-                              <td className={`${tdBase} text-[10px] font-semibold tabular-nums ${getDtcColor(row.daysToCover)}`}>
-                                {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
-                              </td>
+                              <DtcCell value={row.daysToCover} />
 
                               {/* MCAP */}
-                              <td className={`${tdBase} text-[10px] text-slate-400 tabular-nums`}>
-                                {formatCurrency(row.mktCap)}
-                              </td>
+                              <McapCell value={row.mktCap} />
 
                               {/* STAGE */}
-                              <td className={`${tdStage} whitespace-nowrap border-l border-white/5`}>
-                                <span
-                                  title={stageDescription(row.stage)}
-                                  className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums tracking-wide ${stageBadge(row.stage)}`}
-                                >
-                                  {stageShort(row.stage)}
-                                </span>
-                              </td>
+                              <StageCell stage={row.stage} />
 
                               {/* SECTOR */}
-                              <td className={tdSector}>
-                                <span title={displaySector(row.sector, row.ticker)} className="block truncate text-left text-[8px] font-semibold tracking-wide uppercase text-slate-400">{displaySector(row.sector, row.ticker)}</span>
-                              </td>
+                              <SectorCell text={displaySector(row.sector, row.ticker)} />
                             </tr>
 
                             {/* Sub-row */}

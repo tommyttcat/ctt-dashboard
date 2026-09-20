@@ -59,6 +59,12 @@ for (const [price, vw] of [[4.18, 'above'], [886.5, 'below'], [12, 'neutral'], [
     <PriceCell price={price} vwapStatus={vw} vwapFilter="above" onToggleVwap={noop} />);
 }
 
+/* A table with no VWAP filter state gets a plain dot: no pointer cursor and
+   no "click to filter" hint, because there is nothing to click. */
+same('PRICE dot is inert without a handler',
+  <td className={`${tdBase} text-[10px] text-slate-300 font-medium whitespace-nowrap tabular-nums`}><div className="flex items-center justify-center gap-1">${(12.5).toFixed(2)}<div className="w-1.5 h-1.5 rounded-full shrink-0 bg-emerald-400" title="VWAP: above"></div></div></td>,
+  <PriceCell price={12.5} vwapStatus="above" />);
+
 // ---- change ----------------------------------------------------------------
 for (const v of [4.21, -2.5, 0, null]) {
   const isPositive = (v ?? 0) >= 0;
