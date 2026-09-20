@@ -414,7 +414,7 @@ export default function TrackRecord() {
         <p className="text-[10px] text-slate-400 leading-relaxed">
           Every name each scan publishes is recorded the evening it appears, before anything is known about
           what it does next. Entry is the <strong className="text-slate-200">next session&apos;s open</strong> —
-          <strong className="text-slate-200"> it does not wait for the trigger</strong> the scan names, so a
+          <strong className="text-slate-200"> it does not wait for the trigger</strong>{' '}the scan names, so a
           setup that never traded its level is in here too, bought at the open and judged from there. That is
           deliberate: the next open is the one entry that can be recorded without a judgement call, and it was
           the best entry the five-year backtest measured. The stop is the row&apos;s own plan stop, or that
@@ -625,30 +625,21 @@ export default function TrackRecord() {
                         </td>
                       </tr>
                     )}
-                    {interim && interim.n > 0 && (
+                                        {interim && interim.n > 0 && (
                       <tr className="border-b border-white/[0.04] bg-white/[0.01]">
                         <td colSpan={9} className="px-2 py-1.5">
-                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-slate-500">
-                            <span
-                              className="text-slate-600 font-bold tracking-widest uppercase"
-                              title={isReturn
-                                ? 'Picks that have filled and are inside their 12-month window. Not in the settled numbers yet.'
-                                : 'Trades whose bracket has already resolved but whose 60-session window has not closed. They are not in the settled numbers yet, which is why this line exists — otherwise a decided trade is invisible for three months.'}
-                            >In progress</span>
-                            <span className="text-slate-400 tabular-nums">n={interim.n}</span>
-                            {isReturn ? (
-                              <>
-                                <span className={`tabular-nums ${rCls(interim.retAvgPct)}`}>{interim.retAvgPct == null ? '—' : `${interim.retAvgPct >= 0 ? '+' : ''}${interim.retAvgPct.toFixed(1)}%`} avg return</span>
-                                <span className="tabular-nums">{fmtPct(interim.doubleRate)} doubled</span>
-                              </>
-                            ) : (
-                              <>
-                                <span className={`tabular-nums ${rCls(interim.fixedAvgR)}`}>{fmtR(interim.fixedAvgR)} on the 2R</span>
-                                <span className={`tabular-nums ${rCls(interim.hold20AvgR)}`}>{fmtR(interim.hold20AvgR)} held 20</span>
-                                <span className="tabular-nums">{fmtPct(interim.winRate)} positive</span>
-                                <span className="tabular-nums">{fmtPct(interim.hrRate)} ran +50%</span>
-                              </>
-                            )}
+                          {/* The figures themselves are in the starred columns
+                              above now. All this line still adds is how many
+                              trades they came from, and what "in progress"
+                              means — so it says that and nothing more. */}
+                          <div className="flex flex-wrap gap-x-2 text-[10px] text-slate-500">
+                            <span className="text-slate-600 font-bold tracking-widest uppercase">In progress</span>
+                            <span className="text-slate-400 tabular-nums">{interim.n}</span>
+                            <span>
+                              {isReturn
+                                ? 'picks filled and inside their 12-month window — the starred figures above are theirs.'
+                                : 'trades already resolved at their target or their stop, still inside the 60-session window — the starred figures above are theirs.'}
+                            </span>
                           </div>
                         </td>
                       </tr>
