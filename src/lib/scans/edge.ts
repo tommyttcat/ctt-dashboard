@@ -287,3 +287,31 @@ export const HRS_TIP: Record<EdgeTier, string> = {
   yellow: 'outside that band — +0.01R, essentially flat',
   red: 'unused on this scan: no bucket lost consistently',
 };
+
+/* ---- One tint per row, whatever scan it came from ------------------------
+   Every function above is measured on its own scan and the file opens with
+   the warning that they do not generalise. A card that mixes scans in one
+   list therefore cannot call any single one of them — it has to dispatch, and
+   it has to carry the matching tooltip, because pairing a tier with another
+   scan's explanation is exactly the mistake the warning is about.
+
+   The tip travels WITH the tier for that reason: there is no way to ask for
+   one without the other. Unknown sources fall back to the momentum rules,
+   which is what the Setups Summary card did for every row before this. */
+const TIER_BY_SOURCE: Record<string, { fn: (r: any) => EdgeTier | null; tip: Record<EdgeTier, string> }> = {
+  daily: { fn: edgeTier, tip: EDGE_FILTER_TIP },
+  sip: { fn: edgeTier, tip: EDGE_FILTER_TIP },
+  dvol: { fn: edgeTier, tip: EDGE_FILTER_TIP },
+  swing: { fn: swingTier, tip: SWING_TIP },
+  vcp: { fn: vcpTier, tip: VCP_TIP },
+  ep9m: { fn: ep9mTier, tip: EP9M_TIP },
+  coil: { fn: consolidationTier, tip: CONSOLIDATION_TIP },
+  mb: { fn: multibaggerTier, tip: MULTIBAGGER_TIP },
+  hrs: { fn: hrsTier, tip: HRS_TIP },
+};
+
+export function tierForScan(source: string | null | undefined, row: any): { tier: EdgeTier; tip: string } | null {
+  const entry = TIER_BY_SOURCE[String(source ?? '')] ?? TIER_BY_SOURCE.daily;
+  const tier = entry.fn(row);
+  return tier ? { tier, tip: entry.tip[tier] } : null;
+}

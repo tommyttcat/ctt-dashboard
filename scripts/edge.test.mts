@@ -12,8 +12,9 @@
 
 import {
   edgeTier, ep9mTier, vcpTier, swingTier, consolidationTier, multibaggerTier, hrsTier,
+  tierForScan, EP9M_TIP, VCP_TIP, EDGE_FILTER_TIP,
 } from '../src/lib/scans/edge.ts';
-import { eq, done } from './testkit.mts';
+import { eq, ok, done } from './testkit.mts';
 
 // ---- momentum: Stocks in Play + Daily Setups -------------------------------
 // red = ADR above 9%, or price in [5, 10). green = clears both and closed in
@@ -77,5 +78,28 @@ eq('hrs $15 is green', hrsTier({ price: 15 }), 'green');
 eq('hrs $15.01 is yellow', hrsTier({ price: 15.01 }), 'yellow');
 eq('hrs $4.99 is yellow', hrsTier({ price: 4.99 }), 'yellow');
 eq('hrs never returns red', hrsTier({ price: 500 }), 'yellow');
+
+// ---- the dispatcher --------------------------------------------------------
+/* A card that mixes scans has to route each row to its OWN rule. The trap is
+   a row that would be shaded differently by two of them, so the cases below
+   are rows where the scans genuinely disagree. */
+
+// $6, ADR 4%, closed at the high: red on the momentum tables ($5-10 lost
+// there) and green on EP9M (money flow 70), from the same row.
+const cheap = { price: 6, adrPct: 4, closeStrength: 1, mf: 70, mktCap: 4e8, floatTurnover: 0.3 };
+eq('momentum rules call the $5-10 row red', tierForScan('daily', cheap)?.tier, 'red');
+eq('EP9M rules call the same row green', tierForScan('ep9m', cheap)?.tier, 'green');
+eq('sip routes to the momentum rules', tierForScan('sip', cheap)?.tier, 'red');
+
+eq('the tip travels with the tier', tierForScan('ep9m', cheap)?.tip, EP9M_TIP.green);
+eq('and is the momentum text for a momentum row', tierForScan('daily', cheap)?.tip, EDGE_FILTER_TIP.red);
+
+const base = { atrPct: 4, finalDepthPct: 12, stopPct: 8 };
+eq('vcp routes to its own rule', tierForScan('vcp', base)?.tier, 'green');
+eq('with its own tip', tierForScan('vcp', base)?.tip, VCP_TIP.green);
+
+eq('an unknown source falls back to the momentum rules', tierForScan('nonsense', cheap)?.tier, 'red');
+eq('so does a missing one', tierForScan(null, cheap)?.tier, 'red');
+ok('no tier means no tint at all', tierForScan('daily', { price: 6 }) === null);
 
 done('edge tiers');

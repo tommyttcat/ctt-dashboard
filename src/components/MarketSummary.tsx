@@ -107,6 +107,11 @@ import TickerChartHover, { ActiveChartProvider, WatchlistBtn } from './TickerCha
 import { WatchlistToggle } from './WatchlistPanel';
 import { hrsEdgeGrade } from '@/lib/scans/hrs';
 import { edgeTier as edgeOf, EDGE_TINT, EDGE_FILTER_TIP, type EdgeTier } from '@/lib/scans/edge';
+import { tierForScan } from '@/lib/scans/edge';
+import { trigRows } from '@/lib/scans/triggerProximity';
+import InfoDot from './InfoDot';
+import { SCAN, ScoreCell, RsCell, PriceCell, ChgCell, RvolCell } from './scan/ScanTable';
+import { TickerCell } from './scan/TickerCell';
 import { newsStarCount } from '@/lib/newsStars';
 import { rsColor, rsBadge } from '@/lib/indicators/rs';
 import { toCanonicalSector, isEtfSector, industryHeat, displaySector } from '@/lib/sectors';
@@ -1042,6 +1047,96 @@ const SETUP_SOURCE_FILTERS: SetupFilter[] = [
 
 const ALL_SETUP_FILTERS = [...SETUP_PATTERN_FILTERS, ...SETUP_SOURCE_FILTERS];
 
+/* ---- Closest to trigger --------------------------------------------------
+   The card above answers "what is set up". This answers the question that
+   actually gets someone into a trade: OF those names, which ones are about to
+   do the thing the plan is waiting for, and at what price.
+
+   Every row here is the scan's own plan — the trigger and stop the scanner
+   already computed and the scan tables already show. Nothing new is measured
+   and nothing is predicted; the only work this does is arithmetic on the
+   distance and sorting by it.
+
+   TWO DIRECTIONS, which is why the arrow is not decoration: half these plans
+   wait for price to rise through the level and half wait for it to fall to
+   it. The rule and its test live in lib/scans/triggerProximity.
+
+   LEVELS PRINT TO THE CENT. formatLevel drops to whole dollars above $100,
+   which would round a 222.73 trigger to 223 — an error larger than the 0.1%
+   distance the row exists to report. */
+
+const TRIG_SCAN_LABEL: Record<string, string> = {
+  sip: 'SIP', daily: 'DAY', swing: 'SWING', vcp: 'VCP', ep9m: 'EP9', mb: '100',
+};
+
+const TriggerProximity = ({ pool }: { pool: any[] }) => {
+  const rows = React.useMemo(() => trigRows(pool), [pool]);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="mt-4 pt-3 border-t border-white/5">
+      <div className="flex items-center mb-1">
+        <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Closest to trigger</span>
+        <InfoDot text={"The names above, ordered by how far price sits from the level its own plan is waiting for — the scanner's trigger, not a new one.\n\n↑ means price has to RISE through the level to trigger (a breakout: Daily, SIP, Swing, VCP). ↓ means it has to FALL to it (EP9M, whose plan is a pullback to the EP-day midpoint).\n\nA name drops off this list once price is through its level: by then it is a position or a miss, not a watch. STOP is the plan's own invalidation.\n\nRow colour is each scan's OWN measured tier from its backtest — green, yellow, red — not one rule applied to all of them. Hover a row for what its colour means on that scan."} />
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[520px]">
+          <thead>
+            <tr className="border-b border-white/5">
+              <th className={`${SCAN.th} w-[18%] text-left pl-0`}>TICKER</th>
+              <th className={`${SCAN.th} w-[9%]`}>SCAN</th>
+              <th className={`${SCAN.th} w-[8%]`}>CNF</th>
+              <th className={`${SCAN.th} w-[8%]`}>RS</th>
+              <th className={`${SCAN.th} w-[11%]`}>PRICE</th>
+              <th className={`${SCAN.th} w-[9%]`}>CHG</th>
+              <th className={`${SCAN.th} w-[9%]`}>RVOL</th>
+              <th className={`${SCAN.th} w-[11%]`}>TRIGGER</th>
+              <th className={`${SCAN.th} w-[9%]`}>STOP</th>
+              <th className={`${SCAN.th} w-[8%]`}>AWAY</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const t = tierForScan(r.s._source, r.s);
+              return (
+                <tr
+                  key={`tp-${r.ticker}`}
+                  className={t ? EDGE_TINT[t.tier] : undefined}
+                  title={t ? `${t.tier.toUpperCase()} — ${t.tip}` : undefined}
+                >
+                  <TickerCell symbol={r.ticker} name={r.s.name} score={scoreOf(r.s) || null} />
+                  <td className={`${SCAN.td} text-[10px] font-bold text-slate-500`}>
+                    {TRIG_SCAN_LABEL[r.s._source] ?? String(r.s._source ?? '').toUpperCase()}
+                  </td>
+                  <ScoreCell value={scoreOf(r.s) || null} />
+                  <RsCell value={numOrNull(r.s.rsRating)} />
+                  <PriceCell price={r.price} vwapStatus={r.s.vwapStatus} />
+                  <ChgCell value={chgOf(r.s)} />
+                  <RvolCell value={rvolOf(r.s)} />
+                  <td className={`${SCAN.td} text-[10px] font-bold text-slate-200 tabular-nums whitespace-nowrap`} title={`${r.pullback ? 'Wait for a pullback to' : 'Buy above'} ${r.trigger.toFixed(2)} — ${r.label}`}>
+                    <span className={r.pullback ? 'text-fuchsia-400' : 'text-emerald-400'}>{r.pullback ? '↓' : '↑'}</span>{' '}
+                    {r.trigger.toFixed(2)}
+                  </td>
+                  <td className={`${SCAN.td} text-[10px] font-bold text-rose-400/80 tabular-nums whitespace-nowrap`} title="The plan's own invalidation — below this the setup is wrong.">
+                    {r.stop.toFixed(2)}
+                  </td>
+                  <td className={`${SCAN.td} text-[10px] font-bold text-slate-300 tabular-nums whitespace-nowrap`}>
+                    {r.awayPct < 10 ? r.awayPct.toFixed(1) : r.awayPct.toFixed(0)}%
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[10px] text-slate-500 font-medium mt-1">
+        ↑ price must rise through the level · ↓ EP9M waits for a pullback to it.
+      </p>
+    </div>
+  );
+};
+
 const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter: sf, rsMap, stageMap, topSet, onVisibleChange }: {
   pool: any[];
   gradeMap?: Record<string, 'A' | 'B'>;
@@ -1216,6 +1311,12 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
           </p>
         </>
       )}
+      {/* Under the card, deliberately: the list above says what is set up,
+          this says which of those is about to trigger and at what price.
+          Built from the UNFILTERED pool so the answer does not change when a
+          pill narrows the list above — "what is closest" is a question about
+          the whole board. */}
+      <TriggerProximity pool={taggedPool} />
     </div>
   );
 };

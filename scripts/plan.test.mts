@@ -10,6 +10,7 @@
 import { epPullbackPlan, EP_PULLBACK_WINDOW } from '../src/lib/scans/ep9m.ts';
 import { computeTradePlan } from '../src/lib/indicators/tradeplan.ts';
 import { EXIT_STYLE, EXIT_GUIDANCE } from '../src/lib/scans/exits.ts';
+import { trigRowOf, trigRows } from '../src/lib/scans/triggerProximity.ts';
 import { eq, near, ok, done } from './testkit.mts';
 
 // ---- the EP pullback plan --------------------------------------------------
@@ -84,5 +85,47 @@ for (const [scan, style] of Object.entries(EXIT_STYLE)) {
   if (style === 'target') ok(`${scan} guidance says take the target`, text.includes('take the 2r'));
   if (style === 'none') ok(`${scan} guidance says nothing worked`, /no exit|flat either way/.test(text));
 }
+
+// ---- closest to trigger ----------------------------------------------------
+/* The direction rule. A breakout row is only a watch while price is BELOW the
+   level; an EP9M row only while price is ABOVE it. Both halves are asserted
+   because getting one backwards lists names on the wrong side of the market
+   with a confident distance next to them. */
+const breakout = (price: number, trigger: number) => ({
+  ticker: 'AAA', price, _source: 'swing',
+  plan: { tradeable: true, trigger, stop: trigger * 0.95, triggerLabel: 'day high' },
+});
+const pull = (price: number, trigger: number) => ({
+  ticker: 'BBB', price, _source: 'ep9m',
+  plan: { tradeable: true, trigger, stop: trigger * 0.9, triggerLabel: 'EP mid' },
+});
+
+ok('breakout below its level is a watch', trigRowOf(breakout(99, 100)) != null);
+ok('breakout through its level is dropped', trigRowOf(breakout(101, 100)) == null);
+ok('breakout exactly at its level is dropped', trigRowOf(breakout(100, 100)) == null);
+ok('EP pullback above its level is a watch', trigRowOf(pull(101, 100)) != null);
+ok('EP pullback through its level is dropped', trigRowOf(pull(99, 100)) == null);
+eq('breakout is not flagged as a pullback', trigRowOf(breakout(99, 100))?.pullback, false);
+eq('EP9M is flagged as a pullback', trigRowOf(pull(101, 100))?.pullback, true);
+
+near('distance is measured from price', trigRowOf(breakout(100, 101))?.awayPct, 1);
+ok('distance is always positive', (trigRowOf(pull(101, 100))?.awayPct ?? -1) > 0);
+
+// The gates the scan tables already apply: a plan that is not live is not a watch.
+ok('untradeable plan is dropped', trigRowOf({ ticker: 'C', price: 99, _source: 'swing', plan: { tradeable: false, trigger: 100, stop: 95 } }) == null);
+ok('collapsed plan is dropped', trigRowOf({ ticker: 'C', price: 99, _source: 'swing', plan: { tradeable: true, collapsed: true, trigger: 100, stop: 95 } }) == null);
+ok('overextended plan is dropped', trigRowOf({ ticker: 'C', price: 99, _source: 'swing', plan: { tradeable: true, overextended: true, trigger: 100, stop: 95 } }) == null);
+ok('a row with no plan at all is dropped', trigRowOf({ ticker: 'C', price: 99, _source: 'daily' }) == null);
+
+/* VCP carries trigger/stop at the top level instead of in a plan — the one
+   shape exception, and the only scan allowed to use it. */
+const vcp = { symbol: 'VVV', price: 50, _source: 'vcp', trigger: 52, stop: 47 };
+ok('VCP top-level levels are read', trigRowOf(vcp) != null);
+eq('VCP label falls back to the pivot', trigRowOf(vcp)?.label, 'pivot');
+ok('the same shape on another scan is not read', trigRowOf({ ...vcp, _source: 'daily' }) == null);
+
+const sorted = trigRows([breakout(90, 100), breakout(99, 100), vcp]);
+eq('sorted by distance, closest first', sorted[0].price, 99);
+eq('the limit is honoured', trigRows([breakout(90, 100), breakout(99, 100), vcp], 2).length, 2);
 
 done('trade plans');
