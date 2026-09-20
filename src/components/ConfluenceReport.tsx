@@ -428,7 +428,7 @@ function StockCard({ report }: { report: Report }) {
 
       {/* Quick stats */}
       <div className={`px-3 md:px-5 py-2 flex flex-wrap gap-x-4 gap-y-1 border-b border-white/[0.06] text-[10px] ${tint}`} title={tintTip}>
-        <span><span className="text-slate-500">RVOL</span> <span className={`font-semibold ${r.rvol >= 2 ? 'text-amber-400' : r.rvol >= 1.5 ? 'text-emerald-400' : 'text-slate-300'}`}>{r.rvol < 1 ? r.rvol.toFixed(1) : Math.round(r.rvol)}x</span></span>
+        <span><span className="text-slate-500">RVOL</span> <span className={`font-semibold ${r.rvol >= 2 ? 'text-amber-400' : r.rvol >= 1.5 ? 'text-emerald-400' : 'text-slate-300'}`}>{r.rvol.toFixed(1)}x</span></span>
         <span><span className="text-slate-500">VOL</span> <span className="text-slate-300">{fmtVol(r.vol)}</span></span>
         <span><span className="text-slate-500">$VOL</span> <span className="text-slate-300">{fmtDvol(r.dVol)}</span></span>
         {r.adrPct != null && <span><span className="text-slate-500">ADR</span> <span className={r.adrPct >= 5 ? 'text-emerald-400' : 'text-slate-300'}>{r.adrPct.toFixed(1)}%</span></span>}

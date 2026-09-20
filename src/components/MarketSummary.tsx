@@ -506,7 +506,7 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
       return (
         <span key={i} className={align ? 'ml-1 md:ml-1.5' : ''}>
           <span className="text-slate-500 text-[7px]">RVOL</span>{' '}
-          <span className={`${valNum} ${isDash ? 'text-slate-600' : rvolColor(v)} ${rvolW}`}>{isDash ? '—' : `${v < 1 ? v.toFixed(1) : Math.round(v)}x`}</span>
+          <span className={`${valNum} ${isDash ? 'text-slate-600' : rvolColor(v)} ${rvolW}`}>{isDash ? '—' : `${v.toFixed(1)}x`}</span>
         </span>
       );
     }
@@ -2217,7 +2217,7 @@ export default function MarketSummary() {
                                 <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-0.5 ${h.changePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{h.changePct >= 0 ? '+' : ''}{h.changePct.toFixed(2)}%</span>
                                 <span className="text-[9px] tabular-nums inline-block w-[32px] md:w-[36px] text-right ml-0.5 text-slate-400">{fmtV(h.vol)}</span>
                                 <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-0.5 text-slate-400">{fmtDV(h.dVol)}</span>
-                                <span className={`text-[9px] tabular-nums inline-block w-[30px] md:w-[34px] text-right ml-0.5 ${rvol >= 2 ? 'text-emerald-400' : rvol >= 1.2 ? 'text-cyan-400' : 'text-slate-400'}`}>{rvol < 1 ? rvol.toFixed(1) : Math.round(rvol)}x</span>
+                                <span className={`text-[9px] tabular-nums inline-block w-[30px] md:w-[34px] text-right ml-0.5 ${rvol >= 2 ? 'text-emerald-400' : rvol >= 1.2 ? 'text-cyan-400' : 'text-slate-400'}`}>{rvol.toFixed(1)}x</span>
                                 <span className={`text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right ml-0.5 ${h.alphaOnWeakDays > 5 ? 'text-emerald-400' : h.alphaOnWeakDays > 2 ? 'text-cyan-400' : 'text-slate-300'}`}>+{h.alphaOnWeakDays.toFixed(1)}</span>
                                 <span className={`text-[9px] tabular-nums inline-block w-[30px] md:w-[34px] text-right ml-0.5 ${h.weakDayOutperformPct >= 80 ? 'text-emerald-400' : h.weakDayOutperformPct >= 60 ? 'text-cyan-400' : 'text-slate-400'}`}>{h.weakDayOutperformPct}%</span>
                                 <span className={`text-[9px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-0.5 ${h.pctBelow52wHigh <= 3 ? 'text-emerald-400' : h.pctBelow52wHigh <= 8 ? 'text-cyan-400' : 'text-slate-400'}`}>{h.pctBelow52wHigh <= 0.5 ? 'ATH' : `-${h.pctBelow52wHigh.toFixed(1)}%`}</span>

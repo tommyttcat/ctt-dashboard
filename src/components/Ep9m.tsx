@@ -76,12 +76,12 @@ import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
 import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews, NewsStars } from '@/lib/catalyst';
 import { displaySector } from '@/lib/sectors';
-import { dtcColor as getDtcColor, rvolColorHighFloor as getRvolColor, tickerChipCls, scoreCellCls} from '@/lib/indicators/columnColors';
+import { dtcColor as getDtcColor, tickerChipCls, scoreCellCls} from '@/lib/indicators/columnColors';
 import { epMoveOdds, EP_MOVE_ODDS_TIP } from '@/lib/scans/ep9m';
 import { ep9mTier, EP9M_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import ScanStatsNote from './ScanStatsNote';
-import { SCAN, RsCell, PriceCell, DollarVolCell, AdrCell, StochCell, McapCell, StageCell, SectorCell } from './scan/ScanTable';
+import { SCAN, RvolCell, RsCell, PriceCell, DollarVolCell, AdrCell, StochCell, McapCell, StageCell, SectorCell } from './scan/ScanTable';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: "Symbol. Hover shows the company name. Fuchsia dot = unprecedented (today's volume beat its own 60-day high); ★ = repeat EP9M offender. Hover the fuchsia dot on a choppy name — record volume inside a range that will not resolve is the most misread row on this table." },
@@ -1213,9 +1213,7 @@ export default function Ep9m() {
                             {row.avgVol ? (<div className="text-[9px] text-slate-500 font-medium leading-tight">avg {formatNumber(row.avgVol)}</div>) : null}
                           </td>
                           <DollarVolCell value={row.dVol} />
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`} title="Today's volume vs its own 20-day average">
-                            {row.rvol ? `${row.rvol < 1 ? row.rvol.toFixed(1) : Math.round(row.rvol)}x` : '—'}
-                          </td>
+                          <RvolCell value={row.rvol} title="Today's volume vs its own 20-day average" />
                           <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getTurnColor(row.floatTurnover)}`} title="Float turnover — share of the tradeable float that changed hands today. Above 1.0x the entire float traded.">
                             {row.floatTurnover != null ? `${row.floatTurnover.toFixed(2)}x` : '—'}
                           </td>

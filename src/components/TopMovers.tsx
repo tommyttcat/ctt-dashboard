@@ -79,11 +79,11 @@ import { useMarketData } from './MarketDataContext';
 import { SCANNER } from '@/lib/scanConfig';
 import TickerChartHover, { useFreezeWhileChartOpen, WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
-import { rvolColor as getRvolColor, adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, tickerChipForScore, tickerTitle, scoreCellCls} from '@/lib/indicators/columnColors';
+import { adrColor as getAdrColor, dtcColor as getDtcColor, stochColor as getStochColor, tickerChipForScore, tickerTitle, scoreCellCls} from '@/lib/indicators/columnColors';
 import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { displaySector } from '@/lib/sectors';
 import { formatSetupName } from '@/lib/setupName';
-import { SCAN, RsCell, ChgCell, VolCell, DollarVolCell, FloatCell, McapCell } from './scan/ScanTable';
+import { SCAN, RvolCell, RsCell, ChgCell, VolCell, DollarVolCell, FloatCell, McapCell } from './scan/ScanTable';
 
 interface StockData {
   ticker: string;
@@ -448,7 +448,7 @@ export default function TopMovers() {
                         <td className={`${tdBase} whitespace-nowrap`}><div className="flex items-center justify-center gap-1.5"><div className="flex items-center gap-0.5"><span className="text-[9px] font-bold text-slate-500">10</span><div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma10)}`} title={`10 EMA: ${row.aboveEma10 === null ? 'n/a' : row.aboveEma10 ? 'above' : 'below'}`}></div></div><div className="flex items-center gap-0.5"><span className="text-[9px] font-bold text-slate-500">21</span><div className={`w-1.5 h-1.5 rounded-full ${emaDot(row.aboveEma21)}`} title={`21 EMA: ${row.aboveEma21 === null ? 'n/a' : row.aboveEma21 ? 'above' : 'below'}`}></div></div></div></td>
                         <VolCell value={row.vol} />
                         <DollarVolCell value={row.dVol} />
-                        <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getRvolColor(row.rvol)}`}>{row.rvol ? `${row.rvol < 1 ? row.rvol.toFixed(1) : Math.round(row.rvol)}x` : '\u2014'}</td>
+                        <RvolCell value={row.rvol} />
                         <FloatCell value={row.float} />
                         <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${row.adrPct != null ? getAdrColor(row.adrPct) : 'text-slate-600'}`}>{row.adrPct != null ? `${row.adrPct.toFixed(1)}%` : '\u2014'}</td>
                         <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${row.mf != null ? mfColor(row.mf) : 'text-slate-600'}`} title={row.mf != null ? `Money Flow ${row.mf.toFixed(0)} \u2014 ${mfLabel(row.mf)}` : undefined}>{row.mf != null ? `${row.mf.toFixed(0)}${mfArrow(row.mfTrend)}` : '\u2014'}</td>

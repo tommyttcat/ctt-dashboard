@@ -456,7 +456,7 @@ export default function HiddenRelativeStrength() {
                           <VolCell value={row.dVol} className="hidden md:table-cell" />
 
                           <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums hidden md:table-cell ${rvol >= 2 ? 'text-emerald-400' : rvol >= 1.2 ? 'text-cyan-400' : 'text-slate-400'}`}>
-                              {rvol < 1 ? rvol.toFixed(1) : Math.round(rvol)}x
+                              {rvol.toFixed(1)}x
                           </td>
 
                           <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums hidden md:table-cell ${row.alphaOnWeakDays > 5 ? 'text-emerald-400' : row.alphaOnWeakDays > 2 ? 'text-cyan-400' : 'text-slate-300'}`}>

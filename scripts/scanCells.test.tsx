@@ -85,7 +85,8 @@ for (const v of [0.4, 1, 3.6, 12345678, null, 0]) {
   same(`VOL ${v}`, <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(v)}</td>, <VolCell value={v} />);
   same(`MCAP ${v}`, <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatNumber(v)}</td>, <McapCell value={v} />);
   same(`$VOL ${v}`, <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums`}>{formatCurrency(v)}</td>, <DollarVolCell value={v} />);
-  same(`RVOL ${v}`, <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getRvolColor(v)}`}>{v ? `${v < 1 ? v.toFixed(1) : Math.round(v)}x` : '—'}</td>, <RvolCell value={v} />);
+  /* One decimal at every level — see the note on RvolCell. */
+  same(`RVOL ${v}`, <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getRvolColor(v)}`}>{v ? `${v.toFixed(1)}x` : '—'}</td>, <RvolCell value={v} />);
   same(`FLOAT ${v}`, <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getFloatColor(v)}`}>{formatNumber(v)}</td>, <FloatCell value={v} />);
   same(`STOCH ${v}`, <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getStochColor(v)}`}>{v != null ? v.toFixed(1) : '—'}</td>, <StochCell value={v} />);
   same(`DTC ${v}`, <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getDtcColor(v)}`}>{v != null ? v.toFixed(1) : '—'}</td>, <DtcCell value={v} />);
@@ -129,8 +130,13 @@ same('VOL with a responsive modifier',
   <td className={`${tdBase} text-[10px] text-slate-400 font-medium whitespace-nowrap tabular-nums hidden md:table-cell`}>{formatNumber(12345678)}</td>,
   <VolCell value={12345678} className="hidden md:table-cell" />);
 same('RVOL keeps the colour after the modifier',
-  <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums hidden lg:table-cell ${getRvolColor(3.6)}`}>{`${Math.round(3.6)}x`}</td>,
+  <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums hidden lg:table-cell ${getRvolColor(3.6)}`}>{'3.6x'}</td>,
   <RvolCell value={3.6} className="hidden lg:table-cell" />);
+
+/* The rounding this replaced is pinned too, so nobody reintroduces it: 1.4x
+   must never render as "1x" again. */
+eq('1.4x keeps its decimal', renderToStaticMarkup(<RvolCell value={1.4} />).includes('1.4x'), true);
+eq('1.0x is not bare', renderToStaticMarkup(<RvolCell value={1} />).includes('1.0x'), true);
 
 /* The format constants are the rule itself — they were identical in all twelve
    tables, and a change here changes every scanner at once. */

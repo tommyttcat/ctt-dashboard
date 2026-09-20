@@ -229,10 +229,14 @@ export function DollarVolCell({ value, fallback, className }: { value: number | 
   );
 }
 
-export function RvolCell({ value, className }: { value: number | null | undefined; className?: string }) {
+/* ONE DECIMAL, ALWAYS. This used to round above 1x, so 1.0x, 1.4x and 1.49x
+   all printed "1x" — and relative volume between 1 and 2 is exactly where the
+   reader is deciding whether a name is actually busy. The rounding was
+   hiding the difference on every table at once. */
+export function RvolCell({ value, className, title }: { value: number | null | undefined; className?: string; title?: string }) {
   return (
-    <td className={cls(`${SCAN.td} text-[10px] font-bold whitespace-nowrap tabular-nums`, className, getRvolColor(value))}>
-      {value ? `${value < 1 ? value.toFixed(1) : Math.round(value)}x` : '—'}
+    <td className={cls(`${SCAN.td} text-[10px] font-bold whitespace-nowrap tabular-nums`, className, getRvolColor(value))} title={title}>
+      {value ? `${value.toFixed(1)}x` : '—'}
     </td>
   );
 }

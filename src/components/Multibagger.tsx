@@ -649,7 +649,7 @@ export default function Multibagger() {
 
                         {/* RVol */}
                         <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${rvolColor(c.rvol)}`}>
-                          {c.rvol != null ? `${c.rvol < 1 ? c.rvol.toFixed(1) : Math.round(c.rvol)}x` : '—'}
+                          {c.rvol != null ? `${c.rvol.toFixed(1)}x` : '—'}
                         </td>
 
                         {/* Revenue Growth */}

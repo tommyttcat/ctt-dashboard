@@ -7,13 +7,13 @@ import { WatchlistToggle } from './WatchlistPanel';
 import { CatalystChip, NewsStars } from '@/lib/catalyst';
 import { rsBadge } from '@/lib/indicators/rs';
 import {
-  tickerChipForScore, stochColor, dtcColor, floatColor, rvolColor, adrColor,
+  tickerChipForScore, stochColor, dtcColor, floatColor, adrColor,
 } from '@/lib/indicators/columnColors';
 import { mfColor, mfLabel, mfLabelShort, mfArrow } from '@/lib/indicators/moneyflow';
 import { displaySector } from '@/lib/sectors';
 import { stageBadge, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { useMarketData } from './MarketDataContext';
-import { SCAN, ScoreCell } from './scan/ScanTable';
+import { SCAN, RvolCell, ScoreCell } from './scan/ScanTable';
 
 /* This card's reading of negative news: the move already happened, so a
    bearish headline behind a +4% print is the thing to notice. */
@@ -390,9 +390,7 @@ export default function DollarVolumeScanner() {
               </td>
               <td className="px-0.5 pt-2.5 pb-1.5 text-center text-[10px] text-slate-400 font-medium tabular-nums">{fmtVol(row.vol)}</td>
               <td className="px-0.5 pt-2.5 pb-1.5 text-center text-[10px] text-slate-400 font-medium tabular-nums">{fmtDvol(row.dvol)}</td>
-              <td className={`px-0.5 pt-2.5 pb-1.5 text-center text-[10px] font-bold tabular-nums ${rvolColor(row.rvol)}`}>
-                {row.rvol != null ? `${row.rvol < 1 ? row.rvol.toFixed(1) : Math.round(row.rvol)}x` : '—'}
-              </td>
+              <RvolCell value={row.rvol} />
               <td className={`px-0.5 pt-2.5 pb-1.5 text-center text-[10px] font-bold tabular-nums ${floatColor(row.float)}`}>
                 {fmtVol(row.float)}
               </td>
