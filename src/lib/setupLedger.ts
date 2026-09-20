@@ -277,7 +277,67 @@ const MOVER_SECTIONS = [
  * render, while Top Trades and Top Avoid — the rows that carry a claim — are
  * kept in full.
  */
-export function leanArchive(brief: any): any {
+/* ---- Level coercion -------------------------------------------------------
+   THE STORED SHAPE IS NOT GUARANTEED BY ITS TYPE. `StockEntry.trigger` is
+   declared `number`, but the brief arrives as JSON from a model-written
+   routine and nothing checked it. On 14 Sep 2026 one run emitted `trigger`
+   and `stop` as strings ("266.10") and every other run emitted numbers.
+
+   That cost six days of deploys. /briefs/[date] is statically generated, so
+   `.toFixed` on a string is not a broken cell — it throws during prerender,
+   which fails `next build`, which blocks EVERY deploy of the app until the
+   offending brief is found. The page also served a 500 the whole time.
+
+   So levels are coerced at the write chokepoint, where a bad value costs one
+   field, instead of being trusted at read time in each of the renderers that
+   display them. A value that cannot be parsed is dropped rather than stored,
+   because every renderer already handles a missing level and none of them
+   handles a NaN. */
+const LEVEL_FIELDS = ['price', 'trigger', 'target', 'stop', 'change', 'changePct', 'rs'] as const;
+
+type Row = Record<string, unknown>;
+
+function coerceRow(row: unknown, path: string, fixed: string[]): unknown {
+  if (!row || typeof row !== 'object') return row;
+  const src = row as Row;
+  let out: Row = src;
+  for (const f of LEVEL_FIELDS) {
+    const v = src[f];
+    if (v == null || typeof v === 'number') continue;
+    const n = Number(v);
+    if (out === src) out = { ...src };
+    out[f] = Number.isFinite(n) ? n : undefined;
+    fixed.push(`${path}.${f}`);
+  }
+  return out;
+}
+
+/** Coerce every level on a brief's stock rows to a number. Pure; the shape is
+    returned unchanged when there is nothing to fix. */
+export function normalizeBriefLevels<T>(brief: T, fixed: string[] = []): T {
+  const b = brief as Row | null;
+  if (!b || !Array.isArray(b.sections)) return brief;
+  return {
+    ...b,
+    sections: (b.sections as unknown[]).map((secIn, i) => {
+      const sec = secIn as Row;
+      if (!sec || !Array.isArray(sec.stocks)) return secIn;
+      const label = sec.section ? String(sec.section) : `sections[${i}]`;
+      return {
+        ...sec,
+        stocks: (sec.stocks as unknown[]).map((r, j) => {
+          const ticker = (r as Row)?.ticker;
+          return coerceRow(r, `${label}.stocks[${j}]${ticker ? ` (${String(ticker)})` : ''}`, fixed);
+        }),
+      };
+    }),
+  } as T;
+}
+
+export function leanArchive(briefIn: any): any {
+  // Coerce first: a live brief written before this guard existed can still
+  // hold string levels, and archiving is its last chance to be fixed.
+  const brief = normalizeBriefLevels(briefIn);
   if (!brief || !Array.isArray(brief.sections)) return brief;
   return {
     ...brief,

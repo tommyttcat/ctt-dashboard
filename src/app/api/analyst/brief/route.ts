@@ -14,6 +14,7 @@ import { getMarketDay } from '@/lib/marketCalendar';
 import {
   buildLedger,
   leanArchive,
+  normalizeBriefLevels,
   LEDGER_KEY,
   LEDGER_INDEX_KEY,
 } from '@/lib/setupLedger';
@@ -77,6 +78,37 @@ export async function POST(req: Request) {
     if (provided !== requiredKey) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
     }
+  }
+
+  /* ---- Repair ----------------------------------------------------------
+     `?repair=YYYY-MM-DD` re-normalises an ALREADY STORED archive in place: it
+     reads the row, coerces its levels to numbers and writes it back. It takes
+     no body and can only change a field that is not already a number, so it
+     cannot inject or remove content.
+
+     It exists because archived briefs are immutable by design — the only
+     writers are a date rollover and a first-write — and the brief for
+     14 Sep 2026 was archived with string levels that failed the /briefs
+     prerender and blocked every deploy from 14 to 20 Sep. Without this there
+     is no way to correct a stored row short of writing to KV by hand, which
+     CLAUDE.md forbids from a local machine. */
+  const repairDate = new URL(req.url).searchParams.get('repair');
+  if (repairDate) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(repairDate)) {
+      return NextResponse.json({ error: 'repair expects YYYY-MM-DD' }, { status: 400 });
+    }
+    const key = `brief_archive:${repairDate}`;
+    const stored = await kv.get<Record<string, unknown>>(key);
+    if (!stored) {
+      return NextResponse.json({ error: `no archived brief for ${repairDate}` }, { status: 404 });
+    }
+    const fixed: string[] = [];
+    const cleaned = normalizeBriefLevels(stored, fixed);
+    if (fixed.length === 0) {
+      return NextResponse.json({ repaired: false, date: repairDate, reason: 'every level is already a number' });
+    }
+    await kv.set(key, cleaned);
+    return NextResponse.json({ repaired: true, date: repairDate, fields: fixed });
   }
 
   let body: any;
@@ -179,7 +211,7 @@ export async function POST(req: Request) {
     /* One plain-English line written for X and Bluesky, where the reader has
        not opened the dashboard and a list of levels means nothing. */
     ...(body.socialTake ? { socialTake: String(body.socialTake) } : {}),
-    sections: body.sections,
+    sections: normalizeBriefLevels({ sections: body.sections }).sections,
     ...(body.regimeDetail && { regimeDetail: body.regimeDetail }),
     ...(body.summary && { summary: body.summary }),
     ...(mergedSessionUpdates ? { sessionUpdates: mergedSessionUpdates } : body.sessionUpdates ? { sessionUpdates: body.sessionUpdates } : {}),
