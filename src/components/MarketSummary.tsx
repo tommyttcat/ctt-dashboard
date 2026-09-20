@@ -108,9 +108,9 @@ import { WatchlistToggle } from './WatchlistPanel';
 import { hrsEdgeGrade } from '@/lib/scans/hrs';
 import { edgeTier as edgeOf, EDGE_TINT, EDGE_FILTER_TIP, type EdgeTier } from '@/lib/scans/edge';
 import { tierForScan } from '@/lib/scans/edge';
-import { trigRows } from '@/lib/scans/triggerProximity';
+import { trigRows, type TrigRow } from '@/lib/scans/triggerProximity';
 import InfoDot from './InfoDot';
-import { SCAN, ScoreCell, RsCell, PriceCell, ChgCell, RvolCell } from './scan/ScanTable';
+import { SCAN, SortHeader, ScoreCell, RsCell, PriceCell, ChgCell, RvolCell } from './scan/ScanTable';
 import { TickerCell } from './scan/TickerCell';
 import { newsStarCount } from '@/lib/newsStars';
 import { rsColor, rsBadge } from '@/lib/indicators/rs';
@@ -1069,66 +1069,158 @@ const TRIG_SCAN_LABEL: Record<string, string> = {
   sip: 'SIP', daily: 'DAY', swing: 'SWING', vcp: 'VCP', ep9m: 'EP9', mb: '100',
 };
 
+type TrigSortKey = 'ticker' | 'scan' | 'cnf' | 'rs' | 'price' | 'chg' | 'rvol' | 'trigger' | 'stop' | 'away';
+
+/* Which way a column opens on its first click. A name sorts A-Z; a number
+   sorts biggest-first, because that is the interesting end of every one of
+   them — except the distance, where the interesting end is zero. */
+const TRIG_ASC_FIRST = new Set<TrigSortKey>(['ticker', 'scan', 'away']);
+
+const trigSortValue = (r: TrigRow, k: TrigSortKey): number | string => {
+  switch (k) {
+    case 'ticker': return r.ticker;
+    case 'scan': return TRIG_SCAN_LABEL[r.s._source] ?? String(r.s._source ?? '');
+    case 'cnf': return scoreOf(r.s);
+    case 'rs': return num(r.s.rsRating);
+    case 'price': return r.price;
+    case 'chg': return chgOf(r.s);
+    case 'rvol': return rvolOf(r.s) ?? 0;
+    case 'trigger': return r.trigger;
+    case 'stop': return r.stop;
+    case 'away': return r.awayPct;
+  }
+};
+
+/* table-fixed honours these, which is the point: the left and right halves are
+   two separate tables, and only a fixed layout makes their columns land on the
+   same pixels across the gap. Sized against the widest real content at 10px —
+   "$443.42 ●" in PRC, "+15.55%" in CHG. */
+const TRIG_COLS: { key: TrigSortKey; label: string; width: string; title?: string }[] = [
+  { key: 'ticker', label: 'TICKER', width: 'w-[15%]' },
+  { key: 'scan', label: 'SCAN', width: 'w-[9%]', title: 'Which scan found it' },
+  { key: 'cnf', label: 'CNF', width: 'w-[7%]' },
+  { key: 'rs', label: 'RS', width: 'w-[7%]' },
+  { key: 'price', label: 'PRC', width: 'w-[13%]' },
+  { key: 'chg', label: 'CHG%', width: 'w-[11%]' },
+  { key: 'rvol', label: 'RVOL', width: 'w-[8%]' },
+  { key: 'trigger', label: 'TRIG', width: 'w-[11%]', title: 'The level the plan is waiting for' },
+  { key: 'stop', label: 'STOP', width: 'w-[10%]', title: "The plan's own invalidation" },
+  { key: 'away', label: 'AWAY', width: 'w-[9%]', title: 'How far price is from the trigger' },
+];
+
 const TriggerProximity = ({ pool }: { pool: any[] }) => {
-  const rows = React.useMemo(() => trigRows(pool), [pool]);
+  /* The SET is the eight closest — that is what the card is. Sorting reorders
+     those eight; it does not re-pick them from the whole pool, or a click on
+     CNF would quietly fill the card with names 20% away from their level and
+     leave the heading lying. */
+  const nearest = React.useMemo(() => trigRows(pool, 8), [pool]);
+
+  const [sortKey, setSortKey] = React.useState<TrigSortKey>('away');
+  const [sortDir, setSortDir] = React.useState<SortDir>('asc');
+
+  /* Same three-click cycle as the card above: open, flip, back to default. */
+  const handleSort = (k: TrigSortKey) => {
+    const first: SortDir = TRIG_ASC_FIRST.has(k) ? 'asc' : 'desc';
+    if (k !== sortKey) { setSortKey(k); setSortDir(first); return; }
+    if (sortDir === first) setSortDir(first === 'asc' ? 'desc' : 'asc');
+    else { setSortKey('away'); setSortDir('asc'); }
+  };
+
+  const rows = React.useMemo(() => {
+    const cmp = (a: TrigRow, b: TrigRow) => {
+      const av = trigSortValue(a, sortKey);
+      const bv = trigSortValue(b, sortKey);
+      const d = typeof av === 'string' || typeof bv === 'string'
+        ? String(av).localeCompare(String(bv))
+        : av - bv;
+      return sortDir === 'desc' ? -d : d;
+    };
+    return [...nearest].sort(cmp);
+  }, [nearest, sortKey, sortDir]);
 
   if (rows.length === 0) return null;
+
+  const head = (
+    <thead>
+      <tr className="border-b border-white/5">
+        {TRIG_COLS.map(c => (
+          <SortHeader
+            key={c.key}
+            label={c.label}
+            width={c.width}
+            title={c.title}
+            icon={sortKey === c.key ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
+            onSort={() => handleSort(c.key)}
+            className={c.key === 'ticker' ? 'text-left' : undefined}
+          />
+        ))}
+      </tr>
+    </thead>
+  );
+
+  const body = (list: TrigRow[]) => (
+    <tbody>
+      {list.map((r) => {
+        const t = tierForScan(r.s._source, r.s);
+        return (
+          <tr
+            key={`tp-${r.ticker}`}
+            className={t ? EDGE_TINT[t.tier] : undefined}
+            title={t ? `${t.tier.toUpperCase()} — ${t.tip}` : undefined}
+          >
+            <TickerCell symbol={r.ticker} name={r.s.name} score={scoreOf(r.s) || null} />
+            <td className={`${SCAN.td} text-[10px] font-bold text-slate-500`}>
+              {TRIG_SCAN_LABEL[r.s._source] ?? String(r.s._source ?? '').toUpperCase()}
+            </td>
+            <ScoreCell value={scoreOf(r.s) || null} />
+            <RsCell value={numOrNull(r.s.rsRating)} />
+            <PriceCell price={r.price} vwapStatus={r.s.vwapStatus} />
+            <ChgCell value={chgOf(r.s)} />
+            <RvolCell value={rvolOf(r.s)} />
+            <td
+              className={`${SCAN.td} text-[10px] font-bold text-slate-200 tabular-nums whitespace-nowrap`}
+              title={`${r.pullback ? 'Wait for a pullback to' : 'Buy above'} ${r.trigger.toFixed(2)} — ${r.label}`}
+            >
+              <span className={r.pullback ? 'text-fuchsia-400' : 'text-emerald-400'}>{r.pullback ? '↓' : '↑'}</span>{' '}
+              {r.trigger.toFixed(2)}
+            </td>
+            <td className={`${SCAN.td} text-[10px] font-bold text-rose-400/80 tabular-nums whitespace-nowrap`}>
+              {r.stop.toFixed(2)}
+            </td>
+            <td className={`${SCAN.td} text-[10px] font-bold text-slate-300 tabular-nums whitespace-nowrap`}>
+              {r.awayPct < 10 ? r.awayPct.toFixed(1) : r.awayPct.toFixed(0)}%
+            </td>
+          </tr>
+        );
+      })}
+    </tbody>
+  );
+
+  /* Two columns past five rows, split at the midpoint — the same rule and the
+     same breakpoint as the card above, so the two read as one block rather
+     than a wide card sitting on a narrow one. The descendant padding override
+     is what makes the row pitch match: the shared cells carry the scanner
+     tables' taller spacing, which is right in a full-page table and too loose
+     beside the summary rows. */
+  const useTwoCols = rows.length > 5;
+  const mid = useTwoCols ? Math.ceil(rows.length / 2) : rows.length;
+  const dense = 'w-full table-fixed min-w-[470px] [&_td]:pt-1 [&_td]:pb-1 [&_th]:py-1.5';
 
   return (
     <div className="mt-4 pt-3 border-t border-white/5">
       <div className="flex items-center mb-1">
         <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Closest to trigger</span>
-        <InfoDot text={"The names above, ordered by how far price sits from the level its own plan is waiting for — the scanner's trigger, not a new one.\n\n↑ means price has to RISE through the level to trigger (a breakout: Daily, SIP, Swing, VCP). ↓ means it has to FALL to it (EP9M, whose plan is a pullback to the EP-day midpoint).\n\nA name drops off this list once price is through its level: by then it is a position or a miss, not a watch. STOP is the plan's own invalidation.\n\nRow colour is each scan's OWN measured tier from its backtest — green, yellow, red — not one rule applied to all of them. Hover a row for what its colour means on that scan."} />
+        <InfoDot text={"The eight names above closest to the level their own plan is waiting for — the scanner's trigger, not a new one. Every column sorts; sorting reorders these eight rather than re-picking them, so the card stays the near list.\n\n↑ means price has to RISE through the level to trigger (a breakout: Daily, SIP, Swing, VCP). ↓ means it has to FALL to it (EP9M, whose plan is a pullback to the EP-day midpoint).\n\nA name drops off this list once price is through its level: by then it is a position or a miss, not a watch. STOP is the plan's own invalidation.\n\nRow colour is each scan's OWN measured tier from its backtest — green, yellow, red — not one rule applied to all of them. Hover a row for what its colour means on that scan."} />
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[520px]">
-          <thead>
-            <tr className="border-b border-white/5">
-              <th className={`${SCAN.th} w-[18%] text-left pl-0`}>TICKER</th>
-              <th className={`${SCAN.th} w-[9%]`}>SCAN</th>
-              <th className={`${SCAN.th} w-[8%]`}>CNF</th>
-              <th className={`${SCAN.th} w-[8%]`}>RS</th>
-              <th className={`${SCAN.th} w-[11%]`}>PRICE</th>
-              <th className={`${SCAN.th} w-[9%]`}>CHG</th>
-              <th className={`${SCAN.th} w-[9%]`}>RVOL</th>
-              <th className={`${SCAN.th} w-[11%]`}>TRIGGER</th>
-              <th className={`${SCAN.th} w-[9%]`}>STOP</th>
-              <th className={`${SCAN.th} w-[8%]`}>AWAY</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => {
-              const t = tierForScan(r.s._source, r.s);
-              return (
-                <tr
-                  key={`tp-${r.ticker}`}
-                  className={t ? EDGE_TINT[t.tier] : undefined}
-                  title={t ? `${t.tier.toUpperCase()} — ${t.tip}` : undefined}
-                >
-                  <TickerCell symbol={r.ticker} name={r.s.name} score={scoreOf(r.s) || null} />
-                  <td className={`${SCAN.td} text-[10px] font-bold text-slate-500`}>
-                    {TRIG_SCAN_LABEL[r.s._source] ?? String(r.s._source ?? '').toUpperCase()}
-                  </td>
-                  <ScoreCell value={scoreOf(r.s) || null} />
-                  <RsCell value={numOrNull(r.s.rsRating)} />
-                  <PriceCell price={r.price} vwapStatus={r.s.vwapStatus} />
-                  <ChgCell value={chgOf(r.s)} />
-                  <RvolCell value={rvolOf(r.s)} />
-                  <td className={`${SCAN.td} text-[10px] font-bold text-slate-200 tabular-nums whitespace-nowrap`} title={`${r.pullback ? 'Wait for a pullback to' : 'Buy above'} ${r.trigger.toFixed(2)} — ${r.label}`}>
-                    <span className={r.pullback ? 'text-fuchsia-400' : 'text-emerald-400'}>{r.pullback ? '↓' : '↑'}</span>{' '}
-                    {r.trigger.toFixed(2)}
-                  </td>
-                  <td className={`${SCAN.td} text-[10px] font-bold text-rose-400/80 tabular-nums whitespace-nowrap`} title="The plan's own invalidation — below this the setup is wrong.">
-                    {r.stop.toFixed(2)}
-                  </td>
-                  <td className={`${SCAN.td} text-[10px] font-bold text-slate-300 tabular-nums whitespace-nowrap`}>
-                    {r.awayPct < 10 ? r.awayPct.toFixed(1) : r.awayPct.toFixed(0)}%
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div className={useTwoCols ? 'grid grid-cols-1 md:grid-cols-2 gap-x-6' : ''}>
+        <div className="overflow-x-auto">
+          <table className={dense}>{head}{body(rows.slice(0, mid))}</table>
+        </div>
+        {useTwoCols && (
+          <div className="overflow-x-auto">
+            <table className={dense}>{head}{body(rows.slice(mid))}</table>
+          </div>
+        )}
       </div>
       <p className="text-[10px] text-slate-500 font-medium mt-1">
         ↑ price must rise through the level · ↓ EP9M waits for a pullback to it.
