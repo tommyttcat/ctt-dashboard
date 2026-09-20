@@ -141,6 +141,19 @@ function formatBriefDate(dateStr: string) {
  * That is what puts the brief text in the server HTML for crawlers, and it
  * drops the second function invocation + KV read that every view used to cost.
  */
+/* A level as it renders in the table.
+   THE STORED VALUE IS NOT ALWAYS A NUMBER. The brief for 14 Sep 2026 was
+   written with `trigger` and `stop` as strings ("266.10"), and `.toFixed` on
+   a string is a TypeError — which, on a statically generated route, is not a
+   broken cell but a failed prerender that takes the whole build with it. That
+   one brief blocked every deploy from 14 Sep until it was found on 20 Sep,
+   and served a 500 on /briefs/2026-09-14 the entire time.
+   Coercing here fixes the symptom. The write side is the actual bug. */
+const money = (v: unknown): string => {
+  const n = Number(v);
+  return Number.isFinite(n) && n !== 0 ? n.toFixed(2) : '—';
+};
+
 export default function BriefDetail({
   date,
   brief,
@@ -312,13 +325,13 @@ export default function BriefDetail({
                           <tr key={i} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
                             <td className="py-2 pr-3 font-bold text-cyan-400">${s.ticker}</td>
                             <td className="py-2 px-2 text-right text-slate-300 font-mono">
-                              {s.price ? s.price.toFixed(2) : '—'}
+                              {money(s.price)}
                             </td>
                             <td className="py-2 px-2 text-right text-emerald-400 font-mono">
-                              {s.trigger ? s.trigger.toFixed(2) : '—'}
+                              {money(s.trigger)}
                             </td>
                             <td className="py-2 px-2 text-right text-amber-400 font-mono">
-                              {s.target ? s.target.toFixed(2) : '—'}
+                              {money(s.target)}
                             </td>
                             {allStocks.some((st) => st.stage) && (
                               <td className="py-2 px-2 text-slate-400">{s.stage || '—'}</td>
