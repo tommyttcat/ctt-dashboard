@@ -1109,21 +1109,26 @@ const TRIG_COLS: { key: TrigSortKey; label: string; width: string; title?: strin
 ];
 
 const TriggerProximity = ({ pool }: { pool: any[] }) => {
-  /* The SET is the eight closest — that is what the card is. Sorting reorders
-     those eight; it does not re-pick them from the whole pool, or a click on
-     CNF would quietly fill the card with names 20% away from their level and
-     leave the heading lying. */
+  /* The SET is the eight closest — that is what the card is, and it is chosen
+     by proximity no matter which column the reader sorts by. Sorting reorders
+     those eight; it never re-picks them from the whole pool, or the card would
+     quietly fill with names 20% away from their level and leave the heading
+     lying about what it is. */
   const nearest = React.useMemo(() => trigRows(pool, 8), [pool]);
 
-  const [sortKey, setSortKey] = React.useState<TrigSortKey>('away');
-  const [sortDir, setSortDir] = React.useState<SortDir>('asc');
+  /* Ordered by CNF, like the card above — the two blocks then read down the
+     same way, and the strongest name is top-left in both. Proximity is still
+     what PICKS the eight rows; it is no longer what orders them, so AWAY is
+     one click away for the reader who wants the nearest first. */
+  const [sortKey, setSortKey] = React.useState<TrigSortKey>('cnf');
+  const [sortDir, setSortDir] = React.useState<SortDir>('desc');
 
   /* Same three-click cycle as the card above: open, flip, back to default. */
   const handleSort = (k: TrigSortKey) => {
     const first: SortDir = TRIG_ASC_FIRST.has(k) ? 'asc' : 'desc';
     if (k !== sortKey) { setSortKey(k); setSortDir(first); return; }
     if (sortDir === first) setSortDir(first === 'asc' ? 'desc' : 'asc');
-    else { setSortKey('away'); setSortDir('asc'); }
+    else { setSortKey('cnf'); setSortDir('desc'); }
   };
 
   const rows = React.useMemo(() => {
@@ -1210,7 +1215,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
     <div className="mt-4 pt-3 border-t border-white/5">
       <div className="flex items-center mb-1">
         <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Closest to trigger</span>
-        <InfoDot text={"The eight names above closest to the level their own plan is waiting for — the scanner's trigger, not a new one. Every column sorts; sorting reorders these eight rather than re-picking them, so the card stays the near list.\n\n↑ means price has to RISE through the level to trigger (a breakout: Daily, SIP, Swing, VCP). ↓ means it has to FALL to it (EP9M, whose plan is a pullback to the EP-day midpoint).\n\nA name drops off this list once price is through its level: by then it is a position or a miss, not a watch. STOP is the plan's own invalidation.\n\nRow colour is each scan's OWN measured tier from its backtest — green, yellow, red — not one rule applied to all of them. Hover a row for what its colour means on that scan."} />
+        <InfoDot text={"The eight names above closest to the level their own plan is waiting for — the scanner's trigger, not a new one. Proximity picks the eight; they are then ordered by CNF, like the card above. Every column sorts, and sorting only reorders these eight rather than re-picking them, so the card stays the near list. Click AWAY for nearest-first.\n\n↑ means price has to RISE through the level to trigger (a breakout: Daily, SIP, Swing, VCP). ↓ means it has to FALL to it (EP9M, whose plan is a pullback to the EP-day midpoint).\n\nA name drops off this list once price is through its level: by then it is a position or a miss, not a watch. STOP is the plan's own invalidation.\n\nRow colour is each scan's OWN measured tier from its backtest — green, yellow, red — not one rule applied to all of them. Hover a row for what its colour means on that scan."} />
       </div>
       <div className={useTwoCols ? 'grid grid-cols-1 md:grid-cols-2 gap-x-6' : ''}>
         <div className="overflow-x-auto">
