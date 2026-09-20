@@ -30,6 +30,22 @@ import { CACHE, cacheHeaders } from '@/lib/httpCache';
 
 export const dynamic = 'force-dynamic';
 
+/* NOT EVERY SCAN IS A 15-MINUTE SCAN, and treating them as one made this
+   route useless on exactly the days it mattered. Two of them produce once a
+   weekday, both around 12:00 UTC:
+
+     RS ratings   cron `0 12 * * 1-5` — a single daily ranking of the market.
+     100-Bagger   cron fires at 12:15, 15:15, 18:15 and 21:15, but the route
+                  itself skips a re-run inside 12 hours, so only the first
+                  one of the day does any work.
+
+   Against a 90-minute rule both are "stale" from about 13:30 UTC onwards,
+   every session, forever — and an alert that fires every day is one nobody
+   reads. 13 hours covers the whole session after a 12:00 run and still
+   catches the case that matters: the day's run never landing, which shows up
+   as an age past 24 hours the next morning. */
+const DAILY_MAX_AGE_MIN = 13 * 60;
+
 /* The payload key each card reads, and the timestamp key beside it. Keep this
    list matched to TRACKED_SCANS in lib/track and to the /latest routes — a key
    that is missing from here is a card nothing is watching. */
@@ -40,6 +56,10 @@ const WATCHED: {
      timestamp — counting its top-level keys returned 6 and would have passed
      an empty ratings map, which is the exact failure this route exists for. */
   rowsPath?: string; tsField?: string;
+  /* Overrides SESSION_MAX_AGE_MIN for a scan that is not on the 15-minute
+     cadence. Without it this route cried wolf every afternoon on the two
+     scans that run once a day — see the note under SESSION_MAX_AGE_MIN. */
+  maxAgeMin?: number;
 }[] = [
   { label: 'Stocks in Play', key: 'stocks_in_play_v6', tsKey: 'last_scan_time_v6', minRows: 1 },
   { label: 'Daily Setups', key: 'daily_setups_v6', tsKey: 'last_scan_time_v6', minRows: 1 },
@@ -48,10 +68,10 @@ const WATCHED: {
   { label: '10/21 Coils', key: 'consol_1021_v1', tsKey: 'consol_1021_last_scan_v1', minRows: 0 },
   { label: 'Swing Candidates', key: 'swing_candidates_v1', tsKey: 'swing_last_scan_v1', minRows: 0 },
   { label: 'Hidden RS', key: 'hrs_results_v1', tsKey: 'hrs_last_scan_v1', minRows: 0 },
-  { label: '100-Bagger', key: 'multibagger_v1', tsKey: 'multibagger_last_scan_v1', minRows: 1 },
+  { label: '100-Bagger', key: 'multibagger_v1', tsKey: 'multibagger_last_scan_v1', minRows: 1, maxAgeMin: DAILY_MAX_AGE_MIN },
   { label: '$Vol', key: 'dvol_rows_v1', tsKey: 'dvol_last_scan_v1', minRows: 1 },
   { label: 'Confluence', key: 'confluence_report_v1', tsKey: 'confluence_last_scan_v1', minRows: 0 },
-  { label: 'RS ratings', key: 'rs_ratings_v1', tsKey: null, minRows: 100, rowsPath: 'ratings', tsField: 'generatedAt' },
+  { label: 'RS ratings', key: 'rs_ratings_v1', tsKey: null, minRows: 100, rowsPath: 'ratings', tsField: 'generatedAt', maxAgeMin: DAILY_MAX_AGE_MIN },
 ];
 
 /* EP9M and the pattern scans legitimately return nothing on a quiet day, which
@@ -61,6 +81,7 @@ const WATCHED: {
 
 const SESSION_MAX_AGE_MIN = 90;     // inside the session: scans run every 15 min
 const OVERNIGHT_MAX_AGE_H = 96;     // outside it: a long weekend plus a holiday
+
 
 interface Check {
   label: string;
@@ -119,8 +140,9 @@ export async function GET(request: Request) {
     if (raw == null) problem = 'key missing — the scan has never written, or it was cleared';
     else if (rows != null && rows >= 0 && rows < w.minRows) problem = `only ${rows} row${rows === 1 ? '' : 's'} (expected at least ${w.minRows})`;
     else if (ageMin == null && (w.tsKey || w.tsField)) problem = 'no timestamp — cannot tell whether it is current';
-    else if (ageMin != null && inSession && ageMin > SESSION_MAX_AGE_MIN) {
-      problem = `${ageMin} minutes old during the session (expected under ${SESSION_MAX_AGE_MIN})`;
+    else if (ageMin != null && inSession && ageMin > (w.maxAgeMin ?? SESSION_MAX_AGE_MIN)) {
+      const limit = w.maxAgeMin ?? SESSION_MAX_AGE_MIN;
+      problem = `${ageMin} minutes old during the session (expected under ${limit})`;
     } else if (ageMin != null && !inSession && ageMin > OVERNIGHT_MAX_AGE_H * 60) {
       problem = `${Math.round(ageMin / 60)} hours old`;
     }
