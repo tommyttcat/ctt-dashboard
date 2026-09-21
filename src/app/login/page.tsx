@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { FREE_ACCESS } from '@/lib/freeAccess';
 
 const ERRORS: Record<string, string> = {
   'missing-token': 'Invalid sign-in link.',
@@ -286,9 +287,15 @@ export default function LoginPage() {
         </div>
 
         <div className="text-center mt-4 pt-4" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-          <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
-            <a href="/pricing" className="font-medium text-indigo-400 hover:text-indigo-300" style={{ textDecoration: 'none' }}>View pricing</a>
-          </p>
+          {/* No prices while everything is free. The page still exists —
+              the TradingView indicators are a separate product and are still
+              sold from it — it just is not advertised here. The link returns
+              on its own the moment FREE_ACCESS is switched off. */}
+          {!FREE_ACCESS && (
+            <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
+              <a href="/pricing" className="font-medium text-indigo-400 hover:text-indigo-300" style={{ textDecoration: 'none' }}>View pricing</a>
+            </p>
+          )}
           {showWaitlist ? (
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
               Already have an account? <button onClick={() => setShowWaitlist(false)} className="font-medium text-indigo-400 hover:text-indigo-300 cursor-pointer">Sign in</button>

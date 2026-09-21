@@ -41,6 +41,15 @@ export async function middleware(request: NextRequest) {
 
   const EMAIL_ONLY_TIERS = ['starter'];
 
+  /* No price list while everything is free. The page still exists — nothing
+     was deleted and nothing about Stripe changed — it simply is not reachable
+     while the flag is on, so a visitor cannot land on a plan table that
+     contradicts the free account they were just offered. Sends them to the
+     sign-up instead of a dead end. Restores itself when FREE_ACCESS goes. */
+  if (FREE_ACCESS && pathname === '/pricing') {
+    return NextResponse.redirect(new URL('/invite?code=CTT-HCXFBF', request.url));
+  }
+
   if (pathname === '/login') {
     const session = await verifySession(request.cookies.get(SESSION_COOKIE)?.value);
     if (session) {
@@ -104,5 +113,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/login', '/dashboard', '/analyst', '/news', '/confluence', '/track', '/scanners', '/admin', '/invite'],
+  matcher: ['/', '/login', '/pricing', '/dashboard', '/analyst', '/news', '/confluence', '/track', '/scanners', '/admin', '/invite'],
 };
