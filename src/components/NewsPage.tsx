@@ -118,58 +118,48 @@ const Card = ({ title, count, info, children, right }: {
 );
 
 /* ---- One item ------------------------------------------------------------
-   THE HEADLINE IS THE PAGE. The first cut of this list rendered everything at
-   10px, which is the scanner tables' size — right for a column of numbers you
-   scan down, wrong for a sentence you read. Prose gets 13px and a left rail
-   holds the ticker, so the eye lands on the name and then on the sentence
-   instead of walking a row of badges to reach it.
+   THE HEADLINE IS THE PAGE. The first cut rendered everything at 10px, the
+   scanner tables' size — right for a column of numbers you scan down, wrong
+   for a sentence you read. Prose gets 13px and leads the item.
 
-   Everything else — the score, the change, the tag, the stars, the publisher
-   and the age — is metadata under the headline at the size the rest of the
-   site uses for metadata. Consistent within the section, which is the rule;
-   the section simply is not a table. */
+   ONE THING IN THE RAIL. The second cut stacked the ticker and its scan pill
+   there, two chips of different widths under each other, and the left edge
+   came out as a stair-step. The rail is a fixed 54px holding the ticker and
+   nothing else, so every headline on the page starts at the same x; the scan
+   moves down to the metadata line where the other small facts already live. */
 
 const META = 'text-[10px] font-medium';
 
-function ItemShell({ ticker, cnf, name, rail, headline, url, title, meta }: {
+function ItemShell({ ticker, cnf, name, headline, url, title, meta }: {
   ticker: string;
   cnf?: number | null;
   name?: string | null;
-  rail: React.ReactNode;
   headline: string;
   url: string | null;
   title?: string;
   meta: React.ReactNode;
 }) {
-  /* group-hover with no group above it simply never fires, so the same body
-     serves the linked and unlinked cases without a second copy. */
+  /* group-hover with no group above it never fires, so one body serves the
+     linked and unlinked cases without a second copy. */
   const body = (
     <>
-      <p className="text-[13px] leading-[1.45] text-slate-100 font-medium group-hover/hl:text-indigo-300 transition-colors">{headline}</p>
-      <div className={`mt-1.5 flex items-center gap-2 flex-wrap ${META} text-slate-500`}>{meta}</div>
+      <p className="text-[13px] leading-[1.4] text-slate-100 font-medium group-hover/hl:text-indigo-300 transition-colors">
+        {headline}
+      </p>
+      <div className={`mt-1 flex items-center gap-x-2 gap-y-1 flex-wrap ${META} text-slate-500`}>{meta}</div>
     </>
   );
   return (
-    <div className="flex items-start gap-3 py-3 border-b border-white/[0.05] last:border-b-0">
-      <div className="w-[62px] shrink-0 flex flex-col items-start gap-1 pt-[2px]">
-        <div className="flex items-center gap-1">
-          <WatchlistBtn symbol={ticker} />
-          <TickerChartHover symbol={ticker}>
-            <span title={tickerTitle(name, ticker, cnf)} className={tickerChipForScore(cnf)}>{ticker}</span>
-          </TickerChartHover>
-        </div>
-        {rail}
+    <div className="flex items-start gap-2.5 py-2.5 border-b border-white/[0.05] last:border-b-0">
+      <div className="w-[58px] shrink-0 flex items-center gap-1 pt-[1px]">
+        <WatchlistBtn symbol={ticker} />
+        <TickerChartHover symbol={ticker}>
+          <span title={tickerTitle(name, ticker, cnf)} className={tickerChipForScore(cnf)}>{ticker}</span>
+        </TickerChartHover>
       </div>
       <div className="flex-1 min-w-0">
         {url ? (
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={title}
-            className="block group/hl"
-            style={{ textDecoration: 'none' }}
-          >
+          <a href={url} target="_blank" rel="noopener noreferrer" title={title} className="block group/hl" style={{ textDecoration: 'none' }}>
             {body}
           </a>
         ) : body}
@@ -189,18 +179,16 @@ function PoolRow({ it }: { it: PoolItem }) {
       url={it.catalystUrl ?? null}
       title={catalystTooltip(it, { headline })}
       headline={headline}
-      rail={
-        <span className={`${PILL} ${SCAN_CLS[it.scan] ?? 'text-slate-400 bg-slate-500/10 border-slate-500/20'}`}>
-          {SCAN_LABEL[it.scan] ?? it.scan.toUpperCase()}
-        </span>
-      }
       meta={
         <>
+          <span className={`${PILL} ${SCAN_CLS[it.scan] ?? 'text-slate-400 bg-slate-500/10 border-slate-500/20'}`}>
+            {SCAN_LABEL[it.scan] ?? it.scan.toUpperCase()}
+          </span>
           <NewsStars row={it} />
           <CatalystChip row={it} headline={headline} size="sm" />
           {it.cnf != null && <span className={scoreCellCls(it.cnf)} title="CNF score">{Math.round(it.cnf)}</span>}
           <span className={`font-bold tabular-nums ${chgCls(it.changePct)}`}>{fmtChg(it.changePct)}</span>
-          <span className="text-slate-600">{[it.newsPublisher, it.newsAge].filter(Boolean).join(' · ')}</span>
+          <span className="text-slate-600 truncate">{[it.newsPublisher, it.newsAge].filter(Boolean).join(' · ')}</span>
         </>
       }
     />
@@ -214,18 +202,35 @@ function WireRow({ it, owned }: { it: WireItem; owned: boolean }) {
       cnf={null}
       url={it.url}
       headline={decodeEntities(it.cleanHeadline || it.title)}
-      rail={owned ? (
-        <span className={`${PILL} text-indigo-400 bg-indigo-500/10 border-indigo-500/20`} title="On one of your scans right now">
-          ON BOARD
-        </span>
-      ) : null}
       meta={
         <>
+          {owned && (
+            <span className={`${PILL} text-indigo-400 bg-indigo-500/10 border-indigo-500/20`} title="On one of your scans right now">
+              ON BOARD
+            </span>
+          )}
           {it.aiTag && <span className={`${PILL} text-slate-400 bg-slate-500/10 border-slate-500/20`}>{it.aiTag}</span>}
-          <span className="text-slate-600">{[it.publisher, wireAge(it.publishedUtc)].filter(Boolean).join(' · ')}</span>
+          <span className="text-slate-600 truncate">{[it.publisher, wireAge(it.publishedUtc)].filter(Boolean).join(' · ')}</span>
         </>
       }
     />
+  );
+}
+
+/* Two INDEPENDENT columns, not a two-column grid.
+   A grid lays its items out in rows, so a two-line headline on the left
+   stretched the row and left a hole under the one-line headline on the right —
+   which is what made the list look broken. Splitting the array and stacking
+   each half in its own column lets both sides pack tight, and their dividers
+   stop having to agree. Same structure the Setups Summary card uses. */
+function TwoUp<T>({ items, render }: { items: T[]; render: (item: T, i: number) => React.ReactNode }) {
+  if (items.length <= 4) return <div>{items.map(render)}</div>;
+  const mid = Math.ceil(items.length / 2);
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
+      <div className="min-w-0">{items.slice(0, mid).map(render)}</div>
+      <div className="min-w-0 border-t border-white/[0.05] md:border-t-0">{items.slice(mid).map(render)}</div>
+    </div>
   );
 }
 
@@ -348,9 +353,7 @@ export default function NewsPage() {
                         : 'No headline matches the active filter.'}
                     </p>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
-                      {shown.map(it => <PoolRow key={`${it.ticker}-${it.scan}`} it={it} />)}
-                    </div>
+                    <TwoUp items={shown} render={it => <PoolRow key={`${it.ticker}-${it.scan}`} it={it} />} />
                   )}
                 </Card>
 
@@ -383,15 +386,16 @@ export default function NewsPage() {
                         : 'Nothing on the wire touches a scanned name — switch to ALL for the rest of it.'}
                     </p>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
-                      {wireShown.map(a => (
+                    <TwoUp
+                      items={wireShown}
+                      render={a => (
                         <WireRow
                           key={a.id}
                           it={a}
                           owned={(a.tickers?.length ? a.tickers : [a.ticker]).some(t => tickers.has(String(t).toUpperCase()))}
                         />
-                      ))}
-                    </div>
+                      )}
+                    />
                   )}
                 </Card>
 
