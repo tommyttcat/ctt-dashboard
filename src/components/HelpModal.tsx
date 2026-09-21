@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { FREE_ACCESS } from '@/lib/freeAccess';
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -77,6 +78,16 @@ function OverviewTab({ tier }: { tier: string }) {
       </P>
 
       <H>Your Plan — <TierLabel tier={tier} /></H>
+      {FREE_ACCESS && (
+        <div className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 p-3 mb-3">
+          <div className="text-[12px] font-bold text-emerald-300 mb-1.5">Everything is open right now</div>
+          <div className="text-[12px] text-slate-300 leading-[1.8]">
+            Every page and every scanner is available to everyone with an account while the site is in its
+            opening period — no card, no upgrade. Your plan above is what you will be on when that ends, and
+            the breakdown below is what each plan covers then.
+          </div>
+        </div>
+      )}
       {rank === 0 && (
         <P>
           Your Starter plan includes AI-powered market briefings delivered to your inbox — Morning Briefing, Midday Update, and Closing Print emails
@@ -844,7 +855,9 @@ function UpdatesTab({ tier }: { tier: string }) {
 
 export default function HelpModal({ isOpen, onClose, tier = 'pro' }: HelpModalProps) {
   const rank = tierRank(tier);
-  const visibleTabs = ALL_TABS.filter(t => rank >= TIER_RANK[t.minTier]);
+  /* Free access opens every page, so it opens every tab: a help file that
+     hides the section for a page the reader is looking at is worse than none. */
+  const visibleTabs = FREE_ACCESS ? ALL_TABS : ALL_TABS.filter(t => rank >= TIER_RANK[t.minTier]);
   const [tab, setTab] = useState<Tab>('overview');
 
   const safeTab = visibleTabs.some(t => t.key === tab) ? tab : 'overview';

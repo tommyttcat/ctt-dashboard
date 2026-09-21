@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation';
 import React from 'react';
 import Link from 'next/link';
+import { FREE_ACCESS } from '@/lib/freeAccess';
 
 const LINKS: readonly { href: string; label: string; proOnly?: boolean }[] = [
   { href: '/dashboard', label: 'Dashboard' },
@@ -29,7 +30,9 @@ export default function DashNav({ tier = 'pro' }: { tier?: string }) {
        the page that loses nothing by wrapping to a second line, so it wraps,
        and nothing on these pages scrolls sideways any more. */
     <nav className="flex items-center gap-1 flex-wrap md:flex-nowrap min-w-0">
-      {LINKS.filter(l => !l.proOnly || PRO_TIERS.has(tier)).map(({ href, label }) => {
+      {/* Free access opens the pages, so the nav has to offer them — a link
+          hidden from someone who can reach the page is just a worse site. */}
+      {LINKS.filter(l => !l.proOnly || FREE_ACCESS || PRO_TIERS.has(tier)).map(({ href, label }) => {
         const active = path === href;
         return (
           <Link

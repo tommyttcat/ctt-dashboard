@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { verifySession, SESSION_COOKIE } from './lib/auth';
 import { getUserByEmail } from './lib/users';
+import { FREE_ACCESS } from './lib/freeAccess';
 
 const TRIAL_TIERS = ['trial_7', 'trial_14', 'trial_30'];
 const FULL_ACCESS_TIERS = ['pro', ...TRIAL_TIERS];
@@ -44,8 +45,11 @@ export async function middleware(request: NextRequest) {
     const session = await verifySession(request.cookies.get(SESSION_COOKIE)?.value);
     if (session) {
       const loginUser = await getUserByEmail(session.email);
-      if (loginUser?.active && !EMAIL_ONLY_TIERS.includes(loginUser.tier)) {
-        if (loginUser.accessExpiresAt && new Date(loginUser.accessExpiresAt) < new Date()) {
+      /* Under free access every active account belongs on the dashboard, so
+         an email-only tier or a spent trial no longer strands someone on the
+         sign-in page they just came through. */
+      if (loginUser?.active && (FREE_ACCESS || !EMAIL_ONLY_TIERS.includes(loginUser.tier))) {
+        if (!FREE_ACCESS && loginUser.accessExpiresAt && new Date(loginUser.accessExpiresAt) < new Date()) {
           return NextResponse.next();
         }
         return NextResponse.redirect(new URL('/dashboard', request.url));
@@ -75,7 +79,7 @@ export async function middleware(request: NextRequest) {
   const tier = user.tier;
   const isAdmin = user.isAdmin;
 
-  if (user.accessExpiresAt && new Date(user.accessExpiresAt) < new Date()) {
+  if (!FREE_ACCESS && user.accessExpiresAt && new Date(user.accessExpiresAt) < new Date()) {
     return NextResponse.redirect(new URL('/login?info=trial-expired', request.url));
   }
 
@@ -87,7 +91,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (!tiers.includes(tier)) {
+  /* The tier gate, and the one line free access turns off. It sits AFTER the
+     admin branch above on purpose: the flag opens paid pages, never /admin. */
+  if (!FREE_ACCESS && !tiers.includes(tier)) {
     if (EMAIL_ONLY_TIERS.includes(tier)) {
       return NextResponse.redirect(new URL('/login?info=email-only', request.url));
     }
