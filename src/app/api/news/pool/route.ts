@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 import { newsStarCount } from '@/lib/newsStars';
+import { tierForScan } from '@/lib/scans/edge';
 
 /* /api/news/pool — the news already attached to the names on the boards.
  *
@@ -92,8 +93,16 @@ export async function GET() {
         if (!ticker || seen.has(ticker)) continue;
         seen.add(ticker);
         tickers.push(ticker);
+
+        /* The row shading, decided HERE because each scan is tinted by its own
+           measured rule and those rules read fields the page never receives —
+           ADR, float turnover, coil ratio, contraction depth. Only the letter
+           travels; the page looks the tooltip up from it. */
+        const tier = tierForScan(scan, r)?.tier ?? null;
+
         stats[ticker] = {
           scan,
+          tier,
           name: r.name ?? null,
           cnf: num(r.conviction ?? r.cnfScore ?? r.score),
           rsRating: num(r.rsRating ?? r.rs),
@@ -115,6 +124,7 @@ export async function GET() {
         items.push({
           ticker,
           scan,
+          tier,
           name: r.name ?? null,
           sector: r.sector ?? null,
           price: num(r.price),

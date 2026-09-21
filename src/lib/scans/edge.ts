@@ -315,3 +315,14 @@ export function tierForScan(source: string | null | undefined, row: any): { tier
   const tier = entry.fn(row);
   return tier ? { tier, tip: entry.tip[tier] } : null;
 }
+
+/* The tip on its own, for the case where the tier was decided somewhere else.
+   The news route computes tiers server-side — it holds the full scan rows and
+   the page does not — but the tips are ~150 characters each and shipping one
+   per row would cost more than the rest of the payload. The page sends the
+   tier back through here instead. */
+export function tipForScan(source: string | null | undefined, tier: EdgeTier | null | undefined): string | undefined {
+  if (!tier) return undefined;
+  const entry = TIER_BY_SOURCE[String(source ?? '')] ?? TIER_BY_SOURCE.daily;
+  return entry.tip[tier];
+}

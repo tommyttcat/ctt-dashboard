@@ -31,7 +31,9 @@ import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
 import { WatchlistProvider } from './WatchlistContext';
 import WatchlistPanel from './WatchlistPanel';
 import DashNav from './DashNav';
+import HelpModal from './HelpModal';
 import InfoDot from './InfoDot';
+import { EDGE_TINT, tipForScan, type EdgeTier } from '@/lib/scans/edge';
 import { CatalystChip, NewsStars, catalystTooltip, headlineOf, decodeEntities, type CatalystRow } from '@/lib/catalyst';
 import { tickerChipForScore, tickerTitle, rvolColor } from '@/lib/indicators/columnColors';
 import { rsBadge, rsTooltip } from '@/lib/indicators/rs';
@@ -39,6 +41,7 @@ import { formatNumber, formatCurrency } from '@/lib/scans/tableFormat';
 import { scoreCellCls } from '@/lib/indicators/columnColors';
 
 type StatRow = {
+  tier: EdgeTier | null;
   cnf: number | null;
   rsRating: number | null;
   rvol: number | null;
@@ -62,6 +65,7 @@ type PoolItem = CatalystRow & {
   rvol?: number | null;
   vol?: number | null;
   dvol?: number | null;
+  tier?: EdgeTier | null;
   stars: number;
 };
 
@@ -183,7 +187,7 @@ function Stats({ s }: { s: Partial<StatRow> | null | undefined }) {
   );
 }
 
-function ItemShell({ ticker, cnf, name, headline, url, title, meta }: {
+function ItemShell({ ticker, cnf, name, headline, url, title, meta, tier, scan }: {
   ticker: string;
   cnf?: number | null;
   name?: string | null;
@@ -191,6 +195,8 @@ function ItemShell({ ticker, cnf, name, headline, url, title, meta }: {
   url: string | null;
   title?: string;
   meta: React.ReactNode;
+  tier?: EdgeTier | null;
+  scan?: string;
 }) {
   /* group-hover with no group above it never fires, so one body serves the
      linked and unlinked cases without a second copy. */
@@ -202,8 +208,17 @@ function ItemShell({ ticker, cnf, name, headline, url, title, meta }: {
       <div className={`mt-1 flex items-center gap-x-2 gap-y-1 flex-wrap ${META} text-slate-500`}>{meta}</div>
     </>
   );
+  /* The same green/yellow/red the scan cards carry, on the same rule: each
+     scan's own measured tier, decided in the route where the fields that
+     decide it still exist. The tint is the row's, not the headline's — a
+     story does not have an edge, the name it is about does. */
+  const tint = tier ? EDGE_TINT[tier] : '';
+  const tierTip = tier ? `${tier.toUpperCase()} — ${tipForScan(scan, tier)}` : undefined;
   return (
-    <div className="flex items-start gap-2.5 py-2.5 border-b border-white/[0.05] last:border-b-0">
+    <div
+      className={`flex items-start gap-2.5 py-2.5 px-2 -mx-2 rounded-sm border-b border-white/[0.05] last:border-b-0 ${tint}`}
+      title={tierTip}
+    >
       <div className="w-[58px] shrink-0 flex items-center gap-1 pt-[1px]">
         <WatchlistBtn symbol={ticker} />
         <TickerChartHover symbol={ticker}>
@@ -232,6 +247,8 @@ function PoolRow({ it }: { it: PoolItem }) {
       url={it.catalystUrl ?? null}
       title={catalystTooltip(it, { headline })}
       headline={headline}
+      tier={it.tier}
+      scan={it.scan}
       meta={
         <>
           <span className={`${TAG} ${SCAN_CLS[it.scan] ?? 'text-slate-400 bg-slate-500/10 border-slate-500/20'}`}>
@@ -254,6 +271,8 @@ function WireRow({ it, stat }: { it: WireItem; stat?: StatRow }) {
       ticker={it.ticker}
       cnf={stat?.cnf ?? null}
       name={stat?.name ?? null}
+      tier={stat?.tier}
+      scan={stat?.scan}
       url={it.url}
       headline={decodeEntities(it.cleanHeadline || it.title)}
       meta={
@@ -298,6 +317,7 @@ export default function NewsPage() {
   const [scanKey, setScanKey] = React.useState<string | null>(null);
   const [causalOnly, setCausalOnly] = React.useState(false);
   const [wireScope, setWireScope] = React.useState<'pool' | 'all'>('pool');
+  const [helpOpen, setHelpOpen] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setStatus('loading');
@@ -371,6 +391,13 @@ export default function NewsPage() {
                   <ThemeToggle />
                   <DashNav />
                   <WatchlistPanel hideToggle />
+                  <button
+                    onClick={() => setHelpOpen(true)}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold bg-slate-700/60 hover:bg-slate-600 text-slate-400 hover:text-slate-200 transition-colors shrink-0"
+                    title="Help"
+                  >
+                    ?
+                  </button>
                 </div>
               </div>
 
@@ -379,7 +406,7 @@ export default function NewsPage() {
                 <Card
                   title="On your names"
                   count={status === 'loading' ? '' : `${shown.length} of ${pool.length} · ${poolCount} names scanned`}
-                  info={"Every headline the scanners attached to a name currently on one of your boards — the same article the chip in a scan table links to, collected in one place instead of one cell at a time.\n\nOrdered by CNF, like the rest of the site. ★★ breaks the tie — it means the tag is a real category (earnings, M&A, analyst, FDA…) AND the article states a REASON for the move rather than restating it — and the age breaks that. ★ means there is an article but it is generic. An unscored name sorts last rather than as a zero.\n\nThis is not a market feed: a name with no news simply is not here, and a name leaves when it leaves the scans."}
+                  info={"Every headline the scanners attached to a name currently on one of your boards — the same article the chip in a scan table links to, collected in one place instead of one cell at a time.\n\nOrdered by CNF, like the rest of the site. Row colour is each scan's OWN measured tier from its backtest — green, yellow, red — not one rule applied to all of them; hover a row for what its colour means on that scan. ★★ breaks the tie — it means the tag is a real category (earnings, M&A, analyst, FDA…) AND the article states a REASON for the move rather than restating it — and the age breaks that. ★ means there is an article but it is generic. An unscored name sorts last rather than as a zero.\n\nThis is not a market feed: a name with no news simply is not here, and a name leaves when it leaves the scans."}
                   right={
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {causalCount > 0 && (
@@ -474,6 +501,7 @@ export default function NewsPage() {
                 Confluence Trading Tools LLC © {new Date().getFullYear()} • Not investment advice. • <a href="mailto:info@confluencetradingtools.com" className="text-slate-500 hover:text-slate-400" style={{ textDecoration: 'none' }}>info@confluencetradingtools.com</a>
               </div>
             </div>
+            <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
           </ActiveChartProvider>
       </WatchlistProvider>
     </div>
