@@ -34,8 +34,21 @@ import DashNav from './DashNav';
 import InfoDot from './InfoDot';
 import { CatalystChip, NewsStars, catalystTooltip, headlineOf, decodeEntities, type CatalystRow } from '@/lib/catalyst';
 import { tickerChipForScore, tickerTitle, rvolColor } from '@/lib/indicators/columnColors';
-import { formatNumber } from '@/lib/scans/tableFormat';
+import { rsBadge, rsTooltip } from '@/lib/indicators/rs';
+import { formatNumber, formatCurrency } from '@/lib/scans/tableFormat';
 import { scoreCellCls } from '@/lib/indicators/columnColors';
+
+type StatRow = {
+  cnf: number | null;
+  rsRating: number | null;
+  rvol: number | null;
+  vol: number | null;
+  dvol: number | null;
+  changePct: number | null;
+  price: number | null;
+  scan: string;
+  name: string | null;
+};
 
 type PoolItem = CatalystRow & {
   ticker: string;
@@ -48,6 +61,7 @@ type PoolItem = CatalystRow & {
   rsRating?: number | null;
   rvol?: number | null;
   vol?: number | null;
+  dvol?: number | null;
   stars: number;
 };
 
@@ -139,6 +153,36 @@ const Card = ({ title, count, info, children, right }: {
 
 const META = 'text-[10px] font-medium';
 
+/* The stat strip, identical in both sections. Same fields, same order and
+   same colour rules as the scan tables — CNF, RS, CHG%, RVOL, VOL, $VOL —
+   because a number that means one thing on the scanners page and looks
+   different here is worse than no number.
+
+   On the wire these are present only for a name that is on a board: the feed
+   is general and most of what it carries has never been scanned. A missing
+   strip is the honest answer there, not a row of dashes. */
+function Stats({ s }: { s: Partial<StatRow> | null | undefined }) {
+  if (!s) return null;
+  return (
+    <>
+      {s.cnf != null && <span className={scoreCellCls(s.cnf)} title="CNF score">{Math.round(s.cnf)}</span>}
+      {s.rsRating != null && (
+        <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums ${rsBadge(s.rsRating)}`} title={rsTooltip(s.rsRating)}>
+          {s.rsRating}
+        </span>
+      )}
+      {s.changePct != null && (
+        <span className={`font-bold tabular-nums ${chgCls(s.changePct)}`}>{fmtChg(s.changePct)}</span>
+      )}
+      {s.rvol != null && (
+        <span className={`font-bold tabular-nums ${rvolColor(s.rvol)}`} title="Relative volume">{s.rvol.toFixed(1)}x</span>
+      )}
+      {s.vol != null && <span className="font-bold tabular-nums text-slate-400" title="Volume">{formatNumber(s.vol)}</span>}
+      {s.dvol != null && <span className="font-bold tabular-nums text-slate-400" title="Dollar volume">{formatCurrency(s.dvol)}</span>}
+    </>
+  );
+}
+
 function ItemShell({ ticker, cnf, name, headline, url, title, meta }: {
   ticker: string;
   cnf?: number | null;
@@ -196,15 +240,7 @@ function PoolRow({ it }: { it: PoolItem }) {
           <NewsStars row={it} />
           <CatalystChip row={it} headline={headline} size="sm" />
           {it.cnf != null && <span className={scoreCellCls(it.cnf)} title="CNF score">{Math.round(it.cnf)}</span>}
-          <span className={`font-bold tabular-nums ${chgCls(it.changePct)}`}>{fmtChg(it.changePct)}</span>
-          {/* Same formats and the same colour rule as the scan tables: one
-              decimal on RVOL always, VOL abbreviated at the same thresholds. */}
-          {it.rvol != null && (
-            <span className={`font-bold tabular-nums ${rvolColor(it.rvol)}`} title="Relative volume">{it.rvol.toFixed(1)}x</span>
-          )}
-          {it.vol != null && (
-            <span className="font-bold tabular-nums text-slate-400" title="Volume">{formatNumber(it.vol)}</span>
-          )}
+          <Stats s={it} />
           <span className="text-slate-600 truncate">{[it.newsPublisher, it.newsAge].filter(Boolean).join(' · ')}</span>
         </>
       }
@@ -212,21 +248,23 @@ function PoolRow({ it }: { it: PoolItem }) {
   );
 }
 
-function WireRow({ it, owned }: { it: WireItem; owned: boolean }) {
+function WireRow({ it, stat }: { it: WireItem; stat?: StatRow }) {
   return (
     <ItemShell
       ticker={it.ticker}
-      cnf={null}
+      cnf={stat?.cnf ?? null}
+      name={stat?.name ?? null}
       url={it.url}
       headline={decodeEntities(it.cleanHeadline || it.title)}
       meta={
         <>
-          {owned && (
-            <span className={`${TAG} text-indigo-400 bg-indigo-500/10 border-indigo-500/20`} title="On one of your scans right now">
-              ON BOARD
+          {stat && (
+            <span className={`${TAG} ${SCAN_CLS[stat.scan] ?? 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20'}`} title="On one of your scans right now">
+              {SCAN_LABEL[stat.scan] ?? 'ON BOARD'}
             </span>
           )}
           {it.aiTag && <span className={`${TAG} text-slate-400 bg-slate-500/10 border-slate-500/20`}>{it.aiTag}</span>}
+          <Stats s={stat} />
           <span className="text-slate-600 truncate">{[it.publisher, wireAge(it.publishedUtc)].filter(Boolean).join(' · ')}</span>
         </>
       }
@@ -253,7 +291,7 @@ function TwoUp<T>({ items, render }: { items: T[]; render: (item: T, i: number) 
 
 export default function NewsPage() {
   const [pool, setPool] = React.useState<PoolItem[]>([]);
-  const [tickers, setTickers] = React.useState<Set<string>>(new Set());
+  const [stats, setStats] = React.useState<Record<string, StatRow>>({});
   const [poolCount, setPoolCount] = React.useState(0);
   const [wire, setWire] = React.useState<WireItem[]>([]);
   const [status, setStatus] = React.useState<'loading' | 'ready' | 'error'>('loading');
@@ -270,7 +308,7 @@ export default function NewsPage() {
       ]);
       const items: PoolItem[] = p?.items ?? [];
       setPool(items);
-      setTickers(new Set<string>((p?.tickers ?? []).map((t: string) => String(t).toUpperCase())));
+      setStats(p?.stats ?? {});
       setPoolCount(p?.poolCount ?? 0);
       setWire(w?.results ?? []);
       setStatus(items.length || (w?.results?.length ?? 0) ? 'ready' : 'error');
@@ -284,11 +322,17 @@ export default function NewsPage() {
   const shown = React.useMemo(() => pool.filter(it =>
     (!scanKey || it.scan === scanKey) && (!causalOnly || it.stars >= 2)), [pool, scanKey, causalOnly]);
 
-  const ownedWire = React.useMemo(
-    () => wire.filter(a => (a.tickers?.length ? a.tickers : [a.ticker])
-      .some(t => tickers.has(String(t).toUpperCase()))),
-    [wire, tickers],
-  );
+  /* An article can be tagged with several tickers; the one that matters is the
+     first that is on a board, and its stats are what the row shows. */
+  const statFor = React.useCallback((a: WireItem): StatRow | undefined => {
+    for (const t of (a.tickers?.length ? a.tickers : [a.ticker])) {
+      const hit = stats[String(t).toUpperCase()];
+      if (hit) return hit;
+    }
+    return undefined;
+  }, [stats]);
+
+  const ownedWire = React.useMemo(() => wire.filter(a => !!statFor(a)), [wire, statFor]);
   const wireShown = wireScope === 'pool' ? ownedWire : wire;
 
   /* Only sources that actually have news get a pill — a pill with nothing
@@ -300,7 +344,7 @@ export default function NewsPage() {
   const causalCount = pool.filter(i => i.stars >= 2).length;
 
   return (
-    <div className="min-h-screen bg-[#05080f] text-slate-300 font-sans md:py-10 flex justify-center">
+    <div className="min-h-screen overflow-x-hidden bg-[#05080f] text-slate-300 font-sans md:py-10 flex justify-center">
       {/* No MarketDataProvider here on purpose. It polls /api/scanner/latest —
           178 KB — every 60 seconds for the quote engine the scanner tables
           need, and nothing on this page reads it. An open news tab would cost
@@ -406,11 +450,7 @@ export default function NewsPage() {
                     <TwoUp
                       items={wireShown}
                       render={a => (
-                        <WireRow
-                          key={a.id}
-                          it={a}
-                          owned={(a.tickers?.length ? a.tickers : [a.ticker]).some(t => tickers.has(String(t).toUpperCase()))}
-                        />
+                        <WireRow key={a.id} it={a} stat={statFor(a)} />
                       )}
                     />
                   )}

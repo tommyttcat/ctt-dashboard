@@ -401,7 +401,7 @@ export default function TrackRecord() {
        children and nothing happens on hover. */
     <WatchlistProvider>
     <ActiveChartProvider>
-    <div className="min-h-screen bg-[#0b0f1a] text-slate-300 px-3 md:px-6 py-4 max-w-[1100px] mx-auto">
+    <div className="min-h-screen overflow-x-hidden bg-[#0b0f1a] text-slate-300 px-3 md:px-6 py-4 max-w-[1100px] mx-auto">
       {/* Header — stacks on a phone. Left unstacked with a `shrink-0` nav, the
           links cannot wrap or shrink and the page itself scrolls sideways. */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5">

@@ -581,7 +581,7 @@ export default function ConfluenceReport() {
     <WatchlistProvider>
     <ActiveChartProvider>
       <ChartLevelsCtx.Provider value={levelsMap}>
-      <div className="min-h-screen bg-[var(--bg-primary)] text-slate-300 px-3 md:px-6 py-4 md:py-6 max-w-5xl mx-auto">
+      <div className="min-h-screen overflow-x-hidden bg-[var(--bg-primary)] text-slate-300 px-3 md:px-6 py-4 md:py-6 max-w-5xl mx-auto">
         {/* Header
             Every other page stacks this on a phone (flex-col until md) and
             this one did not: the nav sat in a `shrink-0` box beside the logo,

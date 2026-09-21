@@ -77,6 +77,13 @@ export async function GET() {
     const seen = new Set<string>();
     const tickers: string[] = [];
     const items: Record<string, unknown>[] = [];
+    /* Stats for EVERY scanned name, not only the ones carrying a headline.
+       The wire is a general feed: when one of its articles lands on a name
+       that happens to be on a board, the page can only show CNF/RS/RVOL for
+       it if the numbers are already here. Measured at ~190 names it adds
+       about 12 KB to a payload the edge holds for 60s and serves to everyone
+       — no extra KV work, since these rows are already in hand. */
+    const stats: Record<string, Record<string, unknown>> = {};
 
     SCANS.forEach(({ scan }, i) => {
       const rows = Array.isArray(raw?.[i]) ? (raw[i] as Record<string, any>[]) : [];
@@ -85,6 +92,17 @@ export async function GET() {
         if (!ticker || seen.has(ticker)) continue;
         seen.add(ticker);
         tickers.push(ticker);
+        stats[ticker] = {
+          scan,
+          name: r.name ?? null,
+          cnf: num(r.conviction ?? r.cnfScore ?? r.score),
+          rsRating: num(r.rsRating ?? r.rs),
+          rvol: num(r.rvol),
+          vol: num(r.vol),
+          dvol: num(r.dVol ?? r.dvol),
+          changePct: num(r.changePct ?? r.change),
+          price: num(r.price),
+        };
 
         /* A row earns a place only when there is something to open. An
            "Earnings" tag with no article behind it comes from the calendar,
@@ -101,9 +119,12 @@ export async function GET() {
           sector: r.sector ?? null,
           price: num(r.price),
           changePct: num(r.changePct ?? r.change),
-          /* dvol is the 100-Bagger's spelling of the same field. */
           rvol: num(r.rvol),
-          vol: num(r.vol ?? r.dvol),
+          vol: num(r.vol),
+          /* dVol on eight of the nine scans, dvol on the 100-Bagger. Both are
+             DOLLAR volume; `vol` above is shares, and conflating them would
+             print a $6B row as six billion shares. */
+          dvol: num(r.dVol ?? r.dvol),
           cnf: num(r.conviction ?? r.cnfScore ?? r.score),
           rsRating: num(r.rsRating ?? r.rs),
           stage: r.stage ?? null,
@@ -127,13 +148,13 @@ export async function GET() {
     for (const it of items) delete it._age;
 
     return NextResponse.json(
-      { success: true, items, tickers, poolCount: tickers.length, asOf: Date.now() },
+      { success: true, items, tickers, stats, poolCount: tickers.length, asOf: Date.now() },
       { headers: cacheHeaders(CACHE.SCAN) },
     );
   } catch (err) {
     console.error('[news/pool]', err);
     return NextResponse.json(
-      { success: false, items: [], tickers: [], poolCount: 0 },
+      { success: false, items: [], tickers: [], stats: {}, poolCount: 0 },
       { headers: noCacheHeaders() },
     );
   }
