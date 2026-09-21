@@ -132,7 +132,7 @@ function TimeframeTable({ timeframes }: { timeframes: TfAnalysis[] }) {
      column already summarises, so they wait for a wider screen and the other
      four stay put. Nothing scrolls, which is what "locked" means here. */
   return (
-    <div className="overflow-x-auto">
+    <div className="md:overflow-x-auto">
       <table className="w-full text-[10px] tabular-nums">
         <thead>
           <tr className="border-b border-white/10">
@@ -312,18 +312,32 @@ function AiSummaryCard({ summary, reports, activeSector, onSectorFilter, lastSca
              report feel unlike the rest of the site on mobile. `min-w-0` is
              load-bearing next to it: without it the flex item refuses to
              shrink below its content and the scroller never engages. */
+          /* NO SCROLLER ON A PHONE, and that is the fix rather than a
+             tidy-up. Measured at 390px these tables are 264px and 248px
+             inside a 340px card — nothing overflows, nothing can scroll —
+             and yet they "slide", because iOS lets an overflow-x-auto box
+             capture a horizontal swipe whether or not it has anywhere to go.
+             The box itself was the problem. From md up the scroller comes
+             back for the wide layout that can genuinely need it.
+
+             w-full + table-fixed at the same time, because 264 and 248 in a
+             340px card is also why the two halves looked ragged and cut off:
+             they sized to their own content and so disagreed with each
+             other. Now they fill the card and match, column for column.
+             Widths are set against the widest real content at 10px —
+             "$1,795.00" and "+11.19%". */
           const PickTable = ({ rows }: { rows: typeof picks }) => (
-            <div className="overflow-x-auto custom-scrollbar min-w-0 flex-1" style={{ scrollbarWidth: 'thin' }}>
-            <table className="text-[10px]" style={{ borderCollapse: 'collapse' }}>
+            <div className="md:overflow-x-auto custom-scrollbar min-w-0 flex-1" style={{ scrollbarWidth: 'thin' }}>
+            <table className="text-[10px] w-full table-fixed" style={{ borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  <th className={`${TH} text-left`}>Ticker</th>
-                  <th className={`${TH} text-right`}>CHG%</th>
-                  <th className={`${TH} text-right`}>Price</th>
-                  <th className={`${TH} text-center`}>CNF</th>
-                  <th className={`${TH} text-center`}>Bias</th>
-                  <th className={`${TH} text-center`}>RS</th>
-                  <th className={`${TH} text-center`}>STG</th>
+                  <th className={`${TH} text-left w-[18%]`}>Ticker</th>
+                  <th className={`${TH} text-right w-[16%]`}>CHG%</th>
+                  <th className={`${TH} text-right w-[20%]`}>Price</th>
+                  <th className={`${TH} text-center w-[11%]`}>CNF</th>
+                  <th className={`${TH} text-center w-[12%]`}>Bias</th>
+                  <th className={`${TH} text-center w-[11%]`}>RS</th>
+                  <th className={`${TH} text-center w-[12%]`}>STG</th>
                 </tr>
               </thead>
               <tbody>

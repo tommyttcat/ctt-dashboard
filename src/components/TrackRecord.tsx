@@ -219,7 +219,11 @@ function PositionTable({ detail, showScan = false }: { detail: Detail; showScan?
   const TH_SORT = `${TH} cursor-pointer hover:text-slate-300 transition-colors select-none`;
 
   return (
-    <div className="overflow-x-auto custom-scrollbar">
+    /* No scroller below md — with eight columns hidden the table already
+       fits, and an overflow-x-auto box on iOS swallows a horizontal swipe
+       even when it has nowhere to scroll. That is what "the tables slide"
+       was. The scroller returns at md, where the min-width does too. */
+    <div className="md:overflow-x-auto custom-scrollbar">
       <div className="text-[10px] text-slate-500 mb-2">
         {detail.openCount} open · {detail.closedCount} closed
         {detail.truncated ? ' · showing the 150 most recent of each' : ''}
@@ -537,7 +541,7 @@ export default function TrackRecord() {
           Tracking starts with the next evening tick — nothing has been recorded yet.
         </div>
       ) : (
-        <div className="overflow-x-auto custom-scrollbar border border-white/[0.06] rounded-lg bg-slate-900/40">
+        <div className="md:overflow-x-auto custom-scrollbar border border-white/[0.06] rounded-lg bg-slate-900/40">
           {/* Same treatment as the positions table: the four columns that say
               what a scan is and whether it works stay on a phone, the five
               that qualify them wait for a wider screen. */}
