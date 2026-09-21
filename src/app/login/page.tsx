@@ -280,7 +280,7 @@ export default function LoginPage() {
             className="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold no-underline"
             style={{ color: '#fb923c', border: '1px solid rgba(251,146,60,0.3)', background: 'rgba(251,146,60,0.08)', textDecoration: 'none' }}
           >
-            Start Your 30-Day Free Trial
+            Create a Free Account
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
           </a>
         </div>

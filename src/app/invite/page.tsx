@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { FREE_ACCESS } from '@/lib/freeAccess';
 
 const TIER_LABELS: Record<string, { name: string; color: string; desc: string }> = {
   starter: { name: 'Starter', color: '#818cf8', desc: 'Essential market briefings delivered to your inbox.' },
@@ -78,10 +79,13 @@ export default function InvitePage() {
           {tierInfo ? (
             <>
               <h1 className="text-xl font-bold" style={{ color: 'var(--text-heading)' }}>
-                Start Your Free Trial
+                {FREE_ACCESS ? 'Create a Free Account' : 'Start Your Free Trial'}
               </h1>
+              {/* The trial clock on the record is inert while free access is
+                  on, so promising 30 days would understate it and promising
+                  nothing would be vague. Say what is true today. */}
               <div className="mt-3 inline-block text-[11px] font-bold px-3 py-1 rounded-full tracking-wider" style={{ background: `${tierInfo.color}20`, color: tierInfo.color }}>
-                {tierInfo.name} — 30 Days Free
+                {FREE_ACCESS ? 'Free — everything unlocked' : `${tierInfo.name} — 30 Days Free`}
               </div>
               <p className="text-sm mt-2" style={{ color: 'var(--text-muted)' }}>
                 {tierInfo.desc}
@@ -138,7 +142,7 @@ export default function InvitePage() {
             className="w-full mt-4 rounded-lg px-4 py-3 text-sm font-bold text-white transition-opacity disabled:opacity-50 cursor-pointer"
             style={{ background: tierInfo ? tierInfo.color : '#6366f1', color: tierInfo?.color === '#fbbf24' ? '#0b101a' : '#fff' }}
           >
-            {loading ? 'Creating Account...' : tierInfo ? 'Start Free Trial' : 'Accept Invite'}
+            {loading ? 'Creating Account...' : tierInfo ? (FREE_ACCESS ? 'Create Free Account' : 'Start Free Trial') : 'Accept Invite'}
           </button>
         </form>
 
