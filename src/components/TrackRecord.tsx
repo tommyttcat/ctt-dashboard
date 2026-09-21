@@ -223,7 +223,7 @@ function PositionTable({ detail, showScan = false }: { detail: Detail; showScan?
        fits, and an overflow-x-auto box on iOS swallows a horizontal swipe
        even when it has nowhere to scroll. That is what "the tables slide"
        was. The scroller returns at md, where the min-width does too. */
-    <div className="md:overflow-x-auto custom-scrollbar">
+    <div className="md:overflow-x-auto md:overflow-y-hidden custom-scrollbar">
       <div className="text-[10px] text-slate-500 mb-2">
         {detail.openCount} open · {detail.closedCount} closed
         {detail.truncated ? ' · showing the 150 most recent of each' : ''}
@@ -405,7 +405,17 @@ export default function TrackRecord() {
        children and nothing happens on hover. */
     <WatchlistProvider>
     <ActiveChartProvider>
-    <div className="min-h-screen overflow-x-hidden bg-[#0b0f1a] text-slate-300 px-3 md:px-6 py-4 max-w-[1100px] mx-auto">
+    /* overflow-HIDDEN, both axes, exactly as the dashboard's card does it —
+       and the distinction is the whole bug. `overflow-x: hidden` with
+       `overflow-y: visible` is not a thing CSS allows: the spec computes the
+       visible axis to `auto`, so the element quietly becomes a scroll
+       container, and on iOS a scroll container is something a finger can
+       drag. Hiding one axis to stop the sliding is what created it.
+
+       Clipping both axes costs nothing here: the box has no fixed height, so
+       it grows with its content and nothing is cut off vertically. It is the
+       dashboard's structure, which has never had this problem. */
+    <div className="min-h-screen overflow-hidden bg-[#0b0f1a] text-slate-300 px-3 md:px-6 py-4 max-w-[1100px] mx-auto">
       {/* Header — stacks on a phone. Left unstacked with a `shrink-0` nav, the
           links cannot wrap or shrink and the page itself scrolls sideways. */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5">
@@ -541,7 +551,7 @@ export default function TrackRecord() {
           Tracking starts with the next evening tick — nothing has been recorded yet.
         </div>
       ) : (
-        <div className="md:overflow-x-auto custom-scrollbar border border-white/[0.06] rounded-lg bg-slate-900/40">
+        <div className="md:overflow-x-auto md:overflow-y-hidden custom-scrollbar border border-white/[0.06] rounded-lg bg-slate-900/40">
           {/* Same treatment as the positions table: the four columns that say
               what a scan is and whether it works stay on a phone, the five
               that qualify them wait for a wider screen. */}

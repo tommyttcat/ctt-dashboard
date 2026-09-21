@@ -1224,11 +1224,11 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
           as the confluence report's pick tables. custom-scrollbar + thin is
           how every scanner table on the site dresses its scroller. */}
       <div className={useTwoCols ? 'grid grid-cols-1 md:grid-cols-2 gap-x-6' : ''}>
-        <div className="overflow-x-auto custom-scrollbar min-w-0" style={{ scrollbarWidth: 'thin' }}>
+        <div className="overflow-x-auto overflow-y-hidden custom-scrollbar min-w-0" style={{ scrollbarWidth: 'thin' }}>
           <table className={dense}>{head}{body(rows.slice(0, mid))}</table>
         </div>
         {useTwoCols && (
-          <div className="overflow-x-auto custom-scrollbar min-w-0" style={{ scrollbarWidth: 'thin' }}>
+          <div className="overflow-x-auto overflow-y-hidden custom-scrollbar min-w-0" style={{ scrollbarWidth: 'thin' }}>
             <table className={dense}>{head}{body(rows.slice(mid))}</table>
           </div>
         )}

@@ -364,7 +364,7 @@ export default function NewsPage() {
   const causalCount = pool.filter(i => i.stars >= 2).length;
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[#05080f] text-slate-300 font-sans md:py-10 flex justify-center">
+    <div className="min-h-screen bg-[#05080f] text-slate-300 font-sans md:py-10 flex justify-center">
       {/* No MarketDataProvider here on purpose. It polls /api/scanner/latest —
           178 KB — every 60 seconds for the quote engine the scanner tables
           need, and nothing on this page reads it. An open news tab would cost

@@ -132,7 +132,7 @@ function TimeframeTable({ timeframes }: { timeframes: TfAnalysis[] }) {
      column already summarises, so they wait for a wider screen and the other
      four stay put. Nothing scrolls, which is what "locked" means here. */
   return (
-    <div className="md:overflow-x-auto">
+    <div className="md:overflow-x-auto md:overflow-y-hidden">
       <table className="w-full text-[10px] tabular-nums">
         <thead>
           <tr className="border-b border-white/10">
@@ -327,7 +327,7 @@ function AiSummaryCard({ summary, reports, activeSector, onSectorFilter, lastSca
              Widths are set against the widest real content at 10px —
              "$1,795.00" and "+11.19%". */
           const PickTable = ({ rows }: { rows: typeof picks }) => (
-            <div className="md:overflow-x-auto custom-scrollbar min-w-0 flex-1" style={{ scrollbarWidth: 'thin' }}>
+            <div className="md:overflow-x-auto md:overflow-y-hidden custom-scrollbar min-w-0 flex-1" style={{ scrollbarWidth: 'thin' }}>
             <table className="text-[10px] w-full table-fixed" style={{ borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
@@ -595,7 +595,17 @@ export default function ConfluenceReport() {
     <WatchlistProvider>
     <ActiveChartProvider>
       <ChartLevelsCtx.Provider value={levelsMap}>
-      <div className="min-h-screen overflow-x-hidden bg-[var(--bg-primary)] text-slate-300 px-3 md:px-6 py-4 md:py-6 max-w-5xl mx-auto">
+      /* overflow-HIDDEN, both axes, exactly as the dashboard's card does it —
+         and the distinction is the whole bug. `overflow-x: hidden` with
+         `overflow-y: visible` is not a thing CSS allows: the spec computes the
+         visible axis to `auto`, so the element quietly becomes a scroll
+         container, and on iOS a scroll container is something a finger can
+         drag. Hiding one axis to stop the sliding is what created it.
+
+         Clipping both axes costs nothing here: the box has no fixed height, so
+         it grows with its content and nothing is cut off vertically. It is the
+         dashboard's structure, which has never had this problem. */
+      <div className="min-h-screen overflow-hidden bg-[var(--bg-primary)] text-slate-300 px-3 md:px-6 py-4 md:py-6 max-w-5xl mx-auto">
         {/* Header
             Every other page stacks this on a phone (flex-col until md) and
             this one did not: the nav sat in a `shrink-0` box beside the logo,
