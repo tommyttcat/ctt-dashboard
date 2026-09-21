@@ -379,7 +379,7 @@ export default function NewsPage() {
                 <Card
                   title="On your names"
                   count={status === 'loading' ? '' : `${shown.length} of ${pool.length} · ${poolCount} names scanned`}
-                  info={"Every headline the scanners attached to a name currently on one of your boards — the same article the chip in a scan table links to, collected in one place instead of one cell at a time.\n\n★★ means the tag is a real category (earnings, M&A, analyst, FDA…) AND the article states a REASON for the move rather than restating it. ★ means there is an article but it is generic. Sorted stars first, then newest.\n\nThis is not a market feed: a name with no news simply is not here, and a name leaves when it leaves the scans."}
+                  info={"Every headline the scanners attached to a name currently on one of your boards — the same article the chip in a scan table links to, collected in one place instead of one cell at a time.\n\nOrdered by CNF, like the rest of the site. ★★ breaks the tie — it means the tag is a real category (earnings, M&A, analyst, FDA…) AND the article states a REASON for the move rather than restating it — and the age breaks that. ★ means there is an article but it is generic. An unscored name sorts last rather than as a zero.\n\nThis is not a market feed: a name with no news simply is not here, and a name leaves when it leaves the scans."}
                   right={
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {causalCount > 0 && (

@@ -141,10 +141,19 @@ export async function GET() {
       }
     });
 
-    /* Two stars first — a classified tag WITH a causal headline, which is the
-       only combination that says why the name moved — then newest. */
+    /* CNF first, like every other list on the site: the reader already ranks
+       names that way, and a news list ordered by anything else asks them to
+       hold two orderings in their head at once.
+
+       Stars break the tie — a classified tag WITH a causal headline is the
+       only combination that says why the name moved — and the age breaks
+       that. A row with no score sorts last rather than as a zero, so an
+       unscored name cannot displace a scored one. */
+    const rank = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : -1);
     items.sort((a, b) =>
-      (b.stars as number) - (a.stars as number) || (a._age as number) - (b._age as number));
+      rank(b.cnf) - rank(a.cnf)
+      || (b.stars as number) - (a.stars as number)
+      || (a._age as number) - (b._age as number));
     for (const it of items) delete it._age;
 
     return NextResponse.json(
