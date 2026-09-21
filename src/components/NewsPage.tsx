@@ -33,7 +33,8 @@ import WatchlistPanel from './WatchlistPanel';
 import DashNav from './DashNav';
 import InfoDot from './InfoDot';
 import { CatalystChip, NewsStars, catalystTooltip, headlineOf, decodeEntities, type CatalystRow } from '@/lib/catalyst';
-import { tickerChipForScore, tickerTitle } from '@/lib/indicators/columnColors';
+import { tickerChipForScore, tickerTitle, rvolColor } from '@/lib/indicators/columnColors';
+import { formatNumber } from '@/lib/scans/tableFormat';
 import { scoreCellCls } from '@/lib/indicators/columnColors';
 
 type PoolItem = CatalystRow & {
@@ -45,6 +46,8 @@ type PoolItem = CatalystRow & {
   changePct?: number | null;
   cnf?: number | null;
   rsRating?: number | null;
+  rvol?: number | null;
+  vol?: number | null;
   stars: number;
 };
 
@@ -101,6 +104,12 @@ function wireAge(iso: string | undefined): string {
 
 const PILL = 'text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border transition-all duration-150';
 
+/* The same pill inside a row, one size down. The filter buttons above are
+   controls and keep 9px; the scan tag beside a headline is a label on the
+   ticker, so it sits below the ticker in the hierarchy rather than above it —
+   which is what it was doing when both were the other way round. */
+const TAG = 'text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border';
+
 const Card = ({ title, count, info, children, right }: {
   title: string; count?: string; info: string; right?: React.ReactNode; children: React.ReactNode;
 }) => (
@@ -154,7 +163,7 @@ function ItemShell({ ticker, cnf, name, headline, url, title, meta }: {
       <div className="w-[58px] shrink-0 flex items-center gap-1 pt-[1px]">
         <WatchlistBtn symbol={ticker} />
         <TickerChartHover symbol={ticker}>
-          <span title={tickerTitle(name, ticker, cnf)} className={tickerChipForScore(cnf)}>{ticker}</span>
+          <span title={tickerTitle(name, ticker, cnf)} className={tickerChipForScore(cnf, 'sm')}>{ticker}</span>
         </TickerChartHover>
       </div>
       <div className="flex-1 min-w-0">
@@ -181,13 +190,21 @@ function PoolRow({ it }: { it: PoolItem }) {
       headline={headline}
       meta={
         <>
-          <span className={`${PILL} ${SCAN_CLS[it.scan] ?? 'text-slate-400 bg-slate-500/10 border-slate-500/20'}`}>
+          <span className={`${TAG} ${SCAN_CLS[it.scan] ?? 'text-slate-400 bg-slate-500/10 border-slate-500/20'}`}>
             {SCAN_LABEL[it.scan] ?? it.scan.toUpperCase()}
           </span>
           <NewsStars row={it} />
           <CatalystChip row={it} headline={headline} size="sm" />
           {it.cnf != null && <span className={scoreCellCls(it.cnf)} title="CNF score">{Math.round(it.cnf)}</span>}
           <span className={`font-bold tabular-nums ${chgCls(it.changePct)}`}>{fmtChg(it.changePct)}</span>
+          {/* Same formats and the same colour rule as the scan tables: one
+              decimal on RVOL always, VOL abbreviated at the same thresholds. */}
+          {it.rvol != null && (
+            <span className={`font-bold tabular-nums ${rvolColor(it.rvol)}`} title="Relative volume">{it.rvol.toFixed(1)}x</span>
+          )}
+          {it.vol != null && (
+            <span className="font-bold tabular-nums text-slate-400" title="Volume">{formatNumber(it.vol)}</span>
+          )}
           <span className="text-slate-600 truncate">{[it.newsPublisher, it.newsAge].filter(Boolean).join(' · ')}</span>
         </>
       }
@@ -205,11 +222,11 @@ function WireRow({ it, owned }: { it: WireItem; owned: boolean }) {
       meta={
         <>
           {owned && (
-            <span className={`${PILL} text-indigo-400 bg-indigo-500/10 border-indigo-500/20`} title="On one of your scans right now">
+            <span className={`${TAG} text-indigo-400 bg-indigo-500/10 border-indigo-500/20`} title="On one of your scans right now">
               ON BOARD
             </span>
           )}
-          {it.aiTag && <span className={`${PILL} text-slate-400 bg-slate-500/10 border-slate-500/20`}>{it.aiTag}</span>}
+          {it.aiTag && <span className={`${TAG} text-slate-400 bg-slate-500/10 border-slate-500/20`}>{it.aiTag}</span>}
           <span className="text-slate-600 truncate">{[it.publisher, wireAge(it.publishedUtc)].filter(Boolean).join(' · ')}</span>
         </>
       }

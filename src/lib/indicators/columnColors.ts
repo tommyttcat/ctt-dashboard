@@ -46,17 +46,29 @@ export function cnfBadgeCls(score: number | null | undefined): string {
    Palette matches MarketSummary's TICKER_CHIP_A/B exactly; a scan table and
    the briefing must not disagree about what an A looks like. Sizing is the
    table chip's (11px, px-1.5 py-0.5) rather than the briefing's inline 9px. */
-const TICKER_CHIP_BASE = 'inline-block text-[7px] font-bold tracking-wider px-1 py-[1px] rounded border';
+/* 'xs' is the table cell: the ticker shares a row with fifteen numbers and
+   takes the smallest size on the site so the numbers stay readable. 'sm' is
+   for a list where the ticker is the ANCHOR of the item rather than one column
+   of many — the news page, where at 7px it was smaller than the scan tag
+   beside it, which put the minor fact above the major one. Both written out in
+   full because Tailwind cannot see a class built by concatenation. */
+export type TickerChipSize = 'xs' | 'sm';
 
-export function tickerChipCls(grade: Grade | string | null | undefined): string {
-  if (grade === 'A') return `${TICKER_CHIP_BASE} bg-emerald-500/10 text-emerald-300 border-emerald-400/30`;
-  if (grade === 'B') return `${TICKER_CHIP_BASE} bg-amber-500/10 text-amber-300 border-amber-400/30`;
-  return `${TICKER_CHIP_BASE} bg-slate-500/10 text-slate-300 border-white/10`;
+const TICKER_CHIP_BASE: Record<TickerChipSize, string> = {
+  xs: 'inline-block text-[7px] font-bold tracking-wider px-1 py-[1px] rounded border',
+  sm: 'inline-block text-[9px] font-bold tracking-wider px-1.5 py-[1px] rounded border',
+};
+
+export function tickerChipCls(grade: Grade | string | null | undefined, size: TickerChipSize = 'xs'): string {
+  const base = TICKER_CHIP_BASE[size];
+  if (grade === 'A') return `${base} bg-emerald-500/10 text-emerald-300 border-emerald-400/30`;
+  if (grade === 'B') return `${base} bg-amber-500/10 text-amber-300 border-amber-400/30`;
+  return `${base} bg-slate-500/10 text-slate-300 border-white/10`;
 }
 
 /** Same chip, for the tables that hold a raw score rather than a letter. */
-export const tickerChipForScore = (score: number | null | undefined): string =>
-  tickerChipCls(gradeOf(score));
+export const tickerChipForScore = (score: number | null | undefined, size: TickerChipSize = 'xs'): string =>
+  tickerChipCls(gradeOf(score), size);
 
 /** Appends the grade to a ticker's hover text, so the colour is never mute. */
 export function tickerTitle(name: string | null | undefined, ticker: string, score: number | null | undefined): string {

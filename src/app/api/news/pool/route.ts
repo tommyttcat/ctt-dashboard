@@ -101,6 +101,9 @@ export async function GET() {
           sector: r.sector ?? null,
           price: num(r.price),
           changePct: num(r.changePct ?? r.change),
+          /* dvol is the 100-Bagger's spelling of the same field. */
+          rvol: num(r.rvol),
+          vol: num(r.vol ?? r.dvol),
           cnf: num(r.conviction ?? r.cnfScore ?? r.score),
           rsRating: num(r.rsRating ?? r.rs),
           stage: r.stage ?? null,
