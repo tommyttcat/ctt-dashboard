@@ -599,26 +599,26 @@ export default function TrackRecord() {
                           quietly held real, resolved results. Show those, marked,
                           rather than showing nothing. */}
                       <td className={`${TD} text-slate-300`}>{r?.picks ?? 0}</td>
-                      <td className={`${TD} text-slate-400`}>{openByScan[scan] ?? 0}</td>
-                      <td className={`${TD} text-slate-400`}>{r?.settled ?? 0}</td>
+                      <td className={`${TD} text-slate-400 ${HIDE}`}>{openByScan[scan] ?? 0}</td>
+                      <td className={`${TD} text-slate-400 ${HIDE}`}>{r?.settled ?? 0}</td>
                       {isReturn ? (
                         <>
                           <td className={`${TD} text-slate-600`} title="No stop in this screen's measurement, so there is no win rate to report">—</td>
                           <td className={`${TD} font-semibold ${rCls(m.retAvgPct)}`} title={m.tip('Average return since the pick — this row is measured in percent over 12 months, not in R')}>
                             {m.retAvgPct == null ? '—' : `${m.retAvgPct >= 0 ? '+' : ''}${m.retAvgPct.toFixed(1)}%`}{m.mark}
                           </td>
-                          <td className={`${TD} text-slate-600`} title="A 20-session hold means nothing on a 12-month screen">—</td>
-                          <td className={`${TD} text-slate-300`} title={m.tip('Share that doubled — the bar this screen was measured against (5.8% universe base rate)')}>{fmtPct(m.doubleRate)}{m.mark}</td>
+                          <td className={`${TD} text-slate-600 ${HIDE}`} title="A 20-session hold means nothing on a 12-month screen">—</td>
+                          <td className={`${TD} text-slate-300 ${HIDE}`} title={m.tip('Share that doubled — the bar this screen was measured against (5.8% universe base rate)')}>{fmtPct(m.doubleRate)}{m.mark}</td>
                         </>
                       ) : (
                         <>
                           <td className={`${TD} text-slate-300`} title={m.tip('Share of trades that closed positive')}>{fmtPct(m.winRate)}{m.mark}</td>
                           <td className={`${TD} font-semibold ${rCls(m.fixedAvgR)}`} title={m.tip('Average R on the 2R-or-stop bracket')}>{fmtR(m.fixedAvgR)}{m.mark}</td>
-                          <td className={`${TD} font-semibold ${rCls(m.hold20AvgR)}`} title={m.tip('Average R at the close of the 20th session')}>{fmtR(m.hold20AvgR)}{m.mark}</td>
-                          <td className={`${TD} text-slate-300`} title={m.tip('Share that ran +50% before the stop')}>{fmtPct(m.hrRate)}{m.mark}</td>
+                          <td className={`${TD} font-semibold ${HIDE} ${rCls(m.hold20AvgR)}`} title={m.tip('Average R at the close of the 20th session')}>{fmtR(m.hold20AvgR)}{m.mark}</td>
+                          <td className={`${TD} text-slate-300 ${HIDE}`} title={m.tip('Share that ran +50% before the stop')}>{fmtPct(m.hrRate)}{m.mark}</td>
                         </>
                       )}
-                      <td className={`${TD} text-slate-500`} title={SCAN_STATS[stat].detail}>
+                      <td className={`${TD} text-slate-500 ${HIDE}`} title={SCAN_STATS[stat].detail}>
                         {bt.fixedAvgR == null ? 'n/a' : `${fmtR(bt.fixedAvgR)} · ${fmtPct(bt.hrRate)}`}
                         <span className="block text-[9px] text-slate-600">n={bt.n.toLocaleString()}</span>
                       </td>

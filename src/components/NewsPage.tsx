@@ -216,10 +216,10 @@ function ItemShell({ ticker, cnf, name, headline, url, title, meta, tier, scan }
   const tierTip = tier ? `${tier.toUpperCase()} — ${tipForScan(scan, tier)}` : undefined;
   return (
     <div
-      className={`flex items-start gap-2.5 py-2.5 px-2 -mx-2 rounded-sm border-b border-white/[0.05] last:border-b-0 ${tint}`}
+      className={`flex items-start gap-2.5 py-2.5 px-2 rounded-sm border-b border-white/[0.05] last:border-b-0 ${tint}`}
       title={tierTip}
     >
-      <div className="w-[58px] shrink-0 flex items-center gap-1 pt-[1px]">
+      <div className="w-[66px] shrink-0 flex items-center gap-1 pt-[1px]">
         <WatchlistBtn symbol={ticker} />
         <TickerChartHover symbol={ticker}>
           <span title={tickerTitle(name, ticker, cnf)} className={tickerChipForScore(cnf, 'sm')}>{ticker}</span>

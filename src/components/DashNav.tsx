@@ -19,18 +19,16 @@ const PRO_TIERS = new Set(['pro', 'trial_7', 'trial_14', 'trial_30']);
 export default function DashNav({ tier = 'pro' }: { tier?: string }) {
   const path = usePathname();
   return (
-    /* ONE LINE, ALWAYS. Seven links at 13px with px-3.5 no longer fit the
-       header, so "Archive" dropped to a second row and the bar grew a step.
-       Tighter type and padding fit them across on a laptop; on a phone no
-       setting fits seven links, so the nav scrolls ITSELF rather than
-       wrapping — `min-w-0` lets it shrink inside the header flex and
-       `overflow-x-auto` keeps that scroll inside the bar instead of handing
-       it to the page. The scrollbar is hidden: a visible one under a row of
-       links reads as a broken layout. */
-    <nav
-      className="flex items-center gap-1 flex-nowrap min-w-0 overflow-x-auto"
-      style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}
-    >
+    /* ONE LINE ON A LAPTOP. Seven links at 13px with px-3.5 no longer fit the
+       header, so "Archive" dropped to a second row; tighter type and padding
+       fit them across from md up.
+
+       ON A PHONE THEY WRAP. Measured at 375px the row needs 593px, so the
+       first attempt let the bar scroll itself — which is the horizontal
+       scrolling inside the card that got reported. A nav is the one thing on
+       the page that loses nothing by wrapping to a second line, so it wraps,
+       and nothing on these pages scrolls sideways any more. */
+    <nav className="flex items-center gap-1 flex-wrap md:flex-nowrap min-w-0">
       {LINKS.filter(l => !l.proOnly || PRO_TIERS.has(tier)).map(({ href, label }) => {
         const active = path === href;
         return (
