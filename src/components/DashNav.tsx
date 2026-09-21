@@ -28,8 +28,12 @@ export default function DashNav({ tier = 'pro' }: { tier?: string }) {
        first attempt let the bar scroll itself — which is the horizontal
        scrolling inside the card that got reported. A nav is the one thing on
        the page that loses nothing by wrapping to a second line, so it wraps,
-       and nothing on these pages scrolls sideways any more. */
-    <nav className="flex items-center gap-1 flex-wrap md:flex-nowrap min-w-0">
+       and nothing on these pages scrolls sideways any more.
+
+       Centred while it wraps: two ragged left-aligned rows of links under a
+       centred brand read as a mistake. Back to the left edge at md, where it
+       sits inline beside everything else. */
+    <nav className="flex items-center justify-center md:justify-start gap-1 flex-wrap md:flex-nowrap min-w-0">
       {/* Free access opens the pages, so the nav has to offer them — a link
           hidden from someone who can reach the page is just a worse site. */}
       {LINKS.filter(l => !l.proOnly || FREE_ACCESS || PRO_TIERS.has(tier)).map(({ href, label }) => {

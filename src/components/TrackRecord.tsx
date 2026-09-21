@@ -405,7 +405,7 @@ export default function TrackRecord() {
        children and nothing happens on hover. */
     <WatchlistProvider>
     <ActiveChartProvider>
-    /* overflow-HIDDEN, both axes, exactly as the dashboard's card does it —
+    {/* overflow-HIDDEN, both axes, exactly as the dashboard's card does it —
        and the distinction is the whole bug. `overflow-x: hidden` with
        `overflow-y: visible` is not a thing CSS allows: the spec computes the
        visible axis to `auto`, so the element quietly becomes a scroll
@@ -414,11 +414,11 @@ export default function TrackRecord() {
 
        Clipping both axes costs nothing here: the box has no fixed height, so
        it grows with its content and nothing is cut off vertically. It is the
-       dashboard's structure, which has never had this problem. */
+       dashboard's structure, which has never had this problem. */}
     <div className="min-h-screen overflow-hidden bg-[#0b0f1a] text-slate-300 px-3 md:px-6 py-4 max-w-[1100px] mx-auto">
       {/* Header — stacks on a phone. Left unstacked with a `shrink-0` nav, the
           links cannot wrap or shrink and the page itself scrolls sideways. */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <a href="/dashboard" className="flex items-center gap-3 min-w-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo.svg" alt="CTT" className="w-8 h-8 md:w-10 md:h-10 opacity-80" />
@@ -429,6 +429,12 @@ export default function TrackRecord() {
         </a>
         <div className="flex items-center gap-2 flex-wrap">
           <ThemeToggle />
+        </div>
+        {/* The links get their own centred row on a phone: they are the
+            width of the screen, so sharing a line with the brand and the
+            controls is what pushed the theme toggle onto a line of its own.
+            From md up `order-none` puts them back inline. */}
+        <div className="w-full flex justify-center order-last md:w-auto md:order-none">
           <DashNav />
         </div>
       </div>

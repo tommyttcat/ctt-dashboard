@@ -595,7 +595,7 @@ export default function ConfluenceReport() {
     <WatchlistProvider>
     <ActiveChartProvider>
       <ChartLevelsCtx.Provider value={levelsMap}>
-      /* overflow-HIDDEN, both axes, exactly as the dashboard's card does it —
+      {/* overflow-HIDDEN, both axes, exactly as the dashboard's card does it —
          and the distinction is the whole bug. `overflow-x: hidden` with
          `overflow-y: visible` is not a thing CSS allows: the spec computes the
          visible axis to `auto`, so the element quietly becomes a scroll
@@ -604,7 +604,7 @@ export default function ConfluenceReport() {
 
          Clipping both axes costs nothing here: the box has no fixed height, so
          it grows with its content and nothing is cut off vertically. It is the
-         dashboard's structure, which has never had this problem. */
+         dashboard's structure, which has never had this problem. */}
       <div className="min-h-screen overflow-hidden bg-[var(--bg-primary)] text-slate-300 px-3 md:px-6 py-4 md:py-6 max-w-5xl mx-auto">
         {/* Header
             Every other page stacks this on a phone (flex-col until md) and
@@ -612,7 +612,7 @@ export default function ConfluenceReport() {
             so seven links at 13px could not wrap and could not shrink, and the
             PAGE scrolled sideways to fit them. The tables were already in
             their own scrollers — this header was what was actually sliding. */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4 md:mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4 md:mb-6">
           <a href="https://confluencetradingtools.com" className="flex items-center gap-3 no-underline min-w-0" style={{ textDecoration: 'none' }}>
             <img src="/logo.svg" alt="CTT" className="w-8 h-8 md:w-10 md:h-10 opacity-80" />
             <div>
@@ -622,12 +622,18 @@ export default function ConfluenceReport() {
           </a>
           <div className="flex items-center gap-2 flex-wrap">
             <ThemeToggle />
-            <DashNav />
             <button
               onClick={() => setHelpOpen(true)}
               className="w-7 h-7 flex items-center justify-center rounded text-[11px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border border-white/10 transition-colors shrink-0"
               title="Help"
             >?</button>
+          </div>
+          {/* The links get their own centred row on a phone: they are the
+              width of the screen, so sharing a line with the brand and the
+              controls is what pushed the theme toggle onto a line of its own.
+              From md up `order-none` puts them back inline. */}
+          <div className="w-full flex justify-center order-last md:w-auto md:order-none">
+            <DashNav />
           </div>
         </div>
 

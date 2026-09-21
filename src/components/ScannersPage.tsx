@@ -33,7 +33,7 @@ export default function ScannersPage() {
           <div className="w-full max-w-[1200px] bg-[#0b101a] md:rounded-[2rem] md:border md:border-white/5 overflow-hidden md:shadow-2xl relative pb-20">
 
             {/* Header */}
-            <div className="px-3 md:px-10 pt-6 md:pt-8 pb-4 md:pb-6 border-b border-white/5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="px-3 md:px-10 pt-6 md:pt-8 pb-4 md:pb-6 border-b border-white/5 flex flex-wrap justify-between items-center gap-3">
               <a href="https://confluencetradingtools.com" className="flex items-center gap-3.5 md:gap-5 no-underline" style={{ textDecoration: 'none' }}>
                 <img src="/logo.svg" alt="CTT" className="ctt-logo h-9 md:h-10 w-auto drop-shadow-[0_2px_10px_rgba(124,139,250,0.18)]" />
                 <div className="leading-none">
@@ -47,7 +47,6 @@ export default function ScannersPage() {
               </a>
               <div className="flex items-center gap-2">
                 <ThemeToggle />
-                <DashNav />
                 <WatchlistPanel hideToggle />
                 <button
                   onClick={() => setHelpOpen(true)}
@@ -56,6 +55,13 @@ export default function ScannersPage() {
                 >
                   ?
                 </button>
+              </div>
+              {/* The links get their own centred row on a phone: they are the
+                  width of the screen, so sharing a line with the brand and the
+                  controls is what pushed the theme toggle onto a line of its own.
+                  From md up `order-none` puts them back inline. */}
+              <div className="w-full flex justify-center order-last md:w-auto md:order-none">
+                <DashNav />
               </div>
             </div>
 
