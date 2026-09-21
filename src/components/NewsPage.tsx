@@ -117,77 +117,115 @@ const Card = ({ title, count, info, children, right }: {
   </div>
 );
 
-function PoolRow({ it }: { it: PoolItem }) {
-  const headline = headlineOf(it);
-  const url = it.catalystUrl ?? null;
-  const meta = [it.newsPublisher, it.newsAge].filter(Boolean).join(' · ');
+/* ---- One item ------------------------------------------------------------
+   THE HEADLINE IS THE PAGE. The first cut of this list rendered everything at
+   10px, which is the scanner tables' size — right for a column of numbers you
+   scan down, wrong for a sentence you read. Prose gets 13px and a left rail
+   holds the ticker, so the eye lands on the name and then on the sentence
+   instead of walking a row of badges to reach it.
+
+   Everything else — the score, the change, the tag, the stars, the publisher
+   and the age — is metadata under the headline at the size the rest of the
+   site uses for metadata. Consistent within the section, which is the rule;
+   the section simply is not a table. */
+
+const META = 'text-[10px] font-medium';
+
+function ItemShell({ ticker, cnf, name, rail, headline, url, title, meta }: {
+  ticker: string;
+  cnf?: number | null;
+  name?: string | null;
+  rail: React.ReactNode;
+  headline: string;
+  url: string | null;
+  title?: string;
+  meta: React.ReactNode;
+}) {
+  /* group-hover with no group above it simply never fires, so the same body
+     serves the linked and unlinked cases without a second copy. */
+  const body = (
+    <>
+      <p className="text-[13px] leading-[1.45] text-slate-100 font-medium group-hover/hl:text-indigo-300 transition-colors">{headline}</p>
+      <div className={`mt-1.5 flex items-center gap-2 flex-wrap ${META} text-slate-500`}>{meta}</div>
+    </>
+  );
   return (
-    <div className="py-2 border-b border-white/[0.04] last:border-b-0">
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <WatchlistBtn symbol={it.ticker} />
-        <TickerChartHover symbol={it.ticker}>
-          <span title={tickerTitle(it.name, it.ticker, it.cnf)} className={tickerChipForScore(it.cnf)}>{it.ticker}</span>
-        </TickerChartHover>
-        <span className={`${PILL} ${SCAN_CLS[it.scan] ?? 'text-slate-400 bg-slate-500/10 border-slate-500/20'}`}>
-          {SCAN_LABEL[it.scan] ?? it.scan.toUpperCase()}
-        </span>
-        {it.cnf != null && <span className={scoreCellCls(it.cnf)} title="CNF score">{Math.round(it.cnf)}</span>}
-        <span className={`text-[10px] font-bold tabular-nums ${chgCls(it.changePct)}`}>{fmtChg(it.changePct)}</span>
-        <CatalystChip row={it} headline={headline} size="sm" />
-        <NewsStars row={it} />
-        <span className="ml-auto text-[10px] text-slate-500 font-medium whitespace-nowrap">{meta}</span>
+    <div className="flex items-start gap-3 py-3 border-b border-white/[0.05] last:border-b-0">
+      <div className="w-[62px] shrink-0 flex flex-col items-start gap-1 pt-[2px]">
+        <div className="flex items-center gap-1">
+          <WatchlistBtn symbol={ticker} />
+          <TickerChartHover symbol={ticker}>
+            <span title={tickerTitle(name, ticker, cnf)} className={tickerChipForScore(cnf)}>{ticker}</span>
+          </TickerChartHover>
+        </div>
+        {rail}
       </div>
-      {headline && (
-        url ? (
+      <div className="flex-1 min-w-0">
+        {url ? (
           <a
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            title={catalystTooltip(it, { headline })}
-            className="block mt-1 text-[10px] leading-[1.5] text-slate-300 hover:text-indigo-300 transition-colors"
+            title={title}
+            className="block group/hl"
             style={{ textDecoration: 'none' }}
           >
-            {headline}
+            {body}
           </a>
-        ) : (
-          <p className="mt-1 text-[10px] leading-[1.5] text-slate-300">{headline}</p>
-        )
-      )}
+        ) : body}
+      </div>
     </div>
   );
 }
 
-function WireRow({ it, owned }: { it: WireItem; owned: boolean }) {
-  const age = wireAge(it.publishedUtc);
+function PoolRow({ it }: { it: PoolItem }) {
+  const headline = headlineOf(it);
+  if (!headline) return null;
   return (
-    <div className="py-2 border-b border-white/[0.04] last:border-b-0">
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <WatchlistBtn symbol={it.ticker} />
-        <TickerChartHover symbol={it.ticker}>
-          <span title={it.ticker} className={tickerChipForScore(null)}>{it.ticker}</span>
-        </TickerChartHover>
-        {owned && (
-          <span className={`${PILL} text-indigo-400 bg-indigo-500/10 border-indigo-500/20`} title="This name is on one of your scans right now">
-            ON BOARD
-          </span>
-        )}
-        {it.aiTag && (
-          <span className={`${PILL} text-slate-400 bg-slate-500/10 border-slate-500/20`}>{it.aiTag}</span>
-        )}
-        <span className="ml-auto text-[10px] text-slate-500 font-medium whitespace-nowrap">
-          {[it.publisher, age].filter(Boolean).join(' · ')}
+    <ItemShell
+      ticker={it.ticker}
+      cnf={it.cnf}
+      name={it.name}
+      url={it.catalystUrl ?? null}
+      title={catalystTooltip(it, { headline })}
+      headline={headline}
+      rail={
+        <span className={`${PILL} ${SCAN_CLS[it.scan] ?? 'text-slate-400 bg-slate-500/10 border-slate-500/20'}`}>
+          {SCAN_LABEL[it.scan] ?? it.scan.toUpperCase()}
         </span>
-      </div>
-      <a
-        href={it.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="block mt-1 text-[10px] leading-[1.5] text-slate-300 hover:text-indigo-300 transition-colors"
-        style={{ textDecoration: 'none' }}
-      >
-        {decodeEntities(it.cleanHeadline || it.title)}
-      </a>
-    </div>
+      }
+      meta={
+        <>
+          <NewsStars row={it} />
+          <CatalystChip row={it} headline={headline} size="sm" />
+          {it.cnf != null && <span className={scoreCellCls(it.cnf)} title="CNF score">{Math.round(it.cnf)}</span>}
+          <span className={`font-bold tabular-nums ${chgCls(it.changePct)}`}>{fmtChg(it.changePct)}</span>
+          <span className="text-slate-600">{[it.newsPublisher, it.newsAge].filter(Boolean).join(' · ')}</span>
+        </>
+      }
+    />
+  );
+}
+
+function WireRow({ it, owned }: { it: WireItem; owned: boolean }) {
+  return (
+    <ItemShell
+      ticker={it.ticker}
+      cnf={null}
+      url={it.url}
+      headline={decodeEntities(it.cleanHeadline || it.title)}
+      rail={owned ? (
+        <span className={`${PILL} text-indigo-400 bg-indigo-500/10 border-indigo-500/20`} title="On one of your scans right now">
+          ON BOARD
+        </span>
+      ) : null}
+      meta={
+        <>
+          {it.aiTag && <span className={`${PILL} text-slate-400 bg-slate-500/10 border-slate-500/20`}>{it.aiTag}</span>}
+          <span className="text-slate-600">{[it.publisher, wireAge(it.publishedUtc)].filter(Boolean).join(' · ')}</span>
+        </>
+      }
+    />
   );
 }
 

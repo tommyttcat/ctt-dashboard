@@ -118,11 +118,19 @@ const rsiColor = (v: number | null) => {
 
 // ---- timeframe table --------------------------------------------------------
 
+/* Written out in full: Tailwind cannot see a class built by concatenation. */
+const TF_HIDE = 'hidden md:table-cell';
+
 function TimeframeTable({ timeframes }: { timeframes: TfAnalysis[] }) {
   const visible = timeframes.filter(tf =>
     tf.emaTrend !== 'N/A' || tf.rsi != null || tf.macdHist != null || tf.priceVsEmas !== 'N/A'
   );
   if (visible.length === 0) return null;
+  /* Six columns, each carrying a number AND a word in brackets, do not fit a
+     phone — the table grew past the screen and the card slid sideways under
+     the trade recommendation. MACD and Price vs EMAs are the two the Bias
+     column already summarises, so they wait for a wider screen and the other
+     four stay put. Nothing scrolls, which is what "locked" means here. */
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-[10px] tabular-nums">
@@ -131,8 +139,8 @@ function TimeframeTable({ timeframes }: { timeframes: TfAnalysis[] }) {
             <th className={`${LABEL} text-left py-1.5 pr-2`}>Timeframe</th>
             <th className={`${LABEL} text-left py-1.5 pr-2`}>EMA Trend</th>
             <th className={`${LABEL} text-center py-1.5 px-1`}>RSI</th>
-            <th className={`${LABEL} text-center py-1.5 px-1`}>MACD Hist</th>
-            <th className={`${LABEL} text-left py-1.5 px-1`}>Price vs EMAs</th>
+            <th className={`${LABEL} text-center py-1.5 px-1 ${TF_HIDE}`}>MACD Hist</th>
+            <th className={`${LABEL} text-left py-1.5 px-1 ${TF_HIDE}`}>Price vs EMAs</th>
             <th className={`${LABEL} text-center py-1.5 pl-1`}>Bias</th>
           </tr>
         </thead>
@@ -144,10 +152,10 @@ function TimeframeTable({ timeframes }: { timeframes: TfAnalysis[] }) {
               <td className={`py-1.5 px-1 text-center ${rsiColor(tf.rsi)}`}>
                 {tf.rsi != null ? tf.rsi.toFixed(1) : '—'} <span className="text-slate-500">({tf.rsiLabel})</span>
               </td>
-              <td className={`py-1.5 px-1 text-center ${(tf.macdHist ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              <td className={`py-1.5 px-1 text-center ${TF_HIDE} ${(tf.macdHist ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {tf.macdHist != null ? (tf.macdHist >= 0 ? '+' : '') + tf.macdHist.toFixed(2) : '—'} <span className="text-slate-500">({tf.macdLabel})</span>
               </td>
-              <td className="py-1.5 px-1 text-slate-300">{tf.priceVsEmas}</td>
+              <td className={`py-1.5 px-1 text-slate-300 ${TF_HIDE}`}>{tf.priceVsEmas}</td>
               <td className="py-1.5 pl-1 text-center">
                 <span className={`inline-block text-[8px] font-bold px-1.5 py-[1px] rounded ${biasColor(tf.bias)} ${biasBg(tf.bias)}`}>
                   {tf.bias} ({tf.biasScore}/4)

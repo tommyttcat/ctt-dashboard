@@ -124,6 +124,9 @@ const rCls = (v: number | null | undefined) =>
 const TH = 'text-[9px] font-bold tracking-widest uppercase text-slate-500 px-2 py-2 text-right';
 const TD = 'text-[10px] px-2 py-2 text-right tabular-nums';
 const TH_SCAN = `${TH} cursor-pointer hover:text-slate-300 transition-colors select-none`;
+/* The columns that step aside on a phone. Written out in full rather than
+   built by concatenation so Tailwind's scanner can see it. */
+const HIDE = 'hidden md:table-cell';
 
 type ScanSortKey = 'default' | 'label' | 'picks' | 'open' | 'settled' | 'win' | 'avgR' | 'hold20' | 'hr' | 'bt';
 
@@ -224,20 +227,26 @@ function PositionTable({ detail, showScan = false }: { detail: Detail; showScan?
         hits its target or its stop still shows here until that window is up. Row colour is the shading the
         pick carried on the day it was made.
       </div>
-      <table className="w-full min-w-[720px] border-collapse">
+      {/* Twelve columns is a desktop table. On a phone it was 720px of
+          sideways scrolling to read four numbers, so the eight that answer
+          "how did this trade go in detail" drop out below md and the four that
+          answer "what is this and where does it stand" remain. The min-width
+          goes with them — with nothing forcing the table wide, the scroller
+          never engages and the page stops moving. */}
+      <table className="w-full md:min-w-[720px] border-collapse">
         <thead>
           <tr className="border-b border-white/5">
             <th className={`${TH_SORT} !text-left`} onClick={() => toggleSort('ticker')}>Ticker{arrow('ticker')}</th>
-            {showScan && <th className={`${TH} !text-left`}>Scan</th>}
+            {showScan && <th className={`${TH} !text-left ${HIDE}`}>Scan</th>}
             <th className={`${TH_SORT} !text-left`} onClick={() => toggleSort('d')}>Picked{arrow('d')}</th>
-            <th className={TH_SORT} onClick={() => toggleSort('fill')} title="Next session's open">Fill{arrow('fill')}</th>
-            <th className={TH_SORT} onClick={() => toggleSort('stop')}>Stop{arrow('stop')}</th>
-            <th className={TH_SORT} onClick={() => toggleSort('target')} title="Fill + 2R">Target{arrow('target')}</th>
-            <th className={TH_SORT} onClick={() => toggleSort('n')} title="Sessions since the fill">Held{arrow('n')}</th>
-            <th className={TH_SORT} onClick={() => toggleSort('peakPct')} title="Best print since the fill, in percent">Peak{arrow('peakPct')}</th>
+            <th className={`${TH_SORT} ${HIDE}`} onClick={() => toggleSort('fill')} title="Next session's open">Fill{arrow('fill')}</th>
+            <th className={`${TH_SORT} ${HIDE}`} onClick={() => toggleSort('stop')}>Stop{arrow('stop')}</th>
+            <th className={`${TH_SORT} ${HIDE}`} onClick={() => toggleSort('target')} title="Fill + 2R">Target{arrow('target')}</th>
+            <th className={`${TH_SORT} ${HIDE}`} onClick={() => toggleSort('n')} title="Sessions since the fill">Held{arrow('n')}</th>
+            <th className={`${TH_SORT} ${HIDE}`} onClick={() => toggleSort('peakPct')} title="Best print since the fill, in percent">Peak{arrow('peakPct')}</th>
             <th className={TH_SORT} onClick={() => toggleSort('openR')} title="Marked at the last close — unrealised">Open R{arrow('openR')}</th>
-            <th className={TH_SORT} onClick={() => toggleSort('exitFixed')} title="Realised R on the 2R-or-stop bracket">2R{arrow('exitFixed')}</th>
-            <th className={TH_SORT} onClick={() => toggleSort('exitHold20')} title="Realised R at the close of the 20th session">Hold 20{arrow('exitHold20')}</th>
+            <th className={`${TH_SORT} ${HIDE}`} onClick={() => toggleSort('exitFixed')} title="Realised R on the 2R-or-stop bracket">2R{arrow('exitFixed')}</th>
+            <th className={`${TH_SORT} ${HIDE}`} onClick={() => toggleSort('exitHold20')} title="Realised R at the close of the 20th session">Hold 20{arrow('exitHold20')}</th>
             <th className={TH_SORT} onClick={() => toggleSort('status')}>Status{arrow('status')}</th>
           </tr>
         </thead>
@@ -258,19 +267,19 @@ function PositionTable({ detail, showScan = false }: { detail: Detail; showScan?
                   {p.hr && <span className="ml-1.5 text-[9px] font-bold text-emerald-400" title="Ran +50% (or +10R) before the stop">+50%</span>}
                 </td>
                 {showScan && (
-                  <td className="text-[10px] px-2 py-1.5 text-left text-slate-400 whitespace-nowrap">
+                  <td className={`text-[10px] px-2 py-1.5 text-left text-slate-400 whitespace-nowrap ${HIDE}`}>
                     {SCAN_LABEL[p.scan ?? ''] ?? p.scan ?? '—'}
                   </td>
                 )}
                 <td className="text-[10px] px-2 py-1.5 text-left text-slate-500 whitespace-nowrap tabular-nums">{p.d}</td>
-                <td className={`${TD} text-slate-300`}>{fmtNum(p.fill)}</td>
-                <td className={`${TD} text-slate-400`}>{fmtNum(p.stop)}</td>
-                <td className={`${TD} text-slate-400`}>{fmtNum(p.target)}</td>
-                <td className={`${TD} text-slate-500`}>{p.fill == null ? '—' : p.n}</td>
-                <td className={`${TD} ${(p.peakPct ?? 0) > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>{p.peakPct == null ? '—' : `${p.peakPct >= 0 ? '+' : ''}${p.peakPct.toFixed(1)}%`}</td>
+                <td className={`${TD} text-slate-300 ${HIDE}`}>{fmtNum(p.fill)}</td>
+                <td className={`${TD} text-slate-400 ${HIDE}`}>{fmtNum(p.stop)}</td>
+                <td className={`${TD} text-slate-400 ${HIDE}`}>{fmtNum(p.target)}</td>
+                <td className={`${TD} text-slate-500 ${HIDE}`}>{p.fill == null ? '—' : p.n}</td>
+                <td className={`${TD} ${HIDE} ${(p.peakPct ?? 0) > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>{p.peakPct == null ? '—' : `${p.peakPct >= 0 ? '+' : ''}${p.peakPct.toFixed(1)}%`}</td>
                 <td className={`${TD} ${rCls(p.openR)}`}>{live ? fmtR(p.openR) : '—'}</td>
-                <td className={`${TD} font-semibold ${rCls(p.exitFixed)}`}>{fmtR(p.exitFixed)}</td>
-                <td className={`${TD} ${rCls(p.exitHold20)}`}>{fmtR(p.exitHold20)}</td>
+                <td className={`${TD} font-semibold ${HIDE} ${rCls(p.exitFixed)}`}>{fmtR(p.exitFixed)}</td>
+                <td className={`${TD} ${HIDE} ${rCls(p.exitHold20)}`}>{fmtR(p.exitHold20)}</td>
                 <td className="px-2 py-1.5 text-right">
                   <span className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border ${st.cls}`} title={st.tip}>{st.label}</span>
                 </td>
@@ -529,18 +538,21 @@ export default function TrackRecord() {
         </div>
       ) : (
         <div className="overflow-x-auto custom-scrollbar border border-white/[0.06] rounded-lg bg-slate-900/40">
-          <table className="w-full min-w-[820px] border-collapse">
+          {/* Same treatment as the positions table: the four columns that say
+              what a scan is and whether it works stay on a phone, the five
+              that qualify them wait for a wider screen. */}
+          <table className="w-full md:min-w-[820px] border-collapse">
             <thead>
               <tr className="border-b border-white/5">
                 <th className={`${TH_SCAN} !text-left`} onClick={() => toggleScanSort('label')}>Scan{scanArrow('label')}</th>
                 <th className={TH_SCAN} onClick={() => toggleScanSort('picks')} title="Names published by this scan and recorded before the outcome was known">Picks{scanArrow('picks')}</th>
-                <th className={TH_SCAN} onClick={() => toggleScanSort('open')} title="Still being followed">Open{scanArrow('open')}</th>
-                <th className={TH_SCAN} onClick={() => toggleScanSort('settled')} title="Finished their window and folded into the averages">Settled{scanArrow('settled')}</th>
+                <th className={`${TH_SCAN} ${HIDE}`} onClick={() => toggleScanSort('open')} title="Still being followed">Open{scanArrow('open')}</th>
+                <th className={`${TH_SCAN} ${HIDE}`} onClick={() => toggleScanSort('settled')} title="Finished their window and folded into the averages">Settled{scanArrow('settled')}</th>
                 <th className={TH_SCAN} onClick={() => toggleScanSort('win')} title="Share of settled trades that closed positive">Win{scanArrow('win')}</th>
                 <th className={TH_SCAN} onClick={() => toggleScanSort('avgR')} title="Average R on the 2R-or-stop bracket">Avg R{scanArrow('avgR')}</th>
-                <th className={TH_SCAN} onClick={() => toggleScanSort('hold20')} title="Average R holding to the close of the 20th session">Hold 20{scanArrow('hold20')}</th>
-                <th className={TH_SCAN} onClick={() => toggleScanSort('hr')} title="Reached +50% or +10R before the stop">+50%{scanArrow('hr')}</th>
-                <th className={TH_SCAN} onClick={() => toggleScanSort('bt')} title="The same measure over the 5-year backtest, for comparison">5-yr test{scanArrow('bt')}</th>
+                <th className={`${TH_SCAN} ${HIDE}`} onClick={() => toggleScanSort('hold20')} title="Average R holding to the close of the 20th session">Hold 20{scanArrow('hold20')}</th>
+                <th className={`${TH_SCAN} ${HIDE}`} onClick={() => toggleScanSort('hr')} title="Reached +50% or +10R before the stop">+50%{scanArrow('hr')}</th>
+                <th className={`${TH_SCAN} ${HIDE}`} onClick={() => toggleScanSort('bt')} title="The same measure over the 5-year backtest, for comparison">5-yr test{scanArrow('bt')}</th>
               </tr>
             </thead>
             <tbody>
