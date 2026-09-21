@@ -8,13 +8,15 @@ interface HelpModalProps {
   tier?: string;
 }
 
-type Tab = 'overview' | 'dashboard' | 'analyst' | 'confluence' | 'interactions' | 'updates';
+type Tab = 'overview' | 'dashboard' | 'news' | 'analyst' | 'confluence' | 'track' | 'interactions' | 'updates';
 
 const ALL_TABS: { key: Tab; label: string; minTier: 'starter' | 'core' | 'pro' }[] = [
   { key: 'overview', label: 'Overview', minTier: 'starter' },
   { key: 'dashboard', label: 'Dashboard', minTier: 'core' },
+  { key: 'news', label: 'News', minTier: 'core' },
   { key: 'analyst', label: 'Analyst Brief', minTier: 'core' },
   { key: 'confluence', label: 'Confluence', minTier: 'pro' },
+  { key: 'track', label: 'Track Record', minTier: 'core' },
   { key: 'interactions', label: 'Controls', minTier: 'core' },
   { key: 'updates', label: 'Updates', minTier: 'starter' },
 ];
@@ -135,6 +137,15 @@ function OverviewTab({ tier }: { tier: string }) {
             AI-generated market analysis updated throughout the trading day. Regime assessment, session updates,
             top trade ideas with thesis and risk, and actionable catalysts.
           </Li>
+          <Li title="News (/news)">
+            The day&apos;s headlines, scoped to the names your scans are carrying — plus the broader market wire.
+          </Li>
+          <Li title="Track Record (/track)">
+            Every name every scan has published, scored as it matures. The receipts.
+          </Li>
+          <Li title="Archive (/briefs)">
+            Past briefings, by date.
+          </Li>
         </>
       )}
       {rank >= 2 && (
@@ -155,6 +166,17 @@ function OverviewTab({ tier }: { tier: string }) {
           <Li title="Confluence (/confluence)">
             Multi-timeframe confluence report. Shows which stocks score highly across daily, weekly, and monthly
             timeframes. Sector filtering and an AI summary with top picks.
+          </Li>
+          <Li title="News (/news)">
+            The day&apos;s headlines scoped to the names your scans are carrying, with the score, RS, volume and
+            row colour each name already has elsewhere — plus the broader market wire underneath it.
+          </Li>
+          <Li title="Track Record (/track)">
+            Every name every scan has published, recorded the evening it appeared and scored as it matures
+            against the same measuring stick as the five-year backtest.
+          </Li>
+          <Li title="Archive (/briefs)">
+            Past briefings, by date — the public record of what was said before the outcome was known.
           </Li>
         </>
       )}
@@ -208,6 +230,28 @@ function DashboardTab({ tier }: { tier: string }) {
       <P>
         The active filter name appears in the section title (e.g. &quot;Setups Summary — CNF&quot;).
         CNF is selected by default. Click a pill to switch; click again to deselect and show all.
+      </P>
+
+      <H>Closest to Trigger</H>
+      <P>
+        Sits directly under the Setups Summary and answers the question the card above it does not:
+        of everything that is set up, <strong className="text-slate-200">which names are about to do the
+        thing their plan is waiting for, and at what price</strong>.
+      </P>
+      <P>
+        Each row is the scan&apos;s own plan — the trigger and the stop the scanner already computed and
+        the scan tables already show. Nothing here is newly measured or predicted; the card does
+        arithmetic on the distance and sorts by it.
+      </P>
+      <Li title="↑ UP ARROW">Price has to RISE through the level to trigger. This is a breakout plan — Daily Setups, Stocks in Play, Swing, VCP.</Li>
+      <Li title="↓ DOWN ARROW">Price has to FALL to the level. This is EP9M, whose plan is a pullback to the EP-day midpoint. Reading it as a buy-stop would put you on the wrong side of the market, which is why the arrow is there.</Li>
+      <Li title="AWAY">How far price sits from that level, as a percentage. A name DROPS OFF this card once price is through its level — by then it is a position or a miss, not a watch.</Li>
+      <Li title="STOP">The plan&apos;s own invalidation, not a suggestion. Below it the setup is wrong.</Li>
+      <P>
+        The eight nearest names are chosen by distance; the card then orders them by CNF like everything
+        else. Every column sorts — click AWAY for nearest-first. Sorting only reorders those eight, it
+        never re-picks them from the whole pool, so the card cannot quietly fill with names 20% away from
+        their level. Rows carry the usual green / yellow / red, each from its own scan&apos;s rule.
       </P>
 
       <H>Top Movers</H>
@@ -317,6 +361,94 @@ function DashboardTab({ tier }: { tier: string }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function NewsTab() {
+  return (
+    <div>
+      <H>News — scoped to your names</H>
+      <P>
+        Every scanner already works out WHY a name is moving: it resolves the headline, the link, the
+        publisher, how old the story is, what kind of event it is, and — the useful part — whether the
+        article states a <strong className="text-slate-200">reason</strong> for the move or merely
+        restates the move. Until this page that work was only visible as a small chip inside a table
+        cell. The News page collects it in one place.
+      </P>
+      <P>
+        Two sections, and they deliberately do not overlap. Measured on the live feeds they share no
+        articles at all: the scanners attach name-specific &quot;why is X moving&quot; copy, while the wire
+        carries the broad pieces no scan row references.
+      </P>
+
+      <H>On your names</H>
+      <P>
+        One row per scanned name that is carrying a headline. Ordered by CNF, the same as every other
+        list on the site, so you are not asked to hold two orderings in your head. Stars break the tie,
+        then age. A name with no score sorts last rather than as a zero.
+      </P>
+      <Li title="★★">The tag is a real category (earnings, M&amp;A, analyst, FDA, guidance…) AND the article explains the move. This is the combination worth reading.</Li>
+      <Li title="★">There is an article, but it is generic.</Li>
+      <Li title="SCAN TAG">Which scan is carrying the name — SIP, DAY, EP9, SWING, VCP, 10/21, $VOL, HRS, 100.</Li>
+      <Li title="STATS">CNF, RS, CHG%, RVOL, VOL and $VOL, in the same order, the same formats and the same colours as the scanner tables.</Li>
+      <Li title="ROW COLOUR">The same green / yellow / red as everywhere else, using each scan&apos;s own measured rule. Hover a row for what its colour means on that particular scan.</Li>
+      <P>
+        Filter by scan, or by ★★ to see only the headlines that explain something. This is not a market
+        feed: a name with no news simply is not here, and a name leaves the page when it leaves the scans.
+      </P>
+
+      <H>Market wire</H>
+      <P>
+        Benzinga&apos;s WIIM desk — roughly ten hours of coverage, with the lawsuit and deadline spam
+        filtered out. <strong className="text-slate-200">ON BOARD</strong> shows only the articles
+        touching a name one of your scans is carrying, and those rows get the full stat strip and row
+        colour; <strong className="text-slate-200">ALL</strong> adds the rest of the wire, which is where
+        index and mega-cap context lives. A name the scans have never seen shows no stats, which is the
+        honest answer rather than a row of dashes.
+      </P>
+
+      <H>Freshness</H>
+      <P>
+        The page loads once and gives you a Refresh button rather than a timer. Both feeds are cached at
+        the edge (60 seconds for your names, 120 for the wire), so refreshing is cheap and a background
+        poll would only cost bandwidth without telling you anything sooner.
+      </P>
+    </div>
+  );
+}
+
+function TrackTab() {
+  return (
+    <div>
+      <H>Track Record — the receipts</H>
+      <P>
+        Every name each scan publishes is recorded the evening it appears,
+        <strong className="text-slate-200"> before anything is known about what it does next</strong>.
+        Nothing is added later and nothing is removed for looking bad. The five-year backtest figure sits
+        beside the live one in every row, so you can see whether a scan is keeping up with its own test.
+      </P>
+
+      <H>How a pick is scored</H>
+      <Li title="ENTRY">The next session&apos;s open. It does NOT wait for the trigger — so a setup that never traded its level is in here too, bought at the open and judged from there. That is deliberate: the next open is the one entry that can be recorded without a judgement call, and it is what the five-year backtest measured.</Li>
+      <Li title="STOP">The row&apos;s own plan stop, or that day&apos;s low when it has none.</Li>
+      <Li title="SETTLED">A position closes at the 2R target, at the stop, or at the end of its 60-session window — whichever comes first. The 100-Bagger is measured differently: 12-month return with no stop, so it reports percent and doubles rather than R.</Li>
+      <Li title="HOLD 20">A second, fixed-length read of the same trade — where it stood at the close of the 20th session.</Li>
+
+      <H>Reading the numbers</H>
+      <Li title="A STARRED FIGURE (*)">In progress. The trade&apos;s bracket has already resolved at its target or its stop, but its 60-session window has not closed, so it is not a settled figure yet. A settled number needs the whole window — tracking began in September, so the first ones appear around the start of December. Until then these are the real results of trades that have already finished, which is a truer picture than an empty column.</Li>
+      <Li title="SAMPLE SIZE">Early samples are far too small to conclude anything from. A scan needs hundreds of settled trades before its average means much — the backtest column is there as the reminder of what that looks like.</Li>
+      <Li title="+50%">Reached +50%, or +10R, before hitting the stop. This is the column that separates a scan that grinds from one that occasionally runs.</Li>
+      <Li title="BY SHADING">Each scan breaks its own record down by green / yellow / red, which is how you check whether the row colour is earning its keep on live picks rather than only in the backtest.</Li>
+
+      <H>Getting around</H>
+      <Li title="CLICK ANY SCAN">Opens the individual picks behind its numbers — every ticker, when it was picked, where it filled, where the stop was, and what it has done since. Hover a ticker for its chart.</Li>
+      <Li title="OPEN RIGHT NOW">One list of every position still being followed, across every scan, so &quot;what is live?&quot; does not mean expanding eight rows and holding the answer in your head.</Li>
+      <P>
+        Costs are not modelled. The live record uses the same simulator as the backtest — next-open entry,
+        intraday level passage on daily bars, a minimum risk floor so a stop inside the spread cannot
+        manufacture an R-multiple.
+      </P>
     </div>
   );
 }
@@ -533,6 +665,12 @@ function InteractionsTab() {
         pill again for all rows; a colour with nothing behind it today is hidden rather than greyed.
       </P>
       <P>
+        The same three colours run through the whole site on the same rules — the scan tables, the Setups
+        Summary, the Closest to Trigger card, the Confluence report, the News page, and the Track Record,
+        which breaks each scan&apos;s live results down by colour so you can check the shading is still
+        earning its keep.
+      </P>
+      <P>
         <strong className="text-slate-200">The rules are per-scan, not universal</strong> — each one was measured
         on its own five-year replay, and on the entry that card actually plans:
       </P>
@@ -547,12 +685,10 @@ function InteractionsTab() {
       <H>Track Record</H>
       <P>
         Every scan card carries a one-line summary of what its plan has been worth over five years — hover it
-        for the full breakdown. The <strong className="text-slate-200">Track Record</strong> page goes further:
-        it records every name each scan publishes on the evening it appears, before the outcome is known, and
-        scores it on the same measuring stick as the backtest (next-open entry, the row&apos;s own stop, settle
-        at the 2R target, the stop, or the 20th session). The five-year figure sits beside the live one, and
-        nothing is added later or removed for looking bad. Early samples are far too small to conclude anything
-        from — that is what the sample-size column is for.
+        for the full breakdown. The <strong className="text-slate-200">Track Record</strong> page records every
+        name each scan publishes on the evening it appears, before the outcome is known, and scores it on the
+        same measuring stick as the backtest. See the <strong className="text-slate-200">Track Record</strong>
+        tab above for how a pick is scored and how to read the starred figures.
       </P>
 
       <H>Ticker Colour by Table</H>
@@ -770,6 +906,8 @@ export default function HelpModal({ isOpen, onClose, tier = 'pro' }: HelpModalPr
         <div className="flex-1 overflow-y-auto px-6 py-5" style={{ scrollbarWidth: 'thin', scrollbarColor: '#334155 transparent' }}>
           {safeTab === 'overview' && <OverviewTab tier={tier} />}
           {safeTab === 'dashboard' && <DashboardTab tier={tier} />}
+          {safeTab === 'news' && <NewsTab />}
+          {safeTab === 'track' && <TrackTab />}
           {safeTab === 'analyst' && <AnalystTab tier={tier} />}
           {safeTab === 'confluence' && <ConfluenceTab />}
           {safeTab === 'interactions' && <InteractionsTab />}
