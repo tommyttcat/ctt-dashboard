@@ -110,8 +110,6 @@ import { edgeTier as edgeOf, EDGE_TINT, EDGE_FILTER_TIP, type EdgeTier } from '@
 import { planRowsFor, planStatusOf, PLAN_STATUS_ORDER, type TrigRow, type PlanStatus } from '@/lib/scans/triggerProximity';
 import InfoDot from './InfoDot';
 import { tierForScan } from '@/lib/scans/edge';
-import { SCAN, SortHeader, ScoreCell, RsCell, PriceCell, ChgCell, RvolCell } from './scan/ScanTable';
-import { TickerCell } from './scan/TickerCell';
 import { newsStarCount } from '@/lib/newsStars';
 import { rsColor, rsBadge } from '@/lib/indicators/rs';
 import { toCanonicalSector, isEtfSector, industryHeat, displaySector } from '@/lib/sectors';
@@ -1094,45 +1092,18 @@ const ALL_SETUP_FILTERS = [...SETUP_PATTERN_FILTERS, ...SETUP_SOURCE_FILTERS];
    LEVELS PRINT TO THE CENT. formatLevel drops to whole dollars above $100,
    which would round a 222.73 level to 223. */
 
-const TRIG_SCAN_LABEL: Record<string, string> = {
-  sip: 'SIP', daily: 'DAY', swing: 'SWING', vcp: 'VCP', ep9m: 'EP9', mb: '100',
-};
+type TrigSortKey = 'cnf' | 'chg' | 'rvol' | 'rs' | 'status';
 
-type TrigSortKey = 'ticker' | 'scan' | 'cnf' | 'rs' | 'price' | 'chg' | 'rvol' | 'trigger' | 'stop' | 'status';
-
-const TRIG_ASC_FIRST = new Set<TrigSortKey>(['ticker', 'scan', 'status']);
-
-const trigSortValue = (r: TrigRow, k: TrigSortKey): number | string => {
+const trigSortValue = (r: TrigRow, k: TrigSortKey): number => {
   switch (k) {
-    case 'ticker': return r.ticker;
-    case 'scan': return TRIG_SCAN_LABEL[r.s._source] ?? String(r.s._source ?? '');
     case 'cnf': return scoreOf(r.s);
-    case 'rs': return num(r.s.rsRating);
-    case 'price': return r.price;
     case 'chg': return chgOf(r.s);
     case 'rvol': return rvolOf(r.s) ?? 0;
-    case 'trigger': return r.trigger;
-    case 'stop': return r.stop;
+    case 'rs': return num(r.s.rsRating);
     // Status first, then nearest-first inside it, as one number.
     case 'status': return PLAN_STATUS_ORDER[planStatusOf(r)] * 1000 + r.awayPct;
   }
 };
-
-const TRIG_COLS: { key: TrigSortKey; label: string; width: string; title?: string; hideMobile?: boolean }[] = [
-  { key: 'ticker', label: 'TICKER', width: 'w-[15%] md:w-[12%]' },
-  { key: 'scan', label: 'SCAN', width: 'md:w-[8%]', title: 'Which scan found it', hideMobile: true },
-  { key: 'cnf', label: 'CNF', width: 'w-[10%] md:w-[7%]' },
-  { key: 'rs', label: 'RS', width: 'w-[10%] md:w-[7%]' },
-  { key: 'price', label: 'PRC', width: 'md:w-[11%]', hideMobile: true },
-  { key: 'chg', label: 'CHG%', width: 'md:w-[10%]', hideMobile: true },
-  { key: 'rvol', label: 'RVOL', width: 'w-[11%] md:w-[7%]' },
-  { key: 'trigger', label: 'BUY', width: 'w-[17%] md:w-[12%]', title: '↑ buy above this price · ↓ buy on a dip to it (EP9M)' },
-  { key: 'stop', label: 'STOP', width: 'w-[14%] md:w-[10%]', title: 'Out below this — the idea is wrong' },
-  { key: 'status', label: 'STATUS', width: 'w-[23%] md:w-[16%]', title: 'Where it stands now' },
-];
-
-/* Written out in full so Tailwind's scanner can see it. */
-const TRIG_HIDE = 'hidden md:table-cell';
 
 const STATUS_META: Record<PlanStatus, { cls: string; tip: string }> = {
   wait: { cls: 'text-slate-300', tip: 'Not at the buy level yet — this far away' },
@@ -1141,6 +1112,14 @@ const STATUS_META: Record<PlanStatus, { cls: string; tip: string }> = {
   out: { cls: 'text-rose-400', tip: 'Below the stop — the idea failed' },
 };
 
+/* Same pixel grid as the Setups Summary rows (renderStdRow / SortableHeader)
+   so the columns land under the card's columns on desktop. PHONE: PRC, RVOL
+   and RS step aside so a full row — ticker, CNF, change, buy, stop, status —
+   fits a 360px screen without scrolling. */
+const TP_H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
+const TP_SORT = 'cursor-pointer hover:text-slate-400 transition-colors select-none';
+const TP_MD = 'hidden md:inline-block';
+
 const TriggerProximity = ({ pool }: { pool: any[] }) => {
   /* The SET is the recommended names — exactly the rows on the Setups
      Summary card above, same pills, same green default. */
@@ -1148,113 +1127,91 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
 
   const [sortKey, setSortKey] = React.useState<TrigSortKey>('status');
   const [sortDir, setSortDir] = React.useState<SortDir>('asc');
-
-  /* Same three-click cycle as the card above: open, flip, back to default. */
   const handleSort = (k: TrigSortKey) => {
-    const first: SortDir = TRIG_ASC_FIRST.has(k) ? 'asc' : 'desc';
+    const first: SortDir = k === 'status' ? 'asc' : 'desc';
     if (k !== sortKey) { setSortKey(k); setSortDir(first); return; }
     if (sortDir === first) setSortDir(first === 'asc' ? 'desc' : 'asc');
     else { setSortKey('status'); setSortDir('asc'); }
   };
 
   const rows = React.useMemo(() => {
-    const cmp = (a: TrigRow, b: TrigRow) => {
-      const av = trigSortValue(a, sortKey);
-      const bv = trigSortValue(b, sortKey);
-      const d = typeof av === 'string' || typeof bv === 'string'
-        ? String(av).localeCompare(String(bv))
-        : av - bv;
-      return sortDir === 'desc' ? -d : d;
-    };
-    return [...all].sort(cmp);
+    const d = (a: TrigRow, b: TrigRow) => trigSortValue(a, sortKey) - trigSortValue(b, sortKey);
+    return [...all].sort((a, b) => (sortDir === 'desc' ? -d(a, b) : d(a, b)));
   }, [all, sortKey, sortDir]);
 
   if (rows.length === 0) return null;
 
+  const arrow = (k: TrigSortKey) => (sortKey === k ? (sortDir === 'desc' ? ' ↓' : ' ↑') : '');
+
   const head = (
-    <thead>
-      <tr className="border-b border-white/5">
-        {TRIG_COLS.map(c => (
-          <SortHeader
-            key={c.key}
-            label={c.label}
-            width={c.width}
-            title={c.title}
-            icon={sortKey === c.key ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
-            onSort={() => handleSort(c.key)}
-            className={[c.key === 'ticker' || c.key === 'scan' ? 'text-left' : '', c.hideMobile ? TRIG_HIDE : ''].filter(Boolean).join(' ') || undefined}
-          />
-        ))}
-      </tr>
-    </thead>
+    <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
+      <span className="hidden md:inline-block w-[28px] shrink-0" />
+      <span className={`${TP_H} w-[38px] md:w-[44px] text-center`}>TICKER</span>
+      <span className="hidden md:inline-block w-[28px]" />
+      <span className={`${TP_H} ${TP_SORT} w-[20px] md:w-[22px] text-center ml-1`} onClick={() => handleSort('cnf')}>CNF{arrow('cnf')}</span>
+      <span className={`${TP_H} ${TP_SORT} w-[44px] md:w-[52px] text-right ml-1`} onClick={() => handleSort('chg')}>CHG%{arrow('chg')}</span>
+      <span className={`${TP_H} ${TP_MD} w-[42px] text-right ml-1`}>PRC</span>
+      <span className={`${TP_H} ${TP_SORT} ${TP_MD} w-[40px] text-right ml-1`} onClick={() => handleSort('rvol')}>RVOL{arrow('rvol')}</span>
+      <span className={`${TP_H} ${TP_SORT} ${TP_MD} w-[24px] text-center ml-1`} onClick={() => handleSort('rs')}>RS{arrow('rs')}</span>
+      <span className={`${TP_H} w-[52px] md:w-[56px] text-right ml-2`} title="↑ buy above this price · ↓ buy on a dip to it (EP9M)">BUY</span>
+      <span className={`${TP_H} w-[44px] md:w-[48px] text-right ml-1`} title="Out below this — the idea is wrong">STOP</span>
+      <span className={`${TP_H} ${TP_SORT} w-[40px] md:w-[44px] text-right ml-1`} onClick={() => handleSort('status')} title="Where it stands now">STAT{arrow('status')}</span>
+    </div>
   );
 
-  const body = (list: TrigRow[]) => (
-    <tbody>
-      {list.map((r) => {
-        const st = planStatusOf(r);
-        const meta = STATUS_META[st];
-        const t = tierForScan(r.s._source, r.s);
-        return (
-          <tr
-            key={`tp-${r.ticker}`}
-            className={t ? EDGE_TINT[t.tier] : undefined}
-            title={t ? `${t.tier.toUpperCase()} — ${t.tip}` : undefined}
-          >
-            <TickerCell symbol={r.ticker} name={r.s.name} score={scoreOf(r.s) || null} />
-            <td className={`${SCAN.td} ${TRIG_HIDE} !text-left text-[8px] font-bold tracking-wide text-slate-500`}>
-              {TRIG_SCAN_LABEL[r.s._source] ?? String(r.s._source ?? '').toUpperCase()}
-            </td>
-            <ScoreCell value={scoreOf(r.s) || null} />
-            <RsCell value={numOrNull(r.s.rsRating)} />
-            <PriceCell price={r.price} vwapStatus={r.s.vwapStatus} className={TRIG_HIDE} />
-            <ChgCell value={chgOf(r.s)} className={TRIG_HIDE} />
-            <RvolCell value={rvolOf(r.s)} />
-            <td
-              className={`${SCAN.td} text-[10px] font-bold text-slate-200 tabular-nums whitespace-nowrap`}
-              title={`${r.pullback ? 'Buy on a dip to' : 'Buy above'} ${r.trigger.toFixed(2)} — ${r.label}`}
-            >
-              <span className={r.pullback ? 'text-fuchsia-400' : 'text-emerald-400'}>{r.pullback ? '↓' : '↑'}</span>{' '}
-              {r.trigger.toFixed(2)}
-            </td>
-            <td className={`${SCAN.td} text-[10px] font-bold text-rose-400/80 tabular-nums whitespace-nowrap`}>
-              {r.stop.toFixed(2)}
-            </td>
-            <td className={`${SCAN.td} text-[10px] font-bold tabular-nums whitespace-nowrap ${meta.cls}`} title={meta.tip}>
-              {st === 'wait'
-                ? `WAIT ${r.awayPct < 10 ? r.awayPct.toFixed(1) : r.awayPct.toFixed(0)}%`
-                : st.toUpperCase()}
-            </td>
-          </tr>
-        );
-      })}
-    </tbody>
-  );
+  const row = (r: TrigRow) => {
+    const st = planStatusOf(r);
+    const meta = STATUS_META[st];
+    const t = tierForScan(r.s._source, r.s);
+    const cnf = scoreOf(r.s);
+    const chg = chgOf(r.s);
+    const rv = rvolOf(r.s);
+    const rs = numOrNull(r.s.rsRating);
+    const grade: 'A' | 'B' | null = cnf >= 70 ? 'A' : cnf >= 50 ? 'B' : null;
+    return (
+      <div key={`tp-${r.ticker}`} className={`flex items-center whitespace-nowrap py-[1px] ${t ? `${EDGE_TINT[t.tier]} rounded-sm` : ''}`}
+        title={t ? `${t.tier.toUpperCase()} — ${t.tip}` : undefined}>
+        <span className="hidden md:inline-block w-[28px] shrink-0" />
+        <TickerChartHover symbol={r.ticker}><span className={`${gradeChipCls(grade, false)} w-[38px] md:w-[44px]`}>{r.ticker}</span></TickerChartHover>
+        <span className="hidden md:inline-block w-[28px]" />
+        <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${cnfBadgeCls(cnf)}`}>{cnf}</span>
+        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[44px] md:w-[52px] text-right ml-1 ${chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
+        <span className={`text-[9px] tabular-nums ${TP_MD} w-[42px] text-right text-slate-300 ml-1`}>{fmtPrc(r.price)}</span>
+        <span className={`text-[9px] tabular-nums font-semibold ${TP_MD} w-[40px] text-right ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? `${rv < 1 ? rv.toFixed(1) : Math.round(rv)}x` : ''}</span>
+        <span className={`${TP_MD} w-[24px] text-center ml-1`}>{rs != null
+          ? <span className={`inline-block w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(rs)}`}>{rs}</span>
+          : <span className="inline-block w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
+        <span className="text-[9px] tabular-nums font-bold inline-block w-[52px] md:w-[56px] text-right ml-2 text-slate-200"
+          title={`${r.pullback ? 'Buy on a dip to' : 'Buy above'} ${r.trigger.toFixed(2)} — ${r.label}`}>
+          <span className={r.pullback ? 'text-fuchsia-400' : 'text-emerald-400'}>{r.pullback ? '↓' : '↑'}</span>{r.trigger.toFixed(2)}
+        </span>
+        <span className="text-[9px] tabular-nums font-bold inline-block w-[44px] md:w-[48px] text-right ml-1 text-rose-400/80">{r.stop.toFixed(2)}</span>
+        <span className={`text-[9px] tabular-nums font-bold inline-block w-[40px] md:w-[44px] text-right ml-1 ${meta.cls}`} title={meta.tip}>
+          {st === 'wait' ? `${r.awayPct < 10 ? r.awayPct.toFixed(1) : r.awayPct.toFixed(0)}%` : st.toUpperCase()}
+        </span>
+      </div>
+    );
+  };
 
   /* Two columns past five rows, split at the midpoint — same rule as the
-     card above. The padding override matches the summary rows' pitch. */
+     card above; the right half's header is desktop-only, like the card's. */
   const useTwoCols = rows.length > 5;
   const mid = useTwoCols ? Math.ceil(rows.length / 2) : rows.length;
-  const dense = 'w-full table-fixed [&_td]:pt-1 [&_td]:pb-1 [&_th]:py-1.5';
 
   return (
     <div className="mt-4 pt-3 border-t border-white/5">
       <div className="flex items-center mb-1">
         <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Buy &amp; stop</span>
-        <InfoDot text={"Buy level and stop for every name on the card above — same filters.\n\n↑ buy above that price. ↓ buy on a dip to it (EP9M).\n\nWAIT — not there yet, this far away. HIT — at the buy level. MISS — ran past it by more than a normal day's move; buying now is chasing. OUT — below the stop; the idea failed.\n\nNames with no usable plan (collapsed, or too extended to place a stop) are left off."} />
+        <InfoDot text={"Buy level and stop for every name on the card above — same filters.\n\n↑ buy above that price. ↓ buy on a dip to it (EP9M).\n\nSTAT: a percentage means not there yet, this far away. HIT — at the buy level. MISS — ran past it by more than a normal day's move; buying now is chasing. OUT — below the stop; the idea failed.\n\nNames with no usable plan (collapsed, or too extended to place a stop) are left off."} />
       </div>
       <div className={useTwoCols ? 'grid grid-cols-1 md:grid-cols-2 gap-x-6' : ''}>
-        <div className="min-w-0">
-          <table className={dense}>{head}{body(rows.slice(0, mid))}</table>
-        </div>
+        <div className="min-w-0">{head}{rows.slice(0, mid).map(row)}</div>
         {useTwoCols && (
-          <div className="min-w-0">
-            <table className={dense}>{head}{body(rows.slice(mid))}</table>
-          </div>
+          <div className="min-w-0"><div className="hidden md:block">{head}</div>{rows.slice(mid).map(row)}</div>
         )}
       </div>
       <p className="text-[10px] text-slate-500 font-medium mt-1">
-        <span className="text-emerald-400 font-bold">HIT</span> at the buy level · <span className="text-slate-300 font-bold">WAIT</span> not there yet · <span className="text-amber-400 font-bold">MISS</span> ran past, don&apos;t chase · <span className="text-rose-400 font-bold">OUT</span> below the stop
+        <span className="text-slate-300 font-bold">0.3%</span> not there yet · <span className="text-emerald-400 font-bold">HIT</span> at the buy level · <span className="text-amber-400 font-bold">MISS</span> ran past, don&apos;t chase · <span className="text-rose-400 font-bold">OUT</span> below the stop
       </p>
     </div>
   );
