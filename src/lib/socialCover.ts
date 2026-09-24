@@ -43,7 +43,9 @@ async function cleanReservedCorner(sharp: any, input: Buffer, W: number, H: numb
   const bgLum = lum(bg[0], bg[1], bg[2]);
   if (bgLum > 60) return input; // not the dark poster this was written for
 
-  const rx = Math.floor(W * 0.68);
+  // From 45% across: the generator's panel can start at the frame's midline
+  // (24 Sep 2026), and the bottom-left label ends well before 45%.
+  const rx = Math.floor(W * 0.45);
   const ry = Math.floor(H * 0.46);
   const rw = W - rx;
   const rh = H - ry;
@@ -52,9 +54,40 @@ async function cleanReservedCorner(sharp: any, input: Buffer, W: number, H: numb
   const { data: reg, info } = await sharp(input)
     .extract({ left: rx, top: ry, width: rw, height: rh })
     .removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  /* 24 Sep 2026: the box can also come back LIGHTER than the background — a
+     flat dark-grey panel (#2a2a2e-ish on #121215). Brightness alone cannot
+     separate that from anti-aliased letter edges, but flatness can: a panel is
+     one colour over a large share of the corner, and no letter or rule ever is.
+     So find the most common non-background colour in the corner; if it covers
+     at least 12% of it, is dark and unsaturated, repaint every pixel within a
+     small distance of it. */
+  const q = (v: number) => v >> 2;
+  const panelCounts = new Map<string, number>();
+  const px = reg.length / 3;
+  for (let i = 0; i < reg.length; i += 3) {
+    const dr = reg[i] - bg[0], dg = reg[i + 1] - bg[1], db = reg[i + 2] - bg[2];
+    if (dr * dr + dg * dg + db * db <= 48) continue; // background itself
+    const k = `${q(reg[i])},${q(reg[i + 1])},${q(reg[i + 2])}`;
+    panelCounts.set(k, (panelCounts.get(k) || 0) + 1);
+  }
+  let panelKey = '', panelN = 0;
+  for (const [k, n] of panelCounts) if (n > panelN) { panelN = n; panelKey = k; }
+  let panel: number[] | null = null;
+  if (panelKey && panelN >= px * 0.12) {
+    const p = panelKey.split(',').map(v => Number(v) * 4 + 2);
+    const chroma = Math.max(...p) - Math.min(...p);
+    if (lum(p[0], p[1], p[2]) < 110 && chroma < 24) panel = p;
+  }
+
   let repainted = 0;
   for (let i = 0; i < reg.length; i += 3) {
-    if (lum(reg[i], reg[i + 1], reg[i + 2]) < bgLum - 4) {
+    const darker = lum(reg[i], reg[i + 1], reg[i + 2]) < bgLum - 4;
+    let isPanel = false;
+    if (panel) {
+      const dr = reg[i] - panel[0], dg = reg[i + 1] - panel[1], db = reg[i + 2] - panel[2];
+      isPanel = dr * dr + dg * dg + db * db <= 150;
+    }
+    if (darker || isPanel) {
       reg[i] = bg[0]; reg[i + 1] = bg[1]; reg[i + 2] = bg[2];
       repainted++;
     }
