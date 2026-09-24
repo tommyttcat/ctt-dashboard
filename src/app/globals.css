@@ -80,6 +80,13 @@ body {
 [data-theme="light"] [class*="bg-[#1e293b]"] {
   background-color: rgba(203, 213, 225, 0.5);
 }
+/* News page v2 — the Confluence-report palette. Scoped to the page so other
+   surfaces that share these hexes keep their own light-mode treatment. */
+[data-theme="light"] .news-v2 .bg-\[\#0b0f1a\] { background-color: var(--bg-surface); }
+[data-theme="light"] .news-v2 .bg-\[\#111827\] { background-color: var(--bg-panel-alt); }
+[data-theme="light"] .news-v2 .bg-\[\#0b1220\] { background-color: var(--bg-surface); }
+[data-theme="light"] .news-v2 .border-\[\#1e293b\] { border-color: rgba(0,0,0,0.08); }
+[data-theme="light"] .news-v2 .news-hero { background-image: none; background-color: var(--bg-panel); }
 /* Blur glow overlays */
 [data-theme="light"] [class*="blur-3xl"],
 [data-theme="light"] [class*="blur-2xl"] {
