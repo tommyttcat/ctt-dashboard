@@ -1573,8 +1573,15 @@ export async function GET(req: Request) {
   const resend = new Resend(apiKey);
   const subject = `CTT ${phaseLabel} Briefing — ${new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })}`;
 
+  /* `?to=` is a test send to one inbox. It must not take the phase's sent
+     lock (a test before the real send would make the cron skip it) and must
+     stop after the email, before Substack and the social posts. */
+  const isTestSend = !!(testTo && force);
+
   // Atomic lock: NX ensures only one invocation wins when two race
-  if (!force) {
+  if (isTestSend) {
+    /* no lock */
+  } else if (!force) {
     const locked = await kv.set(sentKey, 1, { nx: true, ex: 86400 });
     if (!locked) {
       return NextResponse.json({ skipped: true, phase, reason: `${phase} email already sent today` });
@@ -1597,6 +1604,9 @@ export async function GET(req: Request) {
 
     const sent = results.filter((r) => r.status === 'fulfilled').length;
     const failed = results.filter((r) => r.status === 'rejected').length;
+    if (isTestSend) {
+      return NextResponse.json({ success: sent > 0, test: true, phase, sent, failed, recipients });
+    }
 
     /* The publish response carries the post URL. It used to be discarded, so
        the social posts pointed at the dashboard home page instead of the
