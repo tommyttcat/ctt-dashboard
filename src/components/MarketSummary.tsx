@@ -1115,7 +1115,8 @@ const STATUS_META: Record<PlanStatus, { cls: string; tip: string }> = {
 /* Same pixel grid as the Setups Summary rows (renderStdRow / SortableHeader)
    so the columns land under the card's columns on desktop. PHONE: PRC, RVOL
    and RS step aside so a full row — ticker, CNF, change, buy, stop, status —
-   fits a 360px screen without scrolling. */
+   fits a 360px screen without scrolling. BUY/STOP/STAT are sized to their
+   widest real value at 9px ("↑1234.56", "229.65", "MISS"), no slack. */
 const TP_H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
 const TP_SORT = 'cursor-pointer hover:text-slate-400 transition-colors select-none';
 const TP_MD = 'hidden md:inline-block';
@@ -1153,9 +1154,9 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
       <span className={`${TP_H} ${TP_MD} w-[42px] text-right ml-1`}>PRC</span>
       <span className={`${TP_H} ${TP_SORT} ${TP_MD} w-[40px] text-right ml-1`} onClick={() => handleSort('rvol')}>RVOL{arrow('rvol')}</span>
       <span className={`${TP_H} ${TP_SORT} ${TP_MD} w-[24px] text-center ml-1`} onClick={() => handleSort('rs')}>RS{arrow('rs')}</span>
-      <span className={`${TP_H} w-[52px] md:w-[56px] text-right ml-2`} title="↑ buy above this price · ↓ buy on a dip to it (EP9M)">BUY</span>
-      <span className={`${TP_H} w-[44px] md:w-[48px] text-right ml-1`} title="Out below this — the idea is wrong">STOP</span>
-      <span className={`${TP_H} ${TP_SORT} w-[40px] md:w-[44px] text-right ml-1`} onClick={() => handleSort('status')} title="Where it stands now">STAT{arrow('status')}</span>
+      <span className={`${TP_H} w-[42px] md:w-[46px] text-right ml-1`} title="↑ buy above this price · ↓ buy on a dip to it (EP9M)">BUY</span>
+      <span className={`${TP_H} w-[36px] md:w-[40px] text-right ml-1`} title="Out below this — the idea is wrong">STOP</span>
+      <span className={`${TP_H} ${TP_SORT} w-[32px] md:w-[34px] text-right ml-1`} onClick={() => handleSort('status')} title="Where it stands now">STAT{arrow('status')}</span>
     </div>
   );
 
@@ -1181,12 +1182,12 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
         <span className={`${TP_MD} w-[24px] text-center ml-1`}>{rs != null
           ? <span className={`inline-block w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(rs)}`}>{rs}</span>
           : <span className="inline-block w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
-        <span className="text-[9px] tabular-nums font-bold inline-block w-[52px] md:w-[56px] text-right ml-2 text-slate-200"
+        <span className="text-[9px] tabular-nums font-bold inline-block w-[42px] md:w-[46px] text-right ml-1 text-slate-200"
           title={`${r.pullback ? 'Buy on a dip to' : 'Buy above'} ${r.trigger.toFixed(2)} — ${r.label}`}>
           <span className={r.pullback ? 'text-fuchsia-400' : 'text-emerald-400'}>{r.pullback ? '↓' : '↑'}</span>{r.trigger.toFixed(2)}
         </span>
-        <span className="text-[9px] tabular-nums font-bold inline-block w-[44px] md:w-[48px] text-right ml-1 text-rose-400/80">{r.stop.toFixed(2)}</span>
-        <span className={`text-[9px] tabular-nums font-bold inline-block w-[40px] md:w-[44px] text-right ml-1 ${meta.cls}`} title={meta.tip}>
+        <span className="text-[9px] tabular-nums font-bold inline-block w-[36px] md:w-[40px] text-right ml-1 text-rose-400/80">{r.stop.toFixed(2)}</span>
+        <span className={`text-[9px] tabular-nums font-bold inline-block w-[32px] md:w-[34px] text-right ml-1 ${meta.cls}`} title={meta.tip}>
           {st === 'wait' ? `${r.awayPct < 10 ? r.awayPct.toFixed(1) : r.awayPct.toFixed(0)}%` : st.toUpperCase()}
         </span>
       </div>
