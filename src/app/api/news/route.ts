@@ -136,10 +136,12 @@ function summarize(raw: unknown, title: string): string {
   let t = String(raw ?? '')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&rsquo;|&lsquo;/g, "'")
-    .replace(/&quot;|&ldquo;|&rdquo;/g, '"').replace(/&[a-z]+;/g, ' ')
+    .replace(/&quot;|&ldquo;|&rdquo;/g, '"').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/&[a-z]+;/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  if (!t) return '';
+  // A bare link (e.g. an SEC filing URL) is not a summary.
+  t = t.replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim();
+  if (t.length < 25) return '';
   // Drop a leading dateline / byline and anything that just repeats the title.
   t = t.replace(/^(?:[A-Z][A-Za-z .,'-]{0,40}\s)?\(?(?:Benzinga|Reuters|AP)\)?\s*[-—:]\s*/, '');
   if (t.toLowerCase().startsWith(String(title || '').toLowerCase().slice(0, 40))) return '';
