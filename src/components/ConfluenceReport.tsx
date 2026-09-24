@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ThemeToggle } from './ThemeProvider';
 import DashNav from './DashNav';
-import { edgeTier, EDGE_TINT, EDGE_FILTER_TIP } from '@/lib/scans/edge';
+import { edgeTier, EDGE_FILTER_TIP } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import TickerChartHover, { ActiveChartProvider } from './TickerChartHover';
 import HelpModal from './HelpModal';
@@ -77,13 +77,17 @@ interface AiSummary {
 
 /* One badge for every ticker on the page — hero picks and cards alike — so
    the size never varies. Colour is the grade: A green, B amber, C slate. */
-const gradeBg = (g: string | null | undefined) =>
-  g === 'A' ? 'bg-emerald-400' : g === 'B' ? 'bg-amber-400' : 'bg-slate-400';
+/* The dashboard's badge (MarketSummary TICKER_CHIP_*): coloured text on a
+   faint tint with a hairline border. */
+const gradeChip = (g: string | null | undefined) =>
+  g === 'A' ? 'text-emerald-300 bg-emerald-500/10 border-emerald-400/30'
+    : g === 'B' ? 'text-amber-300 bg-amber-500/10 border-amber-400/30'
+    : 'text-slate-300 bg-slate-500/10 border-white/10';
 
 function TickerBadge({ ticker, grade }: { ticker: string; grade: string | null | undefined }) {
   return (
     <TickerChartHover symbol={ticker}>
-      <span className={`inline-block text-[13px] leading-none font-extrabold text-[#0b0f1a] rounded-md px-2 py-[5px] cursor-pointer ${gradeBg(grade)}`}>
+      <span className={`inline-block text-[12px] leading-none font-bold tracking-wider rounded border px-1.5 py-[3px] cursor-pointer ${gradeChip(grade)}`}>
         {ticker}
       </span>
     </TickerChartHover>
@@ -144,12 +148,12 @@ function TheRead({ summary, reports, lastScan }: { summary: AiSummary | null; re
           <WatchlistPanel />
         </span>
       </div>
-      <div className="text-[20px] md:text-[24px] leading-snug font-extrabold text-slate-100 mt-1.5">{v.headline}</div>
+      <div className="text-[20px] md:text-[24px] leading-snug font-bold text-slate-100 mt-1.5">{v.headline}</div>
       <div className="text-[14px] text-slate-400 mt-1.5">{v.sub}</div>
       <div className="flex flex-wrap gap-2.5 mt-3.5">
         {tiles.map(([n, t, cls]) => (
           <div key={t} className="rounded-xl border border-white/[0.08] bg-[#0a1220] px-3.5 py-2.5 min-w-[96px]">
-            <div className={`text-[20px] font-extrabold tabular-nums ${cls}`}>{n}</div>
+            <div className={`text-[20px] font-bold tabular-nums ${cls}`}>{n}</div>
             <div className="text-[11px] text-slate-500">{t}</div>
           </div>
         ))}
@@ -232,7 +236,9 @@ function StockCard({ report: r }: { report: Report }) {
      that there are no rows. The colour's meaning sits in the help dot beside
      the filter pills rather than a native title on every card. */
   const tier = edgeTier(r);
-  const tint = tier ? EDGE_TINT[tier] : '';
+  /* Rating as a thin coloured left edge, not a background tint — tints read
+     muddy (olive / teal / maroon) across a grid of cards. */
+  const tint = tier === 'green' ? 'border-l-4 border-l-emerald-400/50' : tier === 'yellow' ? 'border-l-4 border-l-amber-400/50' : tier === 'red' ? 'border-l-4 border-l-rose-400/50' : '';
   const name = shortName(r.name, r.ticker);
   const lv = levelsFor(r);
   const why = whyLine(r);
@@ -248,22 +254,22 @@ function StockCard({ report: r }: { report: Report }) {
             <TickerBadge ticker={r.ticker} grade={r.cnfGrade} />
             {name && <span className="text-slate-400 truncate">{name}</span>}
           </div>
-          <span className={`font-extrabold tabular-nums shrink-0 ${r.changePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmtPct(r.changePct)}</span>
+          <span className={`font-bold tabular-nums shrink-0 ${r.changePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmtPct(r.changePct)}</span>
         </div>
 
         {lv && (
           <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2 mt-3 px-3 py-2.5 rounded-xl bg-[#0a1220]">
             <div className="min-w-0">
               <div className="text-slate-400">{lv.kind === 'scan' ? lv.buyLabel : 'Buy above'}</div>
-              <div className="font-extrabold text-slate-100 tabular-nums">{lv.kind === 'scan' ? fmtLvl(lv.trigger) : lv.trigger}</div>
+              <div className="font-bold text-slate-100 tabular-nums">{lv.kind === 'scan' ? fmtLvl(lv.trigger) : lv.trigger}</div>
             </div>
             <div className="min-w-0">
               <div className="text-slate-400">Stop</div>
-              <div className="font-extrabold text-rose-400 tabular-nums">{lv.kind === 'scan' ? fmtLvl(lv.stop) : lv.stop}</div>
+              <div className="font-bold text-rose-400 tabular-nums">{lv.kind === 'scan' ? fmtLvl(lv.stop) : lv.stop}</div>
             </div>
             <div>
               {lv.kind === 'scan' && (
-                <span className={`inline-block font-extrabold uppercase tracking-wide rounded-full px-2.5 py-0.5 whitespace-nowrap ${STATUS_PILL[lv.status]}`}>
+                <span className={`inline-block font-bold uppercase tracking-wide rounded-full px-2.5 py-0.5 whitespace-nowrap ${STATUS_PILL[lv.status]}`}>
                   {statusText(lv.status, lv.awayPct)}
                 </span>
               )}
@@ -464,7 +470,7 @@ export default function ConfluenceReport() {
               </span>
             </div>
 
-            <div className="grid gap-3.5 grid-cols-[repeat(auto-fill,minmax(min(100%,320px),1fr))]">
+            <div className="grid gap-3.5 grid-cols-1 md:grid-cols-2 md:auto-rows-fr [&>*]:h-full">
               {visibleReports.map(r => <StockCard key={r.ticker} report={r} />)}
             </div>
             {visibleReports.length === 0 && (
