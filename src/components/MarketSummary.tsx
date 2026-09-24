@@ -1104,27 +1104,32 @@ const trigSortValue = (r: TrigRow, k: TrigSortKey): number | string => {
    two separate tables, and only a fixed layout makes their columns land on the
    same pixels across the gap. Sized against the widest real content at 10px —
    "$443.42 ●" in PRC, "+15.55%" in CHG. */
-/* PHONE: eight columns, not ten. Measured at 390px the ten-column table was
-   470px inside a 344px card — forced there by a min-width — so it scrolled,
-   and the ticker column was 71px wide for a 48px chip, which is the gap you
-   could see between TICKER and SCAN. PRC and CHG% step aside below md: price
-   is already implied by TRIG and AWAY, and the change is the least of what
-   this card is for. CNF, RS and RVOL stay because they were asked for.
+/* PHONE: eight columns, packed tight against the ticker.
+   Ten columns at 390px was 470px in a 344px card, so PRC and CHG% step aside
+   below md (price is implied by TRIG and AWAY) and CNF, RS and RVOL stay, as
+   asked. The first cut then stretched the remaining eight across the card in
+   percentages, which fitted Chrome to the exact pixel — 344 of 344, 329 of 329
+   at 375 — and so left nothing for iPhone's slightly wider font, where it still
+   scrolled. It also spread the columns away from the ticker.
 
-   The mobile widths sum to 100% across the eight that remain, sized against
-   the widest real content at 10px — the ticker column is now just wider than
-   its chip. From md up every column and every original width comes back. */
+   Now each phone column is a FIXED pixel width: the widest real content at
+   10px (measured: ticker 46, "SWING" 36, CNF 23, RS 23, RVOL head 30,
+   "↑ 248.78" 49, "229.29" 38, AWAY head 32) plus the cells' own 4px of
+   padding. 309px in all, left-aligned, so everything sits beside the ticker
+   and about 20px of slack stays on the right of a 375px phone. Both stacked
+   halves share these widths, so their columns line up. From md up the
+   original percentages and all ten columns return. */
 const TRIG_COLS: { key: TrigSortKey; label: string; width: string; title?: string; hideMobile?: boolean }[] = [
-  { key: 'ticker', label: 'TICKER', width: 'w-[15%] md:w-[15%]' },
-  { key: 'scan', label: 'SCAN', width: 'w-[10%] md:w-[9%]', title: 'Which scan found it' },
-  { key: 'cnf', label: 'CNF', width: 'w-[9%] md:w-[7%]' },
-  { key: 'rs', label: 'RS', width: 'w-[9%] md:w-[7%]' },
+  { key: 'ticker', label: 'TICKER', width: 'w-[50px] md:w-[15%]' },
+  { key: 'scan', label: 'SCAN', width: 'w-[40px] md:w-[9%]', title: 'Which scan found it' },
+  { key: 'cnf', label: 'CNF', width: 'w-[27px] md:w-[7%]' },
+  { key: 'rs', label: 'RS', width: 'w-[27px] md:w-[7%]' },
   { key: 'price', label: 'PRC', width: 'md:w-[13%]', hideMobile: true },
   { key: 'chg', label: 'CHG%', width: 'md:w-[11%]', hideMobile: true },
-  { key: 'rvol', label: 'RVOL', width: 'w-[10%] md:w-[8%]' },
-  { key: 'trigger', label: 'TRIG', width: 'w-[18%] md:w-[11%]', title: 'The level the plan is waiting for' },
-  { key: 'stop', label: 'STOP', width: 'w-[15%] md:w-[10%]', title: "The plan's own invalidation" },
-  { key: 'away', label: 'AWAY', width: 'w-[14%] md:w-[9%]', title: 'How far price is from the trigger' },
+  { key: 'rvol', label: 'RVOL', width: 'w-[34px] md:w-[8%]' },
+  { key: 'trigger', label: 'TRIG', width: 'w-[53px] md:w-[11%]', title: 'The level the plan is waiting for' },
+  { key: 'stop', label: 'STOP', width: 'w-[42px] md:w-[10%]', title: "The plan's own invalidation" },
+  { key: 'away', label: 'AWAY', width: 'w-[36px] md:w-[9%]', title: 'How far price is from the trigger' },
 ];
 
 /* Written out in full so Tailwind's scanner can see it. */
@@ -1231,7 +1236,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
      beside the summary rows. */
   const useTwoCols = rows.length > 5;
   const mid = useTwoCols ? Math.ceil(rows.length / 2) : rows.length;
-  const dense = 'w-full table-fixed md:min-w-[470px] [&_td]:pt-1 [&_td]:pb-1 [&_th]:py-1.5';
+  const dense = 'w-[309px] md:w-full table-fixed md:min-w-[470px] [&_td]:pt-1 [&_td]:pb-1 [&_th]:py-1.5';
 
   return (
     <div className="mt-4 pt-3 border-t border-white/5">
