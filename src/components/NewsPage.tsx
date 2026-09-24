@@ -40,10 +40,10 @@ import WatchlistPanel from './WatchlistPanel';
 import DashNav from './DashNav';
 import HelpModal from './HelpModal';
 import InfoDot from './InfoDot';
-import { type EdgeTier } from '@/lib/scans/edge';
+import { EDGE_TINT, type EdgeTier } from '@/lib/scans/edge';
 import { catalystTooltip, headlineOf, decodeEntities, type CatalystRow } from '@/lib/catalyst';
 import { gradeOf, rvolColor } from '@/lib/indicators/columnColors';
-import {
+import { isLawsuitNoise,
   TAG_META, tagOf, tagCounts, tapeLine, minutesSince, ageLabelMinutes, relTime, etDateKey, fmtMove,
   type NewsTag,
 } from '@/lib/newsView';
@@ -132,7 +132,7 @@ const LABEL = 'text-[11px] font-bold tracking-[0.14em] uppercase';
 function chipCls(cnf: number | null | undefined): string {
   const g = gradeOf(cnf);
   const fill = g === 'A' ? 'bg-emerald-400' : g === 'B' ? 'bg-amber-400' : 'bg-slate-400';
-  return `inline-block rounded-md px-2 py-[3px] text-[12px] font-extrabold tracking-wide leading-none text-[#0b0f1a] ${fill}`;
+  return `inline-block rounded-md px-2 py-[3px] text-[14px] font-extrabold tracking-wide leading-none text-[#0b0f1a] ${fill}`;
 }
 
 function TagPill({ tag, hint }: { tag: NewsTag; hint?: string }) {
@@ -194,7 +194,7 @@ function Stats({ s }: { s: Partial<StatRow> | null | undefined }) {
    is before reading it; the headline at 15px; the names underneath; the small
    facts last, below a hairline. The day's move for the lead name sits top
    right, where the Confluence report puts it. */
-function NewsCard({ tag, tagHint, headline, url, move, flags, tickers, showName, meta, stats }: {
+function NewsCard({ tag, tagHint, headline, url, move, flags, tickers, showName, meta, stats, tier }: {
   tag: NewsTag;
   tagHint?: string;
   headline: string;
@@ -205,21 +205,22 @@ function NewsCard({ tag, tagHint, headline, url, move, flags, tickers, showName,
   showName?: boolean;
   meta: string;
   stats?: Partial<StatRow> | null;
+  /** The lead name's tier on its own scan — tints the card like every scan table. */
+  tier?: EdgeTier | null;
 }) {
   const head = (
     <p className="text-[15px] leading-[1.45] font-semibold text-slate-100 break-words group-hover/hl:text-cyan-300 transition-colors">
       {headline}
     </p>
   );
+  /* The ticker is the first thing you see: names and the move on top, the
+     headline under them, and the kind of story + source as small print. */
   return (
-    <article className="bg-[#111827] border border-[#1e293b] rounded-2xl p-4 flex flex-col gap-3 min-w-0">
-      <div className="flex items-start gap-2">
-        <div className="flex items-center gap-1.5 flex-wrap min-w-0 flex-1">
-          {tag !== 'general' && <TagPill tag={tag} hint={tagHint} />}
-          {flags}
-        </div>
+    <article className={`border border-[#1e293b] rounded-2xl p-4 flex flex-col gap-2.5 min-w-0 ${tier ? EDGE_TINT[tier] : 'bg-[#111827]'}`}>
+      <div className="flex items-center gap-2">
+        <div className="flex-1 min-w-0"><TickerRow tickers={tickers} showName={showName} /></div>
         {move != null && (
-          <span className={`shrink-0 text-[15px] font-extrabold tabular-nums leading-[1.4] ${moveCls(move)}`}>{fmtMove(move)}</span>
+          <span className={`shrink-0 text-[16px] font-extrabold tabular-nums leading-none ${moveCls(move)}`}>{fmtMove(move)}</span>
         )}
       </div>
       {url ? (
@@ -227,12 +228,11 @@ function NewsCard({ tag, tagHint, headline, url, move, flags, tickers, showName,
           {head}
         </a>
       ) : head}
-      <div className="mt-auto flex flex-col gap-3">
-        <TickerRow tickers={tickers} showName={showName} />
-        <div className="flex items-center gap-x-2.5 gap-y-1.5 flex-wrap text-[12px] text-slate-400 border-t border-[#1e293b] pt-3">
-          {meta && <span>{meta}</span>}
-          <Stats s={stats} />
-        </div>
+      <div className="mt-auto flex items-center gap-x-2.5 gap-y-1.5 flex-wrap text-[12px] text-slate-400 border-t border-[#1e293b] pt-2.5">
+        {tag !== 'general' && <TagPill tag={tag} hint={tagHint} />}
+        {flags}
+        {meta && <span>{meta}</span>}
+        <Stats s={stats} />
       </div>
     </article>
   );
@@ -277,6 +277,7 @@ function PoolCard({ it }: { it: PoolItem }) {
       tickers={[{ t: it.ticker, cnf: it.cnf, name: it.name, move: it.changePct }]}
       meta={[it.newsPublisher, age, delayed ? 'delayed' : null].filter(Boolean).join(' · ')}
       stats={it}
+      tier={it.tier ?? null}
     />
   );
 }
@@ -297,6 +298,7 @@ function WireCard({ it, stats, now }: { it: WireItem; stats: Record<string, Stat
       tickers={ordered.map(t => ({ t, cnf: stats[t]?.cnf ?? null, name: stats[t]?.name ?? null, move: stats[t]?.changePct ?? null }))}
       meta={[it.publisher, relTime(minutesSince(it.publishedUtc, now))].filter(Boolean).join(' · ')}
       stats={lead}
+      tier={lead?.tier ?? null}
     />
   );
 }
@@ -374,7 +376,9 @@ export default function NewsPage() {
 
   /* A pool item without a headline never renders, so it does not count
      anywhere either — the pills and the hero add up to what is on screen. */
-  const poolWithNews = React.useMemo(() => pool.filter(it => !!headlineOf(it)), [pool]);
+  const poolWithNews = React.useMemo(() => pool.filter(it => !!headlineOf(it) && !isLawsuitNoise(headlineOf(it), poolTag(it))), [pool]);
+  // Lawsuit / class-action releases are dropped from both sections.
+  const cleanWire = React.useMemo(() => wire.filter(a => !isLawsuitNoise(decodeEntities(a.cleanHeadline || a.title), wireTag(a))), [wire]);
 
   const shown = React.useMemo(() => poolWithNews.filter(it =>
     (!scanKey || it.scan === scanKey) && (!causalOnly || it.stars >= 2) && (!tagKey || poolTag(it) === tagKey)),
@@ -383,36 +387,36 @@ export default function NewsPage() {
   const onBoard = React.useCallback((a: WireItem) =>
     (a.tickers?.length ? a.tickers : [a.ticker]).some(t => !!stats[String(t).toUpperCase()]), [stats]);
 
-  const ownedWire = React.useMemo(() => wire.filter(onBoard), [wire, onBoard]);
+  const ownedWire = React.useMemo(() => cleanWire.filter(onBoard), [cleanWire, onBoard]);
   const wireShown = React.useMemo(() =>
-    (wireScope === 'pool' ? ownedWire : wire).filter(a => !tagKey || wireTag(a) === tagKey),
-  [wireScope, ownedWire, wire, tagKey]);
+    (wireScope === 'pool' ? ownedWire : cleanWire).filter(a => !tagKey || wireTag(a) === tagKey),
+  [wireScope, ownedWire, cleanWire, tagKey]);
 
   /* ---- The hero: both feeds as loaded. Filters do not move it — it is the
      summary of what came back, not of what is currently shown. */
   const counts = React.useMemo(
-    () => tagCounts([...poolWithNews.map(poolTag), ...wire.map(wireTag)]),
-    [poolWithNews, wire]);
+    () => tagCounts([...poolWithNews.map(poolTag), ...cleanWire.map(wireTag)]),
+    [poolWithNews, cleanWire]);
   const topTag = counts.find(c => c.tag !== 'general');
 
   const hero = React.useMemo(() => {
     const now = loadedAt;
-    const wireMins = wire.map(a => minutesSince(a.publishedUtc, now)).filter((m): m is number => m != null);
+    const wireMins = cleanWire.map(a => minutesSince(a.publishedUtc, now)).filter((m): m is number => m != null);
     const poolMins = poolWithNews.map(it => ageLabelMinutes(it.newsAge)).filter((m): m is number => m != null);
     const today = now ? etDateKey(now) : '';
     const isToday = (m: number) => !!now && etDateKey(now - m * 60000) === today;
     const headlinesToday = wireMins.filter(isToday).length + poolMins.filter(isToday).length;
     const names = new Set<string>();
     for (const it of poolWithNews) names.add(it.ticker.toUpperCase());
-    for (const a of wire) for (const t of (a.tickers?.length ? a.tickers : [a.ticker])) names.add(String(t).toUpperCase());
+    for (const a of cleanWire) for (const t of (a.tickers?.length ? a.tickers : [a.ticker])) names.add(String(t).toUpperCase());
     const span = wireMins.length ? Math.max(1, Math.ceil(Math.max(...wireMins) / 60)) : null;
     const allMins = [...wireMins, ...poolMins];
     const newest = allMins.length ? Math.min(...allMins) : null;
     return { headlinesToday, names: names.size, span, newest };
-  }, [wire, poolWithNews, loadedAt]);
+  }, [cleanWire, poolWithNews, loadedAt]);
 
   const line = tapeLine(counts);
-  const total = poolWithNews.length + wire.length;
+  const total = poolWithNews.length + cleanWire.length;
 
   /* Only sources that actually have news get a pill — a pill with nothing
      behind it is noise, the same rule the dashboard's filters follow. */
@@ -494,7 +498,7 @@ export default function NewsPage() {
                   </p>
                   {status === 'ready' && (
                     <p className="text-[14px] text-slate-400 mt-1.5">
-                      {wire.length} on the market wire{hero.span ? ` from the last ${hero.span} hour${hero.span === 1 ? '' : 's'}` : ''}
+                      {cleanWire.length} on the market wire{hero.span ? ` from the last ${hero.span} hour${hero.span === 1 ? '' : 's'}` : ''}
                       {' '}and {poolWithNews.length} on the names in your scans.
                       {hero.newest != null && ` Newest ${relTime(hero.newest)}.`}
                     </p>
