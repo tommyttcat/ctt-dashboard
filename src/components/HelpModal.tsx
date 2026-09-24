@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { FREE_ACCESS } from '@/lib/freeAccess';
+import { QuickStartBody } from './QuickStart';
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -9,9 +10,10 @@ interface HelpModalProps {
   tier?: string;
 }
 
-type Tab = 'overview' | 'dashboard' | 'news' | 'analyst' | 'confluence' | 'track' | 'interactions' | 'updates';
+type Tab = 'quickstart' | 'overview' | 'dashboard' | 'news' | 'analyst' | 'confluence' | 'track' | 'interactions' | 'updates';
 
 const ALL_TABS: { key: Tab; label: string; minTier: 'starter' | 'core' | 'pro' }[] = [
+  { key: 'quickstart', label: 'Quick start', minTier: 'starter' },
   { key: 'overview', label: 'Overview', minTier: 'starter' },
   { key: 'dashboard', label: 'Dashboard', minTier: 'core' },
   { key: 'news', label: 'News', minTier: 'core' },
@@ -858,9 +860,9 @@ export default function HelpModal({ isOpen, onClose, tier = 'pro' }: HelpModalPr
   /* Free access opens every page, so it opens every tab: a help file that
      hides the section for a page the reader is looking at is worse than none. */
   const visibleTabs = FREE_ACCESS ? ALL_TABS : ALL_TABS.filter(t => rank >= TIER_RANK[t.minTier]);
-  const [tab, setTab] = useState<Tab>('overview');
+  const [tab, setTab] = useState<Tab>('quickstart');
 
-  const safeTab = visibleTabs.some(t => t.key === tab) ? tab : 'overview';
+  const safeTab = visibleTabs.some(t => t.key === tab) ? tab : 'quickstart';
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') onClose();
@@ -917,6 +919,7 @@ export default function HelpModal({ isOpen, onClose, tier = 'pro' }: HelpModalPr
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-5" style={{ scrollbarWidth: 'thin', scrollbarColor: '#334155 transparent' }}>
+          {safeTab === 'quickstart' && <QuickStartBody />}
           {safeTab === 'overview' && <OverviewTab tier={tier} />}
           {safeTab === 'dashboard' && <DashboardTab tier={tier} />}
           {safeTab === 'news' && <NewsTab />}

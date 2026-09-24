@@ -5,6 +5,7 @@ import { MarketDataProvider } from './MarketDataContext';
 import { ThemeToggle } from './ThemeProvider';
 import { ActiveChartProvider } from './TickerChartHover';
 import HelpModal from './HelpModal';
+import QuickStart from './QuickStart';
 import DashNav from './DashNav';
 import { WatchlistProvider } from './WatchlistContext';
 import WatchlistPanel from './WatchlistPanel';
@@ -67,6 +68,7 @@ export default function ScannersPage() {
 
             {/* Scanner Stack */}
             <div className="px-0 md:px-10 py-6 space-y-6">
+              <QuickStart />
               <SetupConfluence />
               <TopMovers />
               <StocksInPlay />
