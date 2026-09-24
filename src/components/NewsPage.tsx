@@ -44,7 +44,7 @@ import { EDGE_TINT, type EdgeTier } from '@/lib/scans/edge';
 import { catalystTooltip, headlineOf, decodeEntities, type CatalystRow } from '@/lib/catalyst';
 import { gradeOf, rvolColor } from '@/lib/indicators/columnColors';
 import { isLawsuitNoise,
-  TAG_META, tagOf, tagCounts, tapeLine, minutesSince, ageLabelMinutes, relTime, etDateKey, fmtMove,
+  TAG_META, tagOf, tagCounts, minutesSince, ageLabelMinutes, relTime, fmtMove,
   type NewsTag,
 } from '@/lib/newsView';
 
@@ -249,6 +249,8 @@ function Stars({ n }: { n: number }) {
   );
 }
 
+const TIER_RANK: Record<string, number> = { green: 0, yellow: 1, red: 2 };
+
 const poolTag = (it: PoolItem): NewsTag => tagOf(it.catalyst);
 const wireTag = (a: WireItem): NewsTag => tagOf(a.aiTag);
 
@@ -329,15 +331,6 @@ const Note = ({ children }: { children: React.ReactNode }) => (
   <p className="text-[12px] text-slate-500 bg-[#111827] border border-[#1e293b] rounded-2xl px-4 py-3.5">{children}</p>
 );
 
-function Tile({ value, label, cls = 'text-slate-100' }: { value: React.ReactNode; label: string; cls?: string }) {
-  return (
-    <div className="bg-[#0b1220] border border-[#1e293b] rounded-xl px-3.5 py-2.5 flex-1 min-w-[96px] sm:flex-none sm:min-w-[130px]">
-      <div className={`text-[20px] font-extrabold tabular-nums leading-tight break-words ${cls}`}>{value}</div>
-      <div className="text-[11px] text-slate-500 mt-0.5">{label}</div>
-    </div>
-  );
-}
-
 export default function NewsPage() {
   const [pool, setPool] = React.useState<PoolItem[]>([]);
   const [stats, setStats] = React.useState<Record<string, StatRow>>({});
@@ -345,7 +338,8 @@ export default function NewsPage() {
   const [wire, setWire] = React.useState<WireItem[]>([]);
   const [status, setStatus] = React.useState<'loading' | 'ready' | 'error'>('loading');
   const [scanKey, setScanKey] = React.useState<string | null>(null);
-  const [causalOnly, setCausalOnly] = React.useState(false);
+  // Actionable by default: only stories that state a real reason (★★).
+  const [causalOnly, setCausalOnly] = React.useState(true);
   const [wireScope, setWireScope] = React.useState<'pool' | 'all'>('pool');
   const [tagKey, setTagKey] = React.useState<NewsTag | null>(null);
   const [helpOpen, setHelpOpen] = React.useState(false);
@@ -380,8 +374,12 @@ export default function NewsPage() {
   // Lawsuit / class-action releases are dropped from both sections.
   const cleanWire = React.useMemo(() => wire.filter(a => !isLawsuitNoise(decodeEntities(a.cleanHeadline || a.title), wireTag(a))), [wire]);
 
+  /* Actionable order: the strongest setups first (green, yellow, red, none),
+     then the bigger move. */
   const shown = React.useMemo(() => poolWithNews.filter(it =>
-    (!scanKey || it.scan === scanKey) && (!causalOnly || it.stars >= 2) && (!tagKey || poolTag(it) === tagKey)),
+    (!scanKey || it.scan === scanKey) && (!causalOnly || it.stars >= 2) && (!tagKey || poolTag(it) === tagKey))
+    .sort((a, b) => ((TIER_RANK[a.tier ?? ''] ?? 3) - (TIER_RANK[b.tier ?? ''] ?? 3))
+      || (Math.abs(b.changePct ?? 0) - Math.abs(a.changePct ?? 0))),
   [poolWithNews, scanKey, causalOnly, tagKey]);
 
   const onBoard = React.useCallback((a: WireItem) =>
@@ -397,25 +395,6 @@ export default function NewsPage() {
   const counts = React.useMemo(
     () => tagCounts([...poolWithNews.map(poolTag), ...cleanWire.map(wireTag)]),
     [poolWithNews, cleanWire]);
-  const topTag = counts.find(c => c.tag !== 'general');
-
-  const hero = React.useMemo(() => {
-    const now = loadedAt;
-    const wireMins = cleanWire.map(a => minutesSince(a.publishedUtc, now)).filter((m): m is number => m != null);
-    const poolMins = poolWithNews.map(it => ageLabelMinutes(it.newsAge)).filter((m): m is number => m != null);
-    const today = now ? etDateKey(now) : '';
-    const isToday = (m: number) => !!now && etDateKey(now - m * 60000) === today;
-    const headlinesToday = wireMins.filter(isToday).length + poolMins.filter(isToday).length;
-    const names = new Set<string>();
-    for (const it of poolWithNews) names.add(it.ticker.toUpperCase());
-    for (const a of cleanWire) for (const t of (a.tickers?.length ? a.tickers : [a.ticker])) names.add(String(t).toUpperCase());
-    const span = wireMins.length ? Math.max(1, Math.ceil(Math.max(...wireMins) / 60)) : null;
-    const allMins = [...wireMins, ...poolMins];
-    const newest = allMins.length ? Math.min(...allMins) : null;
-    return { headlinesToday, names: names.size, span, newest };
-  }, [cleanWire, poolWithNews, loadedAt]);
-
-  const line = tapeLine(counts);
   const total = poolWithNews.length + cleanWire.length;
 
   /* Only sources that actually have news get a pill — a pill with nothing
@@ -431,7 +410,8 @@ export default function NewsPage() {
   const filterPill = (active: boolean, anyActive: boolean, onCls: string) =>
     `${PILL} transition-colors ${active || !anyActive ? onCls : PILL_OFF}`;
 
-  const tagPillOrder = [...counts.filter(c => c.tag !== 'general'), ...counts.filter(c => c.tag === 'general')];
+  // 'General' is not a type anyone filters by.
+  const tagPillOrder = counts.filter(c => c.tag !== 'general');
 
   return (
     <div className="news-v2 min-h-screen bg-[#05080f] text-slate-300 font-sans md:py-10 flex justify-center">
@@ -486,33 +466,13 @@ export default function NewsPage() {
                   </p>
                 </div>
 
-                {/* ---- Hero ---- */}
-                <div className="news-hero rounded-2xl border border-[#1e293b] bg-[linear-gradient(135deg,#0f1a2e,#111827)] px-5 py-5 md:px-6">
-                  <div className={`${LABEL} text-cyan-400`}>What&apos;s moving the tape</div>
-                  <p className="text-[20px] md:text-[24px] font-extrabold text-slate-100 mt-1.5 leading-snug break-words">
-                    {status === 'loading'
-                      ? 'Loading the latest headlines…'
-                      : status === 'error'
-                        ? 'No news came back. Try Refresh in a minute.'
-                        : line || `No clear catalysts yet — ${total} general headline${total === 1 ? '' : 's'}.`}
+                {/* No summary box — the page opens on the news itself. Only a
+                    loading or error state needs a line here. */}
+                {status !== 'ready' && (
+                  <p className="text-[14px] text-slate-400">
+                    {status === 'loading' ? 'Loading the latest headlines…' : 'No news came back. Try Refresh in a minute.'}
                   </p>
-                  {status === 'ready' && (
-                    <p className="text-[14px] text-slate-400 mt-1.5">
-                      {cleanWire.length} on the market wire{hero.span ? ` from the last ${hero.span} hour${hero.span === 1 ? '' : 's'}` : ''}
-                      {' '}and {poolWithNews.length} on the names in your scans.
-                      {hero.newest != null && ` Newest ${relTime(hero.newest)}.`}
-                    </p>
-                  )}
-                  <div className="flex gap-2.5 mt-4 flex-wrap">
-                    <Tile value={status === 'ready' ? hero.headlinesToday : '—'} label="Headlines today" />
-                    <Tile value={status === 'ready' ? hero.names : '—'} label="Names mentioned" cls="text-cyan-400" />
-                    <Tile
-                      value={status === 'ready' && topTag ? TAG_META[topTag.tag].label : '—'}
-                      label={status === 'ready' && topTag ? `Most-cited type · ${topTag.n}` : 'Most-cited type'}
-                      cls={status === 'ready' && topTag ? TAG_META[topTag.tag].cls.split(' ')[0] : 'text-slate-500'}
-                    />
-                  </div>
-                </div>
+                )}
 
                 {/* ---- Type filter — applies to both sections ---- */}
                 {status !== 'loading' && tagPillOrder.length > 0 && (
