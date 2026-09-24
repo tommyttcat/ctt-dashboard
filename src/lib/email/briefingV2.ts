@@ -82,7 +82,8 @@ function pickFromTopTrade(s: Any): Pick | null {
   const why = sentences.find((x, i) => i >= 2 && !/^Target\b/i.test(x)) || '';
   const lvl = (v: unknown) => (v == null || v === '' ? undefined : Number(v).toFixed(2));
   return {
-    ticker: String(s.ticker), name: name && name.length < 40 ? name : undefined,
+    // Old-format theses open with "Last 206.20, ..." — that is not a name.
+    ticker: String(s.ticker), name: name && name.length < 40 && !/^Last\s/.test(name) ? name : undefined,
     dip: /buy dip/i.test(thesis), buy: lvl(s.trigger), stop: lvl(s.stop ?? s.invalidation),
     status: statusOf(thesis), why: plain(why),
   };
@@ -163,7 +164,8 @@ export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief,
   const regime = plain(rd.regime);
   const firstStop = regime.search(/[.—]\s/);
   const verdict = firstStop > 0 ? regime.slice(0, firstStop + 1).replace(/—$/, '').trim() : regime;
-  const driver = firstStop > 0 ? regime.slice(firstStop + 1).trim() : '';
+  const driverRaw = firstStop > 0 ? regime.slice(firstStop + 1).trim() : '';
+  const driver = driverRaw ? driverRaw.charAt(0).toUpperCase() + driverRaw.slice(1) : '';
   const tone = /risk-off|selling|broad selling|bear/i.test(regime) ? C.red : /risk-on|rally|bull/i.test(regime) ? C.green : C.amber;
 
   /* stat tiles */

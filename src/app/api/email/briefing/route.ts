@@ -1462,10 +1462,10 @@ export async function GET(req: Request) {
   const econ: any[] = Array.isArray(econRes) ? econRes : [];
   const earnings: any[] = Array.isArray(earningsRes) ? earningsRes : (earningsRes?.events ?? []);
 
-  /* design=v2 is the light, card-based email (lib/email/briefingV2) built for
-     the simplified brief. Opt-in while it is checked on real data; it becomes
-     the default once approved. */
-  const useV2 = url.searchParams.get('design') === 'v2';
+  /* The light, card-based email (lib/email/briefingV2), built for the
+     simplified brief, is the default since 24 Sep 2026. design=v1 renders the
+     old dark layout, kept as a fallback. */
+  const useV2 = url.searchParams.get('design') !== 'v1';
   const phaseLabel = PHASE_LABELS[phase];
   const html = useV2
     ? buildEmailV2({
