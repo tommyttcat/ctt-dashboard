@@ -61,11 +61,10 @@ export type Pick = {
 };
 
 export function pickCard(p: Pick, last: boolean): string {
+  /* One line at body size, the dashboard's wording — the two 18px number
+     blocks outweighed the ticker and the reason (24 Sep 2026). */
   const levels = p.buy && p.stop ? `
-    <table role="presentation" width="100%" style="margin-top:10px;"><tr>
-      <td width="50%"><div style="font-size:11px;color:${C.muted};">${p.dip ? 'Buy on a dip to' : 'Buy above'}</div><div style="font-size:18px;font-weight:800;color:${C.ink};">${esc(p.buy)}</div></td>
-      <td width="50%"><div style="font-size:11px;color:${C.muted};">Stop</div><div style="font-size:18px;font-weight:800;color:${C.red};">${esc(p.stop)}</div></td>
-    </tr></table>` : '';
+    <div style="font-size:14px;line-height:1.5;color:${C.muted};margin-top:6px;">${p.dip ? 'Buy dip' : 'Buy above'} <b style="color:${C.ink};">${esc(p.buy)}</b> &middot; Stop <b style="color:${C.red};">${esc(p.stop)}</b></div>` : '';
   const why = p.whyHtml ?? (p.why ? esc(p.why) : '');
   return `
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px;${last ? '' : `border-bottom:1px solid ${C.rule};`}">
