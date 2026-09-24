@@ -35,13 +35,21 @@ function pickFromTopTrade(s: Any): Pick | null {
   const name = thesis.split('.')[0]?.trim();
   // The "why" is the sentence after the status sentence, before "Target".
   const sentences = thesis.split(/(?<=\.)\s+/).filter(Boolean);
-  const why = sentences.find((x, i) => i >= 2 && !/^Target\b/i.test(x)) || '';
+  const why = sentences.filter((x, i) => i >= 2 && !/^Target\b/i.test(x)).join(' ');
+  const target = sentences.find(x => /^Target\b/i.test(x)) || '';
+  const risk = plain(s.risk || '');
   const lvl = (v: unknown) => (v == null || v === '' ? undefined : Number(v).toFixed(2));
   return {
     // Old-format theses open with "Last 206.20, ..." — that is not a name.
     ticker: String(s.ticker), name: name && name.length < 40 && !/^Last\s/.test(name) ? name : undefined,
     dip: /buy dip/i.test(thesis), buy: lvl(s.trigger), stop: lvl(s.stop ?? s.invalidation),
     status: statusOf(thesis), why: plain(why),
+    // Why, where it could go, and how it fails — the context a bare level lacks.
+    whyHtml: [
+      why ? esc(plain(why)) : '',
+      target ? `<span style="color:${C.muted};">${esc(plain(target))}</span>` : '',
+      risk ? `<span style="color:${C.red};font-weight:600;">Risk:</span> ${esc(risk)}` : '',
+    ].filter(Boolean).join('<br>'),
   };
 }
 
@@ -189,7 +197,14 @@ export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief,
   const avoid = traps ? card(`${label('Avoid', C.red)}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;">${traps}</table>`) : '';
 
   /* news, money, calendar, earnings, tomorrow */
-  const news = listCard('News that matters', C.violet, bullets(sectionOf(brief, 'Key News & Catalysts')?.analysis).slice(0, 6));
+  /* The context sections: the macro driver and how broad the move is. */
+  const proseCard = (title: string, color: string, text: unknown) => {
+    const paras = String(text || '').split(/\n+/).map(x => x.trim()).filter(Boolean);
+    return paras.length ? card(`${label(title, color)}${paras.map(p => `<div style="font-size:15px;line-height:1.6;color:${C.body};margin-top:10px;">${rich(p)}</div>`).join('')}`) : '';
+  };
+  const macroCard = proseCard('The macro picture', C.teal, sectionOf(brief, 'Futures & Macro Snapshot')?.analysis);
+  const breadthCard = proseCard('How broad the move is', C.amber, sectionOf(brief, 'Sentiment & Market Breadth')?.analysis);
+  const news = listCard('News that matters', C.violet, bullets(sectionOf(brief, 'Key News & Catalysts')?.analysis).slice(0, 8));
 
   const sec = sectorChips(sectionOf(brief, 'Top Sectors & Money Flow')?.analysis || '');
   const money = sec.lead || sec.lag || sec.narrative ? card(`
@@ -232,7 +247,7 @@ export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief,
     title: `CTT ${phaseLabel}`,
     pill: `${phaseLabel} · ${dateLabel}`,
     updatedTime,
-    sections: [hero, since, next, picksHtml, avoid, news, money, moversHtml, sipHtml, cal, earn, tomorrow],
+    sections: [hero, since, macroCard, breadthCard, next, picksHtml, avoid, news, money, moversHtml, sipHtml, cal, earn, tomorrow],
     footerNote: "Levels are each scan's own plan.",
   });
 }

@@ -6,7 +6,7 @@
  */
 
 export const C = {
-  page: '#f3f5f9', card: '#ffffff', border: '#e6e9f0', tile: '#f6f8fb', rule: '#eef1f6',
+  page: '#f3f5f9', card: '#ffffff', border: '#cbd5e1', tile: '#f6f8fb', rule: '#e2e8f0',
   ink: '#0f172a', body: '#334155', muted: '#64748b', faint: '#94a3b8',
   green: '#059669', red: '#e11d48', amber: '#d97706', teal: '#0891b2', violet: '#7c3aed', orange: '#ea580c',
   greenBg: '#dcfce7', redBg: '#ffe4ea', amberBg: '#fef3c7', orangeBg: '#ffedd5', tealBg: '#e0f5f9', slateBg: '#eef1f6',
