@@ -118,9 +118,10 @@ import {
 import {
   SCAN, SortHeader, FilterPillGroup, BlueDot,
   ScoreCell, RsCell, PriceCell, ChgCell, Ema1021Cell, VolCell, DollarVolCell,
-  RvolCell, FloatCell, AdrCell, MfCell, StochCell, DtcCell, McapCell, StageCell, SectorCell,
+  RvolCell, FloatCell, AdrCell, MfCell, StatusCell, DtcCell, McapCell, StageCell, SectorCell,
 } from './scan/ScanTable';
 import { TickerCell } from './scan/TickerCell';
+import { planStatusView } from '@/lib/scans/triggerProximity';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The blue dot marks an oversold stochastic reset firing on the daily.' },
@@ -718,12 +719,16 @@ export default function Consolidation1021() {
         ? (rdyBySymbol.get(a.symbol)?.score ?? null)
         : sortConfig.key === 'planR'
           ? planSortValue(a)
-          : ((a as any)[sortConfig.key] as any);
+          : sortConfig.key === 'status'
+            ? (planStatusView(a)?.sort ?? null)
+            : ((a as any)[sortConfig.key] as any);
       const bVal = sortConfig.key === 'rdy'
         ? (rdyBySymbol.get(b.symbol)?.score ?? null)
         : sortConfig.key === 'planR'
           ? planSortValue(b)
-          : ((b as any)[sortConfig.key] as any);
+          : sortConfig.key === 'status'
+            ? (planStatusView(b)?.sort ?? null)
+            : ((b as any)[sortConfig.key] as any);
       if (aVal === null || aVal === undefined) return 1;
       if (bVal === null || bVal === undefined) return -1;
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -1038,7 +1043,7 @@ export default function Consolidation1021() {
                   <SortHeader label="COIL" width="w-[6%]" title={colTip('COIL')} icon={getSortIcon('coilRatio')} onSort={() => handleSort('coilRatio')} />
                   <SortHeader label="ADR" width="w-[5%]" title={colTip('ADR')} icon={getSortIcon('adrPct')} onSort={() => handleSort('adrPct')} />
                   <SortHeader label="MF" width="w-[4%]" title={colTip('MF')} icon={getSortIcon('mf')} onSort={() => handleSort('mf')} />
-                  <SortHeader label="STOCH" width="w-[5%]" title={colTip('STOCH')} icon={getSortIcon('stochK')} onSort={() => handleSort('stochK')} />
+                  <SortHeader label="STATUS" width="w-[5%]" title={colTip('STATUS')} icon={getSortIcon('status')} onSort={() => handleSort('status')} />
                   <SortHeader label="DTC" width="w-[5%]" title={colTip('DTC')} icon={getSortIcon('daysToCover')} onSort={() => handleSort('daysToCover')} />
                   <SortHeader label="MCAP" width="w-[5%]" title={colTip('MCAP')} icon={getSortIcon('mktCap')} onSort={() => handleSort('mktCap')} />
                   <SortHeader label="STAGE" width="w-[5%]" className="border-l border-white/5" variant="stage" title={colTip('STAGE')} icon={getSortIcon('stage')} onSort={() => handleSort('stage')} />
@@ -1107,7 +1112,7 @@ export default function Consolidation1021() {
                           </td>
                           <AdrCell adr={adr} />
                           <MfCell value={mf} trend={row.mfTrend} />
-                          <StochCell value={row.stochK} />
+                          <StatusCell view={planStatusView(row)} />
                           <DtcCell value={row.daysToCover} />
                           <McapCell value={row.mktCap} />
                           <StageCell stage={row.stage} />

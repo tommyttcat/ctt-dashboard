@@ -117,3 +117,41 @@ export function planStatusOf(r: TrigRow): PlanStatus {
 
 /** Actionable first: HIT, WAIT (nearest first), EXT, MISS, then OUT. */
 export const PLAN_STATUS_ORDER: Record<PlanStatus, number> = { hit: 0, wait: 1, ext: 2, miss: 3, out: 4 };
+
+/** Colour and hover text per status — the dashboard Buy & stop box and the
+ *  scan tables' STATUS column read the same table, so a name never shows two
+ *  colours for one state. */
+export const PLAN_STATUS_META: Record<PlanStatus, { cls: string; tip: string }> = {
+  wait: { cls: 'text-slate-300', tip: 'Not at the buy level yet — this far away' },
+  hit: { cls: 'text-emerald-400', tip: 'At the buy level' },
+  miss: { cls: 'text-amber-400', tip: "Ran past the buy level by more than a normal day's move — buying now is chasing" },
+  ext: { cls: 'text-orange-400', tip: 'Too far above its 21-day average to place a sensible stop — levels are for reference, do not chase' },
+  out: { cls: 'text-rose-400', tip: 'Below the stop — the idea failed' },
+};
+
+export interface PlanStatusView { status: PlanStatus; text: string; cls: string; tip: string; sort: number }
+
+/** One scan-table row → its STATUS cell. `source` fills `_source` for rows
+ *  that do not carry it, because the pullback rule (EP9M) and VCP's top-level
+ *  levels both key off it. Every live plan is kept, through or extended, so
+ *  the column never silently drops a name the table is showing.
+ *
+ *  `sort` is negated so a table's first (descending) click lists HIT first,
+ *  then the nearest waits, then EXT, MISS and OUT. */
+export function planStatusView(s: any, source?: string): PlanStatusView | null {
+  const row = source && s && s._source == null ? { ...s, _source: source } : s;
+  const r = trigRowOf(row, { keepThrough: true, keepExtended: true });
+  if (!r) return null;
+  const st = planStatusOf(r);
+  const meta = PLAN_STATUS_META[st];
+  const away = r.awayPct < 10 ? r.awayPct.toFixed(1) : r.awayPct.toFixed(0);
+  return {
+    status: st,
+    // Bare "1.2%" as in the Buy & stop box: "1.2% away" is wider than the
+    // column on a phone. The hover spells it out.
+    text: st === 'wait' ? `${away}%` : st.toUpperCase(),
+    cls: meta.cls,
+    tip: `${r.pullback ? 'Buy on a dip to' : 'Buy above'} ${r.trigger.toFixed(2)} · Stop ${r.stop.toFixed(2)}\n${st === 'wait' ? `${away}% away` : st.toUpperCase()} — ${meta.tip}`,
+    sort: -(PLAN_STATUS_ORDER[st] * 1000 + r.awayPct),
+  };
+}

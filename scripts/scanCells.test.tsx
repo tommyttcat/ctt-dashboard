@@ -31,8 +31,9 @@ import {
 import { formatNumber, formatCurrency, emaDotClass } from '../src/lib/scans/tableFormat.ts';
 import {
   SCAN, ScoreCell, RsCell, PriceCell, ChgCell, Ema1021Cell, VolCell, DollarVolCell,
-  RvolCell, FloatCell, AdrCell, MfCell, StochCell, DtcCell, McapCell, StageCell, SectorCell,
+  RvolCell, FloatCell, AdrCell, MfCell, StochCell, DtcCell, McapCell, StageCell, SectorCell, StatusCell,
 } from '../src/components/scan/ScanTable.tsx';
+import { planStatusView } from '../src/lib/scans/triggerProximity.ts';
 import { eq, done } from './testkit.mts';
 
 const tdBase = SCAN.td, tdStage = SCAN.tdStage, tdSector = SCAN.tdSector;
@@ -132,6 +133,23 @@ same('VOL with a responsive modifier',
 same('RVOL keeps the colour after the modifier',
   <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums hidden lg:table-cell ${getRvolColor(3.6)}`}>{'3.6x'}</td>,
   <RvolCell value={3.6} className="hidden lg:table-cell" />);
+
+/* STATUS (24 Sep 2026) — the dashboard's words, from the scan's own plan. */
+const plan = (o: any) => ({ tradeable: true, collapsed: false, overextended: false, trigger: 100, stop: 95, ...o });
+const st = (row: any, src?: string) => planStatusView(row, src);
+eq('status: below the buy level is the bare distance', st({ ticker: 'A', price: 98, plan: plan({}) })?.text, '2.0%');
+eq('status: hover spells out "away"', st({ ticker: 'A', price: 98, plan: plan({}) })?.tip.includes('2.0% away'), true);
+eq('status: at the level is HIT', st({ ticker: 'A', price: 100.5, adrPct: 4, plan: plan({}) })?.text, 'HIT');
+eq('status: past one ADR is MISS', st({ ticker: 'A', price: 106, adrPct: 4, plan: plan({}) })?.text, 'MISS');
+eq('status: overextended is EXT', st({ ticker: 'A', price: 101, plan: plan({ overextended: true }) })?.text, 'EXT');
+eq('status: at the stop is OUT', st({ ticker: 'A', price: 95, plan: plan({}) })?.text, 'OUT');
+eq('status: collapsed plan has none', st({ ticker: 'A', price: 98, plan: plan({ collapsed: true }) }), null);
+eq('status: EP9M dip below its level is HIT, never MISS', st({ ticker: 'A', price: 90, adrPct: 2, plan: plan({ stop: 85 }) }, 'ep9m')?.text, 'HIT');
+eq('status: VCP reads top-level levels', st({ ticker: 'A', price: 97, trigger: 100, stop: 94 }, 'vcp')?.text, '3.1%');
+eq('status: hover carries the levels', st({ ticker: 'A', price: 98, plan: plan({}) })?.tip.startsWith('Buy above 100.00 · Stop 95.00'), true);
+eq('status: first (desc) click puts HIT above a wait', (st({ ticker: 'A', price: 100.5, adrPct: 4, plan: plan({}) })!.sort) > (st({ ticker: 'B', price: 98, plan: plan({}) })!.sort), true);
+same('STATUS none', <td className={`${tdBase} text-[10px] whitespace-nowrap text-slate-600`} title="No buy or stop level — its plan collapsed, or this scan does not compute one">—</td>, <StatusCell view={null} />);
+eq('STATUS HIT is green', html(<StatusCell view={st({ ticker: 'A', price: 100.5, adrPct: 4, plan: plan({}) })} />).includes('text-emerald-400'), true);
 
 /* The rounding this replaced is pinned too, so nobody reintroduces it: 1.4x
    must never render as "1x" again. */

@@ -108,7 +108,7 @@ import { WatchlistToggle } from './WatchlistPanel';
 import { hrsEdgeGrade } from '@/lib/scans/hrs';
 import { edgeTier as edgeOf, EDGE_TINT, EDGE_FILTER_TIP, type EdgeTier } from '@/lib/scans/edge';
 import EdgeFilterPills from './EdgeFilterPills';
-import { planRowsFor, planStatusOf, PLAN_STATUS_ORDER, type TrigRow, type PlanStatus } from '@/lib/scans/triggerProximity';
+import { planRowsFor, planStatusOf, PLAN_STATUS_ORDER, PLAN_STATUS_META, type TrigRow, type PlanStatus } from '@/lib/scans/triggerProximity';
 import InfoDot from './InfoDot';
 import { tierForScan, tipForScan } from '@/lib/scans/edge';
 import { newsStarCount } from '@/lib/newsStars';
@@ -1121,13 +1121,7 @@ const trigSortValue = (r: TrigRow, k: TrigSortKey): number => {
   }
 };
 
-const STATUS_META: Record<PlanStatus, { cls: string; tip: string }> = {
-  wait: { cls: 'text-slate-300', tip: 'Not at the buy level yet — this far away' },
-  hit: { cls: 'text-emerald-400', tip: 'At the buy level' },
-  miss: { cls: 'text-amber-400', tip: "Ran past the buy level by more than a normal day's move — buying now is chasing" },
-  ext: { cls: 'text-orange-400', tip: 'Too far above its 21-day average to place a sensible stop — levels are for reference, do not chase' },
-  out: { cls: 'text-rose-400', tip: 'Below the stop — the idea failed' },
-};
+const STATUS_META = PLAN_STATUS_META;
 
 /* Same pixel grid as the Setups Summary rows (renderStdRow / SortableHeader)
    so the columns land under the card's columns on desktop. PHONE: every

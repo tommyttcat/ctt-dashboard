@@ -88,7 +88,8 @@ import { vcpTier, VCP_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 import ScanStatsNote from './ScanStatsNote';
-import { SCAN, StageCell, SectorCell } from './scan/ScanTable';
+import { SCAN, StageCell, SectorCell, StatusCell } from './scan/ScanTable';
+import { planStatusView } from '@/lib/scans/triggerProximity';
 
 /* A breakout further than this above the pivot has run away from its own
    entry. Three percent is roughly one ordinary session on a liquid mid-cap —
@@ -592,8 +593,9 @@ export default function Vcp() {
 
     if (!sortConfig) return list;
     return list.sort((a, b) => {
-      const aVal = (a as any)[sortConfig.key];
-      const bVal = (b as any)[sortConfig.key];
+      const val = (r: any) => sortConfig.key === 'status' ? (planStatusView(r, 'vcp')?.sort ?? null) : r[sortConfig.key];
+      const aVal = val(a);
+      const bVal = val(b);
       if (aVal === null || aVal === undefined) return 1;
       if (bVal === null || bVal === undefined) return -1;
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -886,8 +888,8 @@ export default function Vcp() {
                   <th className={`${thBase} w-[5%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
                   {/* The signature column — the pattern itself, not a summary
                       of it. Wider than anything else for that reason. */}
-                  <th className={`${thBase} w-[13%]`} title={colTip('CONTRACTIONS')} onClick={() => handleSort('contractionCount')}>CONTRACTIONS{getSortIcon('contractionCount')}</th>
-                  <th className={`${thBase} w-[4%]`} title="Number of contraction legs in the base (T2, T3, T4, etc.)" onClick={() => handleSort('contractionCount')}>LEGS{getSortIcon('contractionCount')}</th>
+                  <th className={`${thBase} w-[12%]`} title={colTip('CONTRACTIONS')} onClick={() => handleSort('contractionCount')}>CONTRACTIONS{getSortIcon('contractionCount')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('STATUS')} onClick={() => handleSort('status')}>STATUS{getSortIcon('status')}</th>
                   <th className={`${thBase} w-[9%]`} title={colTip('PIVOT')} onClick={() => handleSort('pctToPivot')}>PIVOT{getSortIcon('pctToPivot')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('BASE')} onClick={() => handleSort('baseLengthBars')}>BASE{getSortIcon('baseLengthBars')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('VOL')} onClick={() => handleSort('volumeDryingRatio')}>VOL{getSortIcon('volumeDryingRatio')}</th>
@@ -991,10 +993,9 @@ export default function Vcp() {
                             </div>
                           </td>
 
-                          <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums text-slate-400`}
-                            title={`${row.contractionCount} contraction${row.contractionCount === 1 ? '' : 's'} in the current base`}>
-                            T{row.contractionCount}
-                          </td>
+                          {/* STATUS replaced LEGS (24 Sep 2026): LEGS repeated the
+                              count the CONTRACTIONS column already draws. */}
+                          <StatusCell view={planStatusView(row, 'vcp')} />
 
                           <td className={`${tdBase} whitespace-nowrap tabular-nums cursor-help`} title={planTooltip(row)}>
                             <div className="flex flex-col leading-tight">

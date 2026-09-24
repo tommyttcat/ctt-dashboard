@@ -81,7 +81,8 @@ import { epMoveOdds, EP_MOVE_ODDS_TIP } from '@/lib/scans/ep9m';
 import { ep9mTier, EP9M_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import ScanStatsNote from './ScanStatsNote';
-import { SCAN, RvolCell, RsCell, PriceCell, DollarVolCell, AdrCell, StochCell, McapCell, StageCell, SectorCell } from './scan/ScanTable';
+import { SCAN, RvolCell, RsCell, PriceCell, DollarVolCell, AdrCell, StatusCell, McapCell, StageCell, SectorCell } from './scan/ScanTable';
+import { planStatusView } from '@/lib/scans/triggerProximity';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: "Symbol. Hover shows the company name. Fuchsia dot = unprecedented (today's volume beat its own 60-day high); ★ = repeat EP9M offender. Hover the fuchsia dot on a choppy name — record volume inside a range that will not resolve is the most misread row on this table." },
@@ -712,8 +713,11 @@ export default function Ep9m() {
 
     if (!sortConfig) return list;
     return list.sort((a, b) => {
-      const aVal = sortConfig.key === 'planR' ? planSortValue(a) : (a as any)[sortConfig.key];
-      const bVal = sortConfig.key === 'planR' ? planSortValue(b) : (b as any)[sortConfig.key];
+      const val = (r: any) => sortConfig.key === 'planR' ? planSortValue(r)
+        : sortConfig.key === 'status' ? (planStatusView(r, 'ep9m')?.sort ?? null)
+        : r[sortConfig.key];
+      const aVal = val(a);
+      const bVal = val(b);
       if (aVal === null || aVal === undefined) return 1;
       if (bVal === null || bVal === undefined) return -1;
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -1115,7 +1119,7 @@ export default function Ep9m() {
                       header cannot carry two sort keys. */}
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('STATUS')} onClick={() => handleSort('status')}>STATUS{getSortIcon('status')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thStage} w-[5%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
@@ -1225,7 +1229,7 @@ export default function Ep9m() {
                           <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={`Money Flow (21) — ${mfLabel(mf)}. Heavy volume with MF under 45 is distribution, however strong today's close. Arrow shows the 5-day direction.`}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
                           </td>
-                          <StochCell value={row.stochK} />
+                          <StatusCell view={planStatusView(row, 'ep9m')} />
                           <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover — short interest divided by average daily volume. Squeeze fuel.">
                             {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
                           </td>

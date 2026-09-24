@@ -103,8 +103,9 @@ import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
 import { edgeTier, EDGE_FILTER_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import ScanStatsNote from './ScanStatsNote';
-import { SCAN, ScoreCell, RsCell, PriceCell, ChgCell, Ema1021Cell, VolCell, DollarVolCell, RvolCell, FloatCell, AdrCell, MfCell, StochCell, DtcCell, McapCell, StageCell, SectorCell } from './scan/ScanTable';
+import { SCAN, ScoreCell, RsCell, PriceCell, ChgCell, Ema1021Cell, VolCell, DollarVolCell, RvolCell, FloatCell, AdrCell, MfCell, StatusCell, DtcCell, McapCell, StageCell, SectorCell } from './scan/ScanTable';
 import { TickerCell } from './scan/TickerCell';
+import { planStatusView } from '@/lib/scans/triggerProximity';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The setup name sits directly beneath it.' },
@@ -753,8 +754,11 @@ export default function StocksInPlay() {
     }
     if (!sortConfig) return filtered;
     return [...filtered].sort((a, b) => {
-      const aVal = sortConfig.key === 'planR' ? planSortValue(a) : (a as any)[sortConfig.key];
-      const bVal = sortConfig.key === 'planR' ? planSortValue(b) : (b as any)[sortConfig.key];
+      const val = (r: any) => sortConfig.key === 'planR' ? planSortValue(r)
+        : sortConfig.key === 'status' ? (planStatusView(r)?.sort ?? null)
+        : r[sortConfig.key];
+      const aVal = val(a);
+      const bVal = val(b);
       if (aVal === null || aVal === undefined) return 1;
       if (bVal === null || bVal === undefined) return -1;
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -1038,7 +1042,7 @@ export default function StocksInPlay() {
                       header cannot carry two sort keys. */}
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('STOCH')} onClick={() => handleSort('stochK')}>STOCH{getSortIcon('stochK')}</th>
+                  <th className={`${thBase} w-[5%]`} title={colTip('STATUS')} onClick={() => handleSort('status')}>STATUS{getSortIcon('status')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thStage} w-[5%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
@@ -1090,7 +1094,7 @@ export default function StocksInPlay() {
                               self-explaining without a header change. */}
                           <AdrCell adr={adr} chop={chop} />
                           <MfCell value={mf} trend={row.mfTrend} />
-                          <StochCell value={row.stochK} />
+                          <StatusCell view={planStatusView(row)} />
                           <DtcCell value={row.daysToCover} />
                           <McapCell value={row.mktCap} />
                           <StageCell stage={row.stage} />

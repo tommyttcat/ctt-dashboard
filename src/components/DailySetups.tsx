@@ -89,9 +89,10 @@ import {
 import {
   SCAN, SortHeader, FilterPillGroup, BlueDot, RedDot,
   ScoreCell, RsCell, PriceCell, ChgCell, Ema1021Cell, VolCell, DollarVolCell,
-  RvolCell, FloatCell, AdrCell, MfCell, StochCell, DtcCell, McapCell, StageCell, SectorCell,
+  RvolCell, FloatCell, AdrCell, MfCell, StatusCell, DtcCell, McapCell, StageCell, SectorCell,
 } from './scan/ScanTable';
 import { TickerCell } from './scan/TickerCell';
+import { planStatusView } from '@/lib/scans/triggerProximity';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The setup name sits directly beneath it.' },
@@ -132,10 +133,6 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   RS: {
     what: 'Minervini / IBD Relative Strength Rating — a PERCENTILE against every liquid US stock, not a spread versus SPY. 88 means stronger than 88% of the market over the trailing year, with the most recent quarter double-weighted.\n\nComputed on closing prices, so it does not move intraday: a stock up 8% today still shows yesterday\'s rating. Minervini gates at 70 and prefers 80-90+.',
     colour: 'Purple 90+ · green 80+ · slate 70+ · red below the floor.',
-  },
-  STOCH: {
-    what: 'Stochastic %K (10). Low readings near a rising 21 EMA are the Blue Dot precondition.',
-    colour: 'Purple ≤20 · green ≤30 · grey above.',
   },
   DTC: {
     what: 'Days to cover — sessions of normal volume for shorts to exit. Above 5 is trapped supply that has to buy at some point.',
@@ -665,8 +662,11 @@ export default function DailySetups() {
     }
     if (!sortConfig) return filtered;
     return [...filtered].sort((a, b) => {
-      const aVal = sortConfig.key === 'planR' ? planSortValue(a) : (a as any)[sortConfig.key];
-      const bVal = sortConfig.key === 'planR' ? planSortValue(b) : (b as any)[sortConfig.key];
+      const val = (r: SetupData) => sortConfig.key === 'planR' ? planSortValue(r)
+        : sortConfig.key === 'status' ? (planStatusView(r)?.sort ?? null)
+        : (r as any)[sortConfig.key];
+      const aVal = val(a);
+      const bVal = val(b);
       if (aVal === null || aVal === undefined) return 1;
       if (bVal === null || bVal === undefined) return -1;
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -930,7 +930,7 @@ export default function DailySetups() {
                       header cannot carry two sort keys. */}
                   <SortHeader label="ADR" width="w-[5%]" title={colTip('ADR')} icon={getSortIcon('adrPct')} onSort={() => handleSort('adrPct')} />
                   <SortHeader label="MF" width="w-[4%]" title={colTip('MF')} icon={getSortIcon('mf')} onSort={() => handleSort('mf')} />
-                  <SortHeader label="STOCH" width="w-[5%]" title={colTip('STOCH')} icon={getSortIcon('stochK')} onSort={() => handleSort('stochK')} />
+                  <SortHeader label="STATUS" width="w-[5%]" title={colTip('STATUS')} icon={getSortIcon('status')} onSort={() => handleSort('status')} />
                   <SortHeader label="DTC" width="w-[5%]" title={colTip('DTC')} icon={getSortIcon('daysToCover')} onSort={() => handleSort('daysToCover')} />
                   <SortHeader label="MCAP" width="w-[5%]" title={colTip('MCAP')} icon={getSortIcon('mktCap')} onSort={() => handleSort('mktCap')} />
                   <SortHeader label="STAGE" width="w-[5%]" className="border-l border-white/5" variant="stage" title={colTip('STAGE')} icon={getSortIcon('stage')} onSort={() => handleSort('stage')} />
@@ -985,7 +985,7 @@ export default function DailySetups() {
                               self-explaining without a header change. */}
                           <AdrCell adr={adr} chop={chop} />
                           <MfCell value={mf} trend={row.mfTrend} />
-                          <StochCell value={row.stochK} />
+                          <StatusCell view={planStatusView(row)} />
                           <DtcCell value={row.daysToCover} />
                           <McapCell value={row.mktCap} />
                           <StageCell stage={row.stage} />

@@ -413,6 +413,10 @@ export const COLUMN_NOTES: Record<string, ColumnNote> = {
     what: 'Smoothed stochastic %K (10, 4) \u2014 the Dr. Wish setting. Low is oversold.',
     colour: 'Purple \u2264 20 \u00b7 green \u2264 30 \u00b7 grey above.',
   },
+  STATUS: {
+    what: 'Where it stands against the scan\u2019s own buy level and stop \u2014 the same words as the dashboard\u2019s Buy & stop box. Hover for the levels.\n\nHIT at the buy level \u00b7 1.2% that far from it, not there yet \u00b7 EXT too stretched to place a stop \u00b7 MISS ran past it by more than a normal day \u00b7 OUT below the stop. The first click sorts HIT first, then the nearest.',
+    colour: 'Green HIT \u00b7 white % away \u00b7 orange EXT \u00b7 amber MISS \u00b7 red OUT.',
+  },
   DTC: {
     what: 'Days to cover \u2014 short interest divided by average daily volume. How many sessions of normal trade it would take shorts to exit. More useful than raw short percent because it scales the position against the liquidity to unwind it.',
     colour: 'Purple \u2265 5 \u00b7 green \u2265 3 \u00b7 grey \u2265 1.5.',
