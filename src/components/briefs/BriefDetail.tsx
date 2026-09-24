@@ -384,11 +384,16 @@ export default function BriefDetail({
                             </span>
                             {block.timestamp && (
                               <span className="text-[10px] text-slate-600">
-                                {new Date(block.timestamp).toLocaleTimeString('en-US', {
-                                  timeZone: 'America/New_York',
-                                  hour: 'numeric',
-                                  minute: '2-digit',
-                                })} ET
+                                {/* The analyst stores "2:38 PM ET" — a clock string,
+                                    not a date — so new Date() on it printed
+                                    "Invalid Date ET" on every tape block. Show the
+                                    string as written; reformat only a real date. */}
+                                {(() => {
+                                  const raw = String(block.timestamp);
+                                  const d = new Date(raw);
+                                  if (Number.isNaN(d.getTime())) return /ET$/i.test(raw.trim()) ? raw.trim() : `${raw.trim()} ET`;
+                                  return `${d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })} ET`;
+                                })()}
                               </span>
                             )}
                           </div>
