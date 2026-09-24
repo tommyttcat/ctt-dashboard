@@ -118,6 +118,15 @@ const fmtR = (v: number | null | undefined) =>
 const fmtPct = (v: number | null | undefined) =>
   v == null ? '—' : `${v.toFixed(1)}%`;
 
+/* R as dollars: the reader should not need to know what R is. An R is the
+   amount risked on the trade (entry minus stop), so +0.26R is "+$26 for
+   every $100 risked". Same number, plain words. */
+const fmtUsd = (r: number | null | undefined) => {
+  if (r == null) return '—';
+  const d = Math.round(r * 100);
+  return `${d > 0 ? '+' : d < 0 ? '−' : ''}$${Math.abs(d)}`;
+};
+
 const rCls = (v: number | null | undefined) =>
   v == null ? 'text-slate-500' : v > 0 ? 'text-emerald-400' : v < 0 ? 'text-rose-400' : 'text-slate-300';
 
@@ -128,7 +137,7 @@ const TH_SCAN = `${TH} cursor-pointer hover:text-slate-300 transition-colors sel
    built by concatenation so Tailwind's scanner can see it. */
 const HIDE = 'hidden md:table-cell';
 
-type ScanSortKey = 'default' | 'label' | 'picks' | 'open' | 'settled' | 'win' | 'avgR' | 'hold20' | 'hr' | 'bt';
+type ScanSortKey = 'default' | 'label' | 'trades' | 'win' | 'avgR' | 'bt';
 
 const STATUS_META: Record<Position['status'], { label: string; cls: string; tip: string }> = {
   pending: { label: 'Pending', cls: 'text-slate-400 bg-white/[0.04] border-white/10', tip: 'Picked after the close — fills at the next session\'s open.' },
@@ -250,7 +259,6 @@ function PositionTable({ detail, showScan = false }: { detail: Detail; showScan?
             <th className={`${TH_SORT} ${HIDE}`} onClick={() => toggleSort('peakPct')} title="Best print since the fill, in percent">Peak{arrow('peakPct')}</th>
             <th className={TH_SORT} onClick={() => toggleSort('openR')} title="Marked at the last close — unrealised">Open R{arrow('openR')}</th>
             <th className={`${TH_SORT} ${HIDE}`} onClick={() => toggleSort('exitFixed')} title="Realised R on the 2R-or-stop bracket">2R{arrow('exitFixed')}</th>
-            <th className={`${TH_SORT} ${HIDE}`} onClick={() => toggleSort('exitHold20')} title="Realised R at the close of the 20th session">Hold 20{arrow('exitHold20')}</th>
             <th className={TH_SORT} onClick={() => toggleSort('status')}>Status{arrow('status')}</th>
           </tr>
         </thead>
@@ -283,7 +291,6 @@ function PositionTable({ detail, showScan = false }: { detail: Detail; showScan?
                 <td className={`${TD} ${HIDE} ${(p.peakPct ?? 0) > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>{p.peakPct == null ? '—' : `${p.peakPct >= 0 ? '+' : ''}${p.peakPct.toFixed(1)}%`}</td>
                 <td className={`${TD} ${rCls(p.openR)}`}>{live ? fmtR(p.openR) : '—'}</td>
                 <td className={`${TD} font-semibold ${HIDE} ${rCls(p.exitFixed)}`}>{fmtR(p.exitFixed)}</td>
-                <td className={`${TD} ${HIDE} ${rCls(p.exitHold20)}`}>{fmtR(p.exitHold20)}</td>
                 <td className="px-2 py-1.5 text-right">
                   <span className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border ${st.cls}`} title={st.tip}>{st.label}</span>
                 </td>
@@ -367,7 +374,6 @@ export default function TrackRecord() {
   const scanArrow = (k: ScanSortKey) => (scanSort === k ? (scanDir === 'desc' ? ' ▼' : ' ▲') : '');
 
   const results = data?.results ?? {};
-  const openByScan = data?.openByScan ?? {};
   const totalPicks = Object.values(results).reduce((n, r) => n + (r?.picks ?? 0), 0);
   const totalSettled = Object.values(results).reduce((n, r) => n + (r?.settled ?? 0), 0);
 
@@ -376,13 +382,9 @@ export default function TrackRecord() {
     const val = (scan: string, stat: StatScan): number | null => {
       const r = results[scan];
       switch (scanSort) {
-        case 'picks': return r?.picks ?? 0;
-        case 'open': return openByScan[scan] ?? 0;
-        case 'settled': return r?.settled ?? 0;
-        case 'win': return r?.winRate ?? null;
-        case 'avgR': return r?.fixedAvgR ?? null;
-        case 'hold20': return r?.hold20AvgR ?? null;
-        case 'hr': return r?.hrRate ?? null;
+        case 'trades': return (r?.settled ?? 0) > 0 ? r!.settled : (r?.interim?.n ?? 0);
+        case 'win': return ((r?.settled ?? 0) > 0 ? r?.winRate : r?.interim?.winRate) ?? null;
+        case 'avgR': return ((r?.settled ?? 0) > 0 ? r?.fixedAvgR : r?.interim?.fixedAvgR) ?? null;
         case 'bt': return SCAN_STATS[stat].bt.fixedAvgR;
         default: return null;
       }
@@ -396,7 +398,7 @@ export default function TrackRecord() {
       if (bv == null) return -1;
       return dir * (av - bv);
     });
-  }, [results, openByScan, scanSort, scanDir]);
+  }, [results, scanSort, scanDir]);
 
   return (
     /* The chart preview needs both providers: ActiveChartProvider owns the
@@ -439,44 +441,25 @@ export default function TrackRecord() {
         </div>
       </div>
 
-      {/* What this is */}
+      {/* What this is — two lines. The long version lived here and nobody
+          could read the table after it. */}
       <div className="mb-4 px-3 md:px-5 py-3 bg-slate-900/50 border border-white/[0.06] rounded-lg">
-        <p className="text-[10px] text-slate-400 leading-relaxed">
-          Every name each scan publishes is recorded the evening it appears, before anything is known about
-          what it does next. Entry is the <strong className="text-slate-200">next session&apos;s open</strong> —
-          <strong className="text-slate-200"> it does not wait for the trigger</strong>{' '}the scan names, so a
-          setup that never traded its level is in here too, bought at the open and judged from there. That is
-          deliberate: the next open is the one entry that can be recorded without a judgement call, and it was
-          the best entry the five-year backtest measured. The stop is the row&apos;s own plan stop, or that
-          day&apos;s low when it has none; a position closes at the 2R target, at the stop, or at the end of its
-          60-session window, and the Hold 20 column is a second, fixed-length read of the same trade. Nothing is
-          added later, nothing is removed for looking bad, and the five-year backtest figure sits beside the
-          live one so you can see which scans are keeping up with their own test.
+        <p className="text-[11px] text-slate-300 leading-relaxed">
+          Every stock each scan picked, <strong className="text-slate-100">bought at the next morning&apos;s open</strong>{' '}
+          with the scan&apos;s own stop, sold at twice the risk or at the stop. Nothing picked after the fact, nothing removed.
         </p>
-        <p className="text-[10px] text-slate-500 leading-relaxed mt-2">
-          Costs are not modelled. Early samples are far too small to conclude anything from — a scan needs
-          hundreds of settled trades before its average means much, and the backtest column is there as the
-          reminder of what that looks like.
-        </p>
-        <p className="text-[10px] text-slate-500 leading-relaxed mt-2">
-          <strong className="text-slate-300">Click any scan</strong> to see the individual picks behind its
-          numbers — every ticker, when it was picked, where it filled, where the stop was, and what it has
-          done since. Hover a ticker for its chart.
-        </p>
-        <p className="text-[10px] text-slate-500 leading-relaxed mt-2">
-          A trade stays in the book for 60 sessions even after it hits its target or its stop, because the
-          +50% test needs the whole window — so an <strong className="text-slate-300">In progress</strong> line
-          shows what the already-decided trades are doing before they reach the settled column.
-          <strong className="text-slate-300"> 100-Bagger is measured differently</strong>: it was validated as
-          12-month return with no stop anywhere in it, so that row reports percent and doubles rather than R.
+        {totalSettled === 0 && totalPicks > 0 && (
+          <p className="text-[11px] text-amber-400/80 leading-relaxed mt-1.5">
+            Early days — tracking began 11 Sep, so these are the trades finished so far. Too few to judge; the numbers firm up around December.
+          </p>
+        )}
+        <p className="text-[10px] text-slate-500 leading-relaxed mt-1.5">
+          Click a scan to see its picks.
         </p>
       </div>
-
       {/* Totals */}
       <div className="mb-4 flex flex-wrap gap-4 px-3 md:px-5 py-2.5 bg-slate-900/40 border border-white/[0.04] rounded-lg text-[10px]">
         <span><span className="text-slate-500">Picks recorded</span> <span className="text-slate-200 font-semibold tabular-nums">{totalPicks.toLocaleString()}</span></span>
-        <span><span className="text-slate-500">Open now</span> <span className="text-slate-200 font-semibold tabular-nums">{(data?.openCount ?? 0).toLocaleString()}</span></span>
-        <span><span className="text-slate-500">Settled</span> <span className="text-slate-200 font-semibold tabular-nums">{totalSettled.toLocaleString()}</span></span>
         {data?.meta?.lastBarDate && (
           <span><span className="text-slate-500">Through</span> <span className="text-slate-200 font-semibold">{data.meta.lastBarDate}</span></span>
         )}
@@ -561,17 +544,13 @@ export default function TrackRecord() {
           {/* Same treatment as the positions table: the four columns that say
               what a scan is and whether it works stay on a phone, the five
               that qualify them wait for a wider screen. */}
-          <table className="w-full md:min-w-[820px] border-collapse">
+          <table className="w-full border-collapse">
             <thead>
               <tr className="border-b border-white/5">
                 <th className={`${TH_SCAN} !text-left`} onClick={() => toggleScanSort('label')}>Scan{scanArrow('label')}</th>
-                <th className={TH_SCAN} onClick={() => toggleScanSort('picks')} title="Names published by this scan and recorded before the outcome was known">Picks{scanArrow('picks')}</th>
-                <th className={`${TH_SCAN} ${HIDE}`} onClick={() => toggleScanSort('open')} title="Still being followed">Open{scanArrow('open')}</th>
-                <th className={`${TH_SCAN} ${HIDE}`} onClick={() => toggleScanSort('settled')} title="Finished their window and folded into the averages">Settled{scanArrow('settled')}</th>
-                <th className={TH_SCAN} onClick={() => toggleScanSort('win')} title="Share of settled trades that closed positive">Win{scanArrow('win')}</th>
-                <th className={TH_SCAN} onClick={() => toggleScanSort('avgR')} title="Average R on the 2R-or-stop bracket">Avg R{scanArrow('avgR')}</th>
-                <th className={`${TH_SCAN} ${HIDE}`} onClick={() => toggleScanSort('hold20')} title="Average R holding to the close of the 20th session">Hold 20{scanArrow('hold20')}</th>
-                <th className={`${TH_SCAN} ${HIDE}`} onClick={() => toggleScanSort('hr')} title="Reached +50% or +10R before the stop">+50%{scanArrow('hr')}</th>
+                <th className={TH_SCAN} onClick={() => toggleScanSort('trades')} title="Trades finished so far, of all the stocks this scan picked">Trades{scanArrow('trades')}</th>
+                <th className={TH_SCAN} onClick={() => toggleScanSort('win')} title="Share of finished trades that made money">Winners{scanArrow('win')}</th>
+                <th className={TH_SCAN} onClick={() => toggleScanSort('avgR')} title="Average result per trade, for every $100 risked (the gap between entry and stop)">Per $100 risked{scanArrow('avgR')}</th>
                 <th className={`${TH_SCAN} ${HIDE}`} onClick={() => toggleScanSort('bt')} title="The same measure over the 5-year backtest, for comparison">5-yr test{scanArrow('bt')}</th>
               </tr>
             </thead>
@@ -584,24 +563,14 @@ export default function TrackRecord() {
                 const detail = details[scan];
                 const isReturn = mode === 'return';
                 const interim = r?.interim ?? null;
-                /* Which numbers this row can honestly show. Settled ones when
-                   they exist; otherwise the in-progress ones, marked, because
-                   a column of em dashes for three months reads as "this does
-                   not work" when the truth is "the window has not closed". */
-                const fromInterim = (r?.settled ?? 0) === 0 && (interim?.n ?? 0) > 0;
-                const src: Interim | ScanRecord | null = fromInterim ? interim : (r ?? null);
-                const m = {
-                  winRate: src?.winRate ?? null,
-                  fixedAvgR: src?.fixedAvgR ?? null,
-                  hold20AvgR: src?.hold20AvgR ?? null,
-                  hrRate: src?.hrRate ?? null,
-                  retAvgPct: src?.retAvgPct ?? null,
-                  doubleRate: src?.doubleRate ?? null,
-                  mark: fromInterim ? <span className="text-amber-400/70 font-normal" aria-hidden>*</span> : null,
-                  tip: (base: string) => (fromInterim
-                    ? `${base}. IN PROGRESS: ${interim?.n} trade${interim?.n === 1 ? '' : 's'} whose bracket has resolved but whose window has not closed. Not a settled figure.`
-                    : base),
-                };
+                /* Settled numbers when they exist; before December none do, so
+                   the trades already finished (target or stop hit) stand in. */
+                const useSettled = (r?.settled ?? 0) > 0;
+                const src: Interim | ScanRecord | null = useSettled ? (r ?? null) : interim;
+                const done = useSettled ? (r?.settled ?? 0) : (interim?.n ?? 0);
+                const winRate = src?.winRate ?? null;
+                const avgR = src?.fixedAvgR ?? null;
+                const retAvgPct = src?.retAvgPct ?? null;
                 return (
                   <React.Fragment key={scan}>
                     <tr
@@ -613,39 +582,29 @@ export default function TrackRecord() {
                         <span className={`inline-block mr-1.5 text-slate-500 transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}>▸</span>
                         {label}
                       </td>
-                      {/* A settled number needs the full 60-session window, and
-                          tracking began in September — so for the first three
-                          months these columns were all empty while `interim`
-                          quietly held real, resolved results. Show those, marked,
-                          rather than showing nothing. */}
-                      <td className={`${TD} text-slate-300`}>{r?.picks ?? 0}</td>
-                      <td className={`${TD} text-slate-400 ${HIDE}`}>{openByScan[scan] ?? 0}</td>
-                      <td className={`${TD} text-slate-400 ${HIDE}`}>{r?.settled ?? 0}</td>
+                      <td className={`${TD} text-slate-300`} title={`${done} finished of ${r?.picks ?? 0} picked`}>
+                        {done} <span className="text-slate-600">of {r?.picks ?? 0}</span>
+                      </td>
                       {isReturn ? (
                         <>
-                          <td className={`${TD} text-slate-600`} title="No stop in this screen's measurement, so there is no win rate to report">—</td>
-                          <td className={`${TD} font-semibold ${rCls(m.retAvgPct)}`} title={m.tip('Average return since the pick — this row is measured in percent over 12 months, not in R')}>
-                            {m.retAvgPct == null ? '—' : `${m.retAvgPct >= 0 ? '+' : ''}${m.retAvgPct.toFixed(1)}%`}{m.mark}
+                          <td className={`${TD} text-slate-600`} title="This scan holds for 12 months with no stop, so there is no win/loss yet">—</td>
+                          <td className={`${TD} font-semibold ${rCls(retAvgPct)}`} title="Average return since the pick. This scan is a 12-month hold with no stop, so it is measured in percent, not per $100 risked">
+                            {retAvgPct == null ? '—' : `${retAvgPct >= 0 ? '+' : ''}${retAvgPct.toFixed(1)}%`}
                           </td>
-                          <td className={`${TD} text-slate-600 ${HIDE}`} title="A 20-session hold means nothing on a 12-month screen">—</td>
-                          <td className={`${TD} text-slate-300 ${HIDE}`} title={m.tip('Share that doubled — the bar this screen was measured against (5.8% universe base rate)')}>{fmtPct(m.doubleRate)}{m.mark}</td>
                         </>
                       ) : (
                         <>
-                          <td className={`${TD} text-slate-300`} title={m.tip('Share of trades that closed positive')}>{fmtPct(m.winRate)}{m.mark}</td>
-                          <td className={`${TD} font-semibold ${rCls(m.fixedAvgR)}`} title={m.tip('Average R on the 2R-or-stop bracket')}>{fmtR(m.fixedAvgR)}{m.mark}</td>
-                          <td className={`${TD} font-semibold ${HIDE} ${rCls(m.hold20AvgR)}`} title={m.tip('Average R at the close of the 20th session')}>{fmtR(m.hold20AvgR)}{m.mark}</td>
-                          <td className={`${TD} text-slate-300 ${HIDE}`} title={m.tip('Share that ran +50% before the stop')}>{fmtPct(m.hrRate)}{m.mark}</td>
+                          <td className={`${TD} text-slate-300`}>{fmtPct(winRate)}</td>
+                          <td className={`${TD} font-semibold ${rCls(avgR)}`}>{fmtUsd(avgR)}</td>
                         </>
                       )}
                       <td className={`${TD} text-slate-500 ${HIDE}`} title={SCAN_STATS[stat].detail}>
-                        {bt.fixedAvgR == null ? 'n/a' : `${fmtR(bt.fixedAvgR)} · ${fmtPct(bt.hrRate)}`}
-                        <span className="block text-[9px] text-slate-600">n={bt.n.toLocaleString()}</span>
+                        {bt.fixedAvgR == null ? '—' : fmtUsd(bt.fixedAvgR)}
                       </td>
                     </tr>
                     {isOpen && (
                       <tr className="border-b border-white/[0.06] bg-[#0d1220]">
-                        <td colSpan={9} className="px-2 py-3">
+                        <td colSpan={5} className="px-2 py-3">
                           {detailLoading === scan && !detail ? (
                             <div className="py-4 text-center text-[10px] text-slate-500 tracking-widest uppercase animate-pulse">Loading picks…</div>
                           ) : !detail ? (
@@ -658,36 +617,16 @@ export default function TrackRecord() {
                         </td>
                       </tr>
                     )}
-                                        {interim && interim.n > 0 && (
-                      <tr className="border-b border-white/[0.04] bg-white/[0.01]">
-                        <td colSpan={9} className="px-2 py-1.5">
-                          {/* The figures themselves are in the starred columns
-                              above now. All this line still adds is how many
-                              trades they came from, and what "in progress"
-                              means — so it says that and nothing more. */}
-                          <div className="flex flex-wrap gap-x-2 text-[10px] text-slate-500">
-                            <span className="text-slate-600 font-bold tracking-widest uppercase">In progress</span>
-                            <span className="text-slate-400 tabular-nums">{interim.n}</span>
-                            <span>
-                              {isReturn
-                                ? 'picks filled and inside their 12-month window — the starred figures above are theirs.'
-                                : 'trades already resolved at their target or their stop, still inside the 60-session window — the starred figures above are theirs.'}
-                            </span>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
                     {tiers.length > 0 && (
                       <tr className="border-b border-white/[0.04] bg-white/[0.01]">
-                        <td colSpan={9} className="px-2 py-1.5">
+                        <td colSpan={5} className="px-2 py-1.5">
                           <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-slate-500">
-                            <span className="text-slate-600 font-bold tracking-widest uppercase">By shading</span>
+                            <span className="text-slate-600 font-bold tracking-widest uppercase">By colour</span>
                             {tiers.map(([tier, v]) => (
                               <span key={tier}>
                                 <span className={TIER_CLS[tier] ?? 'text-slate-400'}>{tier}</span>{' '}
-                                <span className="text-slate-400 tabular-nums">n={v.n}</span>{' '}
-                                <span className={`tabular-nums ${rCls(v.avgR)}`}>{fmtR(v.avgR)}</span>{' '}
-                                <span className="text-slate-500 tabular-nums">{fmtPct(v.hr)} ran +50%</span>
+                                <span className="text-slate-400 tabular-nums">{v.n} trades</span>{' '}
+                                <span className={`tabular-nums ${rCls(v.avgR)}`}>{isReturn ? `${(v.avgR ?? 0).toFixed(1)}%` : fmtUsd(v.avgR)}</span>
                               </span>
                             ))}
                           </div>
@@ -702,23 +641,12 @@ export default function TrackRecord() {
         </div>
       )}
 
-      {/* The marker's meaning, next to the marks rather than buried above. */}
       {!loading && !error && totalPicks > 0 && (
         <p className="mt-2 text-[10px] text-slate-500 leading-relaxed">
-          <span className="text-amber-400/70">*</span> in progress — the trade&apos;s bracket has resolved but its
-          60-session window has not closed, so it is not a settled figure yet. A settled number needs the whole
-          window; tracking began in September, so the first ones appear around the start of December. Until then
-          these are the real results of trades that have already hit their target or their stop, which is a truer
-          picture than an empty column.
+          Per $100 risked: the average result for every $100 between entry and stop — +$26 means a trade risking
+          $100 made $26 on average. Trading costs are not included.
         </p>
       )}
-
-      <p className="mt-4 text-[10px] text-slate-600 leading-relaxed">
-        The live record uses the same simulator as the backtest (next-open entry, first-passage on daily bars,
-        a minimum risk floor so a stop inside the spread cannot manufacture an R-multiple). The one difference:
-        the trailing-EMA exits are not tracked live, because they need a running EMA per position. The 2R
-        bracket and the 20-session hold bracket the trailing result on every table tested.
-      </p>
     </div>
     </ActiveChartProvider>
     </WatchlistProvider>
