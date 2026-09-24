@@ -1117,8 +1117,10 @@ const STATUS_META: Record<PlanStatus, { cls: string; tip: string }> = {
    so the columns land under the card's columns on desktop. PHONE: every
    column stays (the reader wants the stats there too); each is cut to its
    widest real value at 9px and the card's invisible spacers are dropped, so
-   a full row is ~324px. Below that the box scrolls sideways rather than
-   clipping BUY / STOP / STAT. BUY/STOP/STAT are sized to their
+   a full row is ~324px. Spare width is shared out evenly between columns
+   (justify-between, header and rows alike, identical widths — so they stay
+   aligned) instead of pooling on the right. Below 324px the box scrolls
+   sideways rather than clipping BUY / STOP / STAT. BUY/STOP/STAT are sized to their
    widest real value at 9px ("↑1234.56", "229.65", "MISS"), no slack. */
 const TP_H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
 const TP_SORT = 'cursor-pointer hover:text-slate-400 transition-colors select-none';
@@ -1154,7 +1156,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
   const arrow = (k: TrigSortKey) => (sortKey === k ? (sortDir === 'desc' ? ' ↓' : ' ↑') : '');
 
   const head = (
-    <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
+    <div className="flex items-center justify-between md:justify-start whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
       <span className="hidden md:inline-block w-[28px] shrink-0" />
       <span className={`${TP_H} w-[38px] md:w-[44px] text-center`}>TICKER</span>
       <span className="hidden md:inline-block w-[28px]" />
@@ -1182,7 +1184,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
     const price = r ? r.price : priceOf(s0);
     const grade: 'A' | 'B' | null = cnf >= 70 ? 'A' : cnf >= 50 ? 'B' : null;
     return (
-      <div key={`tp-${ticker}`} className={`flex items-center whitespace-nowrap py-[1px] ${t ? `${EDGE_TINT[t.tier]} rounded-sm` : ''}`}
+      <div key={`tp-${ticker}`} className={`flex items-center justify-between md:justify-start whitespace-nowrap py-[1px] ${t ? `${EDGE_TINT[t.tier]} rounded-sm` : ''}`}
         title={t ? `${t.tier.toUpperCase()} — ${t.tip}` : undefined}>
         <span className="hidden md:inline-block w-[28px] shrink-0" />
         <TickerChartHover symbol={ticker}><span className={`${gradeChipCls(grade, false)} w-[38px] md:w-[44px]`}>{ticker}</span></TickerChartHover>
