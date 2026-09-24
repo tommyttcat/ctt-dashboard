@@ -109,7 +109,8 @@ import { hrsEdgeGrade } from '@/lib/scans/hrs';
 import { edgeTier as edgeOf, EDGE_TINT, EDGE_FILTER_TIP, type EdgeTier } from '@/lib/scans/edge';
 import { planRowsFor, planStatusOf, PLAN_STATUS_ORDER, type TrigRow, type PlanStatus } from '@/lib/scans/triggerProximity';
 import InfoDot from './InfoDot';
-import { SCAN, SortHeader } from './scan/ScanTable';
+import { tierForScan } from '@/lib/scans/edge';
+import { SCAN, SortHeader, ScoreCell, RsCell, PriceCell, ChgCell, RvolCell } from './scan/ScanTable';
 import { TickerCell } from './scan/TickerCell';
 import { newsStarCount } from '@/lib/newsStars';
 import { rsColor, rsBadge } from '@/lib/indicators/rs';
@@ -1078,26 +1079,38 @@ const ALL_SETUP_FILTERS = [...SETUP_PATTERN_FILTERS, ...SETUP_SOURCE_FILTERS];
    distance the row exists to report. */
 
 /* ---- Buy & stop --------------------------------------------------------
-   Four columns, read at a glance: which name, where it becomes a buy, where
-   the idea is wrong, and one coloured word for where it stands now. The
-   reader uses the card above as a watchlist and times entries off their own
-   chart, so everything else (scan, CNF, RS, price, change, RVOL) stays on the
-   card and is not repeated here. The status rule and its tests live in
+   The card's basic stats, then the plan: where it becomes a buy, where the
+   idea is wrong, and one coloured word for where it stands now (WAIT / HIT /
+   MISS / OUT). The status rule and its tests live in
    lib/scans/triggerProximity (planStatusOf).
 
-   No row tint: the status word is the signal in this box, and a green row
-   behind a red OUT made the two argue.
+   PHONE: PRC, CHG% and SCAN step aside below md — the ↑/↓ arrow already says
+   breakout or EP pullback — so STATUS, the column that matters most, keeps
+   room for "WAIT 8.9%".
+
+   Rows carry the same green/yellow/red tint as the card above (each scan's
+   own measured tier), so a name reads the same colour in both places.
 
    LEVELS PRINT TO THE CENT. formatLevel drops to whole dollars above $100,
    which would round a 222.73 level to 223. */
 
-type TrigSortKey = 'ticker' | 'trigger' | 'stop' | 'status';
+const TRIG_SCAN_LABEL: Record<string, string> = {
+  sip: 'SIP', daily: 'DAY', swing: 'SWING', vcp: 'VCP', ep9m: 'EP9', mb: '100',
+};
 
-const TRIG_ASC_FIRST = new Set<TrigSortKey>(['ticker', 'status']);
+type TrigSortKey = 'ticker' | 'scan' | 'cnf' | 'rs' | 'price' | 'chg' | 'rvol' | 'trigger' | 'stop' | 'status';
+
+const TRIG_ASC_FIRST = new Set<TrigSortKey>(['ticker', 'scan', 'status']);
 
 const trigSortValue = (r: TrigRow, k: TrigSortKey): number | string => {
   switch (k) {
     case 'ticker': return r.ticker;
+    case 'scan': return TRIG_SCAN_LABEL[r.s._source] ?? String(r.s._source ?? '');
+    case 'cnf': return scoreOf(r.s);
+    case 'rs': return num(r.s.rsRating);
+    case 'price': return r.price;
+    case 'chg': return chgOf(r.s);
+    case 'rvol': return rvolOf(r.s) ?? 0;
     case 'trigger': return r.trigger;
     case 'stop': return r.stop;
     // Status first, then nearest-first inside it, as one number.
@@ -1105,12 +1118,21 @@ const trigSortValue = (r: TrigRow, k: TrigSortKey): number | string => {
   }
 };
 
-const TRIG_COLS: { key: TrigSortKey; label: string; width: string; title?: string }[] = [
-  { key: 'ticker', label: 'TICKER', width: 'w-[24%]' },
-  { key: 'trigger', label: 'BUY', width: 'w-[26%]', title: '↑ buy above this price · ↓ buy on a dip to it (EP9M)' },
-  { key: 'stop', label: 'STOP', width: 'w-[22%]', title: 'Out below this — the idea is wrong' },
-  { key: 'status', label: 'STATUS', width: 'w-[28%]', title: 'Where it stands now' },
+const TRIG_COLS: { key: TrigSortKey; label: string; width: string; title?: string; hideMobile?: boolean }[] = [
+  { key: 'ticker', label: 'TICKER', width: 'w-[15%] md:w-[12%]' },
+  { key: 'scan', label: 'SCAN', width: 'md:w-[8%]', title: 'Which scan found it', hideMobile: true },
+  { key: 'cnf', label: 'CNF', width: 'w-[10%] md:w-[7%]' },
+  { key: 'rs', label: 'RS', width: 'w-[10%] md:w-[7%]' },
+  { key: 'price', label: 'PRC', width: 'md:w-[11%]', hideMobile: true },
+  { key: 'chg', label: 'CHG%', width: 'md:w-[10%]', hideMobile: true },
+  { key: 'rvol', label: 'RVOL', width: 'w-[11%] md:w-[7%]' },
+  { key: 'trigger', label: 'BUY', width: 'w-[17%] md:w-[12%]', title: '↑ buy above this price · ↓ buy on a dip to it (EP9M)' },
+  { key: 'stop', label: 'STOP', width: 'w-[14%] md:w-[10%]', title: 'Out below this — the idea is wrong' },
+  { key: 'status', label: 'STATUS', width: 'w-[23%] md:w-[16%]', title: 'Where it stands now' },
 ];
+
+/* Written out in full so Tailwind's scanner can see it. */
+const TRIG_HIDE = 'hidden md:table-cell';
 
 const STATUS_META: Record<PlanStatus, { cls: string; tip: string }> = {
   wait: { cls: 'text-slate-300', tip: 'Not at the buy level yet — this far away' },
@@ -1160,7 +1182,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
             title={c.title}
             icon={sortKey === c.key ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
             onSort={() => handleSort(c.key)}
-            className={c.key === 'ticker' ? 'text-left' : undefined}
+            className={[c.key === 'ticker' || c.key === 'scan' ? 'text-left' : '', c.hideMobile ? TRIG_HIDE : ''].filter(Boolean).join(' ') || undefined}
           />
         ))}
       </tr>
@@ -1172,9 +1194,22 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
       {list.map((r) => {
         const st = planStatusOf(r);
         const meta = STATUS_META[st];
+        const t = tierForScan(r.s._source, r.s);
         return (
-          <tr key={`tp-${r.ticker}`}>
+          <tr
+            key={`tp-${r.ticker}`}
+            className={t ? EDGE_TINT[t.tier] : undefined}
+            title={t ? `${t.tier.toUpperCase()} — ${t.tip}` : undefined}
+          >
             <TickerCell symbol={r.ticker} name={r.s.name} score={scoreOf(r.s) || null} />
+            <td className={`${SCAN.td} ${TRIG_HIDE} !text-left text-[8px] font-bold tracking-wide text-slate-500`}>
+              {TRIG_SCAN_LABEL[r.s._source] ?? String(r.s._source ?? '').toUpperCase()}
+            </td>
+            <ScoreCell value={scoreOf(r.s) || null} />
+            <RsCell value={numOrNull(r.s.rsRating)} />
+            <PriceCell price={r.price} vwapStatus={r.s.vwapStatus} className={TRIG_HIDE} />
+            <ChgCell value={chgOf(r.s)} className={TRIG_HIDE} />
+            <RvolCell value={rvolOf(r.s)} />
             <td
               className={`${SCAN.td} text-[10px] font-bold text-slate-200 tabular-nums whitespace-nowrap`}
               title={`${r.pullback ? 'Buy on a dip to' : 'Buy above'} ${r.trigger.toFixed(2)} — ${r.label}`}
