@@ -75,6 +75,7 @@ type PoolItem = CatalystRow & {
   dvol?: number | null;
   tier?: EdgeTier | null;
   stars: number;
+  plan?: { buy: number; stop: number; dip: boolean; status: string } | null;
 };
 
 type WireItem = {
@@ -133,8 +134,13 @@ const LABEL = 'text-[11px] font-bold tracking-[0.14em] uppercase';
    (green / yellow / red). No tier -> slate. */
 const TIER_EDGE: Record<EdgeTier, string> = { green: 'border-l-emerald-400', yellow: 'border-l-amber-400', red: 'border-l-rose-400' };
 function chipCls(_cnf: number | null | undefined, tier?: EdgeTier | null): string {
-  const fill = tier === 'green' ? 'bg-emerald-400' : tier === 'yellow' ? 'bg-amber-400' : tier === 'red' ? 'bg-rose-400' : 'bg-slate-300';
-  return `inline-block rounded-md px-2 py-[3px] text-[14px] font-extrabold tracking-wide leading-none text-[#0b0f1a] ${fill}`;
+  // The dashboard's badge: coloured text on a faint tint with a hairline
+  // border (MarketSummary TICKER_CHIP_*), coloured by the name's tier.
+  const tone = tier === 'green' ? 'text-emerald-300 bg-emerald-500/10 border-emerald-400/30'
+    : tier === 'yellow' ? 'text-amber-300 bg-amber-500/10 border-amber-400/30'
+    : tier === 'red' ? 'text-rose-200 bg-rose-500/10 border-rose-500/30'
+    : 'text-slate-300 bg-slate-500/10 border-white/10';
+  return `inline-block text-[12px] font-bold tracking-wider px-1.5 py-[2px] rounded border leading-none ${tone}`;
 }
 
 function TagPill({ tag, hint }: { tag: NewsTag; hint?: string }) {
@@ -196,7 +202,7 @@ function Stats({ s }: { s: Partial<StatRow> | null | undefined }) {
    is before reading it; the headline at 15px; the names underneath; the small
    facts last, below a hairline. The day's move for the lead name sits top
    right, where the Confluence report puts it. */
-function NewsCard({ tag, tagHint, headline, url, move, flags, tickers, showName, meta, stats, tier }: {
+function NewsCard({ tag, tagHint, headline, url, move, flags, tickers, showName, meta, stats, tier, plan }: {
   tag: NewsTag;
   tagHint?: string;
   headline: string;
@@ -209,6 +215,8 @@ function NewsCard({ tag, tagHint, headline, url, move, flags, tickers, showName,
   stats?: Partial<StatRow> | null;
   /** The lead name's tier on its own scan — tints the card like every scan table. */
   tier?: EdgeTier | null;
+  /** The scan's buy level / stop / status for the lead name, when it has one. */
+  plan?: { buy: number; stop: number; dip: boolean; status: string } | null;
 }) {
   const head = (
     <p className="text-[15px] leading-[1.45] font-semibold text-slate-100 break-words group-hover/hl:text-cyan-300 transition-colors">
@@ -222,7 +230,7 @@ function NewsCard({ tag, tagHint, headline, url, move, flags, tickers, showName,
       <div className="flex items-center gap-2">
         <div className="flex-1 min-w-0"><TickerRow tickers={tickers} showName={showName} /></div>
         {move != null && (
-          <span className={`shrink-0 text-[16px] font-extrabold tabular-nums leading-none ${moveCls(move)}`}>{fmtMove(move)}</span>
+          <span className={`shrink-0 text-[16px] font-bold tabular-nums leading-none ${moveCls(move)}`}>{fmtMove(move)}</span>
         )}
       </div>
       {url ? (
@@ -230,6 +238,13 @@ function NewsCard({ tag, tagHint, headline, url, move, flags, tickers, showName,
           {head}
         </a>
       ) : head}
+      {plan && (
+        <div className="flex items-center gap-4 rounded-xl bg-[#0b1220] px-3 py-2 text-[13px] tabular-nums">
+          <span className="text-slate-400">{plan.dip ? 'Buy dip' : 'Buy above'} <b className="text-slate-100">{plan.buy.toFixed(2)}</b></span>
+          <span className="text-slate-400">Stop <b className="text-rose-400">{plan.stop.toFixed(2)}</b></span>
+          <span className={`ml-auto rounded-full px-2.5 py-0.5 text-[11px] font-bold tracking-wide ${PLAN_PILL[plan.status] ?? 'text-slate-200 bg-slate-500/15'}`}>{plan.status.toUpperCase()}</span>
+        </div>
+      )}
       <div className="mt-auto flex items-center gap-x-2.5 gap-y-1.5 flex-wrap text-[12px] text-slate-400 border-t border-[#1e293b] pt-2.5">
         {tag !== 'general' && <TagPill tag={tag} hint={tagHint} />}
         {flags}
@@ -252,6 +267,10 @@ function Stars({ n }: { n: number }) {
 }
 
 const TIER_RANK: Record<string, number> = { green: 0, yellow: 1, red: 2 };
+const PLAN_PILL: Record<string, string> = {
+  HIT: 'text-emerald-400 bg-emerald-500/15', EXT: 'text-orange-400 bg-orange-500/15',
+  MISS: 'text-amber-400 bg-amber-500/15', OUT: 'text-rose-400 bg-rose-500/15',
+};
 
 const poolTag = (it: PoolItem): NewsTag => tagOf(it.catalyst);
 const wireTag = (a: WireItem): NewsTag => tagOf(a.aiTag);
@@ -282,6 +301,7 @@ function PoolCard({ it }: { it: PoolItem }) {
       meta={[it.newsPublisher, age, delayed ? 'delayed' : null].filter(Boolean).join(' · ')}
       stats={it}
       tier={it.tier ?? null}
+      plan={it.plan ?? null}
     />
   );
 }
@@ -328,21 +348,11 @@ function Section({ title, count, info, controls, children }: {
 /* Two INDEPENDENT columns, as the page had before: split the list and stack
    each half, so a two-line headline never leaves a hole beside a one-line
    one. One column on a phone. */
-const Grid = ({ children }: { children: React.ReactNode }) => {
-  const items = React.Children.toArray(children);
-  if (items.length <= 2) return <div className="flex flex-col gap-3.5">{items}</div>;
-  // Phone: one list, in order. Wider: two columns filled left-to-right, so the
-  // order still reads across each row.
-  return (
-    <>
-      <div className="flex flex-col gap-3.5 md:hidden">{items}</div>
-      <div className="hidden md:grid grid-cols-2 gap-3.5">
-        <div className="flex flex-col gap-3.5 min-w-0">{items.filter((_, i) => i % 2 === 0)}</div>
-        <div className="flex flex-col gap-3.5 min-w-0">{items.filter((_, i) => i % 2 === 1)}</div>
-      </div>
-    </>
-  );
-};
+/* Every card the same size: a two-column grid whose rows are all as tall as
+   the tallest card (auto-rows-fr), filled left-to-right. One column on a phone. */
+const Grid = ({ children }: { children: React.ReactNode }) => (
+  <div className="grid grid-cols-1 md:grid-cols-2 md:auto-rows-fr gap-3.5 [&>*]:h-full">{children}</div>
+);
 
 const Note = ({ children }: { children: React.ReactNode }) => (
   <p className="text-[12px] text-slate-500 bg-[#111827] border border-[#1e293b] rounded-2xl px-4 py-3.5">{children}</p>
@@ -456,7 +466,7 @@ export default function NewsPage() {
                 <a href="https://confluencetradingtools.com" className="flex items-center gap-3.5 md:gap-5 no-underline" style={{ textDecoration: 'none' }}>
                   <img src="/logo.svg" alt="CTT" className="ctt-logo h-9 md:h-10 w-auto drop-shadow-[0_2px_10px_rgba(124,139,250,0.18)]" />
                   <div className="leading-none">
-                    <h2 className="text-xl md:text-[1.75rem] font-extrabold text-slate-50 tracking-[-0.025em] leading-[1.05] antialiased">
+                    <h2 className="text-xl md:text-[1.75rem] font-bold text-slate-50 tracking-[-0.025em] leading-[1.05] antialiased">
                       Confluence Trading Tools
                     </h2>
                     <p className="text-[10px] font-semibold text-slate-500 tracking-[0.22em] uppercase mt-1.5">
@@ -487,7 +497,7 @@ export default function NewsPage() {
               <div className="px-4 md:px-10 py-6 space-y-6">
 
                 <div>
-                  <h1 className="text-[22px] font-extrabold text-slate-100 tracking-[-0.01em]">Today&apos;s news</h1>
+                  <h1 className="text-[22px] font-bold text-slate-100 tracking-[-0.01em]">Today&apos;s news</h1>
                   <p className="text-[12px] text-slate-500 mt-1">
                     Headlines on the names in your scans, plus the wider market wire · open a headline to read the article
                   </p>
