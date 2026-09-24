@@ -43,6 +43,7 @@ import { newsStarCount } from '@/lib/newsStars';
 import { isEtfSector, displaySector } from '@/lib/sectors';
 import { getEmailRecipients } from '@/lib/users';
 import { getMarketDay } from '@/lib/marketCalendar';
+import { buildEmailV2 } from '@/lib/email/briefingV2';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -1461,8 +1462,22 @@ export async function GET(req: Request) {
   const econ: any[] = Array.isArray(econRes) ? econRes : [];
   const earnings: any[] = Array.isArray(earningsRes) ? earningsRes : (earningsRes?.events ?? []);
 
-  const html = buildEmail(phase, macro, chopData, t2108Data, brief, snapshot, chopMode, econ, earnings);
+  /* design=v2 is the light, card-based email (lib/email/briefingV2) built for
+     the simplified brief. Opt-in while it is checked on real data; it becomes
+     the default once approved. */
+  const useV2 = url.searchParams.get('design') === 'v2';
   const phaseLabel = PHASE_LABELS[phase];
+  const html = useV2
+    ? buildEmailV2({
+        phaseLabel,
+        phaseKey: phase,
+        dateLabel: new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' }),
+        updatedTime: brief?.snapshotTime
+          ? new Date(brief.snapshotTime).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
+          : null,
+        macro, brief,
+      })
+    : buildEmail(phase, macro, chopData, t2108Data, brief, snapshot, chopMode, econ, earnings);
 
   /* ?preview=1 renders the email in the browser instead of sending it. Email
      layout can only really be judged by looking at it, and the alternative is
