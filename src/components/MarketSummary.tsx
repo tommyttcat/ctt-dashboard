@@ -1115,13 +1115,13 @@ const trigSortValue = (r: TrigRow, k: TrigSortKey): number | string => {
    Now each phone column is a FIXED pixel width: the widest real content at
    10px (measured: ticker 46, "SWING" 36, CNF 23, RS 23, RVOL head 30,
    "↑ 248.78" 49, "229.29" 38, AWAY head 32) plus the cells' own 4px of
-   padding. 309px in all, left-aligned, so everything sits beside the ticker
-   and about 20px of slack stays on the right of a 375px phone. Both stacked
+   padding; the scan label is 8px, so its column is 34. 303px in all, left-aligned, so everything sits beside the ticker
+   and about 26px of slack stays on the right of a 375px phone. Both stacked
    halves share these widths, so their columns line up. From md up the
    original percentages and all ten columns return. */
 const TRIG_COLS: { key: TrigSortKey; label: string; width: string; title?: string; hideMobile?: boolean }[] = [
   { key: 'ticker', label: 'TICKER', width: 'w-[50px] md:w-[15%]' },
-  { key: 'scan', label: 'SCAN', width: 'w-[40px] md:w-[9%]', title: 'Which scan found it' },
+  { key: 'scan', label: 'SCAN', width: 'w-[34px] md:w-[9%]', title: 'Which scan found it' },
   { key: 'cnf', label: 'CNF', width: 'w-[27px] md:w-[7%]' },
   { key: 'rs', label: 'RS', width: 'w-[27px] md:w-[7%]' },
   { key: 'price', label: 'PRC', width: 'md:w-[13%]', hideMobile: true },
@@ -1201,7 +1201,9 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
             title={t ? `${t.tier.toUpperCase()} — ${t.tip}` : undefined}
           >
             <TickerCell symbol={r.ticker} name={r.s.name} score={scoreOf(r.s) || null} />
-            <td className={`${SCAN.td} text-[10px] font-bold text-slate-500`}>
+            {/* 8px: a label on the row, not a figure to read — it gives way to the
+                numbers either side of it. */}
+            <td className={`${SCAN.td} text-[8px] font-bold tracking-wide text-slate-500`}>
               {TRIG_SCAN_LABEL[r.s._source] ?? String(r.s._source ?? '').toUpperCase()}
             </td>
             <ScoreCell value={scoreOf(r.s) || null} />
@@ -1236,7 +1238,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
      beside the summary rows. */
   const useTwoCols = rows.length > 5;
   const mid = useTwoCols ? Math.ceil(rows.length / 2) : rows.length;
-  const dense = 'w-[309px] md:w-full table-fixed md:min-w-[470px] [&_td]:pt-1 [&_td]:pb-1 [&_th]:py-1.5';
+  const dense = 'w-[303px] md:w-full table-fixed md:min-w-[470px] [&_td]:pt-1 [&_td]:pb-1 [&_th]:py-1.5';
 
   return (
     <div className="mt-4 pt-3 border-t border-white/5">
