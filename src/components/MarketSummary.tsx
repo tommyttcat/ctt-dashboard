@@ -107,9 +107,10 @@ import TickerChartHover, { ActiveChartProvider, WatchlistBtn } from './TickerCha
 import { WatchlistToggle } from './WatchlistPanel';
 import { hrsEdgeGrade } from '@/lib/scans/hrs';
 import { edgeTier as edgeOf, EDGE_TINT, EDGE_FILTER_TIP, type EdgeTier } from '@/lib/scans/edge';
+import EdgeFilterPills from './EdgeFilterPills';
 import { planRowsFor, planStatusOf, PLAN_STATUS_ORDER, type TrigRow, type PlanStatus } from '@/lib/scans/triggerProximity';
 import InfoDot from './InfoDot';
-import { tierForScan } from '@/lib/scans/edge';
+import { tierForScan, tipForScan } from '@/lib/scans/edge';
 import { newsStarCount } from '@/lib/newsStars';
 import { rsColor, rsBadge } from '@/lib/indicators/rs';
 import { toCanonicalSector, isEtfSector, industryHeat, displaySector } from '@/lib/sectors';
@@ -1076,6 +1077,21 @@ const ALL_SETUP_FILTERS = [...SETUP_PATTERN_FILTERS, ...SETUP_SOURCE_FILTERS];
    which would round a 222.73 trigger to 223 — an error larger than the 0.1%
    distance the row exists to report. */
 
+/* Thesis cards that get a GREEN / YELLOW / RED filter, and whose rules the
+   pill tooltips quote. 10/21 Thesis mixes SIP, Daily and EP9M rows (each
+   coloured by its own scan); its tooltips quote the momentum rule, which
+   covers most of its rows. */
+const THESIS_EDGE_SOURCE: Record<string, string> = {
+  'SIPs Thesis': 'sip', 'Daily Setups Thesis': 'daily', 'Reversal Swing Thesis': 'swing',
+  '10/21 Thesis': 'daily', 'VCP Thesis': 'vcp', 'EP9M Thesis': 'ep9m', '100-Bagger Thesis': 'mb',
+};
+const thesisTips = (label: string): Record<EdgeTier, string> => {
+  const src = THESIS_EDGE_SOURCE[label];
+  return {
+    green: tipForScan(src, 'green') ?? '', yellow: tipForScan(src, 'yellow') ?? '', red: tipForScan(src, 'red') ?? '',
+  };
+};
+
 /* ---- Buy & stop --------------------------------------------------------
    The card's basic stats, then the plan: where it becomes a buy, where the
    idea is wrong, and one coloured word for where it stands now (WAIT / HIT /
@@ -2003,6 +2019,10 @@ export default function MarketSummary() {
      disappear between scans — EP9M is empty before volume builds, Key Events
      is empty on a quiet calendar — and an index-keyed set would silently
      collapse whichever section slid into that slot. */
+  /* Colour filter per Thesis card. A label present in the map means the
+     reader clicked a pill, and their choice stands; absent means the default
+     — green, or everything when the card has no green rows today. */
+  const [thesisEdge, setThesisEdge] = useState<Record<string, EdgeTier | null>>({});
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() =>
     new Set([
       ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary'),
@@ -2364,6 +2384,20 @@ export default function MarketSummary() {
                                   (body.match(/\b[A-Z]{2,5}\b/g) || []).filter(t => !TICKER_STOPWORDS.has(t))
                                 ));
                               })();
+                          /* GREEN / YELLOW / RED on the Thesis cards, each under its
+                             own scan's rules (insights edgeBySection). Counts come
+                             from the rows before the colour filter, like the scan
+                             tables' pills. */
+                          const secEdge = label ? macroInsights?.edgeBySection?.[label] : undefined;
+                          const secCounts: Record<EdgeTier, number> | null = secEdge
+                            ? bodyTickers.reduce((c, t) => { const k = secEdge[t]; if (k) c[k] += 1; return c; }, { green: 0, yellow: 0, red: 0 } as Record<EdgeTier, number>)
+                            : null;
+                          const activeEdge: EdgeTier | null = !secEdge || !secCounts || !label ? null
+                            : label in thesisEdge ? thesisEdge[label]
+                            : secCounts.green > 0 ? 'green' : null;
+                          const edgeOk = (t: string) => !activeEdge || secEdge?.[t] === activeEdge;
+                          const rowEdgeMap = secEdge ?? macroInsights?.edgeMap;
+                          const copyTickers = activeEdge ? bodyTickers.filter(edgeOk) : bodyTickers;
                           const sectionAligns = !!label && ALIGNED_SECTIONS.has(label);
                           const filterEmpty = scanFilter && !!label && !!SECTION_HEADERS[label] && (() => {
                             if (label === 'Setups Summary') {
@@ -2491,8 +2525,16 @@ export default function MarketSummary() {
                                         {label}
                                       </span>
                                     </div>
-                                    {isOpen && bodyTickers.length > 0 && label !== 'Key Events' && label !== 'Market Regime' && <SectionCopyButton tickers={bodyTickers} />}
-                                    {isOpen && bodyTickers.length > 0 && label !== 'Key Events' && label !== 'Market Regime' && <SectionTxtButton tickers={bodyTickers} />}
+                                    {isOpen && copyTickers.length > 0 && label !== 'Key Events' && label !== 'Market Regime' && <SectionCopyButton tickers={copyTickers} />}
+                                    {isOpen && copyTickers.length > 0 && label !== 'Key Events' && label !== 'Market Regime' && <SectionTxtButton tickers={copyTickers} />}
+                                    {isOpen && secCounts && label && (
+                                      <EdgeFilterPills
+                                        counts={secCounts}
+                                        active={activeEdge}
+                                        onToggle={(t) => setThesisEdge(p => ({ ...p, [label]: activeEdge === t ? null : t }))}
+                                        tips={thesisTips(label)}
+                                      />
+                                    )}
                                     {isOpen && label === 'Setups Summary' && <SetupSummaryHelp />}
                                     {isOpen && label === 'Top Movers' && (
                                       <div className="flex items-center gap-1 ml-1">
@@ -2623,7 +2665,7 @@ export default function MarketSummary() {
                                               </div>
                                             );
                                           }
-                                          els.push(renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, macroInsights?.edgeMap));
+                                          els.push(renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap));
                                           return els;
                                         });
                                       };
@@ -2633,7 +2675,7 @@ export default function MarketSummary() {
                                           const [heading, ...rows] = colLines;
                                           const isHeading = heading && heading.trim().endsWith(':');
                                           const render = (line: string, li: number) =>
-                                            renderBodyLine(line, li, true, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, macroInsights?.edgeMap);
+                                            renderBodyLine(line, li, true, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap);
                                           const earnHeader = (
                                             <div className={scrollRowCls} style={scrollRowStyle}>
                                               <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5 min-w-[344px]">
@@ -2690,7 +2732,7 @@ export default function MarketSummary() {
                                             return (
                                               <div className="space-y-1.5 mt-4 pt-3 border-t border-white/5">
                                                 {acLines.map((line, li) =>
-                                                  renderBodyLine(line, li, false, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, macroInsights?.edgeMap)
+                                                  renderBodyLine(line, li, false, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap)
                                                 )}
                                               </div>
                                             );
@@ -2713,7 +2755,7 @@ export default function MarketSummary() {
                                                   return <p key={li} className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5">{line.replace(/:$/, '')}</p>;
                                                 }
                                                 const els: React.ReactNode[] = [];
-                                                els.push(renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, macroInsights?.edgeMap));
+                                                els.push(renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap));
                                                 return els;
                                               });
                                             })()}
@@ -2731,13 +2773,13 @@ export default function MarketSummary() {
                                           const secSort = sectionSorts[secSortKey] ?? { key: 'cnf' as SortKey, dir: 'desc' as SortDir };
                                           const parsed = allStockLines.map((l, i) => ({ line: l, idx: i, p: parseStdLine(l) })).filter(x => x.p);
                                           const ctx = { gradeMap: macroInsights?.gradeMap, postureMap: macroInsights?.postureMap, avoidSet: macroInsights?.avoidSet, dotMap: macroInsights?.dotMap };
-                                          const filtered = parsed.filter(x => passesScanFilter(scanFilter, x.p!, ctx));
+                                          const filtered = parsed.filter(x => passesScanFilter(scanFilter, x.p!, ctx) && edgeOk(x.p!.ticker));
                                           const sorted = sortParsedRows(filtered.map(x => x.p!), secSort.key, secSort.dir);
                                           const sortedLines = sorted.map(sr => filtered.find(x => x.p === sr)!.line);
                                           const leftLines = sortedLines.slice(0, Math.ceil(sortedLines.length / 2));
                                           const rightLines = sortedLines.slice(Math.ceil(sortedLines.length / 2));
                                           const render = (line: string, li: number) =>
-                                            renderBodyLine(line, li, true, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, macroInsights?.edgeMap);
+                                            renderBodyLine(line, li, true, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap);
                                           const hdr = <SortableHeader sortKey={secSort.key} sortDir={secSort.dir} onSort={(k) => handleSectionSort(secSortKey, k)} />;
                                           return (
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
@@ -2752,7 +2794,7 @@ export default function MarketSummary() {
                                             const [heading, ...rows] = colLines;
                                             const isHeading = heading && heading.trim().endsWith(':');
                                             const render = (line: string, li: number) =>
-                                              renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, macroInsights?.edgeMap);
+                                              renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap);
                                             const isVcp = label === 'VCP Thesis';
                                             const isKeyEv = label === 'Key Events';
                                             const colSortKey = `${label}-${ci}`;
@@ -2785,7 +2827,7 @@ export default function MarketSummary() {
                                                 if (p) { stockLines.push(l); stockParsed.push(p); }
                                                 else nonStockRendered.push(render(l, i));
                                               });
-                                              const filt = stockParsed.map((p, i) => ({ p, i })).filter(({ p }) => passesScanFilter(scanFilter, p, { gradeMap: macroInsights?.gradeMap, postureMap: macroInsights?.postureMap, avoidSet: macroInsights?.avoidSet, dotMap: macroInsights?.dotMap }));
+                                              const filt = stockParsed.map((p, i) => ({ p, i })).filter(({ p }) => passesScanFilter(scanFilter, p, { gradeMap: macroInsights?.gradeMap, postureMap: macroInsights?.postureMap, avoidSet: macroInsights?.avoidSet, dotMap: macroInsights?.dotMap }) && edgeOk(p.ticker));
                                               const sortedFiltered = sortParsedRows(filt.map(ff => ff.p), activeSort.key, activeSort.dir)
                                                 .map(sr => filt[filt.map(ff => ff.p).indexOf(sr)].i);
                                               return [...nonStockRendered, ...sortedFiltered.map((idx, i) => render(stockLines[idx], 1000 + i))];
@@ -2829,7 +2871,7 @@ export default function MarketSummary() {
                                         {afterCols && (() => {
                                           const acLines = afterCols.trim().split('\n').filter(Boolean);
                                           const acRender = (line: string, li: number) =>
-                                            renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, macroInsights?.edgeMap);
+                                            renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap);
                                           const acHeader = sectionAligns && SECTION_HEADERS[label!] ? <SortableHeader sortKey={null} sortDir={'desc'} onSort={() => {}} isVcp={label === 'VCP Thesis'} /> : null;
                                           const acGroups: { heading: string | null; rows: string[] }[] = [];
                                           let acCur: { heading: string | null; rows: string[] } = { heading: null, rows: [] };
@@ -2867,7 +2909,7 @@ export default function MarketSummary() {
                                     const ss = sectionSorts[sk] ?? null;
                                     const bodyLines = body.split('\n').filter(Boolean);
                                     const renderLine = (line: string, li: number) =>
-                                      renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, macroInsights?.edgeMap);
+                                      renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap);
                                     if (!sectionAligns) {
                                       return <div className="space-y-2">{bodyLines.map(renderLine)}</div>;
                                     }
@@ -2880,7 +2922,7 @@ export default function MarketSummary() {
                                       if (p) { stockLines.push(l); stockParsed.push(p); }
                                       else nonStock.push(renderLine(l, i));
                                     });
-                                    const filt = stockParsed.map((p, i) => ({ p, i })).filter(({ p }) => passesScanFilter(scanFilter, p, { gradeMap: macroInsights?.gradeMap, postureMap: macroInsights?.postureMap, avoidSet: macroInsights?.avoidSet, dotMap: macroInsights?.dotMap }));
+                                    const filt = stockParsed.map((p, i) => ({ p, i })).filter(({ p }) => passesScanFilter(scanFilter, p, { gradeMap: macroInsights?.gradeMap, postureMap: macroInsights?.postureMap, avoidSet: macroInsights?.avoidSet, dotMap: macroInsights?.dotMap }) && edgeOk(p.ticker));
                                     const sortedFiltered = sortParsedRows(filt.map(ff => ff.p), activeSort.key, activeSort.dir).map(sr => filt[filt.map(ff => ff.p).indexOf(sr)].i);
                                     const hasHeader = !!label && !!SECTION_HEADERS[label];
                                     const useTwoCols = sortedFiltered.length > 5;

@@ -12,7 +12,7 @@
  * reason — they describe the data this file produces.
  */
 
-import { edgeTier as edgeOf, type EdgeTier } from '@/lib/scans/edge';
+import { edgeTier as edgeOf, tierForScan, type EdgeTier } from '@/lib/scans/edge';
 import { isTradingDay } from '@/lib/marketCalendar';
 import { isEtfSector, industryHeat } from '@/lib/sectors';
 import {
@@ -91,6 +91,8 @@ export interface MacroInsights {
   rsMap?: Record<string, number>;
   stageMap?: Record<string, string>;
   edgeMap?: Record<string, EdgeTier>;
+  /** Per Thesis card: ticker -> tier under THAT card's scan rules. */
+  edgeBySection?: Record<string, Record<string, EdgeTier>>;
   avoidSet?: Set<string>;
   topCatalyst?: TopCatalyst | null;
   topCatalysts?: TopCatalyst[];
@@ -1156,6 +1158,34 @@ export const buildLocalInsights = (
     }
   }
 
+  /* Each Thesis card colours (and filters) its rows under its OWN scan's
+     rules. edgeMap above uses the momentum rule for every ticker, which is
+     wrong on EP9M / VCP / Swing / 100-Bagger — the 5-year test found those
+     rules do not transfer (e.g. $5-10 is the worst band on momentum scans
+     and the best on Hidden RS). 10/21 Thesis is built from SIP + Daily +
+     EP9M rows, so each row is judged by the scan it came from. */
+  const tierMap = (pairs: [string, any[]][]): Record<string, EdgeTier> => {
+    const m: Record<string, EdgeTier> = {};
+    for (const [src, list] of pairs) {
+      for (const s of Array.isArray(list) ? list : []) {
+        const t = s?.ticker ?? s?.symbol;
+        if (!t || m[t]) continue;
+        const r = tierForScan(src, s);
+        if (r) m[t] = r.tier;
+      }
+    }
+    return m;
+  };
+  const edgeBySection: Record<string, Record<string, EdgeTier>> = {
+    'SIPs Thesis': tierMap([['sip', sips]]),
+    'Daily Setups Thesis': tierMap([['daily', daily]]),
+    'Reversal Swing Thesis': tierMap([['swing', swingList]]),
+    '10/21 Thesis': tierMap([['sip', sips], ['daily', daily], ['ep9m', ep9m]]),
+    'VCP Thesis': tierMap([['vcp', vcpList]]),
+    'EP9M Thesis': tierMap([['ep9m', ep9m]]),
+    '100-Bagger Thesis': tierMap([['mb', mbList]]),
+  };
+
   return {
     theme,
     marketOverview,
@@ -1169,6 +1199,7 @@ export const buildLocalInsights = (
     rsMap,
     stageMap,
     edgeMap,
+    edgeBySection,
     topCatalyst,
     topCatalysts,
     setupPool,
