@@ -1182,11 +1182,11 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
         <span className={`${TP_MD} w-[24px] text-center ml-1`}>{rs != null
           ? <span className={`inline-block w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(rs)}`}>{rs}</span>
           : <span className="inline-block w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
-        <span className="text-[9px] tabular-nums font-bold inline-block w-[42px] md:w-[46px] text-right ml-1 text-slate-200"
+        <span className="text-[9px] tabular-nums font-semibold inline-block w-[42px] md:w-[46px] text-right ml-1 text-slate-200"
           title={`${r.pullback ? 'Buy on a dip to' : 'Buy above'} ${r.trigger.toFixed(2)} — ${r.label}`}>
           <span className={r.pullback ? 'text-fuchsia-400' : 'text-emerald-400'}>{r.pullback ? '↓' : '↑'}</span>{r.trigger.toFixed(2)}
         </span>
-        <span className="text-[9px] tabular-nums font-bold inline-block w-[36px] md:w-[40px] text-right ml-1 text-rose-400/80">{r.stop.toFixed(2)}</span>
+        <span className="text-[9px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 text-rose-400">{r.stop.toFixed(2)}</span>
         <span className={`text-[9px] tabular-nums font-bold inline-block w-[32px] md:w-[34px] text-right ml-1 ${meta.cls}`} title={meta.tip}>
           {st === 'wait' ? `${r.awayPct < 10 ? r.awayPct.toFixed(1) : r.awayPct.toFixed(0)}%` : st.toUpperCase()}
         </span>
