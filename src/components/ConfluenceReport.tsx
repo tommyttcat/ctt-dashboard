@@ -254,11 +254,11 @@ function StockCard({ report: r }: { report: Report }) {
         {lv && (
           <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2 mt-3 px-3 py-2.5 rounded-xl bg-[#0a1220]">
             <div className="min-w-0">
-              <div className="text-slate-500">{lv.kind === 'scan' ? lv.buyLabel : 'Buy above'}</div>
+              <div className="text-slate-400">{lv.kind === 'scan' ? lv.buyLabel : 'Buy above'}</div>
               <div className="font-extrabold text-slate-100 tabular-nums">{lv.kind === 'scan' ? fmtLvl(lv.trigger) : lv.trigger}</div>
             </div>
             <div className="min-w-0">
-              <div className="text-slate-500">Stop</div>
+              <div className="text-slate-400">Stop</div>
               <div className="font-extrabold text-rose-400 tabular-nums">{lv.kind === 'scan' ? fmtLvl(lv.stop) : lv.stop}</div>
             </div>
             <div>
@@ -270,14 +270,15 @@ function StockCard({ report: r }: { report: Report }) {
             </div>
           </div>
         )}
-        {lv?.kind === 'report' && <div className="text-slate-500 mt-1.5">{lv.note}</div>}
 
-        <div className="mt-2 text-slate-400"><span className="font-semibold text-slate-300 mr-1">Trend</span>{trendLine(r)}</div>
-        <div className="mt-1 text-slate-400">
-          <span className="font-semibold text-slate-300 mr-1">Support</span>{lvlList(nearSupport(r))}
-          <span className="font-semibold text-slate-300 ml-3 mr-1">Resistance</span>{lvlList(nearResistance(r))}
-        </div>
-        {why && <div className="mt-1 text-slate-400"><span className="font-semibold text-slate-300 mr-1">Why</span>{why}</div>}
+        <div className="mt-2 text-slate-300"><span className="font-semibold text-slate-100 mr-1">Trend</span>{trendLine(r)}</div>
+        {(nearSupport(r).length > 0 || nearResistance(r).length > 0) && (
+          <div className="mt-1 text-slate-300">
+            {nearSupport(r).length > 0 && <><span className="font-semibold text-slate-100 mr-1">Support</span>{lvlList(nearSupport(r))}</>}
+            {nearResistance(r).length > 0 && <><span className={`font-semibold text-slate-100 mr-1 ${nearSupport(r).length > 0 ? 'ml-3' : ''}`}>Resistance</span>{lvlList(nearResistance(r))}</>}
+          </div>
+        )}
+        {why && <div className="mt-1 text-slate-300"><span className="font-semibold text-slate-100 mr-1">Why</span>{why}</div>}
 
         {flags.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-2.5">

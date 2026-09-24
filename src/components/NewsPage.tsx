@@ -40,11 +40,9 @@ import WatchlistPanel from './WatchlistPanel';
 import DashNav from './DashNav';
 import HelpModal from './HelpModal';
 import InfoDot from './InfoDot';
-import { tipForScan, type EdgeTier } from '@/lib/scans/edge';
+import { type EdgeTier } from '@/lib/scans/edge';
 import { catalystTooltip, headlineOf, decodeEntities, type CatalystRow } from '@/lib/catalyst';
-import { gradeOf, rvolColor, cnfBadgeCls } from '@/lib/indicators/columnColors';
-import { rsBadge, rsTooltip } from '@/lib/indicators/rs';
-import { formatNumber, formatCurrency } from '@/lib/scans/tableFormat';
+import { gradeOf, rvolColor } from '@/lib/indicators/columnColors';
 import {
   TAG_META, tagOf, tagCounts, tapeLine, minutesSince, ageLabelMinutes, relTime, etDateKey, fmtMove,
   type NewsTag,
@@ -96,11 +94,6 @@ const SCAN_LABEL: Record<string, string> = {
   coil: '10/21', dvol: '$VOL', hrs: 'HRS', mb: '100',
 };
 
-const SCAN_NAME: Record<string, string> = {
-  sip: 'Stocks in Play', daily: 'Daily Setups', ep9m: 'EP 9M', swing: 'Swing Candidates',
-  vcp: 'VCP', coil: '10/21 Consolidation', dvol: 'Dollar Volume', hrs: 'Hidden RS', mb: '100-Bagger',
-};
-
 /* Same palette the scan-source pills use on the dashboard, so a source means
    the same colour wherever it is named. */
 const SCAN_CLS: Record<string, string> = {
@@ -118,12 +111,6 @@ const SCAN_CLS: Record<string, string> = {
 /* The row tint the first version used, as words. Each scan's own measured
    tier, decided in the route where the fields that decide it still exist —
    a property of the name, not of the story. */
-const TIER_WORDS: Record<EdgeTier, { label: string; cls: string }> = {
-  green: { label: 'Best odds', cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
-  yellow: { label: 'Middling odds', cls: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
-  red: { label: 'Weak odds', cls: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
-};
-
 const moveCls = (v: number | null | undefined) =>
   v == null ? 'text-slate-500' : v > 0 ? 'text-emerald-400' : v < 0 ? 'text-rose-400' : 'text-slate-400';
 
@@ -153,6 +140,13 @@ function TagPill({ tag, hint }: { tag: NewsTag; hint?: string }) {
   return hint ? <InfoDot text={hint}>{pill}</InfoDot> : pill;
 }
 
+/* "Nebius Group N.V. Class A Ordinary Shares" -> "Nebius Group". */
+const shortName = (n: string) => n
+  .replace(/\s+(Class [A-Z]|Common Stock|Ordinary Shares|American Depositary Shares?|Common|Shares)\b.*$/i, '')
+  .replace(/,?\s+(Inc\.?|Incorporated|Corp\.?|Corporation|Company|Co\.|N\.V\.|plc|PLC|Ltd\.?|Limited|Holdings?|S\.A\.|AG|SE)\s*$/i, '')
+  .replace(/,?\s+(Inc\.?|Corp\.?|N\.V\.|Ltd\.?)\s*$/i, '')
+  .trim();
+
 type Ticker = { t: string; cnf?: number | null; name?: string | null; move?: number | null };
 
 function TickerRow({ tickers, showName }: { tickers: Ticker[]; showName?: boolean }) {
@@ -168,7 +162,7 @@ function TickerRow({ tickers, showName }: { tickers: Ticker[]; showName?: boolea
             <span className={chipCls(k.cnf)} aria-label={k.name || k.t}>{k.t}</span>
           </TickerChartHover>
           {i === 0 && showName && k.name && (
-            <span className="text-slate-400 truncate max-w-[180px]">{k.name}</span>
+            <span className="text-slate-300 truncate max-w-[180px]">{shortName(k.name)}</span>
           )}
           {/* The lead name's move is already the big number top right. */}
           {i > 0 && k.move != null && (
@@ -188,27 +182,11 @@ function TickerRow({ tickers, showName }: { tickers: Ticker[]; showName?: boolea
    On the wire these exist only for a name that is on a board. A missing strip
    is the honest answer there, not a row of dashes. */
 function Stats({ s }: { s: Partial<StatRow> | null | undefined }) {
-  if (!s) return null;
-  const badge = 'inline-block rounded border px-1.5 py-px text-[12px] font-bold tabular-nums leading-[1.4]';
-  return (
-    <>
-      {s.cnf != null && (
-        <InfoDot text={`CNF ${Math.round(s.cnf)} — the site's confluence score for this name, 0-100. 70 and up is an A, 50 and up a B.`}>
-          <span className={`${badge} ${cnfBadgeCls(s.cnf)}`}>CNF {Math.round(s.cnf)}</span>
-        </InfoDot>
-      )}
-      {s.rsRating != null && (
-        <InfoDot text={rsTooltip(s.rsRating)}>
-          <span className={`${badge} ${rsBadge(s.rsRating)}`}>RS {s.rsRating}</span>
-        </InfoDot>
-      )}
-      {s.rvol != null && (
-        <span className={`font-bold tabular-nums ${rvolColor(s.rvol)}`}>{s.rvol.toFixed(1)}x usual volume</span>
-      )}
-      {s.vol != null && <span className="tabular-nums text-slate-400">{formatNumber(s.vol)} shares</span>}
-      {s.dvol != null && <span className="tabular-nums text-slate-400">{formatCurrency(s.dvol)} traded</span>}
-    </>
-  );
+  // One fact, in words: how much busier than usual the stock is. Scores,
+  // share counts and dollar volume live on the scan tables.
+  if (!s || s.rvol == null) return null;
+  const x = s.rvol >= 10 ? Math.round(s.rvol).toString() : s.rvol.toFixed(1);
+  return <span className={`font-bold tabular-nums ${rvolColor(s.rvol)}`}>{x}× usual volume</span>;
 }
 
 /* ---- One story ------------------------------------------------------------
@@ -237,7 +215,7 @@ function NewsCard({ tag, tagHint, headline, url, move, flags, tickers, showName,
     <article className="bg-[#111827] border border-[#1e293b] rounded-2xl p-4 flex flex-col gap-3 min-w-0">
       <div className="flex items-start gap-2">
         <div className="flex items-center gap-1.5 flex-wrap min-w-0 flex-1">
-          <TagPill tag={tag} hint={tagHint} />
+          {tag !== 'general' && <TagPill tag={tag} hint={tagHint} />}
           {flags}
         </div>
         {move != null && (
@@ -251,32 +229,12 @@ function NewsCard({ tag, tagHint, headline, url, move, flags, tickers, showName,
       ) : head}
       <div className="mt-auto flex flex-col gap-3">
         <TickerRow tickers={tickers} showName={showName} />
-        <div className="flex items-center gap-x-2.5 gap-y-1.5 flex-wrap text-[12px] text-slate-500 border-t border-[#1e293b] pt-3">
+        <div className="flex items-center gap-x-2.5 gap-y-1.5 flex-wrap text-[12px] text-slate-400 border-t border-[#1e293b] pt-3">
           {meta && <span>{meta}</span>}
           <Stats s={stats} />
         </div>
       </div>
     </article>
-  );
-}
-
-function ScanPill({ scan, prefix }: { scan: string; prefix: string }) {
-  return (
-    <InfoDot text={`${prefix} your ${SCAN_NAME[scan] ?? scan} scan.`}>
-      <span className={`${PILL} ${SCAN_CLS[scan] ?? 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20'}`}>
-        {SCAN_LABEL[scan] ?? 'ON BOARD'}
-      </span>
-    </InfoDot>
-  );
-}
-
-function TierPill({ tier, scan }: { tier: EdgeTier; scan?: string }) {
-  const w = TIER_WORDS[tier];
-  const tip = tipForScan(scan, tier);
-  return (
-    <InfoDot text={`${tier.toUpperCase()}${tip ? ` — ${tip}` : ''}\n\nThis is the name's measured tier on its own scan, not a rating of the story.`}>
-      <span className={`${PILL} ${w.cls}`}>{w.label}</span>
-    </InfoDot>
   );
 }
 
@@ -311,8 +269,6 @@ function PoolCard({ it }: { it: PoolItem }) {
       flags={
         <>
           <Stars n={it.stars} />
-          <ScanPill scan={it.scan} prefix="From" />
-          {it.tier && <TierPill tier={it.tier} scan={it.scan} />}
           {it.newsSentiment === 'negative' && (
             <span className={`${PILL} text-rose-400 bg-rose-500/10 border-rose-500/20`}>Negative</span>
           )}
@@ -338,12 +294,6 @@ function WireCard({ it, stats, now }: { it: WireItem; stats: Record<string, Stat
       headline={decodeEntities(it.cleanHeadline || it.title)}
       url={it.url}
       move={lead?.changePct ?? null}
-      flags={
-        <>
-          {lead && <ScanPill scan={lead.scan} prefix="On" />}
-          {lead?.tier && <TierPill tier={lead.tier} scan={lead.scan} />}
-        </>
-      }
       tickers={ordered.map(t => ({ t, cnf: stats[t]?.cnf ?? null, name: stats[t]?.name ?? null, move: stats[t]?.changePct ?? null }))}
       meta={[it.publisher, relTime(minutesSince(it.publishedUtc, now))].filter(Boolean).join(' · ')}
       stats={lead}

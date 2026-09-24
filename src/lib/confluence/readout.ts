@@ -242,9 +242,15 @@ export function setupWords(name: string | null | undefined): string {
   return n;
 }
 
+/* "Red to green · Technical Momentum catalyst" read as noise. Setup in plain
+   words, then the news reason only when it is a real one. */
+const REAL_CATALYST = /earnings|fda|analyst|upgrade|downgrade|m&a|merger|takeover|acqui|contract|guidance|offering|legal/i;
 export function whyLine(r: ReadoutReport): string {
-  const parts = [setupWords(r.setupName), r.catalyst ? `${r.catalyst} catalyst` : ''].filter(Boolean);
-  return parts.join(' · ');
+  const setup = setupWords(r.setupName);
+  const cat = String(r.catalyst || '').replace(/\s*\(delayed\)\s*/i, '').trim();
+  const news = cat && REAL_CATALYST.test(cat) ? `${cat.toLowerCase()} news` : '';
+  if (setup && news) return `${setup}, on ${news}.`;
+  return setup ? `${setup}.` : news ? `Moving on ${news}.` : '';
 }
 
 export type FlagTone = 'amber' | 'rose' | 'slate';
@@ -286,7 +292,7 @@ export function shortRisk(note: string): string {
 export function bestLine(r: ReadoutReport | undefined): string {
   if (!r) return '';
   const lv = levelsFor(r);
-  const where = !lv || lv.kind === 'report' ? 'not on a scan today'
+  const where = !lv || lv.kind === 'report' ? ''
     : lv.status === 'wait' ? `${lv.awayPct.toFixed(1)}% from its buy level`
     : lv.status === 'hit' ? 'at its buy level'
     : lv.status === 'ext' ? 'stretched — wait for a pullback'
@@ -295,5 +301,5 @@ export function bestLine(r: ReadoutReport | undefined): string {
   const trend = r.confluenceLabel === 'Bullish' ? 'strong trend on both timeframes'
     : r.confluenceLabel === 'Mixed' ? 'the day and the week disagree'
     : 'weak on both timeframes';
-  return `${r.ticker} leads: ${where}, ${trend}.`;
+  return where ? `${r.ticker} leads: ${where}, ${trend}.` : `${r.ticker} leads: ${trend}.`;
 }
