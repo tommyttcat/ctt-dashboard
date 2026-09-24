@@ -40,7 +40,6 @@ const white = '#f1f5f9';
 const light = '#cbd5e1';
 const subtle = '#94a3b8';
 const muted = '#64748b';
-const accent = '#818cf8';
 const green = '#34d399';
 const amber = '#fbbf24';
 
@@ -61,6 +60,22 @@ function weekRange(now: Date): string {
 }
 
 const cnfTone = (v: number) => (v >= 70 ? green : v >= 50 ? amber : muted);
+const teal = '#22d3ee';
+const rose = '#fb7185';
+const orange = '#fb923c';
+
+/* The Saturday routine writes each setup's levels into its body in the same
+   words as the dashboard's Buy & stop box (since 24 Sep 2026):
+   "buy above 208.10 · stop 202.90 · 0.9% away". Older posts have no such
+   line, and then the row simply shows the reason. */
+type Levels = { dip: boolean; buy: string; stop: string; status: string };
+function levelsOf(body: string): Levels | null {
+  const m = String(body || '').replace(/\*\*/g, '').match(/buy (above|dip)\s+([\d.,]+)\s*·\s*stop\s+([\d.,]+)\s*·\s*(HIT|MISS|EXT|OUT|\d+(?:\.\d+)?\s?% away)/i);
+  if (!m) return null;
+  return { dip: m[1].toLowerCase() === 'dip', buy: m[2], stop: m[3], status: m[4].toUpperCase() };
+}
+const statusTone = (st: string): [string, string] =>
+  st === 'HIT' ? [green, '#064e3b'] : st === 'OUT' ? [rose, '#4c0519'] : st === 'EXT' ? [orange, '#431407'] : st === 'MISS' ? [amber, '#422006'] : [light, '#1e293b'];
 
 /* The narrative writes its headings for the POST, where each one sits under
    its own ticker sub-head: "HOOD — Top of the board, but it already went
@@ -105,48 +120,66 @@ export async function GET(req: Request) {
 
   const range = url.searchParams.get('range') || weekRange(new Date());
 
+  const theme = clip(String(narrative?.subtitle || '').replace(/\*\*/g, ''), 70);
+
   const jsx = (
     <div style={{
       display: 'flex', flexDirection: 'column', width: '100%', height: '100%',
-      backgroundColor: bg, color: light, fontFamily: 'sans-serif', padding: '44px 52px',
+      backgroundColor: '#0b1020', backgroundImage: 'linear-gradient(135deg, #0b1020 0%, #111a33 100%)',
+      color: light, fontFamily: 'sans-serif', padding: '38px 52px 30px 52px',
     }}>
       {/* header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <div style={{ fontSize: 46, fontWeight: 800, color: white, letterSpacing: -1 }}>
-            Top Setups of the Week
-          </div>
-          <div style={{ fontSize: 22, color: accent, fontWeight: 600, marginTop: 6 }}>{range}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', fontSize: 17, fontWeight: 800, color: teal, letterSpacing: 3 }}>
+          CTT · TOP SETUPS OF THE WEEK
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-          <div style={{ fontSize: 30, fontWeight: 800, color: white, letterSpacing: 2 }}>CTT</div>
-          <div style={{ fontSize: 13, color: muted, marginTop: 2 }}>Confluence Trading Tools</div>
-        </div>
+        <div style={{
+          display: 'flex', fontSize: 17, fontWeight: 700, color: teal, backgroundColor: '#0e2a33',
+          border: '1px solid #164e5c', borderRadius: 999, padding: '5px 14px',
+        }}>{range}</div>
       </div>
 
-      <div style={{ display: 'flex', height: 2, backgroundColor: border, marginTop: 22, marginBottom: 8 }} />
+      {/* the week's theme */}
+      <div style={{ display: 'flex', fontSize: 38, fontWeight: 800, color: white, letterSpacing: -0.5, marginTop: 16, lineHeight: 1.15 }}>
+        {theme || 'Top Setups of the Week'}
+      </div>
+      <div style={{ display: 'flex', height: 3, width: 120, backgroundColor: teal, borderRadius: 2, marginTop: 16, marginBottom: 14 }} />
 
       {/* the names */}
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'center' }}>
         {setups.map((s, i) => {
           const ticker = String(s.ticker).toUpperCase();
           const score = scores.get(ticker);
+          const lv = levelsOf(s.body || '');
+          const [stFg, stBg] = lv ? statusTone(lv.status) : [light, card];
           return (
             <div key={ticker} style={{
-              display: 'flex', alignItems: 'center', backgroundColor: card,
-              border: `1px solid ${border}`, borderRadius: 10, padding: '12px 18px', marginTop: i ? 10 : 0,
+              display: 'flex', alignItems: 'center', backgroundColor: 'rgba(30,41,59,0.72)',
+              border: `1px solid ${border}`, borderRadius: 12, padding: '10px 16px', marginTop: i ? 8 : 0,
             }}>
-              <div style={{ display: 'flex', fontSize: 20, fontWeight: 700, color: muted, width: 34 }}>{i + 1}</div>
-              <div style={{ display: 'flex', fontSize: 34, fontWeight: 800, color: white, width: 150 }}>{ticker}</div>
-              {score != null && (
-                <div style={{
-                  display: 'flex', fontSize: 19, fontWeight: 700, color: cnfTone(score),
-                  border: `1px solid ${cnfTone(score)}55`, borderRadius: 6, padding: '2px 10px', marginRight: 18,
-                }}>{Math.round(score)}</div>
-              )}
-              <div style={{ display: 'flex', flex: 1, fontSize: 21, color: subtle }}>
-                {clip(headingText(s.heading || '', ticker), score != null ? 64 : 72)}
+              <div style={{
+                display: 'flex', justifyContent: 'center', fontSize: 24, fontWeight: 800, color: '#0b1020',
+                backgroundColor: score != null ? cnfTone(score) : green, borderRadius: 8, padding: '4px 0', width: 112,
+              }}>{ticker}</div>
+              <div style={{ display: 'flex', flex: 1, fontSize: 20, color: light, marginLeft: 18 }}>
+                {clip(headingText(s.heading || '', ticker), lv ? 34 : 60)}
               </div>
+              {lv && (
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', marginRight: 16 }}>
+                    <div style={{ display: 'flex', fontSize: 12, color: subtle, letterSpacing: 1 }}>{lv.dip ? 'BUY DIP' : 'BUY ABOVE'}</div>
+                    <div style={{ display: 'flex', fontSize: 22, fontWeight: 800, color: white }}>{lv.buy}</div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', marginRight: 16 }}>
+                    <div style={{ display: 'flex', fontSize: 12, color: subtle, letterSpacing: 1 }}>STOP</div>
+                    <div style={{ display: 'flex', fontSize: 22, fontWeight: 800, color: rose }}>{lv.stop}</div>
+                  </div>
+                  <div style={{
+                    display: 'flex', justifyContent: 'center', fontSize: 15, fontWeight: 800, color: stFg,
+                    backgroundColor: stBg, borderRadius: 999, padding: '5px 0', width: 112,
+                  }}>{lv.status}</div>
+                </div>
+              )}
             </div>
           );
         })}
@@ -157,9 +190,9 @@ export async function GET(req: Request) {
         )}
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14 }}>
-        <div style={{ display: 'flex', fontSize: 17, color: muted }}>confluencetradingtools.com</div>
-        <div style={{ display: 'flex', fontSize: 15, color: muted }}>Setups, not signals · Not financial advice</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
+        <div style={{ display: 'flex', fontSize: 16, fontWeight: 700, color: white }}>confluencetradingtools.com</div>
+        <div style={{ display: 'flex', fontSize: 14, color: muted }}>Setups, not signals · Not financial advice</div>
       </div>
     </div>
   );
