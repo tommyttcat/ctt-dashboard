@@ -1108,32 +1108,37 @@ const trigSortValue = (r: TrigRow, k: TrigSortKey): number | string => {
    two separate tables, and only a fixed layout makes their columns land on the
    same pixels across the gap. Sized against the widest real content at 10px —
    "$443.42 ●" in PRC, "+15.55%" in CHG. */
-/* PHONE: eight columns, packed tight against the ticker.
+/* PHONE: eight columns, full card width, ticker and scan kept tight.
    Ten columns at 390px was 470px in a 344px card, so PRC and CHG% step aside
-   below md (price is implied by TRIG and AWAY) and CNF, RS and RVOL stay, as
-   asked. The first cut then stretched the remaining eight across the card in
-   percentages, which fitted Chrome to the exact pixel — 344 of 344, 329 of 329
-   at 375 — and so left nothing for iPhone's slightly wider font, where it still
-   scrolled. It also spread the columns away from the ticker.
+   below md (price is implied by BUY and AWAY); CNF, RS and RVOL stay, as asked.
 
-   Now each phone column is a FIXED pixel width: the widest real content at
-   10px (measured: ticker 46, "SWING" 36, CNF 23, RS 23, RVOL head 30,
-   "↑ 248.78" 49, "229.29" 38, AWAY head 32) plus the cells' own 4px of
-   padding; the scan label is 8px, so its column is 34. 303px in all, left-aligned, so everything sits beside the ticker
-   and about 26px of slack stays on the right of a 375px phone. Both stacked
-   halves share these widths, so their columns line up. From md up the
-   original percentages and all ten columns return. */
+   What each column really needs at 10px (8px for the scan label), plus 4px of
+   cell padding: ticker 46, scan 35, CNF 27, RS 27, RVOL 34, BUY 53, STOP 42,
+   AWAY 36. The ticker column is set by its HEADER — "TICKER" is 42px, wider
+   than any chip (~30px for four letters, ~38 for five). The watchlist star beside it is hidden on phones, and the flex box
+   holding both stretches to whatever the cell is, so measuring that box read
+   back the cell's own width and every earlier cut sized this column for
+   content that is not there. That phantom is where the gap between TICKER and
+   SCAN came from each time.
+
+   The card must be filled edge to edge (to match the Setups Summary rows
+   above) and the spare width has to land somewhere. It lands on the NUMBER
+   columns: ticker and scan are sized to their need at the narrowest phone
+   (360px, a 314px card) and barely grow from there, while CNF through AWAY
+   share the rest in proportion to their needs. Checked against the needs at
+   360, 375 and 390: no column is ever below its content. Both stacked halves
+   share the widths, so their columns line up. From md up, all ten return. */
 const TRIG_COLS: { key: TrigSortKey; label: string; width: string; title?: string; hideMobile?: boolean }[] = [
-  { key: 'ticker', label: 'TICKER', width: 'w-[50px] md:w-[15%]' },
-  { key: 'scan', label: 'SCAN', width: 'w-[34px] md:w-[9%]', title: 'Which scan found it' },
-  { key: 'cnf', label: 'CNF', width: 'w-[27px] md:w-[7%]' },
-  { key: 'rs', label: 'RS', width: 'w-[27px] md:w-[7%]' },
+  { key: 'ticker', label: 'TICKER', width: 'w-[14.6%] md:w-[15%]' },
+  { key: 'scan', label: 'SCAN', width: 'w-[11.2%] md:w-[9%]', title: 'Which scan found it' },
+  { key: 'cnf', label: 'CNF', width: 'w-[9.3%] md:w-[7%]' },
+  { key: 'rs', label: 'RS', width: 'w-[9.3%] md:w-[7%]' },
   { key: 'price', label: 'PRC', width: 'md:w-[13%]', hideMobile: true },
   { key: 'chg', label: 'CHG%', width: 'md:w-[11%]', hideMobile: true },
-  { key: 'rvol', label: 'RVOL', width: 'w-[34px] md:w-[8%]' },
-  { key: 'trigger', label: 'BUY', width: 'w-[53px] md:w-[11%]', title: 'Where it becomes a buy — ↑ above this price, ↓ on a dip to it' },
-  { key: 'stop', label: 'STOP', width: 'w-[42px] md:w-[10%]', title: 'Out below this — the idea is wrong' },
-  { key: 'away', label: 'AWAY', width: 'w-[36px] md:w-[9%]', title: 'How far price is from the buy level' },
+  { key: 'rvol', label: 'RVOL', width: 'w-[11.8%] md:w-[8%]' },
+  { key: 'trigger', label: 'BUY', width: 'w-[17.3%] md:w-[11%]', title: 'Where it becomes a buy — ↑ above this price, ↓ on a dip to it' },
+  { key: 'stop', label: 'STOP', width: 'w-[14.2%] md:w-[10%]', title: 'Out below this — the idea is wrong' },
+  { key: 'away', label: 'AWAY', width: 'w-[12.3%] md:w-[9%]', title: 'How far price is from the buy level' },
 ];
 
 /* Written out in full so Tailwind's scanner can see it. */
@@ -1187,7 +1192,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
             title={c.title}
             icon={sortKey === c.key ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
             onSort={() => handleSort(c.key)}
-            className={[c.key === 'ticker' ? 'text-left' : '', c.hideMobile ? TRIG_HIDE : ''].filter(Boolean).join(' ') || undefined}
+            className={[c.key === 'ticker' || c.key === 'scan' ? 'text-left' : '', c.hideMobile ? TRIG_HIDE : ''].filter(Boolean).join(' ') || undefined}
           />
         ))}
       </tr>
@@ -1207,7 +1212,9 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
             <TickerCell symbol={r.ticker} name={r.s.name} score={scoreOf(r.s) || null} />
             {/* 8px: a label on the row, not a figure to read — it gives way to the
                 numbers either side of it. */}
-            <td className={`${SCAN.td} text-[8px] font-bold tracking-wide text-slate-500`}>
+            {/* Left-aligned like the other text-label columns (STAGE, SECTOR),
+                so it starts right after the ticker instead of floating mid-column. */}
+            <td className={`${SCAN.td} !text-left text-[8px] font-bold tracking-wide text-slate-500`}>
               {TRIG_SCAN_LABEL[r.s._source] ?? String(r.s._source ?? '').toUpperCase()}
             </td>
             <ScoreCell value={scoreOf(r.s) || null} />
@@ -1242,7 +1249,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
      beside the summary rows. */
   const useTwoCols = rows.length > 5;
   const mid = useTwoCols ? Math.ceil(rows.length / 2) : rows.length;
-  const dense = 'w-[303px] md:w-full table-fixed md:min-w-[470px] [&_td]:pt-1 [&_td]:pb-1 [&_th]:py-1.5';
+  const dense = 'w-full table-fixed md:min-w-[470px] [&_td]:pt-1 [&_td]:pb-1 [&_th]:py-1.5';
 
   return (
     <div className="mt-4 pt-3 border-t border-white/5">
