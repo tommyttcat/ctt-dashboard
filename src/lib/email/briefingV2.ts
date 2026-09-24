@@ -94,9 +94,11 @@ export interface EmailV2Input {
   macro: Any;
   brief: Any;
   phaseKey: string;
+  /** /api/t2108/latest — share of stocks above their 40-day average. */
+  t2108?: Any;
 }
 
-export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief, phaseKey }: EmailV2Input): string {
+export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief, phaseKey, t2108 }: EmailV2Input): string {
   const rd = brief?.regimeDetail || {};
   const regime = plain(rd.regime);
   const firstStop = regime.search(/[.—]\s/);
@@ -112,14 +114,23 @@ export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief,
   const hi = Number(b.newHighs), lo = Number(b.newLows);
   const hiLo = hi > 0 && lo > 0 ? (lo >= hi ? `${Math.round(lo / hi)} : 1 lows` : `${Math.round(hi / lo)} : 1 highs`) : null;
   const vix = macro?.quotes?.VIX?.price;
+  const above40 = typeof t2108?.value === 'number' ? t2108.value : null;
+  const up4 = Number(b.up4 ?? b.mm4Up), down4 = Number(b.down4 ?? b.mm4Down);
+  const mf = macro?.moneyFlow?.spy ?? macro?.moneyFlow;
+  const mfVal = typeof mf?.value === 'number' ? mf.value : null;
   const tiles = [
     pctUp != null ? ['Stocks up today', `${Math.round(pctUp)}%`, pctUp >= 50 ? C.green : C.red] : null,
     hiLo ? ['New lows vs highs', hiLo, lo >= hi ? C.red : C.green] : null,
-    vix ? ['Fear (VIX)', Number(vix).toFixed(1), C.ink] : null,
+    vix ? ['Fear (VIX)', Number(vix).toFixed(1), Number(vix) >= 20 ? C.red : C.ink] : null,
+    above40 != null ? ['Above 40-day avg', `${Math.round(above40)}%`, above40 < 30 ? C.red : above40 > 70 ? C.amber : C.ink] : null,
+    up4 > 0 || down4 > 0 ? ['Big movers (4%+)', `${up4} ▲ / ${down4} ▼`, up4 >= down4 ? C.green : C.red] : null,
+    mfVal != null ? ['Money flow (SPY)', `${Math.round(mfVal)} ${mf?.trend > 0 ? '▲' : mf?.trend < 0 ? '▼' : ''}`, mfVal >= 50 ? C.green : C.red] : null,
   ].filter(Boolean) as [string, string, string][];
-  const tileHtml = tiles.length ? `<tr><td class="pad" style="padding:16px 28px 24px 28px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>${
-    tiles.map(([l, v, c], i) => `<td width="${Math.floor(100 / tiles.length)}%" style="padding:${i === 0 ? '0 6px 0 0' : i === tiles.length - 1 ? '0 0 0 6px' : '0 3px'};"><div style="background:${C.tile};border:1px solid ${C.border};border-radius:12px;padding:12px;"><div style="font-size:11px;color:${C.muted};">${esc(l)}</div><div style="font-size:20px;font-weight:800;color:${c};">${esc(v)}</div></div></td>`).join('')
-  }</tr></table></td></tr>` : '';
+  const tileCell = ([l, v, c]: [string, string, string]) =>
+    `<td width="33%" style="padding:4px;"><div style="background:${C.tile};border:1px solid ${C.border};border-radius:12px;padding:11px 12px;"><div style="font-size:11px;color:${C.muted};">${esc(l)}</div><div style="font-size:18px;font-weight:800;color:${c};white-space:nowrap;">${esc(v)}</div></div></td>`;
+  const tileRows: string[] = [];
+  for (let i = 0; i < tiles.length; i += 3) tileRows.push(`<tr>${tiles.slice(i, i + 3).map(tileCell).join('')}</tr>`);
+  const tileHtml = tiles.length ? `<tr><td class="pad" style="padding:12px 24px 20px 24px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">${tileRows.join('')}</table></td></tr>` : '';
 
   const hero = regime ? `
   <tr><td style="background:${C.card};border:1px solid ${C.border};border-radius:18px;box-shadow:0 1px 3px rgba(15,23,42,.06);overflow:hidden;">
@@ -135,15 +146,13 @@ export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief,
   </td></tr>
   <tr><td style="height:14px;font-size:0;line-height:0;">&nbsp;</td></tr>` : '';
 
-  /* since last update + takeaway */
+  /* The tape reading — the phase's whole session block, as the page shows it. */
   const block = brief?.sessionUpdates?.[phaseKey];
-  const delta = Array.isArray(block?.paragraphs) ? block.paragraphs[0] : '';
-  const scoreLine = Array.isArray(block?.paragraphs) ? block.paragraphs.find((p: string) => /^Today's picks:/i.test(plain(p))) : '';
-  const since = delta || block?.takeaway ? card(`
-    ${label('Since the last update', C.violet)}
-    ${delta ? `<div style="font-size:15px;line-height:1.55;color:${C.body};margin-top:10px;">${rich(delta)}</div>` : ''}
-    ${scoreLine ? `<div style="font-size:15px;line-height:1.55;color:${C.body};margin-top:10px;">${rich(scoreLine)}</div>` : ''}
-    ${block?.takeaway ? `<div style="font-size:15px;line-height:1.55;color:${C.ink};font-weight:600;margin-top:10px;">${rich(block.takeaway)}</div>` : ''}`) : '';
+  const paras: string[] = Array.isArray(block?.paragraphs) ? block.paragraphs.filter(Boolean) : [];
+  const since = paras.length || block?.takeaway ? card(`
+    ${label(`Tape reading · ${block?.phase || phaseLabel}`, C.violet)}
+    ${paras.map(p => `<div style="font-size:15px;line-height:1.6;color:${C.body};margin-top:10px;">${rich(p)}</div>`).join('')}
+    ${block?.takeaway ? `<div style="font-size:15px;line-height:1.55;color:${C.ink};font-weight:700;background:${C.tile};border-left:3px solid ${C.violet};border-radius:8px;padding:10px 12px;margin-top:12px;">${rich(block.takeaway)}</div>` : ''}`) : '';
 
   /* what's next */
   const nextSentences = String(rd.posture || '').split(/(?<=[.;])\s+(?=[A-Z*])/).map(s => s.trim()).filter(Boolean);
@@ -201,13 +210,29 @@ export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief,
   const tomorrow = tomorrowItems ? card(`${label('Tomorrow', C.amber)}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;">${tomorrowItems}</table>`) : '';
 
   const movers = sectionStartingWith(brief, 'Intraday Movers') || sectionStartingWith(brief, 'Pre-Market Gappers') || sectionStartingWith(brief, 'Post-Market Gappers');
-  const moversHtml = movers?.analysis ? card(`${label(String(movers.section), C.muted)}<div style="font-size:15px;line-height:1.55;color:${C.body};margin-top:10px;">${rich(movers.analysis)}</div>`) : '';
+  const pct = (v: Any) => { const n = Number(v); return Number.isFinite(n) ? `${n >= 0 ? '+' : ''}${n.toFixed(1)}%` : ''; };
+  const xVol = (v: Any) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? `${n >= 10 ? Math.round(n) : n.toFixed(1)}×` : ''; };
+  const table = (rows: Any[], cols: [string, (r: Any) => string, 'l' | 'r'][]) => rows.length ? `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px;border-collapse:collapse;">
+      <tr>${cols.map(([h, , a]) => `<td style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:${C.muted};padding:6px 4px;border-bottom:1px solid ${C.border};text-align:${a === 'r' ? 'right' : 'left'};">${esc(h)}</td>`).join('')}</tr>
+      ${rows.map(r => `<tr>${cols.map(([, fn, a]) => `<td style="font-size:14px;color:${C.body};padding:7px 4px;border-bottom:1px solid ${C.rule};text-align:${a === 'r' ? 'right' : 'left'};white-space:nowrap;">${fn(r)}</td>`).join('')}</tr>`).join('')}
+    </table>` : '';
+  const chg = (r: Any) => { const n = Number(r?.changePct); return `<b style="color:${n >= 0 ? C.green : C.red};">${pct(n)}</b>`; };
+  const tk = (r: Any) => `<b style="color:${C.ink};">${esc(r?.ticker)}</b>`;
+  const mvRows = Array.isArray(movers?.stocks) ? movers.stocks : [];
+  const ups = mvRows.filter((r: Any) => (r?.direction ?? (Number(r?.changePct) >= 0 ? 'long' : 'short')) === 'long').slice(0, 5);
+  const downs = mvRows.filter((r: Any) => (r?.direction ?? (Number(r?.changePct) >= 0 ? 'long' : 'short')) === 'short').slice(0, 5);
+  const moverCols: [string, (r: Any) => string, 'l' | 'r'][] = [['Ticker', tk, 'l'], ['Move', chg, 'r'], ['Volume vs usual', r => xVol(r?.rvol), 'r']];
+  const sip = sectionOf(brief, 'Stocks in Play Today');
+  const sipRows = (Array.isArray(sip?.stocks) ? sip.stocks : []).slice(0, 8);
+  const sipHtml = sipRows.length ? card(`${label('Stocks in play', C.teal)}${sip?.analysis ? `<div style="font-size:15px;line-height:1.55;color:${C.body};margin-top:10px;">${rich(sip.analysis)}</div>` : ''}${table(sipRows, [['Ticker', tk, 'l'], ['Move', chg, 'r'], ['Score', r => r?.score != null ? esc(String(Math.round(Number(r.score)))) : '', 'r'], ['Volume vs usual', r => xVol(r?.rvol), 'r']])}`) : '';
+  const moversHtml = movers?.analysis || mvRows.length ? card(`${label(String(movers.section), C.muted)}${movers?.analysis ? `<div style="font-size:15px;line-height:1.55;color:${C.body};margin-top:10px;">${rich(movers.analysis)}</div>` : ''}${ups.length ? `<div style="margin-top:12px;">${label('Up most', C.green)}</div>${table(ups, moverCols)}` : ''}${downs.length ? `<div style="margin-top:14px;">${label('Down most', C.red)}</div>${table(downs, moverCols)}` : ''}`) : '';
 
   return emailShell({
     title: `CTT ${phaseLabel}`,
     pill: `${phaseLabel} · ${dateLabel}`,
     updatedTime,
-    sections: [hero, since, next, picksHtml, avoid, news, money, moversHtml, cal, earn, tomorrow],
+    sections: [hero, since, next, picksHtml, avoid, news, money, moversHtml, sipHtml, cal, earn, tomorrow],
     footerNote: "Levels are each scan's own plan.",
   });
 }

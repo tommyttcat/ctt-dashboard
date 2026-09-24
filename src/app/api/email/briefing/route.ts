@@ -1475,7 +1475,7 @@ export async function GET(req: Request) {
         updatedTime: brief?.snapshotTime
           ? new Date(brief.snapshotTime).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
           : null,
-        macro, brief,
+        macro, brief, t2108: t2108Data,
       })
     : buildEmail(phase, macro, chopData, t2108Data, brief, snapshot, chopMode, econ, earnings);
 
