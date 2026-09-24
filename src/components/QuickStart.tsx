@@ -8,7 +8,7 @@
  * of it. The help modal explains everything; this explains the five things a
  * row says, and nothing else.
  *
- * Shown open until dismissed. The dismissal is a per-viewer convenience, so it
+ * The one-line prompt shows until dismissed. The dismissal is a per-viewer convenience, so it
  * lives in localStorage and every access is guarded — a private window or
  * blocked storage just shows the card again. Rendered only after mount so the
  * server HTML and the first client render agree. `inline` is the help modal's
@@ -58,7 +58,10 @@ export function QuickStartBody() {
   );
 }
 
-export default function QuickStart() {
+/* The prompt, not the guide (24 Sep 2026): the full card sat above the
+   Scorecard and pushed the page down for everyone. The guide now lives in the
+   ? help (first tab); new visitors get one line that opens it. */
+export default function QuickStart({ onOpen }: { onOpen: () => void }) {
   const [show, setShow] = useState(false);
 
   useEffect(() => {
@@ -75,18 +78,11 @@ export default function QuickStart() {
   };
 
   return (
-    <div className="mx-3 md:mx-0 border border-indigo-500/25 rounded-lg bg-slate-900/60 px-3 md:px-5 py-3">
-      <div className="flex items-start justify-between gap-3 mb-1">
-        <h2 className="text-[11px] font-bold tracking-widest uppercase text-indigo-400">How to read this — 20 seconds</h2>
-        <button
-          onClick={dismiss}
-          className="text-[11px] text-slate-500 hover:text-slate-300 whitespace-nowrap shrink-0"
-          title="Hide this. It stays in the ? help."
-        >
-          Got it ✕
-        </button>
-      </div>
-      <QuickStartBody />
+    <div className="mx-3 md:mx-0 flex items-center justify-between gap-3 text-[11px]">
+      <button onClick={onOpen} className="text-indigo-400 hover:text-indigo-300 text-left">
+        New here? How to read this page in 20 seconds →
+      </button>
+      <button onClick={dismiss} className="text-slate-500 hover:text-slate-300 shrink-0" title="Hide this. The guide stays in the ? help.">✕</button>
     </div>
   );
 }

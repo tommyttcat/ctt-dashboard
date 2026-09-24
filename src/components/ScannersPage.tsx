@@ -68,7 +68,7 @@ export default function ScannersPage() {
 
             {/* Scanner Stack */}
             <div className="px-0 md:px-10 py-6 space-y-6">
-              <QuickStart />
+              <QuickStart onOpen={() => setHelpOpen(true)} />
               <SetupConfluence />
               <TopMovers />
               <StocksInPlay />
