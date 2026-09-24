@@ -10,7 +10,7 @@
 import { epPullbackPlan, EP_PULLBACK_WINDOW } from '../src/lib/scans/ep9m.ts';
 import { computeTradePlan } from '../src/lib/indicators/tradeplan.ts';
 import { EXIT_STYLE, EXIT_GUIDANCE } from '../src/lib/scans/exits.ts';
-import { trigRowOf, trigRows, planRowsFor } from '../src/lib/scans/triggerProximity.ts';
+import { trigRowOf, trigRows, planRowsFor, planStatusOf } from '../src/lib/scans/triggerProximity.ts';
 import { eq, near, ok, done } from './testkit.mts';
 
 // ---- the EP pullback plan --------------------------------------------------
@@ -120,6 +120,20 @@ eq('EP9M is flagged as a pullback', trigRowOf(pull(101, 100))?.pullback, true);
   eq('planRowsFor keeps input order', rows.map(r => r.price).join(','), '99,101,101,99');
   eq('planRowsFor drops a name with no live plan',
     planRowsFor([{ ticker: 'C', price: 99, _source: 'swing', plan: { tradeable: false, trigger: 100, stop: 95 } }]).length, 0);
+}
+
+// One-word status. breakout(price, trigger) has stop = trigger*0.95; ADR 4%.
+{
+  const st = (s: any) => planStatusOf(planRowsFor([s])[0]);
+  const bo = (price: number) => ({ ...breakout(price, 100), adrPct: 4 });
+  eq('below a breakout level is WAIT', st(bo(99)), 'wait');
+  eq('just through a breakout level is HIT', st(bo(101)), 'hit');
+  eq('more than 1 ADR past a breakout level is MISS', st(bo(105)), 'miss');
+  eq('no ADR means no MISS call', st(breakout(110, 100)), 'hit');
+  eq('at or under the stop is OUT', st(bo(95)), 'out');
+  eq('EP above its dip level is WAIT', st(pull(101, 100)), 'wait');
+  eq('EP through its dip level is HIT, never MISS', st({ ...pull(92, 100), adrPct: 2 }), 'hit');
+  eq('EP under its stop is OUT', st(pull(89, 100)), 'out');
 }
 
 near('distance is measured from price', trigRowOf(breakout(100, 101))?.awayPct, 1);

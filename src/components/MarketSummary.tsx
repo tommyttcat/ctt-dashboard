@@ -107,10 +107,9 @@ import TickerChartHover, { ActiveChartProvider, WatchlistBtn } from './TickerCha
 import { WatchlistToggle } from './WatchlistPanel';
 import { hrsEdgeGrade } from '@/lib/scans/hrs';
 import { edgeTier as edgeOf, EDGE_TINT, EDGE_FILTER_TIP, type EdgeTier } from '@/lib/scans/edge';
-import { tierForScan } from '@/lib/scans/edge';
-import { planRowsFor, type TrigRow } from '@/lib/scans/triggerProximity';
+import { planRowsFor, planStatusOf, PLAN_STATUS_ORDER, type TrigRow, type PlanStatus } from '@/lib/scans/triggerProximity';
 import InfoDot from './InfoDot';
-import { SCAN, SortHeader, ScoreCell, RsCell, PriceCell, ChgCell, RvolCell } from './scan/ScanTable';
+import { SCAN, SortHeader } from './scan/ScanTable';
 import { TickerCell } from './scan/TickerCell';
 import { newsStarCount } from '@/lib/newsStars';
 import { rsColor, rsBadge } from '@/lib/indicators/rs';
@@ -1078,94 +1077,62 @@ const ALL_SETUP_FILTERS = [...SETUP_PATTERN_FILTERS, ...SETUP_SOURCE_FILTERS];
    which would round a 222.73 trigger to 223 — an error larger than the 0.1%
    distance the row exists to report. */
 
-const TRIG_SCAN_LABEL: Record<string, string> = {
-  sip: 'SIP', daily: 'DAY', swing: 'SWING', vcp: 'VCP', ep9m: 'EP9', mb: '100',
-};
+/* ---- Buy & stop --------------------------------------------------------
+   Four columns, read at a glance: which name, where it becomes a buy, where
+   the idea is wrong, and one coloured word for where it stands now. The
+   reader uses the card above as a watchlist and times entries off their own
+   chart, so everything else (scan, CNF, RS, price, change, RVOL) stays on the
+   card and is not repeated here. The status rule and its tests live in
+   lib/scans/triggerProximity (planStatusOf).
 
-type TrigSortKey = 'ticker' | 'scan' | 'cnf' | 'rs' | 'price' | 'chg' | 'rvol' | 'trigger' | 'stop' | 'away';
+   No row tint: the status word is the signal in this box, and a green row
+   behind a red OUT made the two argue.
 
-/* Which way a column opens on its first click. A name sorts A-Z; a number
-   sorts biggest-first, because that is the interesting end of every one of
-   them — except the distance, where the interesting end is zero. */
-const TRIG_ASC_FIRST = new Set<TrigSortKey>(['ticker', 'scan', 'away']);
+   LEVELS PRINT TO THE CENT. formatLevel drops to whole dollars above $100,
+   which would round a 222.73 level to 223. */
+
+type TrigSortKey = 'ticker' | 'trigger' | 'stop' | 'status';
+
+const TRIG_ASC_FIRST = new Set<TrigSortKey>(['ticker', 'status']);
 
 const trigSortValue = (r: TrigRow, k: TrigSortKey): number | string => {
   switch (k) {
     case 'ticker': return r.ticker;
-    case 'scan': return TRIG_SCAN_LABEL[r.s._source] ?? String(r.s._source ?? '');
-    case 'cnf': return scoreOf(r.s);
-    case 'rs': return num(r.s.rsRating);
-    case 'price': return r.price;
-    case 'chg': return chgOf(r.s);
-    case 'rvol': return rvolOf(r.s) ?? 0;
     case 'trigger': return r.trigger;
     case 'stop': return r.stop;
-    case 'away': return r.awayPct;
+    // Status first, then nearest-first inside it, as one number.
+    case 'status': return PLAN_STATUS_ORDER[planStatusOf(r)] * 1000 + r.awayPct;
   }
 };
 
-/* table-fixed honours these, which is the point: the left and right halves are
-   two separate tables, and only a fixed layout makes their columns land on the
-   same pixels across the gap. Sized against the widest real content at 10px —
-   "$443.42 ●" in PRC, "+15.55%" in CHG. */
-/* PHONE: eight columns, full card width, ticker and scan kept tight.
-   Ten columns at 390px was 470px in a 344px card, so PRC and CHG% step aside
-   below md (price is implied by BUY and AWAY); CNF, RS and RVOL stay, as asked.
-
-   What each column really needs at 10px (8px for the scan label), plus 4px of
-   cell padding: ticker 46, scan 35, CNF 27, RS 27, RVOL 34, BUY 53, STOP 42,
-   AWAY 36. The ticker column is set by its HEADER — "TICKER" is 42px, wider
-   than any chip (~30px for four letters, ~38 for five). The watchlist star beside it is hidden on phones, and the flex box
-   holding both stretches to whatever the cell is, so measuring that box read
-   back the cell's own width and every earlier cut sized this column for
-   content that is not there. That phantom is where the gap between TICKER and
-   SCAN came from each time.
-
-   The card must be filled edge to edge (to match the Setups Summary rows
-   above) and the spare width has to land somewhere. It lands on the NUMBER
-   columns: ticker and scan are sized to their need at the narrowest phone
-   (360px, a 314px card) and barely grow from there, while CNF through AWAY
-   share the rest in proportion to their needs. Checked against the needs at
-   360, 375 and 390: no column is ever below its content. Both stacked halves
-   share the widths, so their columns line up. From md up, all ten return. */
-const TRIG_COLS: { key: TrigSortKey; label: string; width: string; title?: string; hideMobile?: boolean }[] = [
-  { key: 'ticker', label: 'TICKER', width: 'w-[14.6%] md:w-[15%]' },
-  { key: 'scan', label: 'SCAN', width: 'w-[11.2%] md:w-[9%]', title: 'Which scan found it' },
-  { key: 'cnf', label: 'CNF', width: 'w-[9.3%] md:w-[7%]' },
-  { key: 'rs', label: 'RS', width: 'w-[9.3%] md:w-[7%]' },
-  { key: 'price', label: 'PRC', width: 'md:w-[13%]', hideMobile: true },
-  { key: 'chg', label: 'CHG%', width: 'md:w-[11%]', hideMobile: true },
-  { key: 'rvol', label: 'RVOL', width: 'w-[11.8%] md:w-[8%]' },
-  { key: 'trigger', label: 'BUY', width: 'w-[17.3%] md:w-[11%]', title: 'Where it becomes a buy — ↑ above this price, ↓ on a dip to it' },
-  { key: 'stop', label: 'STOP', width: 'w-[14.2%] md:w-[10%]', title: 'Out below this — the idea is wrong' },
-  { key: 'away', label: 'AWAY', width: 'w-[12.3%] md:w-[9%]', title: 'How far price is from the buy level' },
+const TRIG_COLS: { key: TrigSortKey; label: string; width: string; title?: string }[] = [
+  { key: 'ticker', label: 'TICKER', width: 'w-[24%]' },
+  { key: 'trigger', label: 'BUY', width: 'w-[26%]', title: '↑ buy above this price · ↓ buy on a dip to it (EP9M)' },
+  { key: 'stop', label: 'STOP', width: 'w-[22%]', title: 'Out below this — the idea is wrong' },
+  { key: 'status', label: 'STATUS', width: 'w-[28%]', title: 'Where it stands now' },
 ];
 
-/* Written out in full so Tailwind's scanner can see it. */
-const TRIG_HIDE = 'hidden md:table-cell';
+const STATUS_META: Record<PlanStatus, { cls: string; tip: string }> = {
+  wait: { cls: 'text-slate-300', tip: 'Not at the buy level yet — this far away' },
+  hit: { cls: 'text-emerald-400', tip: 'At the buy level' },
+  miss: { cls: 'text-amber-400', tip: "Ran past the buy level by more than a normal day's move — buying now is chasing" },
+  out: { cls: 'text-rose-400', tip: 'Below the stop — the idea failed' },
+};
 
 const TriggerProximity = ({ pool }: { pool: any[] }) => {
   /* The SET is the recommended names — exactly the rows on the Setups
-     Summary card above, same pills, same green default — each with its buy
-     level and stop. The reader uses the card as a watchlist and times entries
-     off their own chart, so this is "the two numbers for each name I was
-     just shown", not a separate proximity-picked list. Names already through
-     their level stay, marked IN. */
-  const nearest = React.useMemo(() => planRowsFor(pool), [pool]);
+     Summary card above, same pills, same green default. */
+  const all = React.useMemo(() => planRowsFor(pool), [pool]);
 
-  /* Ordered by CNF, like the card above — the two blocks then read down the
-     same way, and the strongest name is top-left in both. Proximity is still
-     what PICKS the eight rows; it is no longer what orders them, so AWAY is
-     one click away for the reader who wants the nearest first. */
-  const [sortKey, setSortKey] = React.useState<TrigSortKey>('cnf');
-  const [sortDir, setSortDir] = React.useState<SortDir>('desc');
+  const [sortKey, setSortKey] = React.useState<TrigSortKey>('status');
+  const [sortDir, setSortDir] = React.useState<SortDir>('asc');
 
   /* Same three-click cycle as the card above: open, flip, back to default. */
   const handleSort = (k: TrigSortKey) => {
     const first: SortDir = TRIG_ASC_FIRST.has(k) ? 'asc' : 'desc';
     if (k !== sortKey) { setSortKey(k); setSortDir(first); return; }
     if (sortDir === first) setSortDir(first === 'asc' ? 'desc' : 'asc');
-    else { setSortKey('cnf'); setSortDir('desc'); }
+    else { setSortKey('status'); setSortDir('asc'); }
   };
 
   const rows = React.useMemo(() => {
@@ -1177,8 +1144,8 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
         : av - bv;
       return sortDir === 'desc' ? -d : d;
     };
-    return [...nearest].sort(cmp);
-  }, [nearest, sortKey, sortDir]);
+    return [...all].sort(cmp);
+  }, [all, sortKey, sortDir]);
 
   if (rows.length === 0) return null;
 
@@ -1193,7 +1160,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
             title={c.title}
             icon={sortKey === c.key ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
             onSort={() => handleSort(c.key)}
-            className={[c.key === 'ticker' || c.key === 'scan' ? 'text-left' : '', c.hideMobile ? TRIG_HIDE : ''].filter(Boolean).join(' ') || undefined}
+            className={c.key === 'ticker' ? 'text-left' : undefined}
           />
         ))}
       </tr>
@@ -1203,29 +1170,14 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
   const body = (list: TrigRow[]) => (
     <tbody>
       {list.map((r) => {
-        const t = tierForScan(r.s._source, r.s);
+        const st = planStatusOf(r);
+        const meta = STATUS_META[st];
         return (
-          <tr
-            key={`tp-${r.ticker}`}
-            className={t ? EDGE_TINT[t.tier] : undefined}
-            title={t ? `${t.tier.toUpperCase()} — ${t.tip}` : undefined}
-          >
+          <tr key={`tp-${r.ticker}`}>
             <TickerCell symbol={r.ticker} name={r.s.name} score={scoreOf(r.s) || null} />
-            {/* 8px: a label on the row, not a figure to read — it gives way to the
-                numbers either side of it. */}
-            {/* Left-aligned like the other text-label columns (STAGE, SECTOR),
-                so it starts right after the ticker instead of floating mid-column. */}
-            <td className={`${SCAN.td} !text-left text-[8px] font-bold tracking-wide text-slate-500`}>
-              {TRIG_SCAN_LABEL[r.s._source] ?? String(r.s._source ?? '').toUpperCase()}
-            </td>
-            <ScoreCell value={scoreOf(r.s) || null} />
-            <RsCell value={numOrNull(r.s.rsRating)} />
-            <PriceCell price={r.price} vwapStatus={r.s.vwapStatus} className={TRIG_HIDE} />
-            <ChgCell value={chgOf(r.s)} className={TRIG_HIDE} />
-            <RvolCell value={rvolOf(r.s)} />
             <td
               className={`${SCAN.td} text-[10px] font-bold text-slate-200 tabular-nums whitespace-nowrap`}
-              title={`${r.pullback ? 'Buy on a dip to' : 'Buy above'} ${r.trigger.toFixed(2)}, out below ${r.stop.toFixed(2)} — ${r.label}`}
+              title={`${r.pullback ? 'Buy on a dip to' : 'Buy above'} ${r.trigger.toFixed(2)} — ${r.label}`}
             >
               <span className={r.pullback ? 'text-fuchsia-400' : 'text-emerald-400'}>{r.pullback ? '↓' : '↑'}</span>{' '}
               {r.trigger.toFixed(2)}
@@ -1233,8 +1185,10 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
             <td className={`${SCAN.td} text-[10px] font-bold text-rose-400/80 tabular-nums whitespace-nowrap`}>
               {r.stop.toFixed(2)}
             </td>
-            <td className={`${SCAN.td} text-[10px] font-bold text-slate-300 tabular-nums whitespace-nowrap`}>
-              {r.through ? 'IN' : `${r.awayPct < 10 ? r.awayPct.toFixed(1) : r.awayPct.toFixed(0)}%`}
+            <td className={`${SCAN.td} text-[10px] font-bold tabular-nums whitespace-nowrap ${meta.cls}`} title={meta.tip}>
+              {st === 'wait'
+                ? `WAIT ${r.awayPct < 10 ? r.awayPct.toFixed(1) : r.awayPct.toFixed(0)}%`
+                : st.toUpperCase()}
             </td>
           </tr>
         );
@@ -1242,40 +1196,30 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
     </tbody>
   );
 
-  /* Two columns past five rows, split at the midpoint — the same rule and the
-     same breakpoint as the card above, so the two read as one block rather
-     than a wide card sitting on a narrow one. The descendant padding override
-     is what makes the row pitch match: the shared cells carry the scanner
-     tables' taller spacing, which is right in a full-page table and too loose
-     beside the summary rows. */
+  /* Two columns past five rows, split at the midpoint — same rule as the
+     card above. The padding override matches the summary rows' pitch. */
   const useTwoCols = rows.length > 5;
   const mid = useTwoCols ? Math.ceil(rows.length / 2) : rows.length;
-  const dense = 'w-full table-fixed md:min-w-[470px] [&_td]:pt-1 [&_td]:pb-1 [&_th]:py-1.5';
+  const dense = 'w-full table-fixed [&_td]:pt-1 [&_td]:pb-1 [&_th]:py-1.5';
 
   return (
     <div className="mt-4 pt-3 border-t border-white/5">
       <div className="flex items-center mb-1">
         <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Buy &amp; stop</span>
-        <InfoDot text={"Buy level and stop for every name on the card above — same filters. ↑ buy above that price (a breakout: Daily, SIP, Swing, VCP). ↓ buy on a dip to it (EP9M). AWAY is how far price is from the buy level; IN means price is already through it. STOP is where the idea is wrong. Names with no usable plan (collapsed, or too extended to place a stop) are left off."} />
+        <InfoDot text={"Buy level and stop for every name on the card above — same filters.\n\n↑ buy above that price. ↓ buy on a dip to it (EP9M).\n\nWAIT — not there yet, this far away. HIT — at the buy level. MISS — ran past it by more than a normal day's move; buying now is chasing. OUT — below the stop; the idea failed.\n\nNames with no usable plan (collapsed, or too extended to place a stop) are left off."} />
       </div>
-      {/* `min-w-0` on the scroller is load-bearing, not decoration. A grid item
-          defaults to min-width:auto, so without it the 470px table pushes its
-          column wider than the phone and the PAGE scrolls sideways instead of
-          the table — the scroller never engages at all. Same fix, same reason,
-          as the confluence report's pick tables. custom-scrollbar + thin is
-          how every scanner table on the site dresses its scroller. */}
       <div className={useTwoCols ? 'grid grid-cols-1 md:grid-cols-2 gap-x-6' : ''}>
-        <div className="md:overflow-x-auto md:overflow-y-hidden custom-scrollbar min-w-0" style={{ scrollbarWidth: 'thin' }}>
+        <div className="min-w-0">
           <table className={dense}>{head}{body(rows.slice(0, mid))}</table>
         </div>
         {useTwoCols && (
-          <div className="md:overflow-x-auto md:overflow-y-hidden custom-scrollbar min-w-0" style={{ scrollbarWidth: 'thin' }}>
+          <div className="min-w-0">
             <table className={dense}>{head}{body(rows.slice(mid))}</table>
           </div>
         )}
       </div>
       <p className="text-[10px] text-slate-500 font-medium mt-1">
-        ↑ price must rise through the level · ↓ EP9M waits for a pullback to it.
+        <span className="text-emerald-400 font-bold">HIT</span> at the buy level · <span className="text-slate-300 font-bold">WAIT</span> not there yet · <span className="text-amber-400 font-bold">MISS</span> ran past, don&apos;t chase · <span className="text-rose-400 font-bold">OUT</span> below the stop
       </p>
     </div>
   );

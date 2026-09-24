@@ -15,7 +15,7 @@
 // scan's own, already on its table; this file does arithmetic on the distance
 // and drops the rows that are through their level.
 
-import { numOrNull, priceOf, livePlanOf, PULLBACK_SOURCES } from '@/lib/summary/rowFormat';
+import { numOrNull, priceOf, livePlanOf, PULLBACK_SOURCES, PLAN_MAX_REACH_ADR } from '@/lib/summary/rowFormat';
 
 export type TrigRow = {
   s: any;
@@ -80,3 +80,28 @@ export function planRowsFor(names: any[]): TrigRow[] {
   }
   return out;
 }
+
+/* ---- One-word status -----------------------------------------------------
+   So the Buy & stop box reads at a glance:
+     WAIT  not at the buy level yet (shown with the distance)
+     HIT   at or through the buy level, still close to it
+     MISS  a breakout that ran past the level by more than a normal day's
+           move (1 ADR — PLAN_MAX_REACH_ADR, the same limit the Trade Plan
+           card uses for "reachable"). Buying now is chasing.
+     OUT   price is at or below the stop — the idea failed.
+   A pullback (EP9M) cannot be MISSED: further down is toward the stop, so
+   it is HIT until it is OUT. */
+export type PlanStatus = 'wait' | 'hit' | 'miss' | 'out';
+
+export function planStatusOf(r: TrigRow): PlanStatus {
+  if (r.price <= r.stop) return 'out';
+  if (!r.through) return 'wait';
+  if (r.pullback) return 'hit';
+  const adr = numOrNull(r.s?.adrPct);
+  const pastPct = ((r.price - r.trigger) / r.trigger) * 100;
+  if (adr != null && adr > 0 && pastPct > adr * PLAN_MAX_REACH_ADR) return 'miss';
+  return 'hit';
+}
+
+/** Actionable first: HIT, then WAIT (nearest first), then MISS, then OUT. */
+export const PLAN_STATUS_ORDER: Record<PlanStatus, number> = { hit: 0, wait: 1, miss: 2, out: 3 };
