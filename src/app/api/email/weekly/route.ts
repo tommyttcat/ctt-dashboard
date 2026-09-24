@@ -6,6 +6,7 @@ import { getEmailRecipients } from '@/lib/users';
 import { postToBluesky } from '@/lib/bluesky';
 import { postToX } from '@/lib/twitter';
 import { kv } from '@vercel/kv';
+import { buildWeeklyEmailV2 } from '@/lib/email/weeklyV2';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -917,7 +918,9 @@ export async function GET(req: Request) {
     if (preGen?.priceAction) {
       narrative = preGen;
       console.log('[weekly] using pre-generated narrative from cloud routine');
-      await kv.del('weekly_cloud_narrative');
+      /* A preview only reads it. Deleting here made every preview consume the
+         routine's narrative, so the real send fell back to the deterministic one. */
+      if (!preview) await kv.del('weekly_cloud_narrative');
     }
   } catch {}
   if (!narrative) {
@@ -925,8 +928,9 @@ export async function GET(req: Request) {
     narrative = buildFallbackNarrative(analysisData);
   }
 
-  // Store weekly data in KV for Substack to use
-  try {
+  // Store weekly data in KV for Substack to use. Not on a preview — it is
+  // read-only, and this key is what the Substack publish reads.
+  if (!preview) try {
     await kv.set(`weekly_substack_data`, {
       narrative,
       weeklyChanges,
@@ -946,13 +950,23 @@ export async function GET(req: Request) {
     topMovers: movers,
   };
 
-  const html = buildEmail(
-    narrative, weeklyChanges, watchTickers, scannerForEmail,
-    econ, earnings, sectors, mStr, fStr, nmStr, nfStr,
-    earningsEvents,
-  );
+  /* The light, card-based wrap (lib/email/weeklyV2) is the default since
+     24 Sep 2026, matching the phase email. design=v1 renders the old dark
+     layout, kept as a fallback. */
+  const useV2 = url.searchParams.get('design') !== 'v1';
+  const html = useV2
+    ? buildWeeklyEmailV2({ narrative, weeklyChanges, mondayStr: mStr, fridayStr: fStr })
+    : buildEmail(
+        narrative, weeklyChanges, watchTickers, scannerForEmail,
+        econ, earnings, sectors, mStr, fStr, nmStr, nfStr,
+        earningsEvents,
+      );
 
-  if (preview === '1') {
+  /* Any preview value renders and stops here. This was `=== '1'`, but every
+     guard above (clock gate, auth, sent lock, Resend key) is skipped for any
+     truthy `preview`, so `?preview=yes` fell through to the send block —
+     unauthenticated — and emailed every subscriber. */
+  if (preview) {
     return new Response(html, { headers: { 'Content-Type': 'text/html' } });
   }
 
