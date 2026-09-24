@@ -17,7 +17,7 @@ export const revalidate = 0;
 const CACHE_KEY = 'chop_mode_v1';
 const MODES = ['asis', 'med', 'strong', 'extreme'] as const;
 type ChopMode = (typeof MODES)[number];
-const DEFAULT_MODE: ChopMode = 'asis'; // matches DEFAULT_CHOP_MODE — see chopMarket for the evidence
+const DEFAULT_MODE: ChopMode = 'strong'; // matches DEFAULT_CHOP_MODE — see chopMarket for the trade-off
 
 export async function GET() {
   try {

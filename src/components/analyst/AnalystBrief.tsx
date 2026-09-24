@@ -1979,7 +1979,9 @@ export default function AnalystBrief() {
     return () => clearInterval(id);
   }, []);
   /* Follows the dashboard's sensitivity toggle — see /api/settings/chop. */
-  const [chopBands, setChopBands] = useState<ChopBands>(CHOP_MODE_BANDS.extreme);
+  /* Starts on the house default, not a hard-coded MAX, so the label does not
+     flash the wrong setting before the fetch below lands. */
+  const [chopBands, setChopBands] = useState<ChopBands>(CHOP_MODE_BANDS[DEFAULT_CHOP_MODE]);
 
   useEffect(() => {
     let cancelled = false;

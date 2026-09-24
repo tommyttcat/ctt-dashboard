@@ -28,14 +28,20 @@ export interface ChopBands {
 }
 
 export const CHOP_MODES: ChopMode[] = ['asis', 'med', 'strong', 'extreme'];
-/* STANDARD, not MAX. Replayed over four years of daily bars (24 Sep 2026,
-   scripts/backtest/analyze-chop.ts): MAX called the market choppy on 60% of
-   days and trending on 1% — a reading that says the same thing nearly every
-   day tells you nothing. STANDARD calls chop on ~5% and trending on ~18%, and
-   its trending line (38.2) sits on the one measured edge: momentum breakouts
-   did best on the most-trending fifth of days (<= 38.8). The key stays 'asis'
-   because it is what KV stores. */
-export const DEFAULT_CHOP_MODE: ChopMode = 'asis';
+/* VERY SENSITIVE — the site owner's choice (24 Sep 2026), and the fallback
+   whenever the stored setting cannot be read, so every surface agrees with it.
+
+   The measured trade-off, from four years of daily bars (scripts/backtest/
+   analyze-chop.ts), so the choice stays an informed one:
+     MAX             choppy-or-worse 60% of days, trending 1%
+     VERY SENSITIVE  choppy-or-worse 41%, trending 2%        <- this one
+     SENSITIVE       choppy-or-worse 21%, trending 7%
+     STANDARD        choppy-or-worse  5%, trending 18%
+   Both verdicts still hold at this setting: its trending line (28) sits inside
+   the most-trending fifth of days where momentum breakouts did best (<= 38.8),
+   and its chop line (50) sits in the fifths where choppiness did not reliably
+   hurt breakouts. Keys are what KV stores: this is 'strong'. */
+export const DEFAULT_CHOP_MODE: ChopMode = 'strong';
 
 /* The upper bands are derived rather than declared so a sensitivity change
    moves the whole ladder together. Only the chop/trend pair is a judgement
