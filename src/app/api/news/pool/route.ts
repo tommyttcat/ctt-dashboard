@@ -3,6 +3,7 @@ import { kv } from '@vercel/kv';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 import { newsStarCount } from '@/lib/newsStars';
 import { tierForScan } from '@/lib/scans/edge';
+import { trigRowOf, planStatusOf } from '@/lib/scans/triggerProximity';
 
 /* /api/news/pool — the news already attached to the names on the boards.
  *
@@ -146,6 +147,18 @@ export async function GET() {
           newsSentiment: r.newsSentiment ?? null,
           newsCausal: r.newsCausal ?? null,
           stars: newsStarCount({ catalyst: r.catalyst, catalystUrl: url, newsCausal: r.newsCausal }),
+          /* The scan's own buy level, stop and status — the same rule as the
+             dashboard's Buy & stop box — so a story comes with something to do.
+             From the row already in hand; no extra read. ~80 bytes an item. */
+          plan: (() => {
+            const t = trigRowOf({ ...r, ticker, _source: scan }, { keepThrough: true, keepExtended: true });
+            if (!t) return null;
+            const st = planStatusOf(t);
+            return {
+              buy: +t.trigger.toFixed(2), stop: +t.stop.toFixed(2), dip: t.pullback,
+              status: st === 'wait' ? `${t.awayPct < 10 ? t.awayPct.toFixed(1) : t.awayPct.toFixed(0)}% away` : st.toUpperCase(),
+            };
+          })(),
           _age: ageMinutes(r.newsAge),
         });
       }
