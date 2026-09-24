@@ -15,7 +15,7 @@
 // scan's own, already on its table; this file does arithmetic on the distance
 // and drops the rows that are through their level.
 
-import { numOrNull, priceOf, livePlanOf } from '@/lib/summary/rowFormat';
+import { numOrNull, priceOf, livePlanOf, PULLBACK_SOURCES } from '@/lib/summary/rowFormat';
 
 export type TrigRow = {
   s: any;
@@ -30,9 +30,6 @@ export type TrigRow = {
   /** Distance from price to the level, always positive. */
   awayPct: number;
 };
-
-/** Sources whose plan is a pullback rather than a breakout. */
-const PULLBACK_SOURCES = new Set(['ep9m']);
 
 export function trigRowOf(s: any): TrigRow | null {
   const ticker = s?.ticker ?? s?.symbol;

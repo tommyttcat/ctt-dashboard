@@ -37,6 +37,10 @@ import {
   priceOf,
   reachInAdr,
   rtrLabel,
+  buyToken,
+  stopToken,
+  roomPhrase,
+  isPullbackPlan,
   rvolOf,
   scoreOf,
   setupOf,
@@ -293,9 +297,10 @@ export const buildCatalystBrief = (s: any): string => {
   // without an entry and an exit is a story, not a trade.
   const p = livePlanOf(s);
   if (p?.trigger != null) {
-    bits.push(`TR ${fmtLevel(p.trigger)}`);
-    if (p.stop != null) bits.push(`ST ${fmtLevel(p.stop)}`);
-    bits.push(`${rtrLabel(s)} to the first level overhead`);
+    bits.push(buyToken(s, p.trigger));
+    if (p.stop != null) bits.push(stopToken(p.stop));
+    const room = roomPhrase(s);
+    if (room) bits.push(room);
   }
   return bits.join(' · ') + '.';
 };
@@ -346,13 +351,25 @@ export const buildWatchReason = (s: any): string => {
   // whose trigger is nowhere near, and saying so is the whole point.
   const p = livePlanOf(s);
   if (p?.trigger != null) {
-    const reach = reachInAdr(s);
-    const reachTxt = reach == null ? '' :
-      reach <= 0.05 ? ', live now' :
-      reach <= PLAN_MAX_REACH_ADR ? `, ${reach.toFixed(1)}x ADR away` :
-      `, ${reach.toFixed(1)}x ADR away — not reachable in a normal session`;
-    const stopTxt = p.stop != null ? ` ST ${fmtLevel(p.stop)}` : '';
-    parts.push(`TR ${fmtLevel(p.trigger)}${reachTxt},${stopTxt} with ${rtrLabel(s)} of room`);
+    /* Distance in percent, not ADR multiples — the reader should not have to
+       know what an ADR is. The ADR still decides the "more than a normal
+       day" warning, because that is the question it answers. */
+    const price = priceOf(s);
+    const awayPct = price != null && price > 0 ? Math.abs((Number(p.trigger) - price) / price) * 100 : null;
+    /* reachInAdr assumes a breakout: a level below price reads as "reached".
+       For a pullback plan that is backwards — price above the dip level is
+       still waiting — so measure the plain distance in ADRs instead. */
+    const adr = numOrNull(s?.adrPct);
+    const reach = isPullbackPlan(s)
+      ? (awayPct != null && adr != null && adr > 0 ? awayPct / adr : null)
+      : reachInAdr(s);
+    const reachTxt = reach == null || awayPct == null ? '' :
+      reach <= 0.05 ? ', there now' :
+      reach <= PLAN_MAX_REACH_ADR ? `, ${awayPct.toFixed(1)}% away` :
+      `, ${awayPct.toFixed(1)}% away — more than a normal day's move`;
+    const stopTxt = p.stop != null ? ` ${stopToken(p.stop)}` : '';
+    const room = roomPhrase(s);
+    parts.push(`${buyToken(s, p.trigger)}${reachTxt},${stopTxt}${room ? `, ${room}` : ''}`);
   } else if (s?.plan?.collapsed === true) {
     parts.push('no long plan — price has collapsed away from its averages');
   } else if (s?.plan?.overextended === true) {

@@ -410,7 +410,7 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
     `|REV|RED DOT|BLUE DOT|\\[[^\\]]+\\]\\([^)]+\\)|\\d{1,2}:\\d{2} (?:AM|PM)` +
     `|(?:act|est|prev) (?:-?\\d+(?:\\.\\d+)?[BMK]?|—)` +
     `|RVOL (?:\\d+(?:\\.\\d+)?|—)|VOL (?:\\d+(?:\\.\\d+)?[MK]|—)|CNF \\d+|Stage \\d[ABC]?|stoch \\d+(?:\\.\\d+)?` +
-    `|RS \\d{1,2}\\b|\\bT[2-9]\\b|(?:TR|ST|TG) \\d+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?x ADR` +
+    `|RS \\d{1,2}\\b|\\bT[2-9]\\b|(?:TR|ST|TG|Buy above|Buy dip|Stop) \\d+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?x ADR` +
     `|\\d+(?:\\.\\d+)?R\\+?|\\b(?:${CATALYST_TAGS})\\b|10\\/21|S&P|Nasdaq|Dow|Bitcoin` +
     `|\\$\\d+(?:\\.\\d+)?[BMK]|[+-]\\d+(?:\\.\\d+)?%|\\b[A-Z]{1,5}\\b)`,
     'g'
@@ -599,12 +599,16 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
     }
     // The three order levels, set tight — label and value are one unit, so
     // no space between them. Stop red, target green, trigger neutral.
-    m = part.match(/^(TR|ST|TG) (\d+(?:\.\d+)?)$/);
+    // "Buy above" / "Buy dip" / "Stop" are the plain-words plan (rowFormat
+    // buyToken/stopToken); TR/ST/TG are kept for any older copy still around.
+    m = part.match(/^(TR|ST|TG|Buy above|Buy dip|Stop) (\d+(?:\.\d+)?)$/);
     if (m) {
-      const tone = m[1] === 'ST' ? 'text-rose-400' : m[1] === 'TG' ? 'text-emerald-400' : 'text-slate-200';
+      const tone = m[1] === 'ST' || m[1] === 'Stop' ? 'text-rose-400' : m[1] === 'TG' ? 'text-emerald-400' : 'text-slate-200';
       return (
         <span key={i} className={align ? 'inline-block ml-1 md:ml-2' : ''}>
-          <span className="text-slate-500 text-[7px] tracking-tight">{m[1]}</span>
+          {m[1].length > 2
+            ? <span className="text-slate-400">{m[1]} </span>
+            : <span className="text-slate-500 text-[7px] tracking-tight">{m[1]}</span>}
           <span className={`${valNum} ${tone} ${lvlValW}`}>{m[2]}</span>
         </span>
       );
@@ -1127,9 +1131,9 @@ const TRIG_COLS: { key: TrigSortKey; label: string; width: string; title?: strin
   { key: 'price', label: 'PRC', width: 'md:w-[13%]', hideMobile: true },
   { key: 'chg', label: 'CHG%', width: 'md:w-[11%]', hideMobile: true },
   { key: 'rvol', label: 'RVOL', width: 'w-[34px] md:w-[8%]' },
-  { key: 'trigger', label: 'TRIG', width: 'w-[53px] md:w-[11%]', title: 'The level the plan is waiting for' },
-  { key: 'stop', label: 'STOP', width: 'w-[42px] md:w-[10%]', title: "The plan's own invalidation" },
-  { key: 'away', label: 'AWAY', width: 'w-[36px] md:w-[9%]', title: 'How far price is from the trigger' },
+  { key: 'trigger', label: 'BUY', width: 'w-[53px] md:w-[11%]', title: 'Where it becomes a buy — ↑ above this price, ↓ on a dip to it' },
+  { key: 'stop', label: 'STOP', width: 'w-[42px] md:w-[10%]', title: 'Out below this — the idea is wrong' },
+  { key: 'away', label: 'AWAY', width: 'w-[36px] md:w-[9%]', title: 'How far price is from the buy level' },
 ];
 
 /* Written out in full so Tailwind's scanner can see it. */
@@ -1213,7 +1217,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
             <RvolCell value={rvolOf(r.s)} />
             <td
               className={`${SCAN.td} text-[10px] font-bold text-slate-200 tabular-nums whitespace-nowrap`}
-              title={`${r.pullback ? 'Wait for a pullback to' : 'Buy above'} ${r.trigger.toFixed(2)} — ${r.label}`}
+              title={`${r.pullback ? 'Buy on a dip to' : 'Buy above'} ${r.trigger.toFixed(2)}, out below ${r.stop.toFixed(2)} — ${r.label}`}
             >
               <span className={r.pullback ? 'text-fuchsia-400' : 'text-emerald-400'}>{r.pullback ? '↓' : '↑'}</span>{' '}
               {r.trigger.toFixed(2)}
@@ -1243,8 +1247,8 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
   return (
     <div className="mt-4 pt-3 border-t border-white/5">
       <div className="flex items-center mb-1">
-        <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Closest to trigger</span>
-        <InfoDot text={"The eight names above closest to the level their own plan is waiting for — the scanner's trigger, not a new one. Proximity picks the eight; they are then ordered by CNF, like the card above. Every column sorts, and sorting only reorders these eight rather than re-picking them, so the card stays the near list. Click AWAY for nearest-first.\n\n↑ means price has to RISE through the level to trigger (a breakout: Daily, SIP, Swing, VCP). ↓ means it has to FALL to it (EP9M, whose plan is a pullback to the EP-day midpoint).\n\nA name drops off this list once price is through its level: by then it is a position or a miss, not a watch. STOP is the plan's own invalidation.\n\nRow colour is each scan's OWN measured tier from its backtest — green, yellow, red — not one rule applied to all of them. Hover a row for what its colour means on that scan."} />
+        <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Closest to buy level</span>
+        <InfoDot text={"The eight names above that are closest to their buy level. Proximity picks the eight; they are then ordered by CNF, like the card above. Every column sorts, and sorting only reorders these eight rather than re-picking them. Click AWAY for nearest-first.\n\n↑ means it becomes a buy ABOVE that price (a breakout: Daily, SIP, Swing, VCP). ↓ means buy on a DIP to it (EP9M, whose plan is a pullback to the EP-day midpoint).\n\nA name drops off once price is through its level: by then it is a position or a miss, not a watch. STOP is where the idea is wrong.\n\nRow colour is each scan's OWN measured tier from its backtest — green, yellow, red — not one rule applied to all of them. Hover a row for what its colour means on that scan."} />
       </div>
       {/* `min-w-0` on the scroller is load-bearing, not decoration. A grid item
           defaults to min-width:auto, so without it the 470px table pushes its
