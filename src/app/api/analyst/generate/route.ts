@@ -162,19 +162,30 @@ function computeRegime(snapshot: any, chop: any): { regime: string; caution: str
   const regimeParts = [`**${regimeLabel}** regime.`];
   if (spyQ.last) regimeParts.push(`SPY **${fmtPct(spyPct)}** at $${spyQ.last.toFixed(2)}.`);
   if (qqqQ.last) regimeParts.push(`QQQ **${fmtPct(qqqPct)}** at $${qqqQ.last.toFixed(2)}.`);
-  if (breadthScore != null) regimeParts.push(`Breadth score ${breadthScore}/6 (${breadthSignal}).`);
-  if (t2108Val != null) regimeParts.push(`T2108 at ${t2108Val.toFixed(1)}% (${t2108Zone}).`);
+  if (breadthScore != null) regimeParts.push(`Participation ${breadthScore}/6 (${breadthSignal}).`);
+  if (t2108Val != null) regimeParts.push(`${t2108Val.toFixed(0)}% of stocks above their 40-day average (${t2108Zone}).`);
 
   const cautionParts: string[] = [];
   /* These test the producer's own vocabulary — computeT2108 emits
      'washed out | deeply oversold | oversold | neutral | extended | frothy'.
-     The froth branch previously looked for 'overbought', a string nothing
-     ever produces, so the top-of-range warning could never fire. */
-  if (t2108Zone === 'frothy') cautionParts.push(`T2108 frothy at ${t2108Val?.toFixed(1)}% — elevated reversal risk.`);
-  else if (t2108Zone === 'extended') cautionParts.push(`T2108 extended at ${t2108Val?.toFixed(1)}% — broad but late, breakouts fail more often from here.`);
-  if (t2108Zone === 'washed out' || t2108Zone === 'deeply oversold') cautionParts.push(`T2108 deeply oversold at ${t2108Val?.toFixed(1)}% — bounce likely but don't catch knives.`);
-  else if (t2108Zone === 'oversold') cautionParts.push(`T2108 oversold at ${t2108Val?.toFixed(1)}% — favour pullback entries over chasing strength.`);
-  if (chopVal != null && chopVal > 55) cautionParts.push(`Chop index elevated at ${chopVal.toFixed(1)} — range-bound action expected.`);
+
+     ONLY WHAT WAS MEASURED IS A CAUTION (24 Sep 2026, four-year replay of every
+     breakout trade across six scans — scripts/backtest/analyze-t2108.ts and
+     analyze-chop.ts; see lib/indicators/marketScorecard t2108ZoneLabel):
+       frothy (>80%)   the worst range for every scan — a real caution, though
+                       it rests on one stretch, the late-2021 top. Kept.
+       extended        was "breakouts fail more often from here". Contradicted:
+                       65-80% was the SECOND-best range for Stocks in Play/Daily.
+                       Removed.
+       deeply oversold was "don't catch knives". The opposite of a caution:
+                       breakouts from 20% or lower did better in 4 of 6 scans.
+                       Removed from cautions.
+       oversold        was "favour pullback entries". Pullbacks did no better
+                       there. Removed.
+       chop > 55       was "range-bound action expected". Choppy days did not
+                       reliably hurt breakouts (Swing did best on them).
+                       Removed. */
+  if (t2108Zone === 'frothy') cautionParts.push(`${t2108Val?.toFixed(0)}% of stocks are above their 40-day average — over four years the worst range for breakouts in every scan, though all of it comes from one stretch (late 2021).`);
   if (adRatio < 0.7 && advancers > 0) cautionParts.push(`Weak breadth: ${advancers} advancers vs ${decliners} decliners.`);
   if (newLows > newHighs * 2) cautionParts.push(`New lows (${newLows}) dominating new highs (${newHighs}).`);
   if (spyPct < -1) cautionParts.push(`SPY selling at ${fmtPct(spyPct)}.`);

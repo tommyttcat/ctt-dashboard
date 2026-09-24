@@ -83,6 +83,7 @@ import {
 } from '@/lib/indicators/marketScorecard';
 import {
   type ChopMode,
+  DEFAULT_CHOP_MODE,
   type ChopBands,
   CHOP_BANDS,
   CHOP_MODES,
@@ -610,7 +611,7 @@ export default function MacroScorecard() {
      number always starts at the textbook interpretation. */
   /* Persisted server-side so the briefing email reads the same bands the
      dashboard is showing — see /api/settings/chop. */
-  const [chopMode, setChopModeState] = useState<ChopMode>('extreme');
+  const [chopMode, setChopModeState] = useState<ChopMode>(DEFAULT_CHOP_MODE);
 
   useEffect(() => {
     let cancelled = false;

@@ -6,7 +6,10 @@
 // Storing it here lets both read the same value.
 
 import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { kv } from '@vercel/kv';
+import { verifySession, SESSION_COOKIE } from '@/lib/auth';
+import { authorized } from '@/lib/apiAuth';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -29,7 +32,29 @@ export async function GET() {
   }
 }
 
+/* WHO MAY CHANGE IT. This is one setting for everybody — it decides the
+   words on every reader's dashboard and in every briefing email — and until
+   24 Sep 2026 the POST had no check at all: anyone, signed in or not, could
+   change what the whole site told its readers. Now an admin session, or the
+   server key (lib/apiAuth) for scripted changes.
+
+   Nothing else changes for anyone else. Both toggles (Scorecard.tsx and
+   useMacroScorecard.ts) switch the reader's own view FIRST and only then post,
+   ignoring a failed post — so a non-admin's toggle still works as a what-if on
+   their own screen; it simply stops rewriting everyone else's.
+
+   Costs nothing: isAdmin is carried in the signed session token, so the check
+   reads no KV. */
+async function mayChange(req: Request): Promise<boolean> {
+  const session = await verifySession((await cookies()).get(SESSION_COOKIE)?.value);
+  if (session?.isAdmin) return true;
+  return authorized(req);
+}
+
 export async function POST(req: Request) {
+  if (!(await mayChange(req))) {
+    return NextResponse.json({ error: 'Only an admin can change this setting' }, { status: 401 });
+  }
   let body: any;
   try {
     body = await req.json();
