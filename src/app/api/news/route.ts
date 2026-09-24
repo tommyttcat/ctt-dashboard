@@ -122,7 +122,34 @@ type Normalized = {
   id: string; ticker: string; tickers: string[]; title: string;
   originalTitle: string; cleanHeadline: string; aiTag: string;
   url: string; publishedUtc: string; publisher: string;
+  /** One or two sentences from the article itself (Benzinga teaser / body,
+      Polygon description) — the "why" a headline like "What's Going On With
+      X Stock?" leaves out. Empty when the source sent nothing usable. */
+  summary: string;
 };
+
+const MAX_SUMMARY_CHARS = 240;
+
+/* The article's own words, cut to a sentence or two. Comes in the response
+   we already fetch — no extra upstream call. */
+function summarize(raw: unknown, title: string): string {
+  let t = String(raw ?? '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&rsquo;|&lsquo;/g, "'")
+    .replace(/&quot;|&ldquo;|&rdquo;/g, '"').replace(/&[a-z]+;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!t) return '';
+  // Drop a leading dateline / byline and anything that just repeats the title.
+  t = t.replace(/^(?:[A-Z][A-Za-z .,'-]{0,40}\s)?\(?(?:Benzinga|Reuters|AP)\)?\s*[-—:]\s*/, '');
+  if (t.toLowerCase().startsWith(String(title || '').toLowerCase().slice(0, 40))) return '';
+  if (t.length <= MAX_SUMMARY_CHARS) return t;
+  const cut = t.slice(0, MAX_SUMMARY_CHARS);
+  const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '));
+  if (end > 80) return cut.slice(0, end + 1);
+  const sp = cut.lastIndexOf(' ');
+  return `${cut.slice(0, sp > 80 ? sp : MAX_SUMMARY_CHARS).replace(/[,;:\s]+$/, '')}…`;
+}
 
 /* One ticker's earnings night can produce eight consecutive headlines. Without
    a cap the brief's eight slots become eight lines about the same company. */
@@ -180,6 +207,7 @@ async function fetchBenzinga(apiKey: string): Promise<Normalized[]> {
         url: it.url || '',
         publishedUtc: it.published || '',
         publisher: 'Benzinga',
+        summary: summarize(it.teaser || it.body, it.title),
       };
     })
     .sort((a, b) => (b.publishedUtc > a.publishedUtc ? 1 : -1));
@@ -222,6 +250,7 @@ async function fetchPolygon(apiKey: string): Promise<Normalized[]> {
         url: item.article_url || '',
         publishedUtc: item.published_utc || '',
         publisher: item.publisher?.name || 'MASSIVE',
+        summary: summarize(item.description, item.title),
       };
     });
 
