@@ -8,6 +8,10 @@
 // EMA trends, RSI(14), MACD(12,26,9), price vs EMAs, and derives S/R levels from
 // swing highs/lows. The result is a per-stock confluence card with a trade rec.
 //
+// Each report also carries `plan` — the scan's own trigger/stop, copied from
+// the rows already read — so the page quotes the same levels as every other
+// card on the site (see lib/confluence/readout.ts).
+//
 // KV: reads 3 keys (existing scan data), writes 2 keys. Polygon: ~4 calls per
 // stock × up to 10 stocks = ~40 calls per run. Flat cost, cron-driven.
 
@@ -19,6 +23,7 @@ import { macd, macdLabel } from '@/lib/indicators/macd';
 import type { Bar } from '@/lib/indicators/marketMath';
 import { edgeTier } from '@/lib/scans/edge';
 import { EXIT_GUIDANCE } from '@/lib/scans/exits';
+import { scanPlanFor } from '@/lib/confluence/readout';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -387,6 +392,14 @@ export async function GET(request: Request) {
 
     const top = candidates.slice(0, 10);
 
+    /* The scan's own buy level and stop, from the three lists read above —
+       no new KV read. Searched daily -> swing -> dvol (the site's own
+       precedence); DVol rows carry no plan, so a DVol-only name gets none
+       and the page falls back to this report's levels and says so. */
+    const planLists: [string, ScanStock[] | null][] = [
+      ['daily', dailySetups], ['swing', swingCandidates], ['dvol', dvolRows],
+    ];
+
     if (top.length === 0) {
       await kv.set('confluence_report_v1', []);
       await kv.set('confluence_last_scan_v1', Date.now());
@@ -475,6 +488,7 @@ export async function GET(request: Request) {
         confluenceLabel,
         levels,
         tradeRec: rec,
+        plan: scanPlanFor(ticker, planLists),
       });
     }
 

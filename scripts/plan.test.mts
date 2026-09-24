@@ -11,6 +11,7 @@ import { epPullbackPlan, EP_PULLBACK_WINDOW } from '../src/lib/scans/ep9m.ts';
 import { computeTradePlan } from '../src/lib/indicators/tradeplan.ts';
 import { EXIT_STYLE, EXIT_GUIDANCE } from '../src/lib/scans/exits.ts';
 import { trigRowOf, trigRows, planRowsFor, planStatusOf } from '../src/lib/scans/triggerProximity.ts';
+import { reportPlanOf, scanPlanFor, levelsFor, statusText, trendLine, flagsOf, shortName, shortRisk, NOTE_NOT_ON_SCAN } from '../src/lib/confluence/readout.ts';
 import { eq, near, ok, done } from './testkit.mts';
 
 // ---- the EP pullback plan --------------------------------------------------
@@ -161,5 +162,56 @@ ok('the same shape on another scan is not read', trigRowOf({ ...vcp, _source: 'd
 const sorted = trigRows([breakout(90, 100), breakout(99, 100), vcp]);
 eq('sorted by distance, closest first', sorted[0].price, 99);
 eq('the limit is honoured', trigRows([breakout(90, 100), breakout(99, 100), vcp], 2).length, 2);
+
+// ---- the Confluence page quotes the scan's levels, not its own ------------
+/* NBIS on 24 Sep 2026: the report's own rec said entry 246 / stop 230 while
+   every scan card said buy above 249.19 / stop 229.65. The page now reads the
+   scan's plan through the same planStatusOf, and only falls back when there
+   is no plan — saying so. */
+{
+  const dailyRow = { ticker: 'NBIS', price: 246.48, plan: { tradeable: true, trigger: 249.19, stop: 229.65, overextended: false, collapsed: false } };
+  const plan = scanPlanFor('NBIS', [['daily', [dailyRow]], ['swing', []], ['dvol', [{ ticker: 'NBIS' }]]]);
+  eq('builder copies the scan trigger', plan?.trigger, 249.19);
+  eq('builder copies the scan stop', plan?.stop, 229.65);
+  eq('builder records the source', plan?.source, 'daily');
+  eq('a row with no plan yields none', scanPlanFor('XYZ', [['dvol', [{ ticker: 'XYZ' }]]]), null);
+  eq('a live plan beats a dead one', scanPlanFor('A', [
+    ['daily', [{ ticker: 'A', plan: { tradeable: true, collapsed: true, trigger: 10, stop: 9 } }]],
+    ['swing', [{ ticker: 'A', plan: { tradeable: true, trigger: 11, stop: 9.5 } }]],
+  ])?.source, 'swing');
+  eq('VCP levels are read from the top level', reportPlanOf({ symbol: 'V', trigger: 52, stop: 47 }, 'vcp')?.trigger, 52);
+
+  const base = {
+    ticker: 'NBIS', price: 246.48, adrPct: 6.27, rvol: 1.34, confluenceLabel: 'Bullish',
+    timeframes: [
+      { timeframe: 'Weekly', rsi: 74, rsiLabel: 'overbought', bias: 'NEUTRAL' },
+      { timeframe: 'Daily', rsi: 59.3, rsiLabel: 'bullish', bias: 'BULLISH' },
+    ],
+    levels: { resistance: [], support: [] },
+    tradeRec: { entry: '$246', stopLoss: '$230' },
+  };
+  const lv = levelsFor({ ...base, plan });
+  eq('page uses the scan plan', lv?.kind, 'scan');
+  eq('page quotes the scan trigger', lv?.kind === 'scan' ? lv.trigger : null, 249.19);
+  eq('below the buy level is WAIT', lv?.kind === 'scan' ? lv.status : null, 'wait');
+  eq('status reads as a distance', lv?.kind === 'scan' ? statusText(lv.status, lv.awayPct) : null, '1.1% away');
+  eq('overextended scan plan reads EXT',
+    (levelsFor({ ...base, plan: { ...plan!, overextended: true } }) as any)?.status, 'ext');
+  eq('EP9M plan is a dip buy',
+    (levelsFor({ ...base, plan: { ...plan!, source: 'ep9m', trigger: 240, stop: 230 } }) as any)?.buyLabel, 'Buy dip');
+  const fb = levelsFor(base);
+  eq('no plan falls back to the report', fb?.kind, 'report');
+  eq('fallback trigger is the report entry', fb?.kind === 'report' ? fb.trigger : null, '246');
+  eq('fallback says why', fb?.kind === 'report' ? fb.note : null, NOTE_NOT_ON_SCAN);
+
+  eq('trend in plain words', trendLine(base), 'Daily up · weekly stretched');
+  eq('no flags on a clean name', flagsOf(base).length, 0);
+  eq('flags in plain words', flagsOf({ ...base, price: 7.9, adrPct: 12, rvol: 0.7 }).map(f => f.text).join('|'),
+    'Very volatile — size down|$5–10 — weakest price band|Light volume');
+  eq('company name is shortened', shortName('Nebius Group N.V. Class A Ordinary Shares', 'NBIS'), 'Nebius Group');
+  eq('a name that is just the ticker is dropped', shortName('P', 'P'), '');
+  eq('risk note loses the indicator jargon',
+    shortRisk('P, MRNA are overbought on the daily (RSI > 70) — chase risk elevated.'), 'P, MRNA are overbought on the daily');
+}
 
 done('trade plans');

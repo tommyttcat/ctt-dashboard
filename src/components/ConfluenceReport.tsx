@@ -7,27 +7,25 @@ import { edgeTier, EDGE_TINT, EDGE_FILTER_TIP } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import TickerChartHover, { ActiveChartProvider } from './TickerChartHover';
 import HelpModal from './HelpModal';
+import InfoDot from './InfoDot';
 import { WatchlistProvider } from './WatchlistContext';
 import WatchlistPanel from './WatchlistPanel';
-import { cnfBadgeCls } from '@/lib/indicators/columnColors';
-import { rsBadge } from '@/lib/indicators/rs';
-import { stageBadge } from '@/lib/indicators/stage';
-import { formatSetupName } from '@/lib/setupName';
 import { ChartLevelsCtx } from './analyst/MiniChart';
 import type { ExternalLevel } from './analyst/MiniChart';
 import { EXIT_GUIDANCE } from '@/lib/scans/exits';
+import {
+  levelsFor, statusText, fmtLvl, verdictOf, trendLine, whyLine, flagsOf, shortName, shortRisk, bestLine,
+  STATUS_HELP, type ReadoutReport, type ReportTf, type FlagTone,
+} from '@/lib/confluence/readout';
+import type { PlanStatus } from '@/lib/scans/triggerProximity';
 
 // ---- types ------------------------------------------------------------------
 
-interface TfAnalysis {
-  timeframe: string;
+interface TfAnalysis extends ReportTf {
   emaTrend: string;
-  rsi: number | null;
-  rsiLabel: string;
   macdHist: number | null;
   macdLabel: string;
   priceVsEmas: string;
-  bias: string;
   biasScore: number;
 }
 
@@ -39,16 +37,13 @@ interface TradeRec {
   rr: string;
 }
 
-interface Report {
-  ticker: string;
+interface Report extends ReadoutReport {
   name: string;
   sector: string;
-  price: number;
   changePct: number;
   cnfScore: number;
   cnfGrade: string;
   rsRating: number;
-  rvol: number;
   vol: number;
   dVol: number;
   stage: string;
@@ -56,7 +51,6 @@ interface Report {
   catalyst: string;
   stochK: number | null;
   mf: number | null;
-  adrPct: number | null;
   closeStrength: number | null;
   pctOffHigh: number | null;
   float: number | null;
@@ -66,8 +60,6 @@ interface Report {
   biasMax: number;
   confluenceScore: number;
   confluenceMax: number;
-  confluenceLabel: string;
-  levels: { resistance: number[]; support: number[] };
   tradeRec: TradeRec | null;
 }
 
@@ -81,308 +73,111 @@ interface AiSummary {
   actionPlan: string;
 }
 
-// ---- styling constants ------------------------------------------------------
+// ---- styling ----------------------------------------------------------------
 
-const CHIP_BASE = 'inline-block text-[7px] font-bold tracking-wider px-1 py-[1px] rounded border text-center';
-const CHIP_A = `${CHIP_BASE} text-emerald-300 bg-emerald-500/10 border-emerald-400/30`;
-const CHIP_B = `${CHIP_BASE} text-amber-300 bg-amber-500/10 border-amber-400/30`;
-const CHIP_C = `${CHIP_BASE} text-slate-300 bg-slate-500/10 border-white/10`;
-const CHIP_RED = `${CHIP_BASE} text-rose-200 bg-rose-950 border-rose-500/20`;
+/* One badge for every ticker on the page — hero picks and cards alike — so
+   the size never varies. Colour is the grade: A green, B amber, C slate. */
+const gradeBg = (g: string | null | undefined) =>
+  g === 'A' ? 'bg-emerald-400' : g === 'B' ? 'bg-amber-400' : 'bg-slate-400';
 
-const chipForGrade = (grade: string | null | undefined) =>
-  grade === 'A' ? CHIP_A : grade === 'B' ? CHIP_B : CHIP_C;
+function TickerBadge({ ticker, grade }: { ticker: string; grade: string | null | undefined }) {
+  return (
+    <TickerChartHover symbol={ticker}>
+      <span className={`inline-block text-[13px] leading-none font-extrabold text-[#0b0f1a] rounded-md px-2 py-[5px] cursor-pointer ${gradeBg(grade)}`}>
+        {ticker}
+      </span>
+    </TickerChartHover>
+  );
+}
 
-const VAL = 'text-[10px] tabular-nums';
-const LABEL = 'text-[7px] font-bold tracking-widest uppercase text-slate-500';
-const SECTION_LABEL = 'text-[8px] font-bold tracking-widest uppercase';
+const LAB = 'text-[11px] font-bold tracking-[0.14em] uppercase';
+
+const STATUS_PILL: Record<PlanStatus, string> = {
+  wait: 'text-slate-300 bg-slate-700/60',
+  hit: 'text-emerald-300 bg-emerald-500/15',
+  miss: 'text-rose-300 bg-rose-500/15',
+  ext: 'text-orange-400 bg-orange-950/60',
+  out: 'text-rose-300 bg-rose-500/15',
+};
+
+const FLAG_TONE: Record<FlagTone, string> = {
+  amber: 'text-amber-400',
+  rose: 'text-rose-400',
+  slate: 'text-slate-400',
+};
 
 // ---- helpers ----------------------------------------------------------------
 
-const fmtPrc = (v: number) => v >= 1000 ? v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : v.toFixed(2);
+const fmtPct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
 const fmtVol = (v: number) => v >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(0) + 'K' : v.toString();
 const fmtDvol = (v: number) => v >= 1e9 ? '$' + (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? '$' + (v / 1e6).toFixed(0) + 'M' : '$' + v.toLocaleString();
+const stageNum = (stage: string) => (stage || '').replace(/^Stage\s*/i, '').trim();
 
-const biasColor = (bias: string) =>
-  bias === 'BULLISH' ? 'text-emerald-400' : bias === 'BEARISH' ? 'text-rose-400' : 'text-amber-400';
-const biasBg = (bias: string) =>
-  bias === 'BULLISH' ? 'bg-emerald-500/10' : bias === 'BEARISH' ? 'bg-rose-500/10' : 'bg-amber-500/10';
+/** Support nearest-first (highest below price), resistance nearest-first (lowest above). */
+const nearSupport = (r: Report) => [...r.levels.support].sort((a, b) => b - a).slice(0, 2);
+const nearResistance = (r: Report) => [...r.levels.resistance].sort((a, b) => a - b).slice(0, 2);
+const lvlList = (v: number[]) => (v.length ? v.map(fmtLvl).join(', ') : '—');
 
-const rsiColor = (v: number | null) => {
-  if (v == null) return 'text-slate-500';
-  if (v >= 70) return 'text-rose-400';
-  if (v >= 55) return 'text-emerald-400';
-  if (v >= 45) return 'text-slate-300';
-  if (v >= 30) return 'text-amber-400';
-  return 'text-rose-400';
-};
+/** Ticker names inside a sentence keep their chart hover. */
+function withTickerHover(text: string, tickers: Set<string>, re: RegExp | null) {
+  if (!re) return <>{text}</>;
+  return <>{text.split(re).map((seg, i) => tickers.has(seg)
+    ? <TickerChartHover key={i} symbol={seg}><span className="font-semibold text-slate-200 cursor-pointer">{seg}</span></TickerChartHover>
+    : <span key={i}>{seg}</span>)}</>;
+}
 
-// ---- timeframe table --------------------------------------------------------
+// ---- hero -------------------------------------------------------------------
 
-/* Written out in full: Tailwind cannot see a class built by concatenation. */
-const TF_HIDE = 'hidden md:table-cell';
-
-function TimeframeTable({ timeframes }: { timeframes: TfAnalysis[] }) {
-  const visible = timeframes.filter(tf =>
-    tf.emaTrend !== 'N/A' || tf.rsi != null || tf.macdHist != null || tf.priceVsEmas !== 'N/A'
-  );
-  if (visible.length === 0) return null;
-  /* Six columns, each carrying a number AND a word in brackets, do not fit a
-     phone — the table grew past the screen and the card slid sideways under
-     the trade recommendation. MACD and Price vs EMAs are the two the Bias
-     column already summarises, so they wait for a wider screen and the other
-     four stay put. Nothing scrolls, which is what "locked" means here. */
+function TheRead({ summary, reports, lastScan }: { summary: AiSummary | null; reports: Report[]; lastScan: number | null }) {
+  const v = verdictOf(summary?.overallBias, reports);
+  const tiles: [number, string, string][] = [
+    [v.lineUp, 'Line up', 'text-emerald-400'],
+    [v.mixed, 'Mixed', 'text-amber-400'],
+    [v.down, 'Point down', 'text-rose-400'],
+  ];
   return (
-    <div className="md:overflow-x-auto md:overflow-y-hidden">
-      <table className="w-full text-[10px] tabular-nums">
-        <thead>
-          <tr className="border-b border-white/10">
-            <th className={`${LABEL} text-left py-1.5 pr-2`}>Timeframe</th>
-            <th className={`${LABEL} text-left py-1.5 pr-2`}>EMA Trend</th>
-            <th className={`${LABEL} text-center py-1.5 px-1`}>RSI</th>
-            <th className={`${LABEL} text-center py-1.5 px-1 ${TF_HIDE}`}>MACD Hist</th>
-            <th className={`${LABEL} text-left py-1.5 px-1 ${TF_HIDE}`}>Price vs EMAs</th>
-            <th className={`${LABEL} text-center py-1.5 pl-1`}>Bias</th>
-          </tr>
-        </thead>
-        <tbody>
-          {visible.map((tf) => (
-            <tr key={tf.timeframe} className="border-b border-white/5">
-              <td className="py-1.5 pr-2 text-amber-400 font-semibold">{tf.timeframe}</td>
-              <td className="py-1.5 pr-2 text-slate-300">{tf.emaTrend}</td>
-              <td className={`py-1.5 px-1 text-center ${rsiColor(tf.rsi)}`}>
-                {tf.rsi != null ? tf.rsi.toFixed(1) : '—'} <span className="text-slate-500">({tf.rsiLabel})</span>
-              </td>
-              <td className={`py-1.5 px-1 text-center ${TF_HIDE} ${(tf.macdHist ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {tf.macdHist != null ? (tf.macdHist >= 0 ? '+' : '') + tf.macdHist.toFixed(2) : '—'} <span className="text-slate-500">({tf.macdLabel})</span>
-              </td>
-              <td className={`py-1.5 px-1 text-slate-300 ${TF_HIDE}`}>{tf.priceVsEmas}</td>
-              <td className="py-1.5 pl-1 text-center">
-                <span className={`inline-block text-[8px] font-bold px-1.5 py-[1px] rounded ${biasColor(tf.bias)} ${biasBg(tf.bias)}`}>
-                  {tf.bias} ({tf.biasScore}/4)
-                </span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="rounded-2xl border border-white/[0.08] bg-gradient-to-br from-[#0f1a2e] to-[#0b101a] px-4 md:px-5 py-4 md:py-5 mb-4">
+      <div className="flex items-center gap-2">
+        <span className={`${LAB} text-cyan-400`}>The read</span>
+        <span className="ml-auto flex items-center gap-2">
+          {lastScan && <span className="text-[11px] text-slate-500 tabular-nums whitespace-nowrap">{new Date(lastScan).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })} ET</span>}
+          <WatchlistPanel />
+        </span>
+      </div>
+      <div className="text-[20px] md:text-[24px] leading-snug font-extrabold text-slate-100 mt-1.5">{v.headline}</div>
+      <div className="text-[14px] text-slate-400 mt-1.5">{v.sub}</div>
+      <div className="flex flex-wrap gap-2.5 mt-3.5">
+        {tiles.map(([n, t, cls]) => (
+          <div key={t} className="rounded-xl border border-white/[0.08] bg-[#0a1220] px-3.5 py-2.5 min-w-[96px]">
+            <div className={`text-[20px] font-extrabold tabular-nums ${cls}`}>{n}</div>
+            <div className="text-[11px] text-slate-500">{t}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-// ---- AI summary card --------------------------------------------------------
-
-function AiSummaryCard({ summary, reports, activeSector, onSectorFilter, lastScan }: { summary: AiSummary; reports: Report[]; activeSector: string | null; onSectorFilter: (sector: string | null) => void; lastScan: number | null }) {
-  const biasCls = summary.overallBias === 'BULLISH' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
-    : summary.overallBias === 'BEARISH' ? 'text-rose-400 bg-rose-500/10 border-rose-500/20'
-    : 'text-amber-400 bg-amber-500/10 border-amber-500/20';
-
-  const gradeMap = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const r of reports) m.set(r.ticker, r.cnfGrade || 'C');
-    return m;
-  }, [reports]);
-
-  const gradeOf = (ticker: string) => gradeMap.get(ticker) || 'C';
-
-  const picks = useMemo(() => {
-    const mapped = summary.topPicks.map(p => {
-      if (p.cnfScore != null && p.cnfScore > 0) return { ...p, grade: gradeMap.get(p.ticker) || p.grade };
-      const cnfM = p.reason.match(/CNF\s+(\d+)/);
-      const rsM = p.reason.match(/RS\s+(\d+)/);
-      const stgM = p.reason.match(/Stage\s+(\S+)/);
-      const cleaned = p.reason
-        .replace(/CNF\s+\d+\s*·?\s*/g, '')
-        .replace(/RS\s+\d+\s*·?\s*/g, '')
-        .replace(/Stage\s+\S+\s*·?\s*/g, '')
-        .replace(/^[\s·]+|[\s·]+$/g, '');
-      const cnf = cnfM ? +cnfM[1] : 0;
-      const grade = gradeMap.get(p.ticker) || (cnf >= 70 ? 'A' : cnf >= 50 ? 'B' : 'C');
-      return { ...p, cnfScore: cnf, rsRating: rsM ? +rsM[1] : 0, stage: stgM ? stgM[1] : '', grade, reason: cleaned };
-    });
-    const pickedTickers = new Set(mapped.map(p => p.ticker));
-    const extras = reports
-      .filter(r => !pickedTickers.has(r.ticker))
-      .map(r => ({
-        ticker: r.ticker,
-        reason: r.setupName || '',
-        grade: r.cnfGrade || 'C',
-        cnfScore: r.cnfScore,
-        rsRating: r.rsRating,
-        stage: stageNum(r.stage),
-      }));
-    const all = [...mapped, ...extras];
-    const biasOf = (ticker: string) => reports.find(r => r.ticker === ticker)?.biasScore ?? 0;
-    return all.sort((a, b) => biasOf(b.ticker) - biasOf(a.ticker));
-  }, [summary.topPicks, gradeMap, reports]);
-
-  const levels = useMemo(() => {
-    const raw = summary.keyLevels as any[];
-    if (raw.length > 0 && Array.isArray(raw[0].support)) {
-      return (raw as AiSummary['keyLevels']).map(l => ({ ...l, grade: gradeMap.get(l.ticker) || l.grade }));
-    }
-    const grouped = new Map<string, { ticker: string; grade: string; support: string[]; resistance: string[] }>();
-    for (const entry of raw) {
-      const key = entry.ticker;
-      if (!grouped.has(key)) grouped.set(key, { ticker: key, grade: gradeMap.get(key) || 'C', support: [], resistance: [] });
-      const g = grouped.get(key)!;
-      const lvl = (entry as any).level as string | undefined;
-      const type = (entry as any).type as string | undefined;
-      if (lvl && type) {
-        if (type.startsWith('S')) g.support.push(lvl);
-        else g.resistance.push(lvl);
-      }
-    }
-    return Array.from(grouped.values());
-  }, [summary.keyLevels, gradeMap]);
-
-  const tickerRe = useMemo(() => {
-    const syms = reports.map(r => r.ticker).filter(Boolean);
-    if (syms.length === 0) return null;
-    return new RegExp(`\\b(${syms.join('|')})\\b`, 'g');
-  }, [reports]);
-
-  const badgeText = (text: string) => {
-    if (!tickerRe) return <>{text}</>;
-    const parts = text.split(tickerRe);
-    return <>{parts.map((seg, i) => gradeMap.has(seg)
-      ? <TickerChartHover key={i} symbol={seg}><span className={`${chipForGrade(gradeOf(seg))} mx-0.5 cursor-pointer`}>{seg}</span></TickerChartHover>
-      : <span key={i}>{seg}</span>
-    )}</>;
-  };
-
+function BestAndRisks({ summary, reports }: { summary: AiSummary; reports: Report[] }) {
+  const byTicker = useMemo(() => new Map(reports.map(r => [r.ticker, r])), [reports]);
+  const tickers = useMemo(() => new Set(reports.map(r => r.ticker)), [reports]);
+  const re = useMemo(() => tickers.size ? new RegExp(`\\b(${[...tickers].join('|')})\\b`, 'g') : null, [tickers]);
+  const picks = summary.topPicks.slice(0, 3);
+  const lead = picks[0] ? byTicker.get(picks[0].ticker) : undefined;
   return (
-    <div className="bg-slate-900/60 border border-indigo-500/20 rounded-lg overflow-hidden mb-4">
-      <div className="px-3 md:px-5 py-2 border-b border-indigo-500/10 flex items-center gap-2">
-        <span className="text-[10px] font-bold text-indigo-400 tracking-wider uppercase">AI Analyst Rec</span>
-        <span className={`inline-block text-[7px] font-bold tracking-wider px-1.5 py-[1px] rounded border ${biasCls}`}>{summary.overallBias}</span>
-        <span className="ml-auto flex items-center gap-2">
-          {lastScan && <span className="text-[10px] text-slate-500 font-medium tabular-nums whitespace-nowrap">{new Date(lastScan).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })} ET</span>}
-          <WatchlistPanel />
-        </span>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 mb-4">
+      <div className="rounded-2xl border border-white/[0.08] bg-[#0b101a] px-4 md:px-5 py-4">
+        <div className={`${LAB} text-emerald-400`}>Best three</div>
+        <div className="flex flex-wrap gap-1.5 mt-2.5">
+          {picks.map(p => <TickerBadge key={p.ticker} ticker={p.ticker} grade={byTicker.get(p.ticker)?.cnfGrade || p.grade} />)}
+        </div>
+        {lead && <div className="text-[14px] text-slate-400 mt-2">{bestLine(lead)}</div>}
       </div>
-
-      <div className="px-3 md:px-5 py-2.5">
-        <p className="text-[10px] text-slate-300 leading-relaxed mb-2">{summary.biasRationale}</p>
-
-        {/* Sectors + Risk Notes row */}
-        <div className="flex flex-wrap items-start gap-x-6 gap-y-2 mb-3">
-          {summary.sectorThemes.length > 0 && (
-            <div>
-              <div className={`${LABEL} text-indigo-400 mb-0.5`}>Sectors</div>
-              <div className="flex flex-wrap gap-1">
-                {summary.sectorThemes.map(s => {
-                  const sectorName = s.replace(/\s*\(.*\)$/, '');
-                  const isActive = activeSector === sectorName;
-                  return (
-                    <button
-                      key={s}
-                      onClick={() => onSectorFilter(isActive ? null : sectorName)}
-                      className={`${CHIP_BASE} cursor-pointer transition-colors ${isActive ? 'text-white bg-indigo-500/30 border-indigo-400/50' : 'text-slate-300 bg-slate-700/40 border-white/10 hover:border-white/20'}`}
-                    >{s}</button>
-                  );
-                })}
-                {activeSector && (
-                  <button
-                    onClick={() => onSectorFilter(null)}
-                    className={`${CHIP_BASE} cursor-pointer text-slate-500 bg-transparent border-white/5 hover:text-slate-300`}
-                  >Clear</button>
-                )}
-              </div>
-            </div>
-          )}
-          {summary.riskNotes.length > 0 && (
-            <div>
-              <div className={`${LABEL} text-rose-400/70 mb-0.5`}>Risk Notes</div>
-              {summary.riskNotes.map((n, i) => (
-                <div key={i} className="text-[10px] text-slate-500 leading-snug">{badgeText(n)}</div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* All Tickers — full-width two-column table */}
-        {picks.length > 0 && (() => {
-          const mid = Math.ceil(picks.length / 2);
-          const cols = [picks.slice(0, mid), picks.slice(mid)];
-          const TH = `${LABEL} py-0.5 px-[3px] whitespace-nowrap`;
-          const TD = 'py-0.5 px-[3px]';
-          /* Seven columns do not fit a phone. Every other table on the site
-             sits in its own horizontal scroller so the PAGE never scrolls
-             sideways; this one did not, which is the whole of what made the
-             report feel unlike the rest of the site on mobile. `min-w-0` is
-             load-bearing next to it: without it the flex item refuses to
-             shrink below its content and the scroller never engages. */
-          /* NO SCROLLER ON A PHONE, and that is the fix rather than a
-             tidy-up. Measured at 390px these tables are 264px and 248px
-             inside a 340px card — nothing overflows, nothing can scroll —
-             and yet they "slide", because iOS lets an overflow-x-auto box
-             capture a horizontal swipe whether or not it has anywhere to go.
-             The box itself was the problem. From md up the scroller comes
-             back for the wide layout that can genuinely need it.
-
-             w-full + table-fixed at the same time, because 264 and 248 in a
-             340px card is also why the two halves looked ragged and cut off:
-             they sized to their own content and so disagreed with each
-             other. Now they fill the card and match, column for column.
-             Widths are set against the widest real content at 10px —
-             "$1,795.00" and "+11.19%". */
-          const PickTable = ({ rows }: { rows: typeof picks }) => (
-            <div className="md:overflow-x-auto md:overflow-y-hidden custom-scrollbar min-w-0 flex-1" style={{ scrollbarWidth: 'thin' }}>
-            <table className="text-[10px] w-full table-fixed" style={{ borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  <th className={`${TH} text-left w-[18%]`}>Ticker</th>
-                  <th className={`${TH} text-right w-[16%]`}>CHG%</th>
-                  <th className={`${TH} text-right w-[20%]`}>Price</th>
-                  <th className={`${TH} text-center w-[11%]`}>CNF</th>
-                  <th className={`${TH} text-center w-[12%]`}>Bias</th>
-                  <th className={`${TH} text-center w-[11%]`}>RS</th>
-                  <th className={`${TH} text-center w-[12%]`}>STG</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(p => {
-                  const rpt = reports.find(r => r.ticker === p.ticker);
-                  const chg = rpt?.changePct ?? 0;
-                  const prc = rpt?.price ?? 0;
-                  const stg = p.stage ? p.stage.replace(/^Stage\s*/i, '').trim() : '';
-                  // Same tint as the scan cards, from the shared rules.
-                  const tier = edgeTier(rpt ?? null);
-                  return (
-                    <tr key={p.ticker} className={tier ? EDGE_TINT[tier] : undefined} title={tier ? EDGE_FILTER_TIP[tier] : undefined}>
-                      <td className={`${TD}`}>
-                        <TickerChartHover symbol={p.ticker}>
-                          <span className={`${chipForGrade(p.grade)} w-[38px] cursor-pointer`}>{p.ticker}</span>
-                        </TickerChartHover>
-                      </td>
-                      <td className={`${TD} text-right tabular-nums font-semibold whitespace-nowrap ${chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</td>
-                      <td className={`${TD} text-right tabular-nums text-slate-300 whitespace-nowrap`}>${fmtPrc(prc)}</td>
-                      <td className={`${TD} text-center`}><span className={`${CHIP_BASE} min-w-[20px] ${cnfBadgeCls(p.cnfScore)}`}>{p.cnfScore}</span></td>
-                      <td className={`${TD} text-center`}>{rpt && <span className={`${CHIP_BASE} min-w-[20px] ${biasBadgeCls(rpt.biasScore)}`}>{rpt.biasScore}/{rpt.biasMax}</span>}</td>
-                      <td className={`${TD} text-center`}>{p.rsRating > 0 && <span className={`${CHIP_BASE} min-w-[20px] ${rsBadge(p.rsRating)}`}>{p.rsRating}</span>}</td>
-                      <td className={`${TD} text-center`}>{stg && <span className={`${CHIP_BASE} min-w-[20px] ${stageBadge(stg)}`}>{stg}</span>}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            </div>
-          );
-          return (
-            <div>
-              <div className={`${LABEL} text-indigo-400 mb-1`}>All Tickers</div>
-              <div className="flex flex-col md:flex-row gap-x-8 gap-y-2">
-                {cols.map((col, i) => <PickTable key={i} rows={col} />)}
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* Action Plan */}
-        <div className="mt-2 pt-2 border-t border-white/[0.06]">
-          <div className={`${LABEL} text-emerald-400/70 mb-0.5`}>Action Plan</div>
-          <p className="text-[10px] text-slate-200 leading-snug font-medium">{badgeText(summary.actionPlan)}</p>
-        </div>
+      <div className="rounded-2xl border border-white/[0.08] bg-[#0b101a] px-4 md:px-5 py-4">
+        <div className={`${LAB} text-rose-400`}>Watch out for</div>
+        <ul className="mt-2 ml-4 list-disc text-[14px] leading-relaxed text-slate-400 space-y-0.5">
+          {summary.riskNotes.map((n, i) => <li key={i}>{withTickerHover(shortRisk(n), tickers, re)}</li>)}
+        </ul>
       </div>
     </div>
   );
@@ -390,142 +185,116 @@ function AiSummaryCard({ summary, reports, activeSector, onSectorFilter, lastSca
 
 // ---- stock card -------------------------------------------------------------
 
-function stageNum(stage: string): string {
-  return (stage || '').replace(/^Stage\s*/i, '').trim();
-}
-
-function biasBadgeCls(score: number): string {
-  if (score >= 3) return 'text-emerald-300 bg-emerald-500/10 border-emerald-400/30';
-  if (score <= 1) return 'text-rose-300 bg-rose-500/10 border-rose-400/30';
-  return 'text-amber-300 bg-amber-500/10 border-amber-400/30';
-}
-
-function StockCard({ report }: { report: Report }) {
-  const r = report;
-  const chipCls = chipForGrade(r.cnfGrade);
+/* Everything a reader needs is on the face of the card in plain words. The
+   indicator readings the plain words are built from wait behind Details, so
+   nothing measured was deleted — it just stopped being the first thing read. */
+function Details({ r }: { r: Report }) {
   const stg = stageNum(r.stage);
+  const stats = [
+    `Score ${r.cnfScore}`,
+    r.rsRating > 0 ? `RS ${r.rsRating}` : '',
+    stg ? `Stage ${stg}` : '',
+    `Bias ${r.biasScore}/${r.biasMax}`,
+    `RVOL ${r.rvol.toFixed(1)}x`,
+    `Vol ${fmtVol(r.vol)}`,
+    `$Vol ${fmtDvol(r.dVol)}`,
+    r.adrPct != null ? `ADR ${r.adrPct.toFixed(1)}%` : '',
+    r.stochK != null ? `Stoch ${r.stochK.toFixed(0)}` : '',
+    r.pctOffHigh != null ? `Off high ${r.pctOffHigh.toFixed(1)}%` : '',
+    r.float != null ? `Float ${fmtVol(r.float)}` : '',
+    r.sector ? r.sector : '',
+  ].filter(Boolean);
+  return (
+    <div className="mt-2 pt-2 border-t border-white/[0.06] space-y-1.5 text-slate-400">
+      <div>{stats.join(' · ')}</div>
+      {r.timeframes.map(tf => (
+        <div key={tf.timeframe}>
+          <span className="font-semibold text-slate-300">{tf.timeframe}</span>{' '}
+          {[
+            tf.emaTrend !== 'N/A' ? `EMA ${tf.emaTrend}` : '',
+            tf.rsi != null ? `RSI ${tf.rsi.toFixed(1)} (${tf.rsiLabel})` : '',
+            tf.macdHist != null ? `MACD ${tf.macdHist >= 0 ? '+' : ''}${tf.macdHist.toFixed(2)} (${tf.macdLabel})` : '',
+            tf.priceVsEmas !== 'N/A' ? `Price ${tf.priceVsEmas.toLowerCase()} EMAs` : '',
+            `Bias ${tf.bias} ${tf.biasScore}/4`,
+          ].filter(Boolean).join(' · ')}
+        </div>
+      ))}
+      {r.tradeRec && <div>Drawn target {r.tradeRec.takeProfit}</div>}
+      {/* What the 5-year replay of these tables says to do with that target. */}
+      <div>{EXIT_GUIDANCE.scanner}</div>
+    </div>
+  );
+}
 
-  const cardBorder = r.biasScore >= 4 ? 'border-l-emerald-400/60' : r.biasScore >= 3 ? 'border-l-emerald-400/30' : r.biasScore <= 1 ? 'border-l-rose-400/40' : 'border-l-amber-400/30';
-
-  /* Same shading as every scan row: the card's top two strips carry the tint
-     so a reader scanning the report sees what they see on the cards it was
-     built from. The left border still shows the bias score — two different
-     questions, so two different marks. */
+function StockCard({ report: r }: { report: Report }) {
+  const [open, setOpen] = useState(false);
+  /* Same shading as every scan row, from the shared rules — on the card now
+     that there are no rows. The colour's meaning sits in the help dot beside
+     the filter pills rather than a native title on every card. */
   const tier = edgeTier(r);
   const tint = tier ? EDGE_TINT[tier] : '';
-  const tintTip = tier ? EDGE_FILTER_TIP[tier] : undefined;
+  const name = shortName(r.name, r.ticker);
+  const lv = levelsFor(r);
+  const why = whyLine(r);
+  const flags = flagsOf(r);
 
+  /* One size for the whole card (13px); weight and colour carry the
+     hierarchy instead. */
   return (
-    <div className={`bg-slate-900/60 border border-white/[0.06] border-l-[3px] ${cardBorder} rounded-lg overflow-hidden`}>
-      {/* Header */}
-      <div className={`px-3 md:px-5 py-3 md:py-4 border-b border-white/[0.06] flex items-center justify-between gap-3 ${tint}`} title={tintTip}>
-        {/* Left: Ticker, Company, %CHG, Price, CNF, Bias */}
-        <div className="flex items-center gap-3 min-w-0">
-          <TickerChartHover symbol={r.ticker}>
-            <span className={`${chipCls} w-[44px] md:w-[50px] text-[9px]`}>{r.ticker}</span>
-          </TickerChartHover>
-          {/* CNF sits against the ticker: it is the score for THAT name, and
-              reading it beside the symbol is the whole point of the badge. */}
-          <div className="text-center shrink-0">
-            <div className={`${LABEL} mb-0.5`}>CNF</div>
-            <span className={`${CHIP_BASE} min-w-[24px] ${cnfBadgeCls(r.cnfScore)}`} title={`Confluence Score: ${r.cnfScore}/100`}>{r.cnfScore}</span>
+    <div className="rounded-2xl border border-white/[0.08] bg-[#0b101a] overflow-hidden min-w-0">
+      <div className={`h-full px-4 py-4 text-[13px] ${tint}`}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <TickerBadge ticker={r.ticker} grade={r.cnfGrade} />
+            {name && <span className="text-slate-400 truncate">{name}</span>}
           </div>
-          <span className={`${VAL} font-semibold shrink-0 ${r.changePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-            {r.changePct >= 0 ? '+' : ''}{r.changePct.toFixed(2)}%
-          </span>
-          <span className={`${VAL} text-slate-300 shrink-0`}>${fmtPrc(r.price)}</span>
-          <div className="text-center shrink-0">
-            <div className={`${LABEL} mb-0.5`}>BIAS</div>
-            <span className={`${CHIP_BASE} min-w-[24px] ${biasBadgeCls(r.biasScore)}`} title={`Bias: ${r.biasScore}/${r.biasMax} ${r.confluenceLabel} (Weekly + Daily)`}>{r.biasScore}/{r.biasMax}</span>
+          <span className={`font-extrabold tabular-nums shrink-0 ${r.changePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmtPct(r.changePct)}</span>
+        </div>
+
+        {lv && (
+          <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2 mt-3 px-3 py-2.5 rounded-xl bg-[#0a1220]">
+            <div className="min-w-0">
+              <div className="text-slate-500">{lv.kind === 'scan' ? lv.buyLabel : 'Buy above'}</div>
+              <div className="font-extrabold text-slate-100 tabular-nums">{lv.kind === 'scan' ? fmtLvl(lv.trigger) : lv.trigger}</div>
+            </div>
+            <div className="min-w-0">
+              <div className="text-slate-500">Stop</div>
+              <div className="font-extrabold text-rose-400 tabular-nums">{lv.kind === 'scan' ? fmtLvl(lv.stop) : lv.stop}</div>
+            </div>
+            <div>
+              {lv.kind === 'scan' && (
+                <span className={`inline-block font-extrabold uppercase tracking-wide rounded-full px-2.5 py-0.5 whitespace-nowrap ${STATUS_PILL[lv.status]}`}>
+                  {statusText(lv.status, lv.awayPct)}
+                </span>
+              )}
+            </div>
           </div>
+        )}
+        {lv?.kind === 'report' && <div className="text-slate-500 mt-1.5">{lv.note}</div>}
+
+        <div className="mt-2 text-slate-400"><span className="font-semibold text-slate-300 mr-1">Trend</span>{trendLine(r)}</div>
+        <div className="mt-1 text-slate-400">
+          <span className="font-semibold text-slate-300 mr-1">Support</span>{lvlList(nearSupport(r))}
+          <span className="font-semibold text-slate-300 ml-3 mr-1">Resistance</span>{lvlList(nearResistance(r))}
         </div>
-        {/* Right: RS, Stage */}
-        <div className="flex items-end gap-2 shrink-0">
-          {r.rsRating > 0 && (
-            <div className="text-center">
-              <div className={`${LABEL} mb-0.5`}>RS</div>
-              <span className={`${CHIP_BASE} min-w-[24px] ${rsBadge(r.rsRating)}`} title={`Relative Strength: ${r.rsRating}`}>{r.rsRating}</span>
-            </div>
-          )}
-          {stg && (
-            <div className="text-center">
-              <div className={`${LABEL} mb-0.5`}>STG</div>
-              <span className={`${CHIP_BASE} min-w-[24px] ${stageBadge(stg)}`}>{stg}</span>
-            </div>
-          )}
-        </div>
+        {why && <div className="mt-1 text-slate-400"><span className="font-semibold text-slate-300 mr-1">Why</span>{why}</div>}
+
+        {flags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-2.5">
+            {flags.map(f => (
+              <span key={f.text} className={`font-semibold rounded-full border border-white/[0.08] bg-[#0a1220] px-2.5 py-0.5 ${FLAG_TONE[f.tone]}`}>{f.text}</span>
+            ))}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          className="mt-2.5 text-slate-500 hover:text-slate-300 transition-colors"
+          aria-expanded={open}
+        >{open ? 'Hide details ▴' : 'Details ▾'}</button>
+        {open && <Details r={r} />}
       </div>
-
-      {/* Quick stats */}
-      <div className={`px-3 md:px-5 py-2 flex flex-wrap gap-x-4 gap-y-1 border-b border-white/[0.06] text-[10px] ${tint}`} title={tintTip}>
-        <span><span className="text-slate-500">RVOL</span> <span className={`font-semibold ${r.rvol >= 2 ? 'text-amber-400' : r.rvol >= 1.5 ? 'text-emerald-400' : 'text-slate-300'}`}>{r.rvol.toFixed(1)}x</span></span>
-        <span><span className="text-slate-500">VOL</span> <span className="text-slate-300">{fmtVol(r.vol)}</span></span>
-        <span><span className="text-slate-500">$VOL</span> <span className="text-slate-300">{fmtDvol(r.dVol)}</span></span>
-        {r.adrPct != null && <span><span className="text-slate-500">ADR</span> <span className={r.adrPct >= 5 ? 'text-emerald-400' : 'text-slate-300'}>{r.adrPct.toFixed(1)}%</span></span>}
-        {r.stochK != null && <span><span className="text-slate-500">Stoch</span> <span className={r.stochK <= 20 ? 'text-purple-400' : r.stochK <= 30 ? 'text-emerald-400' : 'text-slate-300'}>{r.stochK.toFixed(0)}</span></span>}
-        {r.pctOffHigh != null && <span><span className="text-slate-500">Off High</span> <span className="text-slate-300">{r.pctOffHigh.toFixed(1)}%</span></span>}
-        {r.float != null && <span><span className="text-slate-500">Float</span> <span className="text-slate-300">{fmtVol(r.float)}</span></span>}
-        {r.setupName && formatSetupName(r.setupName) !== '—' && <span className={`${CHIP_BASE} text-violet-400 bg-violet-500/10 border-violet-500/20`}>{formatSetupName(r.setupName)}</span>}
-        {r.catalyst && <span className="text-amber-400/80 font-medium truncate max-w-[200px]">{r.catalyst}</span>}
-      </div>
-
-      {/* Timeframe Breakdown */}
-      <div className="px-3 md:px-5 py-3">
-        <div className={`${SECTION_LABEL} text-cyan-400 mb-2`}>Timeframe Breakdown</div>
-        <TimeframeTable timeframes={r.timeframes} />
-      </div>
-
-      {/* Key Levels */}
-      {(r.levels.resistance.length > 0 || r.levels.support.length > 0) && (
-        <div className="px-3 md:px-5 py-3 border-t border-white/[0.06]">
-          <div className={`${SECTION_LABEL} text-cyan-400 mb-2`}>Key Levels (Daily)</div>
-          <div className="space-y-1 text-[10px]">
-            {r.levels.resistance.length > 0 && (
-              <div>
-                <span className="text-rose-400 font-semibold">Resistance:</span>{' '}
-                <span className="text-slate-300">{r.levels.resistance.map(v => '$' + fmtPrc(v)).join(' / ')}</span>
-              </div>
-            )}
-            {r.levels.support.length > 0 && (
-              <div>
-                <span className="text-emerald-400 font-semibold">Support:</span>{' '}
-                <span className="text-slate-300">{r.levels.support.map(v => '$' + fmtPrc(v)).join(' / ')}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Trade Recommendation */}
-      {r.tradeRec && (
-        <div className="px-3 md:px-5 py-3 border-t border-white/[0.06]">
-          <div className={`${SECTION_LABEL} text-cyan-400 mb-2`}>
-            Trade Recommendation: <span className={`${r.tradeRec.direction === 'LONG' ? 'text-emerald-400' : 'text-rose-400'}`}>{r.tradeRec.direction}</span>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px]">
-            <div>
-              <div className="text-slate-500 text-[7px] font-bold tracking-widest uppercase">Entry</div>
-              <div className="text-slate-200 font-semibold">{r.tradeRec.entry}</div>
-            </div>
-            <div>
-              <div className="text-slate-500 text-[7px] font-bold tracking-widest uppercase">Stop Loss</div>
-              <div className="text-rose-400 font-semibold">{r.tradeRec.stopLoss}</div>
-            </div>
-            <div>
-              <div className="text-slate-500 text-[7px] font-bold tracking-widest uppercase">Take Profit</div>
-              <div className="text-emerald-400 font-semibold">{r.tradeRec.takeProfit}</div>
-            </div>
-            <div>
-              <div className="text-slate-500 text-[7px] font-bold tracking-widest uppercase">R:R</div>
-              <div className="text-amber-400 font-semibold">{r.tradeRec.rr}</div>
-            </div>
-          </div>
-          {/* The take-profit above is a drawn level. What the 5-year replay of
-              these same tables says to do with it, so the plan and the
-              evidence sit in one place. */}
-          <p className="mt-2 text-[10px] leading-snug text-slate-400">{EXIT_GUIDANCE.scanner}</p>
-        </div>
-      )}
     </div>
   );
 }
@@ -541,8 +310,8 @@ export default function ConfluenceReport() {
   const [sectorFilter, setSectorFilter] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
 
-  /* Sector filter first, then colour — the sector pills in the summary card
-     are a question about the tape, the colour is a question about the row. */
+  /* Sector filter first, then colour — the sector chips are a question about
+     the tape, the colour is a question about the name. */
   const sectorReports = useMemo(
     () => (sectorFilter ? reports.filter(r => r.sector === sectorFilter) : reports),
     [reports, sectorFilter],
@@ -590,6 +359,13 @@ export default function ConfluenceReport() {
     return m;
   }, [reports]);
 
+  const sectors = useMemo(
+    () => (aiSummary?.sectorThemes ?? []).map(s => s.replace(/\s*\(.*\)$/, '')),
+    [aiSummary],
+  );
+
+  const edgeHelp = `Card shading — what the 5-year test measured on these scans:\nGREEN — ${EDGE_FILTER_TIP.green}\nYELLOW — ${EDGE_FILTER_TIP.yellow}\nRED — ${EDGE_FILTER_TIP.red}`;
+
   return (
     <>
     <WatchlistProvider>
@@ -600,24 +376,18 @@ export default function ConfluenceReport() {
          `overflow-y: visible` is not a thing CSS allows: the spec computes the
          visible axis to `auto`, so the element quietly becomes a scroll
          container, and on iOS a scroll container is something a finger can
-         drag. Hiding one axis to stop the sliding is what created it.
-
-         Clipping both axes costs nothing here: the box has no fixed height, so
-         it grows with its content and nothing is cut off vertically. It is the
-         dashboard's structure, which has never had this problem. */}
-      <div className="min-h-screen overflow-hidden bg-[var(--bg-primary)] text-slate-300 px-3 md:px-6 py-4 md:py-6 max-w-5xl mx-auto">
-        {/* Header
-            Every other page stacks this on a phone (flex-col until md) and
-            this one did not: the nav sat in a `shrink-0` box beside the logo,
-            so seven links at 13px could not wrap and could not shrink, and the
-            PAGE scrolled sideways to fit them. The tables were already in
-            their own scrollers — this header was what was actually sliding. */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4 md:mb-6">
+         drag. Hiding one axis to stop the sliding is what created it. */}
+      <div className="min-h-screen overflow-hidden bg-[var(--bg-primary)] text-slate-300 px-4 md:px-6 py-4 md:py-6 max-w-[1100px] mx-auto">
+        {/* Header — stacks on a phone; the nav gets its own centred row so
+            it never pushes the page sideways. */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4 md:mb-5">
           <a href="https://confluencetradingtools.com" className="flex items-center gap-3 no-underline min-w-0" style={{ textDecoration: 'none' }}>
             <img src="/logo.svg" alt="CTT" className="w-8 h-8 md:w-10 md:h-10 opacity-80" />
-            <div>
-              <h1 className="text-lg md:text-xl font-bold text-slate-100 tracking-tight">Confluence Report</h1>
-              <p className="text-[10px] text-slate-500 tracking-widest uppercase">Multi-Timeframe Analysis</p>
+            <div className="min-w-0">
+              <h1 className="text-[20px] md:text-[22px] font-bold text-slate-100 tracking-tight">Confluence Report</h1>
+              <p className="text-[12px] text-slate-500">
+                {reports.length > 0 ? `${reports.length} names from every scan · ` : ''}daily and weekly checked together
+              </p>
             </div>
           </a>
           <div className="flex items-center gap-2 flex-wrap">
@@ -625,57 +395,73 @@ export default function ConfluenceReport() {
             <button
               onClick={() => setHelpOpen(true)}
               className="w-7 h-7 flex items-center justify-center rounded text-[11px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border border-white/10 transition-colors shrink-0"
-              title="Help"
+              aria-label="Help"
             >?</button>
           </div>
-          {/* The links get their own centred row on a phone: they are the
-              width of the screen, so sharing a line with the brand and the
-              controls is what pushed the theme toggle onto a line of its own.
-              From md up `order-none` puts them back inline. */}
           <div className="w-full flex justify-center order-last md:w-auto md:order-none">
             <DashNav />
           </div>
         </div>
 
-        {/* Content */}
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <span className="text-[10px] text-slate-500 tracking-widest uppercase animate-pulse">Loading confluence data...</span>
+            <span className="text-[11px] text-slate-500 tracking-widest uppercase animate-pulse">Loading confluence data...</span>
           </div>
         ) : error ? (
-          <div className="text-rose-400 text-[11px] py-10 text-center">{error}</div>
+          <div className="text-rose-400 text-[13px] py-10 text-center">{error}</div>
         ) : reports.length === 0 ? (
-          <div className="text-slate-500 text-[11px] py-10 text-center">
-            No confluence data available. Run the scan first.
-          </div>
+          <div className="text-slate-500 text-[13px] py-10 text-center">No confluence data available yet.</div>
         ) : (
           <>
-            {aiSummary && <AiSummaryCard summary={aiSummary} reports={reports} activeSector={sectorFilter} onSectorFilter={setSectorFilter} lastScan={lastScan} />}
-            {/* Same colour filter as the scan cards. This report is built from
-                Daily Setups, Stocks in Play and Swing Candidates, so it uses
-                the momentum rules those tables were measured on. */}
-            <div className="flex items-center gap-3 mb-3">
-              <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">Edge</span>
-              <EdgeFilterPills counts={edgeTally} active={edge.key} onToggle={edge.toggle} tips={EDGE_FILTER_TIP} />
-            </div>
-            <div className="space-y-4">
-              {visibleReports.map((r) => (
-                <StockCard key={r.ticker} report={r} />
-              ))}
-              {visibleReports.length === 0 && (
-                <div className="text-slate-500 text-[11px] py-10 text-center">No names match the current filter.</div>
+            <TheRead summary={aiSummary} reports={reports} lastScan={lastScan} />
+            {aiSummary && <BestAndRisks summary={aiSummary} reports={reports} />}
+
+            {/* Filters: the same colour pills as the scan cards, plus the
+                sector chips the old summary card carried. */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3 text-[11px]">
+              <span className="flex items-center gap-2">
+                <span className="font-bold tracking-widest uppercase text-slate-500">Edge</span>
+                <EdgeFilterPills counts={edgeTally} active={edge.key} onToggle={edge.toggle} tips={EDGE_FILTER_TIP} />
+                <InfoDot text={edgeHelp} />
+              </span>
+              {sectors.length > 0 && (
+                <span className="flex flex-wrap items-center gap-1">
+                  <span className="font-bold tracking-widest uppercase text-slate-500 mr-1">Sector</span>
+                  {sectors.map(s => {
+                    const on = sectorFilter === s;
+                    return (
+                      <button
+                        key={s}
+                        onClick={() => setSectorFilter(on ? null : s)}
+                        className={`rounded-full border px-2 py-[1px] transition-colors ${on ? 'text-slate-100 bg-indigo-500/30 border-indigo-400/50' : 'text-slate-400 border-white/10 hover:border-white/20'}`}
+                      >{s}</button>
+                    );
+                  })}
+                  {sectorFilter && (
+                    <button onClick={() => setSectorFilter(null)} className="text-slate-500 hover:text-slate-300 px-1">Clear</button>
+                  )}
+                </span>
               )}
+              <span className="flex items-center text-slate-500">
+                Levels<InfoDot text={STATUS_HELP} />
+              </span>
             </div>
+
+            <div className="grid gap-3.5 grid-cols-[repeat(auto-fill,minmax(min(100%,320px),1fr))]">
+              {visibleReports.map(r => <StockCard key={r.ticker} report={r} />)}
+            </div>
+            {visibleReports.length === 0 && (
+              <div className="text-slate-500 text-[13px] py-10 text-center">No names match the current filter.</div>
+            )}
           </>
         )}
 
-        {/* Important Caveats */}
-        <div className="mt-6 px-3 md:px-5 py-3 bg-slate-900/40 border border-white/[0.04] rounded-lg">
-          <div className={`${SECTION_LABEL} text-amber-400/60 mb-1.5`}>Important Caveats</div>
-          <ul className="text-[10px] text-slate-500 space-y-0.5 list-disc list-inside">
-            <li>Multi-timeframe data uses delayed intraday bars from Polygon</li>
-            <li>S/R levels are derived from swing highs/lows and may not reflect all key levels</li>
-            <li>Trade recommendations are mechanical — always apply your own risk management</li>
+        <div className="mt-6 px-4 md:px-5 py-3 rounded-2xl border border-white/[0.06] bg-[#0b101a]">
+          <div className="text-[11px] font-bold tracking-widest uppercase text-amber-400/70 mb-1.5">Good to know</div>
+          <ul className="text-[12px] text-slate-500 space-y-0.5 list-disc list-inside">
+            <li>Buy and stop levels are the scan&apos;s own — the same ones on the dashboard. Names not on a scan today show this report&apos;s levels and say so.</li>
+            <li>Support and resistance come from recent swing highs and lows and may miss some levels.</li>
+            <li>Price data is delayed. Always apply your own risk management.</li>
           </ul>
         </div>
       </div>
