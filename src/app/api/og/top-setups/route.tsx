@@ -120,7 +120,11 @@ export async function GET(req: Request) {
 
   const range = url.searchParams.get('range') || weekRange(new Date());
 
-  const theme = clip(String(narrative?.subtitle || '').replace(/\*\*/g, ''), 70);
+  /* The theme headline: whole if it fits two lines, else its first clause —
+     a clean stop reads better than an ellipsis mid-thought. */
+  const rawTheme = String(narrative?.subtitle || '').replace(/\*\*/g, '').trim();
+  const firstClause = rawTheme.split(/[,;:—–]\s/)[0].replace(/[.]$/, '');
+  const theme = rawTheme.length <= 64 ? rawTheme : firstClause.length <= 64 ? `${firstClause}.` : clip(rawTheme, 64);
 
   const jsx = (
     <div style={{
