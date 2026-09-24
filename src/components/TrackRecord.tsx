@@ -80,8 +80,22 @@ interface Detail {
   truncated: boolean;
 }
 
+/* The record kept the way the picks are presented — lib/trackPlan. */
+interface PlanScanRecord {
+  picked: number; filled: number; missed: number; failed: number; expired: number;
+  closed: number; wins: number; sumR: number; watching: number; open: number;
+}
+interface PlanPos {
+  scan: string; t: string; d: string; tier: string | null;
+  buy: number; stop: number; dip: boolean;
+  state: 'watching' | 'filled' | 'target' | 'stopped' | 'timeout' | 'missed' | 'failed' | 'expired';
+  fill: number | null; fillDate: string | null; r: number | null; closedOn: string | null;
+}
+interface PlanPayload { startedOn: string; byScan: Record<string, PlanScanRecord>; recent: PlanPos[]; updatedAt?: string }
+
 interface Payload {
   success: boolean;
+  plan?: PlanPayload | null;
   results: Record<string, ScanRecord>;
   meta: { lastBarDate?: string; tickedAt?: string; startedAt?: string } | null;
   openCount: number;
@@ -303,6 +317,124 @@ function PositionTable({ detail, showScan = false }: { detail: Detail; showScan?
   );
 }
 
+/* ---- Followed the levels ---------------------------------------------------
+   The record a reader can hold the site to. Every table says "buy above X,
+   stop Y, don't chase" — so this counts a pick only when it actually traded
+   its buy level, scores it on the same stop and 2R target, and reports the
+   picks that never gave an entry separately instead of hiding them. The
+   next-open record below stays because it is what the 5-year test measured. */
+
+const PLAN_ROWS = ROWS.filter(r => ['sip', 'daily', 'ep9m', 'swing', 'vcp', 'consolidation'].includes(r.scan));
+
+const PLAN_STATE: Record<PlanPos['state'], { label: string; cls: string; tip: string }> = {
+  target: { label: 'Hit target', cls: 'text-emerald-400', tip: 'Reached its buy level, then twice its risk before the stop.' },
+  stopped: { label: 'Stopped', cls: 'text-rose-400', tip: 'Reached its buy level, then its stop.' },
+  timeout: { label: '60 days', cls: 'text-slate-300', tip: 'Reached its buy level, then neither target nor stop in 60 sessions — scored on that close.' },
+  missed: { label: 'Gapped past', cls: 'text-slate-500', tip: 'Opened more than a normal day past its buy level. The site says don\'t chase, so it was not bought.' },
+  failed: { label: 'Stop first', cls: 'text-slate-500', tip: 'Fell to its stop before it ever reached its buy level. Never bought.' },
+  expired: { label: 'Never reached', cls: 'text-slate-500', tip: 'Did not trade its buy level within 10 sessions. Never bought.' },
+  watching: { label: 'Waiting', cls: 'text-slate-400', tip: 'Not at its buy level yet.' },
+  filled: { label: 'Open', cls: 'text-sky-400', tip: 'Bought at its buy level; neither target nor stop yet.' },
+};
+
+function PlanSection({ plan }: { plan: PlanPayload | null | undefined }) {
+  const rows = PLAN_ROWS.map(r => ({ ...r, rec: plan?.byScan?.[r.scan] }));
+  const tot = rows.reduce((a, { rec }) => {
+    if (!rec) return a;
+    a.picked += rec.picked; a.filled += rec.filled; a.closed += rec.closed; a.wins += rec.wins; a.sumR += rec.sumR;
+    a.notBought += rec.missed + rec.failed + rec.expired; a.open += rec.open; a.watching += rec.watching;
+    return a;
+  }, { picked: 0, filled: 0, closed: 0, wins: 0, sumR: 0, notBought: 0, open: 0, watching: 0 });
+  const recent = plan?.recent ?? [];
+
+  return (
+    <div className="mb-6 border border-emerald-500/20 rounded-lg bg-slate-900/40 overflow-hidden">
+      <div className="px-3 md:px-5 pt-3 pb-2.5">
+        <h2 className="text-[11px] font-bold tracking-widest uppercase text-emerald-400">Followed the levels</h2>
+        <p className="text-[11px] text-slate-300 leading-relaxed mt-1">
+          Every pick the site showed with a <strong className="text-slate-100">buy level and a stop</strong>, counted only
+          if it actually reached the buy level — the way the tables tell you to trade it. Then held to the stop or twice
+          the risk. Picks that gapped past the level, hit the stop first, or never got there are not trades, and are
+          counted separately so nothing is hidden.
+        </p>
+        {!plan ? (
+          <p className="text-[11px] text-amber-400/80 leading-relaxed mt-1.5">
+            Starts with tonight&apos;s close. The first results show up as picks reach their buy levels — usually within days.
+          </p>
+        ) : tot.closed < 20 ? (
+          <p className="text-[11px] text-amber-400/80 leading-relaxed mt-1.5">
+            Started {plan.startedOn}. {tot.closed === 0 ? 'No trade has finished yet' : `Only ${tot.closed} finished so far`} — far too few to judge.
+          </p>
+        ) : null}
+      </div>
+
+      {plan && (
+        <>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 px-3 md:px-5 pb-2.5 text-[10px]">
+            <span><span className="text-slate-500">Reached buy level</span> <span className="text-slate-200 font-semibold tabular-nums">{tot.filled} of {tot.picked}</span></span>
+            <span><span className="text-slate-500">Winners</span> <span className="text-slate-200 font-semibold tabular-nums">{tot.wins} of {tot.closed}</span></span>
+            <span><span className="text-slate-500">Per $100 risked</span> <span className={`font-semibold tabular-nums ${rCls(tot.closed ? tot.sumR / tot.closed : null)}`}>{tot.closed ? fmtUsd(tot.sumR / tot.closed) : '—'}</span></span>
+            <span><span className="text-slate-500">Open now</span> <span className="text-slate-200 font-semibold tabular-nums">{tot.open}</span></span>
+            <span><span className="text-slate-500">Waiting for the level</span> <span className="text-slate-200 font-semibold tabular-nums">{tot.watching}</span></span>
+          </div>
+
+          <table className="w-full border-collapse border-t border-white/[0.06]">
+            <thead>
+              <tr className="border-b border-white/5">
+                <th className={`${TH} !text-left`}>Scan</th>
+                <th className={TH} title="Picks that traded their buy level, of all picks shown with one">Reached</th>
+                <th className={TH} title="Finished trades that made money">Winners</th>
+                <th className={TH} title="Average result per finished trade, for every $100 between buy level and stop">Per $100</th>
+                <th className={`${TH} ${HIDE}`} title="Gapped past (don't chase) · stop first · never reached">Not bought</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ scan, label, rec }) => {
+                const avg = rec && rec.closed ? rec.sumR / rec.closed : null;
+                return (
+                  <tr key={scan} className="border-b border-white/[0.04]">
+                    <td className="text-[10px] px-2 py-2 text-left font-semibold text-slate-200 whitespace-nowrap">{label}</td>
+                    <td className={`${TD} text-slate-300`}>{rec ? <>{rec.filled} <span className="text-slate-600">of {rec.picked}</span></> : '—'}</td>
+                    <td className={`${TD} text-slate-300`}>{rec && rec.closed ? <>{rec.wins} <span className="text-slate-600">of {rec.closed}</span></> : '—'}</td>
+                    <td className={`${TD} font-semibold ${rCls(avg)}`}>{fmtUsd(avg)}</td>
+                    <td className={`${TD} text-slate-500 ${HIDE}`} title={rec ? `${rec.missed} gapped past · ${rec.failed} stop first · ${rec.expired} never reached` : undefined}>
+                      {rec ? rec.missed + rec.failed + rec.expired : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          {recent.length > 0 && (
+            <div className="px-3 md:px-5 py-2.5 border-t border-white/[0.06]">
+              <div className="text-[10px] font-bold tracking-widest uppercase text-slate-500 mb-1.5">Latest</div>
+              <div className="flex flex-col">
+                {recent.slice(0, 15).map(p => {
+                  const st = PLAN_STATE[p.state];
+                  const traded = p.r != null;
+                  return (
+                    <div key={`${p.scan}-${p.t}-${p.d}`} className="flex items-center gap-2 py-1 border-b border-white/[0.03] text-[10px] whitespace-nowrap">
+                      <span className="w-12 font-semibold text-slate-200 shrink-0">
+                        <TickerChartHover symbol={p.t}><span className="border-b border-dotted border-white/25">{p.t}</span></TickerChartHover>
+                      </span>
+                      <span className="text-slate-500 w-24 truncate shrink-0 hidden sm:inline">{SCAN_LABEL[p.scan] ?? p.scan}</span>
+                      <span className="text-slate-400 tabular-nums truncate">{p.dip ? 'Dip' : 'Buy'} {p.buy.toFixed(2)} · Stop {p.stop.toFixed(2)}</span>
+                      <span className={`ml-auto font-semibold ${st.cls}`} title={st.tip}>{st.label}</span>
+                      <span className={`w-10 text-right tabular-nums font-semibold ${traded ? rCls(p.r) : 'text-slate-600'}`}>{traded ? fmtUsd(p.r) : '—'}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1.5">$ is the result for every $100 risked. Grey rows were never bought.</p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function TrackRecord() {
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -441,12 +573,16 @@ export default function TrackRecord() {
         </div>
       </div>
 
-      {/* What this is — two lines. The long version lived here and nobody
-          could read the table after it. */}
+      {!loading && !error && <PlanSection plan={data?.plan} />}
+
+      {/* The second record: every pick at the next open. What the 5-year test
+          measured, so it is the one the 5-yr column compares against. */}
+      <h2 className="text-[11px] font-bold tracking-widest uppercase text-slate-400 mb-2 px-1">Every pick, bought at the next open</h2>
       <div className="mb-4 px-3 md:px-5 py-3 bg-slate-900/50 border border-white/[0.06] rounded-lg">
         <p className="text-[11px] text-slate-300 leading-relaxed">
-          Every stock each scan picked, <strong className="text-slate-100">bought at the next morning&apos;s open</strong>{' '}
-          with the scan&apos;s own stop, sold at twice the risk or at the stop. Nothing picked after the fact, nothing removed.
+          The mechanical version: every stock each scan picked, <strong className="text-slate-100">bought at the next morning&apos;s open</strong>{' '}
+          whether or not it reached its level, with the scan&apos;s own stop and twice the risk as the target. It is how the
+          5-year test was run, so the two compare. Nothing picked after the fact, nothing removed.
         </p>
         {totalSettled === 0 && totalPicks > 0 && (
           <p className="text-[11px] text-amber-400/80 leading-relaxed mt-1.5">

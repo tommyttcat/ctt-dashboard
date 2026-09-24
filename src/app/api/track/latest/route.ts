@@ -8,21 +8,26 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { TRACK_RESULTS_KEY, TRACK_META_KEY, TRACK_OPEN_KEY, type TrackResults, type OpenPosition } from '@/lib/track';
+import { PLAN_RESULTS_KEY, type PlanResults } from '@/lib/trackPlan';
 import { CACHE, cacheHeaders } from '@/lib/httpCache';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const [results, meta, open] = await Promise.all([
+    const [results, meta, open, plan] = await Promise.all([
       kv.get<TrackResults>(TRACK_RESULTS_KEY),
       kv.get<{ lastBarDate?: string; tickedAt?: string; open?: number }>(TRACK_META_KEY),
       kv.get<OpenPosition[]>(TRACK_OPEN_KEY),
+      /* The record kept the way the picks are presented (lib/trackPlan). One
+         small key; its recent-trades list is capped at 40. */
+      kv.get<PlanResults>(PLAN_RESULTS_KEY),
     ]);
     const live = open ?? [];
     return NextResponse.json({
       success: true,
       results: results ?? {},
+      plan: plan ?? null,
       meta: meta ?? null,
       openCount: live.length,
       // Enough to show "tracking N ideas" without shipping the whole book.

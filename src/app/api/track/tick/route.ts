@@ -8,6 +8,9 @@
 //   2. walks every open position one session forward on today's bar
 //   3. records today's picks as tomorrow's fills
 //
+// Plus the plan record (lib/trackPlan, 24 Sep 2026): two more reads and two
+// more writes, same bars, same scan lists — still flat in users.
+//
 // Cost per tick, measured 11 Sep 2026: 10 KV reads (8 scan lists + open
 // positions + results), 2 KV writes, 1 Polygon grouped-daily call. Flat in
 // users — nothing here happens on a page view. ~11 KB of new rows a day; the
@@ -29,6 +32,10 @@ import {
   rMultiple, homeRunLevel, targetFor,
   type OpenPosition, type TrackResults, type ScanRecord,
 } from '@/lib/track';
+import {
+  PLAN_OPEN_KEY, PLAN_RESULTS_KEY, PLAN_SOURCES, newPlanPosition, stepPlan, foldPlan, isResolved, emptyPlanRecord,
+  type PlanPosition, type PlanResults,
+} from '@/lib/trackPlan';
 import { edgeTier, multibaggerTier, swingTier, consolidationTier, ep9mTier, vcpTier, hrsTier } from '@/lib/scans/edge';
 
 export const dynamic = 'force-dynamic';
@@ -95,6 +102,31 @@ export async function GET() {
   const open = (await kv.get<OpenPosition[]>(TRACK_OPEN_KEY)) || [];
   const results = (await kv.get<TrackResults>(TRACK_RESULTS_KEY)) || {};
   const settledToday: OpenPosition[] = [];
+
+  /* The plan record (lib/trackPlan): the same picks, counted only when they
+     trade their buy level. Walked on the same bars, before today's picks are
+     added, so a pick is never filled on the evening it was made. */
+  /* Fenced: a fault anywhere in the plan record turns it off for this tick
+     (planOk = false, nothing of it written) and never stops the next-open
+     record, which is the one with history. */
+  let planOk = true;
+  let planKept: PlanPosition[] = [];
+  let planResults: PlanResults = { startedOn: date, byScan: {}, recent: [] };
+  try {
+    const planOpen = (await kv.get<PlanPosition[]>(PLAN_OPEN_KEY)) || [];
+    planResults = (await kv.get<PlanResults>(PLAN_RESULTS_KEY)) || planResults;
+    for (const p of planOpen) {
+      const bar = bars.get(p.t);
+      if (!bar) continue;
+      if (stepPlan(p, bar, date)) (planResults.byScan[p.scan] ||= emptyPlanRecord()).filled += 1;
+      if (isResolved(p)) foldPlan(planResults, p);
+    }
+    planKept = planOpen.filter(p => !isResolved(p));
+  } catch (e) {
+    console.error('TRACK_PLAN_STEP_ERROR', e);
+    planOk = false;
+  }
+  const planLive = new Set(planKept.map(p => `${p.scan}|${p.t}`));
 
   // 1-2. Fill yesterday's picks at today's open, then walk every live position.
   for (const p of open) {
@@ -212,6 +244,18 @@ export async function GET() {
     const rec = (results[scan] ||= emptyRecord());
     for (const row of rows) {
       const t = String(row[sym] ?? '').toUpperCase();
+      /* Plan record first, and independently: its book retires positions on a
+         different clock, so "already open" is not the same set of names. */
+      if (planOk && t && scan in PLAN_SOURCES && !planLive.has(`${scan}|${t}`)) {
+        try {
+          const pp = newPlanPosition(scan, row, date, tierOf(scan, row));
+          if (pp) {
+            planKept.push(pp);
+            planLive.add(`${scan}|${t}`);
+            (planResults.byScan[scan] ||= emptyPlanRecord()).picked += 1;
+          }
+        } catch (e) { console.error('TRACK_PLAN_PICK_ERROR', scan, t, e); }
+      }
       if (!t || live.has(`${scan}|${t}`)) continue;
       /* Stop, in order of preference: the row's own plan, a stop the scan
          publishes at the top level (VCP and 10/21 do), then the pick day's
@@ -268,8 +312,26 @@ export async function GET() {
   if (closed.length > 0) await kv.set(TRACK_CLOSED_KEY, closed);
   await kv.set(TRACK_META_KEY, { lastBarDate: date, tickedAt: new Date().toISOString(), open: kept.length });
 
+  /* Plan record last, after the next-open record is safely written. */
+  if (planOk) {
+    try {
+      for (const scan of Object.keys(PLAN_SOURCES)) {
+        const rec = (planResults.byScan[scan] ||= emptyPlanRecord());
+        rec.watching = planKept.filter(p => p.scan === scan && p.state === 'watching').length;
+        rec.open = planKept.filter(p => p.scan === scan && p.state === 'filled').length;
+      }
+      planResults.updatedAt = new Date().toISOString();
+      await kv.set(PLAN_OPEN_KEY, planKept);
+      await kv.set(PLAN_RESULTS_KEY, planResults);
+    } catch (e) {
+      console.error('TRACK_PLAN_WRITE_ERROR', e);
+      planOk = false;
+    }
+  }
+
   return NextResponse.json({
     success: true, barDate: date, added, open: kept.length,
+    plan: planOk ? { watching: planKept.filter(p => p.state === 'watching').length, open: planKept.filter(p => p.state === 'filled').length } : 'skipped (error, see logs)',
     settled: settledToday.length, emptyScans,
   });
 }
