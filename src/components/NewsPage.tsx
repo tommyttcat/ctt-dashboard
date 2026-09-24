@@ -88,6 +88,7 @@ type WireItem = {
   url: string;
   publishedUtc?: string;
   publisher?: string;
+  summary?: string;
 };
 
 const SCAN_LABEL: Record<string, string> = {
@@ -202,10 +203,12 @@ function Stats({ s }: { s: Partial<StatRow> | null | undefined }) {
    is before reading it; the headline at 15px; the names underneath; the small
    facts last, below a hairline. The day's move for the lead name sits top
    right, where the Confluence report puts it. */
-function NewsCard({ tag, tagHint, headline, url, move, flags, tickers, showName, meta, stats, tier, plan }: {
+function NewsCard({ tag, tagHint, headline, summary, url, move, flags, tickers, showName, meta, stats, tier, plan }: {
   tag: NewsTag;
   tagHint?: string;
   headline: string;
+  /** A sentence or two from the article — the "why" behind the headline. */
+  summary?: string | null;
   url: string | null;
   move?: number | null;
   flags?: React.ReactNode;
@@ -238,6 +241,7 @@ function NewsCard({ tag, tagHint, headline, url, move, flags, tickers, showName,
           {head}
         </a>
       ) : head}
+      {summary && <p className="text-[13px] leading-[1.55] text-slate-300 line-clamp-3 -mt-1">{summary}</p>}
       {plan && (
         <div className="flex items-center gap-4 rounded-xl bg-[#0b1220] px-3 py-2 text-[13px] tabular-nums">
           <span className="text-slate-400">{plan.dip ? 'Buy dip' : 'Buy above'} <b className="text-slate-100">{plan.buy.toFixed(2)}</b></span>
@@ -317,6 +321,7 @@ function WireCard({ it, stats, now }: { it: WireItem; stats: Record<string, Stat
     <NewsCard
       tag={wireTag(it)}
       headline={decodeEntities(it.cleanHeadline || it.title)}
+      summary={it.summary ? decodeEntities(it.summary) : null}
       url={it.url}
       move={lead?.changePct ?? null}
       tickers={ordered.map(t => ({ t, cnf: stats[t]?.cnf ?? null, name: stats[t]?.name ?? null, move: stats[t]?.changePct ?? null, tier: stats[t]?.tier ?? null }))}

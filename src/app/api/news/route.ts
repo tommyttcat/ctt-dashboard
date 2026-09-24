@@ -139,6 +139,8 @@ function summarize(raw: unknown, title: string): string {
     .replace(/&quot;|&ldquo;|&rdquo;/g, '"').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/&[a-z]+;/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+  // Promo tails Benzinga appends ("Get the full market breakdown.").
+  t = t.replace(/\s*(Get the full (market )?breakdown|Read the full (story|article)|Click here[^.]*|See more[^.]*|Read more[^.]*)\.?\s*$/i, '').trim();
   // A bare link (e.g. an SEC filing URL) is not a summary.
   t = t.replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim();
   if (t.length < 25) return '';
