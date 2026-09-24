@@ -1114,13 +1114,14 @@ const STATUS_META: Record<PlanStatus, { cls: string; tip: string }> = {
 };
 
 /* Same pixel grid as the Setups Summary rows (renderStdRow / SortableHeader)
-   so the columns land under the card's columns on desktop. PHONE: PRC, RVOL
-   and RS step aside so a full row — ticker, CNF, change, buy, stop, status —
-   fits a 360px screen without scrolling. BUY/STOP/STAT are sized to their
+   so the columns land under the card's columns on desktop. PHONE: every
+   column stays (the reader wants the stats there too); each is cut to its
+   widest real value at 9px and the card's invisible spacers are dropped, so
+   a full row is ~324px. Below that the box scrolls sideways rather than
+   clipping BUY / STOP / STAT. BUY/STOP/STAT are sized to their
    widest real value at 9px ("↑1234.56", "229.65", "MISS"), no slack. */
 const TP_H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
 const TP_SORT = 'cursor-pointer hover:text-slate-400 transition-colors select-none';
-const TP_MD = 'hidden md:inline-block';
 
 const TriggerProximity = ({ pool }: { pool: any[] }) => {
   /* The SET is the recommended names — exactly the rows on the Setups
@@ -1158,10 +1159,10 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
       <span className={`${TP_H} w-[38px] md:w-[44px] text-center`}>TICKER</span>
       <span className="hidden md:inline-block w-[28px]" />
       <span className={`${TP_H} ${TP_SORT} w-[20px] md:w-[22px] text-center ml-1`} onClick={() => handleSort('cnf')}>CNF{arrow('cnf')}</span>
-      <span className={`${TP_H} ${TP_SORT} w-[44px] md:w-[52px] text-right ml-1`} onClick={() => handleSort('chg')}>CHG%{arrow('chg')}</span>
-      <span className={`${TP_H} ${TP_MD} w-[42px] text-right ml-1`}>PRC</span>
-      <span className={`${TP_H} ${TP_SORT} ${TP_MD} w-[40px] text-right ml-1`} onClick={() => handleSort('rvol')}>RVOL{arrow('rvol')}</span>
-      <span className={`${TP_H} ${TP_SORT} ${TP_MD} w-[24px] text-center ml-1`} onClick={() => handleSort('rs')}>RS{arrow('rs')}</span>
+      <span className={`${TP_H} ${TP_SORT} w-[40px] md:w-[52px] text-right ml-1`} onClick={() => handleSort('chg')}>CHG%{arrow('chg')}</span>
+      <span className={`${TP_H} w-[34px] md:w-[42px] text-right ml-1`}>PRC</span>
+      <span className={`${TP_H} ${TP_SORT} w-[28px] md:w-[40px] text-right ml-1`} onClick={() => handleSort('rvol')}>RVOL{arrow('rvol')}</span>
+      <span className={`${TP_H} ${TP_SORT} w-[22px] md:w-[24px] text-center ml-1`} onClick={() => handleSort('rs')}>RS{arrow('rs')}</span>
       <span className={`${TP_H} w-[42px] md:w-[46px] text-right ml-1`} title="↑ buy above this price · ↓ buy on a dip to it (EP9M)">BUY</span>
       <span className={`${TP_H} w-[36px] md:w-[40px] text-right ml-1`} title="Out below this — the idea is wrong">STOP</span>
       <span className={`${TP_H} ${TP_SORT} w-[32px] md:w-[34px] text-right ml-1`} onClick={() => handleSort('status')} title="Where it stands now">STAT{arrow('status')}</span>
@@ -1187,12 +1188,12 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
         <TickerChartHover symbol={ticker}><span className={`${gradeChipCls(grade, false)} w-[38px] md:w-[44px]`}>{ticker}</span></TickerChartHover>
         <span className="hidden md:inline-block w-[28px]" />
         <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${cnfBadgeCls(cnf)}`}>{cnf}</span>
-        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[44px] md:w-[52px] text-right ml-1 ${chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
-        <span className={`text-[9px] tabular-nums ${TP_MD} w-[42px] text-right text-slate-300 ml-1`}>{fmtPrc(price)}</span>
-        <span className={`text-[9px] tabular-nums font-semibold ${TP_MD} w-[40px] text-right ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? `${rv < 1 ? rv.toFixed(1) : Math.round(rv)}x` : ''}</span>
-        <span className={`${TP_MD} w-[24px] text-center ml-1`}>{rs != null
-          ? <span className={`inline-block w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(rs)}`}>{rs}</span>
-          : <span className="inline-block w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
+        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[40px] md:w-[52px] text-right ml-1 ${chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
+        <span className="text-[9px] tabular-nums inline-block w-[34px] md:w-[42px] text-right text-slate-300 ml-1">{fmtPrc(price)}</span>
+        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[28px] md:w-[40px] text-right ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? `${rv < 1 ? rv.toFixed(1) : Math.round(rv)}x` : ''}</span>
+        <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{rs != null
+          ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(rs)}`}>{rs}</span>
+          : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
         {r && meta && st ? (
           <>
             <span className="text-[9px] tabular-nums font-semibold inline-block w-[42px] md:w-[46px] text-right ml-1 text-slate-200"
@@ -1229,9 +1230,9 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
         <InfoDot text={"Buy level and stop for every name on the card above — same filters.\n\n↑ buy above that price. ↓ buy on a dip to it (EP9M).\n\nSTAT: a percentage means not there yet, this far away. HIT — at the buy level. MISS — ran past it by more than a normal day's move; buying now is chasing. EXT — too far above its 21-day average to place a sensible stop; levels are for reference only. OUT — below the stop; the idea failed.\n\nA name with no levels at all shows dashes."} />
       </div>
       <div className={useTwoCols ? 'grid grid-cols-1 md:grid-cols-2 gap-x-6' : ''}>
-        <div className="min-w-0">{head}{items.slice(0, mid).map(draw)}</div>
+        <div className="min-w-0 overflow-x-auto md:overflow-visible"><div className="min-w-max md:min-w-0">{head}{items.slice(0, mid).map(draw)}</div></div>
         {useTwoCols && (
-          <div className="min-w-0"><div className="hidden md:block">{head}</div>{items.slice(mid).map(draw)}</div>
+          <div className="min-w-0 overflow-x-auto md:overflow-visible"><div className="min-w-max md:min-w-0"><div className="hidden md:block">{head}</div>{items.slice(mid).map(draw)}</div></div>
         )}
       </div>
       <p className="text-[10px] text-slate-500 font-medium mt-1">
