@@ -22,13 +22,6 @@
  * once on mount and offers a manual refresh instead of a timer, because news a
  * minute stale is news and a setInterval per open tab is how the Upstash quota
  * went out in August.
- *
- * LAYOUT (v2, Sep 2026). Same visual language as the Confluence report: a hero
- * card that says in one plain line what the news is about, three stat tiles,
- * type pills to filter by, then each story as its own card — tag, headline at
- * reading size, the names as solid chips (chart on hover), publisher and age.
- * The data, the two fetches and the no-timer rule are unchanged; everything
- * the hero and the pills show is derived client-side from the same payloads.
  */
 
 import React from 'react';
@@ -40,15 +33,12 @@ import WatchlistPanel from './WatchlistPanel';
 import DashNav from './DashNav';
 import HelpModal from './HelpModal';
 import InfoDot from './InfoDot';
-import { tipForScan, type EdgeTier } from '@/lib/scans/edge';
-import { catalystTooltip, headlineOf, decodeEntities, type CatalystRow } from '@/lib/catalyst';
-import { gradeOf, rvolColor, cnfBadgeCls } from '@/lib/indicators/columnColors';
+import { EDGE_TINT, tipForScan, type EdgeTier } from '@/lib/scans/edge';
+import { CatalystChip, NewsStars, catalystTooltip, headlineOf, decodeEntities, type CatalystRow } from '@/lib/catalyst';
+import { tickerChipForScore, tickerTitle, rvolColor } from '@/lib/indicators/columnColors';
 import { rsBadge, rsTooltip } from '@/lib/indicators/rs';
 import { formatNumber, formatCurrency } from '@/lib/scans/tableFormat';
-import {
-  TAG_META, tagOf, tagCounts, tapeLine, minutesSince, ageLabelMinutes, relTime, etDateKey, fmtMove,
-  type NewsTag,
-} from '@/lib/newsView';
+import { scoreCellCls } from '@/lib/indicators/columnColors';
 
 type StatRow = {
   tier: EdgeTier | null;
@@ -96,11 +86,6 @@ const SCAN_LABEL: Record<string, string> = {
   coil: '10/21', dvol: '$VOL', hrs: 'HRS', mb: '100',
 };
 
-const SCAN_NAME: Record<string, string> = {
-  sip: 'Stocks in Play', daily: 'Daily Setups', ep9m: 'EP 9M', swing: 'Swing Candidates',
-  vcp: 'VCP', coil: '10/21 Consolidation', dvol: 'Dollar Volume', hrs: 'Hidden RS', mb: '100-Bagger',
-};
-
 /* Same palette the scan-source pills use on the dashboard, so a source means
    the same colour wherever it is named. */
 const SCAN_CLS: Record<string, string> = {
@@ -115,273 +100,210 @@ const SCAN_CLS: Record<string, string> = {
   mb: 'text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/20',
 };
 
-/* The row tint the first version used, as words. Each scan's own measured
-   tier, decided in the route where the fields that decide it still exist —
-   a property of the name, not of the story. */
-const TIER_WORDS: Record<EdgeTier, { label: string; cls: string }> = {
-  green: { label: 'Best odds', cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
-  yellow: { label: 'Middling odds', cls: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
-  red: { label: 'Weak odds', cls: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
-};
-
-const moveCls = (v: number | null | undefined) =>
+const chgCls = (v: number | null | undefined) =>
   v == null ? 'text-slate-500' : v > 0 ? 'text-emerald-400' : v < 0 ? 'text-rose-400' : 'text-slate-400';
 
-/* ---- Shared pieces --------------------------------------------------------
-   SIZES. Two per card and no more: the headline (and the day's move beside
-   it) at 15px, everything else at 12px — pills at 11px uppercase, which reads
-   as the same weight. The first version set prose at 13px and every fact
-   around it at 7-10px, which is what made it hard to read. */
+const fmtChg = (v: number | null | undefined) =>
+  v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}%`;
 
-/* The pill, rounded fully as on the Confluence report. Filter controls and
-   in-card tags share it so a colour means one thing on the page. */
-const PILL = 'inline-flex items-center gap-1 rounded-full border px-2.5 py-[3px] text-[11px] font-bold tracking-[0.06em] uppercase leading-[1.3] whitespace-nowrap';
-const PILL_OFF = 'text-slate-500 bg-transparent border-[#1e293b] hover:text-slate-300';
-const LABEL = 'text-[11px] font-bold tracking-[0.14em] uppercase';
-
-/* Solid ticker chip, coloured by CNF grade — green A, amber B, slate for the
-   rest and for names that were never scored. The same grade the scan tables
-   tint their chips with, filled in. */
-function chipCls(cnf: number | null | undefined): string {
-  const g = gradeOf(cnf);
-  const fill = g === 'A' ? 'bg-emerald-400' : g === 'B' ? 'bg-amber-400' : 'bg-slate-400';
-  return `inline-block rounded-md px-2 py-[3px] text-[12px] font-extrabold tracking-wide leading-none text-[#0b0f1a] ${fill}`;
+/* The wire carries a timestamp, so its ages are computed rather than read off
+   a stored label — the opposite of the pool feed, which only has the label the
+   scan printed. */
+function wireAge(iso: string | undefined): string {
+  if (!iso) return '';
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return '';
+  const mins = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const h = Math.round(mins / 60);
+  return h < 24 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
 }
 
-function TagPill({ tag, hint }: { tag: NewsTag; hint?: string }) {
-  const pill = <span className={`${PILL} ${TAG_META[tag].cls}`}>{TAG_META[tag].label}</span>;
-  return hint ? <InfoDot text={hint}>{pill}</InfoDot> : pill;
-}
+const PILL = 'text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border transition-all duration-150';
 
-type Ticker = { t: string; cnf?: number | null; name?: string | null; move?: number | null };
+/* The same pill inside a row, one size down. The filter buttons above are
+   controls and keep 9px; the scan tag beside a headline is a label on the
+   ticker, so it sits below the ticker in the hierarchy rather than above it —
+   which is what it was doing when both were the other way round. */
+const TAG = 'text-[7px] font-bold tracking-wider uppercase px-1 py-[1px] rounded border';
 
-function TickerRow({ tickers, showName }: { tickers: Ticker[]; showName?: boolean }) {
-  const MAX = 4;
-  const shown = tickers.slice(0, MAX);
-  const more = tickers.length - shown.length;
-  return (
-    <div className="flex items-center gap-x-3 gap-y-2 flex-wrap text-[12px] min-w-0">
-      {shown.map((k, i) => (
-        <span key={k.t} className="inline-flex items-center gap-1.5 min-w-0">
-          {i === 0 && <WatchlistBtn symbol={k.t} />}
-          <TickerChartHover symbol={k.t}>
-            <span className={chipCls(k.cnf)} aria-label={k.name || k.t}>{k.t}</span>
-          </TickerChartHover>
-          {i === 0 && showName && k.name && (
-            <span className="text-slate-400 truncate max-w-[180px]">{k.name}</span>
-          )}
-          {/* The lead name's move is already the big number top right. */}
-          {i > 0 && k.move != null && (
-            <span className={`font-bold tabular-nums ${moveCls(k.move)}`}>{fmtMove(k.move)}</span>
-          )}
-        </span>
-      ))}
-      {more > 0 && <span className="text-slate-500 font-semibold">+{more} more</span>}
+const Card = ({ title, count, info, children, right }: {
+  title: string; count?: string; info: string; right?: React.ReactNode; children: React.ReactNode;
+}) => (
+  <div className="bg-[#0f1523] border border-white/5 rounded-xl px-4 md:px-5 py-4">
+    <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+      <div className="flex items-center">
+        <span className="text-[11px] font-bold tracking-widest uppercase text-slate-300">{title}</span>
+        {count && <span className="ml-2 text-[10px] font-bold text-slate-500">{count}</span>}
+        <InfoDot text={info} />
+      </div>
+      {right}
     </div>
-  );
-}
+    {children}
+  </div>
+);
 
-/* The stat strip: the same fields and colour rules as the scan tables — CNF,
-   RS, RVOL, VOL, $VOL — in words rather than column codes. The day's move is
-   not repeated here: it is the big number on the card.
+/* ---- One item ------------------------------------------------------------
+   THE HEADLINE IS THE PAGE. The first cut rendered everything at 10px, the
+   scanner tables' size — right for a column of numbers you scan down, wrong
+   for a sentence you read. Prose gets 13px and leads the item.
 
-   On the wire these exist only for a name that is on a board. A missing strip
-   is the honest answer there, not a row of dashes. */
+   ONE THING IN THE RAIL. The second cut stacked the ticker and its scan pill
+   there, two chips of different widths under each other, and the left edge
+   came out as a stair-step. The rail is a fixed 54px holding the ticker and
+   nothing else, so every headline on the page starts at the same x; the scan
+   moves down to the metadata line where the other small facts already live. */
+
+const META = 'text-[10px] font-medium';
+
+/* The stat strip, identical in both sections. Same fields, same order and
+   same colour rules as the scan tables — CNF, RS, CHG%, RVOL, VOL, $VOL —
+   because a number that means one thing on the scanners page and looks
+   different here is worse than no number.
+
+   On the wire these are present only for a name that is on a board: the feed
+   is general and most of what it carries has never been scanned. A missing
+   strip is the honest answer there, not a row of dashes. */
 function Stats({ s }: { s: Partial<StatRow> | null | undefined }) {
   if (!s) return null;
-  const badge = 'inline-block rounded border px-1.5 py-px text-[12px] font-bold tabular-nums leading-[1.4]';
   return (
     <>
-      {s.cnf != null && (
-        <InfoDot text={`CNF ${Math.round(s.cnf)} — the site's confluence score for this name, 0-100. 70 and up is an A, 50 and up a B.`}>
-          <span className={`${badge} ${cnfBadgeCls(s.cnf)}`}>CNF {Math.round(s.cnf)}</span>
-        </InfoDot>
-      )}
+      {s.cnf != null && <span className={scoreCellCls(s.cnf)} title="CNF score">{Math.round(s.cnf)}</span>}
       {s.rsRating != null && (
-        <InfoDot text={rsTooltip(s.rsRating)}>
-          <span className={`${badge} ${rsBadge(s.rsRating)}`}>RS {s.rsRating}</span>
-        </InfoDot>
+        <span className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums ${rsBadge(s.rsRating)}`} title={rsTooltip(s.rsRating)}>
+          {s.rsRating}
+        </span>
+      )}
+      {s.changePct != null && (
+        <span className={`font-bold tabular-nums ${chgCls(s.changePct)}`}>{fmtChg(s.changePct)}</span>
       )}
       {s.rvol != null && (
-        <span className={`font-bold tabular-nums ${rvolColor(s.rvol)}`}>{s.rvol.toFixed(1)}x usual volume</span>
+        <span className={`font-bold tabular-nums ${rvolColor(s.rvol)}`} title="Relative volume">{s.rvol.toFixed(1)}x</span>
       )}
-      {s.vol != null && <span className="tabular-nums text-slate-400">{formatNumber(s.vol)} shares</span>}
-      {s.dvol != null && <span className="tabular-nums text-slate-400">{formatCurrency(s.dvol)} traded</span>}
+      {s.vol != null && <span className="font-bold tabular-nums text-slate-400" title="Volume">{formatNumber(s.vol)}</span>}
+      {s.dvol != null && <span className="font-bold tabular-nums text-slate-400" title="Dollar volume">{formatCurrency(s.dvol)}</span>}
     </>
   );
 }
 
-/* ---- One story ------------------------------------------------------------
-   THE HEADLINE IS THE CARD. Tag first, so the eye knows what kind of story it
-   is before reading it; the headline at 15px; the names underneath; the small
-   facts last, below a hairline. The day's move for the lead name sits top
-   right, where the Confluence report puts it. */
-function NewsCard({ tag, tagHint, headline, url, move, flags, tickers, showName, meta, stats }: {
-  tag: NewsTag;
-  tagHint?: string;
+function ItemShell({ ticker, cnf, name, headline, url, title, meta, tier, scan }: {
+  ticker: string;
+  cnf?: number | null;
+  name?: string | null;
   headline: string;
   url: string | null;
-  move?: number | null;
-  flags?: React.ReactNode;
-  tickers: Ticker[];
-  showName?: boolean;
-  meta: string;
-  stats?: Partial<StatRow> | null;
+  title?: string;
+  meta: React.ReactNode;
+  tier?: EdgeTier | null;
+  scan?: string;
 }) {
-  const head = (
-    <p className="text-[15px] leading-[1.45] font-semibold text-slate-100 break-words group-hover/hl:text-cyan-300 transition-colors">
-      {headline}
-    </p>
+  /* group-hover with no group above it never fires, so one body serves the
+     linked and unlinked cases without a second copy. */
+  const body = (
+    <>
+      <p className="text-[13px] leading-[1.4] text-slate-100 font-medium group-hover/hl:text-indigo-300 transition-colors">
+        {headline}
+      </p>
+      <div className={`mt-1 flex items-center gap-x-2 gap-y-1 flex-wrap ${META} text-slate-500`}>{meta}</div>
+    </>
   );
+  /* The same green/yellow/red the scan cards carry, on the same rule: each
+     scan's own measured tier, decided in the route where the fields that
+     decide it still exist. The tint is the row's, not the headline's — a
+     story does not have an edge, the name it is about does. */
+  const tint = tier ? EDGE_TINT[tier] : '';
+  const tierTip = tier ? `${tier.toUpperCase()} — ${tipForScan(scan, tier)}` : undefined;
   return (
-    <article className="bg-[#111827] border border-[#1e293b] rounded-2xl p-4 flex flex-col gap-3 min-w-0">
-      <div className="flex items-start gap-2">
-        <div className="flex items-center gap-1.5 flex-wrap min-w-0 flex-1">
-          <TagPill tag={tag} hint={tagHint} />
-          {flags}
-        </div>
-        {move != null && (
-          <span className={`shrink-0 text-[15px] font-extrabold tabular-nums leading-[1.4] ${moveCls(move)}`}>{fmtMove(move)}</span>
-        )}
+    <div
+      className={`flex items-start gap-2.5 py-2.5 px-2 rounded-sm border-b border-white/[0.05] last:border-b-0 ${tint}`}
+      title={tierTip}
+    >
+      <div className="w-[66px] shrink-0 flex items-center gap-1 pt-[1px]">
+        <WatchlistBtn symbol={ticker} />
+        <TickerChartHover symbol={ticker}>
+          <span title={tickerTitle(name, ticker, cnf)} className={tickerChipForScore(cnf, 'sm')}>{ticker}</span>
+        </TickerChartHover>
       </div>
-      {url ? (
-        <a href={url} target="_blank" rel="noopener noreferrer" className="block group/hl" style={{ textDecoration: 'none' }}>
-          {head}
-        </a>
-      ) : head}
-      <div className="mt-auto flex flex-col gap-3">
-        <TickerRow tickers={tickers} showName={showName} />
-        <div className="flex items-center gap-x-2.5 gap-y-1.5 flex-wrap text-[12px] text-slate-500 border-t border-[#1e293b] pt-3">
-          {meta && <span>{meta}</span>}
-          <Stats s={stats} />
-        </div>
+      <div className="flex-1 min-w-0">
+        {url ? (
+          <a href={url} target="_blank" rel="noopener noreferrer" title={title} className="block group/hl" style={{ textDecoration: 'none' }}>
+            {body}
+          </a>
+        ) : body}
       </div>
-    </article>
+    </div>
   );
 }
 
-function ScanPill({ scan, prefix }: { scan: string; prefix: string }) {
-  return (
-    <InfoDot text={`${prefix} your ${SCAN_NAME[scan] ?? scan} scan.`}>
-      <span className={`${PILL} ${SCAN_CLS[scan] ?? 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20'}`}>
-        {SCAN_LABEL[scan] ?? 'ON BOARD'}
-      </span>
-    </InfoDot>
-  );
-}
-
-function TierPill({ tier, scan }: { tier: EdgeTier; scan?: string }) {
-  const w = TIER_WORDS[tier];
-  const tip = tipForScan(scan, tier);
-  return (
-    <InfoDot text={`${tier.toUpperCase()}${tip ? ` — ${tip}` : ''}\n\nThis is the name's measured tier on its own scan, not a rating of the story.`}>
-      <span className={`${PILL} ${w.cls}`}>{w.label}</span>
-    </InfoDot>
-  );
-}
-
-function Stars({ n }: { n: number }) {
-  if (n <= 0) return null;
-  return (
-    <InfoDot text={n >= 2
-      ? '★★ — the tag is a real category (earnings, M&A, analyst, FDA…) AND the article states a reason for the move rather than restating it.'
-      : '★ — there is an article, but it is generic: it restates the move rather than explaining it.'}>
-      <span className={`text-[12px] font-bold leading-none ${n >= 2 ? 'text-amber-400' : 'text-amber-400/50'}`}>{n >= 2 ? '★★' : '★'}</span>
-    </InfoDot>
-  );
-}
-
-const poolTag = (it: PoolItem): NewsTag => tagOf(it.catalyst);
-const wireTag = (a: WireItem): NewsTag => tagOf(a.aiTag);
-
-function PoolCard({ it }: { it: PoolItem }) {
+function PoolRow({ it }: { it: PoolItem }) {
   const headline = headlineOf(it);
   if (!headline) return null;
-  const mins = ageLabelMinutes(it.newsAge);
-  const age = mins != null ? relTime(mins) : (it.newsAge ?? '');
-  const delayed = /\(Delayed\)\s*$/i.test(it.catalyst || '');
   return (
-    <NewsCard
-      tag={poolTag(it)}
-      tagHint={catalystTooltip(it, { headline }) || undefined}
-      headline={headline}
+    <ItemShell
+      ticker={it.ticker}
+      cnf={it.cnf}
+      name={it.name}
       url={it.catalystUrl ?? null}
-      move={it.changePct ?? null}
-      showName
-      flags={
+      title={catalystTooltip(it, { headline })}
+      headline={headline}
+      tier={it.tier}
+      scan={it.scan}
+      meta={
         <>
-          <Stars n={it.stars} />
-          <ScanPill scan={it.scan} prefix="From" />
-          {it.tier && <TierPill tier={it.tier} scan={it.scan} />}
-          {it.newsSentiment === 'negative' && (
-            <span className={`${PILL} text-rose-400 bg-rose-500/10 border-rose-500/20`}>Negative</span>
-          )}
+          <span className={`${TAG} ${SCAN_CLS[it.scan] ?? 'text-slate-400 bg-slate-500/10 border-slate-500/20'}`}>
+            {SCAN_LABEL[it.scan] ?? it.scan.toUpperCase()}
+          </span>
+          <NewsStars row={it} />
+          <CatalystChip row={it} headline={headline} size="sm" />
+          {it.cnf != null && <span className={scoreCellCls(it.cnf)} title="CNF score">{Math.round(it.cnf)}</span>}
+          <Stats s={it} />
+          <span className="text-slate-600 truncate">{[it.newsPublisher, it.newsAge].filter(Boolean).join(' · ')}</span>
         </>
       }
-      tickers={[{ t: it.ticker, cnf: it.cnf, name: it.name, move: it.changePct }]}
-      meta={[it.newsPublisher, age, delayed ? 'delayed' : null].filter(Boolean).join(' · ')}
-      stats={it}
     />
   );
 }
 
-function WireCard({ it, stats, now }: { it: WireItem; stats: Record<string, StatRow>; now: number }) {
-  /* An article can be tagged with several tickers; the one that leads is the
-     first that is on a board, and its stats are what the card shows. */
-  const uniq = [...new Set((it.tickers?.length ? it.tickers : [it.ticker]).map(t => String(t).toUpperCase()))];
-  const leadIdx = uniq.findIndex(t => !!stats[t]);
-  const ordered = leadIdx > 0 ? [uniq[leadIdx], ...uniq.filter((_, i) => i !== leadIdx)] : uniq;
-  const lead = leadIdx >= 0 ? stats[uniq[leadIdx]] : undefined;
+function WireRow({ it, stat }: { it: WireItem; stat?: StatRow }) {
   return (
-    <NewsCard
-      tag={wireTag(it)}
-      headline={decodeEntities(it.cleanHeadline || it.title)}
+    <ItemShell
+      ticker={it.ticker}
+      cnf={stat?.cnf ?? null}
+      name={stat?.name ?? null}
+      tier={stat?.tier}
+      scan={stat?.scan}
       url={it.url}
-      move={lead?.changePct ?? null}
-      flags={
+      headline={decodeEntities(it.cleanHeadline || it.title)}
+      meta={
         <>
-          {lead && <ScanPill scan={lead.scan} prefix="On" />}
-          {lead?.tier && <TierPill tier={lead.tier} scan={lead.scan} />}
+          {stat && (
+            <span className={`${TAG} ${SCAN_CLS[stat.scan] ?? 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20'}`} title="On one of your scans right now">
+              {SCAN_LABEL[stat.scan] ?? 'ON BOARD'}
+            </span>
+          )}
+          {it.aiTag && <span className={`${TAG} text-slate-400 bg-slate-500/10 border-slate-500/20`}>{it.aiTag}</span>}
+          <Stats s={stat} />
+          <span className="text-slate-600 truncate">{[it.publisher, wireAge(it.publishedUtc)].filter(Boolean).join(' · ')}</span>
         </>
       }
-      tickers={ordered.map(t => ({ t, cnf: stats[t]?.cnf ?? null, name: stats[t]?.name ?? null, move: stats[t]?.changePct ?? null }))}
-      meta={[it.publisher, relTime(minutesSince(it.publishedUtc, now))].filter(Boolean).join(' · ')}
-      stats={lead}
     />
   );
 }
 
-function Section({ title, count, info, controls, children }: {
-  title: string; count?: string; info: string; controls?: React.ReactNode; children: React.ReactNode;
-}) {
+/* Two INDEPENDENT columns, not a two-column grid.
+   A grid lays its items out in rows, so a two-line headline on the left
+   stretched the row and left a hole under the one-line headline on the right —
+   which is what made the list look broken. Splitting the array and stacking
+   each half in its own column lets both sides pack tight, and their dividers
+   stop having to agree. Same structure the Setups Summary card uses. */
+function TwoUp<T>({ items, render }: { items: T[]; render: (item: T, i: number) => React.ReactNode }) {
+  if (items.length <= 4) return <div>{items.map(render)}</div>;
+  const mid = Math.ceil(items.length / 2);
   return (
-    <section className="space-y-3">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <h2 className={`${LABEL} text-slate-300`}>{title}</h2>
-          {count && <span className="text-[12px] font-semibold text-slate-500 tabular-nums">{count}</span>}
-          <InfoDot text={info} />
-        </div>
-        {controls}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-const Grid = ({ children }: { children: React.ReactNode }) => (
-  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">{children}</div>
-);
-
-const Note = ({ children }: { children: React.ReactNode }) => (
-  <p className="text-[12px] text-slate-500 bg-[#111827] border border-[#1e293b] rounded-2xl px-4 py-3.5">{children}</p>
-);
-
-function Tile({ value, label, cls = 'text-slate-100' }: { value: React.ReactNode; label: string; cls?: string }) {
-  return (
-    <div className="bg-[#0b1220] border border-[#1e293b] rounded-xl px-3.5 py-2.5 flex-1 min-w-[96px] sm:flex-none sm:min-w-[130px]">
-      <div className={`text-[20px] font-extrabold tabular-nums leading-tight break-words ${cls}`}>{value}</div>
-      <div className="text-[11px] text-slate-500 mt-0.5">{label}</div>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
+      <div className="min-w-0">{items.slice(0, mid).map(render)}</div>
+      <div className="min-w-0 border-t border-white/[0.05] md:border-t-0">{items.slice(mid).map(render)}</div>
     </div>
   );
 }
@@ -395,11 +317,7 @@ export default function NewsPage() {
   const [scanKey, setScanKey] = React.useState<string | null>(null);
   const [causalOnly, setCausalOnly] = React.useState(false);
   const [wireScope, setWireScope] = React.useState<'pool' | 'all'>('pool');
-  const [tagKey, setTagKey] = React.useState<NewsTag | null>(null);
   const [helpOpen, setHelpOpen] = React.useState(false);
-  /* Ages are measured against the moment the data arrived, so every card on
-     the page agrees and the render stays pure. Refresh moves it. */
-  const [loadedAt, setLoadedAt] = React.useState(0);
 
   const load = React.useCallback(async () => {
     setStatus('loading');
@@ -413,7 +331,6 @@ export default function NewsPage() {
       setStats(p?.stats ?? {});
       setPoolCount(p?.poolCount ?? 0);
       setWire(w?.results ?? []);
-      setLoadedAt(Date.now());
       setStatus(items.length || (w?.results?.length ?? 0) ? 'ready' : 'error');
     } catch {
       setStatus('error');
@@ -422,65 +339,32 @@ export default function NewsPage() {
 
   React.useEffect(() => { load(); }, [load]);
 
-  /* A pool item without a headline never renders, so it does not count
-     anywhere either — the pills and the hero add up to what is on screen. */
-  const poolWithNews = React.useMemo(() => pool.filter(it => !!headlineOf(it)), [pool]);
+  const shown = React.useMemo(() => pool.filter(it =>
+    (!scanKey || it.scan === scanKey) && (!causalOnly || it.stars >= 2)), [pool, scanKey, causalOnly]);
 
-  const shown = React.useMemo(() => poolWithNews.filter(it =>
-    (!scanKey || it.scan === scanKey) && (!causalOnly || it.stars >= 2) && (!tagKey || poolTag(it) === tagKey)),
-  [poolWithNews, scanKey, causalOnly, tagKey]);
+  /* An article can be tagged with several tickers; the one that matters is the
+     first that is on a board, and its stats are what the row shows. */
+  const statFor = React.useCallback((a: WireItem): StatRow | undefined => {
+    for (const t of (a.tickers?.length ? a.tickers : [a.ticker])) {
+      const hit = stats[String(t).toUpperCase()];
+      if (hit) return hit;
+    }
+    return undefined;
+  }, [stats]);
 
-  const onBoard = React.useCallback((a: WireItem) =>
-    (a.tickers?.length ? a.tickers : [a.ticker]).some(t => !!stats[String(t).toUpperCase()]), [stats]);
-
-  const ownedWire = React.useMemo(() => wire.filter(onBoard), [wire, onBoard]);
-  const wireShown = React.useMemo(() =>
-    (wireScope === 'pool' ? ownedWire : wire).filter(a => !tagKey || wireTag(a) === tagKey),
-  [wireScope, ownedWire, wire, tagKey]);
-
-  /* ---- The hero: both feeds as loaded. Filters do not move it — it is the
-     summary of what came back, not of what is currently shown. */
-  const counts = React.useMemo(
-    () => tagCounts([...poolWithNews.map(poolTag), ...wire.map(wireTag)]),
-    [poolWithNews, wire]);
-  const topTag = counts.find(c => c.tag !== 'general');
-
-  const hero = React.useMemo(() => {
-    const now = loadedAt;
-    const wireMins = wire.map(a => minutesSince(a.publishedUtc, now)).filter((m): m is number => m != null);
-    const poolMins = poolWithNews.map(it => ageLabelMinutes(it.newsAge)).filter((m): m is number => m != null);
-    const today = now ? etDateKey(now) : '';
-    const isToday = (m: number) => !!now && etDateKey(now - m * 60000) === today;
-    const headlinesToday = wireMins.filter(isToday).length + poolMins.filter(isToday).length;
-    const names = new Set<string>();
-    for (const it of poolWithNews) names.add(it.ticker.toUpperCase());
-    for (const a of wire) for (const t of (a.tickers?.length ? a.tickers : [a.ticker])) names.add(String(t).toUpperCase());
-    const span = wireMins.length ? Math.max(1, Math.ceil(Math.max(...wireMins) / 60)) : null;
-    const allMins = [...wireMins, ...poolMins];
-    const newest = allMins.length ? Math.min(...allMins) : null;
-    return { headlinesToday, names: names.size, span, newest };
-  }, [wire, poolWithNews, loadedAt]);
-
-  const line = tapeLine(counts);
-  const total = poolWithNews.length + wire.length;
+  const ownedWire = React.useMemo(() => wire.filter(a => !!statFor(a)), [wire, statFor]);
+  const wireShown = wireScope === 'pool' ? ownedWire : wire;
 
   /* Only sources that actually have news get a pill — a pill with nothing
      behind it is noise, the same rule the dashboard's filters follow. */
   const scanPills = Object.keys(SCAN_LABEL)
-    .map(k => ({ k, n: poolWithNews.filter(i => i.scan === k).length }))
+    .map(k => ({ k, n: pool.filter(i => i.scan === k).length }))
     .filter(x => x.n > 0);
 
-  const causalCount = poolWithNews.filter(i => i.stars >= 2).length;
-
-  /* With nothing selected every pill shows its colour; once one is picked the
-     rest dim — the dashboard's rule. */
-  const filterPill = (active: boolean, anyActive: boolean, onCls: string) =>
-    `${PILL} transition-colors ${active || !anyActive ? onCls : PILL_OFF}`;
-
-  const tagPillOrder = [...counts.filter(c => c.tag !== 'general'), ...counts.filter(c => c.tag === 'general')];
+  const causalCount = pool.filter(i => i.stars >= 2).length;
 
   return (
-    <div className="news-v2 min-h-screen bg-[#05080f] text-slate-300 font-sans md:py-10 flex justify-center">
+    <div className="min-h-screen bg-[#05080f] text-slate-300 font-sans md:py-10 flex justify-center">
       {/* No MarketDataProvider here on purpose. It polls /api/scanner/latest —
           178 KB — every 60 seconds for the quote engine the scanner tables
           need, and nothing on this page reads it. An open news tab would cost
@@ -489,9 +373,9 @@ export default function NewsPage() {
           scanners page wraps all three. */}
       <WatchlistProvider>
           <ActiveChartProvider>
-            <div className="w-full max-w-[1200px] bg-[#0b0f1a] md:rounded-[2rem] md:border md:border-white/5 overflow-hidden md:shadow-2xl relative pb-20">
+            <div className="w-full max-w-[1200px] bg-[#0b101a] md:rounded-[2rem] md:border md:border-white/5 overflow-hidden md:shadow-2xl relative pb-20">
 
-              <div className="px-4 md:px-10 pt-6 md:pt-8 pb-4 md:pb-6 border-b border-white/5 flex flex-wrap justify-between items-center gap-3">
+              <div className="px-3 md:px-10 pt-6 md:pt-8 pb-4 md:pb-6 border-b border-white/5 flex flex-wrap justify-between items-center gap-3">
                 <a href="https://confluencetradingtools.com" className="flex items-center gap-3.5 md:gap-5 no-underline" style={{ textDecoration: 'none' }}>
                   <img src="/logo.svg" alt="CTT" className="ctt-logo h-9 md:h-10 w-auto drop-shadow-[0_2px_10px_rgba(124,139,250,0.18)]" />
                   <div className="leading-none">
@@ -509,7 +393,7 @@ export default function NewsPage() {
                   <button
                     onClick={() => setHelpOpen(true)}
                     className="w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold bg-slate-700/60 hover:bg-slate-600 text-slate-400 hover:text-slate-200 transition-colors shrink-0"
-                    aria-label="Help"
+                    title="Help"
                   >
                     ?
                   </button>
@@ -523,86 +407,30 @@ export default function NewsPage() {
                 </div>
               </div>
 
-              <div className="px-4 md:px-10 py-6 space-y-6">
+              <div className="px-3 md:px-10 py-6 space-y-5">
 
-                <div>
-                  <h1 className="text-[22px] font-extrabold text-slate-100 tracking-[-0.01em]">Today&apos;s news</h1>
-                  <p className="text-[12px] text-slate-500 mt-1">
-                    Headlines on the names in your scans, plus the wider market wire · open a headline to read the article
-                  </p>
-                </div>
-
-                {/* ---- Hero ---- */}
-                <div className="news-hero rounded-2xl border border-[#1e293b] bg-[linear-gradient(135deg,#0f1a2e,#111827)] px-5 py-5 md:px-6">
-                  <div className={`${LABEL} text-cyan-400`}>What&apos;s moving the tape</div>
-                  <p className="text-[20px] md:text-[24px] font-extrabold text-slate-100 mt-1.5 leading-snug break-words">
-                    {status === 'loading'
-                      ? 'Loading the latest headlines…'
-                      : status === 'error'
-                        ? 'No news came back. Try Refresh in a minute.'
-                        : line || `No clear catalysts yet — ${total} general headline${total === 1 ? '' : 's'}.`}
-                  </p>
-                  {status === 'ready' && (
-                    <p className="text-[14px] text-slate-400 mt-1.5">
-                      {wire.length} on the market wire{hero.span ? ` from the last ${hero.span} hour${hero.span === 1 ? '' : 's'}` : ''}
-                      {' '}and {poolWithNews.length} on the names in your scans.
-                      {hero.newest != null && ` Newest ${relTime(hero.newest)}.`}
-                    </p>
-                  )}
-                  <div className="flex gap-2.5 mt-4 flex-wrap">
-                    <Tile value={status === 'ready' ? hero.headlinesToday : '—'} label="Headlines today" />
-                    <Tile value={status === 'ready' ? hero.names : '—'} label="Names mentioned" cls="text-cyan-400" />
-                    <Tile
-                      value={status === 'ready' && topTag ? TAG_META[topTag.tag].label : '—'}
-                      label={status === 'ready' && topTag ? `Most-cited type · ${topTag.n}` : 'Most-cited type'}
-                      cls={status === 'ready' && topTag ? TAG_META[topTag.tag].cls.split(' ')[0] : 'text-slate-500'}
-                    />
-                  </div>
-                </div>
-
-                {/* ---- Type filter — applies to both sections ---- */}
-                {status !== 'loading' && tagPillOrder.length > 0 && (
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className={`${LABEL} text-slate-500 mr-1`}>Type</span>
-                    <button
-                      onClick={() => setTagKey(null)}
-                      className={`${PILL} transition-colors ${tagKey == null ? 'text-slate-200 bg-[#1e293b] border-[#1e293b]' : PILL_OFF}`}
-                    >
-                      All {total}
-                    </button>
-                    {tagPillOrder.map(({ tag, n }) => (
-                      <button
-                        key={tag}
-                        onClick={() => setTagKey(tagKey === tag ? null : tag)}
-                        className={filterPill(tagKey === tag, tagKey != null, TAG_META[tag].cls)}
-                      >
-                        {TAG_META[tag].label} {n}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                <Section
+                <Card
                   title="On your names"
-                  count={status === 'loading' ? '' : `${shown.length} of ${poolWithNews.length} · ${poolCount} names scanned`}
-                  info={"Every headline the scanners attached to a name currently on one of your boards — the same article the chip in a scan table links to, collected in one place instead of one cell at a time.\n\nOrdered by CNF, like the rest of the site. The odds pill is each scan's OWN measured tier from its backtest — green, yellow, red — not one rule applied to all of them; hover it for what it means on that scan. ★★ breaks the tie — it means the tag is a real category (earnings, M&A, analyst, FDA…) AND the article states a REASON for the move rather than restating it — and the age breaks that. ★ means there is an article but it is generic. An unscored name sorts last rather than as a zero.\n\nThis is not a market feed: a name with no news simply is not here, and a name leaves when it leaves the scans."}
-                  controls={
+                  count={status === 'loading' ? '' : `${shown.length} of ${pool.length} · ${poolCount} names scanned`}
+                  info={"Every headline the scanners attached to a name currently on one of your boards — the same article the chip in a scan table links to, collected in one place instead of one cell at a time.\n\nOrdered by CNF, like the rest of the site. Row colour is each scan's OWN measured tier from its backtest — green, yellow, red — not one rule applied to all of them; hover a row for what its colour means on that scan. ★★ breaks the tie — it means the tag is a real category (earnings, M&A, analyst, FDA…) AND the article states a REASON for the move rather than restating it — and the age breaks that. ★ means there is an article but it is generic. An unscored name sorts last rather than as a zero.\n\nThis is not a market feed: a name with no news simply is not here, and a name leaves when it leaves the scans."}
+                  right={
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {causalCount > 0 && (
-                        <InfoDot text="Show only the headlines that explain the move (★★).">
-                          <button
-                            onClick={() => setCausalOnly(v => !v)}
-                            className={`${PILL} transition-colors ${causalOnly ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' : PILL_OFF}`}
-                          >
-                            ★★ {causalCount}
-                          </button>
-                        </InfoDot>
+                        <button
+                          onClick={() => setCausalOnly(v => !v)}
+                          title="Only headlines that explain the move"
+                          className={`${PILL} ${causalOnly ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' : 'text-slate-600 bg-transparent border-white/5'}`}
+                        >
+                          ★★ {causalCount}
+                        </button>
                       )}
                       {scanPills.map(({ k, n }) => (
                         <button
                           key={k}
                           onClick={() => setScanKey(scanKey === k ? null : k)}
-                          className={filterPill(scanKey === k, scanKey != null, SCAN_CLS[k])}
+                          className={`${PILL} ${
+                            scanKey === k ? SCAN_CLS[k] : scanKey == null ? SCAN_CLS[k] : 'text-slate-600 bg-transparent border-white/5'
+                          }`}
                         >
                           {SCAN_LABEL[k]} {n}
                         </button>
@@ -611,65 +439,71 @@ export default function NewsPage() {
                   }
                 >
                   {status === 'loading' ? (
-                    <Note>Loading…</Note>
+                    <p className="text-[10px] text-slate-500 font-medium">Loading…</p>
                   ) : shown.length === 0 ? (
-                    <Note>
-                      {poolWithNews.length === 0
+                    <p className="text-[10px] text-slate-500 font-medium">
+                      {pool.length === 0
                         ? 'No scanned name is carrying a headline right now. This fills in as the scans run.'
                         : 'No headline matches the active filter.'}
-                    </Note>
+                    </p>
                   ) : (
-                    <Grid>{shown.map(it => <PoolCard key={`${it.ticker}-${it.scan}`} it={it} />)}</Grid>
+                    <TwoUp items={shown} render={it => <PoolRow key={`${it.ticker}-${it.scan}`} it={it} />} />
                   )}
-                </Section>
+                </Card>
 
-                <Section
+                <Card
                   title="Market wire"
                   count={status === 'loading' ? '' : `${wireShown.length} of ${wire.length}`}
-                  info={"Benzinga's WIIM desk — the general feed, ten hours of coverage, with the lawsuit and deadline spam filtered out.\n\nON BOARD shows only the articles touching a name on one of your scans; ALL shows the rest of the wire too, which is where the index and mega-cap context lives.\n\nMeasured on the live feeds: this and the section above share no articles at all. The scanners attach name-specific copy; the wire carries the broader pieces no scan row references."}
-                  controls={
+                  info={"Benzinga's WIIM desk — the general feed, ten hours of coverage, with the lawsuit and deadline spam filtered out.\n\nPOOL shows only the articles touching a name on one of your scans; ALL shows the rest of the wire too, which is where the index and mega-cap context lives.\n\nMeasured on the live feeds: this and the section above share no articles at all. The scanners attach name-specific copy; the wire carries the broader pieces no scan row references."}
+                  right={
                     <div className="flex items-center gap-1.5">
                       {(['pool', 'all'] as const).map(k => (
                         <button
                           key={k}
                           onClick={() => setWireScope(k)}
-                          className={`${PILL} transition-colors ${
-                            wireScope === k ? 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' : PILL_OFF
+                          className={`${PILL} ${
+                            wireScope === k ? 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' : 'text-slate-600 bg-transparent border-white/5'
                           }`}
                         >
-                          {k === 'pool' ? `On board ${ownedWire.length}` : `All ${wire.length}`}
+                          {k === 'pool' ? `ON BOARD ${ownedWire.length}` : `ALL ${wire.length}`}
                         </button>
                       ))}
                     </div>
                   }
                 >
                   {status === 'loading' ? (
-                    <Note>Loading…</Note>
+                    <p className="text-[10px] text-slate-500 font-medium">Loading…</p>
                   ) : wireShown.length === 0 ? (
-                    <Note>
+                    <p className="text-[10px] text-slate-500 font-medium">
                       {wire.length === 0
                         ? 'The wire is empty right now.'
-                        : tagKey && (wireScope === 'all' || ownedWire.length > 0)
-                          ? 'Nothing on the wire matches the active filter.'
-                          : 'Nothing on the wire touches a scanned name — switch to ALL for the rest of it.'}
-                    </Note>
+                        : 'Nothing on the wire touches a scanned name — switch to ALL for the rest of it.'}
+                    </p>
                   ) : (
-                    <Grid>{wireShown.map(a => <WireCard key={a.id} it={a} stats={stats} now={loadedAt} />)}</Grid>
+                    <TwoUp
+                      items={wireShown}
+                      render={a => (
+                        <WireRow key={a.id} it={a} stat={statFor(a)} />
+                      )}
+                    />
                   )}
-                </Section>
+                </Card>
 
-                <div className="flex items-center gap-3 flex-wrap">
-                  <button onClick={load} className={`${PILL} ${PILL_OFF} transition-colors`}>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={load}
+                    className="text-[10px] font-bold tracking-widest uppercase px-3 py-1.5 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] border border-white/5 transition-colors"
+                  >
                     Refresh
                   </button>
                   {/* No timer on purpose — see the header. */}
-                  <span className="text-[12px] text-slate-500">
+                  <span className="text-[10px] text-slate-600 font-medium">
                     Loaded once. Refresh for the latest; the feeds are cached 60–120s at the edge.
                   </span>
                 </div>
               </div>
 
-              <div className="text-center text-[10px] text-slate-600 pt-10 pb-4 px-4">
+              <div className="text-center text-[10px] text-slate-600 pt-10 pb-4">
                 Confluence Trading Tools LLC © {new Date().getFullYear()} • Not investment advice. • <a href="mailto:info@confluencetradingtools.com" className="text-slate-500 hover:text-slate-400" style={{ textDecoration: 'none' }}>info@confluencetradingtools.com</a>
               </div>
             </div>

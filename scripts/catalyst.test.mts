@@ -9,7 +9,6 @@
  */
 
 import { decodeEntities, headlineOf } from '../src/lib/catalyst.tsx';
-import { tagOf, tagCounts, tapeLine, relTime, minutesSince, ageLabelMinutes, etDateKey, fmtMove } from '../src/lib/newsView.ts';
 import { eq, done } from './testkit.mts';
 
 eq('numeric apostrophe', decodeEntities('Nvidia&#39;s AI Token Trade'), "Nvidia's AI Token Trade");
@@ -41,55 +40,4 @@ eq('nothing is null, not an empty string', headlineOf({}), null);
 eq('whitespace only is null', headlineOf({ thesis: '   ' }), null);
 eq('an entity that decodes to whitespace is null', headlineOf({ thesis: '&nbsp;' }), null);
 
-/* ---- News page presentation (src/lib/newsView.ts) -------------------------
-   Two feeds, two tag vocabularies, one key. And the ages: the wire has a
-   timestamp, the scan rows only the label the scanner printed. */
-
-// Tags from either feed fold to one key; the no-category placeholder is general.
-eq('wire FDA', tagOf('FDA'), 'fda');
-eq('wire WIIM', tagOf('WIIM'), 'wiim');
-eq('wire placeholder is general', tagOf('TECH MOMENTUM'), 'general');
-eq('pool FDA / Data', tagOf('FDA / Data'), 'fda');
-eq('pool M&A', tagOf('M&A'), 'mna');
-eq('pool delayed suffix is ignored', tagOf('Earnings (Delayed)'), 'earnings');
-eq('pool placeholder is general', tagOf('Technical Momentum'), 'general');
-eq('unknown tag is general, not a guess', tagOf('Crypto'), 'general');
-eq('missing tag is general', tagOf(null), 'general');
-
-// The hero line: most-cited first, general left out, singular vs plural.
-const counted = tagCounts(['wiim', 'fda', 'general', 'wiim', 'mna', 'general', 'general', 'mna', 'wiim']);
-eq('counts sort most-cited first', counted.map(c => c.tag).join(','), 'wiim,general,mna,fda');
-eq('tape line', tapeLine(counted), "3 why-it's-moving stories · 2 takeover reports · 1 FDA");
-eq('tape line singular', tapeLine([{ tag: 'upgrade', n: 1 }]), '1 upgrade');
-eq('tape line is empty when all general', tapeLine([{ tag: 'general', n: 12 }]), '');
-eq('tape line caps at max', tapeLine(tagCounts(['fda', 'earnings', 'mna', 'upgrade', 'macro']), 2).split(' · ').length, 2);
-
-// Relative time reads in words.
-eq('under a minute', relTime(0), 'just now');
-eq('minutes', relTime(12), '12 min ago');
-eq('hours', relTime(185), '3 hr ago');
-eq('one day', relTime(24 * 60), '1 day ago');
-eq('days', relTime(4 * 24 * 60), '4 days ago');
-eq('unknown is empty', relTime(null), '');
-
-const NOW = Date.parse('2026-09-24T20:00:00Z');
-eq('minutes since an ISO time', minutesSince('2026-09-24T19:48:00Z', NOW), 12);
-eq('a future timestamp is zero, not negative', minutesSince('2026-09-24T20:05:00Z', NOW), 0);
-eq('an unparseable timestamp is null', minutesSince('yesterday', NOW), null);
-
-// The scan rows' printed labels parse back to minutes.
-eq('label hours', ageLabelMinutes('8h ago'), 480);
-eq('label minutes', ageLabelMinutes('15m ago'), 15);
-eq('label days', ageLabelMinutes('2d ago'), 2880);
-eq('label spelled out', ageLabelMinutes('12 min ago'), 12);
-eq('label just now', ageLabelMinutes('just now'), 0);
-eq('an unreadable label is null', ageLabelMinutes('recently'), null);
-
-// "Today" is New York's date: 01:00 UTC on the 25th is still the 24th in ET.
-eq('ET date across UTC midnight', etDateKey(Date.parse('2026-09-25T01:00:00Z')), '2026-09-24');
-
-eq('move up', fmtMove(4.27), '+4.3%');
-eq('move down', fmtMove(-1.24), '-1.2%');
-eq('move unknown', fmtMove(null), '');
-
-done('catalyst headlines + news view');
+done('catalyst headlines');
