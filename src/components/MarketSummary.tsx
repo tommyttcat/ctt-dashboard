@@ -1109,6 +1109,7 @@ const STATUS_META: Record<PlanStatus, { cls: string; tip: string }> = {
   wait: { cls: 'text-slate-300', tip: 'Not at the buy level yet — this far away' },
   hit: { cls: 'text-emerald-400', tip: 'At the buy level' },
   miss: { cls: 'text-amber-400', tip: "Ran past the buy level by more than a normal day's move — buying now is chasing" },
+  ext: { cls: 'text-orange-400', tip: 'Too far above its 21-day average to place a sensible stop — levels are for reference, do not chase' },
   out: { cls: 'text-rose-400', tip: 'Below the stop — the idea failed' },
 };
 
@@ -1125,6 +1126,13 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
   /* The SET is the recommended names — exactly the rows on the Setups
      Summary card above, same pills, same green default. */
   const all = React.useMemo(() => planRowsFor(pool), [pool]);
+  /* Every name on the card appears here. A name with no levels at all (its
+     plan collapsed, or its scan does not compute one) gets a row of dashes
+     at the bottom rather than silently vanishing. */
+  const noPlan = React.useMemo(() => {
+    const have = new Set(all.map(r => r.ticker));
+    return pool.filter(s => { const t = s?.ticker ?? s?.symbol; return t && !have.has(t); });
+  }, [pool, all]);
 
   const [sortKey, setSortKey] = React.useState<TrigSortKey>('status');
   const [sortDir, setSortDir] = React.useState<SortDir>('asc');
@@ -1140,7 +1148,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
     return [...all].sort((a, b) => (sortDir === 'desc' ? -d(a, b) : d(a, b)));
   }, [all, sortKey, sortDir]);
 
-  if (rows.length === 0) return null;
+  if (rows.length === 0 && noPlan.length === 0) return null;
 
   const arrow = (k: TrigSortKey) => (sortKey === k ? (sortDir === 'desc' ? ' ↓' : ' ↑') : '');
 
@@ -1160,59 +1168,74 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
     </div>
   );
 
-  const row = (r: TrigRow) => {
-    const st = planStatusOf(r);
-    const meta = STATUS_META[st];
-    const t = tierForScan(r.s._source, r.s);
-    const cnf = scoreOf(r.s);
-    const chg = chgOf(r.s);
-    const rv = rvolOf(r.s);
-    const rs = numOrNull(r.s.rsRating);
+  const row = (r: TrigRow | null, src: any) => {
+    const s0 = r ? r.s : src;
+    const ticker: string = r ? r.ticker : (s0?.ticker ?? s0?.symbol);
+    const st: PlanStatus | null = r ? planStatusOf(r) : null;
+    const meta = st ? STATUS_META[st] : null;
+    const t = tierForScan(s0._source, s0);
+    const cnf = scoreOf(s0);
+    const chg = chgOf(s0);
+    const rv = rvolOf(s0);
+    const rs = numOrNull(s0.rsRating);
+    const price = r ? r.price : priceOf(s0);
     const grade: 'A' | 'B' | null = cnf >= 70 ? 'A' : cnf >= 50 ? 'B' : null;
     return (
-      <div key={`tp-${r.ticker}`} className={`flex items-center whitespace-nowrap py-[1px] ${t ? `${EDGE_TINT[t.tier]} rounded-sm` : ''}`}
+      <div key={`tp-${ticker}`} className={`flex items-center whitespace-nowrap py-[1px] ${t ? `${EDGE_TINT[t.tier]} rounded-sm` : ''}`}
         title={t ? `${t.tier.toUpperCase()} — ${t.tip}` : undefined}>
         <span className="hidden md:inline-block w-[28px] shrink-0" />
-        <TickerChartHover symbol={r.ticker}><span className={`${gradeChipCls(grade, false)} w-[38px] md:w-[44px]`}>{r.ticker}</span></TickerChartHover>
+        <TickerChartHover symbol={ticker}><span className={`${gradeChipCls(grade, false)} w-[38px] md:w-[44px]`}>{ticker}</span></TickerChartHover>
         <span className="hidden md:inline-block w-[28px]" />
         <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${cnfBadgeCls(cnf)}`}>{cnf}</span>
         <span className={`text-[9px] tabular-nums font-semibold inline-block w-[44px] md:w-[52px] text-right ml-1 ${chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
-        <span className={`text-[9px] tabular-nums ${TP_MD} w-[42px] text-right text-slate-300 ml-1`}>{fmtPrc(r.price)}</span>
+        <span className={`text-[9px] tabular-nums ${TP_MD} w-[42px] text-right text-slate-300 ml-1`}>{fmtPrc(price)}</span>
         <span className={`text-[9px] tabular-nums font-semibold ${TP_MD} w-[40px] text-right ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? `${rv < 1 ? rv.toFixed(1) : Math.round(rv)}x` : ''}</span>
         <span className={`${TP_MD} w-[24px] text-center ml-1`}>{rs != null
           ? <span className={`inline-block w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(rs)}`}>{rs}</span>
           : <span className="inline-block w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
-        <span className="text-[9px] tabular-nums font-semibold inline-block w-[42px] md:w-[46px] text-right ml-1 text-slate-200"
-          title={`${r.pullback ? 'Buy on a dip to' : 'Buy above'} ${r.trigger.toFixed(2)} — ${r.label}`}>
-          <span className={r.pullback ? 'text-fuchsia-400' : 'text-emerald-400'}>{r.pullback ? '↓' : '↑'}</span>{r.trigger.toFixed(2)}
-        </span>
-        <span className="text-[9px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 text-rose-400">{r.stop.toFixed(2)}</span>
-        <span className={`text-[9px] tabular-nums font-bold inline-block w-[32px] md:w-[34px] text-right ml-1 ${meta.cls}`} title={meta.tip}>
-          {st === 'wait' ? `${r.awayPct < 10 ? r.awayPct.toFixed(1) : r.awayPct.toFixed(0)}%` : st.toUpperCase()}
-        </span>
+        {r && meta && st ? (
+          <>
+            <span className="text-[9px] tabular-nums font-semibold inline-block w-[42px] md:w-[46px] text-right ml-1 text-slate-200"
+              title={`${r.pullback ? 'Buy on a dip to' : 'Buy above'} ${r.trigger.toFixed(2)} — ${r.label}`}>
+              <span className={r.pullback ? 'text-fuchsia-400' : 'text-emerald-400'}>{r.pullback ? '↓' : '↑'}</span>{r.trigger.toFixed(2)}
+            </span>
+            <span className="text-[9px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 text-rose-400">{r.stop.toFixed(2)}</span>
+            <span className={`text-[9px] tabular-nums font-bold inline-block w-[32px] md:w-[34px] text-right ml-1 ${meta.cls}`} title={meta.tip}>
+              {st === 'wait' ? `${r.awayPct < 10 ? r.awayPct.toFixed(1) : r.awayPct.toFixed(0)}%` : st.toUpperCase()}
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="text-[9px] inline-block w-[42px] md:w-[46px] text-right ml-1 text-slate-600">—</span>
+            <span className="text-[9px] inline-block w-[36px] md:w-[40px] text-right ml-1 text-slate-600">—</span>
+            <span className="text-[9px] inline-block w-[32px] md:w-[34px] text-right ml-1 text-slate-600" title="No buy or stop level for this name — its plan collapsed, or its scan does not compute one">—</span>
+          </>
+        )}
       </div>
     );
   };
 
   /* Two columns past five rows, split at the midpoint — same rule as the
      card above; the right half's header is desktop-only, like the card's. */
-  const useTwoCols = rows.length > 5;
-  const mid = useTwoCols ? Math.ceil(rows.length / 2) : rows.length;
+  const items: { r: TrigRow | null; s: any }[] = [...rows.map(r => ({ r, s: r.s })), ...noPlan.map(s => ({ r: null, s }))];
+  const useTwoCols = items.length > 5;
+  const mid = useTwoCols ? Math.ceil(items.length / 2) : items.length;
+  const draw = (it: { r: TrigRow | null; s: any }) => row(it.r, it.s);
 
   return (
     <div className="mt-4 pt-3 border-t border-white/5">
       <div className="flex items-center mb-1">
         <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Buy &amp; stop</span>
-        <InfoDot text={"Buy level and stop for every name on the card above — same filters.\n\n↑ buy above that price. ↓ buy on a dip to it (EP9M).\n\nSTAT: a percentage means not there yet, this far away. HIT — at the buy level. MISS — ran past it by more than a normal day's move; buying now is chasing. OUT — below the stop; the idea failed.\n\nNames with no usable plan (collapsed, or too extended to place a stop) are left off."} />
+        <InfoDot text={"Buy level and stop for every name on the card above — same filters.\n\n↑ buy above that price. ↓ buy on a dip to it (EP9M).\n\nSTAT: a percentage means not there yet, this far away. HIT — at the buy level. MISS — ran past it by more than a normal day's move; buying now is chasing. EXT — too far above its 21-day average to place a sensible stop; levels are for reference only. OUT — below the stop; the idea failed.\n\nA name with no levels at all shows dashes."} />
       </div>
       <div className={useTwoCols ? 'grid grid-cols-1 md:grid-cols-2 gap-x-6' : ''}>
-        <div className="min-w-0">{head}{rows.slice(0, mid).map(row)}</div>
+        <div className="min-w-0">{head}{items.slice(0, mid).map(draw)}</div>
         {useTwoCols && (
-          <div className="min-w-0"><div className="hidden md:block">{head}</div>{rows.slice(mid).map(row)}</div>
+          <div className="min-w-0"><div className="hidden md:block">{head}</div>{items.slice(mid).map(draw)}</div>
         )}
       </div>
       <p className="text-[10px] text-slate-500 font-medium mt-1">
-        <span className="text-slate-300 font-bold">0.3%</span> not there yet · <span className="text-emerald-400 font-bold">HIT</span> at the buy level · <span className="text-amber-400 font-bold">MISS</span> ran past, don&apos;t chase · <span className="text-rose-400 font-bold">OUT</span> below the stop
+        <span className="text-slate-300 font-bold">0.3%</span> not there yet · <span className="text-emerald-400 font-bold">HIT</span> at the buy level · <span className="text-amber-400 font-bold">MISS</span> ran past, don&apos;t chase · <span className="text-orange-400 font-bold">EXT</span> too stretched · <span className="text-rose-400 font-bold">OUT</span> below the stop
       </p>
     </div>
   );

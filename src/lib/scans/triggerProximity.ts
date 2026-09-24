@@ -31,9 +31,11 @@ export type TrigRow = {
   awayPct: number;
   /** Price is already through the level (above a breakout, below a dip). */
   through: boolean;
+  /** The scan flagged the name as too far above its 21 EMA for a sensible stop. */
+  extended: boolean;
 };
 
-export function trigRowOf(s: any, opts?: { keepThrough?: boolean }): TrigRow | null {
+export function trigRowOf(s: any, opts?: { keepThrough?: boolean; keepExtended?: boolean }): TrigRow | null {
   const ticker = s?.ticker ?? s?.symbol;
   const price = priceOf(s);
   if (!ticker || price == null || price <= 0) return null;
@@ -41,7 +43,13 @@ export function trigRowOf(s: any, opts?: { keepThrough?: boolean }): TrigRow | n
   /* VCP is the one scan that carries its levels at the top level instead of
      inside a plan object; everything else goes through livePlanOf, the same
      gate the scan tables use (tradeable, not collapsed, not overextended). */
-  const plan = livePlanOf(s);
+  /* keepExtended lets an overextended plan through (still tradeable, not
+     collapsed) so a fixed list can show its levels flagged EXT rather than
+     silently dropping the name. */
+  const raw = s?.plan;
+  const plan = opts?.keepExtended
+    ? (raw && typeof raw === 'object' && raw.tradeable === true && raw.collapsed !== true ? raw : null)
+    : livePlanOf(s);
   const isVcp = s._source === 'vcp';
   const trigger = numOrNull(plan?.trigger ?? (isVcp ? s.trigger : null));
   const stop = numOrNull(plan?.stop ?? (isVcp ? s.stop : null));
@@ -55,6 +63,7 @@ export function trigRowOf(s: any, opts?: { keepThrough?: boolean }): TrigRow | n
 
   return {
     s, ticker, price, trigger, stop, pullback, through,
+    extended: plan?.overextended === true,
     label: plan?.triggerLabel ?? (isVcp ? 'pivot' : 'level'),
     awayPct: (Math.abs(trigger - price) / price) * 100,
   };
@@ -75,7 +84,7 @@ export function trigRows(pool: any[], limit = 8): TrigRow[] {
 export function planRowsFor(names: any[]): TrigRow[] {
   const out: TrigRow[] = [];
   for (const s of names) {
-    const r = trigRowOf(s, { keepThrough: true });
+    const r = trigRowOf(s, { keepThrough: true, keepExtended: true });
     if (r) out.push(r);
   }
   return out;
@@ -88,13 +97,16 @@ export function planRowsFor(names: any[]): TrigRow[] {
      MISS  a breakout that ran past the level by more than a normal day's
            move (1 ADR — PLAN_MAX_REACH_ADR, the same limit the Trade Plan
            card uses for "reachable"). Buying now is chasing.
+     EXT   the scan says it is too far above its 21 EMA to place a sensible
+           stop; levels are shown for reference, not to act on.
      OUT   price is at or below the stop — the idea failed.
    A pullback (EP9M) cannot be MISSED: further down is toward the stop, so
    it is HIT until it is OUT. */
-export type PlanStatus = 'wait' | 'hit' | 'miss' | 'out';
+export type PlanStatus = 'wait' | 'hit' | 'miss' | 'ext' | 'out';
 
 export function planStatusOf(r: TrigRow): PlanStatus {
   if (r.price <= r.stop) return 'out';
+  if (r.extended) return 'ext';
   if (!r.through) return 'wait';
   if (r.pullback) return 'hit';
   const adr = numOrNull(r.s?.adrPct);
@@ -103,5 +115,5 @@ export function planStatusOf(r: TrigRow): PlanStatus {
   return 'hit';
 }
 
-/** Actionable first: HIT, then WAIT (nearest first), then MISS, then OUT. */
-export const PLAN_STATUS_ORDER: Record<PlanStatus, number> = { hit: 0, wait: 1, miss: 2, out: 3 };
+/** Actionable first: HIT, WAIT (nearest first), EXT, MISS, then OUT. */
+export const PLAN_STATUS_ORDER: Record<PlanStatus, number> = { hit: 0, wait: 1, ext: 2, miss: 3, out: 4 };

@@ -134,6 +134,12 @@ eq('EP9M is flagged as a pullback', trigRowOf(pull(101, 100))?.pullback, true);
   eq('EP above its dip level is WAIT', st(pull(101, 100)), 'wait');
   eq('EP through its dip level is HIT, never MISS', st({ ...pull(92, 100), adrPct: 2 }), 'hit');
   eq('EP under its stop is OUT', st(pull(89, 100)), 'out');
+  const ext = { ...breakout(99, 100), plan: { ...breakout(99, 100).plan, overextended: true } };
+  eq('overextended plan is kept in a fixed list', planRowsFor([ext]).length, 1);
+  eq('overextended plan reads EXT', st(ext), 'ext');
+  ok('overextended plan is still dropped from the proximity list', trigRowOf(ext) == null);
+  eq('collapsed plan is dropped even from a fixed list',
+    planRowsFor([{ ...breakout(99, 100), plan: { ...breakout(99, 100).plan, collapsed: true } }]).length, 0);
 }
 
 near('distance is measured from price', trigRowOf(breakout(100, 101))?.awayPct, 1);
