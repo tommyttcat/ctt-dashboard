@@ -970,13 +970,13 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
   scCells.push({ label: 'TONE', value: tone, color: toneCellTone(tone) });
 
   if (bData) {
-    scCells.push({ label: 'BREADTH', value: `${bData.score}/6`, sub: bData.signal, color: breadthSignalTone(bData.signal) });
+    scCells.push({ label: 'PARTICIPATION', value: `${bData.score}/6`, sub: bData.signal, color: breadthSignalTone(bData.signal) });
   }
   const mm = marketMonitorOf(bData);
   if (mm) {
     const partial = mm.days > 0 && mm.days < 5;
     scCells.push({
-      label: 'MARKET MON',
+      label: 'BIG MOVERS',
       value:
         `<span style="color:#34d399;">${mm.up4}&#9650;</span>` +
         `<span style="color:#475569;"> / </span>` +
@@ -989,19 +989,19 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
   }
   if (bData) {
     const ad = advPct(bData.advancers, bData.decliners);
-    scCells.push({ label: 'ADV / DEC', value: `${ad.toFixed(1)}%`, sub: `${bData.advancers ?? 0} / ${bData.decliners ?? 0}`, color: advCellTone(ad) });
+    scCells.push({ label: 'UP vs DOWN', value: `${ad.toFixed(1)}%`, sub: `${bData.advancers ?? 0} / ${bData.decliners ?? 0}`, color: advCellTone(ad) });
   }
   if (bData && (bData.newHighs != null || bData.newLows != null)) {
     const hp = highsPct(bData.newHighs, bData.newLows);
-    scCells.push({ label: 'HI / LO', value: `${hp.toFixed(1)}%`, sub: `${bData.newHighs ?? 0} / ${bData.newLows ?? 0}`, color: highsCellTone(hp) });
+    scCells.push({ label: 'HIGHS vs LOWS', value: `${hp.toFixed(1)}%`, sub: `${bData.newHighs ?? 0} / ${bData.newLows ?? 0}`, color: highsCellTone(hp) });
   }
   if (tVal != null) {
-    scCells.push({ label: 'T2108', value: `${tVal.toFixed(0)}%`, sub: t2108Zone(tVal), color: t2108CellTone(tVal) });
+    scCells.push({ label: 'ABOVE 40-DAY', value: `${tVal.toFixed(0)}%`, sub: t2108Zone(tVal), color: t2108CellTone(tVal) });
   }
   if (bData?.mkm != null) {
     const rising = !!bData.mkmRising;
     scCells.push({
-      label: 'McCLELLAN',
+      label: 'HIGHS/LOWS TREND',
       value: `${Number(bData.mkm).toFixed(0)}%`,
       sub: `${rising ? '▲' : '▼'} vs ${Number(bData.mkmSignal ?? 0).toFixed(0)}`,
       color: mkmCellTone(Number(bData.mkm), Number(bData.mkmSignal ?? 0), rising),
@@ -1011,7 +1011,7 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
   if (vixQ?.price) {
     const sign = (vixQ.pct ?? 0) >= 0 ? '+' : '';
     scCells.push({
-      label: 'VIX',
+      label: 'FEAR (VIX)',
       value: Number(vixQ.price).toFixed(2),
       sub: `${sign}${Number(vixQ.pct ?? 0).toFixed(2)}%`,
       color: vixPctTone(Number(vixQ.pct ?? 0)),
@@ -1034,7 +1034,7 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
       );
       const signal = tapeDirSignal(setup);
       scCells.push({
-        label: 'TAPE DIR',
+        label: 'DIRECTION',
         value: signal,
         sub: setup,
         color: tapeDirCellTone(signal),
@@ -1043,7 +1043,7 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
   }
   if (chopVal != null) {
     scCells.push({
-      label: 'CHOP',
+      label: 'CHOPPINESS',
       value: chopVal.toFixed(0),
       sub: chopZoneLabel(chopVal, chopBands),
       color: chopCellTone(chopVal, chopBands),

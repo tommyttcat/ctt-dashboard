@@ -178,7 +178,7 @@ export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief,
   const tiles = [
     pctUp != null ? ['Stocks up today', `${Math.round(pctUp)}%`, pctUp >= 50 ? C.green : C.red] : null,
     hiLo ? ['New lows vs highs', hiLo, lo >= hi ? C.red : C.green] : null,
-    vix ? ['VIX', Number(vix).toFixed(1), C.ink] : null,
+    vix ? ['Fear (VIX)', Number(vix).toFixed(1), C.ink] : null,
   ].filter(Boolean) as [string, string, string][];
   const tileHtml = tiles.length ? `<tr><td class="pad" style="padding:16px 28px 24px 28px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>${
     tiles.map(([l, v, c], i) => `<td width="${Math.floor(100 / tiles.length)}%" style="padding:${i === 0 ? '0 6px 0 0' : i === tiles.length - 1 ? '0 0 0 6px' : '0 3px'};"><div style="background:${C.tile};border:1px solid ${C.border};border-radius:12px;padding:12px;"><div style="font-size:11px;color:${C.muted};">${esc(l)}</div><div style="font-size:20px;font-weight:800;color:${c};">${esc(v)}</div></div></td>`).join('')
