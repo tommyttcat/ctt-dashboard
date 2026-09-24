@@ -85,6 +85,13 @@ export function tickerTitle(name: string | null | undefined, ticker: string, sco
    request after seeing both side by side: the pill reads as a score you can
    scan down a column, and the tint on the ticker reads as a property of the
    name. Carrying the grade twice is the intent, not an oversight. */
+/* EP9M and Swing publish a score that does NOT rank outcomes (5-year test,
+   24 Sep 2026 re-check: EP9M dip entry flat across score quintiles; Swing's
+   halves disagree). Colouring it green/amber would claim it does, so those
+   scores render in this neutral badge instead. See SCORE_UNRANKED_SOURCES. */
+export const CNF_NEUTRAL = 'text-slate-400 border-slate-600/40 bg-slate-800/40';
+export const scoreCellNeutralCls = 'inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help text-slate-400 border-slate-600/40 bg-slate-800/40';
+
 export const scoreCellCls = (score: number | null | undefined): string =>
   `inline-block px-1 py-[1px] rounded border text-[9px] font-bold tabular-nums cursor-help ${cnfBadgeCls(score)}`;
 

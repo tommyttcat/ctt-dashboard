@@ -115,7 +115,7 @@ import { newsStarCount } from '@/lib/newsStars';
 import { rsColor, rsBadge } from '@/lib/indicators/rs';
 import { toCanonicalSector, isEtfSector, industryHeat, displaySector } from '@/lib/sectors';
 import { stageColor, stageBadge } from '@/lib/indicators/stage';
-import { rvolColor, stochColor } from '@/lib/indicators/columnColors';
+import { rvolColor, stochColor, CNF_NEUTRAL } from '@/lib/indicators/columnColors';
 import { getMarketSession } from '@/lib/indicators/marketScorecard';
 /* The row formatters and scan-field accessors moved to lib/summary/rowFormat
    on 11 Sep 2026 — same code, no longer inside a 4,400-line component. */
@@ -156,6 +156,7 @@ import {
   titleCase,
   twoCol,
   TICKER_STOPWORDS,
+  SCORE_UNRANKED_SOURCES,
 } from '@/lib/summary/rowFormat';
 import type { ParsedStdRow, PostureBucket } from '@/lib/summary/rowFormat';
 /* The paragraph builders and the data shapes they produce moved to
@@ -681,10 +682,10 @@ const EXTRA_TOKEN_RX = new RegExp(
   'g'
 );
 
-const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>, chartHover?: boolean, priceMap?: Record<string, number>, rsMap?: Record<string, number>, stageMap?: Record<string, string>, skipWatchlistBtn?: boolean, edgeMap?: Record<string, EdgeTier>): React.ReactNode => {
+const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>, chartHover?: boolean, priceMap?: Record<string, number>, rsMap?: Record<string, number>, stageMap?: Record<string, string>, skipWatchlistBtn?: boolean, edgeMap?: Record<string, EdgeTier>, neutralScore?: boolean): React.ReactNode => {
   const mapGrade = gradeMap?.[p.ticker] ?? null;
-  const cnfGrade: 'A' | 'B' | null = p.cnf >= 70 ? 'A' : p.cnf >= 50 ? 'B' : null;
-  const grade = cnfGrade === 'A' ? 'A' : mapGrade ?? cnfGrade;
+  const cnfGrade: 'A' | 'B' | null = neutralScore ? null : p.cnf >= 70 ? 'A' : p.cnf >= 50 ? 'B' : null;
+  const grade = neutralScore ? null : cnfGrade === 'A' ? 'A' : mapGrade ?? cnfGrade;
   const dot = dotMap?.[p.ticker] ?? null;
   const isAvoid = avoidSet?.has(p.ticker) ?? false;
   const pb = postureMap?.[p.ticker] ?? null;
@@ -741,7 +742,7 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
         <span className="inline-block w-[8px] text-center shrink-0">
           {pMeta ? <span title={`${pMeta.short} — ${pMeta.tip}`} className={`inline-block w-[6px] h-[6px] rounded-full cursor-help ${pMeta.tone === 'good' ? 'bg-emerald-400' : pMeta.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`} /> : null}
         </span>
-        <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-2 md:ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${cnfBadgeCls(p.cnf)}`}>{p.cnf}</span>
+        <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-2 md:ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${neutralScore ? CNF_NEUTRAL : cnfBadgeCls(p.cnf)}`} title={neutralScore ? 'This scan\'s score describes the setup; in the 5-year test it did not predict how the trade went, so it is not coloured as a grade.' : undefined}>{p.cnf}</span>
         <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${p.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{p.chg >= 0 ? '+' : ''}{p.chg.toFixed(2)}%</span>
         <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-2 md:ml-1">{fmtPrc(p.price ?? priceMap?.[p.ticker])}</span>
         <span className={`text-[9px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-2 md:ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? `${rv < 1 ? rv.toFixed(1) : Math.round(rv)}x` : ''}</span>
@@ -872,10 +873,10 @@ const renderEarningsRow = (p: ParsedEarningsRow, idx: number): React.ReactNode =
   );
 };
 
-const renderBodyLine = (line: string, li: number, aligned: boolean, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>, priceMap?: Record<string, number>, rsMap?: Record<string, number>, stageMap?: Record<string, string>, edgeMap?: Record<string, EdgeTier>): React.ReactNode => {
+const renderBodyLine = (line: string, li: number, aligned: boolean, gradeMap?: Record<string, 'A' | 'B'>, dotMap?: Record<string, 'blue' | 'red'>, postureMap?: Record<string, PostureBucket>, avoidSet?: Set<string>, priceMap?: Record<string, number>, rsMap?: Record<string, number>, stageMap?: Record<string, string>, edgeMap?: Record<string, EdgeTier>, neutralScore?: boolean): React.ReactNode => {
   if (aligned) {
     const parsed = parseStdLine(line);
-    if (parsed) return renderStdRow(parsed, li, gradeMap, dotMap, postureMap, avoidSet, true, priceMap, rsMap, stageMap, false, edgeMap);
+    if (parsed) return renderStdRow(parsed, li, gradeMap, dotMap, postureMap, avoidSet, true, priceMap, rsMap, stageMap, false, edgeMap, neutralScore);
     const evParsed = parseEventLine(line);
     if (evParsed) return renderEventRow(evParsed, li);
     const earnParsed = parseEarningsLine(line);
@@ -1196,13 +1197,14 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
     const rv = rvolOf(s0);
     const rs = numOrNull(s0.rsRating);
     const price = r ? r.price : priceOf(s0);
-    const grade: 'A' | 'B' | null = cnf >= 70 ? 'A' : cnf >= 50 ? 'B' : null;
+    const unranked = SCORE_UNRANKED_SOURCES.has(String(s0?._source ?? ''));
+    const grade: 'A' | 'B' | null = unranked ? null : cnf >= 70 ? 'A' : cnf >= 50 ? 'B' : null;
     return (
       <div key={`tp-${ticker}`} className={`flex items-center justify-between md:justify-start whitespace-nowrap py-[1px] ${t ? `${EDGE_TINT[t.tier]} rounded-sm` : ''}`}
         title={t ? `${t.tier.toUpperCase()} — ${t.tip}` : undefined}>
         <span className="inline-flex items-center shrink-0"><span className="inline-block w-[28px]" /><TickerChartHover symbol={ticker}><span className={`${gradeChipCls(grade, false)} w-[38px] md:w-[44px]`}>{ticker}</span></TickerChartHover></span>
         <span className="hidden md:inline-block w-[28px]" />
-        <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border md:ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${cnfBadgeCls(cnf)}`}>{cnf}</span>
+        <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border md:ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${unranked ? CNF_NEUTRAL : cnfBadgeCls(cnf)}`}>{cnf}</span>
         <span className={`text-[9px] tabular-nums font-semibold inline-block w-[40px] md:w-[52px] text-right md:ml-1 ${chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
         <span className="text-[9px] tabular-nums inline-block w-[34px] md:w-[42px] text-right text-slate-300 md:ml-1">{fmtPrc(price)}</span>
         <span className={`text-[9px] tabular-nums font-semibold inline-block w-[28px] md:w-[40px] text-right md:ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? `${rv < 1 ? rv.toFixed(1) : Math.round(rv)}x` : ''}</span>
@@ -2391,6 +2393,7 @@ export default function MarketSummary() {
                             : secCounts.green > 0 ? 'green' : null;
                           const edgeOk = (t: string) => !activeEdge || secEdge?.[t] === activeEdge;
                           const rowEdgeMap = secEdge ?? macroInsights?.edgeMap;
+                          const neutralScore = label === 'EP9M Thesis' || label === 'Reversal Swing Thesis';
                           const copyTickers = activeEdge ? bodyTickers.filter(edgeOk) : bodyTickers;
                           const sectionAligns = !!label && ALIGNED_SECTIONS.has(label);
                           const filterEmpty = scanFilter && !!label && !!SECTION_HEADERS[label] && (() => {
@@ -2659,7 +2662,7 @@ export default function MarketSummary() {
                                               </div>
                                             );
                                           }
-                                          els.push(renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap));
+                                          els.push(renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap, neutralScore));
                                           return els;
                                         });
                                       };
@@ -2669,7 +2672,7 @@ export default function MarketSummary() {
                                           const [heading, ...rows] = colLines;
                                           const isHeading = heading && heading.trim().endsWith(':');
                                           const render = (line: string, li: number) =>
-                                            renderBodyLine(line, li, true, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap);
+                                            renderBodyLine(line, li, true, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap, neutralScore);
                                           const earnHeader = (
                                             <div className={scrollRowCls} style={scrollRowStyle}>
                                               <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5 min-w-[344px]">
@@ -2726,7 +2729,7 @@ export default function MarketSummary() {
                                             return (
                                               <div className="space-y-1.5 mt-4 pt-3 border-t border-white/5">
                                                 {acLines.map((line, li) =>
-                                                  renderBodyLine(line, li, false, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap)
+                                                  renderBodyLine(line, li, false, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap, neutralScore)
                                                 )}
                                               </div>
                                             );
@@ -2749,7 +2752,7 @@ export default function MarketSummary() {
                                                   return <p key={li} className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5">{line.replace(/:$/, '')}</p>;
                                                 }
                                                 const els: React.ReactNode[] = [];
-                                                els.push(renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap));
+                                                els.push(renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap, neutralScore));
                                                 return els;
                                               });
                                             })()}
@@ -2773,7 +2776,7 @@ export default function MarketSummary() {
                                           const leftLines = sortedLines.slice(0, Math.ceil(sortedLines.length / 2));
                                           const rightLines = sortedLines.slice(Math.ceil(sortedLines.length / 2));
                                           const render = (line: string, li: number) =>
-                                            renderBodyLine(line, li, true, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap);
+                                            renderBodyLine(line, li, true, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap, neutralScore);
                                           const hdr = <SortableHeader sortKey={secSort.key} sortDir={secSort.dir} onSort={(k) => handleSectionSort(secSortKey, k)} />;
                                           return (
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
@@ -2788,7 +2791,7 @@ export default function MarketSummary() {
                                             const [heading, ...rows] = colLines;
                                             const isHeading = heading && heading.trim().endsWith(':');
                                             const render = (line: string, li: number) =>
-                                              renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap);
+                                              renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap, neutralScore);
                                             const isVcp = label === 'VCP Thesis';
                                             const isKeyEv = label === 'Key Events';
                                             const colSortKey = `${label}-${ci}`;
@@ -2865,7 +2868,7 @@ export default function MarketSummary() {
                                         {afterCols && (() => {
                                           const acLines = afterCols.trim().split('\n').filter(Boolean);
                                           const acRender = (line: string, li: number) =>
-                                            renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap);
+                                            renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap, neutralScore);
                                           const acHeader = sectionAligns && SECTION_HEADERS[label!] ? <SortableHeader sortKey={null} sortDir={'desc'} onSort={() => {}} isVcp={label === 'VCP Thesis'} /> : null;
                                           const acGroups: { heading: string | null; rows: string[] }[] = [];
                                           let acCur: { heading: string | null; rows: string[] } = { heading: null, rows: [] };
@@ -2903,7 +2906,7 @@ export default function MarketSummary() {
                                     const ss = sectionSorts[sk] ?? null;
                                     const bodyLines = body.split('\n').filter(Boolean);
                                     const renderLine = (line: string, li: number) =>
-                                      renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap);
+                                      renderBodyLine(line, li, sectionAligns && isRowLine(line), macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap, neutralScore);
                                     if (!sectionAligns) {
                                       return <div className="space-y-2">{bodyLines.map(renderLine)}</div>;
                                     }

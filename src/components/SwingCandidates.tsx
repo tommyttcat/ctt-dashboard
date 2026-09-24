@@ -137,7 +137,7 @@ import {
 } from '@/lib/indicators/chop';
 import { SWING, COLUMN_NOTES, columnTip } from '@/lib/scanConfig';
 import { WatchlistToggle } from './WatchlistPanel';
-import { scoreCellCls } from '@/lib/indicators/columnColors';
+import { scoreCellNeutralCls } from '@/lib/indicators/columnColors';
 import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
 import ScanStatsNote from './ScanStatsNote';
 import { SCAN, RsCell, PriceCell, ChgCell, VolCell, RvolCell, FloatCell, AdrCell, MfCell, DtcCell, McapCell, StageCell, SectorCell, StatusCell } from './scan/ScanTable';
@@ -148,7 +148,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The setup name sits directly beneath it.' },
   CNF: {
     what: 'Swing score 0–100, built from four parts: RS Rating (35), pullback tightness — distance to the 21 EMA and how deep the stochastic has reset (30), volatility fit, which rewards an ATR near 3% and penalises both ends (20), and trend structure, 50 over 200 plus a rising 21 (15).\n\nRelative strength is the largest single component AND a hard gate: a name below RS 50 never reaches this table at all.',
-    colour: 'The grade is on the ticker, not here: green 70+ (A) · amber 50+ (B) · grey below (C).',
+    colour: 'Grey on purpose: in the 5-year test a higher swing score did not reliably mean a better trade — its top fifth won in one half and lost in the other. It sorts the list; the row colour is the part that was tested.',
   },
   RTR: {
     what: 'Room to resistance. How far the nearest overhead level sits above the trigger, measured in stop-widths (R = trigger minus stop). 2R+ means the target is reachable before anything blocks it. Trigger, stop and target prices are on the sub-row.',
@@ -1168,12 +1168,12 @@ export default function SwingCandidates() {
                       <React.Fragment key={row.symbol}>
                         <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
                           title={tier ? `${tier.toUpperCase()} — ${SWING_TIP[tier]}` : undefined}>
-                          <TickerCell symbol={row.symbol} name={row.name} score={row.score} />
+                          <TickerCell symbol={row.symbol} name={row.name} score={null} />
                           <td className={tdBase}><NewsStars row={row} /></td>
                           <td className={tdBase}>
                             <span
                               title={cnfTooltip(row)}
-                              className={scoreCellCls(row.score)}
+                              className={scoreCellNeutralCls}
                             >
                               {row.score}
                             </span>

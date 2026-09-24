@@ -535,6 +535,13 @@ export const rtrLabel = (s: any): string => {
    EP-day midpoint — so it reads "Buy dip", never "Buy above". Same set as
    lib/scans/triggerProximity, which imports it from here. */
 export const PULLBACK_SOURCES = new Set(['ep9m']);
+
+/* Scans whose own score does not rank outcomes, measured on the 5-year
+   replay (24 Sep 2026): EP9M on its dip entry was flat across score
+   quintiles (Q1 +0.05R … Q5 −0.06R on trail21), and Swing's top quintile won
+   in one half and lost in the other. Their scores still sort and describe the
+   setup; they are just never coloured as a grade. */
+export const SCORE_UNRANKED_SOURCES = new Set(['ep9m', 'swing']);
 export const isPullbackPlan = (s: any): boolean => PULLBACK_SOURCES.has(String(s?._source ?? ''));
 
 export const buyToken = (s: any, level: any): string =>

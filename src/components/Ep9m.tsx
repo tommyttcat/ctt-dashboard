@@ -76,7 +76,7 @@ import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
 import { CatalystChip, catalystTooltip, isGenericCatalyst, hasNews, NewsStars } from '@/lib/catalyst';
 import { displaySector } from '@/lib/sectors';
-import { dtcColor as getDtcColor, tickerChipCls, scoreCellCls} from '@/lib/indicators/columnColors';
+import { dtcColor as getDtcColor, tickerChipCls, scoreCellNeutralCls } from '@/lib/indicators/columnColors';
 import { epMoveOdds, EP_MOVE_ODDS_TIP } from '@/lib/scans/ep9m';
 import { ep9mTier, EP9M_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
@@ -87,7 +87,7 @@ import { planStatusView } from '@/lib/scans/triggerProximity';
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: "Symbol. Hover shows the company name. Fuchsia dot = unprecedented (today's volume beat its own 60-day high); ★ = repeat EP9M offender. Hover the fuchsia dot on a choppy name — record volume inside a range that will not resolve is the most misread row on this table." },
   CNF: {
-    what: 'Episodic Pivot score 0–100 — volume abnormality, vs-60-day-high, float turnover, catalyst, close strength, Money Flow, days-to-cover, and repeat-trigger history. Hover the number for the per-row breakdown.',
+    what: 'Episodic Pivot score 0–100 — volume abnormality, vs-60-day-high, float turnover, catalyst, close strength, Money Flow, days-to-cover, and repeat-trigger history. Hover the number for the per-row breakdown.\n\nGrey on purpose: it measures how big the event was, not how the trade goes. In the 5-year test high and low scores traded the same on the dip entry, so it sorts the list but is not a grade.',
     colour: 'The ticker colour is BIG-MOVE ODDS, not quality: green = float turnover 0.5x+ or cap under $300M (17-23% ran +50%, but the worst average outcome), amber = 0.25x+ or under $2B, grey = single-digit odds.',
   },
   RTR: {
@@ -494,7 +494,7 @@ const planTooltip = (c: Ep9mCandidate): string => {
 
 const epTooltip = (c: Ep9mCandidate): string => {
   const lines: string[] = [
-    `EP ${c.score} — ${c.score >= 70 ? 'A' : c.score >= 50 ? 'B' : 'C'}`,
+    `EP ${c.score} — how big the event was. Not a quality grade: in the 5-year test high and low scores traded the same on the dip entry.`,
   ];
 
   const bd = c.scoreBreakdown;
@@ -1187,7 +1187,7 @@ export default function Ep9m() {
                           <td className={tdBase}>
                             <span
                               title={epTooltip(row)}
-                              className={scoreCellCls(row.score)}
+                              className={scoreCellNeutralCls}
                             >
                               {row.score}
                             </span>
