@@ -526,8 +526,7 @@ export const rtrLabel = (s: any): string => {
    The reader uses these lists as a watchlist and times entries off their own
    chart, so "TR 42 ST 39 TG 48 1.2R, 0.3x ADR away" was jargon standing
    between them and the two numbers that matter: where it becomes a buy, and
-   where the idea is wrong. The target is gone (a fixed 2R, the worst exit
-   the backtest measured) and room-to-resistance is said in words.
+   where the idea is wrong. Nothing else is printed.
 
    EP9M is the one pullback plan — it waits for price to come DOWN to the
    EP-day midpoint — so it reads "Buy dip", never "Buy above". Same set as
@@ -539,18 +538,6 @@ export const buyToken = (s: any, level: any): string =>
   `${isPullbackPlan(s) ? 'Buy dip' : 'Buy above'} ${fmtLevel(level)}`;
 
 export const stopToken = (level: any): string => `Stop ${fmtLevel(level)}`;
-
-/* Bands match the badge colours the RTR column used: 2R+ green, under 1R the
-   plan's own gate (PLAN_MIN_RTR). Between them says nothing — ordinary. */
-export const roomPhrase = (s: any): string | null => {
-  const p = livePlanOf(s);
-  if (!p) return null;
-  const r = p.resistanceR != null ? Number(p.resistanceR) : null;
-  if (r == null) return p.clear === true ? 'open air above' : null;
-  if (r >= 2) return 'open air above';
-  if (r < PLAN_MIN_RTR) return 'resistance just overhead';
-  return null;
-};
 
 export const isSettingUp = (s: any): boolean => {
   if (!livePlanOf(s)) return false;
