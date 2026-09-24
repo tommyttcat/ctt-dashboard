@@ -184,14 +184,13 @@ export function buildWeeklyEmailV2({ narrative, weeklyChanges, mondayStr, friday
     .map(([t, l]) => [l, weeklyChanges?.[t]?.pct] as const)
     .filter((x): x is readonly [string, number] => typeof x[1] === 'number' && isFinite(x[1]));
   const tileHtml = tiles.length ? `<tr><td class="pad" style="padding:16px 28px 24px 28px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>${
-    tiles.map(([l, v], i) => `<td width="${Math.floor(100 / tiles.length)}%" style="padding:${i === 0 ? '0 6px 0 0' : i === tiles.length - 1 ? '0 0 0 6px' : '0 3px'};"><div style="background:${C.tile};border:1px solid ${C.border};border-radius:12px;padding:12px;"><div style="font-size:11px;color:${C.muted};">${esc(l)}</div><div style="font-size:18px;font-weight:800;color:${v >= 0 ? C.green : C.red};">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</div></div></td>`).join('')
+    tiles.map(([l, v], i) => `<td width="${Math.floor(100 / tiles.length)}%" style="padding:${i === 0 ? '0 6px 0 0' : i === tiles.length - 1 ? '0 0 0 6px' : '0 3px'};"><div style="padding:4px 0;"><div style="font-size:12px;color:${C.muted};">${esc(l)}</div><div style="font-size:18px;font-weight:800;color:${v >= 0 ? C.green : C.red};">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</div></div></td>`).join('')
   }</tr></table></td></tr>` : '';
 
   const hero = lead ? `
-  <tr><td style="background:${C.card};border:1px solid ${C.border};border-radius:18px;box-shadow:0 1px 3px rgba(15,23,42,.06);overflow:hidden;">
+  <tr><td>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-      <tr><td style="height:4px;background:${tone};font-size:0;line-height:0;">&nbsp;</td></tr>
-      <tr><td class="pad" style="padding:26px 28px ${tileHtml ? 8 : 24}px 28px;">
+      <tr><td class="pad" style="padding:22px 24px ${tileHtml ? 4 : 20}px 24px;">
         ${label('The week', tone)}
         <div class="h1" style="font-size:${leadSize}px;line-height:1.25;font-weight:800;color:${C.ink};margin-top:8px;">${pctColor(esc(lead))}</div>
         ${leadRest ? `<div style="font-size:16px;line-height:1.55;color:${C.body};margin-top:10px;">${pctColor(esc(leadRest))}</div>` : ''}

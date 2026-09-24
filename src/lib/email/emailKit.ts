@@ -6,7 +6,7 @@
  */
 
 export const C = {
-  page: '#f3f5f9', card: '#ffffff', border: '#cbd5e1', tile: '#f6f8fb', rule: '#e2e8f0',
+  page: '#ffffff', card: '#ffffff', border: '#e5e7eb', tile: '#f6f8fb', rule: '#eef0f3',
   ink: '#0f172a', body: '#334155', muted: '#64748b', faint: '#94a3b8',
   green: '#059669', red: '#e11d48', amber: '#d97706', teal: '#0891b2', violet: '#7c3aed', orange: '#ea580c',
   greenBg: '#dcfce7', redBg: '#ffe4ea', amberBg: '#fef3c7', orangeBg: '#ffedd5', tealBg: '#e0f5f9', slateBg: '#eef1f6',
@@ -24,7 +24,7 @@ export const label = (text: string, color: string) =>
   `<div style="font-size:11px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:${color};">${esc(text)}</div>`;
 
 export const card = (inner: string) => `
-  <tr><td class="pad" style="background:${C.card};border:1px solid ${C.border};border-radius:18px;box-shadow:0 1px 3px rgba(15,23,42,.06);padding:22px 28px;">${inner}</td></tr>
+  <tr><td class="pad" style="border-top:1px solid ${C.border};padding:22px 24px;">${inner}</td></tr>
   <tr><td style="height:14px;font-size:0;line-height:0;">&nbsp;</td></tr>`;
 
 /* ---- status ------------------------------------------------------------ */
@@ -46,11 +46,12 @@ export function statusPill(st: Status | null): string {
     out: [C.red, C.redBg], wait: [C.body, C.slateBg],
   };
   const [fg, bg] = map[st.kind];
-  return `<span style="display:inline-block;font-size:11px;font-weight:800;letter-spacing:.8px;color:${fg};background:${bg};border-radius:999px;padding:4px 10px;white-space:nowrap;">${esc(st.text)}</span>`;
+  void bg; // tints dropped 24 Sep 2026 — see the shell comment on dark mode
+  return `<span style="font-size:12px;font-weight:800;letter-spacing:.6px;color:${fg};white-space:nowrap;">${esc(st.text)}</span>`;
 }
 
 export const tickerBadge = (t: string, color = C.green) =>
-  `<span style="display:inline-block;font-size:13px;font-weight:800;color:#ffffff;background:${color};border-radius:6px;padding:3px 8px;">${esc(t)}</span>`;
+  `<span style="font-size:16px;font-weight:800;color:${color};">${esc(t)}</span>`;
 
 /* ---- pick card ----------------------------------------------------------- */
 export type Pick = {
@@ -103,6 +104,12 @@ export interface ShellInput {
   footerNote?: string;
 }
 
+/* Dark mode (24 Sep 2026). The Gmail phone apps ignore `color-scheme: light
+   only` and invert a light email themselves. Solid white and dark text invert
+   cleanly; pastel fills, grey page bands and hairline boxes do not — they came
+   out as muddy blocks and bright outlines ("weird colours, borders"). So the
+   whole email is one white surface: sections split by a single rule, colour
+   carried by text only, no tinted fills anywhere. */
 export function emailShell({ title, pill, updatedTime, sections, footerNote }: ShellInput): string {
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -110,7 +117,7 @@ export function emailShell({ title, pill, updatedTime, sections, footerNote }: S
 <title>${esc(title)}</title>
 <style>
   body{margin:0;padding:0;background:${C.page};}
-  @media (max-width:620px){ .wrap{width:100% !important} .pad{padding-left:18px !important;padding-right:18px !important} .h1{font-size:24px !important} }
+  @media (max-width:620px){ .wrap{width:100% !important} .pad{padding-left:16px !important;padding-right:16px !important} .h1{font-size:24px !important} }
 </style></head>
 <body style="margin:0;padding:0;background:${C.page};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,Helvetica,Arial,sans-serif;color:${C.ink};">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.page};">
@@ -120,7 +127,7 @@ export function emailShell({ title, pill, updatedTime, sections, footerNote }: S
   <tr><td class="pad" style="padding:0 28px 18px 28px;">
     <table role="presentation" width="100%"><tr>
       <td><a href="https://confluencetradingtools.com" style="text-decoration:none;font-size:15px;font-weight:800;letter-spacing:.5px;color:${C.ink};">CTT<span style="color:${C.teal};">.</span></a></td>
-      <td align="right"><span style="display:inline-block;font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:${C.teal};background:${C.tealBg};border-radius:999px;padding:5px 11px;">${esc(pill)}</span></td>
+      <td align="right"><span style="font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:${C.teal};">${esc(pill)}</span></td>
     </tr></table>
     ${updatedTime ? `<div style="font-size:11px;color:${C.faint};margin-top:6px;text-align:right;">Updated ${esc(updatedTime)} ET</div>` : ''}
   </td></tr>

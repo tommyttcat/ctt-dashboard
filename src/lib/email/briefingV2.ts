@@ -89,8 +89,8 @@ function sectorChips(analysis: string): { lead: string; lag: string; narrative: 
   const lead = (t.match(/\*\*Leading:\*\*\s*([^\n]*)/) || [])[1] || '';
   const lag = (t.match(/\*\*Lagging:\*\*\s*([^\n]*)/) || [])[1] || '';
   const narrative = t.replace(/\*\*Leading:\*\*[^\n]*\n*/, '').replace(/\*\*Lagging:\*\*[^\n]*\n*/, '').trim();
-  const chips = (list: string, fg: string, bg: string) => list.split(/,\s*/).filter(Boolean).slice(0, 4)
-    .map(x => `<span style="display:inline-block;font-size:12px;font-weight:700;color:${fg};background:${bg};border-radius:999px;padding:4px 10px;margin:0 6px 6px 0;">${esc(x.trim())}</span>`).join('');
+  const chips = (list: string, fg: string, _bg: string) => list.split(/,\s*/).filter(Boolean).slice(0, 4)
+    .map(x => `<span style="display:inline-block;font-size:13px;font-weight:700;color:${fg};margin:0 14px 6px 0;">${esc(x.trim())}</span>`).join('');
   return { lead: chips(lead, C.green, C.greenBg), lag: chips(lag.split(/,\s*/).reverse().join(', '), C.red, C.redBg), narrative };
 }
 
@@ -135,16 +135,17 @@ export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief,
     mfVal != null ? ['Money flow (SPY)', `${Math.round(mfVal)} ${mf?.trend > 0 ? '▲' : mf?.trend < 0 ? '▼' : ''}`, mfVal >= 50 ? C.green : C.red] : null,
   ].filter(Boolean) as [string, string, string][];
   const tileCell = ([l, v, c]: [string, string, string]) =>
-    `<td width="33%" style="padding:4px;"><div style="background:${C.tile};border:1px solid ${C.border};border-radius:12px;padding:11px 12px;"><div style="font-size:11px;color:${C.muted};">${esc(l)}</div><div style="font-size:18px;font-weight:800;color:${c};white-space:nowrap;">${esc(v)}</div></div></td>`;
+    `<td width="50%" style="width:50%;padding:8px 0;vertical-align:top;"><div style="font-size:12px;color:${C.muted};white-space:nowrap;">${esc(l)}</div><div style="font-size:20px;font-weight:800;color:${c};white-space:nowrap;">${esc(v)}</div></td>`;
+  /* Two across at every width, every cell the same: three across squeezed the
+     outer columns on a phone until their labels wrapped to three lines. */
   const tileRows: string[] = [];
-  for (let i = 0; i < tiles.length; i += 3) tileRows.push(`<tr>${tiles.slice(i, i + 3).map(tileCell).join('')}</tr>`);
+  for (let i = 0; i < tiles.length; i += 2) tileRows.push(`<tr>${tiles.slice(i, i + 2).map(tileCell).join('')}</tr>`);
   const tileHtml = tiles.length ? `<tr><td class="pad" style="padding:12px 24px 20px 24px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">${tileRows.join('')}</table></td></tr>` : '';
 
   const hero = regime ? `
-  <tr><td style="background:${C.card};border:1px solid ${C.border};border-radius:18px;box-shadow:0 1px 3px rgba(15,23,42,.06);overflow:hidden;">
+  <tr><td>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-      <tr><td style="height:4px;background:${tone};font-size:0;line-height:0;">&nbsp;</td></tr>
-      <tr><td class="pad" style="padding:26px 28px 8px 28px;">
+      <tr><td class="pad" style="padding:22px 24px 4px 24px;">
         ${label('The market', tone)}
         <div class="h1" style="font-size:28px;line-height:1.2;font-weight:800;color:${C.ink};margin-top:8px;">${esc(verdict)}</div>
         ${driver ? `<div style="font-size:16px;line-height:1.55;color:${C.body};margin-top:10px;">${esc(driver)}</div>` : ''}
@@ -160,7 +161,7 @@ export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief,
   const since = paras.length || block?.takeaway ? card(`
     ${label(`Tape reading · ${block?.phase || phaseLabel}`, C.violet)}
     ${paras.map(p => `<div style="font-size:15px;line-height:1.6;color:${C.body};margin-top:10px;">${rich(p)}</div>`).join('')}
-    ${block?.takeaway ? `<div style="font-size:15px;line-height:1.55;color:${C.ink};font-weight:700;background:${C.tile};border-left:3px solid ${C.violet};border-radius:8px;padding:10px 12px;margin-top:12px;">${rich(block.takeaway)}</div>` : ''}`) : '';
+    ${block?.takeaway ? `<div style="font-size:15px;line-height:1.55;color:${C.ink};font-weight:700;border-left:3px solid ${C.violet};padding:2px 0 2px 12px;margin-top:14px;">${rich(block.takeaway)}</div>` : ''}`) : '';
 
   /* what's next */
   const nextSentences = String(rd.posture || '').split(/(?<=[.;])\s+(?=[A-Z*])/).map(s => s.trim()).filter(Boolean);
@@ -169,7 +170,7 @@ export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief,
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px;">
       ${outlookRows(nextSentences)}
     </table>
-    ${rd.caution ? `<div style="font-size:13px;line-height:1.5;color:${C.muted};background:${C.tile};border-radius:10px;padding:10px 12px;margin-top:6px;"><b style="color:${C.red};">Risk:</b> ${rich(rd.caution)}</div>` : ''}`) : '';
+    ${rd.caution ? `<div style="font-size:14px;line-height:1.5;color:${C.muted};margin-top:8px;"><b style="color:${C.red};">Risk:</b> ${rich(rd.caution)}</div>` : ''}`) : '';
 
   /* picks */
   const topTrades = sectionOf(brief, 'Top Trades');
