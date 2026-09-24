@@ -133,7 +133,7 @@ const LABEL = 'text-[11px] font-bold tracking-[0.14em] uppercase';
    tint their chips with, filled in. */
 /* The chip carries the card's one colour: the name's tier on its own scan
    (green / yellow / red). No tier -> slate. */
-const TIER_EDGE: Record<EdgeTier, string> = { green: 'border-l-emerald-400', yellow: 'border-l-amber-400', red: 'border-l-rose-400' };
+const TIER_EDGE: Record<EdgeTier, string> = { green: 'border-l-emerald-400/50', yellow: 'border-l-amber-400/50', red: 'border-l-rose-400/50' };
 function chipCls(_cnf: number | null | undefined, tier?: EdgeTier | null): string {
   // The dashboard's badge: coloured text on a faint tint with a hairline
   // border (MarketSummary TICKER_CHIP_*), coloured by the name's tier.
@@ -144,8 +144,11 @@ function chipCls(_cnf: number | null | undefined, tier?: EdgeTier | null): strin
   return `inline-block text-[12px] font-bold tracking-wider px-1.5 py-[2px] rounded border leading-none ${tone}`;
 }
 
-function TagPill({ tag, hint }: { tag: NewsTag; hint?: string }) {
-  const pill = <span className={`${PILL} ${TAG_META[tag].cls}`}>{TAG_META[tag].label}</span>;
+function TagPill({ tag, hint, small }: { tag: NewsTag; hint?: string; small?: boolean }) {
+  const base = small
+    ? 'inline-flex items-center rounded-full border px-1.5 py-px text-[9px] font-bold tracking-[0.06em] uppercase leading-[1.3] whitespace-nowrap'
+    : PILL;
+  const pill = <span className={`${base} ${TAG_META[tag].cls}`}>{TAG_META[tag].label}</span>;
   return hint ? <InfoDot text={hint}>{pill}</InfoDot> : pill;
 }
 
@@ -249,8 +252,8 @@ function NewsCard({ tag, tagHint, headline, summary, url, move, flags, tickers, 
           <span className={`ml-auto rounded-full px-2.5 py-0.5 text-[11px] font-bold tracking-wide ${PLAN_PILL[plan.status] ?? 'text-slate-200 bg-slate-500/15'}`}>{plan.status.toUpperCase()}</span>
         </div>
       )}
-      <div className="mt-auto flex items-center gap-x-2.5 gap-y-1.5 flex-wrap text-[12px] text-slate-400 border-t border-[#1e293b] pt-2.5">
-        {tag !== 'general' && <TagPill tag={tag} hint={tagHint} />}
+      <div className="mt-auto flex items-center gap-x-2 gap-y-1 flex-wrap text-[11px] text-slate-500 border-t border-[#1e293b] pt-2">
+        {tag !== 'general' && <TagPill tag={tag} hint={tagHint} small />}
         {flags}
         {meta && <span>{meta}</span>}
         <Stats s={stats} />
@@ -265,7 +268,7 @@ function Stars({ n }: { n: number }) {
     <InfoDot text={n >= 2
       ? '★★ — the tag is a real category (earnings, M&A, analyst, FDA…) AND the article states a reason for the move rather than restating it.'
       : '★ — there is an article, but it is generic: it restates the move rather than explaining it.'}>
-      <span className={`text-[12px] font-bold leading-none ${n >= 2 ? 'text-amber-400' : 'text-amber-400/50'}`}>{n >= 2 ? '★★' : '★'}</span>
+      <span className={`text-[10px] font-bold leading-none ${n >= 2 ? 'text-amber-400' : 'text-amber-400/50'}`}>{n >= 2 ? '★★' : '★'}</span>
     </InfoDot>
   );
 }
