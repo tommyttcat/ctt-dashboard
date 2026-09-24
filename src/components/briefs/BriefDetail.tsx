@@ -268,7 +268,7 @@ export default function BriefDetail({
                     )}
                     {regime.posture && (
                       <div className="pt-3 border-t border-white/[0.06]">
-                        <div className="text-[12px] font-bold text-slate-500 tracking-wider uppercase mb-1">Structure</div>
+                        <div className="text-[12px] font-bold text-slate-500 tracking-wider uppercase mb-1">Next</div>
                         <Prose text={regime.posture} />
                       </div>
                     )}

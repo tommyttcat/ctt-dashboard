@@ -238,6 +238,7 @@ const NOT_TICKERS = new Set([
      Prose no longer scans bare capitals at all, but Top Trades theses are
      plain text and still do. */
   'ARMED','WAIT','TRIGGERED','EXTENDED','FAILED','UNKNOWN','ACT','TODAY',
+  'HIT','MISS','OUT','EXT','BUY','STOP','DIP','AWAY',
   'PRE','TAPE','MIX','OPEN','CLOSE','POWER','HOUR','CHOP','EIA','NFIB','ISM','JOLTS',
 ]);
 const INDEX_TICKERS = new Set(['SPY','QQQ','DIA','IWM','VIX','TLT','GLD','SLV','USO','XLF','XLK','XLE','XLV','XLI','XLB','XLC','XLRE','XLU','XLP','XLY']);
@@ -2401,7 +2402,7 @@ export default function AnalystBrief() {
               const rd = brief.regimeDetail!;
               const detail = [
                 rd.caution ? `Risk: ${rd.caution.replace(/\n+/g, ' ')}` : null,
-                rd.posture ? `Structure: ${rd.posture.replace(/\n+/g, ' ')}` : null,
+                rd.posture ? `Next: ${rd.posture.replace(/\n+/g, ' ')}` : null,
               ].filter(Boolean).join('\n');
               return (
                 <SectionCard title="Market Regime" accent="#22d3ee">

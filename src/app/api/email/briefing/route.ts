@@ -276,6 +276,7 @@ function colorPctsHtml(text: string): string {
    ticker match on them is always a false positive. */
 const RESERVED_WORDS = new Set([
   'ARMED', 'WAIT', 'TRIGGERED', 'EXTENDED', 'FAILED', 'UNKNOWN', 'ACT', 'TODAY',
+  'HIT', 'MISS', 'OUT', 'EXT', 'BUY', 'STOP', 'DIP', 'AWAY',
   'PRE', 'TAPE', 'MIX', 'OPEN', 'CLOSE', 'POWER', 'HOUR',
 ]);
 
@@ -1123,7 +1124,7 @@ function buildEmail(phase: Phase, macro: any, chop: any, t2108Data: any, brief: 
   const rd = brief?.regimeDetail || {};
   const regimeDetailText = [
     rd.caution ? `Risk: ${rd.caution}` : null,
-    rd.posture ? `Structure: ${rd.posture}` : null,
+    rd.posture ? `Next: ${rd.posture}` : null,
   ].filter(Boolean).join('\n');
   const regimeHtml = (rd.regime || regimeDetailText)
     ? pageCard('Market Regime', '#22d3ee',
