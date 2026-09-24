@@ -108,7 +108,7 @@ import { WatchlistToggle } from './WatchlistPanel';
 import { hrsEdgeGrade } from '@/lib/scans/hrs';
 import { edgeTier as edgeOf, EDGE_TINT, EDGE_FILTER_TIP, type EdgeTier } from '@/lib/scans/edge';
 import { tierForScan } from '@/lib/scans/edge';
-import { trigRows, type TrigRow } from '@/lib/scans/triggerProximity';
+import { planRowsFor, type TrigRow } from '@/lib/scans/triggerProximity';
 import InfoDot from './InfoDot';
 import { SCAN, SortHeader, ScoreCell, RsCell, PriceCell, ChgCell, RvolCell } from './scan/ScanTable';
 import { TickerCell } from './scan/TickerCell';
@@ -1145,12 +1145,13 @@ const TRIG_COLS: { key: TrigSortKey; label: string; width: string; title?: strin
 const TRIG_HIDE = 'hidden md:table-cell';
 
 const TriggerProximity = ({ pool }: { pool: any[] }) => {
-  /* The SET is the eight closest — that is what the card is, and it is chosen
-     by proximity no matter which column the reader sorts by. Sorting reorders
-     those eight; it never re-picks them from the whole pool, or the card would
-     quietly fill with names 20% away from their level and leave the heading
-     lying about what it is. */
-  const nearest = React.useMemo(() => trigRows(pool, 8), [pool]);
+  /* The SET is the recommended names — exactly the rows on the Setups
+     Summary card above, same pills, same green default — each with its buy
+     level and stop. The reader uses the card as a watchlist and times entries
+     off their own chart, so this is "the two numbers for each name I was
+     just shown", not a separate proximity-picked list. Names already through
+     their level stay, marked IN. */
+  const nearest = React.useMemo(() => planRowsFor(pool), [pool]);
 
   /* Ordered by CNF, like the card above — the two blocks then read down the
      same way, and the strongest name is top-left in both. Proximity is still
@@ -1233,7 +1234,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
               {r.stop.toFixed(2)}
             </td>
             <td className={`${SCAN.td} text-[10px] font-bold text-slate-300 tabular-nums whitespace-nowrap`}>
-              {r.awayPct < 10 ? r.awayPct.toFixed(1) : r.awayPct.toFixed(0)}%
+              {r.through ? 'IN' : `${r.awayPct < 10 ? r.awayPct.toFixed(1) : r.awayPct.toFixed(0)}%`}
             </td>
           </tr>
         );
@@ -1254,8 +1255,8 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
   return (
     <div className="mt-4 pt-3 border-t border-white/5">
       <div className="flex items-center mb-1">
-        <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Closest to buy level</span>
-        <InfoDot text={"The eight names above that are closest to their buy level. Proximity picks the eight; they are then ordered by CNF, like the card above. Every column sorts, and sorting only reorders these eight rather than re-picking them. Click AWAY for nearest-first.\n\n↑ means it becomes a buy ABOVE that price (a breakout: Daily, SIP, Swing, VCP). ↓ means buy on a DIP to it (EP9M, whose plan is a pullback to the EP-day midpoint).\n\nA name drops off once price is through its level: by then it is a position or a miss, not a watch. STOP is where the idea is wrong.\n\nRow colour is each scan's OWN measured tier from its backtest — green, yellow, red — not one rule applied to all of them. Hover a row for what its colour means on that scan."} />
+        <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Buy &amp; stop</span>
+        <InfoDot text={"Buy level and stop for every name on the card above — same filters. ↑ buy above that price (a breakout: Daily, SIP, Swing, VCP). ↓ buy on a dip to it (EP9M). AWAY is how far price is from the buy level; IN means price is already through it. STOP is where the idea is wrong. Names with no usable plan (collapsed, or too extended to place a stop) are left off."} />
       </div>
       {/* `min-w-0` on the scroller is load-bearing, not decoration. A grid item
           defaults to min-width:auto, so without it the 470px table pushes its
@@ -1455,11 +1456,10 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
         </>
       )}
       {/* Under the card, deliberately: the list above says what is set up,
-          this says which of those is about to trigger and at what price.
-          Built from the UNFILTERED pool so the answer does not change when a
-          pill narrows the list above — "what is closest" is a question about
-          the whole board. */}
-      <TriggerProximity pool={taggedPool} />
+          this gives the buy level and stop for each of THOSE names. Built
+          from the same filtered list, so a pill that narrows the card narrows
+          this too. */}
+      <TriggerProximity pool={filtered} />
     </div>
   );
 };

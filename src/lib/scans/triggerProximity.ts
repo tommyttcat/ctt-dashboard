@@ -29,9 +29,11 @@ export type TrigRow = {
   pullback: boolean;
   /** Distance from price to the level, always positive. */
   awayPct: number;
+  /** Price is already through the level (above a breakout, below a dip). */
+  through: boolean;
 };
 
-export function trigRowOf(s: any): TrigRow | null {
+export function trigRowOf(s: any, opts?: { keepThrough?: boolean }): TrigRow | null {
   const ticker = s?.ticker ?? s?.symbol;
   const price = priceOf(s);
   if (!ticker || price == null || price <= 0) return null;
@@ -46,11 +48,13 @@ export function trigRowOf(s: any): TrigRow | null {
   if (trigger == null || stop == null || trigger <= 0) return null;
 
   const pullback = PULLBACK_SOURCES.has(String(s._source ?? ''));
-  // Through the level already: that is a position or a miss, not a watch.
-  if (pullback ? trigger >= price : trigger <= price) return null;
+  // Through the level already: that is a position or a miss, not a watch —
+  // unless the caller is listing a fixed set of names and wants all of them.
+  const through = pullback ? trigger >= price : trigger <= price;
+  if (through && !opts?.keepThrough) return null;
 
   return {
-    s, ticker, price, trigger, stop, pullback,
+    s, ticker, price, trigger, stop, pullback, through,
     label: plan?.triggerLabel ?? (isVcp ? 'pivot' : 'level'),
     awayPct: (Math.abs(trigger - price) / price) * 100,
   };
@@ -63,4 +67,16 @@ export function trigRows(pool: any[], limit = 8): TrigRow[] {
     if (r) out.push(r);
   }
   return out.sort((a, b) => a.awayPct - b.awayPct).slice(0, limit);
+}
+
+/** Buy and stop for a FIXED list — the recommended names on the Setups
+ *  Summary card. Every name with a live plan is kept, including ones already
+ *  through their level, so the list matches the card above it. */
+export function planRowsFor(names: any[]): TrigRow[] {
+  const out: TrigRow[] = [];
+  for (const s of names) {
+    const r = trigRowOf(s, { keepThrough: true });
+    if (r) out.push(r);
+  }
+  return out;
 }

@@ -10,7 +10,7 @@
 import { epPullbackPlan, EP_PULLBACK_WINDOW } from '../src/lib/scans/ep9m.ts';
 import { computeTradePlan } from '../src/lib/indicators/tradeplan.ts';
 import { EXIT_STYLE, EXIT_GUIDANCE } from '../src/lib/scans/exits.ts';
-import { trigRowOf, trigRows } from '../src/lib/scans/triggerProximity.ts';
+import { trigRowOf, trigRows, planRowsFor } from '../src/lib/scans/triggerProximity.ts';
 import { eq, near, ok, done } from './testkit.mts';
 
 // ---- the EP pullback plan --------------------------------------------------
@@ -107,6 +107,20 @@ ok('EP pullback above its level is a watch', trigRowOf(pull(101, 100)) != null);
 ok('EP pullback through its level is dropped', trigRowOf(pull(99, 100)) == null);
 eq('breakout is not flagged as a pullback', trigRowOf(breakout(99, 100))?.pullback, false);
 eq('EP9M is flagged as a pullback', trigRowOf(pull(101, 100))?.pullback, true);
+
+// The Buy & stop panel lists a FIXED set (the recommended names) and keeps
+// names already through their level, flagged, rather than dropping them.
+{
+  const rows = planRowsFor([breakout(99, 100), breakout(101, 100), pull(101, 100), pull(99, 100)]);
+  eq('planRowsFor keeps every name with a live plan', rows.length, 4);
+  eq('breakout under its level is not through', rows[0].through, false);
+  eq('breakout over its level is through', rows[1].through, true);
+  eq('EP above its dip level is not through', rows[2].through, false);
+  eq('EP below its dip level is through', rows[3].through, true);
+  eq('planRowsFor keeps input order', rows.map(r => r.price).join(','), '99,101,101,99');
+  eq('planRowsFor drops a name with no live plan',
+    planRowsFor([{ ticker: 'C', price: 99, _source: 'swing', plan: { tradeable: false, trigger: 100, stop: 95 } }]).length, 0);
+}
 
 near('distance is measured from price', trigRowOf(breakout(100, 101))?.awayPct, 1);
 ok('distance is always positive', (trigRowOf(pull(101, 100))?.awayPct ?? -1) > 0);
