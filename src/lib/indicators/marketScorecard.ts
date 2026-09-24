@@ -52,47 +52,69 @@ export function marketTone(quotes: ToneQuotes, breadthScore: number | null | und
 export const toneCellTone = (t: MarketTone): CellTone =>
   t === 'BULLISH' ? 'green' : t === 'BEARISH' ? 'red' : 'amber';
 
-/* ---- T2108 ---------------------------------------------------------------
+/* ---- Share of stocks above their 40-day average (was labelled "T2108") ---
 
-   Percentage of stocks above their 40-day moving average. The vocabulary here
-   matches the producer's own zone strings (computeT2108 in
-   swing-candidates/run), so a label rendered on a page and a zone tested in
-   code mean the same thing. */
-export function t2108ZoneLabel(v: number | null): string {
+   Percentage of stocks above their 40-day moving average. The reader sees it
+   as "Above 40-day"; "T2108" is the indicator's trade name and means nothing
+   to anyone who has not already met it.
+
+   The ZONE WORDS below are display only — nothing compares them. The
+   producer's own lowercase zone strings (computeT2108 in swing-candidates/run)
+   are a separate vocabulary that the analyst brief tests against, and they
+   are unchanged.
+
+   THE COLOURS ARE MEASURED (24 Sep 2026, scripts/backtest/analyze-t2108.ts,
+   every breakout trade across six scans, Oct 2021 - Sep 2026, trail-21 R,
+   first two-thirds vs last third of the period):
+     20% or lower   GREEN   paid for 4 of 6 scans in both halves —
+                            Stocks in Play/Daily +0.17/+0.24, 10/21 +0.33/+0.19,
+                            VCP +0.14/+0.20, EP9M +0.26/+0.06.
+     20-35%         NEUTRAL was painted green; mixed to negative in practice
+                            (Swing -0.20/-0.10). It had not earned the colour.
+     35-65%         NEUTRAL
+     65-80%         NEUTRAL was amber (caution); it is the SECOND-best zone for
+                            Stocks in Play/Daily (+0.04/+0.35). Not a warning.
+     above 80%      RED     the worst zone for every scan (-0.25 to -0.65) —
+                            but every such day falls in ONE stretch, the late-
+                            2021 top. Kept red, and the label says so. */
+export function t2108ZoneLabel(v: number | null, _producerZone?: string): string {
   if (v == null) return 'NO DATA';
   if (v <= 10) return 'WASHED OUT';
-  if (v <= 20) return 'DEEP OVERSOLD';
+  if (v <= 20) return 'VERY OVERSOLD';
   if (v <= 35) return 'OVERSOLD';
   if (v <= 65) return 'NEUTRAL';
-  if (v <= 80) return 'EXTENDED';
-  return 'FROTHY';
+  if (v <= 80) return 'STRETCHED';
+  return 'OVERHEATED';
 }
 
 export function t2108TextColor(v: number | null): string {
   if (v == null) return 'text-slate-500';
   if (v <= 10) return 'text-purple-400';
   if (v <= 20) return 'text-emerald-400';
-  if (v <= 35) return 'text-lime-400';
-  if (v <= 65) return 'text-slate-200';
-  if (v <= 80) return 'text-amber-400';
+  if (v <= 80) return 'text-slate-200';
   return 'text-rose-400';
 }
 
 export function t2108CardStyle(v: number | null): { bg: string; border: string } {
   if (v == null) return { bg: 'bg-[#161c2a]/60', border: 'border-white/5' };
   if (v <= 20) return { bg: 'bg-emerald-950/10', border: 'border-emerald-500/20' };
-  if (v <= 35) return { bg: 'bg-lime-950/10', border: 'border-lime-500/20' };
-  if (v <= 65) return { bg: 'bg-[#161c2a]/60', border: 'border-white/10' };
-  if (v <= 80) return { bg: 'bg-amber-950/10', border: 'border-amber-500/20' };
+  if (v <= 80) return { bg: 'bg-[#161c2a]/60', border: 'border-white/10' };
   return { bg: 'bg-rose-950/10', border: 'border-rose-500/20' };
 }
 
 export function t2108CellTone(v: number | null): CellTone {
   if (v == null) return 'slate';
-  if (v <= 35) return 'green';
-  if (v <= 65) return 'slate';
-  if (v <= 80) return 'amber';
+  if (v <= 20) return 'green';
+  if (v <= 80) return 'slate';
   return 'red';
+}
+
+/* What each zone means, in one line — tooltip only, measured claims only. */
+export function t2108Note(v: number | null): string {
+  if (v == null) return '';
+  if (v <= 20) return 'Very few stocks are above their 40-day average. Over four years, breakouts in 4 of 6 scans did better than usual from here, in both halves of the period.';
+  if (v <= 80) return 'Over four years, readings in this range did not reliably help or hurt breakouts.';
+  return 'Almost every stock is above its 40-day average. The worst range for every scan over four years — but all of those days come from one stretch, the late-2021 top.';
 }
 
 /* ---- Breadth -------------------------------------------------------------

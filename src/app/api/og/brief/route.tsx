@@ -370,13 +370,13 @@ export async function GET(req: Request) {
       const cells: StripCell[] = [];
       cells.push({ label: 'TONE', value: tone, sub: '', color: toneCellTone(tone) });
       if (bData) {
-        cells.push({ label: 'BREADTH', value: `${bData.score}/6`, sub: bData.signal || '', color: breadthSignalTone(bData.signal) });
+        cells.push({ label: 'PARTICIPATION', value: `${bData.score}/6`, sub: bData.signal || '', color: breadthSignalTone(bData.signal) });
       }
       const mm = marketMonitorOf(bData);
       if (mm) {
         const partial = mm.days > 0 && mm.days < 5;
         cells.push({
-          label: 'MKT MON',
+          label: 'BIG MOVERS',
           value: `${mm.up4 ?? 0}/${mm.down4 ?? 0}`,
           sub: mm.ratio5 != null
             ? `${mmRatioLabel(mm)}x ${partial ? `${mm.days}/5d` : '5d'}`
@@ -386,19 +386,19 @@ export async function GET(req: Request) {
       }
       if (bData) {
         const ad = advPct(bData.advancers, bData.decliners);
-        cells.push({ label: 'ADV / DEC', value: `${ad.toFixed(1)}%`, sub: `${bData.advancers ?? 0} / ${bData.decliners ?? 0}`, color: advCellTone(ad) });
+        cells.push({ label: 'UP vs DOWN', value: `${ad.toFixed(1)}%`, sub: `${bData.advancers ?? 0} / ${bData.decliners ?? 0}`, color: advCellTone(ad) });
       }
       if (bData && (bData.newHighs != null || bData.newLows != null)) {
         const hp = highsPct(bData.newHighs, bData.newLows);
-        cells.push({ label: 'HI / LO', value: `${hp.toFixed(1)}%`, sub: `${bData.newHighs ?? 0} / ${bData.newLows ?? 0}`, color: highsCellTone(hp) });
+        cells.push({ label: 'HIGHS vs LOWS', value: `${hp.toFixed(1)}%`, sub: `${bData.newHighs ?? 0} / ${bData.newLows ?? 0}`, color: highsCellTone(hp) });
       }
       if (tVal != null) {
-        cells.push({ label: 'T2108', value: `${tVal.toFixed(0)}%`, sub: t2108ZoneLabel(tVal), color: t2108CellTone(tVal) });
+        cells.push({ label: 'ABOVE 40-DAY', value: `${tVal.toFixed(0)}%`, sub: t2108ZoneLabel(tVal), color: t2108CellTone(tVal) });
       }
       if (bData?.mkm != null) {
         const rising = !!bData.mkmRising;
         cells.push({
-          label: 'McCLELLAN',
+          label: 'HIGHS/LOWS TREND',
           value: `${Number(bData.mkm).toFixed(0)}%`,
           sub: `${rising ? '▲' : '▼'} vs ${Number(bData.mkmSignal ?? 0).toFixed(0)}`,
           color: mkmCellTone(Number(bData.mkm), Number(bData.mkmSignal ?? 0), rising),
@@ -408,7 +408,7 @@ export async function GET(req: Request) {
       if (vixQ?.price) {
         const sign = (vixQ.pct ?? 0) >= 0 ? '+' : '';
         cells.push({
-          label: 'VIX',
+          label: 'FEAR (VIX)',
           value: Number(vixQ.price).toFixed(2),
           sub: `${sign}${Number(vixQ.pct ?? 0).toFixed(2)}%`,
           color: vixPctTone(Number(vixQ.pct ?? 0)),
@@ -430,12 +430,12 @@ export async function GET(req: Request) {
             },
           );
           const signal = tapeDirSignal(setup);
-          cells.push({ label: 'TAPE DIR', value: signal, sub: setup, color: tapeDirCellTone(signal) });
+          cells.push({ label: 'DIRECTION', value: signal, sub: setup, color: tapeDirCellTone(signal) });
         }
       }
       if (chopVal != null) {
         cells.push({
-          label: 'CHOP',
+          label: 'CHOPPINESS',
           value: chopVal.toFixed(0),
           sub: chopZoneLabel(chopVal, chopBands),
           color: chopCellTone(chopVal, chopBands),

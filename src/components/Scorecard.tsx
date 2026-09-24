@@ -68,6 +68,11 @@ import TickerChartHover from './TickerChartHover';
 
 import {
   getMarketSession,
+  t2108TextColor,
+  t2108CardStyle,
+  t2108ZoneLabel,
+  t2108CellTone,
+  t2108Note,
   tapeDirSetup,
   tapeDirSignal,
   readCapitalFlow,
@@ -214,40 +219,16 @@ const formatClockShort = (iso: string | null | undefined): string => {
 };
 
 /* ------------------------------------------------------------------
-   T2108 — % of stocks above their own 40-day MA.
-   NOT a simple good/bad scale: both extremes are actionable, in
-   opposite directions. Low means washed out (Bonde hunts reversals
-   aggressively under 20, calls sub-10 a near-guaranteed bounce).
-   High means froth, where breakouts start failing.
+   Share of stocks above their own 40-day average (was labelled T2108).
+   Only the low extreme carried a measured edge — see t2108ZoneLabel in
+   @/lib/indicators/marketScorecard for the four-year numbers.
    ------------------------------------------------------------------ */
-const t2108Color = (v: number | null): string => {
-  if (v == null) return 'text-slate-500';
-  if (v <= 10) return 'text-purple-400';
-  if (v <= 20) return 'text-emerald-400';
-  if (v <= 35) return 'text-lime-400';
-  if (v <= 65) return 'text-slate-200';
-  if (v <= 80) return 'text-amber-400';
-  return 'text-rose-400';
-};
+/* The colours are the shared, measured ones in @/lib/indicators/marketScorecard.
+   This component used to keep its own copy with the old ranges — green all the
+   way to 35%, amber from 65% — which a four-year replay did not support; see
+   the note on t2108ZoneLabel there. */
+const t2108Color = t2108TextColor;
 
-const t2108CardStyle = (v: number | null): { bg: string; border: string } => {
-  if (v == null) return { bg: 'bg-[#161c2a]/60', border: 'border-white/5' };
-  if (v <= 20) return { bg: 'bg-emerald-950/10', border: 'border-emerald-500/20' };
-  if (v <= 35) return { bg: 'bg-lime-950/10', border: 'border-lime-500/20' };
-  if (v <= 65) return { bg: 'bg-[#161c2a]/60', border: 'border-white/10' };
-  if (v <= 80) return { bg: 'bg-amber-950/10', border: 'border-amber-500/20' };
-  return { bg: 'bg-rose-950/10', border: 'border-rose-500/20' };
-};
-
-const t2108ZoneLabel = (v: number | null, zone: string): string => {
-  if (v == null) return zone === 'unknown' ? 'NO DATA' : zone.toUpperCase();
-  if (v <= 10) return 'WASHED OUT';
-  if (v <= 20) return 'DEEP OVERSOLD';
-  if (v <= 35) return 'OVERSOLD';
-  if (v <= 65) return 'NEUTRAL';
-  if (v <= 80) return 'EXTENDED';
-  return 'FROTHY';
-};
 
 /* ---- CHOP SENSITIVITY ----------------------------------------------------
    Three threshold pairs.
@@ -280,24 +261,15 @@ const t2108ZoneLabel = (v: number | null, zone: string): string => {
    ROWS and need stable semantics — a name appearing or vanishing because of
    a display preference would be indefensible. */
 /* ---- CHOP composite ------------------------------------------------------
-   The route hands over raw Choppiness Index. Two modifiers adjust it, because
-   raw CHOP on an index has one specific failure mode:
+   The route hands over the raw Choppiness Index; @/lib/indicators/chopMarket
+   blends in the intraday leg and owns the bands and the zone words.
 
-   A ROTATION TAPE SCORES AS CHOP. When money rotates out of one group and
-   into another, the index travels a lot of distance and covers no ground —
-   exactly the signature CHOP is built to detect. But underneath, leadership
-   is clean and breakouts in the receiving group follow through perfectly
-   well. Raw CHOP would tell you to stand down on a day that pays.
-
-   The distinguishing evidence is dispersion. In real chop nothing is
-   winning: breadth sits pinned near the middle and new highs roughly equal
-   new lows. In rotation, breadth and the high/low line both skew.
-
-   The math, the band presets and the zone vocabulary all live in
-   @/lib/indicators/chopMarket now. They used to live here, with cut-down
-   copies in AnalystBrief and the briefing email that carried a smaller
-   modifier cap and, in both cases, no high/low term at all — so the three
-   surfaces printed three different numbers from one payload. */
+   There is no breadth or "rotation" adjustment. An earlier version moved the
+   reading by breadth balance and new highs vs lows, on the theory that a
+   rotation day looks like chop to an index while breakouts still pay. It was
+   removed on 5 Sep 2026 and re-tested on 24 Sep: adding it back made the
+   reading WORSE at separating good days from bad. See chopComposite for the
+   numbers before bringing it back. */
 
 /* A 14-day Choppiness Index moves in tenths of a point per session — the
    first live reading shifted 0.25 day-over-day. The original 0.5 dead-band
@@ -426,34 +398,31 @@ const buildToneNarrative = (
     s3 = bits.join(' · ') + '.';
   }
 
-  // ---- 4. VERDICT — the only line that tells you what to do
+  // ---- 4. The last line. It only INSTRUCTS where an instruction has been
+  // measured (the above-40-day note does, from a four-year replay). This
+  // highs/lows fallback has not been, so it describes — it used to say
+  // "favour pullbacks over breakouts" and "tighten stops, hunt reversals"
+  // on no evidence.
   const hlRatio = nl > 0 ? nh / nl : (nh > 0 ? Infinity : 0);
   const hlCall =
-    (nh === 0 && nl === 0) ? 'No structural read — trade the setup, not the tape.' :
-    hlRatio >= 2.0 ? 'Structural strength — breakouts have participation behind them.' :
-    hlRatio >= 1.2 ? 'Leaning constructive, but not enough to chase extension.' :
-    hlRatio >= 0.8 ? 'Index-level move, not broad — stay selective.' :
-    hlRatio >= 0.5 ? 'More names breaking down than up — favour pullbacks over breakouts.' :
-    'Structurally weak underneath — tighten stops, hunt reversals.';
+    (nh === 0 && nl === 0) ? 'No new highs or lows to read yet.' :
+    hlRatio >= 2.0 ? 'Clearly more stocks making new highs than new lows.' :
+    hlRatio >= 1.2 ? 'Somewhat more new highs than new lows.' :
+    hlRatio >= 0.8 ? 'New highs and new lows roughly even.' :
+    hlRatio >= 0.5 ? 'More new lows than new highs.' :
+    'Far more new lows than new highs.';
 
   let s4 = '';
   const t = t2108?.value ?? null;
   if (t != null) {
-    const regime =
-      t <= 10 ? 'washed out' :
-      t <= 20 ? 'deeply oversold' :
-      t <= 35 ? 'oversold' :
-      t >= 85 ? 'frothy' :
-      t >= 70 ? 'extended' :
-      'neutral';
-    const action =
-      t <= 10 ? 'Mean reversion pays here — hunt reversals, not breakouts.' :
-      t <= 20 ? 'Reversals have the edge; breakouts into this tape fail.' :
-      t <= 35 ? 'Favour pullback entries over chasing strength.' :
-      t >= 85 ? 'Tighten stops — breakouts fail more often from here.' :
-      t >= 70 ? 'Broad but late; the easy part of the move is behind us.' :
-      hlCall;
-    s4 = `T2108 | ${t.toFixed(0)} — ${regime}. ${action}`;
+    /* One vocabulary and one set of cut-offs, shared with the card and the
+       grid. This sentence used to carry its own (70/85 against the labels'
+       65/80) and its own instructions — "breakouts into this tape fail" at
+       20% or lower, "the easy part is behind us" above 70 — which a four-year
+       replay contradicted: breakouts from 20% or lower were among the BEST,
+       and 65-80 was the second-best zone for Stocks in Play/Daily. It now says
+       only what was measured; see t2108Note. */
+    s4 = `Above 40-day | ${t.toFixed(0)} — ${t2108ZoneLabel(t).toLowerCase()}. ${t2108Note(t)}`;
   } else if (nh > 0 || nl > 0) {
     s4 = hlCall;
   }
@@ -476,7 +445,7 @@ const nameChipCls = "inline-block align-baseline text-[10px] font-bold text-slat
 const valNum = "text-[12px] tabular-nums";
 
 const renderToneText = (text: string): React.ReactNode[] => {
-  const rx = /(VIX [+-]\d+(?:\.\d+)?%|T2108 \| \d+(?:\.\d+)?|S&P|Nasdaq|Dow|Bitcoin|VIX|[+-]\d+(?:\.\d+)?%|[Bb]readth \d\/6|[\d,]+ adv\b|[\d,]+ dec\b|\d+ (?:up|down) 4%\+|[\d,]+ highs|[\d,]+ lows)/g;
+  const rx = /(VIX [+-]\d+(?:\.\d+)?%|Above 40-day \| \d+(?:\.\d+)?|S&P|Nasdaq|Dow|Bitcoin|VIX|[+-]\d+(?:\.\d+)?%|[Bb]readth \d\/6|[\d,]+ adv\b|[\d,]+ dec\b|\d+ (?:up|down) 4%\+|[\d,]+ highs|[\d,]+ lows)/g;
   const parts = text.split(rx);
 
   return parts.map((part, i) => {
@@ -488,18 +457,18 @@ const renderToneText = (text: string): React.ReactNode[] => {
       const cls = v > 0 ? 'text-rose-400' : 'text-emerald-400';
       return (
         <span key={i}>
-          <span className={nameChipCls}>VIX</span>
+          <span className={nameChipCls}>FEAR (VIX)</span>
           <span className={`${valNum} ${cls}`}>{m[1]}</span>
         </span>
       );
     }
 
-    m = part.match(/^T2108 \| (\d+(?:\.\d+)?)$/);
+    m = part.match(/^Above 40-day \| (\d+(?:\.\d+)?)$/);
     if (m) {
       const v = parseFloat(m[1]);
       return (
         <span key={i}>
-          <span className={nameChipCls}>T2108</span>
+          <span className={nameChipCls}>ABOVE 40-DAY</span>
           <span className={`${valNum} ${t2108Color(v)}`}>{m[1]}</span>
         </span>
       );
@@ -1088,7 +1057,7 @@ export default function MacroScorecard() {
   const chopTrend = chopTrendOf(chopRaw, chopRawPrev, intraVal, intraStale, chopBase);
 
   const chopTooltipText = chopVal == null ? '' : [
-    `CHOP ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal, bands)}   [${bands.label}]`,
+    `Choppiness ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal, bands)}   [${bands.label}]`,
     '',
     bands.blurb,
     '',
@@ -1271,13 +1240,13 @@ export default function MacroScorecard() {
               );
             })}
 
-            {/* T2108 — the twelfth card. Not a price, so it renders a regime
-                label where the others show a percent change. */}
+            {/* Above 40-day (was "T2108") — the twelfth card. Not a price, so it
+                renders a zone word where the others show a percent change. */}
             {tVal == null ? (
               <div className="bg-[#161c2a]/60 border border-white/5 rounded-xl p-4 flex flex-col justify-between h-24 opacity-60">
                 <div className="flex justify-between items-start">
-                  <span className="text-sm font-bold text-slate-300">T2108</span>
-                  <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">% Above 40 MA</span>
+                  <span className="text-sm font-bold text-slate-300">Above 40-day</span>
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">% of stocks</span>
                 </div>
                 <div className="flex flex-col mt-2">
                   <span className="text-sm font-medium text-slate-500 animate-pulse">Awaiting scan…</span>
@@ -1286,23 +1255,22 @@ export default function MacroScorecard() {
             ) : (
               <div
                 className={`rounded-xl p-4 flex flex-col justify-between h-24 transition-colors duration-300 border ${tStyle.bg} ${tStyle.border} hover:bg-white/[0.02] shadow-sm`}
-                title={`T2108 — ${t2108?.above?.toLocaleString() ?? '?'} of ${t2108?.total?.toLocaleString() ?? '?'} scanned names are above their own 40-day MA.\n\nBelow 20: washed out, favour reversals.\nAbove 80: frothy, breakouts start failing.\n\nComputed across the full scanned universe rather than NYSE only, so it runs a few points off the official print.`}
+                title={`${t2108?.above?.toLocaleString() ?? '?'} of ${t2108?.total?.toLocaleString() ?? '?'} stocks are above their own 40-day average.\n\n${t2108Note(tVal)}\n\nCounted across every stock the scans cover, not only the NYSE, so it runs a few points off the published "T2108" figure.`}
               >
                 <div className="flex justify-between items-start">
                   <div className="flex flex-col">
-                    <span className="text-sm font-bold text-slate-200">T2108</span>
+                    <span className="text-sm font-bold text-slate-200">Above 40-day</span>
                     <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500 truncate max-w-[90px]">
-                      % Above 40 MA
+                      % of stocks
                     </span>
                   </div>
 
                   <div className="flex flex-col items-end">
                     <span className={`text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded ${
-                      tVal <= 20 ? 'bg-emerald-500/10 text-emerald-400'
-                      : tVal <= 35 ? 'bg-lime-500/10 text-lime-400'
-                      : tVal <= 65 ? 'bg-slate-500/10 text-slate-300'
-                      : tVal <= 80 ? 'bg-amber-500/10 text-amber-400'
-                      : 'bg-rose-500/10 text-rose-400'
+                      /* shared, measured tones — this was a private copy of the old ranges */
+                      t2108CellTone(tVal) === 'green' ? 'bg-emerald-500/10 text-emerald-400'
+                      : t2108CellTone(tVal) === 'red' ? 'bg-rose-500/10 text-rose-400'
+                      : 'bg-slate-500/10 text-slate-300'
                     }`}>
                       {t2108ZoneLabel(tVal, t2108?.zone ?? '')}
                     </span>

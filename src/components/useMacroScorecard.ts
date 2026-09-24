@@ -163,7 +163,7 @@ export function useMacroScorecard(): MacroScorecardData {
   const iSignal = tapeDirSignal(iSetup);
 
   const chopTooltipText = chopVal == null ? '' : [
-    `CHOP ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal, bands)}   [${bands.label}]`,
+    `Choppiness ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal, bands)}   [${bands.label}]`,
     '',
     chopVerdict(chopVal, bands),
     '',

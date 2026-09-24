@@ -427,7 +427,7 @@ export default function MacroScorecardPanel({
           </>);
 
           cells.push({
-            label: 'TAPE DIR',
+            label: 'DIRECTION',
             value: tapeSignal,
             /* Pips carry the strength: three filled means several conditions
                agree, one filled is the fallback. Without them CONFIRMED and
@@ -447,7 +447,7 @@ export default function MacroScorecardPanel({
             const vPct = Number(vixQ.pct);
             const sign = vPct >= 0 ? '+' : '';
             cells.push({
-              label: 'VIX',
+              label: 'FEAR (VIX)',
               value: Number(vixQ.price).toFixed(2),
               sub: `${sign}${vPct.toFixed(2)}%`,
               color: vixPctTone(vPct),
@@ -465,11 +465,11 @@ export default function MacroScorecardPanel({
 
         if (breadth) {
           cells.push({
-            label: 'BREADTH',
+            label: 'PARTICIPATION',
             value: `${breadth.score}/6`,
             sub: breadth.signal,
             color: breadthSignalTone(breadth.signal),
-            titleContent: ttWrap('Breadth Score — 6 conditions', <>
+            titleContent: ttWrap('Participation — how broadly stocks are joining in (6 checks)', <>
               {ttRow('1', 'A > D', <>advancers beat decliners</>)}
               {ttRow('2', '55%+', <>tape advancing</>)}
               {ttRow('3', '4% up', <>more gainers than losers</>)}
@@ -489,7 +489,7 @@ export default function MacroScorecardPanel({
         if (mm) {
           const partial = mm.days > 0 && mm.days < 5;
           cells.push({
-            label: 'MARKET MON',
+            label: 'BIG MOVERS',
             value: '',
             valueNode: (
               <span className="whitespace-nowrap">
@@ -503,7 +503,7 @@ export default function MacroScorecardPanel({
               : partial ? `${mm.days}/5d` : '',
             color: mmTodayTone(mm.up4, mm.down4),
             subColor: mmCellTone(mm.ratio5),
-            titleContent: ttWrap('Market Monitor — ≥$3, ≥100k vol', <>
+            titleContent: ttWrap('Big movers — stocks up or down 4% or more (≥$3, ≥100k volume)', <>
               {ttRow('Today', `${mm.up4}▲ ${mm.down4}▼`, <>names moving 4%+</>)}
               {ttRow('5-day',
                 mm.up5 != null ? `${mm.up5} / ${mm.down5}` : 'building',
@@ -519,11 +519,11 @@ export default function MacroScorecardPanel({
           const adv = breadth.advancers ?? 0, dec = breadth.decliners ?? 0;
           const pct = advPctOf(adv, dec);
           cells.push({
-            label: 'ADV / DEC',
+            label: 'UP vs DOWN',
             value: `${pct.toFixed(1)}%`,
             sub: `${adv} / ${dec}`,
             color: advCellTone(pct),
-            titleContent: ttWrap('Advance / Decline', <>
+            titleContent: ttWrap('Stocks up vs down today', <>
               {ttRow('Now', `${adv.toLocaleString()} / ${dec.toLocaleString()}`, <>all US equities &gt;$1</>)}
               {ttRow('>60%', 'buyers', <>in control</>)}
               {ttRow('<50%', 'sellers', <>have it</>)}
@@ -535,7 +535,7 @@ export default function MacroScorecardPanel({
           const h = breadth.newHighs ?? 0, l = breadth.newLows ?? 0;
           const pct = highsPctOf(h, l);
           cells.push({
-            label: 'HI / LO',
+            label: 'HIGHS vs LOWS',
             value: `${pct.toFixed(1)}%`,
             sub: `${h} / ${l}`,
             color: highsCellTone(pct),
@@ -549,15 +549,14 @@ export default function MacroScorecardPanel({
 
         if (tVal != null) {
           cells.push({
-            label: 'T2108',
+            label: 'ABOVE 40-DAY',
             value: `${tVal.toFixed(0)}%`,
             sub: t2108ZoneLabel(tVal),
             color: t2108CellTone(tVal),
-            titleContent: ttWrap('T2108 — % above 40d MA', <>
-              {ttRow('What', 'mean-rev', <>not trend — reversion gauge</>)}
-              {ttRow('<20', 'washed', <>reversals pay</>)}
-              {ttRow('>80', 'frothy', <>breakouts start failing</>)}
-              {ttRow('20–80', 'neutral', <>uninformative by design</>)}
+            titleContent: ttWrap('Share of stocks above their 40-day average (T2108)', <>
+              {ttRow('≤ 20%', 'green', <>breakouts in 4 of 6 scans did better (4 yrs)</>)}
+              {ttRow('20–80%', 'neutral', <>no reliable effect either way</>)}
+              {ttRow('> 80%', 'red', <>worst for every scan — one episode (late 2021)</>)}
             </>),
           });
         }
@@ -570,11 +569,11 @@ export default function MacroScorecardPanel({
           const rising = !!(breadth as any).mkmRising;
           const sig = Number((breadth as any).mkmSignal ?? 0);
           cells.push({
-            label: 'McCLELLAN',
+            label: 'HIGHS/LOWS TREND',
             value: `${Number(mkm).toFixed(0)}%`,
             sub: `${rising ? '\u25B2' : '\u25BC'} vs ${sig.toFixed(0)}`,
             color: mkmCellTone(Number(mkm), sig, rising),
-            titleContent: ttWrap('McClellan — HI/LO momentum', <>
+            titleContent: ttWrap('Trend in new highs vs new lows (McClellan)', <>
               {ttRow('Method', '', <>EMA(10)−EMA(21) of HI/LO spread</>)}
               {ttRow('Now', `${Number(mkm).toFixed(0)}`, <>vs signal {sig.toFixed(0)}, {rising ? 'rising' : 'falling'}</>)}
               {ttRow('Green', '', <>above signal + rising</>)}
@@ -589,11 +588,11 @@ export default function MacroScorecardPanel({
           const qqq = hourVal != null ? chop?.hourly?.qqq : chop?.qqq;
           const spy = hourVal != null ? chop?.hourly?.spy : chop?.spy;
           cells.push({
-            label: 'CHOP',
+            label: 'CHOPPINESS',
             value: chopVal.toFixed(0),
             sub: chopZoneLabel(chopVal, bands),
             color: chopCellTone(chopVal, bands),
-            titleContent: ttWrap(`CHOP ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal, bands)} [${bands.label}]`, <>
+            titleContent: ttWrap(`Choppiness ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal, bands)} [${bands.label}]`, <>
               {ttRow('Timeframe', tf, <>{chop?.period ?? 14} bars</>)}
               {ttRow('QQQ', qqq != null ? qqq.toFixed(1) : '—')}
               {ttRow('SPY', spy != null ? spy.toFixed(1) : '—')}
@@ -633,11 +632,11 @@ export default function MacroScorecardPanel({
         >
           <span className={`flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 ${STRIP_LABEL_W}`}>
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa] shrink-0"></span>
-            Internals
-            <InfoDot content={ttWrap('Advance / Decline', <>
+            Up vs down
+            <InfoDot content={ttWrap('Stocks up vs down today', <>
               {ttRow('Now', `${breadth.advancers.toLocaleString()} / ${breadth.decliners.toLocaleString()}`, <>{advPct.toFixed(0)}% advancing</>)}
               {ttRow('4% movers', `${breadth.up4} / ${breadth.down4}`, <>up vs down</>)}
-              {ttRow('A/D ratio', breadth.decliners > 0 ? (breadth.advancers / breadth.decliners).toFixed(2) : '—')}
+              {ttRow('Up/down ratio', breadth.decliners > 0 ? (breadth.advancers / breadth.decliners).toFixed(2) : '—')}
               {ttRow('>60%', 'buyers', <>in control</>)}
               {ttRow('<40%', 'sellers', <>dominate</>)}
             </>)} />
@@ -653,7 +652,7 @@ export default function MacroScorecardPanel({
 
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <span className={`text-[11px] font-bold text-emerald-400 tabular-nums whitespace-nowrap ${STRIP_SIDE_W}`}>
-              ADV {breadth.advancers.toLocaleString()}
+              UP {breadth.advancers.toLocaleString()}
             </span>
             <ProportionalBar
               pct={advPct}
@@ -661,13 +660,13 @@ export default function MacroScorecardPanel({
               rightTitle={`${advPct.toFixed(0)}% advancing`}
             />
             <span className={`text-[11px] font-bold text-rose-400 tabular-nums whitespace-nowrap sm:text-right ${STRIP_SIDE_W}`}>
-              DEC {breadth.decliners.toLocaleString()}
+              DOWN {breadth.decliners.toLocaleString()}
             </span>
           </div>
 
           <div className={`flex items-center gap-4 ${STRIP_CLUSTER_W}`}>
-            <span className={`flex items-center gap-1.5 whitespace-nowrap ${STRIP_NOTE_W}`} title="A/D ratio">
-              <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">A/D:</span>
+            <span className={`flex items-center gap-1.5 whitespace-nowrap ${STRIP_NOTE_W}`} title="Up/down ratio">
+              <span className="text-[9px] font-bold tracking-widest uppercase text-slate-500">UP/DOWN:</span>
               <span className={`text-[11px] font-bold tabular-nums ${breadth.decliners > 0 && breadth.advancers / breadth.decliners >= 1 ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {breadth.decliners > 0 ? (breadth.advancers / breadth.decliners).toFixed(2) : '—'}
               </span>
@@ -679,19 +678,19 @@ export default function MacroScorecardPanel({
         </div>
       )}
 
-      {/* ATHI/ATLO — new highs vs new lows. Same proportional treatment. */}
+      {/* New 52-week highs vs new lows. Same proportional treatment. */}
       {breadth && ((breadth.newHighs ?? 0) > 0 || (breadth.newLows ?? 0) > 0) && (
         <div
           className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-6 border border-white/5 bg-[#161c2a]/40 rounded-xl px-4 py-3 relative z-10"
         >
           <span className={`flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 ${STRIP_LABEL_W}`}>
             <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa] shrink-0"></span>
-            ATHI / ATLO
+            New highs / lows
             <InfoDot content={ttWrap('New 52-Week Highs / Lows', <>
               {ttRow('Now', `${(breadth.newHighs ?? 0).toLocaleString()} / ${(breadth.newLows ?? 0).toLocaleString()}`, <>{highsPct.toFixed(0)}% highs</>)}
-              {ttRow('H/L ratio', (breadth.newLows ?? 0) > 0 ? ((breadth.newHighs ?? 0) / (breadth.newLows ?? 0)).toFixed(2) : '∞')}
-              {ttRow('>60%', 'strength', <>names breaking out</>)}
-              {ttRow('<40%', 'defensive', <>bouncing in ranges</>)}
+              {ttRow('Highs/lows ratio', (breadth.newLows ?? 0) > 0 ? ((breadth.newHighs ?? 0) / (breadth.newLows ?? 0)).toFixed(2) : '∞')}
+              {ttRow('>60%', 'mostly highs', <>more stocks at new highs than new lows</>)}
+              {ttRow('<40%', 'mostly lows', <>more stocks at new lows than new highs</>)}
             </>)} />
           </span>
 
@@ -749,20 +748,20 @@ export default function MacroScorecardPanel({
           >
             <span className={`flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-slate-500 ${STRIP_LABEL_W}`}>
               <span className="w-1.5 h-1.5 rounded-full bg-[#7c8bfa] shrink-0"></span>
-              Chop
+              Choppiness
               {(() => {
                 const chopRawV = chopRaw ?? chopVal;
                 const adjV = chopVal - chopRawV;
                 const tfV = hourVal != null ? '1H' : '1D';
                 const qqqV = hourVal != null ? chop?.hourly?.qqq : chop?.qqq;
                 const spyV = hourVal != null ? chop?.hourly?.spy : chop?.spy;
-                return <InfoDot content={ttWrap(`CHOP ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal, bands)}`, <>
+                return <InfoDot content={ttWrap(`Choppiness ${chopVal.toFixed(0)} — ${chopZoneLabel(chopVal, bands)}`, <>
                   {ttRow('Timeframe', tfV, <>{chop?.period ?? 14} bars · {bands.label}</>)}
                   {ttRow('QQQ', qqqV != null ? qqqV.toFixed(1) : '—')}
                   {ttRow('SPY', spyV != null ? spyV.toFixed(1) : '—')}
                   {ttRow('Blended', chopVal.toFixed(1), <>adj {adjV >= 0 ? '+' : ''}{adjV.toFixed(1)}</>)}
-                  {ttRow('Trend', `≤ ${bands.trend}`, <>breakouts work</>)}
-                  {ttRow('Chop', `≥ ${bands.chop}`, <>sit out or fade</>)}
+                  {ttRow('Trending', `≤ ${bands.trend}`, <>momentum breakouts did best (4 yrs)</>)}
+                  {ttRow('Choppy', `≥ ${bands.chop}`, <>did not reliably hurt breakouts</>)}
                   {intraVal != null && ttRow('Intraday', intraVal.toFixed(1), <>15m bars</>)}
                 </>)} />;
               })()}

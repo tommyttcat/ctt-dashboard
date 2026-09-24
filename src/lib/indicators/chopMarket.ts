@@ -5,7 +5,9 @@
  * Choppiness Index and labels it against fixed 61.8/38.2 thresholds for the
  * per-ticker scan tables. This module is the market-wide reading shown on the
  * dashboard scorecard, the analyst page, and the briefing email — a blended
- * QQQ/SPY value adjusted by breadth, read against a user-selectable band set.
+ * QQQ/SPY value (plus a 15-minute intraday leg when current), read against a
+ * user-selectable band set. It is NOT adjusted by breadth: that was tried,
+ * removed on 5 Sep 2026, and re-tested on 24 Sep — see chopComposite.
  * The split is deliberate: filtering a stock list and describing the tape are
  * different jobs. What was NOT deliberate is that the three market surfaces
  * each carried their own copy of the math below, with different modifier caps
@@ -26,7 +28,14 @@ export interface ChopBands {
 }
 
 export const CHOP_MODES: ChopMode[] = ['asis', 'med', 'strong', 'extreme'];
-export const DEFAULT_CHOP_MODE: ChopMode = 'extreme';
+/* STANDARD, not MAX. Replayed over four years of daily bars (24 Sep 2026,
+   scripts/backtest/analyze-chop.ts): MAX called the market choppy on 60% of
+   days and trending on 1% — a reading that says the same thing nearly every
+   day tells you nothing. STANDARD calls chop on ~5% and trending on ~18%, and
+   its trending line (38.2) sits on the one measured edge: momentum breakouts
+   did best on the most-trending fifth of days (<= 38.8). The key stays 'asis'
+   because it is what KV stores. */
+export const DEFAULT_CHOP_MODE: ChopMode = 'asis';
 
 /* The upper bands are derived rather than declared so a sensitivity change
    moves the whole ladder together. Only the chop/trend pair is a judgement
@@ -45,30 +54,34 @@ const makeBands = (chop: number, trend: number, label: string, blurb: string): C
   blurb,
 });
 
+/* Labels are what the reader sees, so they are plain words for how eagerly
+   the setting calls chop. The KEYS ('asis', 'med', ...) are what KV stores
+   and must not change. Every frequency below was measured, not estimated:
+   share of the 1,240 sessions from Oct 2021 to Sep 2026 in each zone. */
 export const CHOP_BANDS: Record<ChopMode, ChopBands> = {
   asis: makeBands(
     61.8,
     38.2,
-    'AS IS',
-    'Textbook Fibonacci bands — 61.8 and 38.2, the thresholds the Choppiness Index shipped with. Conventional rather than derived.'
+    'STANDARD',
+    'Calls the market choppy only on the clearest ranges — about 1 day in 20 over four years — and trending on about 1 in 5. Its trending line is where momentum breakouts measurably did best.'
   ),
   med: makeBands(
     55,
     33,
-    'MED',
-    'Chop called at 55. On a 14-bar window that is roughly where price has travelled more than three times the ground it covered — the practical signature of a range handing back its moves.'
+    'SENSITIVE',
+    'Calls the market choppy on about 1 day in 5, and trending on about 1 in 15.'
   ),
   strong: makeBands(
     50,
     28,
-    'STRONG',
-    'Chop called at dead centre. Above 50 the tape spends more effort than it gains, so anything not decisively directional reads as chop. Expect CHOPPY most days.'
+    'VERY SENSITIVE',
+    'Calls the market choppy on about 2 days in 5, and trending almost never (2% of days).'
   ),
   extreme: makeBands(
     45,
     23,
-    'EXTREME',
-    'Maximum chop sensitivity. Anything above 45 is called choppy — only a decisively directional tape passes this filter. Use when you want to avoid marginal setups entirely.'
+    'MAX',
+    'Calls the market choppy on 3 days in 5 and trending on 1% — so often that the reading stops telling you anything. Kept for comparison.'
   ),
 };
 
@@ -76,10 +89,20 @@ export const bandsFor = (mode: string | null | undefined): ChopBands =>
   CHOP_BANDS[(mode as ChopMode)] ?? CHOP_BANDS[DEFAULT_CHOP_MODE];
 
 /* ---- Composite -----------------------------------------------------------
-   The raw blended Choppiness value is pure price action — no breadth or
-   internals adjustments. The intraday CI leg is blended in when current
-   so the composite can reflect a regime shift the 14-day daily reading
-   has not yet absorbed. */
+   Pure price action: the blended daily Choppiness value, with the intraday
+   leg blended in when current so the composite can reflect a regime shift
+   the 14-day reading has not absorbed yet.
+
+   NO BREADTH OR SESSION ADJUSTMENT, deliberately, and tested twice. Until
+   5 Sep 2026 three modifiers moved the reading by up to +/-12 each: breadth
+   balance, new highs vs new lows (the "rotation guard" — a rotation day
+   looks like chop to an index), and the size of the day's move. Re-tested on
+   24 Sep over four years (scripts/backtest/analyze-chop-rotation.ts): the
+   raw reading put trending days above choppy days in both halves for 2 of 5
+   scans; adding the rotation guard made it 1 of 5; all three, 2 of 5. It did
+   not explain Swing doing best on "choppy" days either — that got stronger.
+   The `_breadth` and `_session` slots stay only so existing callers compile;
+   nothing reads them. Do not re-add the modifiers without re-running that. */
 export const CHOP_INTRADAY_WEIGHT = 0.3;
 
 export interface ChopBreadthInput {
@@ -100,9 +123,9 @@ export interface ChopSessionInput {
 
 export function chopComposite(
   raw: number | null,
-  breadth: ChopBreadthInput | null,
+  _breadth: ChopBreadthInput | null,
   intraday?: ChopIntradayInput | null,
-  session?: ChopSessionInput | null,
+  _session?: ChopSessionInput | null,
 ): number | null {
   if (raw == null) return null;
 
@@ -145,8 +168,8 @@ export function chopWithConcordance(
 
 export function chopZoneLabel(v: number | null, b: ChopBands): string {
   if (v == null) return 'NO DATA';
-  if (v >= b.extreme) return 'EXTREME';
-  if (v >= b.dead) return 'DEAD CHOP';
+  if (v >= b.extreme) return 'EXTREMELY CHOPPY';
+  if (v >= b.dead) return 'VERY CHOPPY';
   if (v >= b.chop) return 'CHOPPY';
   if (v > b.trend) return 'MIXED';
   if (v > b.strongTrend) return 'TRENDING';
@@ -195,17 +218,21 @@ export function chopCellTone(v: number | null, b: ChopBands): CellTone {
 
 /* ---- Verdicts and notes --------------------------------------------------
 
-   One line, tooltip only. This is the only place the chop reading gives an
-   instruction — the strip itself is measurement, the same split the tone
-   narrative uses. */
+   One line, tooltip only, and it says only what four years of replays
+   support (24 Sep 2026, scripts/backtest/analyze-chop.ts):
+     - Stocks in Play / Daily Setups and 10/21 did better on trending days
+       than choppy ones, in both halves of the period.
+     - Choppy days did NOT reliably hurt breakouts. Stocks in Play / Daily
+       roughly broke even on them; Swing did BEST on them; VCP and HRS showed
+       no link. Breakouts triggered just as often (76-79% in every fifth).
+   So the old instructions — "do not trade breakouts", "sit out", "breakout
+   triggers will fire and reverse" — are gone: they were never tested and the
+   test does not back them. The choppy side describes; it does not instruct. */
 export function chopVerdict(v: number | null, b: ChopBands): string {
   if (v == null) return '';
-  if (v >= b.extreme) return 'Extreme chop. The tape is handing back every move — no edge exists. Do not trade breakouts.';
-  if (v >= b.dead) return 'Nothing is trending. Breakout triggers will fire and reverse — sit out or trade the range.';
-  if (v >= b.chop) return 'Consolidation regime. Expect failed breakouts; favour reversals at range edges.';
-  if (v > b.trend) return 'No clear regime edge. Setup quality has to carry the trade on its own.';
-  if (v > b.strongTrend) return 'Trending tape. Breakouts have follow-through — triggers are worth taking.';
-  return 'Strong trend. This is the regime breakout entries are built for.';
+  if (v >= b.chop) return 'The market is going sideways. Over four years this did not reliably hurt breakouts — Stocks in Play and Daily Setups roughly broke even on days like this, and Swing did best on them. Context, not a reason to sit out.';
+  if (v > b.trend) return 'No clear trend either way. The setup has to carry the trade on its own.';
+  return 'The market is trending. Over four years, Stocks in Play, Daily Setups and 10/21 breakouts did best on days like this, in both halves of the period.';
 }
 
 /* The QQQ/SPY spread is the rotation tell. 6 points is roughly where the two
@@ -217,11 +244,11 @@ export function chopSpreadNote(qqq: number | null, spy: number | null): string {
   const gap = spy - qqq;
   const abs = Math.abs(gap).toFixed(1);
   if (Math.abs(gap) < CHOP_SPREAD_NOTABLE) {
-    return `Benchmark spread ${abs} pts — QQQ and SPY describe the same tape.`;
+    return `The Nasdaq (QQQ) and S&P (SPY) readings are ${abs} points apart — they describe the same market.`;
   }
   return gap > 0
-    ? `Benchmark spread ${abs} pts — the Nasdaq is trending better than the broad market, which favours momentum names.`
-    : `Benchmark spread ${abs} pts — the broad market is trending better than the Nasdaq; growth leadership is the weaker side.`;
+    ? `The Nasdaq (QQQ) is trending more cleanly than the S&P (SPY), ${abs} points apart.`
+    : `The S&P (SPY) is trending more cleanly than the Nasdaq (QQQ), ${abs} points apart.`;
 }
 
 /* Every setting's verdict on the current composite, so the active one can
@@ -234,15 +261,15 @@ export function chopAllBandsNote(v: number | null, active: ChopMode): string {
   for (const m of CHOP_MODES) {
     const b = CHOP_BANDS[m];
     const mark = m === active ? '▸' : ' ';
-    lines.push(`${mark} ${b.label.padEnd(6)} ${chopZoneLabel(v, b).padEnd(13)} (chop ≥ ${b.chop}, trend ≤ ${b.trend})`);
+    lines.push(`${mark} ${b.label.padEnd(14)} ${chopZoneLabel(v, b).padEnd(16)} (choppy ≥ ${b.chop}, trending ≤ ${b.trend})`);
   }
   return lines.join('\n');
 }
 
 /* ---- Divergence ----------------------------------------------------------
 
-   The whole reason the intraday leg exists. Four states, and only one of them
-   is a call to act.
+   The whole reason the intraday leg exists. Descriptive only: there is no
+   intraday history to test any of these against, so none of them instructs.
 
    SIGN CONVENTION: positive gap means the DAILY reading is higher — the
    three-week backdrop is choppier than the last few hours. That is the
@@ -277,15 +304,15 @@ export function divergenceOf(daily: number | null, intra: number | null, b: Chop
     return {
       tone: 'break',
       label: 'RANGE BREAKING',
-      detail: `The session is trending inside a backdrop that has not been. ${gap.toFixed(0)} points of separation — this is what a range starting to resolve looks like before the daily reading notices.`,
+      detail: `Today is trending even though the last three weeks have gone sideways — ${gap.toFixed(0)} points apart. This is how a range starts to break, before the longer reading notices.`,
     };
   }
 
   if (dailyTrending && intraChoppy && -gap >= CHOP_DIVERGENCE_MIN) {
     return {
       tone: 'digest',
-      label: 'DIGESTING',
-      detail: 'The trend is intact on the daily but today is going nowhere. Read the pause as consolidation inside a trend, not as failure — do not exit on the intraday reading alone.',
+      label: 'PAUSING',
+      detail: 'The longer trend is intact, but today is going sideways — a pause inside a trend rather than a failure of it.',
     };
   }
 
@@ -293,7 +320,7 @@ export function divergenceOf(daily: number | null, intra: number | null, b: Chop
     return {
       tone: 'aligned-chop',
       label: 'BOTH CHOPPY',
-      detail: 'Neither timeframe is resolving. Nothing to press — this is the stand-down combination.',
+      detail: 'Both the last three weeks and today are going sideways.',
     };
   }
 
@@ -301,14 +328,14 @@ export function divergenceOf(daily: number | null, intra: number | null, b: Chop
     return {
       tone: 'aligned-trend',
       label: 'BOTH TRENDING',
-      detail: 'Backdrop and session agree. Breakout entries have both timeframes behind them.',
+      detail: 'Both the last three weeks and today are trending.',
     };
   }
 
   return {
     tone: 'none',
-    label: 'NO DIVERGENCE',
-    detail: `Daily and intraday are ${Math.abs(gap).toFixed(0)} points apart — not enough separation to read anything into.`,
+    label: 'IN LINE',
+    detail: `The three-week and today's readings are ${Math.abs(gap).toFixed(0)} points apart — too close to mean anything.`,
   };
 }
 
