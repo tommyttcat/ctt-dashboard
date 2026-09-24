@@ -899,7 +899,7 @@ export default function HelpModal({ isOpen, onClose, tier = 'pro' }: HelpModalPr
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 px-6 pt-3 pb-2 border-b border-white/5 shrink-0 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+        <div className="flex gap-1 px-6 pt-3 pb-2 border-b border-white/5 shrink-0 overflow-x-auto overflow-y-hidden" style={{ scrollbarWidth: 'none' }}>
           {visibleTabs.map(t => (
             <button
               key={t.key}

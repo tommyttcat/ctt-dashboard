@@ -164,11 +164,12 @@ export function RsCell({ value }: { value: number | null | undefined }) {
    click hint in the title, because a table with no VWAP filter state has
    nothing to filter and a cursor that promises otherwise is a lie. Setup
    Confluence is that table. */
-export function PriceCell({ price, vwapStatus, vwapFilter, onToggleVwap }: {
+export function PriceCell({ price, vwapStatus, vwapFilter, onToggleVwap, className }: {
   price: number;
   vwapStatus?: 'above' | 'below' | 'neutral' | null;
   vwapFilter?: string;
   onToggleVwap?: (side: 'above' | 'below') => void;
+  className?: string;
 }) {
   const dot = vwapStatus && vwapStatus !== 'neutral' ? (
     onToggleVwap
@@ -176,16 +177,16 @@ export function PriceCell({ price, vwapStatus, vwapFilter, onToggleVwap }: {
       : <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${vwapStatus === 'above' ? 'bg-emerald-400' : 'bg-rose-500'}`} title={`VWAP: ${vwapStatus}`}></div>
   ) : null;
   return (
-    <td className={`${SCAN.td} text-[10px] text-slate-300 font-medium whitespace-nowrap tabular-nums`}>
+    <td className={cls(`${SCAN.td} text-[10px] text-slate-300 font-medium whitespace-nowrap tabular-nums`, className)}>
       <div className="flex items-center justify-center gap-1">${price.toFixed(2)}{dot}</div>
     </td>
   );
 }
 
-export function ChgCell({ value }: { value: number | null | undefined }) {
+export function ChgCell({ value, className }: { value: number | null | undefined; className?: string }) {
   const isPositive = (value ?? 0) >= 0;
   return (
-    <td className={`${SCAN.td} text-[10px] font-bold whitespace-nowrap tabular-nums ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+    <td className={cls(`${SCAN.td} text-[10px] font-bold whitespace-nowrap tabular-nums`, className, isPositive ? 'text-emerald-400' : 'text-rose-400')}>
       {value != null ? `${isPositive ? '+' : ''}${value.toFixed(2)}%` : '—'}
     </td>
   );

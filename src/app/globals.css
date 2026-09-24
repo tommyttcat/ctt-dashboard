@@ -168,16 +168,37 @@ body {
   color: #ffffff;
 }
 
-/* Chart hover touch targets */
+/* Chart hover touch targets
+   The padding enlarges the tap area and the negative margin cancels it for
+   layout — but the box itself still extends that far. On a phone it was 18px
+   on every side, so any ticker near a card edge carried an invisible box 18px
+   past it: measured at 390px, 60 of them on the dashboard alone reaching from
+   -10px to 400px. Chrome clips that; iOS lets the page pan by it, which is the
+   "slides around a little". Kept at 18px vertically, where rows are stacked
+   and the bigger target helps; cut to 4px horizontally, which stays inside
+   the 12px card padding. */
 .touch-target {
   padding: 4px;
   margin: -4px;
 }
 @media (max-width: 767px) {
   .touch-target {
-    padding: 18px;
-    margin: -18px;
+    padding: 18px 4px;
+    margin: -18px -4px;
   }
+}
+
+/* The page never pans sideways, whatever a child does.
+   `clip`, NOT `hidden`, and the difference is the whole point: hidden on one
+   axis computes the other to `auto` and turns the element into a scroll
+   container, which on iOS is exactly the thing a finger can drag. clip makes
+   no scroll container, leaves position: sticky working, and on the root is
+   handed to the viewport — which is always a scroll container anyway — so it
+   stops horizontal panning without creating a new trap. Older Safari ignores
+   it harmlessly; the touch-target fix above removes the cause regardless. */
+html,
+body {
+  overflow-x: clip;
 }
 
 @keyframes inst-flash {

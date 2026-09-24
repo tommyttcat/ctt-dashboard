@@ -1092,7 +1092,7 @@ export default function Ep9m() {
             )}
           </div>
 
-          <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
+          <div className="relative z-0 overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
             {/* 18 columns (N added between TICKER and EP).
                 min-w 960; widths sum ~99. */}
             <table className="w-full min-w-[940px] table-fixed border-collapse">

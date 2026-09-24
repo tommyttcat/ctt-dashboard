@@ -533,7 +533,8 @@ const fmtPrice = (p: number | undefined | null): string => {
 };
 /* overflow-y-hidden is required, not cosmetic — see the note on
    `scrollRowCls` in MarketSummary. Without it these rows scroll vertically. */
-const scrollWrap = "overflow-x-auto overflow-y-hidden -mx-0.5 px-0.5";
+/* Clipped below md, scrolled above it — see `scrollRowCls` in MarketSummary. */
+const scrollWrap = "overflow-hidden md:overflow-x-auto md:overflow-y-hidden -mx-0.5 px-0.5";
 const scrollStyle: React.CSSProperties = { scrollbarWidth: 'none', msOverflowStyle: 'none' };
 const GRID_COLS_TRAP = '42px 58px 20px 1fr';
 
@@ -1346,7 +1347,7 @@ function KeyEventsSection() {
   const impactCls = (i: string) => i === 'High' ? 'text-rose-400' : i === 'Medium' ? 'text-amber-400' : 'text-slate-500';
   const hdrCls = 'text-[8px] font-bold tracking-widest uppercase text-slate-600';
 
-  const scrollCls = "overflow-x-auto overflow-y-hidden -mx-0.5 px-0.5";
+  const scrollCls = "overflow-hidden md:overflow-x-auto md:overflow-y-hidden -mx-0.5 px-0.5";
 
   /* One set of column widths for the earnings header and every row under it,
      reported or pending. Changing a width here moves both together. */
@@ -1421,7 +1422,7 @@ function KeyEventsSection() {
       </p>
       {/* Economic (left) + Earnings (right) — side by side */}
       <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-y-3 md:gap-y-5">
-        <div className="space-y-0 overflow-x-auto pr-4" style={scrollSty}>
+        <div className="space-y-0 overflow-hidden md:overflow-x-auto md:overflow-y-hidden pr-4" style={scrollSty}>
           <p className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5">
             Economic {pendingEcon.length ? `— ${pendingEcon.length} still ahead` : '— all printed'}
           </p>

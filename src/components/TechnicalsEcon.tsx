@@ -322,7 +322,7 @@ export default function EconomicCalendar() {
       {isExpanded && (
         <>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 relative z-10 pb-2">
-            <div className="flex gap-3 overflow-x-auto custom-scrollbar w-full md:w-auto" style={{ scrollbarWidth: 'none' }}>
+            <div className="flex gap-3 overflow-x-auto overflow-y-hidden custom-scrollbar w-full md:w-auto" style={{ scrollbarWidth: 'none' }}>
               {(['High', 'Medium'] as TabType[]).map((tab) => (
                 <button
                   key={tab}
@@ -345,7 +345,7 @@ export default function EconomicCalendar() {
             </span>
           </div>
           
-          <div className="overflow-x-auto custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
+          <div className="overflow-x-auto overflow-y-hidden custom-scrollbar relative z-10" style={{ scrollbarWidth: 'none' }}>
             <table className="w-full min-w-[900px] border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">

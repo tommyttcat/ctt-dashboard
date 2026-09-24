@@ -187,7 +187,7 @@ export default function HighBeta() {
       </div>
 
       {isExpanded && (
-        <div className="overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
+        <div className="overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
           <table className="w-full min-w-[940px] table-fixed border-collapse">
             <thead>
               <tr className="border-b border-white/5 select-none">

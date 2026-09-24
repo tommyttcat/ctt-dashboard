@@ -909,7 +909,7 @@ export default function DailySetups() {
             )}
           </div>
 
-          <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
+          <div className="relative z-0 overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
             {/* min-w 940 to fit RTR; widths match SIPs v3.0. */}
             <table className="w-full min-w-[940px] table-fixed border-collapse">
               <thead>

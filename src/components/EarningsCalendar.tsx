@@ -399,7 +399,7 @@ export default function EarningsCalendar() {
       {isExpanded && (
         <>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 relative z-10 pb-2">
-            <div className="flex gap-3 overflow-x-auto w-full md:w-auto" style={{ scrollbarWidth: 'none' }}>
+            <div className="flex gap-3 overflow-x-auto overflow-y-hidden w-full md:w-auto" style={{ scrollbarWidth: 'none' }}>
               {/* Period pills */}
               <div className="flex items-center gap-1 bg-[#161c2a] border border-white/5 rounded-lg p-1">
                 {(['TODAY', 'WEEK', 'NEXT'] as PeriodFilter[]).map(p => (
@@ -444,7 +444,7 @@ export default function EarningsCalendar() {
             </span>
           </div>
 
-          <div className="overflow-x-auto relative z-10" style={{ scrollbarWidth: 'thin' }}>
+          <div className="overflow-x-auto overflow-y-hidden relative z-10" style={{ scrollbarWidth: 'thin' }}>
             <table className="w-full min-w-[920px] border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">

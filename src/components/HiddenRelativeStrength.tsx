@@ -378,7 +378,7 @@ export default function HiddenRelativeStrength() {
                 : 'No candidates pass all gates in the current window.'}
             </div>
           ) : (
-            <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
+            <div className="relative z-0 overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
               <table className="w-full min-w-[940px] table-fixed border-collapse">
                 <thead>
                   <tr className="border-b border-white/5 select-none">

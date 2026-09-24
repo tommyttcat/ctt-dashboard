@@ -306,7 +306,7 @@ export default function BriefDetail({
               {/* Top setups table */}
               {allStocks.length > 0 && (
                 <SectionCard title="Setups" accent="#8b5cf6">
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto overflow-y-hidden">
                     <table className="w-full text-[11px]">
                       <thead>
                         <tr className="text-slate-500 uppercase tracking-wider font-bold border-b border-white/5">

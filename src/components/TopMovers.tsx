@@ -341,7 +341,7 @@ export default function TopMovers() {
         <>
           <div className="flex flex-col gap-3 mb-6 relative z-0 pb-2">
             <div className="flex flex-wrap justify-center items-center gap-3 w-full">
-              <div className="flex gap-3 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
+              <div className="flex gap-3 overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
                 {(['Mega Caps', 'Gainers', 'Losers', 'ETF Gainers', 'ETF Losers'] as TabType[]).map((tab) => {
                   const label = tab === 'Gainers' ? 'Movers Up' : tab === 'Losers' ? 'Movers Down' : tab;
                   const accentCls = activeTab === tab
@@ -394,7 +394,7 @@ export default function TopMovers() {
             </div>
           </div>
           
-          <div className="overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
+          <div className="overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
             <table className="w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">

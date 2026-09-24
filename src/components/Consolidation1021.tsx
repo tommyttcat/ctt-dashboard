@@ -1018,7 +1018,7 @@ export default function Consolidation1021() {
             )}
           </div>
 
-          <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
+          <div className="relative z-0 overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
             {/* 20 columns — min-w 980. */}
             <table className="w-full min-w-[940px] table-fixed border-collapse">
               <thead>

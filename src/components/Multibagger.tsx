@@ -535,7 +535,7 @@ export default function Multibagger() {
             No data yet — run the scan at <code className="text-indigo-400">/api/multibagger/run?force=true</code>
           </div>
         ) : (
-          <div className="relative z-0 overflow-x-auto custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
+          <div className="relative z-0 overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
             <table className="w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">

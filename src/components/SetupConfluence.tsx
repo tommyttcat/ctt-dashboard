@@ -459,7 +459,7 @@ export default function SetupConfluence() {
 
                 {/* Table */}
                 {!loading && frozenRows.length > 0 && (
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto overflow-y-hidden">
                     <table className="w-full min-w-[940px] table-fixed border-collapse">
                       <thead>
                         <tr className="border-b border-white/5">

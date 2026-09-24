@@ -328,7 +328,16 @@ const rowText = "text-[12px]";
    its box — so a swipe scrolled those few pixels inside the row instead of
    scrolling the page: the line slid up and nothing else moved. Pinning the y
    axis keeps the horizontal scroll and hands vertical swipes back to the page. */
-const scrollRowCls = "overflow-x-auto overflow-y-hidden -mx-0.5 px-0.5";
+/* PHONE: CLIPPED, NOT SCROLLED (24 Sep 2026). These rows used to scroll
+   sideways on every screen size, on the reasoning that a scroll loses nothing
+   where a clip loses a few pixels. On a phone that trade came out the other
+   way: measured at 390px, rows ran 2-4px past a 320px card, so each one could
+   be dragged sideways by exactly that much — the "slides around a little".
+   Below md they clip both axes, which iOS will not let a finger pan; the cost
+   is up to a few pixels off the last badge on the widest rows. From md up
+   they scroll as before, and they fit there anyway. Both axes on both sides
+   of the breakpoint, never one alone — see the note below on why. */
+const scrollRowCls = "overflow-hidden md:overflow-x-auto md:overflow-y-hidden -mx-0.5 px-0.5";
 const scrollRowStyle: React.CSSProperties = { scrollbarWidth: 'none', msOverflowStyle: 'none' };
 
 /* Percentile thresholds, matching @/lib/indicators/rs. Not imported from
@@ -1095,18 +1104,31 @@ const trigSortValue = (r: TrigRow, k: TrigSortKey): number | string => {
    two separate tables, and only a fixed layout makes their columns land on the
    same pixels across the gap. Sized against the widest real content at 10px —
    "$443.42 ●" in PRC, "+15.55%" in CHG. */
-const TRIG_COLS: { key: TrigSortKey; label: string; width: string; title?: string }[] = [
-  { key: 'ticker', label: 'TICKER', width: 'w-[15%]' },
-  { key: 'scan', label: 'SCAN', width: 'w-[9%]', title: 'Which scan found it' },
-  { key: 'cnf', label: 'CNF', width: 'w-[7%]' },
-  { key: 'rs', label: 'RS', width: 'w-[7%]' },
-  { key: 'price', label: 'PRC', width: 'w-[13%]' },
-  { key: 'chg', label: 'CHG%', width: 'w-[11%]' },
-  { key: 'rvol', label: 'RVOL', width: 'w-[8%]' },
-  { key: 'trigger', label: 'TRIG', width: 'w-[11%]', title: 'The level the plan is waiting for' },
-  { key: 'stop', label: 'STOP', width: 'w-[10%]', title: "The plan's own invalidation" },
-  { key: 'away', label: 'AWAY', width: 'w-[9%]', title: 'How far price is from the trigger' },
+/* PHONE: eight columns, not ten. Measured at 390px the ten-column table was
+   470px inside a 344px card — forced there by a min-width — so it scrolled,
+   and the ticker column was 71px wide for a 48px chip, which is the gap you
+   could see between TICKER and SCAN. PRC and CHG% step aside below md: price
+   is already implied by TRIG and AWAY, and the change is the least of what
+   this card is for. CNF, RS and RVOL stay because they were asked for.
+
+   The mobile widths sum to 100% across the eight that remain, sized against
+   the widest real content at 10px — the ticker column is now just wider than
+   its chip. From md up every column and every original width comes back. */
+const TRIG_COLS: { key: TrigSortKey; label: string; width: string; title?: string; hideMobile?: boolean }[] = [
+  { key: 'ticker', label: 'TICKER', width: 'w-[15%] md:w-[15%]' },
+  { key: 'scan', label: 'SCAN', width: 'w-[10%] md:w-[9%]', title: 'Which scan found it' },
+  { key: 'cnf', label: 'CNF', width: 'w-[9%] md:w-[7%]' },
+  { key: 'rs', label: 'RS', width: 'w-[9%] md:w-[7%]' },
+  { key: 'price', label: 'PRC', width: 'md:w-[13%]', hideMobile: true },
+  { key: 'chg', label: 'CHG%', width: 'md:w-[11%]', hideMobile: true },
+  { key: 'rvol', label: 'RVOL', width: 'w-[10%] md:w-[8%]' },
+  { key: 'trigger', label: 'TRIG', width: 'w-[18%] md:w-[11%]', title: 'The level the plan is waiting for' },
+  { key: 'stop', label: 'STOP', width: 'w-[15%] md:w-[10%]', title: "The plan's own invalidation" },
+  { key: 'away', label: 'AWAY', width: 'w-[14%] md:w-[9%]', title: 'How far price is from the trigger' },
 ];
+
+/* Written out in full so Tailwind's scanner can see it. */
+const TRIG_HIDE = 'hidden md:table-cell';
 
 const TriggerProximity = ({ pool }: { pool: any[] }) => {
   /* The SET is the eight closest — that is what the card is, and it is chosen
@@ -1156,7 +1178,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
             title={c.title}
             icon={sortKey === c.key ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
             onSort={() => handleSort(c.key)}
-            className={c.key === 'ticker' ? 'text-left' : undefined}
+            className={[c.key === 'ticker' ? 'text-left' : '', c.hideMobile ? TRIG_HIDE : ''].filter(Boolean).join(' ') || undefined}
           />
         ))}
       </tr>
@@ -1179,8 +1201,8 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
             </td>
             <ScoreCell value={scoreOf(r.s) || null} />
             <RsCell value={numOrNull(r.s.rsRating)} />
-            <PriceCell price={r.price} vwapStatus={r.s.vwapStatus} />
-            <ChgCell value={chgOf(r.s)} />
+            <PriceCell price={r.price} vwapStatus={r.s.vwapStatus} className={TRIG_HIDE} />
+            <ChgCell value={chgOf(r.s)} className={TRIG_HIDE} />
             <RvolCell value={rvolOf(r.s)} />
             <td
               className={`${SCAN.td} text-[10px] font-bold text-slate-200 tabular-nums whitespace-nowrap`}
@@ -1209,7 +1231,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
      beside the summary rows. */
   const useTwoCols = rows.length > 5;
   const mid = useTwoCols ? Math.ceil(rows.length / 2) : rows.length;
-  const dense = 'w-full table-fixed min-w-[470px] [&_td]:pt-1 [&_td]:pb-1 [&_th]:py-1.5';
+  const dense = 'w-full table-fixed md:min-w-[470px] [&_td]:pt-1 [&_td]:pb-1 [&_th]:py-1.5';
 
   return (
     <div className="mt-4 pt-3 border-t border-white/5">
@@ -1224,11 +1246,11 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
           as the confluence report's pick tables. custom-scrollbar + thin is
           how every scanner table on the site dresses its scroller. */}
       <div className={useTwoCols ? 'grid grid-cols-1 md:grid-cols-2 gap-x-6' : ''}>
-        <div className="overflow-x-auto overflow-y-hidden custom-scrollbar min-w-0" style={{ scrollbarWidth: 'thin' }}>
+        <div className="md:overflow-x-auto md:overflow-y-hidden custom-scrollbar min-w-0" style={{ scrollbarWidth: 'thin' }}>
           <table className={dense}>{head}{body(rows.slice(0, mid))}</table>
         </div>
         {useTwoCols && (
-          <div className="overflow-x-auto overflow-y-hidden custom-scrollbar min-w-0" style={{ scrollbarWidth: 'thin' }}>
+          <div className="md:overflow-x-auto md:overflow-y-hidden custom-scrollbar min-w-0" style={{ scrollbarWidth: 'thin' }}>
             <table className={dense}>{head}{body(rows.slice(mid))}</table>
           </div>
         )}
@@ -2241,8 +2263,12 @@ export default function MarketSummary() {
 
 
 
+  /* The whole summary card was `overflow-x-auto` with nothing on Y, so CSS
+     made it a scroll container in BOTH directions — the entire card could be
+     dragged a few pixels on a phone. Clipped below md, scrolls sideways above
+     it with Y pinned, as every other strip on this page does. */
   return (
-    <div className="bg-[#101623] border-0 md:border md:border-white/10 md:rounded-2xl p-2 sm:p-6 md:p-8 relative overflow-x-auto md:shadow-2xl w-full" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}>
+    <div className="bg-[#101623] border-0 md:border md:border-white/10 md:rounded-2xl p-2 sm:p-6 md:p-8 relative overflow-hidden md:overflow-x-auto md:overflow-y-hidden md:shadow-2xl w-full" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}>
       <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-500 via-emerald-500 to-indigo-500 opacity-40"></div>
 
       <div
@@ -2667,7 +2693,7 @@ export default function MarketSummary() {
                                       return (
                                         <>
                                           <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-y-5">
-                                            <div className="space-y-1.5 overflow-x-auto pr-4">
+                                            <div className="space-y-1.5 overflow-hidden md:overflow-x-auto md:overflow-y-hidden pr-4">
                                               {renderEconBlock()}
                                             </div>
                                             <div className="hidden md:block w-px bg-white/10 self-stretch" />
