@@ -135,3 +135,14 @@ export function isLawsuitNoise(headline: string | null | undefined, tag?: NewsTa
   if (tag === 'legal') return true;
   return LAWSUIT_RX.test(String(headline || ''));
 }
+
+/* Actionable = recent. News older than a day has been traded. */
+export const FRESH_MIN = 24 * 60;
+
+/* Evergreen filler that carries a ticker but no event: "If You Invested
+   $1000 in X a Decade Ago", "X vs. Y: A Closer Look", "Should You Buy X?",
+   "Top 5 Stocks to Buy". Nothing to act on today. */
+const EVERGREEN_RX = /if you (had )?invested|a decade ago|years? ago, this is how|worth now|\bvs\.?\s|closer look|should you buy|is it (time|a good time) to buy|better buy|top \d+ (stocks|picks)|stocks? to (buy|watch|own|hold)|here's why .* (could|should|might)|reasons? to (buy|own)|dividend stocks?|for retirement|millionaire|bull of the day|bear of the day|zacks rank/i;
+export function isEvergreenNoise(headline: string | null | undefined): boolean {
+  return EVERGREEN_RX.test(String(headline || ''));
+}

@@ -43,7 +43,7 @@ import InfoDot from './InfoDot';
 import { EDGE_TINT, type EdgeTier } from '@/lib/scans/edge';
 import { catalystTooltip, headlineOf, decodeEntities, type CatalystRow } from '@/lib/catalyst';
 import { gradeOf, rvolColor } from '@/lib/indicators/columnColors';
-import { isLawsuitNoise,
+import { isLawsuitNoise, isEvergreenNoise, FRESH_MIN,
   TAG_META, tagOf, tagCounts, minutesSince, ageLabelMinutes, relTime, fmtMove,
   type NewsTag,
 } from '@/lib/newsView';
@@ -323,9 +323,20 @@ function Section({ title, count, info, controls, children }: {
   );
 }
 
-const Grid = ({ children }: { children: React.ReactNode }) => (
-  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">{children}</div>
-);
+/* Two INDEPENDENT columns, as the page had before: split the list and stack
+   each half, so a two-line headline never leaves a hole beside a one-line
+   one. One column on a phone. */
+const Grid = ({ children }: { children: React.ReactNode }) => {
+  const items = React.Children.toArray(children);
+  if (items.length <= 2) return <div className="flex flex-col gap-3.5">{items}</div>;
+  const mid = Math.ceil(items.length / 2);
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+      <div className="flex flex-col gap-3.5 min-w-0">{items.slice(0, mid)}</div>
+      <div className="flex flex-col gap-3.5 min-w-0">{items.slice(mid)}</div>
+    </div>
+  );
+};
 
 const Note = ({ children }: { children: React.ReactNode }) => (
   <p className="text-[12px] text-slate-500 bg-[#111827] border border-[#1e293b] rounded-2xl px-4 py-3.5">{children}</p>
@@ -370,9 +381,19 @@ export default function NewsPage() {
 
   /* A pool item without a headline never renders, so it does not count
      anywhere either — the pills and the hero add up to what is on screen. */
-  const poolWithNews = React.useMemo(() => pool.filter(it => !!headlineOf(it) && !isLawsuitNoise(headlineOf(it), poolTag(it))), [pool]);
+  const poolWithNews = React.useMemo(() => pool.filter(it => {
+    const h = headlineOf(it);
+    if (!h || isLawsuitNoise(h, poolTag(it)) || isEvergreenNoise(h)) return false;
+    const m = ageLabelMinutes(it.newsAge);
+    return m == null || m < FRESH_MIN;
+  }), [pool]);
   // Lawsuit / class-action releases are dropped from both sections.
-  const cleanWire = React.useMemo(() => wire.filter(a => !isLawsuitNoise(decodeEntities(a.cleanHeadline || a.title), wireTag(a))), [wire]);
+  const cleanWire = React.useMemo(() => wire.filter(a => {
+    const h = decodeEntities(a.cleanHeadline || a.title);
+    if (isLawsuitNoise(h, wireTag(a)) || isEvergreenNoise(h)) return false;
+    const m = minutesSince(a.publishedUtc, Date.now());
+    return m == null || m < FRESH_MIN;
+  }), [wire]);
 
   /* Actionable order: the strongest setups first (green, yellow, red, none),
      then the bigger move. */
