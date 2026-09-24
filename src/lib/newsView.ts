@@ -130,7 +130,7 @@ export function fmtMove(v: number | null | undefined): string {
 /* Lawsuit noise: law-firm "shareholder alert" releases and class-action
    notices are not market news, and the Legal tag is almost always one of
    them. The reader asked for all of it gone (24 Sep 2026). */
-const LAWSUIT_RX = /class[- ]action|lawsuit|law firm|shareholder alert|investor alert|securities fraud|investors? who (lost|purchased|bought)|lead plaintiff|deadline alert|investigation (on behalf|of) (of )?(investors|shareholders)|rosen law|pomerantz|levi\s*&\s*korsinsky|faruqi|bragar|glancy|kessler topaz|bernstein liebhard|robbins geller|schall law|gainey mckenna|bronstein, gewirtz/i;
+const LAWSUIT_RX = /class[- ]action|lawsuit|law firm|shareholder (alert|update|notice)|investor (alert|update|notice)|notifying (investors|shareholders)|investigations?:|announces? (an )?investigation|brodsky|halper sadeh|ademi|monteverde|kahn swick|johnson fistel|holzer|rigrodsky|wohl & fruchter|securities fraud|investors? who (lost|purchased|bought)|lead plaintiff|deadline alert|investigation (on behalf|of) (of )?(investors|shareholders)|rosen law|pomerantz|levi\s*&\s*korsinsky|faruqi|bragar|glancy|kessler topaz|bernstein liebhard|robbins geller|schall law|gainey mckenna|bronstein, gewirtz/i;
 export function isLawsuitNoise(headline: string | null | undefined, tag?: NewsTag | null): boolean {
   if (tag === 'legal') return true;
   return LAWSUIT_RX.test(String(headline || ''));
@@ -145,4 +145,13 @@ export const FRESH_MIN = 24 * 60;
 const EVERGREEN_RX = /if you (had )?invested|a decade ago|years? ago, this is how|worth now|\bvs\.?\s|closer look|should you buy|is it (time|a good time) to buy|better buy|top \d+ (stocks|picks)|stocks? to (buy|watch|own|hold)|here's why .* (could|should|might)|reasons? to (buy|own)|dividend stocks?|for retirement|millionaire|bull of the day|bear of the day|zacks rank/i;
 export function isEvergreenNoise(headline: string | null | undefined): boolean {
   return EVERGREEN_RX.test(String(headline || ''));
+}
+
+/* Headlines in another language (e.g. an Italian press release) cannot be
+   read at a glance — skip them. A few accented letters are fine; a run of
+   common non-English words is not. */
+const FOREIGN_RX = /\b(e|della|delle|degli|il|lo|gli|nuovi|dei|und|der|die|das|mit|pour|avec|les|des|una|para|con|los|las)\b.*\b(e|della|delle|degli|il|nuovi|dei|und|der|die|mit|pour|avec|les|des|una|para|con|los|las)\b/i;
+export function isForeignHeadline(h: string | null | undefined): boolean {
+  const t = String(h || '');
+  return FOREIGN_RX.test(t) && !/\b(the|and|of|to|for|with)\b/i.test(t);
 }

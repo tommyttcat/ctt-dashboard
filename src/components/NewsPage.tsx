@@ -40,10 +40,10 @@ import WatchlistPanel from './WatchlistPanel';
 import DashNav from './DashNav';
 import HelpModal from './HelpModal';
 import InfoDot from './InfoDot';
-import { EDGE_TINT, type EdgeTier } from '@/lib/scans/edge';
+import { type EdgeTier } from '@/lib/scans/edge';
 import { catalystTooltip, headlineOf, decodeEntities, type CatalystRow } from '@/lib/catalyst';
-import { gradeOf, rvolColor } from '@/lib/indicators/columnColors';
-import { isLawsuitNoise, isEvergreenNoise, FRESH_MIN,
+import { rvolColor } from '@/lib/indicators/columnColors';
+import { isLawsuitNoise, isEvergreenNoise, isForeignHeadline, FRESH_MIN,
   TAG_META, tagOf, tagCounts, minutesSince, ageLabelMinutes, relTime, fmtMove,
   type NewsTag,
 } from '@/lib/newsView';
@@ -129,9 +129,11 @@ const LABEL = 'text-[11px] font-bold tracking-[0.14em] uppercase';
 /* Solid ticker chip, coloured by CNF grade — green A, amber B, slate for the
    rest and for names that were never scored. The same grade the scan tables
    tint their chips with, filled in. */
-function chipCls(cnf: number | null | undefined): string {
-  const g = gradeOf(cnf);
-  const fill = g === 'A' ? 'bg-emerald-400' : g === 'B' ? 'bg-amber-400' : 'bg-slate-400';
+/* The chip carries the card's one colour: the name's tier on its own scan
+   (green / yellow / red). No tier -> slate. */
+const TIER_EDGE: Record<EdgeTier, string> = { green: 'border-l-emerald-400', yellow: 'border-l-amber-400', red: 'border-l-rose-400' };
+function chipCls(_cnf: number | null | undefined, tier?: EdgeTier | null): string {
+  const fill = tier === 'green' ? 'bg-emerald-400' : tier === 'yellow' ? 'bg-amber-400' : tier === 'red' ? 'bg-rose-400' : 'bg-slate-300';
   return `inline-block rounded-md px-2 py-[3px] text-[14px] font-extrabold tracking-wide leading-none text-[#0b0f1a] ${fill}`;
 }
 
@@ -147,7 +149,7 @@ const shortName = (n: string) => n
   .replace(/,?\s+(Inc\.?|Corp\.?|N\.V\.|Ltd\.?)\s*$/i, '')
   .trim();
 
-type Ticker = { t: string; cnf?: number | null; name?: string | null; move?: number | null };
+type Ticker = { t: string; tier?: EdgeTier | null; cnf?: number | null; name?: string | null; move?: number | null };
 
 function TickerRow({ tickers, showName }: { tickers: Ticker[]; showName?: boolean }) {
   const MAX = 4;
@@ -159,7 +161,7 @@ function TickerRow({ tickers, showName }: { tickers: Ticker[]; showName?: boolea
         <span key={k.t} className="inline-flex items-center gap-1.5 min-w-0">
           {i === 0 && <WatchlistBtn symbol={k.t} />}
           <TickerChartHover symbol={k.t}>
-            <span className={chipCls(k.cnf)} aria-label={k.name || k.t}>{k.t}</span>
+            <span className={chipCls(k.cnf, k.tier)} aria-label={k.name || k.t}>{k.t}</span>
           </TickerChartHover>
           {i === 0 && showName && k.name && (
             <span className="text-slate-300 truncate max-w-[180px]">{shortName(k.name)}</span>
@@ -216,7 +218,7 @@ function NewsCard({ tag, tagHint, headline, url, move, flags, tickers, showName,
   /* The ticker is the first thing you see: names and the move on top, the
      headline under them, and the kind of story + source as small print. */
   return (
-    <article className={`border border-[#1e293b] rounded-2xl p-4 flex flex-col gap-2.5 min-w-0 ${tier ? EDGE_TINT[tier] : 'bg-[#111827]'}`}>
+    <article className={`bg-[#111827] border border-[#1e293b] border-l-4 rounded-2xl p-4 flex flex-col gap-2.5 min-w-0 ${tier ? TIER_EDGE[tier] : 'border-l-[#1e293b]'}`}>
       <div className="flex items-center gap-2">
         <div className="flex-1 min-w-0"><TickerRow tickers={tickers} showName={showName} /></div>
         {move != null && (
@@ -276,7 +278,7 @@ function PoolCard({ it }: { it: PoolItem }) {
           )}
         </>
       }
-      tickers={[{ t: it.ticker, cnf: it.cnf, name: it.name, move: it.changePct }]}
+      tickers={[{ t: it.ticker, cnf: it.cnf, name: it.name, move: it.changePct, tier: it.tier ?? null }]}
       meta={[it.newsPublisher, age, delayed ? 'delayed' : null].filter(Boolean).join(' · ')}
       stats={it}
       tier={it.tier ?? null}
@@ -297,7 +299,7 @@ function WireCard({ it, stats, now }: { it: WireItem; stats: Record<string, Stat
       headline={decodeEntities(it.cleanHeadline || it.title)}
       url={it.url}
       move={lead?.changePct ?? null}
-      tickers={ordered.map(t => ({ t, cnf: stats[t]?.cnf ?? null, name: stats[t]?.name ?? null, move: stats[t]?.changePct ?? null }))}
+      tickers={ordered.map(t => ({ t, cnf: stats[t]?.cnf ?? null, name: stats[t]?.name ?? null, move: stats[t]?.changePct ?? null, tier: stats[t]?.tier ?? null }))}
       meta={[it.publisher, relTime(minutesSince(it.publishedUtc, now))].filter(Boolean).join(' · ')}
       stats={lead}
       tier={lead?.tier ?? null}
@@ -329,12 +331,16 @@ function Section({ title, count, info, controls, children }: {
 const Grid = ({ children }: { children: React.ReactNode }) => {
   const items = React.Children.toArray(children);
   if (items.length <= 2) return <div className="flex flex-col gap-3.5">{items}</div>;
-  const mid = Math.ceil(items.length / 2);
+  // Phone: one list, in order. Wider: two columns filled left-to-right, so the
+  // order still reads across each row.
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-      <div className="flex flex-col gap-3.5 min-w-0">{items.slice(0, mid)}</div>
-      <div className="flex flex-col gap-3.5 min-w-0">{items.slice(mid)}</div>
-    </div>
+    <>
+      <div className="flex flex-col gap-3.5 md:hidden">{items}</div>
+      <div className="hidden md:grid grid-cols-2 gap-3.5">
+        <div className="flex flex-col gap-3.5 min-w-0">{items.filter((_, i) => i % 2 === 0)}</div>
+        <div className="flex flex-col gap-3.5 min-w-0">{items.filter((_, i) => i % 2 === 1)}</div>
+      </div>
+    </>
   );
 };
 
@@ -383,14 +389,14 @@ export default function NewsPage() {
      anywhere either — the pills and the hero add up to what is on screen. */
   const poolWithNews = React.useMemo(() => pool.filter(it => {
     const h = headlineOf(it);
-    if (!h || isLawsuitNoise(h, poolTag(it)) || isEvergreenNoise(h)) return false;
+    if (!h || isLawsuitNoise(h, poolTag(it)) || isEvergreenNoise(h) || isForeignHeadline(h)) return false;
     const m = ageLabelMinutes(it.newsAge);
     return m == null || m < FRESH_MIN;
   }), [pool]);
   // Lawsuit / class-action releases are dropped from both sections.
   const cleanWire = React.useMemo(() => wire.filter(a => {
     const h = decodeEntities(a.cleanHeadline || a.title);
-    if (isLawsuitNoise(h, wireTag(a)) || isEvergreenNoise(h)) return false;
+    if (isLawsuitNoise(h, wireTag(a)) || isEvergreenNoise(h) || isForeignHeadline(h)) return false;
     const m = minutesSince(a.publishedUtc, Date.now());
     return m == null || m < FRESH_MIN;
   }), [wire]);

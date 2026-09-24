@@ -318,11 +318,27 @@ export default function ConfluenceReport() {
     [reports, sectorFilter],
   );
   const edgeTally = useMemo(() => edgeCounts(sectorReports, edgeTier), [sectorReports]);
-  const edge = useEdgeFilter(edgeTally);
-  const visibleReports = useMemo(
-    () => (edge.key ? sectorReports.filter(r => edgeTier(r) === edge.key) : sectorReports),
-    [sectorReports, edge.key],
-  );
+  // Opens on every name (null), strongest first — a green-only default left two
+  // cards and hid the lead pick.
+  const edge = useEdgeFilter(edgeTally, null);
+  /* Most actionable first: names at or near their buy level (nearest first),
+     then stretched / missed / broken ones; within each, green before yellow
+     before red. A green name that is EXT is not something to act on today. */
+  const visibleReports = useMemo(() => {
+    const TIER: Record<string, number> = { green: 0, yellow: 1, red: 2 };
+    const ST: Record<string, number> = { hit: 0, wait: 1, ext: 2, miss: 3, out: 4 };
+    const rank = (r: Report) => {
+      const lv = levelsFor(r);
+      const st = lv && lv.kind === 'scan' ? (ST[lv.status] ?? 5) : 5;
+      const away = lv && lv.kind === 'scan' && lv.status === 'wait' ? lv.awayPct : 0;
+      return [st, TIER[edgeTier(r) ?? ''] ?? 3, away] as const;
+    };
+    const list = edge.key ? sectorReports.filter(r => edgeTier(r) === edge.key) : sectorReports;
+    return [...list].sort((a, b) => {
+      const x = rank(a), y = rank(b);
+      return x[0] - y[0] || (x[0] === 1 ? x[2] - y[2] : 0) || x[1] - y[1] || b.biasScore - a.biasScore;
+    });
+  }, [sectorReports, edge.key]);
 
   const fetchData = useCallback(async () => {
     try {
