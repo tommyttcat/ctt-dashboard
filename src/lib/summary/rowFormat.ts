@@ -172,7 +172,10 @@ export const parseStdLine = (line: string): ParsedStdRow | null => {
   const tm = t.match(/^([A-Z]{1,5})\s/);
   if (!tm) return null;
   const ticker = tm[1];
-  if (TICKER_STOPWORDS.has(ticker)) return null;
+  /* A row built by stdCols reads "<TICKER> CNF <n>", which no prose line
+     does — so a real ticker that is also a stopword (BB, EP, GO, ON, AI...)
+     still parses. Without this BlackBerry rendered as a line of raw text. */
+  if (TICKER_STOPWORDS.has(ticker) && !/^[A-Z]{1,5} CNF \d/.test(t)) return null;
   const cm = t.match(/(?:CNF|SCR) (\d+)/);
   if (!cm) return null;
   const cnf = Number(cm[1]);

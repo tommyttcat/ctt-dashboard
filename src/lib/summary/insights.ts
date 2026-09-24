@@ -643,11 +643,13 @@ export const buildEp9mPara = (ep9m: any[], repeatPivots?: Record<string, { count
   const rows = ep9m.filter(s => s?.ticker);
   if (rows.length < 1) return '';
 
+  /* No catalyst word on the row: the ★ and its tooltip carry the catalyst.
+     The first word of the headline leaked through as stray grey text
+     ("News") whenever it was not one of the renderer's known tags. */
   const fmtEp = (s: any): string => {
-    const tag = catalystTagOf(s);
     const rpt = repeatPivots?.[s.ticker]?.count ?? 0;
     const rptTag = rpt >= 2 ? ` EP:${rpt}` : '';
-    return `${s.ticker} ${stdCols(s)}${tag ? ` ${tag}` : ''}${rptTag}`;
+    return `${s.ticker} ${stdCols(s)}${rptTag}`;
   };
 
   const sorted = [...rows].sort((a, b) => {
