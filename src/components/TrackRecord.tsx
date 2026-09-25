@@ -33,6 +33,7 @@ import {
   EDGE_TINT, EDGE_FILTER_TIP, EP9M_TIP, VCP_TIP, SWING_TIP, CONSOLIDATION_TIP,
   MULTIBAGGER_TIP, HRS_TIP, type EdgeTier,
 } from '@/lib/scans/edge';
+import { MB, type ModelBook } from '@/lib/modelBook';
 
 interface Interim {
   n: number;
@@ -96,6 +97,7 @@ interface PlanPayload { startedOn: string; byScan: Record<string, PlanScanRecord
 interface Payload {
   success: boolean;
   plan?: PlanPayload | null;
+  book?: ModelBook | null;
   results: Record<string, ScanRecord>;
   meta: { lastBarDate?: string; tickedAt?: string; startedAt?: string } | null;
   openCount: number;
@@ -337,6 +339,158 @@ const PLAN_STATE: Record<PlanPos['state'], { label: string; cls: string; tip: st
   filled: { label: 'Open', cls: 'text-sky-400', tip: 'Bought at its buy level; neither target nor stop yet.' },
 };
 
+/* ---- Model Book (lib/modelBook) -------------------------------------------
+   One paper account run by fixed rules. Everything else on this page scores
+   picks one at a time; this is what an account would actually have held. */
+const BOOK_SCAN_LABEL: Record<string, string> = { sip: 'Stocks in Play', daily: 'Daily Setups', swing: 'Swing', ep9m: 'EP9M' };
+const money = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
+const pctCls = (v: number | null) => (v == null ? 'text-slate-500' : v > 0 ? 'text-emerald-400' : v < 0 ? 'text-rose-400' : 'text-slate-300');
+const fmtSigned = (v: number | null, dp = 1) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(dp)}%`);
+
+function BookSection({ book }: { book: ModelBook | null | undefined }) {
+  const ret = book ? (book.equity / MB.equity0 - 1) * 100 : null;
+  const spyRet = book?.spy0 && book.spyLast ? (book.spyLast / book.spy0 - 1) * 100 : null;
+  const t = book?.totals;
+  const perHundred = t && t.trades ? t.sumR / t.trades : null;
+  const free = book ? Math.max(0, MB.maxPos - book.open.length) : 0;
+  const buys = book ? [...book.candidates].sort((a, b) => b.rs - a.rs) : [];
+  const atOpen = buys.filter(c => c.kind === 'open');
+  const dips = buys.filter(c => c.kind === 'dip');
+
+  return (
+    <div className="mb-6 border border-sky-500/25 rounded-lg bg-slate-900/40 overflow-hidden">
+      <div className="px-3 md:px-5 pt-3 pb-2.5">
+        <h2 className="text-[11px] font-bold tracking-widest uppercase text-sky-400">Model Book</h2>
+        <p className="text-[11px] text-slate-300 leading-relaxed mt-1">
+          One <strong className="text-slate-100">$100,000 paper account</strong> trading the scans by fixed rules: green rows
+          only, strongest RS first, at most 10 positions, 0.5% of the account at risk on each, the card&apos;s stop, and sold at
+          the close of the 20th session. Every buy and sell is recorded the evening it happens, against simply owning SPY.
+        </p>
+        {!book ? (
+          <p className="text-[11px] text-amber-400/80 leading-relaxed mt-1.5">
+            Starts with tonight&apos;s close. The first buys happen at the next morning&apos;s open.
+          </p>
+        ) : (t?.trades ?? 0) < 30 ? (
+          <p className="text-[11px] text-amber-400/80 leading-relaxed mt-1.5">
+            Started {book.startedOn}. {t?.trades ? `${t.trades} trade${t.trades === 1 ? '' : 's'} finished` : 'No trade has finished yet'} — far too few to judge.
+            A system like this wins about one trade in three and makes most of its money on a handful of big runs.
+          </p>
+        ) : null}
+      </div>
+
+      {book && (
+        <>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 px-3 md:px-5 pb-2.5 text-[10px]">
+            <span><span className="text-slate-500">Account</span> <span className="text-slate-200 font-semibold tabular-nums">{money(book.equity)}</span></span>
+            <span><span className="text-slate-500">Since start</span> <span className={`font-semibold tabular-nums ${pctCls(ret)}`}>{fmtSigned(ret)}</span></span>
+            <span><span className="text-slate-500">SPY</span> <span className={`font-semibold tabular-nums ${pctCls(spyRet)}`}>{fmtSigned(spyRet)}</span></span>
+            <span><span className="text-slate-500">Worst drop</span> <span className="text-slate-200 font-semibold tabular-nums">{book.maxDdPct.toFixed(1)}%</span></span>
+            <span><span className="text-slate-500">Winners</span> <span className="text-slate-200 font-semibold tabular-nums">{t!.wins} of {t!.trades}</span></span>
+            <span><span className="text-slate-500">Per $100 risked</span> <span className={`font-semibold tabular-nums ${rCls(perHundred)}`}>{fmtUsd(perHundred)}</span></span>
+            <span><span className="text-slate-500">Open</span> <span className="text-slate-200 font-semibold tabular-nums">{book.open.length} of {MB.maxPos}</span></span>
+          </div>
+
+          {buys.length > 0 && (
+            <div className="px-3 md:px-5 py-2.5 border-t border-white/[0.06]">
+              <div className="text-[10px] font-bold tracking-widest uppercase text-slate-500 mb-1.5">
+                Next session&apos;s buys <span className="normal-case tracking-normal font-normal text-slate-600">· {free} slot{free === 1 ? '' : 's'} free, strongest RS first</span>
+              </div>
+              <div className="flex flex-col">
+                {[...atOpen, ...dips].map((c, i) => {
+                  const inSlot = c.kind === 'open' && i < free;
+                  return (
+                    <div key={`${c.t}-${c.d}`} className="flex items-center gap-2 py-1 border-b border-white/[0.03] text-[10px] whitespace-nowrap">
+                      <span className="w-12 font-semibold text-slate-200 shrink-0">
+                        <TickerChartHover symbol={c.t}><span className="border-b border-dotted border-white/25">{c.t}</span></TickerChartHover>
+                      </span>
+                      <span className="text-slate-500 w-24 truncate shrink-0 hidden sm:inline">{BOOK_SCAN_LABEL[c.scan] ?? c.scan}</span>
+                      <span className="text-slate-400 tabular-nums truncate">
+                        {c.kind === 'dip' ? `Dip to ${c.buy!.toFixed(2)}` : 'At the open'} · Stop {c.stop.toFixed(2)}
+                      </span>
+                      <span className="text-slate-500 tabular-nums hidden sm:inline">RS {c.rs >= 0 ? c.rs : '—'}</span>
+                      <span className={`ml-auto font-semibold ${c.kind === 'dip' ? 'text-slate-400' : inSlot ? 'text-sky-400' : 'text-slate-500'}`}>
+                        {c.kind === 'dip' ? 'If it dips' : inSlot ? 'Buy' : 'If a slot is free'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="px-3 md:px-5 py-2.5 border-t border-white/[0.06]">
+            <div className="text-[10px] font-bold tracking-widest uppercase text-slate-500 mb-1.5">Holding</div>
+            {book.open.length === 0 ? (
+              <p className="text-[10px] text-slate-500">Nothing open.</p>
+            ) : (
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b border-white/5">
+                    <th className={`${TH} !text-left !px-0`}>Ticker</th>
+                    <th className={`${TH} ${HIDE}`}>Bought</th>
+                    <th className={TH}>Entry</th>
+                    <th className={TH}>Stop</th>
+                    <th className={TH}>Last</th>
+                    <th className={TH}>P&amp;L</th>
+                    <th className={`${TH} ${HIDE}`}>Size</th>
+                    <th className={TH}>Day</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...book.open].sort((a, b) => a.entryDate.localeCompare(b.entryDate)).map(h => {
+                    const pl = (h.last / h.fill - 1) * 100;
+                    return (
+                      <tr key={`${h.t}-${h.entryDate}`} className="border-b border-white/[0.04]">
+                        <td className="text-[10px] py-2 text-left font-semibold text-slate-200 whitespace-nowrap">
+                          <TickerChartHover symbol={h.t}><span className="border-b border-dotted border-white/25">{h.t}</span></TickerChartHover>
+                        </td>
+                        <td className={`${TD} text-slate-400 ${HIDE}`}>{h.entryDate}</td>
+                        <td className={`${TD} text-slate-300`}>{h.fill.toFixed(2)}</td>
+                        <td className={`${TD} text-slate-400`}>{h.stop.toFixed(2)}</td>
+                        <td className={`${TD} text-slate-300`}>{h.last.toFixed(2)}</td>
+                        <td className={`${TD} font-semibold ${pctCls(pl)}`}>{fmtSigned(pl)}</td>
+                        <td className={`${TD} text-slate-400 ${HIDE}`}>{((h.sh * h.last / book.equity) * 100).toFixed(0)}%</td>
+                        <td className={`${TD} text-slate-400`}>{h.n} of {MB.hold}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {book.closed.length > 0 && (
+            <div className="px-3 md:px-5 py-2.5 border-t border-white/[0.06]">
+              <div className="text-[10px] font-bold tracking-widest uppercase text-slate-500 mb-1.5">Sold</div>
+              <div className="flex flex-col">
+                {book.closed.map(x => (
+                  <div key={`${x.t}-${x.entryDate}`} className="flex items-center gap-2 py-1 border-b border-white/[0.03] text-[10px] whitespace-nowrap">
+                    <span className="w-12 font-semibold text-slate-200 shrink-0">
+                      <TickerChartHover symbol={x.t}><span className="border-b border-dotted border-white/25">{x.t}</span></TickerChartHover>
+                    </span>
+                    <span className="text-slate-500 w-24 truncate shrink-0 hidden sm:inline">{BOOK_SCAN_LABEL[x.scan] ?? x.scan}</span>
+                    <span className="text-slate-400 tabular-nums truncate">{x.fill.toFixed(2)} → {x.exit.toFixed(2)} · {x.how === 'stop' ? 'stopped' : 'day 20'} {x.exitDate}</span>
+                    <span className={`ml-auto tabular-nums font-semibold ${x.pnl > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{x.pnl > 0 ? '+' : '−'}{money(Math.abs(x.pnl))}</span>
+                    <span className={`w-10 text-right tabular-nums font-semibold ${rCls(x.r)}`}>{fmtUsd(x.r)}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1.5">Newest first. The right-hand $ is the result for every $100 risked.</p>
+            </div>
+          )}
+        </>
+      )}
+
+      <p className="px-3 md:px-5 py-2.5 border-t border-white/[0.06] text-[10px] text-slate-500 leading-relaxed">
+        In a 5-year hypothetical backtest (Sep 2022 – Sep 2026, 0.1% slippage each side) these rules turned $100,000 into about
+        $372,000 against $210,000 for SPY — but the rules were chosen after seeing that test, five trades made 60% of the gain,
+        and with the day&apos;s picks taken in random order the typical result was about $195,000, below SPY. This live record is
+        the real test. Paper trades, not advice.
+      </p>
+    </div>
+  );
+}
+
 function PlanSection({ plan }: { plan: PlanPayload | null | undefined }) {
   const rows = PLAN_ROWS.map(r => ({ ...r, rec: plan?.byScan?.[r.scan] }));
   const tot = rows.reduce((a, { rec }) => {
@@ -573,6 +727,7 @@ export default function TrackRecord() {
         </div>
       </div>
 
+      {!loading && !error && <BookSection book={data?.book} />}
       {!loading && !error && <PlanSection plan={data?.plan} />}
 
       {/* The second record: every pick at the next open. What the 5-year test

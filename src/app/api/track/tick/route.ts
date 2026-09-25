@@ -9,7 +9,9 @@
 //   3. records today's picks as tomorrow's fills
 //
 // Plus the plan record (lib/trackPlan, 24 Sep 2026): two more reads and two
-// more writes, same bars, same scan lists — still flat in users.
+// more writes, same bars, same scan lists — still flat in users. And the
+// Model Book (lib/modelBook, 24 Sep 2026): one more read and one more write,
+// reusing the scan rows already read here.
 //
 // Cost per tick, measured 11 Sep 2026: 10 KV reads (8 scan lists + open
 // positions + results), 2 KV writes, 1 Polygon grouped-daily call. Flat in
@@ -36,6 +38,7 @@ import {
   PLAN_OPEN_KEY, PLAN_RESULTS_KEY, PLAN_SOURCES, newPlanPosition, stepPlan, foldPlan, markFilled, isResolved, emptyPlanRecord,
   type PlanPosition, type PlanResults,
 } from '@/lib/trackPlan';
+import { MODEL_BOOK_KEY, BOOK_SCANS, newBook, stepBook, addPicks, type ModelBook, type BookScan } from '@/lib/modelBook';
 import { edgeTier, multibaggerTier, swingTier, consolidationTier, ep9mTier, vcpTier, hrsTier } from '@/lib/scans/edge';
 
 export const dynamic = 'force-dynamic';
@@ -238,9 +241,11 @@ export async function GET() {
   const live = new Set(kept.map(p => `${p.scan}|${p.t}`));
   let added = 0;
   const emptyScans: string[] = [];
+  const bookRows: Partial<Record<BookScan, Record<string, unknown>[]>> = {};
   for (const { scan, key, sym } of TRACKED_SCANS) {
     const rows = (await kv.get<Record<string, unknown>[]>(key)) || [];
     if (!rows.length) { emptyScans.push(scan); continue; }
+    if ((BOOK_SCANS as string[]).includes(scan)) bookRows[scan as BookScan] = rows;
     const rec = (results[scan] ||= emptyRecord());
     for (const row of rows) {
       const t = String(row[sym] ?? '').toUpperCase();
@@ -329,8 +334,25 @@ export async function GET() {
     }
   }
 
+  /* Model Book last, fenced like the plan record: a fault here skips the
+     book for one tick and touches nothing else. Stepped on today's bars with
+     yesterday's candidates BEFORE tonight's picks are added, so a pick is
+     never bought on the evening it was made. */
+  let bookOut: Record<string, unknown> | string = 'skipped (error, see logs)';
+  try {
+    const spy = bars.get('SPY')?.c ?? null;
+    const book = (await kv.get<ModelBook>(MODEL_BOOK_KEY)) || newBook(date, spy);
+    stepBook(book, date, bars, spy);
+    const picked = addPicks(book, date, bookRows);
+    book.updatedAt = new Date().toISOString();
+    await kv.set(MODEL_BOOK_KEY, book);
+    bookOut = { equity: book.equity, open: book.open.length, candidates: book.candidates.length, picked };
+  } catch (e) {
+    console.error('TRACK_BOOK_ERROR', e);
+  }
+
   return NextResponse.json({
-    success: true, barDate: date, added, open: kept.length,
+    success: true, barDate: date, added, open: kept.length, book: bookOut,
     plan: planOk ? { watching: planKept.filter(p => p.state === 'watching').length, open: planKept.filter(p => p.state === 'filled').length } : 'skipped (error, see logs)',
     settled: settledToday.length, emptyScans,
   });

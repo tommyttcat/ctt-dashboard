@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:calendar": "node --experimental-strip-types --no-warnings scripts/marketCalendar.test.mts",
-    "test": "tsx scripts/briefLevel.test.mts && tsx scripts/scanCells.test.tsx && tsx scripts/catalyst.test.mts && tsx scripts/edge.test.mts && tsx scripts/track.test.mts && tsx scripts/trackPlan.test.mts && tsx scripts/poll.test.mts && tsx scripts/alerts.test.mts && tsx scripts/etCron.test.mts && tsx scripts/plan.test.mts && npm run test:calendar"
+    "test": "tsx scripts/briefLevel.test.mts && tsx scripts/scanCells.test.tsx && tsx scripts/catalyst.test.mts && tsx scripts/edge.test.mts && tsx scripts/track.test.mts && tsx scripts/trackPlan.test.mts && tsx scripts/modelBook.test.mts && tsx scripts/poll.test.mts && tsx scripts/alerts.test.mts && tsx scripts/etCron.test.mts && tsx scripts/plan.test.mts && npm run test:calendar"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
