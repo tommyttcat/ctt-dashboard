@@ -129,7 +129,7 @@ function walk(c: BarCache, k: Cand, floor: boolean, exit: 'ship' | 'hold20'): Tr
   return { c: k, stop, xi: last >= N - 1 && day < HOLD ? Infinity : lastJ, xpx: lastC, how: last >= N - 1 && day < HOLD ? 'open' : 'time' };
 }
 
-interface Opts { name: string; floor: boolean; exit: 'ship' | 'hold20'; regime: boolean; greenOnly: boolean; seed?: number }
+interface Opts { name: string; floor: boolean; exit: 'ship' | 'hold20'; regime: boolean; greenOnly: boolean; seed?: number; sweep?: boolean }
 
 /* Deterministic PRNG for the ranking-luck check (mulberry32). */
 const rng = (seed: number) => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
@@ -151,8 +151,9 @@ function run(c: BarCache, cands: Cand[], o: Opts) {
   let cash = EQUITY0, equity = EQUITY0;
   const open: Pos[] = [];
   const closed: { scan: Scan; r: number; pnl: number; entry: string; exit: string; how: string; ticker: string }[] = [];
-  const curve: { d: string; eq: number; n: number }[] = [];
+  const curve: { d: string; eq: number; n: number; x: number }[] = [];
   let skippedFull = 0;
+  const spy = c.idOf.get('SPY')!;
   const rand = o.seed != null ? rng(o.seed) : null;
 
   for (let t = t0; t < T; t++) {
@@ -187,14 +188,19 @@ function run(c: BarCache, cands: Cand[], o: Opts) {
         open.splice(i, 1);
       }
     }
+    /* SWEEP: idle cash sits in SPY instead of earning nothing. Applied to the
+       balance left after today's entries, close to close — an approximation
+       that ignores SPY's own trading costs (a few basis points a year). */
+    if (o.sweep && t > t0) cash *= C[spy][t] / C[spy][t - 1];
     // 3. Mark to market.
-    equity = cash + open.reduce((a, p) => a + p.sh * p.mark, 0);
-    curve.push({ d: sessions[t], eq: equity, n: open.length });
+    const invested = open.reduce((a, p) => a + p.sh * p.mark, 0);
+    equity = cash + invested;
+    curve.push({ d: sessions[t], eq: equity, n: open.length, x: invested / equity });
   }
   return { curve, closed, openAtEnd: open.length, skippedFull };
 }
 
-function stats(curve: { d: string; eq: number; n: number }[], closed: { r: number; pnl: number; exit: string }[]) {
+function stats(curve: { d: string; eq: number; n: number; x?: number }[], closed: { r: number; pnl: number; exit: string }[]) {
   const eq0 = curve[0].eq, eq1 = curve[curve.length - 1].eq;
   const years = curve.length / 252;
   let peak = -Infinity, mdd = 0, ddStart = 0, longest = 0;
@@ -220,6 +226,7 @@ function stats(curve: { d: string; eq: number; n: number }[], closed: { r: numbe
     avgLossR: +mean(rs.filter(r => r <= 0)).toFixed(2),
     worstLosingStreak: worst,
     avgOpen: +mean(curve.map(p => p.n)).toFixed(1),
+    avgInvestedPct: +(100 * mean(curve.map(p => (p as { x?: number }).x ?? 1))).toFixed(0),
   };
 }
 
@@ -238,6 +245,7 @@ function main() {
   const variants: Opts[] = [];
   for (const floor of [true, false]) for (const exit of ['ship', 'hold20'] as const) for (const regime of [true, false])
     variants.push({ name: `${floor ? 'floor' : 'card'}-${exit}-${regime ? 'riskon' : 'always'}`, floor, exit, regime, greenOnly: true });
+  for (const v of [...variants]) variants.push({ ...v, name: `SWEEP ${v.name}`, sweep: true });
   variants.push({ name: 'ALL-TIERS floor-ship-riskon', floor: true, exit: 'ship', regime: true, greenOnly: false });
   variants.push({ name: 'ALL-TIERS floor-ship-always', floor: true, exit: 'ship', regime: false, greenOnly: false });
 
