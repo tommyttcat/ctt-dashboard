@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { isTradingDay } from '@/lib/marketCalendar';
 import { fetchScannerLatest } from '@/lib/scannerLatest';
 import TickerChartHover from './TickerChartHover';
+import { poll } from '@/lib/poll';
 
 // --- INTERFACES ---
 interface CatalystItem {
@@ -213,8 +214,8 @@ export default function NewsCatalysts() {
     };
 
     fetchCatalysts();
-    const interval = setInterval(fetchCatalysts, 60000);
-    return () => { isMounted = false; clearInterval(interval); };
+    const interval = poll(fetchCatalysts, 60000);
+    return () => { isMounted = false; interval(); };
   }, []);
 
   const getSessionTextColor = () => {

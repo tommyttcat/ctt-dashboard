@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import TickerChartHover from './TickerChartHover';
 import { getMarketSession } from '@/lib/indicators/marketScorecard';
+import { poll } from '@/lib/poll';
 
 
 // ---------------------------------------------------------------------------
@@ -249,8 +250,8 @@ export default function EarningsCalendar() {
     };
 
     fetchEarningsData();
-    const interval = setInterval(fetchEarningsData, 4 * 60 * 60 * 1000);
-    return () => { isMounted = false; clearInterval(interval); };
+    const interval = poll(fetchEarningsData, 4 * 60 * 60 * 1000);
+    return () => { isMounted = false; interval(); };
   }, []);
 
   const handleSort = (key: keyof EarningEvent) => {

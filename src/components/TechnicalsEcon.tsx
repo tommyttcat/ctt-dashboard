@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { getMarketSession } from '@/lib/indicators/marketScorecard';
+import { poll } from '@/lib/poll';
 
 
 // ---------------------------------------------------------------------------
@@ -210,8 +211,8 @@ export default function EconomicCalendar() {
     };
 
     fetchEconData();
-    const interval = setInterval(fetchEconData, 1800000); // 30 minute refresh
-    return () => { isMounted = false; clearInterval(interval); };
+    const interval = poll(fetchEconData, 1800000); // 30 minute refresh
+    return () => { isMounted = false; interval(); };
   }, [selectedDate]);
 
   const handleSort = (key: keyof EconEvent) => {

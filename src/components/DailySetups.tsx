@@ -93,6 +93,7 @@ import {
 } from './scan/ScanTable';
 import { TickerCell } from './scan/TickerCell';
 import { planStatusView } from '@/lib/scans/triggerProximity';
+import { poll } from '@/lib/poll';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The setup name sits directly beneath it.' },
@@ -562,8 +563,8 @@ export default function DailySetups() {
     };
 
     fetchDatabaseSnapshot();
-    const interval = setInterval(fetchDatabaseSnapshot, 60000);
-    return () => { isMounted = false; clearInterval(interval); };
+    const interval = poll(fetchDatabaseSnapshot, 60000);
+    return () => { isMounted = false; interval(); };
   }, []);
 
   const handleSort = (key: string) => {

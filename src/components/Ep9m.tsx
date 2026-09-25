@@ -83,6 +83,7 @@ import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import ScanStatsNote from './ScanStatsNote';
 import { SCAN, RvolCell, RsCell, PriceCell, DollarVolCell, AdrCell, StatusCell, McapCell, StageCell, SectorCell } from './scan/ScanTable';
 import { planStatusView } from '@/lib/scans/triggerProximity';
+import { poll } from '@/lib/poll';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: "Symbol. Hover shows the company name. Fuchsia dot = unprecedented (today's volume beat its own 60-day high); ★ = repeat EP9M offender. Hover the fuchsia dot on a choppy name — record volume inside a range that will not resolve is the most misread row on this table." },
@@ -613,8 +614,8 @@ export default function Ep9m() {
       }
     };
     fetchCandidates();
-    const interval = setInterval(fetchCandidates, 60000);
-    return () => { isMounted = false; clearInterval(interval); };
+    const interval = poll(fetchCandidates, 60000);
+    return () => { isMounted = false; interval(); };
   }, []);
 
   const handleSort = (key: string) => {

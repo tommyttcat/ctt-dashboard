@@ -20,6 +20,7 @@ import {
 } from './scan/ScanTable';
 import { TickerCell } from './scan/TickerCell';
 import { formatTime } from '@/lib/scans/tableFormat';
+import { poll } from '@/lib/poll';
 
 /* ---- Scanner definitions ------------------------------------------------ */
 
@@ -246,8 +247,8 @@ export default function SetupConfluence() {
     };
 
     fetchAll();
-    const interval = setInterval(fetchAll, 60_000);
-    return () => { isMounted = false; clearInterval(interval); };
+    const interval = poll(fetchAll, 60_000);
+    return () => { isMounted = false; interval(); };
   }, []);
 
   const handleSort = (key: string) => {

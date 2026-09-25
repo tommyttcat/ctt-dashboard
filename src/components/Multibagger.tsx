@@ -22,6 +22,7 @@ import { rvolColorLowFloor as rvolColor, tickerChipCls, scoreCellCls } from '@/l
 import { displaySector } from '@/lib/sectors';
 import ScanStatsNote from './ScanStatsNote';
 import { SCAN, VolCell, DollarVolCell } from './scan/ScanTable';
+import { poll } from '@/lib/poll';
 
 const ATTR_LABELS: Record<string, string> = {
   revenueGrowth: 'Revenue Growth',
@@ -229,8 +230,8 @@ export default function Multibagger() {
       }
     };
     fetchData();
-    const interval = setInterval(fetchData, 60000);
-    return () => clearInterval(interval);
+    const interval = poll(fetchData, 60000);
+    return () => interval();
   }, []);
 
   const toggleSort = (key: SortKey) => {

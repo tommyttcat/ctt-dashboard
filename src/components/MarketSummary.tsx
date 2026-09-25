@@ -169,6 +169,7 @@ import {
   parseEtDateTime,
 } from '@/lib/summary/insights';
 import type { EarningsEvent, EconEvent, MacroInsights } from '@/lib/summary/insights';
+import { poll } from '@/lib/poll';
 
 
 
@@ -2247,8 +2248,8 @@ export default function MarketSummary() {
     };
 
     fetchMarketData();
-    const interval = setInterval(fetchMarketData, 60000);
-    return () => { isMounted = false; clearInterval(interval); };
+    const interval = poll(fetchMarketData, 60000);
+    return () => { isMounted = false; interval(); };
   }, [isWeekend]);
 
 

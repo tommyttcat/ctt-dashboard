@@ -122,6 +122,7 @@ import {
 } from './scan/ScanTable';
 import { TickerCell } from './scan/TickerCell';
 import { planStatusView } from '@/lib/scans/triggerProximity';
+import { poll } from '@/lib/poll';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The blue dot marks an oversold stochastic reset firing on the daily.' },
@@ -612,8 +613,8 @@ export default function Consolidation1021() {
       }
     };
     fetchCandidates();
-    const interval = setInterval(fetchCandidates, 60000);
-    return () => { isMounted = false; clearInterval(interval); };
+    const interval = poll(fetchCandidates, 60000);
+    return () => { isMounted = false; interval(); };
   }, []);
 
   // RDY is derived, not a payload field, so it is memoized per row and keyed

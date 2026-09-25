@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { getMarketSession } from '@/lib/indicators/marketScorecard';
 import { fetchScannerLatest } from '@/lib/scannerLatest';
+import { poll } from '@/lib/poll';
 
 // --- INTERFACES ---
 interface MarketDataContextType {
@@ -131,7 +132,7 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
 
     fetchMasterSnapshot();
 
-    let intervalId: NodeJS.Timeout;
+    let stopPoll: (() => void) | null = null;
     const estDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
     const day = estDate.getDay();
     const timeStr = estDate.getHours() + estDate.getMinutes() / 60;
@@ -139,12 +140,12 @@ export const MarketDataProvider = ({ children }: { children: ReactNode }) => {
     const isWeekendMode = (day === 6 || day === 0) || (day === 5 && timeStr >= 20) || (day === 1 && timeStr < 4);
 
     if (!isWeekendMode) {
-       intervalId = setInterval(fetchMasterSnapshot, 60000);
+       stopPoll = poll(fetchMasterSnapshot, 60000);
     }
 
     return () => {
       isMounted = false;
-      if (intervalId) clearInterval(intervalId);
+      if (stopPoll) stopPoll();
     };
   }, []);
 

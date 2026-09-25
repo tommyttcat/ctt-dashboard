@@ -84,6 +84,7 @@ import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { displaySector } from '@/lib/sectors';
 import { formatSetupName } from '@/lib/setupName';
 import { SCAN, RvolCell, RsCell, ChgCell, VolCell, DollarVolCell, FloatCell, McapCell } from './scan/ScanTable';
+import { poll } from '@/lib/poll';
 
 interface StockData {
   ticker: string;
@@ -238,8 +239,8 @@ export default function TopMovers() {
       } catch (error) { if (isMounted) setStatus('DB Offline'); }
     };
     fetchDatabaseSnapshot();
-    const interval = setInterval(fetchDatabaseSnapshot, 60000);
-    return () => { isMounted = false; clearInterval(interval); };
+    const interval = poll(fetchDatabaseSnapshot, 60000);
+    return () => { isMounted = false; interval(); };
   }, []);
 
   const handleSort = (key: keyof StockData) => { let direction: SortDirection = 'desc'; if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc'; else if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') { setSortConfig(null); return; } setSortConfig({ key, direction }); };

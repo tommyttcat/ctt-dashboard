@@ -11,6 +11,7 @@ import TickerChartHover, { useFreezeWhileChartOpen, WatchlistBtn } from './Ticke
 import { WatchlistToggle } from './WatchlistPanel';
 import { adrColor as getAdrColor, tickerChipForScore, tickerTitle, scoreCellCls} from '@/lib/indicators/columnColors';
 import { SCAN, RsCell, ChgCell, VolCell, DollarVolCell, RvolCell, McapCell } from './scan/ScanTable';
+import { poll } from '@/lib/poll';
 
 interface HighBetaRow {
   ticker: string;
@@ -116,8 +117,8 @@ export default function HighBeta() {
       } catch { if (mounted) setStatus('DB Offline'); }
     };
     fetch_();
-    const interval = setInterval(fetch_, 60000);
-    return () => { mounted = false; clearInterval(interval); };
+    const interval = poll(fetch_, 60000);
+    return () => { mounted = false; interval(); };
   }, []);
 
   const computedRows = useMemo(() => {

@@ -100,6 +100,7 @@ import {
   divergenceOf,
   INTRADAY_STALE_MINUTES,
 } from '@/lib/indicators/chopMarket';
+import { poll, pollMs } from '@/lib/poll';
 
 // Unified Asset Dictionary
 const MACRO_ASSETS = [
@@ -825,13 +826,15 @@ export default function MacroScorecard() {
 
     /* 30s: matches the macro route's KV window so each poll has a fair chance
        of a fresh Webull print. Faster than this doubles KV reads per tab. */
-    const pollingInterval = setInterval(() => {
+    /* Outside the 4:00–20:00 ET trading-day window quotes do not move, so
+       the 30s cadence drops to 5 minutes (cost check, 24 Sep 2026). */
+    const pollingInterval = poll(() => {
       if (isMounted) fetchMacro();
-    }, 30000);
+    }, pollMs.marketHours(30000, 300000));
 
     return () => {
       isMounted = false;
-      clearInterval(pollingInterval);
+      pollingInterval();
     };
   }, []);
 
@@ -861,8 +864,8 @@ export default function MacroScorecard() {
     };
 
     fetchT2108();
-    const interval = setInterval(() => { if (isMounted) fetchT2108(); }, 300000);
-    return () => { isMounted = false; clearInterval(interval); };
+    const interval = poll(() => { if (isMounted) fetchT2108(); }, 300000);
+    return () => { isMounted = false; interval(); };
   }, []);
 
   // --- ENGINE 2c: CHOP ---
@@ -927,8 +930,8 @@ export default function MacroScorecard() {
     };
 
     fetchChop();
-    const interval = setInterval(() => { if (isMounted) fetchChop(); }, 300000);
-    return () => { isMounted = false; clearInterval(interval); };
+    const interval = poll(() => { if (isMounted) fetchChop(); }, 300000);
+    return () => { isMounted = false; interval(); };
   }, []);
 
   // --- ENGINE 3: COINBASE WEBSOCKET (CRYPTO) ---

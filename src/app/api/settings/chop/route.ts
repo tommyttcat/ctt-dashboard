@@ -10,6 +10,7 @@ import { cookies } from 'next/headers';
 import { kv } from '@vercel/kv';
 import { verifySession, SESSION_COOKIE } from '@/lib/auth';
 import { authorized } from '@/lib/apiAuth';
+import { CACHE, cacheHeaders } from '@/lib/httpCache';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -22,9 +23,15 @@ const DEFAULT_MODE: ChopMode = 'strong'; // matches DEFAULT_CHOP_MODE — see ch
 export async function GET() {
   try {
     const mode = await kv.get<ChopMode>(CACHE_KEY);
+    /* Edge-cached (24 Sep 2026 cost check): this was the one per-page-load KV
+       read that every viewer paid for — no-store, a function run and a KV get
+       on every Dashboard and Briefing load. It is one setting for everybody,
+       so the CDN can hold it; a change reaches other viewers within about a
+       minute, and the admin who made it sees it at once from their own POST.
+       The fallback below stays no-store so a KV blip is never cached. */
     return NextResponse.json(
       { mode: mode && MODES.includes(mode) ? mode : DEFAULT_MODE },
-      { headers: { 'Cache-Control': 'no-store' } },
+      { headers: cacheHeaders(CACHE.SCAN) },
     );
   } catch {
     // KV unavailable — fall back rather than break the page or the email.

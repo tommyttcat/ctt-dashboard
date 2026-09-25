@@ -17,6 +17,7 @@ import { WatchlistToggle } from './WatchlistPanel';
 import ScanStatsNote from './ScanStatsNote';
 import { SCAN, VolCell, ChgCell, RvolCell } from './scan/ScanTable';
 import { alphaOnWeakDaysColor, weakDayOutperformColor, pctBelow52wHighColor } from '@/lib/indicators/columnColors';
+import { poll } from '@/lib/poll';
 
 const SCORE_LABELS: Record<string, string> = {
   alpha: 'Weak-day alpha & consistency',
@@ -154,8 +155,8 @@ export default function HiddenRelativeStrength() {
       } catch { /* noop */ }
     };
     load();
-    const iv = setInterval(load, 60_000);
-    return () => { mounted = false; clearInterval(iv); };
+    const iv = poll(load, 60_000);
+    return () => { mounted = false; iv(); };
   }, []);
 
   /* Counts come from the gated population the table draws from, not the raw

@@ -18,6 +18,7 @@ import {
   STATUS_HELP, type ReadoutReport, type ReportTf, type FlagTone,
 } from '@/lib/confluence/readout';
 import type { PlanStatus } from '@/lib/scans/triggerProximity';
+import { poll } from '@/lib/poll';
 
 // ---- types ------------------------------------------------------------------
 
@@ -367,8 +368,8 @@ export default function ConfluenceReport() {
 
   useEffect(() => {
     fetchData();
-    const iv = setInterval(fetchData, 120000);
-    return () => clearInterval(iv);
+    const iv = poll(fetchData, 120000);
+    return () => iv();
   }, [fetchData]);
 
   const levelsMap = useMemo(() => {

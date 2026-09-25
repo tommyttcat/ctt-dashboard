@@ -143,6 +143,7 @@ import ScanStatsNote from './ScanStatsNote';
 import { SCAN, RsCell, PriceCell, ChgCell, VolCell, RvolCell, FloatCell, AdrCell, MfCell, DtcCell, McapCell, StageCell, SectorCell, StatusCell } from './scan/ScanTable';
 import { TickerCell } from './scan/TickerCell';
 import { planStatusView } from '@/lib/scans/triggerProximity';
+import { poll } from '@/lib/poll';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The setup name sits directly beneath it.' },
@@ -706,8 +707,8 @@ export default function SwingCandidates() {
       }
     };
     fetchCandidates();
-    const interval = setInterval(fetchCandidates, 60000);
-    return () => { isMounted = false; clearInterval(interval); };
+    const interval = poll(fetchCandidates, 60000);
+    return () => { isMounted = false; interval(); };
   }, []);
 
   const handleSort = (key: string) => {

@@ -90,6 +90,7 @@ import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 import ScanStatsNote from './ScanStatsNote';
 import { SCAN, StageCell, SectorCell, StatusCell } from './scan/ScanTable';
 import { planStatusView } from '@/lib/scans/triggerProximity';
+import { poll } from '@/lib/poll';
 
 /* A breakout further than this above the pivot has run away from its own
    entry. Three percent is roughly one ordinary session on a liquid mid-cap —
@@ -525,8 +526,8 @@ export default function Vcp() {
     fetchCandidates();
     // Bases move on daily bars — a five-minute poll is already faster than
     // the data can change.
-    const interval = setInterval(fetchCandidates, 300000);
-    return () => { isMounted = false; clearInterval(interval); };
+    const interval = poll(fetchCandidates, 300000);
+    return () => { isMounted = false; interval(); };
   }, []);
 
   const handleSort = (key: string) => {

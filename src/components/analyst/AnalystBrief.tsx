@@ -45,6 +45,7 @@ import {
   getMarketSession,
   sessionTextColor,
 } from '@/lib/indicators/marketScorecard';
+import { poll } from '@/lib/poll';
 
 const MiniChart = lazy(() => import('./MiniChart'));
 
@@ -2038,12 +2039,12 @@ export default function AnalystBrief() {
 
   useEffect(() => {
     fetchBrief();
-    const interval = setInterval(fetchBrief, 60000);
+    const interval = poll(fetchBrief, 60000);
     const onVisible = () => { if (document.visibilityState === 'visible') fetchBrief(); };
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', onVisible);
     return () => {
-      clearInterval(interval);
+      interval();
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onVisible);
     };
