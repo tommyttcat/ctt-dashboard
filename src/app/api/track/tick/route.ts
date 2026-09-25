@@ -41,7 +41,7 @@ import {
   type PlanPosition, type PlanResults,
 } from '@/lib/trackPlan';
 import { MODEL_BOOK_KEY, MODEL_BOOK_V2_KEY, BOOK_SCANS, newBook, stepBook, addPicks, orbTickers, type ModelBook, type BookScan } from '@/lib/modelBook';
-import type { Minute } from '@/lib/orb';
+import { fetchSessionMinutes, ORB_WATCH_KEY, type Minute, type OrbWatch } from '@/lib/orb';
 import { edgeTier, multibaggerTier, swingTier, consolidationTier, ep9mTier, vcpTier, hrsTier } from '@/lib/scans/edge';
 
 export const dynamic = 'force-dynamic';
@@ -68,23 +68,6 @@ async function latestBars(): Promise<{ date: string; bars: Map<string, Bar> } | 
     const bars = new Map<string, Bar>();
     for (const r of rows) bars.set(r.T, { o: r.o, h: r.h, l: r.l, c: r.c });
     return { date, bars };
-  }
-  return null;
-}
-
-/** One session of minute bars for one ticker, or null when it cannot be had.
- *  Three tries inside this tick; a null is a DATA GAP to the book, never "no
- *  breakout". Empty results are returned as [] and counted the same way. */
-async function sessionMinutes(ticker: string, date: string): Promise<Minute[] | null> {
-  const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(ticker)}/range/1/minute/${date}/${date}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_KEY}`;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    // Bounded, so one hung call cannot eat the tick's 120 seconds.
-    const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(8000) }).catch(() => null);
-    if (res?.ok) {
-      const j = await res.json().catch(() => null);
-      if (j) return (j.results ?? []).map((r: { t: number; o: number; h: number; l: number; c: number; v: number }) => [r.t, r.o, r.h, r.l, r.c, r.v] as Minute);
-    }
-    await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
   }
   return null;
 }
@@ -378,12 +361,21 @@ export async function GET() {
   try {
     const v2 = (await kv.get<ModelBook>(MODEL_BOOK_V2_KEY)) || newBook(date, spy, 'orb');
     const minutes = new Map<string, Minute[] | null>();
-    for (const t of orbTickers(v2)) if (bars.has(t)) minutes.set(t, await sessionMinutes(t, date));
+    for (const t of orbTickers(v2)) if (bars.has(t)) minutes.set(t, await fetchSessionMinutes(t, date, POLYGON_KEY));
     const gapsBefore = v2.dataGaps ?? 0;
     stepBook(v2, date, bars, spy, minutes);
     const picked = addPicks(v2, date, bookRows);
     v2.updatedAt = new Date().toISOString();
     await kv.set(MODEL_BOOK_V2_KEY, v2);
+    /* Tomorrow's breakout watch for the dashboard: exactly the breakout
+       candidates v2 just took on (lib/orb). The scanner re-judges them every
+       run tomorrow. One small write a night. */
+    const watch: OrbWatch = {
+      pickedOn: date,
+      names: v2.candidates.filter(c => c.kind === 'orb' && c.d === date)
+        .map(c => ({ t: c.t, scan: c.scan, stop: c.stop, avgVol: c.avgVol ?? null, rs: c.rs })),
+    };
+    await kv.set(ORB_WATCH_KEY, watch);
     bookV2Out = { equity: v2.equity, open: v2.open.length, candidates: v2.candidates.length, picked, minuteCalls: minutes.size, newDataGaps: (v2.dataGaps ?? 0) - gapsBefore };
   } catch (e) {
     console.error('TRACK_BOOK_V2_ERROR', e);

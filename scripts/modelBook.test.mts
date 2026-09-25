@@ -6,7 +6,7 @@
  */
 
 import { newBook, stepBook, addPicks, candidateFrom, orbTickers, MB, type ModelBook, type Bar } from '../src/lib/modelBook.ts';
-import { orbTrigger, etMinute, type Minute } from '../src/lib/orb.ts';
+import { orbTrigger, etMinute, orbWatchRow, type Minute } from '../src/lib/orb.ts';
 import { eq, near, done } from './testkit.mts';
 
 const bar = (o: number, h: number, l: number, c: number): Bar => ({ o, h, l, c });
@@ -213,5 +213,38 @@ const breakout = mins(k => k < 30 ? [49.5, 50, 49, 49.5, 1000] : k < 35 ? [49.8,
   addPicks(b, 'd0', { ep9m: [ep()] });
   eq('EP9M keeps its dip entry in v2', b.candidates.find(c => c.t === 'EPX')?.kind, 'dip');
 }
+
+// ---- today's breakout watch (lib/orb orbWatchRow) ------------------------------------------
+const item = { t: 'AAA', scan: 'sip', stop: 47.5, avgVol: 100_000, rs: 90 };
+const upTo = (m: Minute[], k: number) => m.filter(x => x[0] <= at(k));
+eq('before the open: SOON, no fetch needed', orbWatchRow(item, [], 560).state, 'pending');
+eq('range still forming: SOON', orbWatchRow(item, upTo(breakout, 20), 590 + 15).state, 'pending');
+{
+  const r = orbWatchRow(item, upTo(breakout, 33), 603 + 15);
+  eq('range set, no break yet: WAIT', r.state, 'wait');
+  eq('WAIT shows the level to beat', r.orHigh, 50);
+}
+{
+  const r = orbWatchRow(item, breakout, 16 * 60 + 30);
+  eq('volume-confirmed break: GO', r.state, 'go');
+  eq('GO carries the time', r.goAt, 570 + 35);
+  eq('GO agrees with the Model Book fill', r.fill, orbTrigger(breakout, 100_000)?.fill);
+}
+{
+  const flat = mins(k => [49.5, 50, 49, 49.5, 1000]);
+  eq('closed with no breakout: NONE', orbWatchRow(item, flat, 16 * 60 + 30).state, 'none');
+  eq('mid-session with no breakout: still WAIT', orbWatchRow(item, upTo(flat, 200), 570 + 215).state, 'wait');
+}
+{
+  const sink = mins(k => k < 30 ? [49.5, 50, 49, 49.5, 1000] : [47.4, 47.5, 47, 47.2, 1000]);
+  eq('under its stop before any break: OUT', orbWatchRow(item, sink, 16 * 60 + 30).state, 'out');
+}
+{
+  const fade = mins(k => k < 30 ? [49.5, 50, 49, 49.5, 1000] : k < 35 ? [49.8, 49.9, 49.7, 49.8, 1000] : k === 35 ? [50.1, 50.6, 50, 50.5, 50_000] : [47.4, 47.5, 47, 47.2, 1000]);
+  eq('broke out then hit the stop: STOPPED', orbWatchRow(item, fade, 16 * 60 + 30).state, 'stopped');
+}
+eq('failed fetch: NO DATA, never WAIT', orbWatchRow(item, null, 700).state, 'nodata');
+eq('no average volume: NO DATA', orbWatchRow({ ...item, avgVol: null }, breakout, 700).state, 'nodata');
+eq('no bars an hour in: NO DATA', orbWatchRow(item, [], 640).state, 'nodata');
 
 done('modelBook');

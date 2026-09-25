@@ -136,6 +136,7 @@ import {
 } from '@/lib/scans/scanner';
 import { webullConfigured, webullGainersLosers } from '@/lib/webull';
 import { enrichWithFundamentals } from '@/lib/indicators/fundamentals';
+import { ORB_WATCH_KEY, orbWatchRow, etMinute, fetchSessionMinutes, type OrbWatch, type OrbWatchStatus } from '@/lib/orb';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -1903,7 +1904,23 @@ async function runScan(request: Request) {
       await kv.set('stocks_in_play_v6', finalSip);
       await kv.set('top_movers_v6', finalTopMovers);
       await kv.set('last_scan_time_v6', finalScanTime);
-      await kv.set('scan_meta_v6', { ...scanMeta, topMovers: { ...TOPMOVERS_META, moversSession: topMoversSession } });
+      /* Today's breakout watch (lib/orb): last night's green picks, re-judged
+         on today's minute bars with the tested rule. One KV read here and ~5
+         Polygon calls a run; it rides this existing write, so the page reads
+         nothing extra. Fenced — a fault leaves the watch off, never the scan. */
+      let orbWatch: OrbWatchStatus | null = null;
+      try {
+        const w = await kv.get<OrbWatch>(ORB_WATCH_KEY);
+        const ageDays = w ? (Date.parse(currentDate) - Date.parse(w.pickedOn)) / 86400000 : Infinity;
+        // The previous session's list only: after a weekend or a holiday, not a stale one.
+        if (w && w.pickedOn < currentDate && ageDays <= 4) {
+          const nowMin = etMinute(Date.now());
+          const rows = await Promise.all(w.names.map(async n =>
+            orbWatchRow(n, nowMin >= 570 ? await fetchSessionMinutes(n.t, currentDate, polygonApiKey) : [], nowMin)));
+          orbWatch = { pickedOn: w.pickedOn, session: currentDate, asOf: Date.now(), rows };
+        }
+      } catch (e) { console.error('ORB_WATCH_ERROR', e); }
+      await kv.set('scan_meta_v6', { ...scanMeta, topMovers: { ...TOPMOVERS_META, moversSession: topMoversSession }, orbWatch });
       await kv.set('high_beta_v6', finalHighBeta);
     } else {
       console.warn('Scan produced no movers; preserving previous KV snapshot.');

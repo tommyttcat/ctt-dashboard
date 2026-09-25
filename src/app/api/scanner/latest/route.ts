@@ -43,8 +43,12 @@ export async function GET() {
     // run persisted — that is the config the scan ACTUALLY enforced. Fall back
     // to the static import so a cold KV (or a deploy before the first run)
     // still renders a key rather than an empty panel.
+    /* Today's breakout watch rides the scan-meta write (lib/orb) so this
+       route reads nothing extra for it; lifted out here so scanMeta stays the
+       gate config it always was. */
+    const { orbWatch = null, ...metaRest } = (storedMeta ?? {}) as Record<string, unknown>;
     const scanMeta = storedMeta && storedMeta.sip
-      ? storedMeta
+      ? metaRest
       : { sip: SCANNER_SIP_META, daily: SCANNER_DAILY_META, topMovers: TOPMOVERS_META };
 
     /* PAYLOAD SIZE — this is the most-fetched route in the app, so what is NOT
@@ -77,6 +81,7 @@ export async function GET() {
       scanMeta,
       scanStreaks: scanStreaks?.counts ?? {},
       highBeta: highBeta || [],
+      orbWatch,
     }, {
       headers: cacheHeaders(CACHE.LIVE),
     });

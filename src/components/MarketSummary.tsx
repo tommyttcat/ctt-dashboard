@@ -110,6 +110,7 @@ import { edgeTier as edgeOf, EDGE_TINT, EDGE_FILTER_TIP, type EdgeTier } from '@
 import EdgeFilterPills from './EdgeFilterPills';
 import { planRowsFor, planStatusOf, PLAN_STATUS_ORDER, PLAN_STATUS_META, type TrigRow, type PlanStatus } from '@/lib/scans/triggerProximity';
 import InfoDot from './InfoDot';
+import type { OrbWatchStatus, OrbWatchState } from '@/lib/orb';
 import { tierForScan, tipForScan } from '@/lib/scans/edge';
 import { newsStarCount } from '@/lib/newsStars';
 import { rsColor, rsBadge } from '@/lib/indicators/rs';
@@ -1139,6 +1140,69 @@ const STATUS_META = PLAN_STATUS_META;
 const TP_H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
 const TP_SORT = 'cursor-pointer hover:text-slate-400 transition-colors select-none';
 
+/* ---- Today's breakout watch ---------------------------------------------
+   Last night's green Stocks in Play / Daily / Swing picks, judged on today's
+   minute bars with the entry that tested best (lib/orb — the same function
+   Model Book v2 and the backtest use). Fed by the scanner run through
+   scan_meta_v6, so it costs the page nothing extra. PHONE: one line per name,
+   ticker chip + one status word + one short detail that truncates first. */
+const ORB_STATE: Record<OrbWatchState, { word: string; cls: string }> = {
+  go: { word: 'GO', cls: 'text-emerald-400' },
+  wait: { word: 'WAIT', cls: 'text-slate-300' },
+  pending: { word: 'SOON', cls: 'text-slate-400' },
+  stopped: { word: 'STOPPED', cls: 'text-rose-400' },
+  out: { word: 'OUT', cls: 'text-rose-400' },
+  none: { word: 'NONE', cls: 'text-slate-500' },
+  nodata: { word: 'NO DATA', cls: 'text-amber-400' },
+};
+const ORB_ORDER: Record<OrbWatchState, number> = { go: 0, wait: 1, pending: 2, stopped: 3, out: 4, none: 5, nodata: 6 };
+const etClock = (m: number) => `${Math.floor(m / 60) > 12 ? Math.floor(m / 60) - 12 : Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+
+const BreakoutWatch = ({ watch }: { watch: OrbWatchStatus | null | undefined }) => {
+  if (!watch) return null;
+  const rows = [...watch.rows].sort((a, b) => ORB_ORDER[a.state] - ORB_ORDER[b.state] || b.rs - a.rs);
+  const detail = (r: OrbWatchStatus['rows'][number]): string => {
+    switch (r.state) {
+      case 'go': return `Broke ${r.orHigh?.toFixed(2) ?? ''} at ${r.goAt != null ? etClock(r.goAt) : '—'} · stop ${r.stop.toFixed(2)}`;
+      case 'wait': return `Needs ${r.orHigh?.toFixed(2) ?? '—'} · vol ${r.pace != null ? r.pace.toFixed(1) : '—'}× (1.5×)`;
+      case 'pending': return 'Range sets 9:30–10:00';
+      case 'stopped': return `Broke out${r.goAt != null ? ` ${etClock(r.goAt)}` : ''}, then hit ${r.stop.toFixed(2)}`;
+      case 'out': return `Under its stop ${r.stop.toFixed(2)}`;
+      case 'none': return 'No breakout — not a buy today';
+      case 'nodata': return 'Could not be checked';
+    }
+  };
+  return (
+    <div className="mt-4 pt-3 border-t border-white/5">
+      <div className="flex items-center mb-1">
+        <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Today&apos;s breakout watch</span>
+        <InfoDot text={"Last night's green Stocks in Play, Daily Setups and Swing picks, checked through today against the entry that tested best: after 10:00, a break of the first 30 minutes' high while volume runs at least 1.5× its normal pace.\n\nGO — it broke out that way (time shown); that was the entry. WAIT — the range is set, no qualifying break yet (the level and today's volume pace are shown). SOON — the first 30 minutes are still forming. STOPPED — broke out, then traded to its stop. OUT — under its stop before any breakout. NONE — the session closed with no breakout, so it was not a buy. NO DATA — the minute bars could not be checked; never read that as WAIT.\n\nThe data is 15 minutes delayed and refreshed every 15 minutes, so a GO appears 15–30 minutes after the break. In the 5-year test, 41% of these entries won against 30% for buying the open. It is the same list and rule the Model Book v2 on the Track Record page trades."} />
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-[10px] text-slate-500">No green picks last night — nothing to watch today.</p>
+      ) : (
+        <div className="flex flex-col">
+          {rows.map(r => {
+            const st = ORB_STATE[r.state];
+            return (
+              <div key={r.t} className="flex items-center gap-2 py-[2px] whitespace-nowrap text-[10px] min-w-0">
+                <span className="inline-flex items-center shrink-0">
+                  <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
+                </span>
+                <span className={`font-bold tabular-nums shrink-0 w-[46px] ${st.cls}`}>{st.word}</span>
+                <span className="text-slate-400 tabular-nums truncate min-w-0">{detail(r)}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p className="text-[10px] text-slate-500 font-medium mt-1">
+        Picked {watch.pickedOn} · data 15 min delayed · updated {new Date(watch.asOf).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })} ET
+      </p>
+    </div>
+  );
+};
+
 const TriggerProximity = ({ pool }: { pool: any[] }) => {
   /* The SET is the recommended names — exactly the rows on the Setups
      Summary card above, same pills, same green default. */
@@ -1245,7 +1309,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
     <div className="mt-4 pt-3 border-t border-white/5">
       <div className="flex items-center mb-1">
         <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Buy &amp; stop</span>
-        <InfoDot text={"Buy level and stop for every name on the card above — same filters.\n\n↑ buy above that price. ↓ buy on a dip to it (EP9M).\n\nSTAT: a percentage means not there yet, this far away. HIT — at the buy level. MISS — ran past it by more than a normal day's move; buying now is chasing. EXT — too far above its 21-day average to place a sensible stop; levels are for reference only. OUT — below the stop; the idea failed.\n\nA name with no levels at all shows dashes."} />
+        <InfoDot text={"Buy level and stop for every name on the card above — same filters.\n\n↑ buy above that price. ↓ buy on a dip to it (EP9M).\n\nSTAT: a percentage means not there yet, this far away. HIT — at the buy level. MISS — ran past it by more than a normal day's move; buying now is chasing. EXT — too far above its 21-day average to place a sensible stop; levels are for reference only. OUT — below the stop; the idea failed.\n\nA name with no levels at all shows dashes.\n\nTIMING — the entry that tested best (5 years, 3,821 picks from Stocks in Play, Daily Setups and Swing): the session after a name makes the list, wait until 10:00 and buy only if it breaks the high of the first 30 minutes while volume runs at least 1.5× its normal pace. 41% of those trades won, against 30% for buying the open. It was not tested on EP9M, VCP or 10/21."} />
       </div>
       <div className={useTwoCols ? 'grid grid-cols-1 md:grid-cols-2 gap-x-6' : ''}>
         <div className="min-w-0 overflow-x-auto md:overflow-visible"><div className="min-w-max md:min-w-0">{head}{items.slice(0, mid).map(draw)}</div></div>
@@ -1256,11 +1320,15 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
       <p className="text-[10px] text-slate-500 font-medium mt-1">
         <span className="text-slate-300 font-bold">0.3%</span> not there yet · <span className="text-emerald-400 font-bold">HIT</span> at the buy level · <span className="text-amber-400 font-bold">MISS</span> ran past, don&apos;t chase · <span className="text-orange-400 font-bold">EXT</span> too stretched · <span className="text-rose-400 font-bold">OUT</span> below the stop
       </p>
+      {/* The tested entry (lib/orb, scripts/backtest/intraday.ts E2), in one line. */}
+      <p className="text-[10px] text-slate-500 font-medium mt-0.5">
+        <span className="text-slate-300 font-bold">Timing</span> · after 10:00, buy the break of the first 30 minutes&apos; high on 1.5× normal volume
+      </p>
     </div>
   );
 };
 
-const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter: sf, rsMap, stageMap, topSet, onVisibleChange }: {
+const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter: sf, rsMap, stageMap, topSet, onVisibleChange, orbWatch }: {
   pool: any[];
   gradeMap?: Record<string, 'A' | 'B'>;
   dotMap?: Record<string, 'blue' | 'red'>;
@@ -1271,6 +1339,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
   stageMap?: Record<string, string>;
   topSet?: Set<string>;
   onVisibleChange?: (tickers: string[]) => void;
+  orbWatch?: OrbWatchStatus | null;
 }) => {
   const taggedPool = React.useMemo(() => {
     if (!topSet?.size) return pool;
@@ -1438,6 +1507,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
           this gives the buy level and stop for each of THOSE names. Built
           from the same filtered list, so a pill that narrows the card narrows
           this too. */}
+      <BreakoutWatch watch={orbWatch} />
       <TriggerProximity pool={filtered} />
     </div>
   );
@@ -1996,6 +2066,7 @@ interface HrsRow {
 export default function MarketSummary() {
   const [data, setData] = useState<SummaryData | null>(null);
   const [macroInsights, setMacroInsights] = useState<MacroInsights | null>(null);
+  const [orbWatch, setOrbWatch] = useState<OrbWatchStatus | null>(null);
   const [hrsTop, setHrsTop] = useState<HrsRow[]>([]);
   const [status, setStatus] = useState<'Loading' | 'Synced' | 'Error'>('Loading');
   const [session, setSession] = useState<MarketSession>('Closed');
@@ -2155,6 +2226,7 @@ export default function MarketSummary() {
            degrades to an empty list. Same failure mode as before, just against
            the real route instead of the aggregator's copy of it. */
         if (!scannerData) throw new Error('No scanner data available');
+        if (isMounted) setOrbWatch(scannerData.orbWatch ?? null);
 
         const ep9mList: any[] = ep9mRes?.candidates ?? [];
         const ep9mRepeatPivots: Record<string, { count: number; events: { date: string; price: number; vol: number; rvol: number; score: number }[] }> = ep9mRes?.repeatPivots ?? {};
@@ -2582,6 +2654,7 @@ export default function MarketSummary() {
                                   stageMap={macroInsights?.stageMap}
                                   topSet={macroInsights?.watching?.length ? new Set(macroInsights.watching.map((w: any) => w.symbol)) : undefined}
                                   onVisibleChange={onSetupVisible}
+                                  orbWatch={orbWatch}
                                 />
                               ) : isOpen && label === 'Sector Performance' ? (
                                 <SectorBars body={body} heat={macroInsights?.sectorHeat} />
