@@ -1130,11 +1130,15 @@ const STATUS_META = PLAN_STATUS_META;
    so the columns land under the card's columns on desktop. PHONE: every
    column stays (the reader wants the stats there too); each is cut to its
    widest real value at 9px and the card's invisible spacers are dropped, so
-   a full row is ~320px (incl. the 28px lead that lines the tickers up with
-   the card's); the fixed 4px gaps apply from md up only, since
+   a full row is ~302px. The 28px lead that lines the tickers up with the
+   card's (whose lead holds the watchlist star) is 6px below md: at 28px the
+   row was 324px in a 314px box on a 360px phone, which scrolled STAT out of
+   sight (measured 25 Sep 2026); 6px leaves 12px spare at 360 and 27 at 375,
+   at the cost of the tickers sitting 22px left of the card's on phones.
+   The fixed 4px gaps apply from md up only, since
    justify-between spaces the columns on a phone. Spare width is shared out evenly between columns
    (justify-between, header and rows alike, identical widths — so they stay
-   aligned) instead of pooling on the right. Below 324px the box scrolls
+   aligned) instead of pooling on the right. Narrower than that the box scrolls
    sideways rather than clipping BUY / STOP / STAT. BUY/STOP/STAT are sized to their
    widest real value at 9px ("↑1234.56", "229.65", "MISS"), no slack. */
 const TP_H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
@@ -1239,7 +1243,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
       {/* 28px lead = the card's "3×" count column, so TICKER sits over the
           card's tickers. Grouped with the ticker so justify-between cannot
           push space in between them. */}
-      <span className="inline-flex items-center shrink-0"><span className="inline-block w-[28px]" /><span className={`${TP_H} w-[38px] md:w-[44px] text-center`}>TICKER</span></span>
+      <span className="inline-flex items-center shrink-0"><span className="inline-block w-[6px] md:w-[28px]" /><span className={`${TP_H} w-[38px] md:w-[44px] text-center`}>TICKER</span></span>
       <span className="hidden md:inline-block w-[28px]" />
       <span className={`${TP_H} ${TP_SORT} w-[20px] md:w-[22px] text-center md:ml-1`} onClick={() => handleSort('cnf')}>CNF{arrow('cnf')}</span>
       <span className={`${TP_H} ${TP_SORT} w-[40px] md:w-[52px] text-right md:ml-1`} onClick={() => handleSort('chg')}>CHG%{arrow('chg')}</span>
@@ -1268,7 +1272,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
     return (
       <div key={`tp-${ticker}`} className={`flex items-center justify-between md:justify-start whitespace-nowrap py-[1px] ${t ? `${EDGE_TINT[t.tier]} rounded-sm` : ''}`}
         title={t ? `${t.tier.toUpperCase()} — ${t.tip}` : undefined}>
-        <span className="inline-flex items-center shrink-0"><span className="inline-block w-[28px]" /><TickerChartHover symbol={ticker}><span className={`${gradeChipCls(grade, false)} w-[38px] md:w-[44px]`}>{ticker}</span></TickerChartHover></span>
+        <span className="inline-flex items-center shrink-0"><span className="inline-block w-[6px] md:w-[28px]" /><TickerChartHover symbol={ticker}><span className={`${gradeChipCls(grade, false)} w-[38px] md:w-[44px]`}>{ticker}</span></TickerChartHover></span>
         <span className="hidden md:inline-block w-[28px]" />
         <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border md:ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${unranked ? CNF_NEUTRAL : cnfBadgeCls(cnf)}`}>{cnf}</span>
         <span className={`text-[9px] tabular-nums font-semibold inline-block w-[40px] md:w-[52px] text-right md:ml-1 ${chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
@@ -1313,9 +1317,9 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
         <InfoDot text={"Buy level and stop for every name on the card above — same filters.\n\n↑ buy above that price. ↓ buy on a dip to it (EP9M).\n\nSTAT: a percentage means not there yet, this far away. HIT — at the buy level. MISS — ran past it by more than a normal day's move; buying now is chasing. EXT — too far above its 21-day average to place a sensible stop; levels are for reference only. OUT — below the stop; the idea failed.\n\nA name with no levels at all shows dashes.\n\nTIMING — the entry that tested best (5 years, 3,821 picks from Stocks in Play, Daily Setups and Swing): the session after a name makes the list, wait until 10:00 and buy only if it breaks the high of the first 30 minutes while volume runs at least 1.5× its normal pace. 41% of those trades won, against 30% for buying the open. It was not tested on EP9M, VCP or 10/21."} />
       </div>
       <div className={useTwoCols ? 'grid grid-cols-1 md:grid-cols-2 gap-x-6' : ''}>
-        <div className="min-w-0 overflow-x-auto md:overflow-visible"><div className="min-w-max md:min-w-0">{head}{items.slice(0, mid).map(draw)}</div></div>
+        <div className="min-w-0 overflow-x-auto overflow-y-hidden md:overflow-visible"><div className="min-w-max md:min-w-0">{head}{items.slice(0, mid).map(draw)}</div></div>
         {useTwoCols && (
-          <div className="min-w-0 overflow-x-auto md:overflow-visible"><div className="min-w-max md:min-w-0"><div className="hidden md:block">{head}</div>{items.slice(mid).map(draw)}</div></div>
+          <div className="min-w-0 overflow-x-auto overflow-y-hidden md:overflow-visible"><div className="min-w-max md:min-w-0"><div className="hidden md:block">{head}</div>{items.slice(mid).map(draw)}</div></div>
         )}
       </div>
       <p className="text-[10px] text-slate-500 font-medium mt-1">
