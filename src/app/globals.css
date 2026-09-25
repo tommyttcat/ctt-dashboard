@@ -239,8 +239,15 @@ body {
   table.scan-table [data-core="price"]  { width: 18% !important; }
   table.scan-table [data-core="rvol"]   { width: 12% !important; }
   table.scan-table [data-core="status"] { width: 18% !important; }
-  table.scan-table [data-core="full"]   { width: 100% !important; }
-  table.scan-table tbody tr:not(:has([data-core="full"])) { cursor: pointer; }
+  /* Rows that are not stat rows (news lines, breakdowns, empty states) keep
+     their cells on one line, sharing it, as on desktop. */
+  table.scan-table td[data-core="full"] { width: auto !important; flex: 0 0 auto; }
+  table.scan-table td[data-core="full-grow"] { width: auto !important; flex: 1 1 auto; min-width: 0; overflow: hidden; }
+  table.scan-table td[data-core="full-grow"]:only-child { width: 100% !important; }
+  /* One line, never wrapped: a wrapping row drops the headline cell onto its
+     own line at full width instead of letting it shrink and truncate. */
+  table.scan-table tbody tr:has(> [data-core^="full"]) { flex-wrap: nowrap; }
+  table.scan-table tbody tr:not(:has([data-core^="full"])) { cursor: pointer; }
   table.scan-table thead tr::after {
     content: 'Tap a row for all its stats';
     flex: 0 0 100%; order: 2; padding: 0 4px 6px;
