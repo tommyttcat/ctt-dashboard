@@ -563,19 +563,19 @@ function SummaryHeader({ trap, gapper, sortKey, sortDir, onSort }: {
   return (
     <div className={scrollWrap} style={scrollStyle}>
       <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
-        <span className="inline-block w-[44px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
+        <span className="inline-block shrink-0 w-[38px] md:w-[44px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
         <span className="hidden md:inline-block w-[12px]" />
-        <span className="inline-block w-[8px]" />
-        <span className="inline-block w-[8px]" />
-        <span className={`inline-block w-[22px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1 ${hdrCls}`} onClick={() => onSort?.('cnf')}>CNF<SortArrow active={sortKey === 'cnf'} dir={sortDir || 'desc'} /></span>
-        <span className={`inline-block w-[52px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1 ${hdrCls}`} onClick={() => onSort?.('chg')}>CHG%<SortArrow active={sortKey === 'chg'} dir={sortDir || 'desc'} /></span>
-        <span className="inline-block w-[42px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1">PRC</span>
-        <span className={`inline-block w-[40px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('rvol')}>RVOL<SortArrow active={sortKey === 'rvol'} dir={sortDir || 'desc'} /></span>
-        <span className={`inline-block w-[36px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('vol')}>VOL<SortArrow active={sortKey === 'vol'} dir={sortDir || 'desc'} /></span>
-        <span className={`inline-block w-[42px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('dvol')}>$VOL<SortArrow active={sortKey === 'dvol'} dir={sortDir || 'desc'} /></span>
-        <span className={`inline-block w-[24px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('rs')}>RS<SortArrow active={sortKey === 'rs'} dir={sortDir || 'desc'} /></span>
-        <span className={`inline-block w-[24px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('stg')}>STG<SortArrow active={sortKey === 'stg'} dir={sortDir || 'desc'} /></span>
-        <span className="inline-block w-[16px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1">N</span>
+        <span className="inline-block shrink-0 w-[8px]" />
+        <span className="inline-block shrink-0 w-[8px]" />
+        <span className={`inline-block shrink-0 w-[22px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-[2px] md:ml-1 ${hdrCls}`} onClick={() => onSort?.('cnf')}>CNF<SortArrow active={sortKey === 'cnf'} dir={sortDir || 'desc'} /></span>
+        <span className={`inline-block shrink-0 w-[44px] md:w-[52px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-[2px] md:ml-1 ${hdrCls}`} onClick={() => onSort?.('chg')}>CHG%<SortArrow active={sortKey === 'chg'} dir={sortDir || 'desc'} /></span>
+        <span className="inline-block shrink-0 w-[34px] md:w-[42px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-[2px] md:ml-1">PRC</span>
+        <span className={`inline-block shrink-0 w-[28px] md:w-[40px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-[2px] md:ml-1 ${hdrCls}`} onClick={() => onSort?.('rvol')}>RVOL<SortArrow active={sortKey === 'rvol'} dir={sortDir || 'desc'} /></span>
+        <span className={`hidden md:inline-block w-[36px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hdrCls}`} onClick={() => onSort?.('vol')}>VOL<SortArrow active={sortKey === 'vol'} dir={sortDir || 'desc'} /></span>
+        <span className={`inline-block shrink-0 w-[42px] md:w-[42px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-[2px] md:ml-1 ${hdrCls}`} onClick={() => onSort?.('dvol')}>$VOL<SortArrow active={sortKey === 'dvol'} dir={sortDir || 'desc'} /></span>
+        <span className={`inline-block shrink-0 w-[22px] md:w-[24px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-[2px] md:ml-1 ${hdrCls}`} onClick={() => onSort?.('rs')}>RS<SortArrow active={sortKey === 'rs'} dir={sortDir || 'desc'} /></span>
+        <span className={`inline-block shrink-0 w-[22px] md:w-[24px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-[2px] md:ml-1 ${hdrCls}`} onClick={() => onSort?.('stg')}>STG<SortArrow active={sortKey === 'stg'} dir={sortDir || 'desc'} /></span>
+        <span className="hidden md:inline-block w-[16px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1">N</span>
       </div>
     </div>
   );
@@ -652,19 +652,19 @@ function SummaryRow({ item, stock, showNote, red }: { item: SummaryItem; stock?:
   return (
     <div className={scrollWrap} style={scrollStyle}>
       <div className="flex items-center whitespace-nowrap py-[1px]">
-        {stock ? <TickerChip stock={stock} red={red} /> : <TickerChartHover symbol={item.ticker}><span className={`${red ? TICKER_CHIP_RED : TICKER_CHIP} w-[44px]`}>{item.ticker}</span></TickerChartHover>}
+        {stock ? <TickerChip stock={stock} red={red} /> : <TickerChartHover symbol={item.ticker}><span className={`${red ? TICKER_CHIP_RED : TICKER_CHIP} w-[38px] md:w-[44px]`}>{item.ticker}</span></TickerChartHover>}
         <span className="hidden md:inline-block w-[12px]" />
-        <span className="inline-block w-[8px]" />
-        <span className="inline-block w-[8px]" />
-        <span className="inline-block w-[22px] text-center ml-1">{item.score != null ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(Number(item.score) || 0)}`}>{item.score}</span> : ''}</span>
-        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[52px] text-right ml-1 ${(item.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{item.changePct != null ? `${(item.changePct || 0) >= 0 ? '+' : ''}${item.changePct.toFixed(2)}%` : ''}</span>
-        <span className="text-[9px] tabular-nums inline-block w-[42px] text-right text-slate-300 ml-2 md:ml-1">{fmtPrice(item.price)}</span>
-        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[40px] text-right ml-2 md:ml-1 ${rv != null ? rvolColor(rv) : ''}`}>{rv != null ? `${rv < 1 ? rv.toFixed(1) : Math.round(rv)}x` : ''}</span>
-        <span className={`text-[9px] tabular-nums inline-block w-[36px] text-right ml-2 md:ml-1 text-slate-400`}>{item.vol != null ? formatVol(item.vol) : ''}</span>
-        <span className={`text-[9px] tabular-nums inline-block w-[42px] text-right ml-2 md:ml-1 text-slate-300`}>{dolVol != null ? `$${formatVol(dolVol)}` : ''}</span>
-        <span className="inline-block w-[24px] text-center ml-2 md:ml-1">{rs != null ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${rsBadge(rs)}`}>{rs}</span> : ''}</span>
-        <span className="inline-block w-[24px] text-center ml-2 md:ml-1">{item.stage ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${stageBadge(item.stage)}`}>{stripStage(item.stage)}</span> : ''}</span>
-        <span className="inline-block w-[16px] text-center ml-2 md:ml-1"><NewsStars count={newsStars(stock || item as any)} url={(stock || item as any)?.catalystUrl} /></span>
+        <span className="inline-block shrink-0 w-[8px]" />
+        <span className="inline-block shrink-0 w-[8px]" />
+        <span className="inline-block shrink-0 w-[22px] text-center ml-[2px] md:ml-1">{item.score != null ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(Number(item.score) || 0)}`}>{item.score}</span> : ''}</span>
+        <span className={`text-[9px] tabular-nums font-semibold inline-block shrink-0 w-[44px] md:w-[52px] text-right ml-[2px] md:ml-1 ${(item.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{item.changePct != null ? `${(item.changePct || 0) >= 0 ? '+' : ''}${item.changePct.toFixed(2)}%` : ''}</span>
+        <span className="text-[9px] tabular-nums inline-block shrink-0 w-[34px] md:w-[42px] text-right text-slate-300 ml-[2px] md:ml-1">{fmtPrice(item.price)}</span>
+        <span className={`text-[9px] tabular-nums font-semibold inline-block shrink-0 w-[28px] md:w-[40px] text-right ml-[2px] md:ml-1 ${rv != null ? rvolColor(rv) : ''}`}>{rv != null ? `${rv < 1 ? rv.toFixed(1) : Math.round(rv)}x` : ''}</span>
+        <span className={`text-[9px] tabular-nums hidden md:inline-block w-[36px] text-right ml-2 md:ml-1 text-slate-400`}>{item.vol != null ? formatVol(item.vol) : ''}</span>
+        <span className={`text-[9px] tabular-nums inline-block shrink-0 w-[42px] md:w-[42px] text-right ml-[2px] md:ml-1 text-slate-300`}>{dolVol != null ? `$${formatVol(dolVol)}` : ''}</span>
+        <span className="inline-block shrink-0 w-[22px] md:w-[24px] text-center ml-[2px] md:ml-1">{rs != null ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${rsBadge(rs)}`}>{rs}</span> : ''}</span>
+        <span className="inline-block shrink-0 w-[22px] md:w-[24px] text-center ml-[2px] md:ml-1">{item.stage ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${stageBadge(item.stage)}`}>{stripStage(item.stage)}</span> : ''}</span>
+        <span className="hidden md:inline-block w-[16px] text-center ml-2 md:ml-1"><NewsStars count={newsStars(stock || item as any)} url={(stock || item as any)?.catalystUrl} /></span>
       </div>
     </div>
   );
@@ -994,17 +994,17 @@ function GapperRow({ s, red }: { s: StockEntry; red?: boolean }) {
       <div className="flex items-center whitespace-nowrap py-[1px]">
         <TickerChip stock={s} red={red} />
         <span className="hidden md:inline-block w-[12px]" />
-        <span className="inline-block w-[8px]" />
-        <span className="inline-block w-[8px]" />
-        <span className="inline-block w-[22px] text-center ml-1">{s.score != null ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(Number(s.score) || 0)}`}>{s.score}</span> : ''}</span>
-        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[52px] text-right ml-1 ${(s.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(s.changePct || 0) >= 0 ? '+' : ''}{s.changePct.toFixed(2)}%</span>
-        <span className="text-[9px] tabular-nums inline-block w-[42px] text-right text-slate-300 ml-2 md:ml-1">{fmtPrice(s.price)}</span>
-        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[40px] text-right ml-2 md:ml-1 ${s.rvol != null ? rvolColor(s.rvol) : ''}`}>{s.rvol != null ? `${s.rvol < 1 ? s.rvol.toFixed(1) : Math.round(s.rvol)}x` : ''}</span>
-        <span className="text-[9px] tabular-nums inline-block w-[36px] text-right ml-2 md:ml-1 text-slate-400">{s.vol != null ? formatVol(s.vol) : ''}</span>
-        <span className="text-[9px] tabular-nums inline-block w-[42px] text-right ml-2 md:ml-1 text-slate-300">{dolVol != null ? `$${formatVol(dolVol)}` : ''}</span>
-        <span className="inline-block w-[24px] text-center ml-2 md:ml-1">{s.rs != null ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${rsBadge(s.rs)}`}>{s.rs}</span> : ''}</span>
-        <span className="inline-block w-[24px] text-center ml-2 md:ml-1">{s.stage ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${stageBadge(s.stage)}`}>{stripStage(s.stage)}</span> : ''}</span>
-        <span className="inline-block w-[16px] text-center ml-2 md:ml-1"><NewsStars count={newsStars(s as any)} url={(s as any).catalystUrl} /></span>
+        <span className="inline-block shrink-0 w-[8px]" />
+        <span className="inline-block shrink-0 w-[8px]" />
+        <span className="inline-block shrink-0 w-[22px] text-center ml-[2px] md:ml-1">{s.score != null ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${cnfBadgeCls(Number(s.score) || 0)}`}>{s.score}</span> : ''}</span>
+        <span className={`text-[9px] tabular-nums font-semibold inline-block shrink-0 w-[44px] md:w-[52px] text-right ml-[2px] md:ml-1 ${(s.changePct || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{(s.changePct || 0) >= 0 ? '+' : ''}{s.changePct.toFixed(2)}%</span>
+        <span className="text-[9px] tabular-nums inline-block shrink-0 w-[34px] md:w-[42px] text-right text-slate-300 ml-[2px] md:ml-1">{fmtPrice(s.price)}</span>
+        <span className={`text-[9px] tabular-nums font-semibold inline-block shrink-0 w-[28px] md:w-[40px] text-right ml-[2px] md:ml-1 ${s.rvol != null ? rvolColor(s.rvol) : ''}`}>{s.rvol != null ? `${s.rvol < 1 ? s.rvol.toFixed(1) : Math.round(s.rvol)}x` : ''}</span>
+        <span className="text-[9px] tabular-nums hidden md:inline-block w-[36px] text-right ml-2 md:ml-1 text-slate-400">{s.vol != null ? formatVol(s.vol) : ''}</span>
+        <span className="text-[9px] tabular-nums inline-block shrink-0 w-[42px] md:w-[42px] text-right ml-[2px] md:ml-1 text-slate-300">{dolVol != null ? `$${formatVol(dolVol)}` : ''}</span>
+        <span className="inline-block shrink-0 w-[22px] md:w-[24px] text-center ml-[2px] md:ml-1">{s.rs != null ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${rsBadge(s.rs)}`}>{s.rs}</span> : ''}</span>
+        <span className="inline-block shrink-0 w-[22px] md:w-[24px] text-center ml-[2px] md:ml-1">{s.stage ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[22px] leading-[14px] text-center inline-block ${stageBadge(s.stage)}`}>{stripStage(s.stage)}</span> : ''}</span>
+        <span className="hidden md:inline-block w-[16px] text-center ml-2 md:ml-1"><NewsStars count={newsStars(s as any)} url={(s as any).catalystUrl} /></span>
       </div>
     </div>
   );
@@ -1354,13 +1354,13 @@ function KeyEventsSection() {
   /* One set of column widths for the earnings header and every row under it,
      reported or pending. Changing a width here moves both together. */
   const EARN_W_MARK = 'w-[10px]';
-  const EARN_W_TICKER = 'w-[56px] md:w-[64px]';
-  const EARN_W_STATUS = 'w-[44px]';
-  const EARN_W_EPS = 'w-[52px]';
-  const EARN_W_EST = 'w-[46px]';
-  const EARN_W_SURP = 'w-[54px]';
-  const EARN_W_REV = 'w-[68px]';
-  const EARN_ROW_W = 'min-w-[344px]';
+  const EARN_W_TICKER = 'w-[50px] md:w-[64px]';
+  const EARN_W_STATUS = 'w-[40px] md:w-[44px]';
+  const EARN_W_EPS = 'w-[40px] md:w-[52px]';
+  const EARN_W_EST = 'w-[38px] md:w-[46px]';
+  const EARN_W_SURP = 'w-[48px] md:w-[54px]';
+  const EARN_W_REV = 'w-[56px] md:w-[68px]';
+  const EARN_ROW_W = 'min-w-[282px] md:min-w-[344px]';
   const scrollSty: React.CSSProperties = { scrollbarWidth: 'none', msOverflowStyle: 'none' };
 
   const renderEarnRow = (e: EarningsEvent, i: number) => {
@@ -1430,12 +1430,13 @@ function KeyEventsSection() {
           </p>
           <div className={scrollCls} style={scrollSty}>
             <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
-              <span className="inline-block w-[10px]" />
-              <span className={`inline-block w-[62px] md:w-[68px] ${hdrCls} ml-1`}>TIME</span>
-              <span className={`inline-block w-[180px] md:w-[240px] ${hdrCls}`}>EVENT</span>
-              <span className={`inline-block w-[52px] md:w-[60px] ${hdrCls} text-right ml-3`}>ACT</span>
-              <span className={`inline-block w-[52px] md:w-[60px] ${hdrCls} text-right ml-1`}>EST</span>
-              <span className={`inline-block w-[52px] md:w-[60px] ${hdrCls} text-right ml-1`}>PREV</span>
+              {/* Phones: time and numbers keep their width, EVENT takes what is left and truncates. */}
+              <span className="inline-block shrink-0 w-[10px]" />
+              <span className={`inline-block shrink-0 w-[48px] md:w-[68px] ${hdrCls} ml-1`}>TIME</span>
+              <span className={`inline-block flex-1 min-w-0 md:flex-none md:w-[240px] ${hdrCls}`}>EVENT</span>
+              <span className={`inline-block shrink-0 w-[36px] md:w-[60px] ${hdrCls} text-right ml-1 md:ml-3`}>ACT</span>
+              <span className={`inline-block shrink-0 w-[36px] md:w-[60px] ${hdrCls} text-right ml-1`}>EST</span>
+              <span className={`inline-block shrink-0 w-[36px] md:w-[60px] ${hdrCls} text-right ml-1`}>PREV</span>
             </div>
           </div>
           {econToday.map((e, i) => {
@@ -1443,12 +1444,12 @@ function KeyEventsSection() {
             return (
               <div key={i} className={scrollCls} style={scrollSty}>
                 <div className="flex items-center whitespace-nowrap py-[1px]">
-                  <span className={`inline-block w-[10px] text-[9px] ${isPending ? 'text-amber-400' : 'text-slate-600'}`}>{isPending ? '▸' : '∅'}</span>
-                  <span className="inline-block w-[62px] md:w-[68px] text-[9px] tabular-nums font-semibold text-slate-400 ml-1">{fmtTime(e.minutes)}</span>
-                  <span className={`inline-block w-[180px] md:w-[240px] text-[9px] font-medium truncate ${isPending ? 'text-slate-200' : impactCls(e.impact)}`}>{e.event}</span>
-                  <span className={`inline-block w-[52px] md:w-[60px] text-[9px] tabular-nums font-semibold text-right ml-3 ${e.actual != null ? 'text-emerald-400' : 'text-slate-600'}`}>{fmtNum(e.actual)}</span>
-                  <span className={`inline-block w-[52px] md:w-[60px] text-[9px] tabular-nums font-semibold text-right ml-1 ${e.estimate != null ? 'text-slate-300' : 'text-slate-600'}`}>{fmtNum(e.estimate)}</span>
-                  <span className={`inline-block w-[52px] md:w-[60px] text-[9px] tabular-nums font-semibold text-right ml-1 ${e.previous != null ? 'text-slate-500' : 'text-slate-600'}`}>{fmtNum(e.previous)}</span>
+                  <span className={`inline-block shrink-0 w-[10px] text-[9px] ${isPending ? 'text-amber-400' : 'text-slate-600'}`}>{isPending ? '▸' : '∅'}</span>
+                  <span className="inline-block shrink-0 w-[48px] md:w-[68px] text-[9px] tabular-nums font-semibold text-slate-400 ml-1">{fmtTime(e.minutes)}</span>
+                  <span className={`inline-block flex-1 min-w-0 md:flex-none md:w-[240px] text-[9px] font-medium truncate ${isPending ? 'text-slate-200' : impactCls(e.impact)}`}>{e.event}</span>
+                  <span className={`inline-block shrink-0 w-[36px] md:w-[60px] text-[9px] tabular-nums font-semibold text-right ml-1 md:ml-3 ${e.actual != null ? 'text-emerald-400' : 'text-slate-600'}`}>{fmtNum(e.actual)}</span>
+                  <span className={`inline-block shrink-0 w-[36px] md:w-[60px] text-[9px] tabular-nums font-semibold text-right ml-1 ${e.estimate != null ? 'text-slate-300' : 'text-slate-600'}`}>{fmtNum(e.estimate)}</span>
+                  <span className={`inline-block shrink-0 w-[36px] md:w-[60px] text-[9px] tabular-nums font-semibold text-right ml-1 ${e.previous != null ? 'text-slate-500' : 'text-slate-600'}`}>{fmtNum(e.previous)}</span>
                 </div>
               </div>
             );
@@ -1715,18 +1716,18 @@ function FlowTable({ title, color, blurb, rows }: { title: string; color: string
       <div className={scrollWrap} style={scrollStyle}>
         <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
           <span className="inline-block w-[38px] md:w-[44px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
-          <span className="inline-block w-[12px]" />
+          <span className="inline-block shrink-0 w-[8px] md:w-[12px]" />
           <span className="inline-block w-[8px]" />
-          <span className="inline-block w-[8px]" />
-          <span className="inline-block w-[20px] md:w-[22px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">CNF</span>
-          <span className="inline-block w-[46px] md:w-[52px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right">CHG%</span>
-          <span className="inline-block w-[36px] md:w-[42px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">PRC</span>
-          <span className="inline-block w-[36px] md:w-[40px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">RVOL</span>
-          <span className="inline-block w-[30px] md:w-[36px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">VOL</span>
-          <span className="inline-block w-[36px] md:w-[40px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">$VOL</span>
-          <span className="inline-block w-[22px] md:w-[24px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">RS</span>
-          <span className="inline-block w-[22px] md:w-[24px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">STG</span>
-          <span className="inline-block w-[14px] md:w-[16px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">N</span>
+          <span className="hidden md:inline-block w-[8px]" />
+          <span className="inline-block shrink-0 w-[20px] md:w-[22px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-[2px] md:ml-1">CNF</span>
+          <span className="inline-block shrink-0 w-[44px] md:w-[52px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right">CHG%</span>
+          <span className="inline-block shrink-0 w-[34px] md:w-[42px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-[2px] md:ml-1">PRC</span>
+          <span className="inline-block shrink-0 w-[28px] md:w-[40px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-[2px] md:ml-1">RVOL</span>
+          <span className="hidden md:inline-block w-[30px] md:w-[36px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1">VOL</span>
+          <span className="inline-block shrink-0 w-[42px] md:w-[40px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-right ml-[2px] md:ml-1">$VOL</span>
+          <span className="inline-block shrink-0 w-[22px] md:w-[24px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-[2px] md:ml-1">RS</span>
+          <span className="inline-block shrink-0 w-[22px] md:w-[24px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-[2px] md:ml-1">STG</span>
+          <span className="hidden md:inline-block w-[14px] md:w-[16px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center ml-1">N</span>
         </div>
         {rows.map((r: any, i: number) => {
           const chg = r.changePct || 0;
@@ -1744,22 +1745,22 @@ function FlowTable({ title, color, blurb, rows }: { title: string; color: string
                     {r.ticker}
                   </span>
                 </ChartTooltip>
-                <span className="inline-block w-[12px] text-center shrink-0">
+                <span className="inline-block w-[8px] md:w-[12px] text-center shrink-0">
                   {dot === 'blue' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)]" />}
                 </span>
                 <span className="inline-block w-[8px] text-center shrink-0">
                   {dot === 'red' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500" />}
                 </span>
-                <span className="inline-block w-[8px]" />
-                <span className="inline-block w-[20px] md:w-[22px] text-center ml-1"><span className={`inline-block text-[8px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center ${cnfBadge(cnf, grade)}`}>{cnf}</span></span>
-                <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ${chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
-                <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-1">{fmtPrice(r.price)}</span>
-                <span className={`text-[9px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-1 ${(r.rvol || 0) >= 2 ? 'text-emerald-400' : (r.rvol || 0) >= 1 ? 'text-slate-300' : 'text-slate-500'}`}>{(r.rvol || 0) < 1 ? (r.rvol || 0).toFixed(1) : Math.round(r.rvol || 0)}x</span>
-                <span className="text-[9px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-1 text-slate-400">{fmtVol(r.vol || 0)}</span>
-                <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-1 text-slate-400">{fmtDollar(r.dVol || 0)}</span>
-                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{rs ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${rsBadge(rs)}`}>{rs}</span> : ''}</span>
-                <span className="inline-block w-[22px] md:w-[24px] text-center ml-1">{stage ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${stageBadge(r.stage)}`}>{stage}</span> : ''}</span>
-                <span className="inline-block w-[14px] md:w-[16px] text-center ml-1"><NewsStars count={stars} url={r.catalystUrl} /></span>
+                <span className="hidden md:inline-block w-[8px]" />
+                <span className="inline-block shrink-0 w-[20px] md:w-[22px] text-center ml-[2px] md:ml-1"><span className={`inline-block text-[8px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center ${cnfBadge(cnf, grade)}`}>{cnf}</span></span>
+                <span className={`text-[9px] tabular-nums font-semibold inline-block shrink-0 w-[44px] md:w-[52px] text-right ${chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
+                <span className="text-[9px] tabular-nums inline-block shrink-0 w-[34px] md:w-[42px] text-right text-slate-300 ml-[2px] md:ml-1">{fmtPrice(r.price)}</span>
+                <span className={`text-[9px] tabular-nums font-semibold inline-block shrink-0 w-[28px] md:w-[40px] text-right ml-[2px] md:ml-1 ${(r.rvol || 0) >= 2 ? 'text-emerald-400' : (r.rvol || 0) >= 1 ? 'text-slate-300' : 'text-slate-500'}`}>{(r.rvol || 0) < 1 ? (r.rvol || 0).toFixed(1) : Math.round(r.rvol || 0)}x</span>
+                <span className="text-[9px] tabular-nums hidden md:inline-block w-[30px] md:w-[36px] text-right ml-1 text-slate-400">{fmtVol(r.vol || 0)}</span>
+                <span className="text-[9px] tabular-nums inline-block shrink-0 w-[42px] md:w-[40px] text-right ml-[2px] md:ml-1 text-slate-400">{fmtDollar(r.dVol || 0)}</span>
+                <span className="inline-block shrink-0 w-[22px] md:w-[24px] text-center ml-[2px] md:ml-1">{rs ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${rsBadge(rs)}`}>{rs}</span> : ''}</span>
+                <span className="inline-block shrink-0 w-[22px] md:w-[24px] text-center ml-[2px] md:ml-1">{stage ? <span className={`text-[8px] font-bold tabular-nums rounded border w-[20px] md:w-[22px] leading-[14px] text-center inline-block ${stageBadge(r.stage)}`}>{stage}</span> : ''}</span>
+                <span className="hidden md:inline-block w-[14px] md:w-[16px] text-center ml-1"><NewsStars count={stars} url={r.catalystUrl} /></span>
               </div>
             </div>
           );
