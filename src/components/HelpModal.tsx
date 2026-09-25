@@ -901,12 +901,14 @@ export default function HelpModal({ isOpen, onClose, tier = 'pro' }: HelpModalPr
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 px-6 pt-3 pb-2 border-b border-white/5 shrink-0 overflow-x-auto overflow-y-hidden" style={{ scrollbarWidth: 'none' }}>
+        {/* Phones: the tabs wrap so every one is in view (they run to ~970px, and a
+            swipe-only strip hid most of them); from md up, one scrolling row. */}
+        <div className="flex flex-wrap md:flex-nowrap gap-1 px-4 md:px-6 pt-3 pb-2 border-b border-white/5 shrink-0 md:overflow-x-auto md:overflow-y-hidden" style={{ scrollbarWidth: 'none' }}>
           {visibleTabs.map(t => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold tracking-wider uppercase whitespace-nowrap transition-colors ${
+              className={`px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-[11px] font-bold tracking-wide md:tracking-wider uppercase whitespace-nowrap transition-colors ${
                 safeTab === t.key
                   ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-400/30'
                   : 'text-slate-500 hover:text-slate-300 border border-transparent'
