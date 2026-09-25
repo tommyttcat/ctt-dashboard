@@ -42,6 +42,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { DATA, loadAdjusted } from './cache';
 import { edgeTier, swingTier } from '@/lib/scans/edge';
+import { orbTrigger } from '@/lib/orb';
 
 const REPLAY = path.join(DATA, 'replay');
 const MIN_DIR = path.join(DATA, 'minute');
@@ -185,6 +186,11 @@ function entries() {
       }
     }
     res.E1 = e1; res.E2 = e2; res.E4 = e4;
+
+    // E2 again through lib/orb — the function the live Model Book v2 trades.
+    // Must equal E2 on every signal; the entries run checks it.
+    const o = g.avgVol != null ? orbTrigger(day1, g.avgVol) : null;
+    res.E2L = o && o.fill > g.cardStop ? { ei: s1, fill: o.fill, stop: floor(o.fill, g.cardStop), postFillLow: o.postFillLow } : null;
 
     /* Sensitivity (added after E2 passed, to test it — not new candidates):
        the same rule with the opening range at 15/30/60 minutes and the

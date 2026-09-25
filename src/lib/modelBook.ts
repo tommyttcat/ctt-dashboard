@@ -26,10 +26,27 @@
 //
 // Cost: one KV read and one write inside the daily tick, which already has
 // the bars and the scan rows. Flat in users; nothing runs on a page view.
+//
+// v2 (25 Sep 2026) is a second book with ONE change: SIP/Daily/Swing picks are
+// bought only on the volume-confirmed opening-range breakout of the next
+// session (lib/orb — entry E2 of scripts/backtest/intraday.ts), judged from
+// that session's minute bars in the evening tick. No breakout that session =
+// not bought. Minute data that cannot be had (fetch failed, empty, or no
+// average volume on the row) is a DATA GAP — counted and shown, never passed
+// off as "no breakout". EP9M keeps its dip entry. Everything else is v1.
+//
+// SWITCH RULE, fixed before v2 started: once both books have 60 finished
+// trades, v2 becomes the main book only if it beats BOTH v1 and SPY on return
+// since start AND its worst drop is no more than 5 points deeper than v1's.
 
 import { edgeTier, swingTier, ep9mTier } from '@/lib/scans/edge';
+import { orbTrigger, type Minute } from '@/lib/orb';
 
 export const MODEL_BOOK_KEY = 'model_book_v1';
+export const MODEL_BOOK_V2_KEY = 'model_book_v2';
+export const SWITCH_AFTER_TRADES = 60;
+
+export type BookEntry = 'open' | 'orb';
 
 export const MB = {
   equity0: 100_000,
@@ -53,9 +70,10 @@ export interface Bar { o: number; h: number; l: number; c: number }
 export interface BookCandidate {
   t: string; scan: BookScan; d: string;
   rs: number;
-  kind: 'open' | 'dip';
+  kind: 'open' | 'dip' | 'orb';
   stop: number;
-  buy: number | null;   // dip level (EP-day midpoint); null for next-open buys
+  buy: number | null;   // dip level (EP-day midpoint); null for next-open and breakout buys
+  avgVol?: number | null;  // breakout buys: average daily shares, for the volume pace
   age: number;          // ticks since the pick
   seen: number;         // sessions with a bar since the pick
 }
@@ -68,6 +86,7 @@ export interface BookHolding {
   sh: number;
   n: number;            // sessions held, entry day = 1
   last: number;
+  pfl?: number;         // breakout buys: the entry day's low AFTER the fill
 }
 
 export interface BookClosed {
@@ -81,6 +100,8 @@ export interface BookClosed {
 
 export interface ModelBook {
   v: 1;
+  entry?: BookEntry;               // absent = 'open' (v1)
+  dataGaps?: number;               // v2: breakout checks that had no usable minute data
   startedOn: string;
   lastDate: string | null;
   cash: number;
@@ -97,9 +118,9 @@ export interface ModelBook {
   updatedAt?: string;
 }
 
-export function newBook(date: string, spyClose: number | null): ModelBook {
+export function newBook(date: string, spyClose: number | null, entry: BookEntry = 'open'): ModelBook {
   return {
-    v: 1, startedOn: date, lastDate: null,
+    v: 1, entry, dataGaps: 0, startedOn: date, lastDate: null,
     cash: MB.equity0, equity: MB.equity0, peak: MB.equity0, maxDdPct: 0,
     spy0: spyClose, spyLast: spyClose,
     candidates: [], open: [], closed: [], curve: [],
@@ -117,7 +138,7 @@ export function bookTier(scan: BookScan, row: Record<string, unknown>): string |
 }
 
 /** A green row becomes a candidate; anything else (or unusable levels) is null. */
-export function candidateFrom(scan: BookScan, row: Record<string, unknown>, date: string): BookCandidate | null {
+export function candidateFrom(scan: BookScan, row: Record<string, unknown>, date: string, entry: BookEntry = 'open'): BookCandidate | null {
   if (bookTier(scan, row) !== 'green') return null;
   const t = String(row.ticker ?? row.symbol ?? '').toUpperCase();
   if (!t) return null;
@@ -133,8 +154,18 @@ export function candidateFrom(scan: BookScan, row: Record<string, unknown>, date
   const planStop = plan?.tradeable ? num(plan.stop) : null;
   const stop = planStop ?? dayLow;
   if (stop == null || !(stop > 0)) return null;
+  if (entry === 'orb') {
+    // Scanner rows carry avgVol; Swing rows carry average dollar volume in $M.
+    const price = num(row.price);
+    const adv = num(row.avgDollarVolM);
+    const avgVol = num(row.avgVol) ?? (adv != null && price ? (adv * 1e6) / price : null);
+    return { t, scan, d: date, rs, kind: 'orb', stop, buy: null, avgVol, age: 0, seen: 0 };
+  }
   return { t, scan, d: date, rs, kind: 'open', stop, buy: null, age: 0, seen: 0 };
 }
+
+/** Tickers whose breakout must be judged on today's minute bars. */
+export const orbTickers = (book: ModelBook): string[] => book.candidates.filter(c => c.kind === 'orb').map(c => c.t);
 
 /** Tonight's picks, green only, one per ticker, never one the book already holds or waits on. */
 export function addPicks(book: ModelBook, date: string, rowsByScan: Partial<Record<BookScan, Record<string, unknown>[]>>): number {
@@ -142,7 +173,7 @@ export function addPicks(book: ModelBook, date: string, rowsByScan: Partial<Reco
   let added = 0;
   for (const scan of BOOK_SCANS) {
     for (const row of rowsByScan[scan] ?? []) {
-      const c = candidateFrom(scan, row, date);
+      const c = candidateFrom(scan, row, date, book.entry ?? 'open');
       if (!c || taken.has(c.t)) continue;
       taken.add(c.t);
       book.candidates.push(c);
@@ -159,16 +190,29 @@ const round2 = (v: number) => Math.round(v * 100) / 100;
  * time exits through the close, then the mark. Same order as the backtest —
  * a slot freed by today's exit is not reused until tomorrow's open.
  */
-export function stepBook(book: ModelBook, date: string, bars: Map<string, Bar>, spyClose: number | null): void {
+export function stepBook(
+  book: ModelBook, date: string, bars: Map<string, Bar>, spyClose: number | null,
+  /** v2 only: today's minute bars per breakout candidate; null = the fetch failed. */
+  minutes?: Map<string, Minute[] | null>,
+): void {
   if (book.lastDate === date) return;
   const equityPrev = book.equity;
 
   // 1. Today's buys.
-  const buys: { c: BookCandidate; fill: number }[] = [];
+  const buys: { c: BookCandidate; fill: number; pfl?: number }[] = [];
   const keep: BookCandidate[] = [];
   for (const c of book.candidates) {
     c.age += 1;
     const bar = bars.get(c.t);
+    if (c.kind === 'orb') {
+      // One session only: the one after the pick. Did not trade = not bought.
+      if (!bar) continue;
+      const mins = minutes?.get(c.t);
+      if (c.avgVol == null || !(c.avgVol > 0) || !mins || mins.length === 0) { book.dataGaps = (book.dataGaps ?? 0) + 1; continue; }
+      const o = orbTrigger(mins, c.avgVol);
+      if (o && o.fill > c.stop) buys.push({ c, fill: o.fill, pfl: o.postFillLow });
+      continue;
+    }
     if (c.kind === 'open') {
       if (!bar || !(bar.o > 0)) { if (c.age < MB.openWindow) keep.push(c); continue; }
       if (bar.o > c.stop) buys.push({ c, fill: bar.o });
@@ -184,7 +228,7 @@ export function stepBook(book: ModelBook, date: string, bars: Map<string, Bar>, 
   book.candidates = keep;
 
   buys.sort((a, b) => b.c.rs - a.c.rs);
-  for (const { c, fill } of buys) {
+  for (const { c, fill, pfl } of buys) {
     if (book.open.length >= MB.maxPos) { book.totals.skippedFull += 1; continue; }
     if (book.open.some(h => h.t === c.t)) continue;
     const stop = fill - c.stop < fill * (MB.minRiskPct / 100) ? fill * (1 - MB.minRiskPct / 100) : c.stop;
@@ -193,7 +237,7 @@ export function stepBook(book: ModelBook, date: string, bars: Map<string, Bar>, 
     sh = Math.min(sh, Math.floor((MB.maxWeight * equityPrev) / cost), Math.floor(book.cash / cost));
     if (sh <= 0) continue;
     book.cash -= sh * cost;
-    book.open.push({ t: c.t, scan: c.scan, d: c.d, entryDate: date, fill, stop, sh, n: 0, last: fill });
+    book.open.push({ t: c.t, scan: c.scan, d: c.d, entryDate: date, fill, stop, sh, n: 0, last: fill, ...(pfl != null ? { pfl } : {}) });
   }
 
   // 2. Walk every holding through today's bar.
@@ -204,7 +248,9 @@ export function stepBook(book: ModelBook, date: string, bars: Map<string, Bar>, 
     h.n += 1;
     h.last = bar.c;
     let exit: number | null = null, how: BookClosed['how'] = 'time';
-    if (bar.l <= h.stop) { exit = h.entryDate === date ? h.stop : Math.min(h.stop, bar.o); how = 'stop'; }
+    // A breakout bought mid-session can only be stopped by what traded after it.
+    const low = h.entryDate === date && h.pfl != null ? h.pfl : bar.l;
+    if (low <= h.stop) { exit = h.entryDate === date ? h.stop : Math.min(h.stop, bar.o); how = 'stop'; }
     else if (h.n >= MB.hold) exit = bar.c;
     if (exit == null) { still.push(h); continue; }
 

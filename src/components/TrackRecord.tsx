@@ -33,7 +33,8 @@ import {
   EDGE_TINT, EDGE_FILTER_TIP, EP9M_TIP, VCP_TIP, SWING_TIP, CONSOLIDATION_TIP,
   MULTIBAGGER_TIP, HRS_TIP, type EdgeTier,
 } from '@/lib/scans/edge';
-import { MB, type ModelBook } from '@/lib/modelBook';
+import { MB, SWITCH_AFTER_TRADES, type ModelBook } from '@/lib/modelBook';
+import { ORB_MINUTES, ORB_VOL_MULT } from '@/lib/orb';
 
 interface Interim {
   n: number;
@@ -98,6 +99,7 @@ interface Payload {
   success: boolean;
   plan?: PlanPayload | null;
   book?: ModelBook | null;
+  bookV2?: ModelBook | null;
   results: Record<string, ScanRecord>;
   meta: { lastBarDate?: string; tickedAt?: string; startedAt?: string } | null;
   openCount: number;
@@ -347,25 +349,91 @@ const money = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
 const pctCls = (v: number | null) => (v == null ? 'text-slate-500' : v > 0 ? 'text-emerald-400' : v < 0 ? 'text-rose-400' : 'text-slate-300');
 const fmtSigned = (v: number | null, dp = 1) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(dp)}%`);
 
-function BookSection({ book }: { book: ModelBook | null | undefined }) {
+/* Both books on one line each, plus SPY — the comparison the switch rule reads. */
+function BookVersus({ v1, v2 }: { v1: ModelBook | null | undefined; v2: ModelBook | null | undefined }) {
+  const row = (label: string, b: ModelBook | null | undefined) => {
+    const t = b?.totals;
+    const ret = b ? (b.equity / MB.equity0 - 1) * 100 : null;
+    return (
+      <tr key={label} className="border-b border-white/[0.04]">
+        <td className="text-[10px] py-2 text-left font-semibold text-slate-200 whitespace-nowrap">{label}</td>
+        <td className={`${TD} font-semibold ${pctCls(ret)}`}>{b ? fmtSigned(ret) : '—'}</td>
+        <td className={`${TD} text-slate-300`}>{b ? `${b.maxDdPct.toFixed(1)}%` : '—'}</td>
+        <td className={`${TD} text-slate-300`}>{t ? <>{t.wins} <span className="text-slate-600">of {t.trades}</span></> : '—'}</td>
+        <td className={`${TD} font-semibold ${rCls(t && t.trades ? t.sumR / t.trades : null)}`}>{fmtUsd(t && t.trades ? t.sumR / t.trades : null)}</td>
+      </tr>
+    );
+  };
+  const ref = v1 ?? v2;
+  const spyRet = ref?.spy0 && ref.spyLast ? (ref.spyLast / ref.spy0 - 1) * 100 : null;
+  return (
+    <div className="mb-3 border border-white/[0.08] rounded-lg bg-slate-900/40 overflow-hidden">
+      <div className="px-3 md:px-5 pt-3 pb-1.5">
+        <h2 className="text-[11px] font-bold tracking-widest uppercase text-sky-400">Model Books, head to head</h2>
+        <p className="text-[11px] text-slate-300 leading-relaxed mt-1">
+          Two $100,000 paper accounts, identical except for how they buy. Once both have {SWITCH_AFTER_TRADES} finished trades,
+          the breakout book becomes the main one only if it beats both the open book and SPY, with a worst drop no more than
+          5 points deeper. The rule was set before either started.
+        </p>
+      </div>
+      <div className="px-3 md:px-5 pb-2">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="border-b border-white/5">
+              <th className={`${TH} !text-left !px-0`}>Book</th>
+              <th className={TH}>Since start</th>
+              <th className={TH}>Worst drop</th>
+              <th className={TH}>Winners</th>
+              <th className={TH}>Per $100</th>
+            </tr>
+          </thead>
+          <tbody>
+            {row('Buy at the open', v1)}
+            {row('Volume breakout', v2)}
+            <tr className="border-b border-white/[0.04]">
+              <td className="text-[10px] py-2 text-left font-semibold text-slate-400 whitespace-nowrap">SPY</td>
+              <td className={`${TD} font-semibold ${pctCls(spyRet)}`}>{fmtSigned(spyRet)}</td>
+              <td className={`${TD} text-slate-600`}>—</td>
+              <td className={`${TD} text-slate-600`}>—</td>
+              <td className={`${TD} text-slate-600`}>—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function BookSection({ book, v2 = false }: { book: ModelBook | null | undefined; v2?: boolean }) {
   const ret = book ? (book.equity / MB.equity0 - 1) * 100 : null;
   const spyRet = book?.spy0 && book.spyLast ? (book.spyLast / book.spy0 - 1) * 100 : null;
   const t = book?.totals;
   const perHundred = t && t.trades ? t.sumR / t.trades : null;
   const free = book ? Math.max(0, MB.maxPos - book.open.length) : 0;
   const buys = book ? [...book.candidates].sort((a, b) => b.rs - a.rs) : [];
-  const atOpen = buys.filter(c => c.kind === 'open');
+  const atOpen = buys.filter(c => c.kind === 'open' || c.kind === 'orb');
   const dips = buys.filter(c => c.kind === 'dip');
 
   return (
-    <div className="mb-6 border border-sky-500/25 rounded-lg bg-slate-900/40 overflow-hidden">
+    <div className={`mb-6 border rounded-lg bg-slate-900/40 overflow-hidden ${v2 ? 'border-violet-500/25' : 'border-sky-500/25'}`}>
       <div className="px-3 md:px-5 pt-3 pb-2.5">
-        <h2 className="text-[11px] font-bold tracking-widest uppercase text-sky-400">Model Book</h2>
-        <p className="text-[11px] text-slate-300 leading-relaxed mt-1">
-          One <strong className="text-slate-100">$100,000 paper account</strong> trading the scans by fixed rules: green rows
-          only, strongest RS first, at most 10 positions, 0.5% of the account at risk on each, the card&apos;s stop, and sold at
-          the close of the 20th session. Every buy and sell is recorded the evening it happens, against simply owning SPY.
-        </p>
+        <h2 className={`text-[11px] font-bold tracking-widest uppercase ${v2 ? 'text-violet-400' : 'text-sky-400'}`}>
+          {v2 ? 'Model Book v2 · volume breakout' : 'Model Book · buy at the open'}
+        </h2>
+        {v2 ? (
+          <p className="text-[11px] text-slate-300 leading-relaxed mt-1">
+            The same account and rules with <strong className="text-slate-100">one change: how it buys</strong>. A Stocks in Play,
+            Daily or Swing pick is bought the next session only if it breaks the high of the first {ORB_MINUTES} minutes while
+            volume runs at least {ORB_VOL_MULT}× its normal pace. No breakout that session, no trade. EP9M keeps its dip entry.
+            Judged each evening from that session&apos;s minute bars.
+          </p>
+        ) : (
+          <p className="text-[11px] text-slate-300 leading-relaxed mt-1">
+            One <strong className="text-slate-100">$100,000 paper account</strong> trading the scans by fixed rules: green rows
+            only, strongest RS first, at most 10 positions, 0.5% of the account at risk on each, the card&apos;s stop, and sold at
+            the close of the 20th session. Every buy and sell is recorded the evening it happens, against simply owning SPY.
+          </p>
+        )}
         {!book ? (
           <p className="text-[11px] text-amber-400/80 leading-relaxed mt-1.5">
             Starts with tonight&apos;s close. The first buys happen at the next morning&apos;s open.
@@ -388,6 +456,9 @@ function BookSection({ book }: { book: ModelBook | null | undefined }) {
             <span><span className="text-slate-500">Winners</span> <span className="text-slate-200 font-semibold tabular-nums">{t!.wins} of {t!.trades}</span></span>
             <span><span className="text-slate-500">Per $100 risked</span> <span className={`font-semibold tabular-nums ${rCls(perHundred)}`}>{fmtUsd(perHundred)}</span></span>
             <span><span className="text-slate-500">Open</span> <span className="text-slate-200 font-semibold tabular-nums">{book.open.length} of {MB.maxPos}</span></span>
+            {v2 && (
+              <span><span className="text-slate-500">Data gaps</span> <span className={`font-semibold tabular-nums ${(book.dataGaps ?? 0) > 0 ? 'text-amber-400' : 'text-slate-200'}`}>{book.dataGaps ?? 0}</span></span>
+            )}
           </div>
 
           {buys.length > 0 && (
@@ -397,7 +468,7 @@ function BookSection({ book }: { book: ModelBook | null | undefined }) {
               </div>
               <div className="flex flex-col">
                 {[...atOpen, ...dips].map((c, i) => {
-                  const inSlot = c.kind === 'open' && i < free;
+                  const inSlot = c.kind !== 'dip' && i < free;
                   return (
                     <div key={`${c.t}-${c.d}`} className="flex items-center gap-2 py-1 border-b border-white/[0.03] text-[10px] whitespace-nowrap">
                       <span className="w-12 font-semibold text-slate-200 shrink-0">
@@ -405,11 +476,11 @@ function BookSection({ book }: { book: ModelBook | null | undefined }) {
                       </span>
                       <span className="text-slate-500 w-24 truncate shrink-0 hidden sm:inline">{BOOK_SCAN_LABEL[c.scan] ?? c.scan}</span>
                       <span className="text-slate-400 tabular-nums truncate">
-                        {c.kind === 'dip' ? `Dip to ${c.buy!.toFixed(2)}` : 'At the open'} · Stop {c.stop.toFixed(2)}
+                        {c.kind === 'dip' ? `Dip to ${c.buy!.toFixed(2)}` : c.kind === 'orb' ? `Above ${ORB_MINUTES}-min high on ${ORB_VOL_MULT}× vol` : 'At the open'} · Stop {c.stop.toFixed(2)}
                       </span>
                       <span className="text-slate-500 tabular-nums hidden sm:inline">RS {c.rs >= 0 ? c.rs : '—'}</span>
                       <span className={`ml-auto font-semibold ${c.kind === 'dip' ? 'text-slate-400' : inSlot ? 'text-sky-400' : 'text-slate-500'}`}>
-                        {c.kind === 'dip' ? 'If it dips' : inSlot ? 'Buy' : 'If a slot is free'}
+                        {c.kind === 'dip' ? 'If it dips' : c.kind === 'orb' ? (inSlot ? 'If it breaks out' : 'Breakout, if a slot is free') : inSlot ? 'Buy' : 'If a slot is free'}
                       </span>
                     </div>
                   );
@@ -481,12 +552,22 @@ function BookSection({ book }: { book: ModelBook | null | undefined }) {
         </>
       )}
 
-      <p className="px-3 md:px-5 py-2.5 border-t border-white/[0.06] text-[10px] text-slate-500 leading-relaxed">
-        In a 5-year hypothetical backtest (Sep 2022 – Sep 2026, 0.1% slippage each side) these rules turned $100,000 into about
-        $372,000 against $210,000 for SPY — but the rules were chosen after seeing that test, five trades made 60% of the gain,
-        and with the day&apos;s picks taken in random order the typical result was about $195,000, below SPY. This live record is
-        the real test. Paper trades, not advice.
-      </p>
+      {v2 ? (
+        <p className="px-3 md:px-5 py-2.5 border-t border-white/[0.06] text-[10px] text-slate-500 leading-relaxed">
+          In the 5-year hypothetical backtest (Sep 2022 – Sep 2026, 0.1% slippage each side) this entry won 41% of trades against
+          30% for buying the open, and the account turned $100,000 into about $321,000 against $210,000 for SPY. With the
+          day&apos;s picks taken in random order the typical result was about $211,000 — only just ahead of SPY. At 0.25%
+          slippage each side that typical result fell to about $159,000, below SPY: how cheaply you are filled matters as much as the signal.
+          Data gaps are breakouts that could not be checked, never counted as &ldquo;no breakout&rdquo;. Paper trades, not advice.
+        </p>
+      ) : (
+        <p className="px-3 md:px-5 py-2.5 border-t border-white/[0.06] text-[10px] text-slate-500 leading-relaxed">
+          In a 5-year hypothetical backtest (Sep 2022 – Sep 2026, 0.1% slippage each side) these rules turned $100,000 into about
+          $372,000 against $210,000 for SPY — but the rules were chosen after seeing that test, five trades made 60% of the gain,
+          and with the day&apos;s picks taken in random order the typical result was about $195,000, below SPY. At 0.25% slippage
+          each side that typical result fell to about $148,000. This live record is the real test. Paper trades, not advice.
+        </p>
+      )}
     </div>
   );
 }
@@ -727,7 +808,9 @@ export default function TrackRecord() {
         </div>
       </div>
 
+      {!loading && !error && <BookVersus v1={data?.book} v2={data?.bookV2} />}
       {!loading && !error && <BookSection book={data?.book} />}
+      {!loading && !error && <BookSection book={data?.bookV2} v2 />}
       {!loading && !error && <PlanSection plan={data?.plan} />}
 
       {/* The second record: every pick at the next open. What the 5-year test

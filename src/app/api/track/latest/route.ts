@@ -9,14 +9,25 @@ import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { TRACK_RESULTS_KEY, TRACK_META_KEY, TRACK_OPEN_KEY, type TrackResults, type OpenPosition } from '@/lib/track';
 import { PLAN_RESULTS_KEY, type PlanResults } from '@/lib/trackPlan';
-import { MODEL_BOOK_KEY, type ModelBook } from '@/lib/modelBook';
+import { MODEL_BOOK_KEY, MODEL_BOOK_V2_KEY, type ModelBook } from '@/lib/modelBook';
+
+/* What the page needs from a book: the latest 15 closed trades (the totals
+   cover all of them) and a curve that stops growing — daily for the last
+   year, weekly before that — so the payload stays flat as the books age. */
+function forPage(book: ModelBook | null) {
+  if (!book) return null;
+  const c = book.curve;
+  const recent = c.slice(-260);
+  const older = c.slice(0, -260).filter((_, i) => i % 5 === 0);
+  return { ...book, closed: book.closed.slice(0, 15), curve: [...older, ...recent] };
+}
 import { CACHE, cacheHeaders } from '@/lib/httpCache';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const [results, meta, open, plan, book] = await Promise.all([
+    const [results, meta, open, plan, book, bookV2] = await Promise.all([
       kv.get<TrackResults>(TRACK_RESULTS_KEY),
       kv.get<{ lastBarDate?: string; tickedAt?: string; open?: number }>(TRACK_META_KEY),
       kv.get<OpenPosition[]>(TRACK_OPEN_KEY),
@@ -26,14 +37,15 @@ export async function GET() {
       /* The Model Book (lib/modelBook). One key, ~10 holdings, a capped
          closed log and one curve point per session. */
       kv.get<ModelBook>(MODEL_BOOK_KEY),
+      kv.get<ModelBook>(MODEL_BOOK_V2_KEY),
     ]);
     const live = open ?? [];
     return NextResponse.json({
       success: true,
       results: results ?? {},
       plan: plan ?? null,
-      // The page shows the latest 15 closed trades; the totals cover all of them.
-      book: book ? { ...book, closed: book.closed.slice(0, 15) } : null,
+      book: forPage(book),
+      bookV2: forPage(bookV2),
       meta: meta ?? null,
       openCount: live.length,
       // Enough to show "tracking N ideas" without shipping the whole book.

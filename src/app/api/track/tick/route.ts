@@ -11,7 +11,9 @@
 // Plus the plan record (lib/trackPlan, 24 Sep 2026): two more reads and two
 // more writes, same bars, same scan lists — still flat in users. And the
 // Model Book (lib/modelBook, 24 Sep 2026): one more read and one more write,
-// reusing the scan rows already read here.
+// reusing the scan rows already read here. Model Book v2 (25 Sep 2026): one
+// more read and write, plus one Polygon minute-bar call per breakout
+// candidate (~4-7 a night) — still nothing per page view.
 //
 // Cost per tick, measured 11 Sep 2026: 10 KV reads (8 scan lists + open
 // positions + results), 2 KV writes, 1 Polygon grouped-daily call. Flat in
@@ -38,7 +40,8 @@ import {
   PLAN_OPEN_KEY, PLAN_RESULTS_KEY, PLAN_SOURCES, newPlanPosition, stepPlan, foldPlan, markFilled, isResolved, emptyPlanRecord,
   type PlanPosition, type PlanResults,
 } from '@/lib/trackPlan';
-import { MODEL_BOOK_KEY, BOOK_SCANS, newBook, stepBook, addPicks, type ModelBook, type BookScan } from '@/lib/modelBook';
+import { MODEL_BOOK_KEY, MODEL_BOOK_V2_KEY, BOOK_SCANS, newBook, stepBook, addPicks, orbTickers, type ModelBook, type BookScan } from '@/lib/modelBook';
+import type { Minute } from '@/lib/orb';
 import { edgeTier, multibaggerTier, swingTier, consolidationTier, ep9mTier, vcpTier, hrsTier } from '@/lib/scans/edge';
 
 export const dynamic = 'force-dynamic';
@@ -65,6 +68,23 @@ async function latestBars(): Promise<{ date: string; bars: Map<string, Bar> } | 
     const bars = new Map<string, Bar>();
     for (const r of rows) bars.set(r.T, { o: r.o, h: r.h, l: r.l, c: r.c });
     return { date, bars };
+  }
+  return null;
+}
+
+/** One session of minute bars for one ticker, or null when it cannot be had.
+ *  Three tries inside this tick; a null is a DATA GAP to the book, never "no
+ *  breakout". Empty results are returned as [] and counted the same way. */
+async function sessionMinutes(ticker: string, date: string): Promise<Minute[] | null> {
+  const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(ticker)}/range/1/minute/${date}/${date}?adjusted=true&sort=asc&limit=50000&apiKey=${POLYGON_KEY}`;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    // Bounded, so one hung call cannot eat the tick's 120 seconds.
+    const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(8000) }).catch(() => null);
+    if (res?.ok) {
+      const j = await res.json().catch(() => null);
+      if (j) return (j.results ?? []).map((r: { t: number; o: number; h: number; l: number; c: number; v: number }) => [r.t, r.o, r.h, r.l, r.c, r.v] as Minute);
+    }
+    await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
   }
   return null;
 }
@@ -338,9 +358,9 @@ export async function GET() {
      book for one tick and touches nothing else. Stepped on today's bars with
      yesterday's candidates BEFORE tonight's picks are added, so a pick is
      never bought on the evening it was made. */
+  const spy = bars.get('SPY')?.c ?? null;
   let bookOut: Record<string, unknown> | string = 'skipped (error, see logs)';
   try {
-    const spy = bars.get('SPY')?.c ?? null;
     const book = (await kv.get<ModelBook>(MODEL_BOOK_KEY)) || newBook(date, spy);
     stepBook(book, date, bars, spy);
     const picked = addPicks(book, date, bookRows);
@@ -351,8 +371,26 @@ export async function GET() {
     console.error('TRACK_BOOK_ERROR', e);
   }
 
+  /* Model Book v2 — its own fence, so neither book can take the other down.
+     Breakout candidates from last night are judged on TODAY's minute bars,
+     fetched only for names that actually traded today. */
+  let bookV2Out: Record<string, unknown> | string = 'skipped (error, see logs)';
+  try {
+    const v2 = (await kv.get<ModelBook>(MODEL_BOOK_V2_KEY)) || newBook(date, spy, 'orb');
+    const minutes = new Map<string, Minute[] | null>();
+    for (const t of orbTickers(v2)) if (bars.has(t)) minutes.set(t, await sessionMinutes(t, date));
+    const gapsBefore = v2.dataGaps ?? 0;
+    stepBook(v2, date, bars, spy, minutes);
+    const picked = addPicks(v2, date, bookRows);
+    v2.updatedAt = new Date().toISOString();
+    await kv.set(MODEL_BOOK_V2_KEY, v2);
+    bookV2Out = { equity: v2.equity, open: v2.open.length, candidates: v2.candidates.length, picked, minuteCalls: minutes.size, newDataGaps: (v2.dataGaps ?? 0) - gapsBefore };
+  } catch (e) {
+    console.error('TRACK_BOOK_V2_ERROR', e);
+  }
+
   return NextResponse.json({
-    success: true, barDate: date, added, open: kept.length, book: bookOut,
+    success: true, barDate: date, added, open: kept.length, book: bookOut, bookV2: bookV2Out,
     plan: planOk ? { watching: planKept.filter(p => p.state === 'watching').length, open: planKept.filter(p => p.state === 'filled').length } : 'skipped (error, see logs)',
     settled: settledToday.length, emptyScans,
   });
