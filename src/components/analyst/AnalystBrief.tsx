@@ -563,7 +563,7 @@ function SummaryHeader({ trap, gapper, sortKey, sortDir, onSort }: {
   return (
     <div className={scrollWrap} style={scrollStyle}>
       <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
-        <span className="inline-block shrink-0 w-[38px] md:w-[44px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
+        <span className="inline-block shrink-0 w-[38px] md:w-[44px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center mx-0.5">TICKER</span>
         <span className="hidden md:inline-block w-[12px]" />
         <span className="inline-block shrink-0 w-[8px]" />
         <span className="inline-block shrink-0 w-[8px]" />
@@ -1715,7 +1715,7 @@ function FlowTable({ title, color, blurb, rows }: { title: string; color: string
       <p className="text-[8px] text-slate-500 font-medium leading-snug mb-2">{blurb}</p>
       <div className={scrollWrap} style={scrollStyle}>
         <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
-          <span className="inline-block w-[38px] md:w-[44px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
+          <span className="inline-block shrink-0 w-[38px] md:w-[44px] text-[8px] font-bold tracking-widest uppercase text-slate-600 text-center mx-0.5">TICKER</span>
           <span className="inline-block shrink-0 w-[8px] md:w-[12px]" />
           <span className="inline-block w-[8px]" />
           <span className="hidden md:inline-block w-[8px]" />
