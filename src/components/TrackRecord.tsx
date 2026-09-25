@@ -429,7 +429,7 @@ function BookSection({ book, v2 = false }: { book: ModelBook | null | undefined;
           </p>
         ) : (
           <p className="text-[11px] text-slate-300 leading-relaxed mt-1">
-            One <strong className="text-slate-100">$100,000 paper account</strong> trading the scans by fixed rules: green rows
+            One <strong className="text-slate-100">$100,000 paper account</strong>{' '}trading the scans by fixed rules: green rows
             only, strongest RS first, at most 10 positions, 0.5% of the account at risk on each, the card&apos;s stop, and sold at
             the close of the 20th session. Every buy and sell is recorded the evening it happens, against simply owning SPY.
           </p>
@@ -464,7 +464,7 @@ function BookSection({ book, v2 = false }: { book: ModelBook | null | undefined;
           {buys.length > 0 && (
             <div className="px-3 md:px-5 py-2.5 border-t border-white/[0.06]">
               <div className="text-[10px] font-bold tracking-widest uppercase text-slate-500 mb-1.5">
-                Next session&apos;s buys <span className="normal-case tracking-normal font-normal text-slate-600">· {free} slot{free === 1 ? '' : 's'} free, strongest RS first</span>
+                Next session&apos;s buys <span className="normal-case tracking-normal font-normal text-slate-600">· {free} slot{free === 1 ? '' : 's'} free, strongest RS first, the rest waitlisted</span>
               </div>
               <div className="flex flex-col">
                 {[...atOpen, ...dips].map((c, i) => {
@@ -476,11 +476,14 @@ function BookSection({ book, v2 = false }: { book: ModelBook | null | undefined;
                       </span>
                       <span className="text-slate-500 w-24 truncate shrink-0 hidden sm:inline">{BOOK_SCAN_LABEL[c.scan] ?? c.scan}</span>
                       <span className="text-slate-400 tabular-nums truncate">
-                        {c.kind === 'dip' ? `Dip to ${c.buy!.toFixed(2)}` : c.kind === 'orb' ? `Above ${ORB_MINUTES}-min high on ${ORB_VOL_MULT}× vol` : 'At the open'} · Stop {c.stop.toFixed(2)}
+                        {/* Phones get the short form so the stop is never the part that gets cut. */}
+                        {c.kind === 'dip' ? `Dip to ${c.buy!.toFixed(2)}` : c.kind === 'orb'
+                          ? <><span className="sm:hidden">{ORB_MINUTES}-min breakout</span><span className="hidden sm:inline">Above {ORB_MINUTES}-min high on {ORB_VOL_MULT}× vol</span></>
+                          : 'At the open'} · Stop {c.stop.toFixed(2)}
                       </span>
                       <span className="text-slate-500 tabular-nums hidden sm:inline">RS {c.rs >= 0 ? c.rs : '—'}</span>
                       <span className={`ml-auto font-semibold ${c.kind === 'dip' ? 'text-slate-400' : inSlot ? 'text-sky-400' : 'text-slate-500'}`}>
-                        {c.kind === 'dip' ? 'If it dips' : c.kind === 'orb' ? (inSlot ? 'If it breaks out' : 'Breakout, if a slot is free') : inSlot ? 'Buy' : 'If a slot is free'}
+                        {c.kind === 'dip' ? 'If it dips' : !inSlot ? 'Waitlist' : c.kind === 'orb' ? 'If it breaks out' : 'Buy'}
                       </span>
                     </div>
                   );
@@ -535,12 +538,12 @@ function BookSection({ book, v2 = false }: { book: ModelBook | null | undefined;
               <div className="text-[10px] font-bold tracking-widest uppercase text-slate-500 mb-1.5">Sold</div>
               <div className="flex flex-col">
                 {book.closed.map(x => (
-                  <div key={`${x.t}-${x.entryDate}`} className="flex items-center gap-2 py-1 border-b border-white/[0.03] text-[10px] whitespace-nowrap">
+                  <div key={`${x.t}-${x.entryDate}-${x.exitDate}`} className="flex items-center gap-2 py-1 border-b border-white/[0.03] text-[10px] whitespace-nowrap">
                     <span className="w-12 font-semibold text-slate-200 shrink-0">
                       <TickerChartHover symbol={x.t}><span className="border-b border-dotted border-white/25">{x.t}</span></TickerChartHover>
                     </span>
                     <span className="text-slate-500 w-24 truncate shrink-0 hidden sm:inline">{BOOK_SCAN_LABEL[x.scan] ?? x.scan}</span>
-                    <span className="text-slate-400 tabular-nums truncate">{x.fill.toFixed(2)} → {x.exit.toFixed(2)} · {x.how === 'stop' ? 'stopped' : 'day 20'} {x.exitDate}</span>
+                    <span className="text-slate-400 tabular-nums truncate">{x.fill.toFixed(2)} → {x.exit.toFixed(2)} · {x.how === 'stop' ? 'stopped' : 'day 20'}<span className="hidden sm:inline"> {x.exitDate}</span></span>
                     <span className={`ml-auto tabular-nums font-semibold ${x.pnl > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{x.pnl > 0 ? '+' : '−'}{money(Math.abs(x.pnl))}</span>
                     <span className={`w-10 text-right tabular-nums font-semibold ${rCls(x.r)}`}>{fmtUsd(x.r)}</span>
                   </div>
