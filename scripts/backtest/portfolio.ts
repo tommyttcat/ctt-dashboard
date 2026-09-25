@@ -106,7 +106,7 @@ function candidates(c: BarCache): Cand[] {
 }
 
 /** Walk one position forward. Same stop/gap/ambiguity rules as simulate.ts. */
-function walk(c: BarCache, k: Cand, floor: boolean, exit: 'ship' | 'hold20'): Trade {
+function walk(c: BarCache, k: Cand, floor: boolean, exit: 'ship' | 'hold20' | 'hold20run'): Trade {
   const { O, H, L, C } = c; void H;
   const N = c.sessions.length;
   let stop = k.cardStop;
@@ -123,13 +123,18 @@ function walk(c: BarCache, k: Cand, floor: boolean, exit: 'ship' | 'hold20'): Tr
     hist.push(lastC);
     if (L[k.id][j] <= stop) return { c: k, stop, xi: j, xpx: j === k.ei ? stop : Math.min(stop, O[k.id][j]), how: 'stop' };
     if (exit === 'hold20') { if (day >= 20) return { c: k, stop, xi: j, xpx: lastC, how: 'time' }; }
+    else if (exit === 'hold20run') {
+      // From day 20, sell only on a close under the 21 EMA — a winner keeps running.
+      if (day >= 20) { const e = ema(hist, 21); if (e == null || lastC < e) return { c: k, stop, xi: j, xpx: lastC, how: 'time' }; }
+    }
     else if (day >= 2) { const e = ema(hist, len); if (e != null && lastC < e) return { c: k, stop, xi: j, xpx: lastC, how: 'ema' }; }
   }
   // Ran out of window, or out of data (still open at the end of the test).
   return { c: k, stop, xi: last >= N - 1 && day < HOLD ? Infinity : lastJ, xpx: lastC, how: last >= N - 1 && day < HOLD ? 'open' : 'time' };
 }
 
-interface Opts { name: string; floor: boolean; exit: 'ship' | 'hold20'; regime: boolean; greenOnly: boolean; seed?: number; sweep?: boolean }
+interface Opts { name: string; floor: boolean; exit: 'ship' | 'hold20' | 'hold20run'; regime: boolean; greenOnly: boolean; seed?: number; sweep?: boolean;
+  scans?: Scan[]; swingFirst?: boolean; riskByScan?: Partial<Record<Scan, number>> }
 
 /* Deterministic PRNG for the ranking-luck check (mulberry32). */
 const rng = (seed: number) => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
@@ -143,6 +148,7 @@ function run(c: BarCache, cands: Cand[], o: Opts) {
     if (o.greenOnly && k.tier !== 'green') continue;
     if (o.regime && !k.riskOn) continue;
     if (k.ei < t0) continue;
+    if (o.scans && !o.scans.includes(k.scan)) continue;
     const tr = walk(c, k, o.floor, o.exit);
     (byEntry.get(k.ei) ?? byEntry.set(k.ei, []).get(k.ei)!).push(tr);
   }
@@ -158,15 +164,18 @@ function run(c: BarCache, cands: Cand[], o: Opts) {
 
   for (let t = t0; t < T; t++) {
     // 1. Entries at the open, sized off yesterday's close.
+    /* Swing-first puts every Swing buy ahead of the rest; within a class the
+       order is RS, or random for the ranking-luck check. */
+    const cls = (x: Trade) => (o.swingFirst && x.c.scan === 'swing' ? 0 : 1);
     const todays = rand
-      ? (byEntry.get(t) ?? []).map(x => [rand(), x] as const).sort((a, b) => a[0] - b[0]).map(x => x[1])
-      : (byEntry.get(t) ?? []).sort((a, b) => b.c.rs - a.c.rs);
+      ? (byEntry.get(t) ?? []).map(x => [cls(x), rand(), x] as const).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2])
+      : (byEntry.get(t) ?? []).sort((a, b) => cls(a) - cls(b) || b.c.rs - a.c.rs);
     for (const tr of todays) {
       if (open.length >= MAX_POS) { skippedFull++; continue; }
       if (open.some(p => p.tr.c.ticker === tr.c.ticker)) continue;
       const px = tr.c.fill * (1 + SLIP);
       const perSh = tr.c.fill - tr.stop;
-      let sh = Math.floor((RISK * equity) / perSh);
+      let sh = Math.floor(((o.riskByScan?.[tr.c.scan] ?? RISK) * equity) / perSh);
       sh = Math.min(sh, Math.floor((MAX_WEIGHT * equity) / px), Math.floor(cash / px));
       if (sh <= 0) continue;
       cash -= sh * px;
@@ -243,11 +252,23 @@ function main() {
   const spyCurve = c.sessions.slice(s0).map((d, i) => ({ d, eq: EQUITY0 * c.C[spy][s0 + i] / c.O[spy][s0], n: 1 }));
 
   const variants: Opts[] = [];
+  if (process.argv[2] === 'round2') {
+    /* Round 2, fixed 25 Sep 2026 before running: four ideas against the live
+       Model Book rules (card stop, hold 20, no filter). Pass = beats SPY in
+       BOTH halves AND the random-order median beats SPY. */
+    const base: Opts = { name: 'BASE model book', floor: false, exit: 'hold20', regime: false, greenOnly: true };
+    variants.push(base,
+      { ...base, name: 'A swing-first', swingFirst: true },
+      { ...base, name: 'B swing-only', scans: ['swing'] },
+      { ...base, name: 'C let winners run', exit: 'hold20run' },
+      { ...base, name: 'D 1% on swing', riskByScan: { swing: 0.01 } });
+  } else {
   for (const floor of [true, false]) for (const exit of ['ship', 'hold20'] as const) for (const regime of [true, false])
     variants.push({ name: `${floor ? 'floor' : 'card'}-${exit}-${regime ? 'riskon' : 'always'}`, floor, exit, regime, greenOnly: true });
   for (const v of [...variants]) variants.push({ ...v, name: `SWEEP ${v.name}`, sweep: true });
   variants.push({ name: 'ALL-TIERS floor-ship-riskon', floor: true, exit: 'ship', regime: true, greenOnly: false });
   variants.push({ name: 'ALL-TIERS floor-ship-always', floor: true, exit: 'ship', regime: false, greenOnly: false });
+  }
 
   const cut = spyCurve[Math.floor(spyCurve.length * 2 / 3)].d;
   const split = <T extends { d?: string; exit?: string }>(arr: T[], key: 'd' | 'exit') =>
@@ -302,7 +323,7 @@ function main() {
   }
   results.randomRanking = luck;
   results.meta = { start: START, end: c.sessions.at(-1), splitAt: cut, rules: 'see header of scripts/backtest/portfolio.ts' };
-  fs.writeFileSync(path.join(REPLAY, 'portfolio_results.json'), JSON.stringify(results, null, 1));
+  fs.writeFileSync(path.join(REPLAY, process.argv[2] === 'round2' ? 'portfolio_round2.json' : 'portfolio_results.json'), JSON.stringify(results, null, 1));
   console.log(`done in ${((Date.now() - t0) / 1000).toFixed(0)}s — split at ${cut}`);
 }
 
