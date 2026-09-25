@@ -27,6 +27,39 @@ export function WatchlistToggle() {
   );
 }
 
+/* Watchlist alerts switch (lib/alerts). Read when the panel opens, not on
+   every page load, so it costs nothing for anyone who never opens it. */
+function AlertsSwitch() {
+  const [on, setOn] = React.useState<boolean | null>(null);
+  const [saving, setSaving] = React.useState(false);
+  React.useEffect(() => {
+    fetch('/api/alerts').then(r => (r.ok ? r.json() : null)).then(j => setOn(!!j?.on)).catch(() => setOn(false));
+  }, []);
+  const flip = () => {
+    if (on == null || saving) return;
+    const next = !on;
+    setSaving(true);
+    setOn(next);
+    fetch('/api/alerts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: next }) })
+      .then(r => { if (!r.ok) setOn(!next); })
+      .catch(() => setOn(!next))
+      .finally(() => setSaving(false));
+  };
+  return (
+    <button
+      onClick={flip}
+      disabled={on == null}
+      className="w-full flex items-center justify-between gap-3 px-4 py-2.5 border-b border-white/5 text-left hover:bg-white/[0.02] transition-colors"
+      title="An email when a name here reaches its buy level (HIT) or falls below its stop (OUT). Checked with every scan, about every 15 minutes in market hours."
+    >
+      <span className="text-[11px] text-slate-300 leading-snug">Email me when these hit their buy level or stop</span>
+      <span className={`relative inline-block w-8 h-[18px] rounded-full shrink-0 transition-colors ${on ? 'bg-emerald-500/70' : 'bg-slate-700'}`}>
+        <span className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-all ${on ? 'left-[16px]' : 'left-[2px]'}`} />
+      </span>
+    </button>
+  );
+}
+
 export default function WatchlistPanel({ hideToggle = false }: { hideToggle?: boolean } = {}) {
   const { tickers, loading, remove, clear, panelOpen, togglePanel } = useWatchlist();
   const [copied, setCopied] = React.useState(false);
@@ -94,6 +127,8 @@ export default function WatchlistPanel({ hideToggle = false }: { hideToggle?: bo
                 </button>
               </div>
             </div>
+
+            <AlertsSwitch />
 
             {/* Body */}
             <div className="max-h-[400px] overflow-y-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: '#334155 transparent' }}>
