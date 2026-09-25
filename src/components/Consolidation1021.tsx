@@ -120,6 +120,7 @@ import {
   ScoreCell, RsCell, PriceCell, ChgCell, Ema1021Cell, VolCell, DollarVolCell,
   RvolCell, FloatCell, AdrCell, MfCell, StatusCell, DtcCell, McapCell, StageCell, SectorCell,
 } from './scan/ScanTable';
+import { usePhoneTable } from './scan/usePhoneTable';
 import { TickerCell } from './scan/TickerCell';
 import { planStatusView } from '@/lib/scans/triggerProximity';
 import { poll } from '@/lib/poll';
@@ -573,6 +574,8 @@ const above21 = (c: ConsolidationCandidate) => c.aboveEma21 ?? (c.distToEma21 !=
 const above10 = (c: ConsolidationCandidate) => c.aboveEma10 ?? (c.distToEma10 != null ? c.distToEma10 >= 0 : null);
 
 export default function Consolidation1021() {
+  // Phones: six core columns, tap a row for the rest (components/scan/usePhoneTable).
+  const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();
 
   const [candidates, setCandidates] = useState<ConsolidationCandidate[]>([]);
@@ -1026,7 +1029,7 @@ export default function Consolidation1021() {
 
           <div className="relative z-0 overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
             {/* 20 columns — min-w 980. */}
-            <table className="w-full min-w-[940px] table-fixed border-collapse">
+            <table ref={phoneTableRef} className="scan-table w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <SortHeader label="TICKER" width="w-[7%]" className="!text-left pl-1" title={colTip('TICKER')} icon={getSortIcon('symbol')} onSort={() => handleSort('symbol')} />

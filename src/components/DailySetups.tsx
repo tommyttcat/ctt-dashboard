@@ -91,6 +91,7 @@ import {
   ScoreCell, RsCell, PriceCell, ChgCell, Ema1021Cell, VolCell, DollarVolCell,
   RvolCell, FloatCell, AdrCell, MfCell, StatusCell, DtcCell, McapCell, StageCell, SectorCell,
 } from './scan/ScanTable';
+import { usePhoneTable } from './scan/usePhoneTable';
 import { TickerCell } from './scan/TickerCell';
 import { planStatusView } from '@/lib/scans/triggerProximity';
 import { poll } from '@/lib/poll';
@@ -465,6 +466,8 @@ const rowStatus = (row: SetupData): 'Ready' | 'Forming' | null => {
 };
 
 export default function DailySetups() {
+  // Phones: six core columns, tap a row for the rest (components/scan/usePhoneTable).
+  const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();
 
   const [setups, setSetups] = useState<SetupData[]>([]);
@@ -912,7 +915,7 @@ export default function DailySetups() {
 
           <div className="relative z-0 overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
             {/* min-w 940 to fit RTR; widths match SIPs v3.0. */}
-            <table className="w-full min-w-[940px] table-fixed border-collapse">
+            <table ref={phoneTableRef} className="scan-table w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <SortHeader label="TICKER" width="w-[7%]" className="!text-left pl-1" title={colTip('TICKER')} icon={getSortIcon('ticker')} onSort={() => handleSort('ticker')} />

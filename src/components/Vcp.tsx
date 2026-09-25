@@ -89,6 +89,7 @@ import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 import ScanStatsNote from './ScanStatsNote';
 import { SCAN, StageCell, SectorCell, StatusCell } from './scan/ScanTable';
+import { usePhoneTable } from './scan/usePhoneTable';
 import { planStatusView } from '@/lib/scans/triggerProximity';
 import { poll } from '@/lib/poll';
 
@@ -479,6 +480,8 @@ const planTooltip = (row: VcpCandidate): string => {
 };
 
 export default function Vcp() {
+  // Phones: six core columns, tap a row for the rest (components/scan/usePhoneTable).
+  const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();
 
   const [candidates, setCandidates] = useState<VcpCandidate[]>([]);
@@ -878,7 +881,7 @@ export default function Vcp() {
           </div>
 
           <div className="relative z-0 overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            <table className="w-full min-w-[940px] table-fixed border-collapse">
+            <table ref={phoneTableRef} className="scan-table w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%] !text-left pl-1`} title={colTip('TICKER')} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>

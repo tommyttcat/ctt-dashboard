@@ -22,6 +22,7 @@ import { rvolColorLowFloor as rvolColor, tickerChipCls, scoreCellCls } from '@/l
 import { displaySector } from '@/lib/sectors';
 import ScanStatsNote from './ScanStatsNote';
 import { SCAN, VolCell, DollarVolCell } from './scan/ScanTable';
+import { usePhoneTable } from './scan/usePhoneTable';
 import { poll } from '@/lib/poll';
 
 const ATTR_LABELS: Record<string, string> = {
@@ -178,6 +179,8 @@ const COLUMN_TIPS: Record<string, string> = {
 };
 
 export default function Multibagger() {
+  // Phones: six core columns, tap a row for the rest (components/scan/usePhoneTable).
+  const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();
   const displaySession = ['Pre-Market', 'Open', 'Post-Market', 'Closed'].includes(session) ? session : 'Closed';
   const sessionColor = displaySession === 'Open' ? 'text-[#00e676]' : displaySession === 'Pre-Market' ? 'text-amber-500' : displaySession === 'Post-Market' ? 'text-indigo-400' : 'text-slate-400';
@@ -537,7 +540,7 @@ export default function Multibagger() {
           </div>
         ) : (
           <div className="relative z-0 overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            <table className="w-full min-w-[940px] table-fixed border-collapse">
+            <table ref={phoneTableRef} className="scan-table w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%] !text-left pl-1`} title={COLUMN_TIPS.TICKER}>TICKER</th>

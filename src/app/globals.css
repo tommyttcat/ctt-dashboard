@@ -218,3 +218,42 @@ body {
 .animate-inst-flash {
   animation: inst-flash 1.5s ease-out;
 }
+
+/* ---- Scanner tables on a phone (components/scan/usePhoneTable) -----------
+   Below md the 940px tables become the six columns a reader acts on; a tap
+   on a row opens every other column underneath it, two to a line, labelled
+   from the header. usePhoneTable marks the cells; nothing here applies from
+   768px up. Widths sum to 100% and were sized at 360px (a 314px table):
+   "+12.34%" and "1234.56" are the widest real values in their columns. */
+@media (max-width: 767px) {
+  table.scan-table { min-width: 0 !important; width: 100% !important; }
+  table.scan-table thead tr,
+  table.scan-table tbody tr { display: flex; flex-wrap: wrap; align-items: center; }
+  table.scan-table th:not([data-core]),
+  table.scan-table td:not([data-core]) { display: none; }
+  table.scan-table th[data-core],
+  table.scan-table td[data-core] { display: block; flex: 0 0 auto; box-sizing: border-box; }
+  table.scan-table [data-core="ticker"] { width: 22% !important; }
+  table.scan-table [data-core="score"]  { width: 11% !important; }
+  table.scan-table [data-core="chg"]    { width: 19% !important; }
+  table.scan-table [data-core="price"]  { width: 18% !important; }
+  table.scan-table [data-core="rvol"]   { width: 12% !important; }
+  table.scan-table [data-core="status"] { width: 18% !important; }
+  table.scan-table [data-core="full"]   { width: 100% !important; }
+  table.scan-table tbody tr:not(:has([data-core="full"])) { cursor: pointer; }
+  table.scan-table thead tr::after {
+    content: 'Tap a row for all its stats';
+    flex: 0 0 100%; order: 2; padding: 0 4px 6px;
+    font-size: 9px; font-weight: 500; letter-spacing: 0.02em; color: rgb(100 116 139);
+  }
+  table.scan-table tbody tr[data-open] td:not([data-core]) {
+    display: flex; order: 1; width: 50% !important; flex: 0 0 50%;
+    justify-content: space-between; align-items: center; gap: 6px;
+    padding: 3px 8px !important; text-align: right; overflow: hidden;
+  }
+  table.scan-table tbody tr[data-open] td:not([data-core])::before {
+    content: attr(data-label); flex: 0 0 auto;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.05em; color: rgb(100 116 139);
+  }
+  table.scan-table tbody tr[data-open] { padding-bottom: 6px; }
+}

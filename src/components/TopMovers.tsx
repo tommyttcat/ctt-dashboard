@@ -84,6 +84,7 @@ import { mfColor, mfLabel, mfArrow } from '@/lib/indicators/moneyflow';
 import { displaySector } from '@/lib/sectors';
 import { formatSetupName } from '@/lib/setupName';
 import { SCAN, RvolCell, RsCell, ChgCell, VolCell, DollarVolCell, FloatCell, McapCell } from './scan/ScanTable';
+import { usePhoneTable } from './scan/usePhoneTable';
 import { poll } from '@/lib/poll';
 
 interface StockData {
@@ -142,6 +143,8 @@ const newsTooltip = (row: StockData): string => catalystTooltip(row, { note: NEG
 const cnfGradeOf = (score: number | null): CnfFilterType | null => { if (score == null) return null; if (score >= 70) return 'A'; if (score >= 50) return 'B'; return 'C'; };
 
 export default function TopMovers() {
+  // Phones: six core columns, tap a row for the rest (components/scan/usePhoneTable).
+  const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();
   const [topMoversData, setTopMoversData] = useState<Record<TabType, StockData[]>>({ 'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': [] });
   const [activeTab, setActiveTab] = useState<TabType>('Gainers');
@@ -396,7 +399,7 @@ export default function TopMovers() {
           </div>
           
           <div className="overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
-            <table className="w-full min-w-[940px] table-fixed border-collapse">
+            <table ref={phoneTableRef} className="scan-table w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%] !text-left pl-1`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>

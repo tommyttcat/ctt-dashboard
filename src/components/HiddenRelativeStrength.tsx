@@ -16,6 +16,7 @@ import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
 import ScanStatsNote from './ScanStatsNote';
 import { SCAN, VolCell, ChgCell, RvolCell } from './scan/ScanTable';
+import { usePhoneTable } from './scan/usePhoneTable';
 import { alphaOnWeakDaysColor, weakDayOutperformColor, pctBelow52wHighColor } from '@/lib/indicators/columnColors';
 import { poll } from '@/lib/poll';
 
@@ -128,6 +129,8 @@ function toCatalystRow(row: HrsCandidate): CatalystRow {
 }
 
 export default function HiddenRelativeStrength() {
+  // Phones: six core columns, tap a row for the rest (components/scan/usePhoneTable).
+  const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();
 
   const [candidates, setCandidates] = useState<HrsCandidate[]>([]);
@@ -380,7 +383,7 @@ export default function HiddenRelativeStrength() {
             </div>
           ) : (
             <div className="relative z-0 overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-              <table className="w-full min-w-[940px] table-fixed border-collapse">
+              <table ref={phoneTableRef} className="scan-table w-full min-w-[940px] table-fixed border-collapse">
                 <thead>
                   <tr className="border-b border-white/5 select-none">
                     <th className={`${thBase} w-[7%] !text-left pl-1`}>TICKER</th>

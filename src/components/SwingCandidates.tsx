@@ -141,6 +141,7 @@ import { scoreCellNeutralCls } from '@/lib/indicators/columnColors';
 import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
 import ScanStatsNote from './ScanStatsNote';
 import { SCAN, RsCell, PriceCell, ChgCell, VolCell, RvolCell, FloatCell, AdrCell, MfCell, DtcCell, McapCell, StageCell, SectorCell, StatusCell } from './scan/ScanTable';
+import { usePhoneTable } from './scan/usePhoneTable';
 import { TickerCell } from './scan/TickerCell';
 import { planStatusView } from '@/lib/scans/triggerProximity';
 import { poll } from '@/lib/poll';
@@ -667,6 +668,8 @@ const POSTURE_META: Record<PostureFilterType, { label: string; title: string }> 
 const isReady = (c: SwingCandidate) => c.stochK <= 25 && Math.abs(c.distToEma21) <= 2.5;
 
 export default function SwingCandidates() {
+  // Phones: six core columns, tap a row for the rest (components/scan/usePhoneTable).
+  const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();
 
   const [candidates, setCandidates] = useState<SwingCandidate[]>([]);
@@ -1118,7 +1121,7 @@ export default function SwingCandidates() {
 
           <div className="relative z-0 overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
             {/* min-w 940 to fit RTR; widths match SIPs v3.0. */}
-            <table className="w-full min-w-[940px] table-fixed border-collapse">
+            <table ref={phoneTableRef} className="scan-table w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%] !text-left pl-1`} title={colTip('TICKER')} onClick={() => handleSort('symbol')}>TICKER{getSortIcon('symbol')}</th>

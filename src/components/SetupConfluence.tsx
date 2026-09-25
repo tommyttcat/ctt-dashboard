@@ -18,6 +18,7 @@ import {
   SCAN, ScoreCell, RsCell, PriceCell, ChgCell, Ema1021Cell, VolCell, DollarVolCell,
   RvolCell, FloatCell, AdrCell, MfCell, StochCell, DtcCell, McapCell, StageCell, SectorCell,
 } from './scan/ScanTable';
+import { usePhoneTable } from './scan/usePhoneTable';
 import { TickerCell } from './scan/TickerCell';
 import { formatTime } from '@/lib/scans/tableFormat';
 import { poll } from '@/lib/poll';
@@ -194,6 +195,8 @@ type MinOverlapFilter = 2 | 3 | 4;
 type MinStreakFilter = 0 | 3 | 5 | 10;
 
 export default function SetupConfluence() {
+  // Phones: six core columns, tap a row for the rest (components/scan/usePhoneTable).
+  const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();
   const [rows, setRows] = useState<ConfluenceRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -461,7 +464,7 @@ export default function SetupConfluence() {
                 {/* Table */}
                 {!loading && frozenRows.length > 0 && (
                   <div className="overflow-x-auto overflow-y-hidden">
-                    <table className="w-full min-w-[940px] table-fixed border-collapse">
+                    <table ref={phoneTableRef} className="scan-table w-full min-w-[940px] table-fixed border-collapse">
                       <thead>
                         <tr className="border-b border-white/5">
                           <th className={`${thBase} w-[7%] !text-left pl-1`} onClick={() => handleSort('ticker')} title="Ticker symbol">TICKER{getSortIcon('ticker')}</th>

@@ -11,6 +11,7 @@ import TickerChartHover, { useFreezeWhileChartOpen, WatchlistBtn } from './Ticke
 import { WatchlistToggle } from './WatchlistPanel';
 import { adrColor as getAdrColor, tickerChipForScore, tickerTitle, scoreCellCls} from '@/lib/indicators/columnColors';
 import { SCAN, RsCell, ChgCell, VolCell, DollarVolCell, RvolCell, McapCell } from './scan/ScanTable';
+import { usePhoneTable } from './scan/usePhoneTable';
 import { poll } from '@/lib/poll';
 
 interface HighBetaRow {
@@ -68,6 +69,8 @@ const alphaColor = (a: number | null): string => {
 const NEGATIVE_NOTE = 'Reads negative — the tag alone would not have told you that.';
 
 export default function HighBeta() {
+  // Phones: six core columns, tap a row for the rest (components/scan/usePhoneTable).
+  const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();
   const [rows, setRows] = useState<HighBetaRow[]>([]);
   const [status, setStatus] = useState('Syncing DB...');
@@ -189,7 +192,7 @@ export default function HighBeta() {
 
       {isExpanded && (
         <div className="overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'none' }}>
-          <table className="w-full min-w-[940px] table-fixed border-collapse">
+          <table ref={phoneTableRef} className="scan-table w-full min-w-[940px] table-fixed border-collapse">
             <thead>
               <tr className="border-b border-white/5 select-none">
                 <th className={`${thBase} w-[7%] !text-left pl-1`} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>

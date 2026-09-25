@@ -14,6 +14,7 @@ import { displaySector } from '@/lib/sectors';
 import { stageBadge, stageShort, stageDescription } from '@/lib/indicators/stage';
 import { useMarketData } from './MarketDataContext';
 import { SCAN, RvolCell, ScoreCell } from './scan/ScanTable';
+import { usePhoneTable } from './scan/usePhoneTable';
 
 /* This card's reading of negative news: the move already happened, so a
    bearish headline behind a +4% print is the thing to notice. */
@@ -232,6 +233,8 @@ const formatTime = (timestamp: number | Date) => {
 };
 
 export default function DollarVolumeScanner() {
+  // Phones: six core columns, tap a row for the rest (components/scan/usePhoneTable).
+  const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();
   const [raw, setRaw] = useState<Row[]>([]);
   const [status, setStatus] = useState<'loading' | 'live' | 'empty' | 'error'>('loading');
@@ -326,7 +329,7 @@ export default function DollarVolumeScanner() {
     sort.key === key ? <span className="text-indigo-400">{sort.dir === 'asc' ? ' ▲' : ' ▼'}</span> : null;
 
   const renderRows = (list: { row: Row; rank: number }[]) => (
-    <table className="w-full min-w-[940px] table-fixed border-collapse">
+    <table ref={phoneTableRef} className="scan-table w-full min-w-[940px] table-fixed border-collapse">
       <thead>
         <tr className="border-b border-white/5">
           {COLUMNS.map(c => (

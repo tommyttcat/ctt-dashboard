@@ -82,6 +82,7 @@ import { ep9mTier, EP9M_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import ScanStatsNote from './ScanStatsNote';
 import { SCAN, RvolCell, RsCell, PriceCell, DollarVolCell, AdrCell, StatusCell, McapCell, StageCell, SectorCell } from './scan/ScanTable';
+import { usePhoneTable } from './scan/usePhoneTable';
 import { planStatusView } from '@/lib/scans/triggerProximity';
 import { poll } from '@/lib/poll';
 
@@ -566,6 +567,8 @@ const above21 = (c: Ep9mCandidate) => c.aboveEma21 ?? (c.distToEma21 != null ? c
 const above10 = (c: Ep9mCandidate) => c.aboveEma10 ?? (c.distToEma10 != null ? c.distToEma10 >= 0 : null);
 
 export default function Ep9m() {
+  // Phones: six core columns, tap a row for the rest (components/scan/usePhoneTable).
+  const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();
 
   const [candidates, setCandidates] = useState<Ep9mCandidate[]>([]);
@@ -1100,7 +1103,7 @@ export default function Ep9m() {
           <div className="relative z-0 overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
             {/* 18 columns (N added between TICKER and EP).
                 min-w 960; widths sum ~99. */}
-            <table className="w-full min-w-[940px] table-fixed border-collapse">
+            <table ref={phoneTableRef} className="scan-table w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%] !text-left pl-1`} title={colTip('TICKER')} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
