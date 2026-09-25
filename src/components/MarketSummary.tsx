@@ -1246,7 +1246,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
       {/* 28px lead = the card's "3×" count column, so TICKER sits over the
           card's tickers. Grouped with the ticker so justify-between cannot
           push space in between them. */}
-      <span className="inline-flex items-center shrink-0"><span className="inline-block w-[6px] md:w-[28px]" /><span className={`${TP_H} w-[38px] md:w-[44px] text-center`}>TICKER</span></span>
+      <span className="inline-flex items-center shrink-0"><span className="inline-block w-[6px] md:w-[28px]" /><span className={`${TP_H} w-[38px] md:w-[44px] text-center mx-0.5`}>TICKER</span></span>
       <span className="hidden md:inline-block w-[28px]" />
       <span className={`${TP_H} ${TP_SORT} w-[20px] md:w-[22px] text-center md:ml-1`} onClick={() => handleSort('cnf')}>CNF{arrow('cnf')}</span>
       <span className={`${TP_H} ${TP_SORT} w-[40px] md:w-[52px] text-right md:ml-1`} onClick={() => handleSort('chg')}>CHG%{arrow('chg')}</span>
@@ -2009,7 +2009,7 @@ function SortableHeader({ sortKey, sortDir, onSort, isVcp }: { sortKey: SortKey 
   return (
     <div className={scrollRowCls} style={scrollRowStyle}>
       <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
-        <span className="inline-block w-[38px] md:w-[44px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center">TICKER</span>
+        <span className="inline-block shrink-0 w-[38px] md:w-[44px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center mx-0.5">TICKER</span>
         <span className="hidden md:inline-block w-[12px]" />
         <span className="inline-block w-[8px]" />
         <span className="inline-block w-[8px]" />
@@ -2033,7 +2033,7 @@ function HrsSortableHeader({ sortKey, sortDir, onSort }: { sortKey: SortKey | nu
   const arrow = (k: SortKey) => sortKey === k ? (sortDir === 'desc' ? ' ↓' : ' ↑') : '';
   return (
     <div className="flex items-center whitespace-nowrap py-[1px] text-[7px] font-bold tracking-wider uppercase text-slate-600">
-      <span className="w-[38px] md:w-[44px] text-center">TICKER</span>
+      <span className="inline-block shrink-0 w-[38px] md:w-[44px] text-center mx-0.5">TICKER</span>
       <span className={`inline-block w-[28px] md:w-[30px] text-center ml-0.5 ${hCls}`} onClick={() => onSort('hrs')}>HRS{arrow('hrs')}</span>
       <span className={`inline-block w-[46px] md:w-[52px] text-right ml-0.5 ${hCls}`} onClick={() => onSort('chg')}>CHG%{arrow('chg')}</span>
       <span className={`inline-block w-[32px] md:w-[36px] text-right ml-0.5 ${hCls}`} onClick={() => onSort('vol')}>VOL{arrow('vol')}</span>
