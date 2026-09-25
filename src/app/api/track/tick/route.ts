@@ -33,7 +33,7 @@ import {
   type OpenPosition, type TrackResults, type ScanRecord,
 } from '@/lib/track';
 import {
-  PLAN_OPEN_KEY, PLAN_RESULTS_KEY, PLAN_SOURCES, newPlanPosition, stepPlan, foldPlan, isResolved, emptyPlanRecord,
+  PLAN_OPEN_KEY, PLAN_RESULTS_KEY, PLAN_SOURCES, newPlanPosition, stepPlan, foldPlan, markFilled, isResolved, emptyPlanRecord,
   type PlanPosition, type PlanResults,
 } from '@/lib/trackPlan';
 import { edgeTier, multibaggerTier, swingTier, consolidationTier, ep9mTier, vcpTier, hrsTier } from '@/lib/scans/edge';
@@ -118,7 +118,7 @@ export async function GET() {
     for (const p of planOpen) {
       const bar = bars.get(p.t);
       if (!bar) continue;
-      if (stepPlan(p, bar, date)) (planResults.byScan[p.scan] ||= emptyPlanRecord()).filled += 1;
+      if (stepPlan(p, bar, date)) markFilled(planResults, p);
       if (isResolved(p)) foldPlan(planResults, p);
     }
     planKept = planOpen.filter(p => !isResolved(p));

@@ -88,7 +88,34 @@ function splitLead(p: string): [string, string] {
   return [s[0] || '', s.slice(1).join(' ')];
 }
 
+/* The routine's scorecard is a bucket summary — "9 named. 4 hit their buy
+   level (XOM, CVX, CRM, NBIS), 2 stopped out (NTNX, FCX), 3 still waiting
+   (MPC, VLO, PL)." — which the per-ticker splitter below chopped into
+   fragments ("NBIS ), 2 stopped out (NTNX"). One row per bucket instead. */
+const BUCKET_RX = /(\d+)\s+([a-z][a-z' ]*?)\s*\(([^)]*)\)/gi;
+
+function bucketRows(text: string): string | null {
+  const buckets = [...text.matchAll(BUCKET_RX)];
+  if (!buckets.length) return null;
+  const named = text.match(/(\d+)\s+named/i)?.[1];
+  const colorOf = (phrase: string) =>
+    /hit|reached|target/i.test(phrase) ? C.green
+      : /stop|out\b|fail/i.test(phrase) ? C.red
+      : /unverified/i.test(phrase) ? C.muted : C.ink;
+  const head = named ? `<tr><td colspan="2" style="padding:4px 0 6px 0;font-size:14px;color:${C.muted};">${esc(named)} named last week</td></tr>` : '';
+  return head + buckets.map((b, i) => {
+    const phrase = b[2].trim().replace(/^their\s+/, '');
+    const label = phrase.charAt(0).toUpperCase() + phrase.slice(1);
+    return `<tr>
+      <td style="padding:7px 12px 7px 0;${ruleIf(i, buckets.length)}vertical-align:top;white-space:nowrap;font-size:14px;font-weight:700;color:${colorOf(phrase)};">${esc(label)} · ${esc(b[1])}</td>
+      <td align="right" style="padding:7px 0;${ruleIf(i, buckets.length)}vertical-align:top;font-size:14px;font-weight:700;color:${C.ink};">${esc(b[3].split(/,\s*/).join(', '))}</td>
+    </tr>`;
+  }).join('');
+}
+
 function picksRows(text: string): string {
+  const buckets = bucketRows(text);
+  if (buckets) return buckets;
   /* One row per named ticker: items end at ";", at a sentence end, or at a
      comma (or ", and") that is followed by the next ticker. */
   const items = text.split(/;\s+|\.\s+(?=[A-Z$])|,\s+(?:and\s+)?(?=\$?[A-Z]{2,5}\b)/)
@@ -149,7 +176,15 @@ export function pickFromWatch(ws: Any): Pick | null {
 }
 
 /* ---- the email ----------------------------------------------------------- */
+/** The week from the "Followed the levels" record (lib/trackPlan), passed in
+ *  by the route so this module stays free of KV. */
+export interface PlanWeekInput {
+  week: { reached: number; closed: number; wins: number; sumR: number; missed: number; failed: number; expired: number } | null;
+  trades: { scan: string; t: string; buy: number; stop: number; dip: boolean; state: string; r: number | null; closedOn: string | null }[];
+}
+
 export interface WeeklyV2Input {
+  planWeek?: PlanWeekInput | null;
   narrative: Any;
   /** { SPY: { pct }, QQQ: …, DIA: …, IWM: … } — the week's open-to-close change. */
   weeklyChanges?: Record<string, { pct?: number } | undefined> | null;
@@ -159,7 +194,49 @@ export interface WeeklyV2Input {
 
 const INDEX_TILES: [string, string][] = [['SPY', 'S&P 500'], ['QQQ', 'Nasdaq 100'], ['DIA', 'Dow'], ['IWM', 'Russell 2000']];
 
-export function buildWeeklyEmailV2({ narrative, weeklyChanges, mondayStr, fridayStr }: WeeklyV2Input): string {
+const PLAN_SCAN_LABEL: Record<string, string> = {
+  sip: 'Stocks in Play', daily: 'Daily Setups', ep9m: 'EP9M', swing: 'Swing', vcp: 'VCP', consolidation: '10/21',
+};
+
+const usd = (r: number | null) => {
+  if (r == null) return '—';
+  const d = Math.round(r * 100);
+  return `${d > 0 ? '+' : d < 0 ? '−' : ''}$${Math.abs(d)}`;
+};
+
+/* "Followed the levels" — straight from the record, no model in the loop, so
+   the numbers are exact. Every pick shown with a buy level counts only once it
+   traded that level; the never-bought ones are counted, not hidden. */
+function planWeekCard(pw: PlanWeekInput | null | undefined): string {
+  const w = pw?.week;
+  const trades = (pw?.trades ?? []).filter(t => t.r != null).slice(0, 8);
+  if (!w && !trades.length) return '';
+  const notBought = w ? w.missed + w.failed + w.expired : 0;
+  const stat = (lbl: string, val: string, color: string = C.ink) =>
+    `<td width="33%" style="width:33%;padding:6px 0;vertical-align:top;"><div style="font-size:12px;color:${C.muted};white-space:nowrap;">${esc(lbl)}</div><div style="font-size:18px;font-weight:800;color:${color};white-space:nowrap;">${esc(val)}</div></td>`;
+  const avg = w && w.closed ? w.sumR / w.closed : null;
+  const stats = w ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;"><tr>
+      ${stat('Reached level', String(w.reached))}
+      ${stat('Winners', w.closed ? `${w.wins} of ${w.closed}` : '—')}
+      ${stat('Per $100', usd(avg), avg == null ? C.ink : avg >= 0 ? C.green : C.red)}
+    </tr></table>
+    ${notBought ? `<div style="font-size:13px;line-height:1.5;color:${C.muted};margin-top:4px;">Never bought: ${w.missed} gapped past the level, ${w.failed} hit the stop first, ${w.expired} never got there.</div>` : ''}` : '';
+  const TH = `font-size:10px;font-weight:700;letter-spacing:1px;color:${C.muted};padding:4px 0;border-bottom:1px solid ${C.border};`;
+  const TD = `padding:7px 0;border-bottom:1px solid ${C.rule};font-size:14px;`;
+  const result = (s: string) => s === 'target' ? ['Target', C.green] : s === 'stopped' ? ['Stopped', C.red] : ['60 days', C.body];
+  const table = trades.length ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;">
+      <tr><td style="${TH}">TICKER</td><td style="${TH}">SCAN</td><td align="right" style="${TH}">RESULT</td><td align="right" style="${TH}">PER $100</td></tr>
+      ${trades.map(t => {
+        const [lbl, col] = result(t.state);
+        return `<tr><td style="${TD}font-weight:800;color:${C.ink};">${esc(t.t)}</td><td style="${TD}color:${C.muted};">${esc(PLAN_SCAN_LABEL[t.scan] ?? t.scan)}</td><td align="right" style="${TD}font-weight:700;color:${col};">${lbl}</td><td align="right" style="${TD}font-weight:700;color:${(t.r ?? 0) >= 0 ? C.green : C.red};white-space:nowrap;">${usd(t.r)}</td></tr>`;
+      }).join('')}
+    </table>` : '';
+  return card(`${label('Followed the levels this week', C.green)}
+    <div style="font-size:14px;line-height:1.5;color:${C.body};margin-top:8px;">Every pick the site showed with a buy level and a stop, counted only once it reached the buy level.</div>
+    ${stats}${table}`);
+}
+
+export function buildWeeklyEmailV2({ narrative, weeklyChanges, mondayStr, fridayStr, planWeek }: WeeklyV2Input): string {
   const n = narrative && typeof narrative === 'object' ? narrative : {};
   const range = weekRangeLabel(mondayStr, fridayStr);
 
@@ -242,6 +319,6 @@ export function buildWeeklyEmailV2({ narrative, weeklyChanges, mondayStr, friday
   return emailShell({
     title: 'CTT Weekly Wrap',
     pill: range ? `Weekly wrap · ${range}` : 'Weekly wrap',
-    sections: [cover, hero, picksHtml, macro, moved, watchHtml, avoid, next],
+    sections: [cover, hero, picksHtml, planWeekCard(planWeek), macro, moved, watchHtml, avoid, next],
   });
 }

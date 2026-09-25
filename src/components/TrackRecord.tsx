@@ -426,7 +426,7 @@ function PlanSection({ plan }: { plan: PlanPayload | null | undefined }) {
                   );
                 })}
               </div>
-              <p className="text-[10px] text-slate-500 mt-1.5">$ is the result for every $100 risked. Grey rows were never bought.</p>
+              <p className="text-[10px] text-slate-500 mt-1.5">Finished trades, newest first. $ is the result for every $100 risked.</p>
             </div>
           )}
         </>

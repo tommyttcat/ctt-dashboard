@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server';
 import { authorized } from '@/lib/apiAuth';
+import { PLAN_RESULTS_KEY, type PlanResults } from '@/lib/trackPlan';
 import { etGate } from '@/lib/etCron';
 import { Resend } from 'resend';
 import { getEmailRecipients } from '@/lib/users';
 import { postToBluesky } from '@/lib/bluesky';
 import { postToX } from '@/lib/twitter';
 import { kv } from '@vercel/kv';
-import { buildWeeklyEmailV2 } from '@/lib/email/weeklyV2';
+import { buildWeeklyEmailV2, type PlanWeekInput } from '@/lib/email/weeklyV2';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -953,9 +954,21 @@ export async function GET(req: Request) {
   /* The light, card-based wrap (lib/email/weeklyV2) is the default since
      24 Sep 2026, matching the phase email. design=v1 renders the old dark
      layout, kept as a fallback. */
+  /* The week from the "Followed the levels" record: one KV read per send. */
+  let planWeek: PlanWeekInput | null = null;
+  try {
+    const pr = await kv.get<PlanResults>(PLAN_RESULTS_KEY);
+    if (pr) {
+      planWeek = {
+        week: pr.byWeek?.[mStr] ?? null,
+        trades: (pr.recent ?? []).filter(p => p.closedOn != null && p.closedOn >= mStr && p.closedOn <= fStr),
+      };
+    }
+  } catch { /* the wrap still goes out without it */ }
+
   const useV2 = url.searchParams.get('design') !== 'v1';
   const html = useV2
-    ? buildWeeklyEmailV2({ narrative, weeklyChanges, mondayStr: mStr, fridayStr: fStr })
+    ? buildWeeklyEmailV2({ narrative, weeklyChanges, mondayStr: mStr, fridayStr: fStr, planWeek })
     : buildEmail(
         narrative, weeklyChanges, watchTickers, scannerForEmail,
         econ, earnings, sectors, mStr, fStr, nmStr, nfStr,

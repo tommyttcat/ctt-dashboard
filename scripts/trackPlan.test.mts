@@ -6,7 +6,7 @@
  */
 
 import {
-  newPlanPosition, stepPlan, foldPlan, isResolved, PLAN_VALID_SESSIONS,
+  newPlanPosition, stepPlan, foldPlan, markFilled, isResolved, weekOf, PLAN_VALID_SESSIONS,
   type PlanPosition, type PlanResults,
 } from '../src/lib/trackPlan.ts';
 import { HOLD_SESSIONS } from '../src/lib/track.ts';
@@ -117,7 +117,22 @@ eq('VCP falls back to ATR for the chase line', newPlanPosition('vcp', { symbol: 
   eq('one winner', r.wins, 1);
   near('sum of R is exact', r.sumR, 1);
   eq('the miss is counted apart, not as a trade', r.missed, 1);
-  eq('recent keeps every resolution, newest first', res.recent.map(p => p.state).join(','), 'missed,stopped,target');
+  eq('recent lists trades only, newest first', res.recent.map(p => p.state).join(','), 'stopped,target');
+}
+
+// ---- weeks ---------------------------------------------------------------------
+eq('weekOf: a Thursday belongs to its Monday', weekOf('2026-09-24'), '2026-09-21');
+eq('weekOf: a Monday is its own week', weekOf('2026-09-21'), '2026-09-21');
+eq('weekOf: a Sunday belongs to the Monday before', weekOf('2026-09-27'), '2026-09-21');
+{
+  const res: PlanResults = { startedOn: 'd', byScan: {}, recent: [] };
+  const a = pos(); stepPlan(a, bar(99, 101, 98.5, 100.5), '2026-09-24'); markFilled(res, a);
+  stepPlan(a, bar(101, 111, 100, 109), '2026-09-28'); foldPlan(res, a);
+  const m = pos(); stepPlan(m, bar(105, 106, 104.5, 105), '2026-09-25'); foldPlan(res, m);
+  eq('fill counts in the week it filled', res.byWeek?.['2026-09-21']?.reached, 1);
+  eq('a miss counts in the week it resolved', res.byWeek?.['2026-09-21']?.missed, 1);
+  eq('the close counts in the week it closed', res.byWeek?.['2026-09-28']?.closed, 1);
+  near('with its R', res.byWeek?.['2026-09-28']?.sumR, 2);
 }
 
 done('track plan');

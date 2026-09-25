@@ -36,7 +36,8 @@ import { rMultiple, targetFor, HOLD_SESSIONS } from '@/lib/track';
 export const PLAN_OPEN_KEY = 'track_plan_open_v1';
 export const PLAN_RESULTS_KEY = 'track_plan_results_v1';
 export const PLAN_VALID_SESSIONS = 10;
-export const PLAN_RECENT_CAP = 40;
+export const PLAN_RECENT_CAP = 60;
+export const PLAN_WEEKS_KEPT = 26;
 
 /** The six tables with a buy level and a stop, and the `_source` each needs:
  *  EP9M is a dip plan and VCP keeps its levels at the top of the row. */
@@ -80,10 +81,21 @@ export interface PlanScanRecord {
   open: number;            // right now, recomputed each tick
 }
 
+/** One ET week (keyed by its Monday), for the Sunday wrap. A fill counts in
+ *  the week it filled; a resolution in the week it closed. */
+export interface PlanWeek {
+  reached: number; closed: number; wins: number; sumR: number;
+  missed: number; failed: number; expired: number;
+}
+
 export interface PlanResults {
   startedOn: string;
   byScan: Record<string, PlanScanRecord>;
-  recent: PlanPosition[];  // newest first, every resolution — the trades themselves
+  /* Newest first, trades only (filled and closed). The never-bought ones are
+     counted, not listed: at ~45 picks a day their expiries would push every
+     real trade out of a capped list within a week. */
+  recent: PlanPosition[];
+  byWeek?: Record<string, PlanWeek>;
   updatedAt?: string;
 }
 
@@ -162,17 +174,48 @@ export function stepPlan(p: PlanPosition, bar: Bar, date: string): boolean {
 
 export const isResolved = (p: PlanPosition) => p.state !== 'watching' && p.state !== 'filled';
 
-/** Fold a resolved position into its scan's running counts. Sums, not rolling
- *  averages, so the page's average is exact at any sample size. */
+/** The Monday (YYYY-MM-DD) of the week a session date falls in. */
+export function weekOf(date: string): string {
+  const d = new Date(`${date}T12:00:00Z`);
+  const back = (d.getUTCDay() + 6) % 7;          // Mon → 0 … Sun → 6
+  d.setUTCDate(d.getUTCDate() - back);
+  return d.toISOString().slice(0, 10);
+}
+
+const emptyWeek = (): PlanWeek => ({ reached: 0, closed: 0, wins: 0, sumR: 0, missed: 0, failed: 0, expired: 0 });
+
+function weekRec(results: PlanResults, date: string | null): PlanWeek | null {
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const weeks = (results.byWeek ||= {});
+  const k = weekOf(date);
+  if (!weeks[k]) {
+    weeks[k] = emptyWeek();
+    const keys = Object.keys(weeks).sort();
+    for (const old of keys.slice(0, Math.max(0, keys.length - PLAN_WEEKS_KEPT))) delete weeks[old];
+  }
+  return weeks[k];
+}
+
+/** Count a fill — per scan, and in the week it happened. */
+export function markFilled(results: PlanResults, p: PlanPosition): void {
+  (results.byScan[p.scan] ||= emptyPlanRecord()).filled += 1;
+  const w = weekRec(results, p.fillDate);
+  if (w) w.reached += 1;
+}
+
+/** Fold a resolved position into its scan's running counts and its week.
+ *  Sums, not rolling averages, so every average is exact at any sample size. */
 export function foldPlan(results: PlanResults, p: PlanPosition): void {
   const rec = (results.byScan[p.scan] ||= emptyPlanRecord());
-  if (p.state === 'missed') rec.missed += 1;
-  else if (p.state === 'failed') rec.failed += 1;
-  else if (p.state === 'expired') rec.expired += 1;
+  const w = weekRec(results, p.closedOn);
+  if (p.state === 'missed') { rec.missed += 1; if (w) w.missed += 1; }
+  else if (p.state === 'failed') { rec.failed += 1; if (w) w.failed += 1; }
+  else if (p.state === 'expired') { rec.expired += 1; if (w) w.expired += 1; }
   else if (p.r != null) {
     rec.closed += 1;
     rec.sumR = +(rec.sumR + p.r).toFixed(4);
     if (p.r > 0) rec.wins += 1;
+    if (w) { w.closed += 1; w.sumR = +(w.sumR + p.r).toFixed(4); if (p.r > 0) w.wins += 1; }
+    results.recent = [p, ...results.recent].slice(0, PLAN_RECENT_CAP);
   }
-  results.recent = [p, ...results.recent].slice(0, PLAN_RECENT_CAP);
 }
