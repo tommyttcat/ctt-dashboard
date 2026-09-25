@@ -1163,13 +1163,14 @@ const BreakoutWatch = ({ watch }: { watch: OrbWatchStatus | null | undefined }) 
   const rows = [...watch.rows].sort((a, b) => ORB_ORDER[a.state] - ORB_ORDER[b.state] || b.rs - a.rs);
   const detail = (r: OrbWatchStatus['rows'][number]): string => {
     switch (r.state) {
-      case 'go': return `Broke ${r.orHigh?.toFixed(2) ?? ''} at ${r.goAt != null ? etClock(r.goAt) : '—'} · stop ${r.stop.toFixed(2)}`;
-      case 'wait': return `Needs ${r.orHigh?.toFixed(2) ?? '—'} · vol ${r.pace != null ? r.pace.toFixed(1) : '—'}× (1.5×)`;
+      // Short on purpose: 360px phones, with slack for Safari's wider font.
+      case 'go': return `${r.orHigh?.toFixed(2) ?? '—'} at ${r.goAt != null ? etClock(r.goAt) : '—'} · stop ${r.stop.toFixed(2)}`;
+      case 'wait': return `Needs ${r.orHigh?.toFixed(2) ?? '—'} · vol ${r.pace != null ? r.pace.toFixed(1) : '—'}×`;
       case 'pending': return 'Range sets 9:30–10:00';
-      case 'stopped': return `Broke out${r.goAt != null ? ` ${etClock(r.goAt)}` : ''}, then hit ${r.stop.toFixed(2)}`;
-      case 'out': return `Under its stop ${r.stop.toFixed(2)}`;
-      case 'none': return 'No breakout — not a buy today';
-      case 'nodata': return 'Could not be checked';
+      case 'stopped': return `Broke${r.goAt != null ? ` ${etClock(r.goAt)}` : ''}, hit ${r.stop.toFixed(2)}`;
+      case 'out': return `Under stop ${r.stop.toFixed(2)}`;
+      case 'none': return 'No breakout today';
+      case 'nodata': return 'Not checked';
     }
   };
   return (
@@ -1189,7 +1190,7 @@ const BreakoutWatch = ({ watch }: { watch: OrbWatchStatus | null | undefined }) 
                 <span className="inline-flex items-center shrink-0">
                   <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
                 </span>
-                <span className={`font-bold tabular-nums shrink-0 w-[46px] ${st.cls}`}>{st.word}</span>
+                <span className={`font-bold tabular-nums shrink-0 w-[56px] ${st.cls}`}>{st.word}</span>
                 <span className="text-slate-400 tabular-nums truncate min-w-0">{detail(r)}</span>
               </div>
             );
@@ -1322,7 +1323,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
       </p>
       {/* The tested entry (lib/orb, scripts/backtest/intraday.ts E2), in one line. */}
       <p className="text-[10px] text-slate-500 font-medium mt-0.5">
-        <span className="text-slate-300 font-bold">Timing</span> · after 10:00, buy the break of the first 30 minutes&apos; high on 1.5× normal volume
+        <span className="text-slate-300 font-bold">Timing</span>{' · '}after 10:00, buy the break of the first 30 minutes&apos; high on 1.5× normal volume
       </p>
     </div>
   );
