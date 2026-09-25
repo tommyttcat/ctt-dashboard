@@ -170,7 +170,7 @@ import {
   parseEtDateTime,
 } from '@/lib/summary/insights';
 import type { EarningsEvent, EconEvent, MacroInsights } from '@/lib/summary/insights';
-import { poll } from '@/lib/poll';
+import { poll, pollMs } from '@/lib/poll';
 
 
 
@@ -1333,6 +1333,10 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
   );
 };
 
+type LiveQuotesView = { live: boolean; asOf: number; session: string; quotes: Record<string, { price: number; pct: number; prevClose: number }>; error?: string };
+const fmtEtClock = (ms: number | null | undefined) =>
+  ms ? new Date(ms).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) : '—';
+
 const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter: sf, rsMap, stageMap, topSet, onVisibleChange, orbWatch }: {
   pool: any[];
   gradeMap?: Record<string, 'A' | 'B'>;
@@ -1350,6 +1354,30 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
     if (!topSet?.size) return pool;
     return pool.map(s => topSet.has(s.ticker) ? { ...s, _isTop: true } : s);
   }, [pool, topSet]);
+
+  /* Live price + day change for this card's names (/api/live-quotes, Webull
+     real-time). The scan rows are 15-30 minutes behind the market; here a
+     stale price can flip WAIT and HIT, so these rows — and the Buy & stop
+     box, which reads the same rows — show the live number. One sorted list
+     of the whole pool, so every viewer sends the same URL and the edge cache
+     holds it: flat in users. Rows keep the scan's order; only the numbers
+     change. A name with no live quote keeps its scan price. */
+  const liveSyms = React.useMemo(
+    () => [...new Set(taggedPool.map((x: any) => String(x?.ticker ?? '').toUpperCase()).filter(Boolean))].sort().slice(0, 100).join(','),
+    [taggedPool],
+  );
+  const [live, setLive] = React.useState<LiveQuotesView | null>(null);
+  React.useEffect(() => {
+    if (!liveSyms) { setLive(null); return; }
+    let on = true;
+    const load = () => fetch(`/api/live-quotes?s=${liveSyms}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (on) setLive(j && typeof j === 'object' ? j : null); })
+      .catch(() => { if (on) setLive(null); });
+    load();
+    const stop = poll(load, pollMs.marketHours(30_000, 300_000));
+    return () => { on = false; stop(); };
+  }, [liveSyms]);
 
   const [activeKey, setActiveKey] = React.useState<string | null>('cnf');
   const [sortKey, setSortKey] = React.useState<SortKey>('cnf');
@@ -1395,6 +1423,18 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
     };
     return [...base].sort(cmp).slice(0, 20);
   }, [taggedPool, activeKey, edgeKey, sortKey, sortDir, sf]);
+
+  // Sorted and filtered on the scan's numbers above; the live overlay only
+  // replaces what is displayed, so rows do not jump as prices tick.
+  const shown = React.useMemo(() => {
+    const q = live?.quotes;
+    if (!q) return filtered;
+    return filtered.map((x: any) => {
+      const lq = q[String(x?.ticker ?? '').toUpperCase()];
+      return lq ? { ...x, price: lq.price, last: lq.price, change: lq.pct, changePct: lq.pct, _live: true } : x;
+    });
+  }, [filtered, live]);
+  const liveCount = shown.filter((x: any) => x._live).length;
 
   const tickers = filtered.map(s => s.ticker).filter(Boolean);
 
@@ -1469,7 +1509,6 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
           {(() => {
             const useTwoCols = filtered.length > 5;
             const mid = useTwoCols ? Math.ceil(filtered.length / 2) : filtered.length;
-            const left = filtered.slice(0, mid);
             const right = useTwoCols ? filtered.slice(mid) : [];
             return (
               <div className={useTwoCols ? 'grid grid-cols-1 md:grid-cols-2 gap-x-6' : ''}>
@@ -1478,7 +1517,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
                     <div className="w-[28px] shrink-0" />
                     <div className="flex-1 min-w-0"><SortableHeader sortKey={sortKey} sortDir={sortDir} onSort={handleSort} /></div>
                   </div>
-                  {left.map((s, i) => renderSetupRow(s, i, gradeMap, dotMap, postureMap, avoidSet, rsMap, stageMap))}
+                  {shown.slice(0, mid).map((s, i) => renderSetupRow(s, i, gradeMap, dotMap, postureMap, avoidSet, rsMap, stageMap))}
                 </div>
                 {right.length > 0 && (
                   <div className="space-y-0">
@@ -1486,7 +1525,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
                       <div className="w-[28px] shrink-0" />
                       <div className="flex-1 min-w-0"><SortableHeader sortKey={sortKey} sortDir={sortDir} onSort={handleSort} /></div>
                     </div>
-                    {right.map((s, i) => renderSetupRow(s, 100 + i, gradeMap, dotMap, postureMap, avoidSet, rsMap, stageMap))}
+                    {shown.slice(mid).map((s, i) => renderSetupRow(s, 100 + i, gradeMap, dotMap, postureMap, avoidSet, rsMap, stageMap))}
                   </div>
                 )}
               </div>
@@ -1494,6 +1533,11 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
           })()}
           <p className="text-[10px] text-slate-500 font-medium mt-2">
             {filtered.length} name{filtered.length !== 1 ? 's' : ''}{activeKey ? ` — ${ALL_SETUP_FILTERS.find(f => f.key === activeKey)?.label ?? activeKey}` : ' — all scans'}.
+            {/* Says plainly whether the prices here are live, so a Webull
+                outage or a lapsed subscription never passes silently. */}
+            {' '}{liveCount > 0 && live
+              ? <span className="text-emerald-400/80">Prices live · {fmtEtClock(live.asOf)} ET</span>
+              : <span className="text-amber-400/80">Prices delayed 15–30 min</span>}
           </p>
           {/* Legend for the row tint. The three states come from the 5-year
               scanner backtest and only use traits that held in both halves —
@@ -1513,7 +1557,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
           from the same filtered list, so a pill that narrows the card narrows
           this too. */}
       <BreakoutWatch watch={orbWatch} />
-      <TriggerProximity pool={filtered} />
+      <TriggerProximity pool={shown} />
     </div>
   );
 };
@@ -1853,6 +1897,14 @@ const sectionStyles = (color: string) => {
   }
 };
 
+/* Which scan feeds each card — for its "as of" time. Setups Summary pools every
+   scan and shows live prices instead (see SetupSummary). */
+const CARD_SCAN: Record<string, string> = {
+  'Top Movers': 'scanner', 'SIPs Thesis': 'scanner', 'Daily Setups Thesis': 'scanner',
+  '$Vol Summary': 'dvol', 'Reversal Swing Thesis': 'swing', '10/21 Thesis': 'consol',
+  'VCP Thesis': 'vcp', 'EP9M Thesis': 'ep9m', '100-Bagger Thesis': 'mb',
+};
+
 const STD_HEADERS = ['', 'TICKER', '', 'CNF', 'CHG%', 'PRC', '', 'RVOL', 'VOL', '$VOL', 'RS', 'STG', 'N'];
 const SECTION_HEADERS: Record<string, string[]> = {
   'Top Movers': STD_HEADERS,
@@ -2072,6 +2124,9 @@ export default function MarketSummary() {
   const [data, setData] = useState<SummaryData | null>(null);
   const [macroInsights, setMacroInsights] = useState<MacroInsights | null>(null);
   const [orbWatch, setOrbWatch] = useState<OrbWatchStatus | null>(null);
+  /* When each card's scan last ran, shown as "as of" in its header: the rows'
+     numbers are that old (plus the data feed's 15-minute delay). */
+  const [scanTimes, setScanTimes] = useState<Record<string, number | null>>({});
   const [hrsTop, setHrsTop] = useState<HrsRow[]>([]);
   const [status, setStatus] = useState<'Loading' | 'Synced' | 'Error'>('Loading');
   const [session, setSession] = useState<MarketSession>('Closed');
@@ -2232,6 +2287,12 @@ export default function MarketSummary() {
            the real route instead of the aggregator's copy of it. */
         if (!scannerData) throw new Error('No scanner data available');
         if (isMounted) setOrbWatch(scannerData.orbWatch ?? null);
+        if (isMounted) setScanTimes({
+          scanner: scannerData.lastScanTime ?? null, dvol: dvolRes?.lastScanTime ?? null,
+          swing: swingRes?.lastScanTime ?? null, consol: consolRes?.lastScanTime ?? null,
+          vcp: vcpRes?.lastScanTime ?? null, ep9m: ep9mRes?.lastScanTime ?? null,
+          mb: mbRes?.lastScanTime ?? null, hrs: hrsRes?.lastScanTime ?? null,
+        });
 
         const ep9mList: any[] = ep9mRes?.candidates ?? [];
         const ep9mRepeatPivots: Record<string, { count: number; events: { date: string; price: number; vol: number; rvol: number; score: number }[] }> = ep9mRes?.repeatPivots ?? {};
@@ -2561,6 +2622,11 @@ export default function MarketSummary() {
                                   </div>
                                   {hrsIsOpen && <span onClick={e => e.stopPropagation()}><SectionCopyButton tickers={hrsTop.map(h => h.symbol)} /></span>}
                                   {hrsIsOpen && <span onClick={e => e.stopPropagation()}><SectionTxtButton tickers={hrsTop.map(h => h.symbol)} /></span>}
+                                  {scanTimes.hrs && (
+                                    <span className="text-[8px] font-medium text-slate-500 tabular-nums" title="When this card's scan last ran. Its numbers are that old, plus the data feed's 15-minute delay.">
+                                      as of {fmtEtClock(scanTimes.hrs)} ET
+                                    </span>
+                                  )}
                                   {!hrsIsOpen && <span className="text-[8px] text-slate-600 font-medium">{hrsTop.map(h => h.symbol).join(' · ')}</span>}
                                 </div>
                                 {hrsIsOpen && (
@@ -2611,6 +2677,11 @@ export default function MarketSummary() {
                                       />
                                     )}
                                     {isOpen && label === 'Setups Summary' && <SetupSummaryHelp />}
+                                    {label && CARD_SCAN[label] && scanTimes[CARD_SCAN[label]] && (
+                                      <span className="text-[8px] font-medium text-slate-500 tabular-nums" title="When this card's scan last ran. Its numbers are that old, plus the data feed's 15-minute delay.">
+                                        as of {fmtEtClock(scanTimes[CARD_SCAN[label]])} ET
+                                      </span>
+                                    )}
                                     {isOpen && label === 'Top Movers' && (
                                       <div className="flex items-center gap-1 ml-1">
                                         <button
