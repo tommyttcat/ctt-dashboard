@@ -737,30 +737,27 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
       <div className={`${scrollRowCls} flex-1 min-w-0`} style={scrollRowStyle}>
       <div className="flex items-center whitespace-nowrap py-[1px]">
         <TickerChartHover symbol={p.ticker}><span className={`${chipBase} w-[38px] md:w-[44px]`}>{p.ticker}</span></TickerChartHover>
-        <span className="hidden md:inline-block w-[12px] text-center leading-none shrink-0" />
+        <span className="inline-block w-[12px] text-center leading-none shrink-0" />
         <span className="inline-block w-[8px] text-center shrink-0">
           {p.blueDot && <span className="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_5px_rgba(56,189,248,0.6)]" title="Blue Dot reversal — oversold stochastic reset fired on the daily" />}
         </span>
         <span className="inline-block w-[8px] text-center shrink-0">
           {pMeta ? <span title={`${pMeta.short} — ${pMeta.tip}`} className={`inline-block w-[6px] h-[6px] rounded-full cursor-help ${pMeta.tone === 'good' ? 'bg-emerald-400' : pMeta.tone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`} /> : null}
         </span>
-        <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-[2px] md:ml-1 shrink-0 w-[20px] md:w-[22px] leading-[14px] text-center ${neutralScore ? CNF_NEUTRAL : cnfBadgeCls(p.cnf)}`} title={neutralScore ? 'This scan\'s score describes the setup; in the 5-year test it did not predict how the trade went, so it is not coloured as a grade.' : undefined}>{p.cnf}</span>
-        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[44px] md:w-[52px] text-right ml-[2px] md:ml-1 shrink-0 ${p.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{p.chg >= 0 ? '+' : ''}{Math.abs(p.chg) >= 100
-            /* Phones: one decimal from +100% up, so "+107.98%" fits the 44px column. */
-            ? <><span className="md:hidden">{p.chg.toFixed(1)}</span><span className="hidden md:inline">{p.chg.toFixed(2)}</span></>
-            : p.chg.toFixed(2)}%</span>
-        <span className="text-[9px] tabular-nums inline-block w-[34px] md:w-[42px] text-right text-slate-300 ml-[2px] md:ml-1 shrink-0">{fmtPrc(p.price ?? priceMap?.[p.ticker])}</span>
-        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[24px] md:w-[40px] text-right ml-[2px] md:ml-1 shrink-0 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? `${rv < 1 ? rv.toFixed(1) : Math.round(rv)}x` : ''}</span>
-        <span className={`text-[9px] tabular-nums hidden md:inline-block w-[30px] md:w-[36px] text-right ml-2 md:ml-1 ${isDash ? 'text-transparent' : 'text-slate-400'}`}>{isDash ? '' : p.vol}</span>
-        <span className={`text-[9px] tabular-nums inline-block w-[34px] md:w-[40px] text-right ml-[2px] md:ml-1 shrink-0 ${dIsDash ? 'text-transparent' : 'text-slate-300'}`}>{dIsDash ? '' : p.dvol}</span>
-        {tNum && <span className="text-[9px] tabular-nums font-semibold text-slate-300 hidden md:inline-block w-[20px] md:w-[24px] text-center ml-2 md:ml-1">{tNum}</span>}
-        <span className="inline-block w-[22px] md:w-[24px] text-center ml-[2px] md:ml-1 shrink-0">{p.rs != null ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(p.rs)}`}>{p.rs}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
-        <span className="inline-block w-[22px] md:w-[24px] text-center ml-[2px] md:ml-1 shrink-0">{p.stage && p.stage !== '—' ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(p.stage)}`}>{p.stage}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
+        <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border ml-2 md:ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${neutralScore ? CNF_NEUTRAL : cnfBadgeCls(p.cnf)}`} title={neutralScore ? 'This scan\'s score describes the setup; in the 5-year test it did not predict how the trade went, so it is not coloured as a grade.' : undefined}>{p.cnf}</span>
+        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${p.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{p.chg >= 0 ? '+' : ''}{p.chg.toFixed(2)}%</span>
+        <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-2 md:ml-1">{fmtPrc(p.price ?? priceMap?.[p.ticker])}</span>
+        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-2 md:ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? `${rv < 1 ? rv.toFixed(1) : Math.round(rv)}x` : ''}</span>
+        <span className={`text-[9px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-2 md:ml-1 ${isDash ? 'text-transparent' : 'text-slate-400'}`}>{isDash ? '' : p.vol}</span>
+        <span className={`text-[9px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-2 md:ml-1 ${dIsDash ? 'text-transparent' : 'text-slate-300'}`}>{dIsDash ? '' : p.dvol}</span>
+        {tNum && <span className="text-[9px] tabular-nums font-semibold text-slate-300 inline-block w-[20px] md:w-[24px] text-center ml-2 md:ml-1">{tNum}</span>}
+        <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{p.rs != null ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(p.rs)}`}>{p.rs}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
+        <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{p.stage && p.stage !== '—' ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(p.stage)}`}>{p.stage}</span> : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
         {p.newsCount >= 1 && p.newsUrl ? (
           <a href={p.newsUrl} target="_blank" rel="noopener noreferrer" title={p.newsTip || ''} onClick={(e) => e.stopPropagation()}
-            className={`hidden md:inline-block w-[14px] md:w-[16px] text-center ${p.newsCount >= 2 ? 'text-amber-400' : 'text-slate-500'} hover:brightness-125 font-bold text-[7px] leading-none cursor-pointer transition-all ml-2 md:ml-1`}>{'★'.repeat(p.newsCount)}</a>
+            className={`inline-block w-[14px] md:w-[16px] text-center ${p.newsCount >= 2 ? 'text-amber-400' : 'text-slate-500'} hover:brightness-125 font-bold text-[7px] leading-none cursor-pointer transition-all ml-2 md:ml-1`}>{'★'.repeat(p.newsCount)}</a>
         ) : (
-          <span className="hidden md:inline-block w-[14px] md:w-[16px] ml-2 md:ml-1"></span>
+          <span className="inline-block w-[14px] md:w-[16px] ml-2 md:ml-1"></span>
         )}
         {/* setup badges (REV, etc.) removed — N is the last column */}
         {extraEls}
@@ -2010,19 +2007,19 @@ function SortableHeader({ sortKey, sortDir, onSort, isVcp }: { sortKey: SortKey 
     <div className={scrollRowCls} style={scrollRowStyle}>
       <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
         <span className="inline-block shrink-0 w-[38px] md:w-[44px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center mx-0.5">TICKER</span>
-        <span className="hidden md:inline-block w-[12px]" />
+        <span className="inline-block w-[12px]" />
         <span className="inline-block w-[8px]" />
         <span className="inline-block w-[8px]" />
-        <span className={`inline-block shrink-0 w-[20px] md:w-[22px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-[2px] md:ml-1 ${hCls}`} onClick={() => onSort('cnf')}>CNF{arrow('cnf')}</span>
-        <span className={`inline-block shrink-0 w-[44px] md:w-[52px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-[2px] md:ml-1 ${hCls}`} onClick={() => onSort('chg')}>CHG%{arrow('chg')}</span>
-        <span className="inline-block shrink-0 w-[34px] md:w-[42px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-[2px] md:ml-1">PRC</span>
-        <span className={`inline-block shrink-0 w-[24px] md:w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-[2px] md:ml-1 ${hCls}`} onClick={() => onSort('rvol')}>RVOL{arrow('rvol')}</span>
-        <span className={`hidden md:inline-block w-[30px] md:w-[36px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hCls}`} onClick={() => onSort('vol')}>VOL{arrow('vol')}</span>
-        <span className={`inline-block shrink-0 w-[34px] md:w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-[2px] md:ml-1 ${hCls}`} onClick={() => onSort('dvol')}>$VOL{arrow('dvol')}</span>
-        {isVcp && <span className="hidden md:inline-block w-[20px] md:w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1">T#</span>}
-        <span className={`inline-block shrink-0 w-[22px] md:w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-[2px] md:ml-1 ${hCls}`} onClick={() => onSort('rs')}>RS{arrow('rs')}</span>
-        <span className={`inline-block shrink-0 w-[22px] md:w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-[2px] md:ml-1 ${hCls}`} onClick={() => onSort('stg')}>STG{arrow('stg')}</span>
-        <span className="hidden md:inline-block w-[14px] md:w-[16px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1">N</span>
+        <span className={`inline-block w-[20px] md:w-[22px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1 ${hCls}`} onClick={() => onSort('cnf')}>CNF{arrow('cnf')}</span>
+        <span className={`inline-block w-[46px] md:w-[52px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-1 ${hCls}`} onClick={() => onSort('chg')}>CHG%{arrow('chg')}</span>
+        <span className="inline-block w-[36px] md:w-[42px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1">PRC</span>
+        <span className={`inline-block w-[36px] md:w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hCls}`} onClick={() => onSort('rvol')}>RVOL{arrow('rvol')}</span>
+        <span className={`inline-block w-[30px] md:w-[36px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hCls}`} onClick={() => onSort('vol')}>VOL{arrow('vol')}</span>
+        <span className={`inline-block w-[36px] md:w-[40px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-right ml-2 md:ml-1 ${hCls}`} onClick={() => onSort('dvol')}>$VOL{arrow('dvol')}</span>
+        {isVcp && <span className="inline-block w-[20px] md:w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1">T#</span>}
+        <span className={`inline-block w-[22px] md:w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1 ${hCls}`} onClick={() => onSort('rs')}>RS{arrow('rs')}</span>
+        <span className={`inline-block w-[22px] md:w-[24px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1 ${hCls}`} onClick={() => onSort('stg')}>STG{arrow('stg')}</span>
+        <span className="inline-block w-[14px] md:w-[16px] text-[7px] font-bold tracking-widest uppercase text-slate-600 text-center ml-2 md:ml-1">N</span>
       </div>
     </div>
   );
