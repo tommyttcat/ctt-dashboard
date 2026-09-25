@@ -48,13 +48,16 @@ const REPLAY = path.join(DATA, 'replay');
 const START = '2022-09-26';          // first date every included scan has rows
 const HOLD = 60;
 const MIN_RISK_PCT = 0.5;
-const RISK = 0.005, MAX_POS = 10, MAX_WEIGHT = 0.2, SLIP = 0.001, EQUITY0 = 100_000;
+const RISK = 0.005, MAX_POS = 10, MAX_WEIGHT = 0.2, EQUITY0 = 100_000;
+const SLIP = Number(process.env.SLIP ?? 0.001);   // SLIP=0.0025 for the cost-stress run
 
 type Scan = 'scanner' | 'swing' | 'ep9m';
 interface Cand {
   scan: Scan; ticker: string; id: number; s: number; ei: number;
   fill: number; cardStop: number; adrPct: number | null;
   tier: string | null; rs: number; riskOn: boolean;
+  /** Intraday entries only: the lowest print AFTER the fill on the entry day. */
+  postFillLow?: number;
 }
 interface Trade { c: Cand; stop: number; xi: number; xpx: number; how: string }
 
@@ -121,7 +124,8 @@ function walk(c: BarCache, k: Cand, floor: boolean, exit: 'ship' | 'hold20' | 'h
     if (Number.isNaN(C[k.id][j])) continue;
     day++; lastJ = j; lastC = C[k.id][j];
     hist.push(lastC);
-    if (L[k.id][j] <= stop) return { c: k, stop, xi: j, xpx: j === k.ei ? stop : Math.min(stop, O[k.id][j]), how: 'stop' };
+    const lo = j === k.ei && k.postFillLow != null ? k.postFillLow : L[k.id][j];
+    if (lo <= stop) return { c: k, stop, xi: j, xpx: j === k.ei ? stop : Math.min(stop, O[k.id][j]), how: 'stop' };
     if (exit === 'hold20') { if (day >= 20) return { c: k, stop, xi: j, xpx: lastC, how: 'time' }; }
     else if (exit === 'hold20run') {
       // From day 20, sell only on a close under the 21 EMA — a winner keeps running.
@@ -239,9 +243,65 @@ function stats(curve: { d: string; eq: number; n: number; x?: number }[], closed
   };
 }
 
+/** Next-open signals re-entered by an intraday rule (scripts/backtest/intraday.ts). */
+function intradayCands(c: BarCache, entry: string): Cand[] {
+  const rows = read('intraday_entries.jsonl');
+  const out: Cand[] = [];
+  for (const r of rows) {
+    const e = r.entries?.[entry];
+    const id = c.idOf.get(r.ticker);
+    if (!e || id === undefined) continue;
+    out.push({
+      scan: r.scan, ticker: r.ticker, id, s: r.s, ei: e.ei, fill: e.fill, cardStop: e.stop,
+      adrPct: null, tier: 'green', rs: r.rs, riskOn: true, postFillLow: e.postFillLow,
+    });
+  }
+  return out;
+}
+
+function intradayMain(c: BarCache) {
+  const ep = candidates(c).filter(k => k.scan === 'ep9m');
+  const spy = c.idOf.get('SPY')!;
+  const s0 = c.sessions.findIndex(d => d >= START);
+  const spyCurve = c.sessions.slice(s0).map((d, i) => ({ d, eq: EQUITY0 * c.C[spy][s0 + i] / c.O[spy][s0], n: 1 }));
+  const cut = spyCurve[Math.floor(spyCurve.length * 2 / 3)].d;
+  const spyAll = stats(spyCurve, []).returnPct;
+  const spyH = [stats(spyCurve.filter(p => p.d < cut), []).returnPct, stats(spyCurve.filter(p => p.d >= cut), []).returnPct];
+  console.log(`SPY ${spyAll}% (halves ${spyH[0]} / ${spyH[1]})`);
+  const base: Opts = { name: '', floor: false, exit: 'hold20', regime: false, greenOnly: true };
+  const results: Record<string, unknown> = {};
+  const names = process.argv[3] ? process.argv[3].split(',') : ['E0', 'E1', 'E2', 'E3', 'E4'];
+  for (const E of names) {
+    const ic = intradayCands(c, E);
+    // Each trade on its own, before any account limits: is the entry better?
+    const solo = ic.map(k => walk(c, k, false, 'hold20')).filter(t => Number.isFinite(t.xi));
+    const half = (a: typeof solo, h: 0 | 1) => a.filter(t => (c.sessions[t.c.ei] < cut) === (h === 0));
+    const avg = (a: typeof solo, f: (t: Trade) => number) => a.length ? +(a.reduce((x, t) => x + f(t), 0) / a.length).toFixed(3) : null;
+    const R = (t: Trade) => (t.xpx - t.c.fill) / (t.c.fill - t.stop);
+    const P = (t: Trade) => (t.xpx / t.c.fill - 1) * 100;
+    const perTrade = {
+      n: solo.length, avgR: avg(solo, R), avgPct: avg(solo, P), winPct: +(100 * solo.filter(t => t.xpx > t.c.fill).length / (solo.length || 1)).toFixed(1),
+      halvesR: [avg(half(solo, 0), R), avg(half(solo, 1), R)], halvesPct: [avg(half(solo, 0), P), avg(half(solo, 1), P)],
+    };
+    const cands = [...ic, ...ep];
+    const r = run(c, cands, { ...base, name: E });
+    const all = stats(r.curve, r.closed);
+    const h1 = stats(r.curve.filter(p => p.d < cut), []), h2 = stats(r.curve.filter(p => p.d >= cut), []);
+    const rets: number[] = [];
+    for (let seed = 1; seed <= 200; seed++) rets.push(stats(run(c, cands, { ...base, name: E, seed }).curve, []).returnPct);
+    rets.sort((a, b) => a - b);
+    const med = rets[100];
+    const pass = h1.returnPct > spyH[0] && h2.returnPct > spyH[1] && med > spyAll;
+    results[E] = { perTrade, account: all, halves: [h1.returnPct, h2.returnPct], randomMedian: med, randomP10: rets[20], randomP90: rets[180], pass };
+    console.log(`${E} per-trade n ${perTrade.n} avgR ${perTrade.avgR} (${perTrade.halvesR.join(' / ')}) avg% ${perTrade.avgPct} win ${perTrade.winPct}% | account ${all.returnPct}% dd ${all.maxDdPct}% halves ${h1.returnPct} / ${h2.returnPct} | random median ${med} (p10 ${rets[20]}, p90 ${rets[180]}) ${pass ? 'PASS' : 'fail'}`);
+  }
+  fs.writeFileSync(path.join(REPLAY, process.argv[3] ? 'portfolio_intraday_sens.json' : 'portfolio_intraday.json'), JSON.stringify(results, null, 1));
+}
+
 function main() {
   const t0 = Date.now();
   const c = loadAdjusted();
+  if (process.argv[2] === 'intraday') { intradayMain(c); return; }
   const cands = candidates(c);
   const tally = cands.reduce<Record<string, number>>((m, k) => { const key = `${k.scan}:${k.tier}`; m[key] = (m[key] || 0) + 1; return m; }, {});
   console.log('candidates', cands.length, JSON.stringify(tally));
