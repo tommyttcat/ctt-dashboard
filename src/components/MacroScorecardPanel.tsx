@@ -945,7 +945,8 @@ export default function MacroScorecardPanel({
               label-slot width so it reads as belonging to this strip
               rather than as a fourth strip. */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-2.5 pt-2.5 border-t border-white/5 sm:pl-[100px]">
-            <div className="flex items-center gap-1.5">
+            {/* Wraps: the four buttons run to 348px, past a 360px phone's card. */}
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
               <span className="text-[8px] font-bold tracking-widest uppercase text-slate-600 mr-0.5">
                 Sensitivity
               </span>
