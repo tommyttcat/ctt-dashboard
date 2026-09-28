@@ -1210,7 +1210,7 @@ const BreakoutWatch = ({ watch }: { watch: OrbWatchStatus | null | undefined }) 
         </div>
       )}
       <p className="text-[10px] text-slate-500 font-medium mt-1">
-        Picked {watch.pickedOn} · data 15 min delayed · updated {new Date(watch.asOf).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })} ET
+        Picked {watch.pickedOn} · {(watch as { source?: string }).source === 'webull' ? 'real-time, checked every minute' : 'data 15 min delayed'} · updated {new Date(watch.asOf).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })} ET
       </p>
     </div>
   );

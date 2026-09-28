@@ -18,7 +18,7 @@ import {
   statusesFor, computeAlerts, normaliseIndex, type AlertState,
 } from '@/lib/alerts';
 import { buildAlertEmail, alertSubject } from '@/lib/email/alertEmail';
-import type { OrbWatchStatus } from '@/lib/orb';
+import { freshestWatch, ORB_LIVE_KEY, type OrbWatchStatus } from '@/lib/orb';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -40,9 +40,9 @@ export async function GET(req: Request) {
 
   const keys = ALERT_SCANS.map(s => s.key);
   // scan_meta_v6 rides the same mget (one command): today's breakout watch.
-  const lists = await kv.mget<unknown[]>(...keys, 'scan_meta_v6');
+  const lists = await kv.mget<unknown[]>(...keys, 'scan_meta_v6', ORB_LIVE_KEY);
   const rowsByKey: Record<string, unknown> = Object.fromEntries(keys.map((k, i) => [k, lists?.[i] ?? []]));
-  const orbWatch = ((lists?.[keys.length] as { orbWatch?: OrbWatchStatus | null } | null)?.orbWatch) ?? null;
+  const orbWatch = freshestWatch(lists?.[keys.length + 1] as OrbWatchStatus | null, (lists?.[keys.length] as { orbWatch?: OrbWatchStatus | null } | null)?.orbWatch);
   const prior = (await kv.get<AlertState>(ALERT_STATE_KEY)) || {};
 
   const today = etDate();

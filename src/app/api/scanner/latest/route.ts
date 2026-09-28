@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { SCANNER_SIP_META, SCANNER_DAILY_META, TOPMOVERS_META } from '@/lib/scanConfig';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
-import { withOrb, etToday, type OrbWatchStatus } from '@/lib/orb';
+import { withOrb, etToday, freshestWatch, ORB_LIVE_KEY, type OrbWatchStatus } from '@/lib/orb';
 
 // The function itself stays dynamic — every cache MISS reads KV fresh. What
 // changed is that the response is now cacheable at the edge, so N concurrent
@@ -27,18 +27,14 @@ export async function GET() {
       storedMeta,
       scanStreaks,
       highBeta,
-    ] = await Promise.all([
-      kv.get('daily_setups_v6'),
-      kv.get('stocks_in_play_v6'),
-      kv.get('top_movers_v6'),
-      kv.get('macro_insights_v6'),
-      kv.get('benchmark_v6'),
-      kv.get('benchmarks_v1'),
-      kv.get('last_scan_time_v6'),
-      kv.get<any>('scan_meta_v6'),
-      kv.get<{ date: string; counts: Record<string, number> }>('scan_streaks_v6'),
-      kv.get<any[]>('high_beta_v6'),
-    ]);
+      orbLive,
+      /* One mget — a single KV command for all eleven keys (it was ten
+         separate gets per cache miss). orb_live_v1 is the real-time breakout
+         watch (/api/orb/live). */
+    ] = await kv.mget<any[]>(
+      'daily_setups_v6', 'stocks_in_play_v6', 'top_movers_v6', 'macro_insights_v6', 'benchmark_v6',
+      'benchmarks_v1', 'last_scan_time_v6', 'scan_meta_v6', 'scan_streaks_v6', 'high_beta_v6', ORB_LIVE_KEY,
+    );
 
     // Scan-gate metadata for the on-screen "?" key. Prefer whatever the last
     // run persisted — that is the config the scan ACTUALLY enforced. Fall back
@@ -47,7 +43,9 @@ export async function GET() {
     /* Today's breakout watch rides the scan-meta write (lib/orb) so this
        route reads nothing extra for it; lifted out here so scanMeta stays the
        gate config it always was. */
-    const { orbWatch = null, earlyPool = null, ...metaRest } = (storedMeta ?? {}) as Record<string, unknown>;
+    const { orbWatch: delayedWatch = null, earlyPool = null, ...metaRest } = (storedMeta ?? {}) as Record<string, unknown>;
+    // Real time when /api/orb/live has run today, else the scanner's delayed status.
+    const orbWatch = freshestWatch(orbLive as OrbWatchStatus | null, delayedWatch as OrbWatchStatus | null);
     const scanMeta = storedMeta && storedMeta.sip
       ? metaRest
       : { sip: SCANNER_SIP_META, daily: SCANNER_DAILY_META, topMovers: TOPMOVERS_META };
@@ -73,8 +71,8 @@ export async function GET() {
       lastScanTime: lastScanTime || Date.now(),
       /* Today's breakout state on the watch names (lib/orb withOrb) — from
          the orbWatch this route already read, so no extra KV. */
-      dailySetups: withOrb((dailySetups as Record<string, unknown>[]) || [], orbWatch as OrbWatchStatus | null, etToday()),
-      stocksInPlay: withOrb((stocksInPlay as Record<string, unknown>[]) || [], orbWatch as OrbWatchStatus | null, etToday()),
+      dailySetups: withOrb((dailySetups as Record<string, unknown>[]) || [], orbWatch, etToday()),
+      stocksInPlay: withOrb((stocksInPlay as Record<string, unknown>[]) || [], orbWatch, etToday()),
       topMovers: topMovers || {
         'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': []
       },

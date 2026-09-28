@@ -4,7 +4,7 @@ import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 import { newsStarCount } from '@/lib/newsStars';
 import { tierForScan } from '@/lib/scans/edge';
 import { trigRowOf, planStatusOf, planStatusLabel } from '@/lib/scans/triggerProximity';
-import { withOrb, etToday, ORB_SOURCES, type OrbWatchStatus } from '@/lib/orb';
+import { withOrb, etToday, freshestWatch, ORB_SOURCES, ORB_LIVE_KEY, type OrbWatchStatus } from '@/lib/orb';
 
 /* /api/news/pool — the news already attached to the names on the boards.
  *
@@ -76,8 +76,8 @@ const num = (v: unknown): number | null =>
 export async function GET() {
   try {
     // scan_meta_v6 rides the same mget (one command): today's breakout watch.
-    const raw = await kv.mget<unknown[]>(...SCANS.map(s => s.key), 'scan_meta_v6');
-    const orbWatch = ((raw?.[SCANS.length] as { orbWatch?: OrbWatchStatus | null } | null)?.orbWatch) ?? null;
+    const raw = await kv.mget<unknown[]>(...SCANS.map(s => s.key), 'scan_meta_v6', ORB_LIVE_KEY);
+    const orbWatch = freshestWatch(raw?.[SCANS.length + 1] as OrbWatchStatus | null, (raw?.[SCANS.length] as { orbWatch?: OrbWatchStatus | null } | null)?.orbWatch);
     const today = etToday();
 
     const seen = new Set<string>();

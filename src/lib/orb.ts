@@ -177,3 +177,26 @@ export function withOrb<T extends Record<string, unknown>>(rows: T[], watch: Orb
     return { ...row, _orb: orb };
   });
 }
+
+/* ---- Real time (27 Sep 2026) ----------------------------------------------
+   /api/orb/live re-judges the watch every minute from 10:00 to 16:00 ET on
+   Webull's real-time minute bars, with the same orbWatchRow, and stores the
+   result here. Readers take whichever status for today is freshest — this
+   one, or the scanner run's 15-minute-delayed one in scan_meta_v6 — so a GO
+   shows about a minute after the break instead of 15-30. */
+
+export const ORB_LIVE_KEY = 'orb_live_v1';
+
+export interface OrbLiveStatus extends OrbWatchStatus {
+  source: 'webull';
+  /** Per ticker, the last state an alert was sent for (go / stopped). */
+  alerted?: Record<string, string>;
+}
+
+/** The freshest of several watch statuses for today; otherwise the first given. */
+export function freshestWatch(...ws: (OrbWatchStatus | null | undefined)[]): OrbWatchStatus | null {
+  const today = etToday();
+  let best: OrbWatchStatus | null = null;
+  for (const w of ws) if (w && w.session === today && (!best || w.asOf > best.asOf)) best = w;
+  return best ?? ws.find((w): w is OrbWatchStatus => !!w) ?? null;
+}
