@@ -2,17 +2,21 @@
 //
 // The scan lists run on data 15-30 minutes behind the market, and the
 // momentum lists (Stocks in Play, Daily) only see a name once it is up 4%.
-// This card takes every name already on a list — the Setups Summary pool plus
-// 10/21 — and checks it against the live Webull price (/api/live-quotes). A
+// This card takes every name that was on a list LAST NIGHT (lib/earlyTrack's
+// pool, frozen by the nightly tick) and checks it against the live Webull
+// price (/api/live-quotes). A
 // name up EARLY_MIN_PCT on at least EARLY_MIN_PACE times its normal volume for
 // the time of day shows on the next poll, with its own scan's buy and stop.
 //
 // NOT A TESTED SIGNAL. It says what is moving, nothing about what happens
 // next. The volume bar is the Model Book v2 breakout's (lib/orb ORB_VOL_MULT),
-// which was tested; this rule as a whole was not. Before the open there is no
-// meaningful volume pace, so pre-market it is the price move alone.
+// which was tested; this rule as a whole was not — lib/earlyTrack records
+// every flag forward against a bar fixed in advance. Before the open there is
+// no meaningful volume pace, so pre-market it is the price move alone (shown,
+// not tracked).
 //
-// Cost: none of its own on KV. The pool is lists the dashboard already loads;
+// Cost: none of its own on KV. The pool rides scan_meta_v6, which the page
+// already loads;
 // the quotes are one /api/live-quotes URL shared by every viewer (edge cache,
 // one Webull snapshot call per 15s at most) — flat in users.
 

@@ -137,6 +137,7 @@ import {
 import { webullConfigured, webullGainersLosers } from '@/lib/webull';
 import { enrichWithFundamentals } from '@/lib/indicators/fundamentals';
 import { ORB_WATCH_KEY, orbWatchRow, etMinute, fetchSessionMinutes, type OrbWatch, type OrbWatchStatus } from '@/lib/orb';
+import { EARLY_POOL_KEY, type EarlyPool } from '@/lib/earlyTrack';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -1908,9 +1909,16 @@ async function runScan(request: Request) {
          on today's minute bars with the tested rule. One KV read here and ~5
          Polygon calls a run; it rides this existing write, so the page reads
          nothing extra. Fenced — a fault leaves the watch off, never the scan. */
+      /* The Early Movers pool (lib/earlyTrack) comes back in the same mget —
+         one KV command either way — and rides the same write, trimmed to what
+         the card uses (~50 bytes a name). */
       let orbWatch: OrbWatchStatus | null = null;
+      let earlyPool: { pickedOn: string; names: { t: string; scan: string; avgVol: number | null; rs: number | null }[]; record: EarlyPool['record'] } | null = null;
       try {
-        const w = await kv.get<OrbWatch>(ORB_WATCH_KEY);
+        const [w, ep] = await kv.mget<[OrbWatch | null, EarlyPool | null]>(ORB_WATCH_KEY, EARLY_POOL_KEY);
+        if (ep?.names?.length) {
+          earlyPool = { pickedOn: ep.pickedOn, names: ep.names.map(({ t, scan, avgVol, rs }) => ({ t, scan, avgVol, rs })), record: ep.record ?? null };
+        }
         const ageDays = w ? (Date.parse(currentDate) - Date.parse(w.pickedOn)) / 86400000 : Infinity;
         // The previous session's list only: after a weekend or a holiday, not a stale one.
         if (w && w.pickedOn < currentDate && ageDays <= 4) {
@@ -1920,7 +1928,7 @@ async function runScan(request: Request) {
           orbWatch = { pickedOn: w.pickedOn, session: currentDate, asOf: Date.now(), rows };
         }
       } catch (e) { console.error('ORB_WATCH_ERROR', e); }
-      await kv.set('scan_meta_v6', { ...scanMeta, topMovers: { ...TOPMOVERS_META, moversSession: topMoversSession }, orbWatch });
+      await kv.set('scan_meta_v6', { ...scanMeta, topMovers: { ...TOPMOVERS_META, moversSession: topMoversSession }, orbWatch, earlyPool });
       await kv.set('high_beta_v6', finalHighBeta);
     } else {
       console.warn('Scan produced no movers; preserving previous KV snapshot.');

@@ -24,6 +24,10 @@
 // in RETURN mode: no stop, no R, held RETURN_HOLD sessions and scored on the
 // return itself — the basis its own replay used.
 //
+// Early Movers record (lib/earlyTrack, 27 Sep 2026): 2 reads, 2 writes (one
+// mget), plus one Polygon minute call per pool name whose day's high reached
+// +2% — only those can have flagged. Nothing per page view.
+//
 // Idempotent per session: a second run on the same bar date is a no-op, so a
 // retry or a manual poke cannot double-count.
 
@@ -42,6 +46,11 @@ import {
 } from '@/lib/trackPlan';
 import { MODEL_BOOK_KEY, MODEL_BOOK_V2_KEY, BOOK_SCANS, newBook, stepBook, addPicks, orbTickers, type ModelBook, type BookScan } from '@/lib/modelBook';
 import { fetchSessionMinutes, ORB_WATCH_KEY, type Minute, type OrbWatch } from '@/lib/orb';
+import {
+  EARLY_POOL_KEY, EARLY_TRACK_KEY, EARLY_CLOSED_CAP, earlyPoolFrom, earlyFlag, openEarly, summarizeEarly,
+  type EarlyPool, type EarlyTrack,
+} from '@/lib/earlyTrack';
+import { EARLY_MIN_PCT } from '@/lib/summary/earlyMovers';
 import { edgeTier, multibaggerTier, swingTier, consolidationTier, ep9mTier, vcpTier, hrsTier } from '@/lib/scans/edge';
 
 export const dynamic = 'force-dynamic';
@@ -245,9 +254,11 @@ export async function GET() {
   let added = 0;
   const emptyScans: string[] = [];
   const bookRows: Partial<Record<BookScan, Record<string, unknown>[]>> = {};
+  const allRows: Record<string, Record<string, unknown>[]> = {};
   for (const { scan, key, sym } of TRACKED_SCANS) {
     const rows = (await kv.get<Record<string, unknown>[]>(key)) || [];
     if (!rows.length) { emptyScans.push(scan); continue; }
+    allRows[scan] = rows;
     if ((BOOK_SCANS as string[]).includes(scan)) bookRows[scan as BookScan] = rows;
     const rec = (results[scan] ||= emptyRecord());
     for (const row of rows) {
@@ -381,8 +392,56 @@ export async function GET() {
     console.error('TRACK_BOOK_V2_ERROR', e);
   }
 
+  /* Early Movers record (lib/earlyTrack) — its own fence. Open flags are
+     walked on today's bar first, then last night's pool is judged on today's
+     minute bars, then tonight's lists become tomorrow's pool (the card reads
+     it through scan_meta_v6). */
+  let earlyOut: Record<string, unknown> | string = 'skipped (error, see logs)';
+  try {
+    const [pool, prior] = await kv.mget<[EarlyPool | null, EarlyTrack | null]>(EARLY_POOL_KEY, EARLY_TRACK_KEY);
+    const track: EarlyTrack = prior ?? { startedOn: date, flags: 0, open: [], closed: [] };
+    for (const p of track.open) {
+      const b = bars.get(p.t);
+      if (b) stepPlan(p, b, date);
+    }
+    let minuteCalls = 0;
+    let flagged = 0;
+    if (pool && pool.pickedOn < date) {
+      const holding = new Set(track.open.filter(p => p.state === 'filled').map(p => p.t));
+      // Only a name whose high reached the flag level can have flagged.
+      const cands = pool.names.filter(n => {
+        const b = bars.get(n.t);
+        return !!b && !holding.has(n.t) && b.h >= n.prevClose * (1 + EARLY_MIN_PCT / 100);
+      });
+      for (let i = 0; i < cands.length; i += 8) {
+        const batch = cands.slice(i, i + 8);
+        const mins = await Promise.all(batch.map(n => fetchSessionMinutes(n.t, date, POLYGON_KEY)));
+        minuteCalls += batch.length;
+        batch.forEach((n, j) => {
+          const f = mins[j] ? earlyFlag(n, mins[j]!) : null;
+          if (!f) return;
+          track.open.push(openEarly(n, f, date));
+          track.flags += 1;
+          flagged += 1;
+        });
+      }
+    }
+    for (const p of track.open) {
+      if (p.state !== 'filled' && p.r != null) track.closed.push({ t: p.t, scan: p.scan, d: p.d, r: p.r });
+    }
+    track.open = track.open.filter(p => p.state === 'filled');
+    track.closed = track.closed.slice(-EARLY_CLOSED_CAP);
+    const next = earlyPoolFrom(allRows, { get: (t: string) => bars.get(t)?.c }, date);
+    next.record = summarizeEarly(track);
+    await kv.set(EARLY_TRACK_KEY, track);
+    await kv.set(EARLY_POOL_KEY, next);
+    earlyOut = { flagged, minuteCalls, open: track.open.length, closed: track.closed.length, pool: next.names.length, verdict: next.record.verdict };
+  } catch (e) {
+    console.error('TRACK_EARLY_ERROR', e);
+  }
+
   return NextResponse.json({
-    success: true, barDate: date, added, open: kept.length, book: bookOut, bookV2: bookV2Out,
+    success: true, barDate: date, added, open: kept.length, book: bookOut, bookV2: bookV2Out, early: earlyOut,
     plan: planOk ? { watching: planKept.filter(p => p.state === 'watching').length, open: planKept.filter(p => p.state === 'filled').length } : 'skipped (error, see logs)',
     settled: settledToday.length, emptyScans,
   });

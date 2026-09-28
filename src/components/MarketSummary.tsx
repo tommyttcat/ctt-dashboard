@@ -112,6 +112,9 @@ import { planRowsFor, planStatusOf, PLAN_STATUS_ORDER, PLAN_STATUS_META, type Tr
 import InfoDot from './InfoDot';
 import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
+import { EARLY_PASS_N, EARLY_PASS_R, type EarlySummary } from '@/lib/earlyTrack';
+
+type EarlyNight = { pickedOn: string; names: { t: string; scan: string; avgVol: number | null; rs: number | null }[]; record: EarlySummary | null };
 import { tierForScan, tipForScan } from '@/lib/scans/edge';
 import { newsStarCount } from '@/lib/newsStars';
 import { rsColor, rsBadge } from '@/lib/indicators/rs';
@@ -1580,7 +1583,18 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
    rule. Rows are the Buy & stop box's, so a mover arrives with its plan.
    The live fetch is the same shape as the Setups Summary's: one sorted list
    for every viewer, so the edge cache holds it and the cost is flat in users. */
-const EarlyMovers = ({ pool, onVisibleChange }: { pool: any[]; onVisibleChange?: (tickers: string[]) => void }) => {
+const EarlyMovers = ({ pool: today, night, onVisibleChange }: { pool: any[]; night: EarlyNight | null; onVisibleChange?: (tickers: string[]) => void }) => {
+  /* The pool is LAST NIGHT'S lists (lib/earlyTrack), the one the forward
+     record judges — otherwise today's Stocks in Play and Daily, which only
+     take names already up 4%, would fill the card by construction. Each name
+     shows with its current list row when it still has one, for the plan. With
+     no overnight pool yet, today's non-momentum lists stand in. */
+  const pool = React.useMemo(() => {
+    if (!night?.names?.length) return today.filter((x: any) => x?._source !== 'sip' && x?._source !== 'daily');
+    const cur = new Map(today.map((x: any) => [String(x?.ticker ?? x?.symbol ?? '').toUpperCase(), x]));
+    return night.names.map(n => cur.get(n.t) ?? { ticker: n.t, _source: n.scan, avgVol: n.avgVol, rsRating: n.rs });
+  }, [today, night]);
+  const rec = night?.record ?? null;
   const liveSyms = React.useMemo(
     () => [...new Set(pool.map((x: any) => String(x?.ticker ?? x?.symbol ?? '').toUpperCase()).filter(Boolean))].sort().slice(0, 100).join(','),
     [pool],
@@ -1624,6 +1638,16 @@ const EarlyMovers = ({ pool, onVisibleChange }: { pool: any[]; onVisibleChange?:
       <p className="text-[10px] text-slate-500 font-medium mt-2">
         Today&apos;s list names up {EARLY_MIN_PCT}%+{session === 'Pre-Market' ? ' pre-market' : ` on ${EARLY_MIN_PACE}× normal volume for the time of day (RVOL here is that pace)`}.
         {' '}Not a tested signal — what is moving, not what happens next.
+        {night?.names?.length ? <>{' '}Watching {night.names.length} names from the {night.pickedOn} lists.</> : null}
+        {rec && (
+          <>
+            {' '}Tracked since {rec.since}: {rec.flags} flag{rec.flags !== 1 ? 's' : ''}, {rec.closed} closed
+            {rec.avgR != null ? `, ${rec.avgR >= 0 ? '+' : ''}${rec.avgR.toFixed(2)}R average, ${rec.winRate}% winners` : ''}
+            {' — '}{rec.verdict === 'collecting'
+              ? `collecting (the bar: ${EARLY_PASS_N} closed at +${EARLY_PASS_R.toFixed(2)}R or better in both halves).`
+              : rec.verdict === 'pass' ? 'passed its bar.' : 'did not pass its bar — not an edge.'}
+          </>
+        )}
         {' '}{live?.live
           ? <span className="text-emerald-400/80">Prices live · {fmtEtClock(live.asOf)} ET</span>
           : <span className="text-amber-400/80">No live prices</span>}
@@ -2195,6 +2219,7 @@ export default function MarketSummary() {
   const [data, setData] = useState<SummaryData | null>(null);
   const [macroInsights, setMacroInsights] = useState<MacroInsights | null>(null);
   const [orbWatch, setOrbWatch] = useState<OrbWatchStatus | null>(null);
+  const [earlyNight, setEarlyNight] = useState<EarlyNight | null>(null);
   /* When each card's scan last ran, shown as "as of" in its header: the rows'
      numbers are that old (plus the data feed's 15-minute delay). */
   const [scanTimes, setScanTimes] = useState<Record<string, number | null>>({});
@@ -2360,6 +2385,7 @@ export default function MarketSummary() {
            the real route instead of the aggregator's copy of it. */
         if (!scannerData) throw new Error('No scanner data available');
         if (isMounted) setOrbWatch(scannerData.orbWatch ?? null);
+        if (isMounted) setEarlyNight(scannerData.earlyPool ?? null);
         if (isMounted) setScanTimes({
           scanner: scannerData.lastScanTime ?? null, dvol: dvolRes?.lastScanTime ?? null,
           swing: swingRes?.lastScanTime ?? null, consol: consolRes?.lastScanTime ?? null,
@@ -2807,7 +2833,7 @@ export default function MarketSummary() {
                                   orbWatch={orbWatch}
                                 />
                               ) : isOpen && label === 'Early Movers' ? (
-                                <EarlyMovers pool={macroInsights?.earlyPool ?? []} onVisibleChange={onMoverVisible} />
+                                <EarlyMovers pool={macroInsights?.earlyPool ?? []} night={earlyNight} onVisibleChange={onMoverVisible} />
                               ) : isOpen && label === 'Sector Performance' ? (
                                 <SectorBars body={body} heat={macroInsights?.sectorHeat} />
                               ) : isOpen && label === 'Sector Concentration' ? (

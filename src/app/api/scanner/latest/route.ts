@@ -46,7 +46,7 @@ export async function GET() {
     /* Today's breakout watch rides the scan-meta write (lib/orb) so this
        route reads nothing extra for it; lifted out here so scanMeta stays the
        gate config it always was. */
-    const { orbWatch = null, ...metaRest } = (storedMeta ?? {}) as Record<string, unknown>;
+    const { orbWatch = null, earlyPool = null, ...metaRest } = (storedMeta ?? {}) as Record<string, unknown>;
     const scanMeta = storedMeta && storedMeta.sip
       ? metaRest
       : { sip: SCANNER_SIP_META, daily: SCANNER_DAILY_META, topMovers: TOPMOVERS_META };
@@ -82,6 +82,7 @@ export async function GET() {
       scanStreaks: scanStreaks?.counts ?? {},
       highBeta: highBeta || [],
       orbWatch,
+      earlyPool,
     }, {
       headers: cacheHeaders(CACHE.LIVE),
     });
