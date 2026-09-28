@@ -17,8 +17,10 @@ import { C, esc, rich, plain, label, card, statusOf, statusPill, pickCard, outlo
 type Any = any;
 
 /* ---- summary line parser ---------------------------------------------------
-   "**CVX** (Chevron) — buy above 208.10 · stop 202.90 · 0.9% away — why." */
-const LINE_RX = /^\s*\*\*([A-Z][A-Z0-9.\-]{0,6})\*\*\s*(?:\(([^)]*)\))?\s*[—-]\s*buy (above|dip)\s+([\d.,]+)\s*·\s*stop\s+([\d.,]+)\s*·\s*([^—]+?)\s*(?:—\s*(.*))?$/i;
+   "**CVX** (Chevron) — buy above 208.10 · stop 202.90 · 0.9% away — why."
+   Breakout-watch picks before 10:00 ET (28 Sep 2026) have no number yet:
+   "**VLO** (Valero) — buy above 10:00 high · stop 369.24 · SOON — why." */
+const LINE_RX = /^\s*\*\*([A-Z][A-Z0-9.\-]{0,6})\*\*\s*(?:\(([^)]*)\))?\s*[—-]\s*buy (above|dip)\s+([\d.,]+|(?:[A-Za-z]+'s\s+)?10:00 high)\s*·\s*stop\s+([\d.,]+)\s*·\s*([^—]+?)\s*(?:—\s*(.*))?$/i;
 
 function parsePickLine(line: string): Pick | null {
   const m = String(line || '').match(LINE_RX);

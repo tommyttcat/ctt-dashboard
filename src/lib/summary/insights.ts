@@ -1080,7 +1080,7 @@ export const buildLocalInsights = (
   const mbFinal = mbPara || '100-Bagger Thesis: No candidates — awaiting scan.';
 
   const orderedParas = [
-    setupsPara, earlyPara, moversPara, sipsFinal, dvolPara,
+    'Best Setups Today: interactive', setupsPara, earlyPara, moversPara, sipsFinal, dvolPara,
     dailyPara, swingThesisPara,
     ema1021Para, vcpPara, ep9mFinal, mbFinal,
     sectorBarsPara, heatPara, etfPara, moneyPara, keyEventsPara,

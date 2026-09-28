@@ -1925,7 +1925,7 @@ async function runScan(request: Request) {
           const nowMin = etMinute(Date.now());
           const rows = await Promise.all(w.names.map(async n =>
             orbWatchRow(n, nowMin >= 570 ? await fetchSessionMinutes(n.t, currentDate, polygonApiKey) : [], nowMin)));
-          orbWatch = { pickedOn: w.pickedOn, session: currentDate, asOf: Date.now(), rows };
+          orbWatch = { pickedOn: w.pickedOn, session: currentDate, asOf: Date.now(), rows, dips: w.dips ?? [] };
         }
       } catch (e) { console.error('ORB_WATCH_ERROR', e); }
       await kv.set('scan_meta_v6', { ...scanMeta, topMovers: { ...TOPMOVERS_META, moversSession: topMoversSession }, orbWatch, earlyPool });

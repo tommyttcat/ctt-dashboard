@@ -71,7 +71,10 @@ export function orbTrigger(minutes: Minute[], avgVol: number, orMin = ORB_MINUTE
 export const ORB_WATCH_KEY = 'orb_watch_v1';
 
 export interface OrbWatchItem { t: string; scan: string; stop: number; avgVol: number | null; rs: number }
-export interface OrbWatch { pickedOn: string; names: OrbWatchItem[] }
+/** The book's EP9M dip buys for the same session (28 Sep 2026) — shown on the
+ *  Best Setups card beside the breakouts; `last` filled by /api/orb/live. */
+export interface OrbDip { t: string; scan: string; buy: number; stop: number; rs: number; last?: number | null }
+export interface OrbWatch { pickedOn: string; names: OrbWatchItem[]; dips?: OrbDip[] }
 
 export type OrbWatchState =
   | 'pending'   // before the range is complete (9:30-10:00, plus the data delay)
@@ -90,7 +93,7 @@ export interface OrbWatchRow extends OrbWatchItem {
   goAt: number | null;     // ET minute of the breakout
   fill: number | null;
 }
-export interface OrbWatchStatus { pickedOn: string; session: string; asOf: number; rows: OrbWatchRow[] }
+export interface OrbWatchStatus { pickedOn: string; session: string; asOf: number; rows: OrbWatchRow[]; dips?: OrbDip[] }
 
 /**
  * One name's state at `nowMin` (ET minutes). `mins` is today's minute bars;

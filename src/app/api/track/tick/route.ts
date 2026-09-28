@@ -396,6 +396,9 @@ export async function GET() {
       pickedOn: date,
       names: v2.candidates.filter(c => c.kind === 'orb' && c.d === date)
         .map(c => ({ t: c.t, scan: c.scan, stop: c.stop, avgVol: c.avgVol ?? null, rs: c.rs })),
+      // The book's dip buys too, for the Best Setups card (28 Sep 2026).
+      dips: v2.candidates.filter(c => c.kind === 'dip' && c.d === date && c.buy != null)
+        .map(c => ({ t: c.t, scan: c.scan, buy: c.buy as number, stop: c.stop, rs: c.rs })),
     };
     await kv.set(ORB_WATCH_KEY, watch);
     bookV2Out = { equity: v2.equity, open: v2.open.length, candidates: v2.candidates.length, picked, minuteCalls: minutes.size, newDataGaps: (v2.dataGaps ?? 0) - gapsBefore };

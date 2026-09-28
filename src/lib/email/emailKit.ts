@@ -30,11 +30,14 @@ export const card = (inner: string) => `
 /* ---- status ------------------------------------------------------------ */
 export type Status = { kind: 'hit' | 'miss' | 'ext' | 'out' | 'wait'; text: string };
 
-const STATUS_RX = /\b(HIT|MISS|EXT|OUT)\b|(\d+(?:\.\d+)?)\s?% away/;
+/* SOON (28 Sep 2026): a breakout-watch pick before 10:00 ET, when its buy
+   level — the opening-range high — does not exist yet. Shown as a wait. */
+const STATUS_RX = /\b(HIT|MISS|EXT|OUT|SOON)\b|(\d+(?:\.\d+)?)\s?% away/;
 
 export function statusOf(text: string): Status | null {
   const m = String(text || '').match(STATUS_RX);
   if (!m) return null;
+  if (m[1] === 'SOON') return { kind: 'wait', text: 'SOON' };
   if (m[1]) return { kind: m[1].toLowerCase() as Status['kind'], text: m[1] };
   return { kind: 'wait', text: `${m[2]}% AWAY` };
 }

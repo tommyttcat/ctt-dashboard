@@ -24,7 +24,7 @@ import { Resend } from 'resend';
 import { authorized } from '@/lib/apiAuth';
 import { etGate } from '@/lib/etCron';
 import { isTradingDay } from '@/lib/marketCalendar';
-import { webullConfigured, webullBars } from '@/lib/webull';
+import { webullConfigured, webullBars, webullSnapshot } from '@/lib/webull';
 import {
   ORB_WATCH_KEY, ORB_LIVE_KEY, orbWatchRow, etMinute, etToday,
   type OrbWatch, type OrbLiveStatus, type OrbWatchRow, type Minute,
@@ -55,6 +55,11 @@ export async function GET(req: Request) {
 
   const nowMin = etMinute(Date.now());
   const names = watch.names.slice(0, MAX_NAMES);
+  // The dip buys' live prices: one snapshot call for all of them.
+  const dipsIn = watch.dips ?? [];
+  const snaps = dipsIn.length ? await webullSnapshot(dipsIn.map(d => d.t), 'US_STOCK').catch(() => []) : [];
+  const px = new Map(snaps.map(q => [q.symbol, q.price]));
+  const dips = dipsIn.map(d => ({ ...d, last: px.get(d.t) ?? (prior?.session === today ? prior.dips?.find(x => x.t === d.t)?.last : null) ?? null }));
   const judged = await Promise.all(names.map(async n => {
     const mins = await webullBars(n.t, 'M1', 420)
       .then(bs => bs.map(b => [b.t, b.o, b.h, b.l, b.c, b.v] as Minute))
@@ -91,7 +96,7 @@ export async function GET(req: Request) {
     }
   }
 
-  const status: OrbLiveStatus = { pickedOn: watch.pickedOn, session: today, asOf: Date.now(), rows, source: 'webull', alerted };
+  const status: OrbLiveStatus = { pickedOn: watch.pickedOn, session: today, asOf: Date.now(), rows, dips, source: 'webull', alerted };
   await kv.set(ORB_LIVE_KEY, status);
 
   const counts: Record<string, number> = {};

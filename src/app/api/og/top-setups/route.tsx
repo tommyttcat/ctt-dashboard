@@ -70,7 +70,8 @@ const orange = '#fb923c';
    line, and then the row simply shows the reason. */
 type Levels = { dip: boolean; buy: string; stop: string; status: string };
 function levelsOf(body: string): Levels | null {
-  const m = String(body || '').replace(/\*\*/g, '').match(/buy (above|dip)\s+([\d.,]+)\s*·\s*stop\s+([\d.,]+)\s*·\s*(HIT|MISS|EXT|OUT|\d+(?:\.\d+)?\s?% away)/i);
+  // "buy above Monday's 10:00 high · stop 369.24 · SOON" for breakout-watch picks (28 Sep 2026).
+  const m = String(body || '').replace(/\*\*/g, '').match(/buy (above|dip)\s+([\d.,]+|(?:[A-Za-z]+'s\s+)?10:00 high)\s*·\s*stop\s+([\d.,]+)\s*·\s*(HIT|MISS|EXT|OUT|SOON|\d+(?:\.\d+)?\s?% away)/i);
   if (!m) return null;
   return { dip: m[1].toLowerCase() === 'dip', buy: m[2], stop: m[3], status: m[4].toUpperCase() };
 }

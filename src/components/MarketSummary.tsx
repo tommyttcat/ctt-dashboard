@@ -1170,47 +1170,85 @@ const ORB_STATE: Record<OrbWatchState, { word: string; cls: string }> = {
 const ORB_ORDER: Record<OrbWatchState, number> = { go: 0, wait: 1, pending: 2, stopped: 3, out: 4, none: 5, nodata: 6 };
 const etClock = (m: number) => `${Math.floor(m / 60) > 12 ? Math.floor(m / 60) - 12 : Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
 
-const BreakoutWatch = ({ watch }: { watch: OrbWatchStatus | null | undefined }) => {
-  if (!watch) return null;
-  const rows = [...watch.rows].sort((a, b) => ORB_ORDER[a.state] - ORB_ORDER[b.state] || b.rs - a.rs);
+/* ---- Best Setups Today (28 Sep 2026) ---------------------------------------
+   The one list the site stands behind: last night's green Stocks in Play,
+   Daily and Swing picks, bought ONLY on a break of the 9:30-10:00 high while
+   volume runs 1.5x its normal pace (lib/orb), plus the Model Book's EP9M dip
+   buys. It replaces the scan tables' "buy above the day's high", which listed
+   names after the move (the reader bought BE at the top that way). Checked
+   every minute from 10:00 ET on real-time bars (/api/orb/live). */
+const DIP_STATE = {
+  at: { word: 'BUY DIP', cls: 'text-emerald-400' },
+  wait: { word: 'WAIT', cls: 'text-slate-300' },
+  out: { word: 'OUT', cls: 'text-rose-400' },
+  nodata: { word: 'NO DATA', cls: 'text-amber-400' },
+} as const;
+const BEST_WORD: Record<OrbWatchState, string> = { go: 'BUY', wait: 'WAIT', pending: 'SOON', stopped: 'STOPPED', out: 'OUT', none: 'NO BUY', nodata: 'NO DATA' };
+
+const BestSetups = ({ watch }: { watch: OrbWatchStatus | null | undefined }) => {
+  const rows = watch ? [...watch.rows].sort((a, b) => ORB_ORDER[a.state] - ORB_ORDER[b.state] || b.rs - a.rs) : [];
+  const dips = [...(watch?.dips ?? [])].sort((a, b) => b.rs - a.rs);
+  const pct = (a: number, b: number) => `${a >= b ? '+' : '−'}${Math.abs((a / b - 1) * 100).toFixed(1)}%`;
   const detail = (r: OrbWatchStatus['rows'][number]): string => {
+    const stop = `stop ${r.stop.toFixed(2)}`;
     switch (r.state) {
       // Short on purpose: 360px phones, with slack for Safari's wider font.
-      case 'go': return `${r.orHigh?.toFixed(2) ?? '—'} at ${r.goAt != null ? etClock(r.goAt) : '—'} · stop ${r.stop.toFixed(2)}`;
-      case 'wait': return `Needs ${r.orHigh?.toFixed(2) ?? '—'} · vol ${r.pace != null ? r.pace.toFixed(1) : '—'}×`;
-      case 'pending': return 'Range sets 9:30–10:00';
-      case 'stopped': return `Broke${r.goAt != null ? ` ${etClock(r.goAt)}` : ''}, hit ${r.stop.toFixed(2)}`;
-      case 'out': return `Under stop ${r.stop.toFixed(2)}`;
-      case 'none': return 'No breakout today';
-      case 'nodata': return 'Not checked';
+      case 'go': return `Broke ${r.fill?.toFixed(2) ?? r.orHigh?.toFixed(2) ?? '—'} at ${r.goAt != null ? etClock(r.goAt) : '—'}${r.last != null && r.fill ? ` · now ${pct(r.last, r.fill)}` : ''} · ${stop}`;
+      case 'wait': return `Above ${r.orHigh?.toFixed(2) ?? '—'} on volume (now ${r.pace != null ? r.pace.toFixed(1) : '—'}×) · ${stop}`;
+      case 'pending': return `Above the 10:00 high on volume · ${stop}`;
+      case 'stopped': return `Broke${r.goAt != null ? ` ${etClock(r.goAt)}` : ''}, then hit ${r.stop.toFixed(2)}`;
+      case 'out': return `Under its stop ${r.stop.toFixed(2)} — not a buy`;
+      case 'none': return 'No volume breakout today — not bought';
+      case 'nodata': return 'Could not be checked — not a WAIT';
     }
   };
+  const dipState = (d: NonNullable<OrbWatchStatus['dips']>[number]) =>
+    d.last == null ? 'nodata' : d.last <= d.stop ? 'out' : d.last <= d.buy ? 'at' : 'wait';
+  const dipDetail = (d: NonNullable<OrbWatchStatus['dips']>[number]) => {
+    const st = dipState(d);
+    return st === 'at' ? `At or under ${d.buy.toFixed(2)} · stop ${d.stop.toFixed(2)}`
+      : st === 'wait' ? `Dip to ${d.buy.toFixed(2)} (${pct(d.last!, d.buy)} above) · stop ${d.stop.toFixed(2)}`
+      : st === 'out' ? `Under its stop ${d.stop.toFixed(2)} — not a buy`
+      : `Dip to ${d.buy.toFixed(2)} · stop ${d.stop.toFixed(2)}`;
+  };
+  const chip = (t: string) => (
+    <span className="inline-flex items-center shrink-0">
+      <TickerChartHover symbol={t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{t}</span></TickerChartHover>
+    </span>
+  );
   return (
-    <div className="mt-4 pt-3 border-t border-white/5">
-      <div className="flex items-center mb-1">
-        <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Today&apos;s breakout watch</span>
-        <InfoDot text={"Last night's green Stocks in Play, Daily Setups and Swing picks, checked through today against the entry that tested best: after 10:00, a break of the first 30 minutes' high while volume runs at least 1.5× its normal pace.\n\nGO — it broke out that way (time shown); that was the entry. WAIT — the range is set, no qualifying break yet (the level and today's volume pace are shown). SOON — the first 30 minutes are still forming. STOPPED — broke out, then traded to its stop. OUT — under its stop before any breakout. NONE — the session closed with no breakout, so it was not a buy. NO DATA — the minute bars could not be checked; never read that as WAIT.\n\nFrom 10:00 to 16:00 ET it is checked every minute on real-time minute bars, so a GO shows about a minute after the break. If the real-time feed is unavailable it falls back to 15-minute delayed data refreshed every 15 minutes (the footer says which). In the 5-year test, 41% of these entries won against 30% for buying the open. It is the same list and rule the Model Book v2 on the Track Record page trades."} />
-      </div>
-      {rows.length === 0 ? (
-        <p className="text-[10px] text-slate-500">No green picks last night — nothing to watch today.</p>
+    <div>
+      {!watch ? (
+        <p className="text-[10px] text-slate-500">Today&apos;s list appears with the first scan of the morning (about 4 AM ET). It is set each evening from that day&apos;s green Stocks in Play, Daily and Swing names.</p>
+      ) : rows.length === 0 && dips.length === 0 ? (
+        <p className="text-[10px] text-slate-500">No picks today — no name closed strong enough last night. On those days there is nothing to buy.</p>
       ) : (
         <div className="flex flex-col">
-          {rows.map(r => {
-            const st = ORB_STATE[r.state];
+          {rows.map(r => (
+            <div key={r.t} className="flex items-center gap-2 py-[2px] whitespace-nowrap text-[10px] min-w-0" title={`${r.t} · ${r.scan.toUpperCase()} · RS ${r.rs}`}>
+              {chip(r.t)}
+              <span className={`font-bold tabular-nums shrink-0 w-[56px] ${ORB_STATE[r.state].cls}`}>{BEST_WORD[r.state]}</span>
+              <span className="text-slate-400 tabular-nums truncate min-w-0">{detail(r)}</span>
+            </div>
+          ))}
+          {dips.map(d => {
+            const st = DIP_STATE[dipState(d)];
             return (
-              <div key={r.t} className="flex items-center gap-2 py-[2px] whitespace-nowrap text-[10px] min-w-0">
-                <span className="inline-flex items-center shrink-0">
-                  <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
-                </span>
+              <div key={`dip-${d.t}`} className="flex items-center gap-2 py-[2px] whitespace-nowrap text-[10px] min-w-0" title={`${d.t} · EP9M dip buy · RS ${d.rs}`}>
+                {chip(d.t)}
                 <span className={`font-bold tabular-nums shrink-0 w-[56px] ${st.cls}`}>{st.word}</span>
-                <span className="text-slate-400 tabular-nums truncate min-w-0">{detail(r)}</span>
+                <span className="text-slate-400 tabular-nums truncate min-w-0">{dipDetail(d)}</span>
               </div>
             );
           })}
         </div>
       )}
-      <p className="text-[10px] text-slate-500 font-medium mt-1">
-        Picked {watch.pickedOn} · {(watch as { source?: string }).source === 'webull' ? 'real-time, checked every minute' : 'data 15 min delayed'} · updated {new Date(watch.asOf).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })} ET
+      <p className="text-[10px] text-slate-500 font-medium mt-2 leading-relaxed">
+        Buy only on the volume breakout after 10:00 ET — before that, or without the volume, it is not a buy.
+        {' '}Backtest, not yet proven live: over five years these breakouts won 41% of the time and averaged +3.9% a trade,
+        and a 10-position account made +221% against SPY&apos;s +110% — but reshuffled 200 ways its median only matched SPY.
+        {' '}Live results build on the Track page from this week.
+        {watch && <> · Picked {watch.pickedOn} · {(watch as { source?: string }).source === 'webull' ? 'real-time, checked every minute' : 'data 15 min delayed'} · updated {new Date(watch.asOf).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })} ET</>}
       </p>
     </div>
   );
@@ -1577,7 +1615,6 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
           this gives the buy level and stop for each of THOSE names. Built
           from the same filtered list, so a pill that narrows the card narrows
           this too. */}
-      <BreakoutWatch watch={orbWatch} />
       <TriggerProximity pool={shown} />
     </div>
   );
@@ -1966,6 +2003,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   /* Market Regime lives on the /analyst briefing page only — removed from the
      dashboard to avoid duplicating a dense prose block that reads better in
      its own space. The avoid-set still comes from the analyst brief. */
+  { label: 'Best Setups Today', color: 'emerald', blurb: 'The picks from the best-tested entry. Buy only on the volume breakout after 10:00.' },
   { label: 'Setups Summary', color: 'violet', blurb: 'All scans pooled — filter by source or setup pattern. One stop shop.' },
   { label: 'Early Movers', color: 'emerald', blurb: 'Names on today\'s lists moving now, on live prices — before the delayed scans see them.' },
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves now. Volume-confirmed is tradeable; a thin gap is a fade.' },
@@ -2255,7 +2293,7 @@ export default function MarketSummary() {
   const [thesisEdge, setThesisEdge] = useState<Record<string, EdgeTier | null>>({});
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() =>
     new Set([
-      ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Early Movers'),
+      ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Early Movers' && l !== 'Best Setups Today'),
       'hrsTop', 'topSetups',
     ])
   );
@@ -2279,7 +2317,7 @@ export default function MarketSummary() {
     if (!mi?.briefing) return;
     if (!k) {
       setCollapsedSections(new Set([
-        ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Early Movers'),
+        ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Early Movers' && l !== 'Best Setups Today'),
         'hrsTop', 'topSetups',
       ]));
       return;
@@ -2604,6 +2642,7 @@ export default function MarketSummary() {
                             // What the card is showing, not the pool behind it.
                             ? setupVisible
                             : label === 'Early Movers' ? moverVisible
+                            : label === 'Best Setups Today' ? [...(orbWatch?.rows ?? []).map(r => r.t), ...(orbWatch?.dips ?? []).map(d => d.t)]
                             : (() => {
                                 const lines = body.replace(/\|\|\|/g, '\n').split('\n').filter(Boolean);
                                 const parsed = lines.map(l => parseStdLine(l)).filter(Boolean);
@@ -2838,6 +2877,8 @@ export default function MarketSummary() {
                                   onVisibleChange={onSetupVisible}
                                   orbWatch={orbWatch}
                                 />
+                              ) : isOpen && label === 'Best Setups Today' ? (
+                                <BestSetups watch={orbWatch} />
                               ) : isOpen && label === 'Early Movers' ? (
                                 <EarlyMovers pool={macroInsights?.earlyPool ?? []} night={earlyNight} onVisibleChange={onMoverVisible} />
                               ) : isOpen && label === 'Sector Performance' ? (
