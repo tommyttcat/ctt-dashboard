@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { SCANNER_SIP_META, SCANNER_DAILY_META, TOPMOVERS_META } from '@/lib/scanConfig';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
+import { withOrb, etToday, type OrbWatchStatus } from '@/lib/orb';
 
 // The function itself stays dynamic — every cache MISS reads KV fresh. What
 // changed is that the response is now cacheable at the edge, so N concurrent
@@ -70,8 +71,10 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       lastScanTime: lastScanTime || Date.now(),
-      dailySetups: dailySetups || [],
-      stocksInPlay: stocksInPlay || [],
+      /* Today's breakout state on the watch names (lib/orb withOrb) — from
+         the orbWatch this route already read, so no extra KV. */
+      dailySetups: withOrb((dailySetups as Record<string, unknown>[]) || [], orbWatch as OrbWatchStatus | null, etToday()),
+      stocksInPlay: withOrb((stocksInPlay as Record<string, unknown>[]) || [], orbWatch as OrbWatchStatus | null, etToday()),
       topMovers: topMovers || {
         'Mega Caps': [], 'Gainers': [], 'Losers': [], 'ETF Gainers': [], 'ETF Losers': []
       },

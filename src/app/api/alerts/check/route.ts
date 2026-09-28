@@ -18,6 +18,7 @@ import {
   statusesFor, computeAlerts, normaliseIndex, type AlertState,
 } from '@/lib/alerts';
 import { buildAlertEmail, alertSubject } from '@/lib/email/alertEmail';
+import type { OrbWatchStatus } from '@/lib/orb';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -38,12 +39,14 @@ export async function GET(req: Request) {
   if (wanted.size === 0) return NextResponse.json({ success: true, subscribers: Object.keys(index).length, watched: 0 });
 
   const keys = ALERT_SCANS.map(s => s.key);
-  const lists = await kv.mget<unknown[][]>(...keys);
+  // scan_meta_v6 rides the same mget (one command): today's breakout watch.
+  const lists = await kv.mget<unknown[]>(...keys, 'scan_meta_v6');
   const rowsByKey: Record<string, unknown> = Object.fromEntries(keys.map((k, i) => [k, lists?.[i] ?? []]));
+  const orbWatch = ((lists?.[keys.length] as { orbWatch?: OrbWatchStatus | null } | null)?.orbWatch) ?? null;
   const prior = (await kv.get<AlertState>(ALERT_STATE_KEY)) || {};
 
   const today = etDate();
-  const { byEmail, state } = computeAlerts(index, statusesFor(rowsByKey, wanted), prior, today);
+  const { byEmail, state } = computeAlerts(index, statusesFor(rowsByKey, wanted, orbWatch, today), prior, today);
   await kv.set(ALERT_STATE_KEY, state);
 
   const recipients = Object.keys(byEmail);

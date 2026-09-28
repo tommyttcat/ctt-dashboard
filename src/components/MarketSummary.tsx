@@ -108,7 +108,7 @@ import { WatchlistToggle } from './WatchlistPanel';
 import { hrsEdgeGrade } from '@/lib/scans/hrs';
 import { edgeTier as edgeOf, EDGE_TINT, EDGE_FILTER_TIP, type EdgeTier } from '@/lib/scans/edge';
 import EdgeFilterPills from './EdgeFilterPills';
-import { planRowsFor, planStatusOf, PLAN_STATUS_ORDER, PLAN_STATUS_META, type TrigRow, type PlanStatus } from '@/lib/scans/triggerProximity';
+import { planRowsFor, planStatusOf, planStatusLabel, PLAN_STATUS_ORDER, PLAN_STATUS_META, type TrigRow, type PlanStatus } from '@/lib/scans/triggerProximity';
 import InfoDot from './InfoDot';
 import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
@@ -1303,9 +1303,15 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
               </span>
             )}
             <span className="text-[9px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right md:ml-1 text-rose-400">{r.stop.toFixed(2)}</span>
-            <span className={`text-[9px] tabular-nums font-bold inline-block w-[32px] md:w-[34px] text-right md:ml-1 ${meta.cls}`} title={meta.tip}>
-              {st === 'wait' ? `${r.awayPct < 10 ? r.awayPct.toFixed(1) : r.awayPct.toFixed(0)}%` : st.toUpperCase()}
-            </span>
+            {(() => {
+              // Shared with the scan tables, so the breakout states (OR, NONE) read the same.
+              const lab = planStatusLabel(r, st);
+              return (
+                <span className={`text-[9px] tabular-nums font-bold inline-block w-[32px] md:w-[34px] text-right md:ml-1 ${meta.cls}`} title={lab.tip}>
+                  {lab.text}
+                </span>
+              );
+            })()}
           </>
         ) : (
           <>
@@ -1329,7 +1335,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
     <div className="mt-4 pt-3 border-t border-white/5">
       <div className="flex items-center mb-1">
         <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Buy &amp; stop</span>
-        <InfoDot text={"Buy level and stop for every name on the card above — same filters.\n\n↑ buy above that price. ↓ buy on a dip to it (EP9M).\n\nSTAT: a percentage means not there yet, this far away. HIT — at the buy level. MISS — ran past it by more than a normal day's move; buying now is chasing. EXT — too far above its 21-day average to place a sensible stop; levels are for reference only. OUT — below the stop; the idea failed.\n\nA name with no levels at all shows dashes.\n\nTIMING — the entry that tested best (5 years, 3,821 picks from Stocks in Play, Daily Setups and Swing): the session after a name makes the list, wait until 10:00 and buy only if it breaks the high of the first 30 minutes while volume runs at least 1.5× its normal pace. 41% of those trades won, against 30% for buying the open. It was not tested on EP9M, VCP or 10/21."} />
+        <InfoDot text={"Buy level and stop for every name on the card above — same filters.\n\n↑ buy above that price. ↓ buy on a dip to it (EP9M).\n\nSTAT: a percentage means not there yet, this far away. HIT — at the buy level. MISS — ran past it by more than a normal day's move; buying now is chasing. EXT — too far above its 21-day average to place a sensible stop; levels are for reference only. OUT — below the stop; the idea failed.\n\nA name with no levels at all shows dashes.\n\nTIMING — the entry that tested best (5 years, 3,821 picks from Stocks in Play, Daily Setups and Swing): the session after a name makes the list, wait until 10:00 and buy only if it breaks the high of the first 30 minutes while volume runs at least 1.5× its normal pace. 41% of those trades won, against 30% for buying the open. It was not tested on EP9M, VCP or 10/21.\n\nFor the names on today's breakout watch (last night's green Stocks in Play, Daily and Swing picks) the status follows that rule: OR while the opening range forms, a percentage to the opening-range high while waiting, HIT only on the volume-confirmed break, NONE if the session closes without one. Checked every scanner run on 15-minute delayed minute bars, so a HIT can show 15–30 minutes after the break."} />
       </div>
       <div className={useTwoCols ? 'grid grid-cols-1 md:grid-cols-2 gap-x-6' : ''}>
         <div className="min-w-0 overflow-x-auto overflow-y-hidden md:overflow-visible"><div className="min-w-max md:min-w-0">{head}{items.slice(0, mid).map(draw)}</div></div>
@@ -1338,7 +1344,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
         )}
       </div>
       <p className="text-[10px] text-slate-500 font-medium mt-1">
-        <span className="text-slate-300 font-bold">0.3%</span> not there yet · <span className="text-emerald-400 font-bold">HIT</span> at the buy level · <span className="text-amber-400 font-bold">MISS</span> ran past, don&apos;t chase · <span className="text-orange-400 font-bold">EXT</span> too stretched · <span className="text-rose-400 font-bold">OUT</span> below the stop
+        <span className="text-slate-300 font-bold">0.3%</span> not there yet · <span className="text-emerald-400 font-bold">HIT</span> at the buy level · <span className="text-amber-400 font-bold">MISS</span> ran past, don&apos;t chase · <span className="text-orange-400 font-bold">EXT</span> too stretched · <span className="text-rose-400 font-bold">OUT</span> below the stop · <span className="text-slate-300 font-bold">OR</span> opening range forming · <span className="text-amber-400 font-bold">NONE</span> no breakout today
       </p>
       {/* The tested entry (lib/orb, scripts/backtest/intraday.ts E2), in one line. */}
       <p className="text-[10px] text-slate-500 font-medium mt-0.5">

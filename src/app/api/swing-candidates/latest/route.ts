@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { SWING_META } from '@/lib/scanConfig';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
+import { withOrb, etToday, type OrbWatchStatus } from '@/lib/orb';
 
 // Edge-cacheable (matching scanner/latest) — see lib/httpCache.
 export const dynamic = 'force-dynamic';
@@ -10,17 +11,15 @@ export const fetchCache = 'force-no-store';
 
 export async function GET() {
   try {
-    // Parallel reads — three sequential awaits meant three KV round trips on
-    // every 60-second poll from every open tab.
-    const [candidates, meta, lastScanTime, liveChgMap] = await Promise.all([
-      kv.get('swing_candidates_v1'),
-      kv.get<any>('swing_meta_v1'),
-      kv.get('swing_last_scan_v1'),
-      kv.get<Record<string, [number, number]>>('live_chg_map_v1'),
-    ]);
+    // One mget: a single KV command for all five keys (it was four parallel
+    // gets). scan_meta_v6 carries today's breakout watch (lib/orb) for the
+    // Swing names on it.
+    const [candidates, meta, lastScanTime, liveChgMap, metaV6] = await kv.mget<
+      [unknown, any, unknown, Record<string, [number, number]> | null, { orbWatch?: OrbWatchStatus | null } | null]
+    >('swing_candidates_v1', 'swing_meta_v1', 'swing_last_scan_v1', 'live_chg_map_v1', 'scan_meta_v6');
 
     const m = meta || {};
-    let list: any[] = Array.isArray(candidates) ? candidates : [];
+    let list: any[] = withOrb(Array.isArray(candidates) ? candidates : [], metaV6?.orbWatch ?? null, etToday());
 
     /* Live overlay applied here rather than on the client. It used to happen in
        MarketSummary, which meant /api/scanner/latest had to ship the entire

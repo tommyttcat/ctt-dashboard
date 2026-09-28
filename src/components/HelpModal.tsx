@@ -254,7 +254,7 @@ function DashboardTab({ tier }: { tier: string }) {
       <Li title="↑ BUY ABOVE">A breakout plan — Daily Setups, Stocks in Play, Swing, VCP. It becomes a buy once price trades above the level.</Li>
       <Li title="↓ BUY DIP">EP9M&apos;s plan is a pullback: buy on a dip to the level, not a break above it.</Li>
       <Li title="STOP">The plan&apos;s own line. Below it the idea was wrong.</Li>
-      <Li title="STAT">HIT at the buy level · 2.2% not there yet, that far away · EXT too stretched to place a stop, don&apos;t chase · MISS already ran more than a normal day past it, don&apos;t chase · OUT fell below the stop.</Li>
+      <Li title="STAT">HIT at the buy level · 2.2% not there yet, that far away · EXT too stretched to place a stop, don&apos;t chase · MISS already ran more than a normal day past it, don&apos;t chase · OUT fell below the stop. On the breakout watch names (last night&apos;s green Stocks in Play, Daily and Swing picks) HIT means the tested entry happened: a break of the 9:30–10:00 high on 1.5× volume pace. OR — the opening range is still forming; NONE — the session closed without that break.</Li>
       <P>
         Click STAT to sort: HIT first, then the nearest. Rows carry the usual green / yellow / red, each
         from its own scan&apos;s rule. The scan tables show the same word in their STATUS column.
@@ -720,7 +720,7 @@ function InteractionsTab() {
       <Li title="$VOL">Dollar Volume — price × shares traded. Measures institutional liquidity.</Li>
       <Li title="RS">Relative Strength Rating 0–99. Measures price performance vs the market over 12 months.</Li>
       <Li title="STG">Weinstein Stage. 1 = base, 2A = advance, 2B = extended, 2C = sagging, 3 = top, 4 = decline.</Li>
-      <Li title="STATUS">Where it stands against its buy level: HIT · 2.2% (not there yet) · EXT · MISS · OUT. Hover for the levels.</Li>
+      <Li title="STATUS">Where it stands against its buy level: HIT · 2.2% (not there yet) · EXT · MISS · OUT. On the breakout watch names, OR (range forming) and NONE (no breakout today), and HIT only on the volume-confirmed break. Hover for the levels.</Li>
       <Li title="PLAN">Room to the next resistance, in multiples of the risk (buy level to stop). 2R+ = room for twice the risk.</Li>
       <Li title="ADR%">Average Daily Range as a percentage of price. Higher = more volatile.</Li>
       <Li title="10/21">Price position vs the 10 and 21 EMAs (Dr. Wish trend pair).</Li>

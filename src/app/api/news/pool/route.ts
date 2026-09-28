@@ -3,7 +3,8 @@ import { kv } from '@vercel/kv';
 import { CACHE, cacheHeaders, noCacheHeaders } from '@/lib/httpCache';
 import { newsStarCount } from '@/lib/newsStars';
 import { tierForScan } from '@/lib/scans/edge';
-import { trigRowOf, planStatusOf } from '@/lib/scans/triggerProximity';
+import { trigRowOf, planStatusOf, planStatusLabel } from '@/lib/scans/triggerProximity';
+import { withOrb, etToday, ORB_SOURCES, type OrbWatchStatus } from '@/lib/orb';
 
 /* /api/news/pool — the news already attached to the names on the boards.
  *
@@ -74,7 +75,10 @@ const num = (v: unknown): number | null =>
 
 export async function GET() {
   try {
-    const raw = await kv.mget<unknown[]>(...SCANS.map(s => s.key));
+    // scan_meta_v6 rides the same mget (one command): today's breakout watch.
+    const raw = await kv.mget<unknown[]>(...SCANS.map(s => s.key), 'scan_meta_v6');
+    const orbWatch = ((raw?.[SCANS.length] as { orbWatch?: OrbWatchStatus | null } | null)?.orbWatch) ?? null;
+    const today = etToday();
 
     const seen = new Set<string>();
     const tickers: string[] = [];
@@ -88,7 +92,8 @@ export async function GET() {
     const stats: Record<string, Record<string, unknown>> = {};
 
     SCANS.forEach(({ scan }, i) => {
-      const rows = Array.isArray(raw?.[i]) ? (raw[i] as Record<string, any>[]) : [];
+      const listed = Array.isArray(raw?.[i]) ? (raw[i] as Record<string, any>[]) : [];
+      const rows = ORB_SOURCES.has(scan) ? withOrb(listed, orbWatch, today) : listed;
       for (const r of rows) {
         const ticker = String(r?.ticker ?? r?.symbol ?? '').toUpperCase();
         if (!ticker || seen.has(ticker)) continue;
@@ -156,7 +161,9 @@ export async function GET() {
             const st = planStatusOf(t);
             return {
               buy: +t.trigger.toFixed(2), stop: +t.stop.toFixed(2), dip: t.pullback, mkt: t.atMarket,
-              status: st === 'wait' ? `${t.awayPct < 10 ? t.awayPct.toFixed(1) : t.awayPct.toFixed(0)}% away` : st.toUpperCase(),
+              status: st === 'wait' && t.orb?.state !== 'pending'
+                ? `${t.awayPct < 10 ? t.awayPct.toFixed(1) : t.awayPct.toFixed(0)}% away`
+                : planStatusLabel(t, st).text,
             };
           })(),
           _age: ageMinutes(r.newsAge),

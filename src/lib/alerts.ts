@@ -14,6 +14,7 @@
 // means "reached it since the last scan", not a tick-level price alert.
 
 import { trigRowOf, planStatusOf } from '@/lib/scans/triggerProximity';
+import { withOrb, ORB_SOURCES, type OrbWatchStatus } from '@/lib/orb';
 
 export const ALERT_INDEX_KEY = 'watch_alerts_v1';   // hash: lowercased email → tickers[]
 export const ALERT_STATE_KEY = 'alert_state_v1';    // AlertState
@@ -49,10 +50,12 @@ export type AlertState = Record<string, { status: string; alerted?: Partial<Reco
 
 /** Current status for every wanted ticker, from the first scan (in ALERT_SCANS
  *  order) that carries a live plan for it. */
-export function statusesFor(rowsByKey: Record<string, unknown>, wanted: Set<string>): Map<string, TickerStatus> {
+export function statusesFor(rowsByKey: Record<string, unknown>, wanted: Set<string>, orbWatch?: OrbWatchStatus | null, today?: string): Map<string, TickerStatus> {
   const out = new Map<string, TickerStatus>();
-  for (const { key, source, label } of ALERT_SCANS) {
-    const rows = Array.isArray(rowsByKey[key]) ? (rowsByKey[key] as Record<string, unknown>[]) : [];
+  for (const { scan, key, source, label } of ALERT_SCANS) {
+    const raw = Array.isArray(rowsByKey[key]) ? (rowsByKey[key] as Record<string, unknown>[]) : [];
+    // A watch name alerts HIT on its volume-confirmed breakout, as the tables show it.
+    const rows = ORB_SOURCES.has(scan) && today ? withOrb(raw, orbWatch, today) : raw;
     for (const row of rows) {
       const t = String(row?.ticker ?? row?.symbol ?? '').toUpperCase();
       if (!t || !wanted.has(t) || out.has(t)) continue;

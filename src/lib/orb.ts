@@ -139,3 +139,41 @@ export async function fetchSessionMinutes(ticker: string, date: string, apiKey: 
   }
   return null;
 }
+
+/* ---- The breakout state on the scan rows (27 Sep 2026) ---------------------
+   The tables and the Buy & stop box used to call a watch-list name HIT the
+   moment its price crossed the scan's level, on any volume. The tested entry
+   is this file's breakout, so for the names on today's watch the rows now
+   carry its state and lib/scans/triggerProximity reads it — one rule for the
+   tables, the dashboard, alerts and News. Attached on the server wherever the
+   watch is already in hand (scanner/latest, swing-candidates/latest, the
+   alerts check, the News pool), only to rows of the three scans the rule was
+   tested on (ORB_SOURCES), and only while the watch is today's: a stale watch
+   leaves the rows on the price-based status rather than on yesterday's. */
+
+export const ORB_SOURCES = new Set(['sip', 'daily', 'swing']);
+
+export interface RowOrb {
+  state: OrbWatchState;
+  orHigh: number | null;
+  fill: number | null;
+  pace: number | null;
+  goAt: number | null;
+  asOf: number;
+}
+
+const etDateFmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' });
+/** Today's date in New York, YYYY-MM-DD — the watch's `session`. */
+export const etToday = (ms = Date.now()): string => etDateFmt.format(new Date(ms));
+
+/** Rows of ONE tested scan list, each watch name tagged with `_orb`. Pure. */
+export function withOrb<T extends Record<string, unknown>>(rows: T[], watch: OrbWatchStatus | null | undefined, today: string): T[] {
+  if (!watch || watch.session !== today || !watch.rows?.length || !Array.isArray(rows)) return rows;
+  const by = new Map(watch.rows.map(r => [r.t.toUpperCase(), r]));
+  return rows.map(row => {
+    const w = by.get(String(row?.ticker ?? row?.symbol ?? '').toUpperCase());
+    if (!w || w.state === 'nodata') return row;
+    const orb: RowOrb = { state: w.state, orHigh: w.orHigh, fill: w.fill, pace: w.pace, goAt: w.goAt, asOf: watch.asOf };
+    return { ...row, _orb: orb };
+  });
+}

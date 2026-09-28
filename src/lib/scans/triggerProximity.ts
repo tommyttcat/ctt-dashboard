@@ -16,6 +16,7 @@
 // and drops the rows that are through their level.
 
 import { numOrNull, priceOf, livePlanOf, isAtMarketPlan, PULLBACK_SOURCES, PLAN_MAX_REACH_ADR } from '@/lib/summary/rowFormat';
+import { ORB_VOL_MULT, type RowOrb } from '@/lib/orb';
 
 export type TrigRow = {
   s: any;
@@ -36,6 +37,9 @@ export type TrigRow = {
   /** No level to wait for: a 10/21 buy-at-the-price plan, or an EP9M dip
    *  already under its level. Shown as "At market", never as a level. */
   atMarket: boolean;
+  /** Today's opening-range breakout state (lib/orb withOrb) for a name on the
+   *  breakout watch; null for every other row. When set it decides WAIT/HIT. */
+  orb: RowOrb | null;
 };
 
 export function trigRowOf(s: any, opts?: { keepThrough?: boolean; keepExtended?: boolean }): TrigRow | null {
@@ -62,14 +66,22 @@ export function trigRowOf(s: any, opts?: { keepThrough?: boolean; keepExtended?:
   // Through the level already: that is a position or a miss, not a watch —
   // unless the caller is listing a fixed set of names and wants all of them.
   const atMarket = isAtMarketPlan(s, trigger, price);
-  const through = atMarket || (pullback ? trigger >= price : trigger <= price);
+  /* On the breakout watch the buy level is the opening-range high (the fill
+     once it has broken out), and "through" means the breakout happened —
+     price above the level on thin volume is not a buy. */
+  const orb: RowOrb | null = s?._orb && typeof s._orb === 'object' ? s._orb : null;
+  const orbLevel = orb ? numOrNull(orb.state === 'go' ? (orb.fill ?? orb.orHigh) : orb.orHigh) : null;
+  const level = orbLevel != null && orbLevel > 0 ? orbLevel : trigger;
+  const through = orb
+    ? orb.state === 'go' || orb.state === 'stopped' || orb.state === 'out'
+    : atMarket || (pullback ? trigger >= price : trigger <= price);
   if (through && !opts?.keepThrough) return null;
 
   return {
-    s, ticker, price, trigger, stop, pullback, through, atMarket,
+    s, ticker, price, trigger: level, stop, pullback, through, atMarket, orb,
     extended: plan?.overextended === true,
-    label: plan?.triggerLabel ?? (isVcp ? 'pivot' : 'level'),
-    awayPct: (Math.abs(trigger - price) / price) * 100,
+    label: orbLevel != null ? 'opening-range high' : plan?.triggerLabel ?? (isVcp ? 'pivot' : 'level'),
+    awayPct: (Math.abs(level - price) / price) * 100,
   };
 }
 
@@ -112,6 +124,12 @@ export type PlanStatus = 'wait' | 'hit' | 'miss' | 'ext' | 'out';
 export function planStatusOf(r: TrigRow): PlanStatus {
   if (r.price <= r.stop) return 'out';
   if (r.extended) return 'ext';
+  if (r.orb) {
+    if (r.orb.state === 'stopped' || r.orb.state === 'out') return 'out';
+    if (r.orb.state === 'none') return 'miss';
+    if (r.orb.state !== 'go') return 'wait';
+    // GO: HIT, or MISS once it has run a day's range past the fill (below).
+  }
   if (!r.through) return 'wait';
   if (r.pullback) return 'hit';
   // A buy-at-the-price plan a little under its scan price is still a buy.
@@ -140,6 +158,28 @@ export const PLAN_STATUS_META: Record<PlanStatus, { cls: string; tip: string }> 
 export const buyWords = (r: TrigRow): string =>
   r.atMarket ? 'At market' : `${r.pullback ? 'Buy on a dip to' : 'Buy above'} ${r.trigger.toFixed(2)}`;
 
+const etClock = (min: number) => `${Math.floor(min / 60) % 12 || 12}:${String(min % 60).padStart(2, '0')}`;
+
+/** The status in words — the text in the cell and its hover. Shared by the
+ *  scan tables (planStatusView) and the dashboard's Buy & stop box, so the
+ *  breakout states read the same everywhere. */
+export function planStatusLabel(r: TrigRow, st: PlanStatus = planStatusOf(r)): { text: string; tip: string } {
+  const away = r.awayPct < 10 ? r.awayPct.toFixed(1) : r.awayPct.toFixed(0);
+  const o = r.orb;
+  if (o && st !== 'ext' && r.price > r.stop) {
+    const pace = o.pace != null ? ` (volume pace now ${o.pace.toFixed(1)}×)` : '';
+    switch (o.state) {
+      case 'pending': return { text: 'OR', tip: `Opening range forming. The tested entry is a break of the 9:30–10:00 high on ${ORB_VOL_MULT}× volume pace, after 10:00 ET — no buy before then.` };
+      case 'wait': return { text: `${away}%`, tip: `Buy above the opening-range high ${r.trigger.toFixed(2)} on ${ORB_VOL_MULT}× volume pace${pace} — the tested entry. ${away}% away.` };
+      case 'go': return { text: st.toUpperCase(), tip: `Broke the opening-range high on volume${o.goAt != null ? ` at ${etClock(o.goAt)} ET` : ''} — the tested entry, filled ${r.trigger.toFixed(2)}.${st === 'miss' ? ` ${PLAN_STATUS_META.miss.tip}.` : ''}` };
+      case 'none': return { text: 'NONE', tip: 'Closed without a volume-confirmed breakout — the tested rule did not buy it today.' };
+      case 'stopped': return { text: 'OUT', tip: 'Broke out, then traded to the stop.' };
+      default: break;
+    }
+  }
+  return { text: st === 'wait' ? `${away}%` : st.toUpperCase(), tip: `${st === 'wait' ? `${away}% away` : st.toUpperCase()} — ${PLAN_STATUS_META[st].tip}` };
+}
+
 export interface PlanStatusView { status: PlanStatus; text: string; cls: string; tip: string; sort: number }
 
 /** One scan-table row → its STATUS cell. `source` fills `_source` for rows
@@ -155,14 +195,14 @@ export function planStatusView(s: any, source?: string): PlanStatusView | null {
   if (!r) return null;
   const st = planStatusOf(r);
   const meta = PLAN_STATUS_META[st];
-  const away = r.awayPct < 10 ? r.awayPct.toFixed(1) : r.awayPct.toFixed(0);
+  // Bare "1.2%" as in the Buy & stop box: "1.2% away" is wider than the
+  // column on a phone. The hover spells it out.
+  const { text, tip } = planStatusLabel(r, st);
   return {
     status: st,
-    // Bare "1.2%" as in the Buy & stop box: "1.2% away" is wider than the
-    // column on a phone. The hover spells it out.
-    text: st === 'wait' ? `${away}%` : st.toUpperCase(),
+    text,
     cls: meta.cls,
-    tip: `${buyWords(r)} · Stop ${r.stop.toFixed(2)}\n${st === 'wait' ? `${away}% away` : st.toUpperCase()} — ${meta.tip}`,
+    tip: `${buyWords(r)} · Stop ${r.stop.toFixed(2)}\n${tip}`,
     sort: -(PLAN_STATUS_ORDER[st] * 1000 + r.awayPct),
   };
 }

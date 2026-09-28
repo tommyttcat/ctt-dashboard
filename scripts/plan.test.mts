@@ -13,6 +13,8 @@ import { EXIT_STYLE, EXIT_GUIDANCE } from '../src/lib/scans/exits.ts';
 import { trigRowOf, trigRows, planRowsFor, planStatusOf } from '../src/lib/scans/triggerProximity.ts';
 import { reportPlanOf, scanPlanFor, levelsFor, statusText, trendLine, flagsOf, shortName, shortRisk, NOTE_NOT_ON_SCAN } from '../src/lib/confluence/readout.ts';
 import { buyToken } from '../src/lib/summary/rowFormat.ts';
+import { withOrb } from '../src/lib/orb.ts';
+import { planStatusLabel, planStatusView } from '../src/lib/scans/triggerProximity.ts';
 import { eq, near, ok, done } from './testkit.mts';
 
 // ---- the EP pullback plan --------------------------------------------------
@@ -161,6 +163,37 @@ eq('EP9M is flagged as a pullback', trigRowOf(pull(101, 100))?.pullback, true);
   ok('at-market names are not listed as about to trigger', trigRowOf(mkt(98)) == null);
   eq('EP at market reads "At market" in the plan text', buyToken(pull(95, 100), 100), 'At market');
   eq('EP above its level still reads "Buy dip"', buyToken(pull(101, 100), 100), 'Buy dip 100');
+}
+
+// The tested entry on the breakout watch (27 Sep 2026): a watch name is HIT
+// only on its volume-confirmed opening-range breakout, never on price alone.
+{
+  const st = (s: any) => planStatusOf(planRowsFor([s])[0]);
+  const orb = (state: string, extra: Record<string, unknown> = {}) =>
+    ({ state, orHigh: 102, fill: null, pace: 1.1, goAt: null, asOf: 0, ...extra });
+  const w = (state: string, price = 103, extra: Record<string, unknown> = {}) =>
+    ({ ...breakout(price, 100), adrPct: 4, _orb: orb(state, extra) });
+  eq('above the scan level but no volume break yet: WAIT, not HIT', st(w('wait')), 'wait');
+  eq('waiting, the buy level is the opening-range high', planRowsFor([w('wait', 101)])[0].trigger, 102);
+  eq('range still forming reads OR', planStatusLabel(planRowsFor([w('pending')])[0]).text, 'OR');
+  eq('broke out on volume: HIT', st(w('go', 103, { fill: 102.5, goAt: 612 })), 'hit');
+  eq('the buy level is then the fill', planRowsFor([w('go', 103, { fill: 102.5 })])[0].trigger, 102.5);
+  eq('broke out and ran a day past the fill: MISS', st(w('go', 108, { fill: 102.5 })), 'miss');
+  eq('broke out then stopped: OUT', st(w('stopped', 99)), 'out');
+  eq('closed without a breakout: NONE', planStatusLabel(planRowsFor([w('none')])[0]).text, 'NONE');
+  eq('no watch state: the price-based rule as before', st({ ...breakout(101, 100), adrPct: 4 }), 'hit');
+  ok('the hover names the tested entry', (planStatusView(w('wait', 101))?.tip ?? '').includes('opening-range high'));
+
+  const watch = { pickedOn: '2026-09-25', session: '2026-09-28', asOf: 1, rows: [
+    { t: 'AAA', scan: 'sip', stop: 95, avgVol: 1e6, rs: 90, state: 'wait', orHigh: 102, pace: 1.2, last: 101, goAt: null, fill: null },
+    { t: 'BBB', scan: 'sip', stop: 95, avgVol: 1e6, rs: 90, state: 'nodata', orHigh: null, pace: null, last: null, goAt: null, fill: null },
+  ] } as any;
+  const rows = [{ ticker: 'AAA' }, { symbol: 'BBB' }, { ticker: 'CCC' }];
+  const tagged = withOrb(rows, watch, '2026-09-28');
+  eq('the watch name is tagged', (tagged[0] as any)._orb?.state, 'wait');
+  eq('a data gap is left on the price rule', (tagged[1] as any)._orb, undefined);
+  eq('a name off the watch is untouched', (tagged[2] as any)._orb, undefined);
+  eq('yesterday\'s watch tags nothing', (withOrb(rows, watch, '2026-09-29')[0] as any)._orb, undefined);
 }
 
 near('distance is measured from price', trigRowOf(breakout(100, 101))?.awayPct, 1);
