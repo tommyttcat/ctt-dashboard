@@ -39,7 +39,7 @@ const CUT = '2025-05-16';
 const REPLAY = path.join(DATA, 'replay');
 
 type Kind = 'E21' | 'S50' | 'L10';
-type Sig = { kind: Kind; ticker: string; date: string; t: number; r: Record<string, number>; half: 0 | 1; scanOk: boolean };
+type Sig = { kind: Kind; ticker: string; date: string; t: number; r: Record<string, number>; p?: Record<string, number>; half: 0 | 1; scanOk: boolean };
 /* SECOND RUN, fixed 27 Sep 2026 before running (after the whole-market run):
    the same signals restricted to what the 10/21 scan itself admits on the
    reclaim day — RS rating >= 50 (point in time), close within 15% of the
@@ -101,7 +101,9 @@ function main() {
         const scanShape = cl[t] >= hi252 * 0.85 && ema21[t] > ema21[t - 3] && cl[t] >= sma50[t];
         lastSig = t;
         sigs.push({ kind, ticker: syms[id], date, t: idx[t], half: date < CUT ? 0 : 1,
-          r: { hold20: tr.exits.hold20.r, trail21: tr.exits.trail21.r, trail10: tr.exits.trail10.r, target2R: tr.exits.fixedTarget.r }, scanOk: scanShape });
+          r: { hold20: tr.exits.hold20.r, trail21: tr.exits.trail21.r, trail10: tr.exits.trail10.r, target2R: tr.exits.fixedTarget.r },
+          // % of the fill, same trades (added 28 Sep 2026 for the evidence text; rules unchanged).
+          p: { hold20: tr.exits.hold20.pct, trail21: tr.exits.trail21.pct, trail10: tr.exits.trail10.pct, target2R: tr.exits.fixedTarget.pct }, scanOk: scanShape });
       }
     }
   }

@@ -468,7 +468,7 @@ const planTooltip = (c: Ep9mCandidate): string => {
   }
   lines.push(`Trigger  ${p.trigger != null ? p.trigger.toFixed(2) : '—'}  (${p.triggerLabel || '—'})`);
   lines.push(`Stop     ${p.stop != null ? p.stop.toFixed(2) : '—'}  (${p.stopPct != null ? `−${p.stopPct.toFixed(1)}%` : '—'})`);
-  lines.push(`Target   ${p.target != null ? p.target.toFixed(2) : '—'}  (2R)`);
+  lines.push(`Target   ${p.target != null ? p.target.toFixed(2) : '—'}  (twice the stop distance)`);
   if (p.trigger != null && p.stop != null) {
     lines.push(`Risk     ${(p.trigger - p.stop).toFixed(2)} per share`);
   }

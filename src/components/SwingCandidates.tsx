@@ -507,7 +507,7 @@ const planTooltip = (c: SwingCandidate): string => {
   if (p.trail != null) {
     lines.push(`Exit     trail the ${p.trailLabel || '21 EMA'}, now ${p.trail.toFixed(2)}`);
   }
-  lines.push(`Target   ${p.target != null ? p.target.toFixed(2) : '—'}  (2R — reference only)`);
+  lines.push(`Target   ${p.target != null ? p.target.toFixed(2) : '—'}  (twice the stop distance — reference only)`);
   if (p.trigger != null && p.stop != null) {
     lines.push(`Risk     ${(p.trigger - p.stop).toFixed(2)} per share`);
   }
@@ -535,7 +535,7 @@ const planTooltip = (c: SwingCandidate): string => {
   }
 
   lines.push('');
-  lines.push('Stop is the wider of 1.25× ADR or 2.5%. The 2R level is shown for sizing; it is not the exit this table measured best.');
+  lines.push('Stop is the wider of 1.25× ADR or 2.5%. The target (twice the stop distance) is shown for sizing; it is not the exit this table measured best.');
   lines.push('');
   lines.push(EXIT_GUIDANCE['swing']);
   return lines.join('\n');

@@ -503,7 +503,7 @@ const planTooltip = (c: ConsolidationCandidate): string => {
   const lines: string[] = [];
   lines.push(`Trigger  ${p.trigger != null ? p.trigger.toFixed(2) : '—'}  (${p.triggerLabel || '—'})`);
   lines.push(`Stop     ${p.stop != null ? p.stop.toFixed(2) : '—'}  (${p.stopPct != null ? `−${p.stopPct.toFixed(1)}%` : '—'})`);
-  lines.push(`Target   ${p.target != null ? p.target.toFixed(2) : '—'}  (2R)`);
+  lines.push(`Target   ${p.target != null ? p.target.toFixed(2) : '—'}  (twice the stop distance)`);
   if (p.trigger != null && p.stop != null) {
     lines.push(`Risk     ${(p.trigger - p.stop).toFixed(2)} per share`);
   }
@@ -518,14 +518,14 @@ const planTooltip = (c: ConsolidationCandidate): string => {
     lines.push(p.note);
   }
   lines.push('');
-  lines.push('Stop is the wider of 1.25× ADR or 2.5%. The 2R level is shown for sizing.');
+  lines.push('Stop is the wider of 1.25× ADR or 2.5%. The target (twice the stop distance) is shown for sizing.');
   lines.push('');
   if (!planTradeable(c)) {
     lines.push(
-      'WATCH, not a plan. Over 11,580 of these breakouts the trade averaged -0.09R and no exit tested was ' +
-      'positive. The one exception is a coil 3x+ ATR with the stochastic above 75 — the green rows — which ' +
-      'returned +0.13R and broke out 89% of the time. The levels above are where this coil resolves; the ' +
-      'evidence does not support taking the break on this row.',
+      'WATCH, not a plan. Bought at the averages, coils like this were flat over five years (0.00% a trade ' +
+      'held 20 sessions). The exception is a coil 3x+ ATR with the stochastic above 75 — the green rows — which ' +
+      'made +1.21% a trade held 20 sessions and broke out 89% of the time. The levels above are where this coil ' +
+      'resolves; the evidence does not support taking the break on this row.',
     );
     lines.push('');
   }

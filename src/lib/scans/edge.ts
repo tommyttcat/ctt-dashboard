@@ -69,9 +69,9 @@ export const EDGE_TINT: Record<EdgeTier, string> = {
 };
 
 export const EDGE_FILTER_TIP: Record<EdgeTier, string> = {
-  green: "cleared both losing filters and closed in the top 10% of the day's range (+0.26R in the 5-year test)",
-  yellow: 'cleared the filters but closed lower in the range',
-  red: 'ADR above 9% (-0.27R) or price $5-10 (-0.15R) — both lost in every half of the test',
+  green: "cleared both losing filters and closed in the top 10% of the day's range — +2.50% a trade held 20 sessions in the 5-year test, positive in both periods",
+  yellow: 'cleared the filters but closed lower in the range — +1.35% a trade held 20 sessions',
+  red: 'ADR above 9% (−5.05% a trade held 20 sessions) or price $5-10 (−2.17%) — both lost in both periods of the test',
 };
 
 /* ---- 100-Bagger tint -----------------------------------------------------
@@ -135,9 +135,9 @@ export function swingTier(row: { rsRating?: number | null; mf?: number | null; s
 }
 
 export const SWING_TIP: Record<EdgeTier, string> = {
-  green: 'RS 95+ or Money Flow 65+ — +0.58R per trade in the 5-year test, 14% ran +50%',
-  yellow: 'passes the scan but neither strength marker — +0.09R',
-  red: 'Stage 1 base — the only bucket that lost (-0.19R, both halves), 5.5% ran +50%',
+  green: 'RS 95+ or Money Flow 65+ — +1.33% a trade held 20 sessions in the 5-year test, positive in both periods; 14% ran +50%',
+  yellow: 'passes the scan but neither strength marker — +0.24% a trade held 20 sessions',
+  red: 'Stage 1 base — the only bucket that lost (−0.48% a trade held 20 sessions, both periods), 5.5% ran +50%',
 };
 
 /* ---- 10/21 Consolidation tint --------------------------------------------
@@ -170,9 +170,9 @@ export function consolidationTier(row: { coilRatio?: number | null; stochK?: num
 }
 
 export const CONSOLIDATION_TIP: Record<EdgeTier, string> = {
-  green: 'coil 3x+ ATR with the stochastic above 75 — price pressed against the top of its range. +0.13R in both halves, breaks out 89% of the time.',
-  yellow: 'inside the coil range but not pressed against its high — around breakeven at best',
-  red: 'tight coil (under 2.5x ATR) or more than 11% off the high — the buckets that lost (-0.15R and -0.26R)',
+  green: 'coil 3x+ ATR with the stochastic above 75 — price pressed against the top of its range. +1.21% a trade held 20 sessions, positive in both periods; breaks out 89% of the time.',
+  yellow: 'inside the coil range but not pressed against its high — +0.22% a trade held 20 sessions, about flat',
+  red: 'tight coil (under 2.5x ATR) or more than 11% off the high — the buckets that lost overall (−0.34% and −0.53% a trade held 20 sessions), though not since mid-2025',
 };
 
 /* ---- EP9M tint -----------------------------------------------------------
@@ -222,9 +222,9 @@ export function ep9mTier(row: {
 }
 
 export const EP9M_TIP: Record<EdgeTier, string> = {
-  green: 'clears the three losing traits and has money flow 65+ or a $50+ price — +0.22R per trade on the pullback entry, both halves agreeing',
-  yellow: 'clears them but neither strength marker — +0.07R',
-  red: 'ADR above 9%, float turnover 1x+, or cap under $300M — -0.14R. These also run +50% most often (19%): the lottery bucket, so size it like one.',
+  green: 'clears the three losing traits and has money flow 65+ or a $50+ price — +0.28% a trade on the pullback entry taking the fixed target, positive in both periods',
+  yellow: 'clears them but neither strength marker — +0.26% a trade',
+  red: 'ADR above 9%, float turnover 1x+, or cap under $300M — −1.58% a trade, losing in both periods. These also run +50% most often (19%): the lottery bucket, so size it like one.',
 };
 
 /* ---- VCP tint ------------------------------------------------------------
@@ -262,7 +262,7 @@ export function vcpTier(row: { atrPct?: number | null; stopPct?: number | null; 
 export const VCP_TIP: Record<EdgeTier, string> = {
   green: 'ATR 3.5%+ with a final contraction of 10%+ — the only bucket that produces big runs (10.7% ran +50%, and it held at 6% and 13% across both halves)',
   yellow: 'passes the pattern but without the room to travel — 1.7% ran +50%',
-  red: 'ATR under 2.5% or a stop under 5% — ZERO +50% runs in five years and the worst trailing outcome (-0.14R). Too quiet to pay for its own spread.',
+  red: 'ATR under 2.5% or a stop under 5% — ZERO +50% runs in five years, and −0.82% a trade trailing the 21 EMA. Too quiet to pay for its own spread.',
 };
 
 /* ---- Hidden Relative Strength tint ---------------------------------------
@@ -286,8 +286,8 @@ export function hrsTier(row: { price?: number | null } | null | undefined): Edge
 }
 
 export const HRS_TIP: Record<EdgeTier, string> = {
-  green: 'price $5-15 — the band that paid on this scan (+0.14R, 10% ran +50%, in both halves). The same band loses on the momentum tables.',
-  yellow: 'outside that band — +0.01R, essentially flat',
+  green: 'price $5-15 — the band that paid on this scan (+1.84% a trade on the fixed target, 10% ran +50%), though almost all of it since mid-2025. The same band loses on the momentum tables.',
+  yellow: 'outside that band — +0.18% a trade, essentially flat',
   red: 'unused on this scan: no bucket lost consistently',
 };
 

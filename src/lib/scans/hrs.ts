@@ -314,6 +314,7 @@ export function hrsEdgeGrade(r: { rsRating?: number | null; price?: number | nul
 }
 
 export const HRS_EDGE_GRADE_TIP =
-  'A: RS 95+ and price $5-15 — the only combination that separated outcomes in the 5-year test ' +
-  '(+0.15R, 11% ran +50%). B: one of the two. Unlettered: neither, which averaged about zero. ' +
+  'A: RS 95+ and price $5-15 — the combination that separated outcomes in the 5-year test (the $5-15 band ' +
+  'made +1.84% a trade on the fixed target and 11% ran +50%, almost all of it since mid-2025). B: one of the two. ' +
+  'Unlettered: neither, which averaged about zero. ' +
   'The old grade is gone because the scan gates already guaranteed it — 99.8% of rows were grade A.';

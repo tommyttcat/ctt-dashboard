@@ -1606,7 +1606,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
             <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-400/30" />yellow</span>
             <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-rose-500/30" />red</span>
             <span className="absolute bottom-full left-0 mb-2 w-72 px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 font-normal whitespace-normal opacity-0 pointer-events-none group-hover/edge:opacity-100 transition-opacity z-[9999]">
-              This card shows only the green rows: names that closed in the top 10% of the day&apos;s range (+0.26R) AND avoided the two filters that lost money in both halves of the 5-year backtest — ADR above 9% (−0.27R) and price $5–10 (−0.15R). The individual scan cards still show everything, tinted green/yellow/red.
+              This card shows only the green rows: names that closed in the top 10% of the day&apos;s range (+2.50% a trade held 20 sessions) AND avoided the two filters that lost money in both periods of the 5-year backtest — ADR above 9% (−5.05%) and price $5–10 (−2.17%). The individual scan cards still show everything, tinted green/yellow/red.
             </span>
           </p>
         </>

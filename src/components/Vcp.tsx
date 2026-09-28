@@ -457,7 +457,7 @@ const planTooltip = (row: VcpCandidate): string => {
   const lines: string[] = [
     `Trigger  ${formatLevel(row.trigger)}   (pivot — high of the final contraction)`,
     `Stop     ${formatLevel(row.stop)}   (${row.stopPct != null ? `−${row.stopPct.toFixed(1)}%` : '—'}, low of the final contraction)`,
-    `Target   ${formatLevel(row.target)}   (2R)`,
+    `Target   ${formatLevel(row.target)}   (twice the stop distance)`,
   ];
 
   if (row.trigger != null && row.stop != null) {

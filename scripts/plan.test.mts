@@ -79,15 +79,17 @@ eq('and says so', noEma21.trailLabel, '10 EMA');
 // ---- the exit decision is recorded, not just described ---------------------
 // EXIT_STYLE is what the renderer acts on and EXIT_GUIDANCE is what the reader
 // reads. They describe the same measurement, so they must not disagree.
-eq('momentum tables trail', EXIT_STYLE.scanner, 'trail');
+eq('Stocks in Play / Daily: no exit made money in %', EXIT_STYLE.scanner, 'none');
+eq('EP9M: every exit lost in %', EXIT_STYLE.ep9m, 'none');
 eq('swing trails', EXIT_STYLE.swing, 'trail');
 eq('VCP is the one that takes the target', EXIT_STYLE.vcp, 'target');
 eq('nothing worked on 10/21', EXIT_STYLE.consolidation, 'none');
 for (const [scan, style] of Object.entries(EXIT_STYLE)) {
   const text = EXIT_GUIDANCE[scan as keyof typeof EXIT_GUIDANCE].toLowerCase();
   if (style === 'trail') ok(`${scan} guidance mentions trailing`, text.includes('trail'));
-  if (style === 'target') ok(`${scan} guidance says take the target`, text.includes('take the 2r'));
+  if (style === 'target') ok(`${scan} guidance says take the target`, text.includes('take the target'));
   if (style === 'none') ok(`${scan} guidance says nothing worked`, /no exit|flat either way/.test(text));
+  ok(`${scan} guidance quotes percent, not R`, /%/.test(text) && !/[0-9]R\b/i.test(text));
 }
 
 // ---- closest to trigger ----------------------------------------------------
