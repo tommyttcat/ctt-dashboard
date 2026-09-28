@@ -1038,7 +1038,6 @@ export const buildLocalInsights = (
   const setupsPara = setupPool.length > 0 ? 'Setups Summary: interactive' : '';
   // 10/21 is the list meant to catch a move before it happens, so it is in.
   const earlyPool = [...setupPool, ...tagAndDedup(consolList, 'consolidation')];
-  const earlyPara = earlyPool.length > 0 ? 'Early Movers: interactive' : '';
 
   const allScannerLists: [string, any[]][] = [
     ['daily', daily], ['sip', sips], ['dvol', dvolList],
@@ -1080,7 +1079,7 @@ export const buildLocalInsights = (
   const mbFinal = mbPara || '100-Bagger Thesis: No candidates — awaiting scan.';
 
   const orderedParas = [
-    'Best Setups Today: interactive', setupsPara, earlyPara, moversPara, sipsFinal, dvolPara,
+    'Best Setups Today: interactive', setupsPara, moversPara, sipsFinal, dvolPara,
     dailyPara, swingThesisPara,
     ema1021Para, vcpPara, ep9mFinal, mbFinal,
     sectorBarsPara, heatPara, etfPara, moneyPara, keyEventsPara,

@@ -2005,7 +2005,6 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
      its own space. The avoid-set still comes from the analyst brief. */
   { label: 'Best Setups Today', color: 'emerald', blurb: 'The picks from the best-tested entry. Buy only on the volume breakout after 10:00.' },
   { label: 'Setups Summary', color: 'violet', blurb: 'All scans pooled — filter by source or setup pattern. One stop shop.' },
-  { label: 'Early Movers', color: 'emerald', blurb: 'Names on today\'s lists moving now, on live prices — before the delayed scans see them.' },
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves now. Volume-confirmed is tradeable; a thin gap is a fade.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, and who is on air.' },
   { label: '$Vol Summary', color: 'teal', blurb: 'Top 20 by dollar volume — where the money actually is today.' },
@@ -2293,12 +2292,21 @@ export default function MarketSummary() {
   const [thesisEdge, setThesisEdge] = useState<Record<string, EdgeTier | null>>({});
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() =>
     new Set([
-      ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Early Movers' && l !== 'Best Setups Today'),
+      ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today'),
       'hrsTop', 'topSetups',
     ])
   );
   const [scanFilter, setScanFilter] = useState<ScanFilterKey>(null);
-  const [moverView, setMoverView] = useState<'stocks' | 'etf'>('stocks');
+  const [moverView, setMoverView] = useState<'stocks' | 'etf' | 'early'>('stocks');
+  /* Top Movers opens on Early before the bell — the delayed gainers list is
+     yesterday's story then — and on Stocks from 9:30. A reader's own tap on a
+     view sticks for the rest of the visit (28 Sep 2026). */
+  const moverPicked = useRef(false);
+  const pickMoverView = (v: 'stocks' | 'etf' | 'early') => { moverPicked.current = true; setMoverView(v); };
+  useEffect(() => {
+    if (moverPicked.current) return;
+    setMoverView(session === 'Pre-Market' ? 'early' : 'stocks');
+  }, [session]);
   /* What the Setups Summary is actually displaying after its own filters, so
      Copy and TXT hand over the visible rows rather than the whole pool. */
   const [setupVisible, setSetupVisible] = useState<string[]>([]);
@@ -2317,7 +2325,7 @@ export default function MarketSummary() {
     if (!mi?.briefing) return;
     if (!k) {
       setCollapsedSections(new Set([
-        ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Early Movers' && l !== 'Best Setups Today'),
+        ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today'),
         'hrsTop', 'topSetups',
       ]));
       return;
@@ -2641,7 +2649,7 @@ export default function MarketSummary() {
                           const bodyTickers = label === 'Setups Summary'
                             // What the card is showing, not the pool behind it.
                             ? setupVisible
-                            : label === 'Early Movers' ? moverVisible
+                            : label === 'Top Movers' && moverView === 'early' ? moverVisible
                             : label === 'Best Setups Today' ? [...(orbWatch?.rows ?? []).map(r => r.t), ...(orbWatch?.dips ?? []).map(d => d.t)]
                             : (() => {
                                 const lines = body.replace(/\|\|\|/g, '\n').split('\n').filter(Boolean);
@@ -2822,7 +2830,7 @@ export default function MarketSummary() {
                                       />
                                     )}
                                     {isOpen && label === 'Setups Summary' && <SetupSummaryHelp />}
-                                    {label && CARD_SCAN[label] && scanTimes[CARD_SCAN[label]] && (
+                                    {label && CARD_SCAN[label] && scanTimes[CARD_SCAN[label]] && !(label === 'Top Movers' && moverView === 'early') && (
                                       <span className="text-[8px] font-medium text-slate-500 tabular-nums" title="When this card's scan last ran. Its numbers are that old, plus the data feed's 15-minute delay.">
                                         as of {fmtEtClock(scanTimes[CARD_SCAN[label]])} ET
                                       </span>
@@ -2830,7 +2838,7 @@ export default function MarketSummary() {
                                     {isOpen && label === 'Top Movers' && (
                                       <div className="flex items-center gap-1 ml-1">
                                         <button
-                                          onClick={(e) => { e.stopPropagation(); setMoverView('stocks'); }}
+                                          onClick={(e) => { e.stopPropagation(); pickMoverView('stocks'); }}
                                           className={`text-[7px] font-bold tracking-wider uppercase px-1.5 py-[1px] rounded border transition-all duration-200 ${
                                             moverView === 'stocks'
                                               ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
@@ -2838,13 +2846,23 @@ export default function MarketSummary() {
                                           }`}
                                         >Stocks</button>
                                         <button
-                                          onClick={(e) => { e.stopPropagation(); setMoverView('etf'); }}
+                                          onClick={(e) => { e.stopPropagation(); pickMoverView('etf'); }}
                                           className={`text-[7px] font-bold tracking-wider uppercase px-1.5 py-[1px] rounded border transition-all duration-200 ${
                                             moverView === 'etf'
                                               ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
                                               : 'bg-[#161c2a] text-slate-500 border-white/5 hover:text-slate-300 hover:bg-white/[0.04]'
                                           }`}
                                         >ETF</button>
+                                        {/* Early Movers lives here since 28 Sep 2026 (it was its own card). */}
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); pickMoverView('early'); }}
+                                          title="Names from last night's lists moving now on live prices, before the delayed scans see them"
+                                          className={`text-[7px] font-bold tracking-wider uppercase px-1.5 py-[1px] rounded border transition-all duration-200 ${
+                                            moverView === 'early'
+                                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                              : 'bg-[#161c2a] text-slate-500 border-white/5 hover:text-slate-300 hover:bg-white/[0.04]'
+                                          }`}
+                                        >Early</button>
                                       </div>
                                     )}
                                     {!isOpen && bodyTickers.length > 0 && (
@@ -2879,7 +2897,7 @@ export default function MarketSummary() {
                                 />
                               ) : isOpen && label === 'Best Setups Today' ? (
                                 <BestSetups watch={orbWatch} />
-                              ) : isOpen && label === 'Early Movers' ? (
+                              ) : isOpen && label === 'Top Movers' && moverView === 'early' ? (
                                 <EarlyMovers pool={macroInsights?.earlyPool ?? []} night={earlyNight} onVisibleChange={onMoverVisible} />
                               ) : isOpen && label === 'Sector Performance' ? (
                                 <SectorBars body={body} heat={macroInsights?.sectorHeat} />
