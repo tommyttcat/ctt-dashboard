@@ -21,6 +21,10 @@
 //   Exits: hold 20 and trail 21 (shared simulate.ts). Split at 2025-05-16.
 //   PASS: the new stop's per-trade avg R beats CARD in BOTH halves on BOTH
 //   hold-20 and trail-21.
+//   ATR RE-RUN (fixed 27 Sep 2026 before running, at the user's point that
+//   ATR — which counts overnight gaps — is the measure for stops): the same
+//   caps and floors with ATR% (the registries' atrPct) in place of ADR%:
+//   EP9M CAP-ATR 1.0 / 1.5, 10/21 FLOOR-ATR 1.0 / 1.5. Same pass bar.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -64,6 +68,10 @@ function main() {
       const st = Math.max(epLow, fill * (1 - (m * e.adrPct) / 100));
       add(`EP9M ${k} (max(low, fill-${m}xADR))`, half, simulate(c, id, s, ei, fill, st, target(st)));
     }
+    if (e.atrPct > 0) for (const m of [1.0, 1.5]) {
+      const st = Math.max(epLow, fill * (1 - (m * e.atrPct) / 100));
+      add(`EP9M CAP-ATR ${m.toFixed(1)}`, half, simulate(c, id, s, ei, fill, st, target(st)));
+    } else for (const m of [1.0, 1.5]) add(`EP9M CAP-ATR ${m.toFixed(1)}`, half, simulate(c, id, s, ei, fill, epLow, target(epLow)));
   }
 
   // ---- 10/21 coils bought at the next open
@@ -79,6 +87,10 @@ function main() {
     add('10/21 CARD  (plan stop)', half, simulate(c, id, s, ei, fill, stop, fill + 2 * (fill - stop)));
     const fl = Math.min(stop, fill * (1 - e.adrPct / 100));
     add('10/21 FLOOR (min(stop, fill-1xADR))', half, simulate(c, id, s, ei, fill, fl, fill + 2 * (fill - fl)));
+    for (const m of [1.0, 1.5]) {
+      const fa = e.atrPct > 0 ? Math.min(stop, fill * (1 - (m * e.atrPct) / 100)) : stop;
+      add(`10/21 FLOOR-ATR ${m.toFixed(1)}`, half, simulate(c, id, s, ei, fill, fa, fill + 2 * (fill - fa)));
+    }
   }
 
   const m = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : NaN);
@@ -95,6 +107,10 @@ function main() {
   verdict('EP9M CAP15 (max(low, fill-1.5xADR))', 'EP9M CARD  (EP-day low)');
   verdict('EP9M CAP10 (max(low, fill-1xADR))', 'EP9M CARD  (EP-day low)');
   verdict('10/21 FLOOR (min(stop, fill-1xADR))', '10/21 CARD  (plan stop)');
+  for (const m of ['1.0', '1.5']) {
+    verdict(`EP9M CAP-ATR ${m}`, 'EP9M CARD  (EP-day low)');
+    verdict(`10/21 FLOOR-ATR ${m}`, '10/21 CARD  (plan stop)');
+  }
 }
 
 main();
