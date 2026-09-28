@@ -18,6 +18,15 @@ interface SetupEntry {
   recordedAt: string;
 }
 
+/* % from the buy level to the target — not R, which the reader reads as
+   gibberish (28 Sep 2026). A short's gain is the drop, so the sign follows
+   the direction. */
+const toTargetPct = (e: SetupEntry): string => {
+  if (e.trigger == null || e.target == null || !(e.trigger > 0)) return '—';
+  const pct = e.direction === 'short' ? (e.trigger - e.target) / e.trigger * 100 : (e.target / e.trigger - 1) * 100;
+  return `${pct >= 0 ? '+' : '−'}${Math.abs(pct).toFixed(1)}%`;
+};
+
 interface Ledger {
   date: string;
   recordedAt: string;
@@ -117,7 +126,7 @@ export default function LedgerViewer() {
                       <th className="px-3 py-2 font-medium text-right">Trigger</th>
                       <th className="px-3 py-2 font-medium text-right">Stop</th>
                       <th className="px-3 py-2 font-medium text-right">Target</th>
-                      <th className="px-3 py-2 font-medium text-right">R</th>
+                      <th className="px-3 py-2 font-medium text-right" title="The move from the buy level to the target, in % (a short counts the drop)">To target</th>
                       <th className="px-3 py-2 font-medium">Thesis</th>
                     </tr>
                   </thead>
@@ -131,7 +140,7 @@ export default function LedgerViewer() {
                         <td className="px-3 py-2 text-right tabular-nums">{fmt(e.trigger)}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{fmt(e.stop)}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{fmt(e.target)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{e.rMultiple == null ? '—' : `${fmt(e.rMultiple)}R`}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{toTargetPct(e)}</td>
                         <td className="px-3 py-2 text-slate-400 max-w-[280px] truncate" title={e.thesis || ''}>{e.thesis || '—'}</td>
                       </tr>
                     ))}
