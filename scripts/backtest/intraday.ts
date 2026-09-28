@@ -58,14 +58,14 @@ function polygonKey(): string {
   return m[1].trim().replace(/^["']|["']$/g, '');
 }
 
-type Sig = {
+export type Sig = {
   scan: 'scanner' | 'swing'; ticker: string; date: string; s: number;
   H: number; L: number; cardStop: number; avgVol: number | null; rs: number;
 };
 
 const read = (f: string) => fs.readFileSync(path.join(REPLAY, f), 'utf8').trim().split('\n').map(l => JSON.parse(l));
 
-function signals(): Sig[] {
+export function signals(): Sig[] {
   const out: Sig[] = [];
   for (const e of read('scanner_registry.jsonl')) {
     if (e.date < START || edgeTier(e) !== 'green') continue;
@@ -230,7 +230,10 @@ function entries() {
   console.log('entries written; missing minute files:', missing, JSON.stringify(tally));
 }
 
-const mode = process.argv[2];
-if (mode === 'download') download();
-else if (mode === 'entries') entries();
-else console.log('usage: intraday.ts download | entries');
+// Only when run directly: scripts/backtest/market-filter.ts imports signals().
+if (process.argv[1]?.endsWith('intraday.ts')) {
+  const mode = process.argv[2];
+  if (mode === 'download') download();
+  else if (mode === 'entries') entries();
+  else console.log('usage: intraday.ts download | entries');
+}
