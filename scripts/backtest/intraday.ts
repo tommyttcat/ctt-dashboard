@@ -37,6 +37,20 @@
 //             it beats SPY in BOTH halves AND its random-order median beats
 //             SPY — the bar every earlier idea failed.
 
+// WIDER LIST (27 Sep 2026) — RULES fixed BEFORE the yellow minute bars were
+// downloaded. The live watch has only the green rows (4 names for Mon 28 Sep).
+//   Question  does adding the YELLOW Stocks in Play / Daily / Swing rows,
+//             entered the same way (E2 via lib/orb) and ranked by RS with the
+//             green ones, keep the edge while giving more chances a day?
+//   Data      `download yellow` / `entries yellow` → intraday_entries_yellow.jsonl.
+//   Test      portfolio.ts `wider`: the same 10-slot account (hold 20, card
+//             stop, 0.5% risk, RS first, EP9M dips alongside), green E2 alone
+//             vs green + yellow E2 together.
+//   PASS      yellow E2 trades on their own average > 0 R in BOTH halves, AND
+//             green + yellow beats green alone on account return in both
+//             halves and on the random-order median. Otherwise the watch stays
+//             green only.
+
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
@@ -65,15 +79,16 @@ export type Sig = {
 
 const read = (f: string) => fs.readFileSync(path.join(REPLAY, f), 'utf8').trim().split('\n').map(l => JSON.parse(l));
 
-export function signals(): Sig[] {
+export function signals(tiers: string[] = ['green']): Sig[] {
+  const want = new Set(tiers);
   const out: Sig[] = [];
   for (const e of read('scanner_registry.jsonl')) {
-    if (e.date < START || edgeTier(e) !== 'green') continue;
+    if (e.date < START || !want.has(edgeTier(e) ?? '')) continue;
     const stop = e.plan?.tradeable && e.plan.stop != null ? e.plan.stop : e.dayLow;
     out.push({ scan: 'scanner', ticker: e.ticker, date: e.date, s: e.sIdx, H: e.dayHigh, L: e.dayLow, cardStop: stop, avgVol: e.avgVol ?? null, rs: e.rsRating ?? -1 });
   }
   for (const e of read('swing_registry.jsonl')) {
-    if (e.date < START || swingTier(e) !== 'green') continue;
+    if (e.date < START || !want.has(swingTier(e) ?? '')) continue;
     const stop = (e.plan?.tradeable ? e.plan?.stop : null) ?? e.dayLow;
     const avgVol = typeof e.avgDollarVolM === 'number' && e.price > 0 ? (e.avgDollarVolM * 1e6) / e.price : null;
     out.push({ scan: 'swing', ticker: e.ticker, date: e.date, s: e.sIdx, H: e.dayHigh, L: e.dayLow, cardStop: stop, avgVol, rs: e.rsRating ?? -1 });
@@ -86,10 +101,10 @@ export function signals(): Sig[] {
 type M = [number, number, number, number, number, number]; // t o h l c v
 const fileOf = (g: Sig) => path.join(MIN_DIR, g.date.slice(0, 4), `${g.ticker}_${g.date}.json.gz`);
 
-async function download() {
+async function download(tiers?: string[]) {
   const key = polygonKey();
   const cache = loadAdjusted();
-  const sigs = signals();
+  const sigs = signals(tiers);
   fs.mkdirSync(MIN_DIR, { recursive: true });
   let done = 0, skipped = 0, failed = 0;
   const t0 = Date.now();
@@ -134,14 +149,14 @@ function isRth(ms: number) { const { min } = et(ms); return min >= OPEN && min <
 // ---- entries -----------------------------------------------------------------
 export type Entry = { ei: number; fill: number; stop: number; postFillLow: number } | null;
 
-function entries() {
+function entries(tiers?: string[]) {
   const cache = loadAdjusted();
   const { sessions, idOf, O } = cache;
-  const out = fs.createWriteStream(path.join(REPLAY, 'intraday_entries.jsonl'));
+  const out = fs.createWriteStream(path.join(REPLAY, tiers ? `intraday_entries_${tiers.join('_')}.jsonl` : 'intraday_entries.jsonl'));
   const tally: Record<string, number> = {};
   let missing = 0;
 
-  for (const g of signals()) {
+  for (const g of signals(tiers)) {
     const id = idOf.get(g.ticker);
     const f = fileOf(g);
     if (id === undefined || !fs.existsSync(f)) { missing++; continue; }
@@ -233,7 +248,8 @@ function entries() {
 // Only when run directly: scripts/backtest/market-filter.ts imports signals().
 if (process.argv[1]?.endsWith('intraday.ts')) {
   const mode = process.argv[2];
-  if (mode === 'download') download();
-  else if (mode === 'entries') entries();
+  const tiers = process.argv[3] ? process.argv[3].split(',') : undefined;
+  if (mode === 'download') download(tiers);
+  else if (mode === 'entries') entries(tiers);
   else console.log('usage: intraday.ts download | entries');
 }
