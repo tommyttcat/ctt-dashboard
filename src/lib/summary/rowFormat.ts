@@ -544,8 +544,25 @@ export const PULLBACK_SOURCES = new Set(['ep9m']);
 export const SCORE_UNRANKED_SOURCES = new Set(['ep9m', 'swing']);
 export const isPullbackPlan = (s: any): boolean => PULLBACK_SOURCES.has(String(s?._source ?? ''));
 
+/* At market: no level left to wait for. The 10/21 plans buy at the price
+   (family 'at-market', 27 Sep 2026), and an EP9M dip whose price is already
+   under the midpoint has passed its level — the dip plan fills at the next
+   open — so "Buy dip 52.10" with the price at 48 printed a buy level above
+   the price that is not one. At or under the stop it is not at market: the
+   idea has failed, and the OUT status says so. */
+export const isAtMarketPlan = (s: any, trigger?: any, price?: any): boolean => {
+  const plan = s?.plan && typeof s.plan === 'object' ? s.plan : null;
+  const p = numOrNull(price ?? priceOf(s));
+  const stop = numOrNull(plan?.stop);
+  if (p != null && stop != null && p <= stop) return false;
+  if (plan?.family === 'at-market') return true;
+  if (!isPullbackPlan(s)) return false;
+  const t = numOrNull(trigger ?? plan?.trigger);
+  return t != null && p != null && p <= t;
+};
+
 export const buyToken = (s: any, level: any): string =>
-  `${isPullbackPlan(s) ? 'Buy dip' : 'Buy above'} ${fmtLevel(level)}`;
+  isAtMarketPlan(s, level) ? 'At market' : `${isPullbackPlan(s) ? 'Buy dip' : 'Buy above'} ${fmtLevel(level)}`;
 
 export const stopToken = (level: any): string => `Stop ${fmtLevel(level)}`;
 

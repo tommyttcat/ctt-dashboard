@@ -27,7 +27,7 @@ export function buildAlertEmail(alerts: Alert[], etTime: string): string {
         ${hit
           ? ` reached its ${a.dip ? 'dip' : 'buy'} level at ${esc(a.price.toFixed(2))}`
           : ` fell below its stop at ${esc(a.price.toFixed(2))}`}<br>
-        <span style="color:${C.muted};">${a.dip ? 'Buy dip' : 'Buy above'} <b style="color:${C.ink};">${esc(a.buy.toFixed(2))}</b> &middot; Stop <b style="color:${C.red};">${esc(a.stop.toFixed(2))}</b></span>
+        <span style="color:${C.muted};">${a.mkt ? `<b style="color:${C.ink};">At market</b>` : `${a.dip ? 'Buy dip' : 'Buy above'} <b style="color:${C.ink};">${esc(a.buy.toFixed(2))}</b>`} &middot; Stop <b style="color:${C.red};">${esc(a.stop.toFixed(2))}</b></span>
       </td>
     </tr>`;
   }).join('');

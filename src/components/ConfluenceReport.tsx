@@ -261,8 +261,8 @@ function StockCard({ report: r }: { report: Report }) {
         {lv && (
           <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2 mt-3 px-3 py-2.5 rounded-xl bg-[#0a1220]">
             <div className="min-w-0">
-              <div className="text-slate-400">{lv.kind === 'scan' ? lv.buyLabel : 'Buy above'}</div>
-              <div className="font-bold text-slate-100 tabular-nums">{lv.kind === 'scan' ? fmtLvl(lv.trigger) : lv.trigger}</div>
+              <div className="text-slate-400">{lv.kind === 'scan' ? (lv.buyLabel === 'At market' ? 'Buy' : lv.buyLabel) : 'Buy above'}</div>
+              <div className="font-bold text-slate-100 tabular-nums">{lv.kind === 'scan' ? (lv.buyLabel === 'At market' ? 'At market' : fmtLvl(lv.trigger)) : lv.trigger}</div>
             </div>
             <div className="min-w-0">
               <div className="text-slate-400">Stop</div>

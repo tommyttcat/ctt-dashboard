@@ -84,6 +84,7 @@ import ScanStatsNote from './ScanStatsNote';
 import { SCAN, RvolCell, RsCell, PriceCell, DollarVolCell, AdrCell, StatusCell, McapCell, StageCell, SectorCell } from './scan/ScanTable';
 import { usePhoneTable } from './scan/usePhoneTable';
 import { planStatusView } from '@/lib/scans/triggerProximity';
+import { isAtMarketPlan } from '@/lib/summary/rowFormat';
 import { poll } from '@/lib/poll';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
@@ -460,6 +461,11 @@ const planTooltip = (c: Ep9mCandidate): string => {
   if (p.tradeable !== true) return `No plan — ${p.note || 'not computable'}.`;
 
   const lines: string[] = [];
+  // Already under the dip level and above the stop: nothing left to wait for.
+  if (isAtMarketPlan({ ...c, _source: 'ep9m' })) {
+    lines.push(`At market · Stop ${p.stop != null ? p.stop.toFixed(2) : '—'} — the price is already under the dip level, so the plan buys at the price.`);
+    lines.push('');
+  }
   lines.push(`Trigger  ${p.trigger != null ? p.trigger.toFixed(2) : '—'}  (${p.triggerLabel || '—'})`);
   lines.push(`Stop     ${p.stop != null ? p.stop.toFixed(2) : '—'}  (${p.stopPct != null ? `−${p.stopPct.toFixed(1)}%` : '—'})`);
   lines.push(`Target   ${p.target != null ? p.target.toFixed(2) : '—'}  (2R)`);

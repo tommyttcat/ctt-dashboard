@@ -36,6 +36,8 @@ export interface TickerStatus {
   buy: number;
   stop: number;
   dip: boolean;
+  /** Buy-at-the-price plan: no level to print. */
+  mkt?: boolean;
   price: number;
   scan: string;            // reader-facing label
 }
@@ -56,7 +58,7 @@ export function statusesFor(rowsByKey: Record<string, unknown>, wanted: Set<stri
       if (!t || !wanted.has(t) || out.has(t)) continue;
       const r = trigRowOf(source && row._source == null ? { ...row, _source: source } : row, { keepThrough: true, keepExtended: true });
       if (!r) continue;
-      out.set(t, { ticker: t, status: planStatusOf(r), buy: r.trigger, stop: r.stop, dip: r.pullback, price: r.price, scan: label });
+      out.set(t, { ticker: t, status: planStatusOf(r), buy: r.trigger, stop: r.stop, dip: r.pullback, mkt: r.atMarket, price: r.price, scan: label });
     }
   }
   return out;

@@ -15,7 +15,7 @@
 // scan's own, already on its table; this file does arithmetic on the distance
 // and drops the rows that are through their level.
 
-import { numOrNull, priceOf, livePlanOf, PULLBACK_SOURCES, PLAN_MAX_REACH_ADR } from '@/lib/summary/rowFormat';
+import { numOrNull, priceOf, livePlanOf, isAtMarketPlan, PULLBACK_SOURCES, PLAN_MAX_REACH_ADR } from '@/lib/summary/rowFormat';
 
 export type TrigRow = {
   s: any;
@@ -33,6 +33,9 @@ export type TrigRow = {
   through: boolean;
   /** The scan flagged the name as too far above its 21 EMA for a sensible stop. */
   extended: boolean;
+  /** No level to wait for: a 10/21 buy-at-the-price plan, or an EP9M dip
+   *  already under its level. Shown as "At market", never as a level. */
+  atMarket: boolean;
 };
 
 export function trigRowOf(s: any, opts?: { keepThrough?: boolean; keepExtended?: boolean }): TrigRow | null {
@@ -58,11 +61,12 @@ export function trigRowOf(s: any, opts?: { keepThrough?: boolean; keepExtended?:
   const pullback = PULLBACK_SOURCES.has(String(s._source ?? ''));
   // Through the level already: that is a position or a miss, not a watch —
   // unless the caller is listing a fixed set of names and wants all of them.
-  const through = pullback ? trigger >= price : trigger <= price;
+  const atMarket = isAtMarketPlan(s, trigger, price);
+  const through = atMarket || (pullback ? trigger >= price : trigger <= price);
   if (through && !opts?.keepThrough) return null;
 
   return {
-    s, ticker, price, trigger, stop, pullback, through,
+    s, ticker, price, trigger, stop, pullback, through, atMarket,
     extended: plan?.overextended === true,
     label: plan?.triggerLabel ?? (isVcp ? 'pivot' : 'level'),
     awayPct: (Math.abs(trigger - price) / price) * 100,
@@ -101,7 +105,8 @@ export function planRowsFor(names: any[]): TrigRow[] {
            stop; levels are shown for reference, not to act on.
      OUT   price is at or below the stop — the idea failed.
    A pullback (EP9M) cannot be MISSED: further down is toward the stop, so
-   it is HIT until it is OUT. */
+   it is HIT until it is OUT. An at-market plan (10/21) is HIT from the scan
+   price down to the stop, and MISS once it runs a day's range above it. */
 export type PlanStatus = 'wait' | 'hit' | 'miss' | 'ext' | 'out';
 
 export function planStatusOf(r: TrigRow): PlanStatus {
@@ -109,6 +114,8 @@ export function planStatusOf(r: TrigRow): PlanStatus {
   if (r.extended) return 'ext';
   if (!r.through) return 'wait';
   if (r.pullback) return 'hit';
+  // A buy-at-the-price plan a little under its scan price is still a buy.
+  if (r.atMarket && r.price <= r.trigger) return 'hit';
   const adr = numOrNull(r.s?.adrPct);
   const pastPct = ((r.price - r.trigger) / r.trigger) * 100;
   if (adr != null && adr > 0 && pastPct > adr * PLAN_MAX_REACH_ADR) return 'miss';
@@ -128,6 +135,10 @@ export const PLAN_STATUS_META: Record<PlanStatus, { cls: string; tip: string }> 
   ext: { cls: 'text-orange-400', tip: 'Too far above its 21-day average to place a sensible stop — levels are for reference, do not chase' },
   out: { cls: 'text-rose-400', tip: 'Below the stop — the idea failed' },
 };
+
+/** The buy half of a plan in words, for hovers. */
+export const buyWords = (r: TrigRow): string =>
+  r.atMarket ? 'At market' : `${r.pullback ? 'Buy on a dip to' : 'Buy above'} ${r.trigger.toFixed(2)}`;
 
 export interface PlanStatusView { status: PlanStatus; text: string; cls: string; tip: string; sort: number }
 
@@ -151,7 +162,7 @@ export function planStatusView(s: any, source?: string): PlanStatusView | null {
     // column on a phone. The hover spells it out.
     text: st === 'wait' ? `${away}%` : st.toUpperCase(),
     cls: meta.cls,
-    tip: `${r.pullback ? 'Buy on a dip to' : 'Buy above'} ${r.trigger.toFixed(2)} · Stop ${r.stop.toFixed(2)}\n${st === 'wait' ? `${away}% away` : st.toUpperCase()} — ${meta.tip}`,
+    tip: `${buyWords(r)} · Stop ${r.stop.toFixed(2)}\n${st === 'wait' ? `${away}% away` : st.toUpperCase()} — ${meta.tip}`,
     sort: -(PLAN_STATUS_ORDER[st] * 1000 + r.awayPct),
   };
 }

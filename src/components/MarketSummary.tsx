@@ -412,7 +412,7 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
     `|REV|RED DOT|BLUE DOT|\\[[^\\]]+\\]\\([^)]+\\)|\\d{1,2}:\\d{2} (?:AM|PM)` +
     `|(?:act|est|prev) (?:-?\\d+(?:\\.\\d+)?[BMK]?|—)` +
     `|RVOL (?:\\d+(?:\\.\\d+)?|—)|VOL (?:\\d+(?:\\.\\d+)?[MK]|—)|CNF \\d+|Stage \\d[ABC]?|stoch \\d+(?:\\.\\d+)?` +
-    `|RS \\d{1,2}\\b|\\bT[2-9]\\b|(?:TR|ST|TG|Buy above|Buy dip|Stop) \\d+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?x ADR` +
+    `|RS \\d{1,2}\\b|\\bT[2-9]\\b|(?:TR|ST|TG|Buy above|Buy dip|Stop) \\d+(?:\\.\\d+)?|At market|\\d+(?:\\.\\d+)?x ADR` +
     `|\\d+(?:\\.\\d+)?R\\+?|\\b(?:${CATALYST_TAGS})\\b|10\\/21|S&P|Nasdaq|Dow|Bitcoin` +
     `|\\$\\d+(?:\\.\\d+)?[BMK]|[+-]\\d+(?:\\.\\d+)?%|\\b[A-Z]{1,5}\\b)`,
     'g'
@@ -603,6 +603,10 @@ const renderBriefingText = (text: string, align = false, gradeMap?: Record<strin
     // no space between them. Stop red, target green, trigger neutral.
     // "Buy above" / "Buy dip" / "Stop" are the plain-words plan (rowFormat
     // buyToken/stopToken); TR/ST/TG are kept for any older copy still around.
+    // "At market" (rowFormat buyToken): a buy-at-the-price plan, no level.
+    if (part === 'At market') {
+      return <span key={i} className={align ? 'inline-block ml-1 md:ml-2' : ''}><span className="text-emerald-400">At market</span></span>;
+    }
     m = part.match(/^(TR|ST|TG|Buy above|Buy dip|Stop) (\d+(?:\.\d+)?)$/);
     if (m) {
       const tone = m[1] === 'ST' || m[1] === 'Stop' ? 'text-rose-400' : m[1] === 'TG' ? 'text-emerald-400' : 'text-slate-200';
@@ -1283,10 +1287,17 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
           : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
         {r && meta && st ? (
           <>
-            <span className="text-[9px] tabular-nums font-semibold inline-block w-[42px] md:w-[46px] text-right md:ml-1 text-slate-200"
-              title={`${r.pullback ? 'Buy on a dip to' : 'Buy above'} ${r.trigger.toFixed(2)} — ${r.label}`}>
-              <span className={r.pullback ? 'text-fuchsia-400' : 'text-emerald-400'}>{r.pullback ? '↓' : '↑'}</span>{r.trigger.toFixed(2)}
-            </span>
+            {r.atMarket ? (
+              <span className="text-[9px] font-semibold inline-block w-[42px] md:w-[46px] text-right md:ml-1 text-emerald-400"
+                title={r.pullback ? `At market — already under the dip level (${r.trigger.toFixed(2)}); the plan buys at the price` : 'At market — the plan buys at the price, no level to wait for'}>
+                MKT
+              </span>
+            ) : (
+              <span className="text-[9px] tabular-nums font-semibold inline-block w-[42px] md:w-[46px] text-right md:ml-1 text-slate-200"
+                title={`${r.pullback ? 'Buy on a dip to' : 'Buy above'} ${r.trigger.toFixed(2)} — ${r.label}`}>
+                <span className={r.pullback ? 'text-fuchsia-400' : 'text-emerald-400'}>{r.pullback ? '↓' : '↑'}</span>{r.trigger.toFixed(2)}
+              </span>
+            )}
             <span className="text-[9px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right md:ml-1 text-rose-400">{r.stop.toFixed(2)}</span>
             <span className={`text-[9px] tabular-nums font-bold inline-block w-[32px] md:w-[34px] text-right md:ml-1 ${meta.cls}`} title={meta.tip}>
               {st === 'wait' ? `${r.awayPct < 10 ? r.awayPct.toFixed(1) : r.awayPct.toFixed(0)}%` : st.toUpperCase()}

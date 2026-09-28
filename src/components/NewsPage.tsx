@@ -75,7 +75,7 @@ type PoolItem = CatalystRow & {
   dvol?: number | null;
   tier?: EdgeTier | null;
   stars: number;
-  plan?: { buy: number; stop: number; dip: boolean; status: string } | null;
+  plan?: { buy: number; stop: number; dip: boolean; mkt?: boolean; status: string } | null;
 };
 
 type WireItem = {
@@ -222,7 +222,7 @@ function NewsCard({ tag, tagHint, headline, summary, url, move, flags, tickers, 
   /** The lead name's tier on its own scan — tints the card like every scan table. */
   tier?: EdgeTier | null;
   /** The scan's buy level / stop / status for the lead name, when it has one. */
-  plan?: { buy: number; stop: number; dip: boolean; status: string } | null;
+  plan?: { buy: number; stop: number; dip: boolean; mkt?: boolean; status: string } | null;
 }) {
   const head = (
     <p className="text-[15px] leading-[1.45] font-semibold text-slate-100 break-words group-hover/hl:text-cyan-300 transition-colors">
@@ -247,7 +247,9 @@ function NewsCard({ tag, tagHint, headline, summary, url, move, flags, tickers, 
       {summary && <p className="text-[13px] leading-[1.55] text-slate-300 line-clamp-3 -mt-1">{summary}</p>}
       {plan && (
         <div className="flex items-center gap-4 rounded-xl bg-[#0b1220] px-3 py-2 text-[13px] tabular-nums">
-          <span className="text-slate-400">{plan.dip ? 'Buy dip' : 'Buy above'} <b className="text-slate-100">{plan.buy.toFixed(2)}</b></span>
+          {plan.mkt
+            ? <span className="text-emerald-400 font-semibold">At market</span>
+            : <span className="text-slate-400">{plan.dip ? 'Buy dip' : 'Buy above'} <b className="text-slate-100">{plan.buy.toFixed(2)}</b></span>}
           <span className="text-slate-400">Stop <b className="text-rose-400">{plan.stop.toFixed(2)}</b></span>
           <span className={`ml-auto rounded-full px-2.5 py-0.5 text-[11px] font-bold tracking-wide ${PLAN_PILL[plan.status] ?? 'text-slate-200 bg-slate-500/15'}`}>{plan.status.toUpperCase()}</span>
         </div>

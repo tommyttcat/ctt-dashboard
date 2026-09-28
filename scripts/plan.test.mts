@@ -12,6 +12,7 @@ import { computeTradePlan } from '../src/lib/indicators/tradeplan.ts';
 import { EXIT_STYLE, EXIT_GUIDANCE } from '../src/lib/scans/exits.ts';
 import { trigRowOf, trigRows, planRowsFor, planStatusOf } from '../src/lib/scans/triggerProximity.ts';
 import { reportPlanOf, scanPlanFor, levelsFor, statusText, trendLine, flagsOf, shortName, shortRisk, NOTE_NOT_ON_SCAN } from '../src/lib/confluence/readout.ts';
+import { buyToken } from '../src/lib/summary/rowFormat.ts';
 import { eq, near, ok, done } from './testkit.mts';
 
 // ---- the EP pullback plan --------------------------------------------------
@@ -141,6 +142,25 @@ eq('EP9M is flagged as a pullback', trigRowOf(pull(101, 100))?.pullback, true);
   ok('overextended plan is still dropped from the proximity list', trigRowOf(ext) == null);
   eq('collapsed plan is dropped even from a fixed list',
     planRowsFor([{ ...breakout(99, 100), plan: { ...breakout(99, 100).plan, collapsed: true } }]).length, 0);
+}
+
+// At market (27 Sep 2026): an EP dip already under its level, and the 10/21
+// buy-at-the-price plan, print "At market", not a level above the price.
+{
+  const st = (s: any) => planStatusOf(planRowsFor([s])[0]);
+  const mkt = (price: number) => ({ ticker: 'M', price, _source: 'consolidation', adrPct: 4,
+    plan: { tradeable: true, family: 'at-market', trigger: 100, stop: 95, triggerLabel: 'at the 10/21' } });
+  eq('EP under its dip level is at market', planRowsFor([pull(95, 100)])[0].atMarket, true);
+  eq('EP above its dip level is not at market', planRowsFor([pull(101, 100)])[0].atMarket, false);
+  eq('EP under its stop is not at market', planRowsFor([pull(89, 100)])[0].atMarket, false);
+  eq('breakout under its level is not at market', planRowsFor([breakout(99, 100)])[0].atMarket, false);
+  eq('10/21 plan is at market', planRowsFor([mkt(100)])[0].atMarket, true);
+  eq('10/21 a little under its scan price is HIT, not WAIT', st(mkt(98)), 'hit');
+  eq('10/21 run a day past its scan price is MISS', st(mkt(105)), 'miss');
+  eq('10/21 under its stop is OUT', st(mkt(94)), 'out');
+  ok('at-market names are not listed as about to trigger', trigRowOf(mkt(98)) == null);
+  eq('EP at market reads "At market" in the plan text', buyToken(pull(95, 100), 100), 'At market');
+  eq('EP above its level still reads "Buy dip"', buyToken(pull(101, 100), 100), 'Buy dip 100');
 }
 
 near('distance is measured from price', trigRowOf(breakout(100, 101))?.awayPct, 1);

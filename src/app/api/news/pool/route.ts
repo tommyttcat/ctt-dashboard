@@ -155,7 +155,7 @@ export async function GET() {
             if (!t) return null;
             const st = planStatusOf(t);
             return {
-              buy: +t.trigger.toFixed(2), stop: +t.stop.toFixed(2), dip: t.pullback,
+              buy: +t.trigger.toFixed(2), stop: +t.stop.toFixed(2), dip: t.pullback, mkt: t.atMarket,
               status: st === 'wait' ? `${t.awayPct < 10 ? t.awayPct.toFixed(1) : t.awayPct.toFixed(0)}% away` : st.toUpperCase(),
             };
           })(),

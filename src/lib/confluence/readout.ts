@@ -100,7 +100,7 @@ export function scanPlanFor(ticker: string, lists: [string, any[] | null | undef
 export type Levels =
   | {
       kind: 'scan';
-      buyLabel: 'Buy above' | 'Buy dip';
+      buyLabel: 'Buy above' | 'Buy dip' | 'At market';
       trigger: number;
       stop: number;
       status: PlanStatus;
@@ -141,7 +141,7 @@ export function levelsFor(r: ReadoutReport): Levels | null {
   if (row) {
     return {
       kind: 'scan',
-      buyLabel: row.pullback ? 'Buy dip' : 'Buy above',
+      buyLabel: row.atMarket ? 'At market' : row.pullback ? 'Buy dip' : 'Buy above',
       trigger: row.trigger,
       stop: row.stop,
       status: planStatusOf(row),
