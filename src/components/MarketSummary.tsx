@@ -1699,6 +1699,46 @@ const EarlyMovers = ({ pool: today, night, onVisibleChange }: { pool: any[]; nig
   );
 };
 
+/* ---- Washout light (28 Sep 2026) --------------------------------------------
+   One line at the top of the dashboard. ON when the share of stocks above
+   their 40-day average CLOSED at 20% or lower — the one volatility trade that
+   passed its test (scripts/backtest/panic.ts: SPY bought at the next open,
+   held 10 sessions, +1.9% a trade, 72% winners, 18 times in five years; thin
+   evidence). During market hours a reading that low shows as CLOSE: the test
+   judged the closing number. Reads /api/t2108/latest (CDN-cached, the same
+   route the Scorecard reads). */
+const WashoutLight = () => {
+  const [t, setT] = React.useState<{ value: number; updatedAt: string } | null>(null);
+  React.useEffect(() => {
+    let on = true;
+    const load = () => fetch('/api/t2108/latest')
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (on && j && typeof j.value === 'number') setT({ value: j.value, updatedAt: j.updatedAt }); })
+      .catch(() => {});
+    load();
+    const stop = poll(load, pollMs.marketHours(120_000, 600_000));
+    return () => { on = false; stop(); };
+  }, []);
+  if (!t) return null;
+  const low = t.value <= 20;
+  const open = getMarketSession() === 'Open';
+  const state = !low ? 'off' : open ? 'close' : 'on';
+  const dot = state === 'on' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : state === 'close' ? 'bg-amber-400' : 'bg-slate-600';
+  const text = state === 'on'
+    ? 'WASHOUT — ON. The market got crushed. Historically, buying SPY or QQQ at the next open and holding about two weeks paid 7 times in 10.'
+    : state === 'close'
+      ? 'WASHOUT — CLOSE. The market is getting crushed right now. It only counts if it closes this way.'
+      : 'Washout — off. The market has not been crushed enough to buy the panic.';
+  return (
+    <div className="mb-2 px-1 flex items-center gap-2 text-[10px] font-medium"
+      title={`${t.value.toFixed(0)}% of stocks are above their 40-day average (lights up at 20% or less, judged at the close). 5-year test: bought the next morning and held 10 days, +1.9% a trade, 72% winners, worst −5.3% — but it fired only 18 times, so it is thin evidence.`}>
+      <span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${dot}`} />
+      <span className={state === 'off' ? 'text-slate-500' : state === 'on' ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold'}>{text}</span>
+      <span className="text-slate-600 tabular-nums shrink-0">{t.value.toFixed(0)}%</span>
+    </div>
+  );
+};
+
 const SetupSummaryHelp = () => {
   const [open, setOpen] = React.useState(false);
   const [pinned, setPinned] = React.useState(false);
@@ -2633,6 +2673,7 @@ export default function MarketSummary() {
                           </button>
                         )}
                       </div>
+                      <WashoutLight />
                       <div className="mb-3 px-1">
                         <ScanLegend activeFilter={scanFilter} onFilterChange={handleScanFilter} />
                       </div>
