@@ -29,7 +29,7 @@ export const EXIT_GUIDANCE: Record<ScanKey, string> = {
   vcp:
     'Exit: take the 2R. This is the one table where the fixed target wins — +0.12R per trade against -0.01R trailing the 21 EMA. A base breakout that works tends to reach 2R fast and hand it back.',
   consolidation:
-    'Exit: no exit produced an edge on this table (2R -0.10R, trail 21 EMA -0.08R). The coil is worth watching; the breakout trade has not paid over 5 years.',
+    'Exit: no exit produced an edge over the full 5 years — bought at the averages, coils were flat (trail 21 EMA +0.01R, hold 20 -0.03R, 2R -0.09R). Since mid-2025 trailing the 21 EMA has paid (+0.12R coils, +0.16R undercut & rally); skip the 2R target.',
   ep9m:
     'Exit: trail the 10 EMA, and keep the size small. This table now triggers on the pullback to the EP-day midpoint rather than the break of its high, because the high was the losing half of the trade (-0.13R with a 2R target, -0.19R trailing the 21 EMA). On the pullback entry, over 6,874 fills: trailing the 10 EMA +0.05R, the 2R target +0.02R, trailing the 21 EMA +0.03R, holding 20 sessions -0.00R. Positive in both halves but thin — the edge here is the 14% that run +50%, not the average.',
   hrs:

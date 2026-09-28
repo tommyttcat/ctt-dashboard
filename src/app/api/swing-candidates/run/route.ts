@@ -130,7 +130,7 @@ import { pickBestNews, polygonNewsPath, fetchBenzingaNewsIndex, type NewsItem } 
 /* The consolidation analyser, and the helpers both analysers share, live in
    lib/scans/consolidation so the backtest replays the identical rules. */
 import {
-  analyze, analyzeConsolidation, GROUPED, shortlistConsolidation,
+  analyze, analyzeConsolidation, GROUPED, shortlistConsolidation, UR_KEEP,
   type Bar, type SnapInfo, type Candidate, type LiteBar,
 } from '@/lib/scans/consolidation';
 
@@ -495,7 +495,13 @@ async function runSwingScan() {
        The symbol set is deduped because a name can qualify as both a swing
        pullback and a coil, and fetching its news twice would be two
        identical requests and two chances to disagree. */
-    const consolKeep = consols.slice(0, CONSOL.finalSize);
+    /* Coils keep their score order and CONSOL.finalSize; undercut & rally
+       rows (27 Sep 2026) are ranked separately — the coil score rewards
+       tightness, which a shakeout never has — strongest RS first. */
+    const consolKeep = [
+      ...consols.filter(c => c.setupName !== 'U&R').slice(0, CONSOL.finalSize),
+      ...consols.filter(c => c.setupName === 'U&R').sort((a, b) => (b.rsRating ?? 0) - (a.rsRating ?? 0)).slice(0, UR_KEEP),
+    ];
     const newsSymbols = Array.from(new Set([
       ...candidates.map(c => c.symbol),
       ...consolKeep.map(c => c.symbol),

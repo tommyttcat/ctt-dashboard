@@ -154,8 +154,11 @@ export const SWING_TIP: Record<EdgeTier, string> = {
    Green is that last row and nothing else — roughly 7% of the table. Red is
    the tight-coil majority and the names repairing from more than 11% off
    their high, which is where the losses concentrated. */
-export function consolidationTier(row: { coilRatio?: number | null; stochK?: number | null; pctOffHigh?: number | null } | null | undefined): EdgeTier | null {
+export function consolidationTier(row: { coilRatio?: number | null; stochK?: number | null; pctOffHigh?: number | null; setupName?: string | null } | null | undefined): EdgeTier | null {
   if (!row) return null;
+  /* Undercut & rally rows (27 Sep 2026): these bands were measured on coils
+     and do not describe a shakeout — no tint beats a borrowed one. */
+  if (row.setupName === 'U&R') return null;
   const coil = num(row.coilRatio);
   const stoch = num(row.stochK);
   const off = num(row.pctOffHigh);

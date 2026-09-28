@@ -61,13 +61,18 @@ export const SCAN_STATS: Record<StatScan, ScanStat> = {
     bt: { n: 5587, fixedAvgR: 0.07, hold20AvgR: 0.01, hrRate: 3.2, winRate: 44 }
   },
   consolidation: {
-    headline: '5-year test: -0.09R per trade. No exit produced an edge — this is a watchlist, not a trade signal.',
+    /* Rewritten 27 Sep 2026 when the card stopped buying the range-high break
+       and started buying at the averages, and added undercut & rally. Numbers
+       from scripts/backtest/stop-tests.ts (coil, next open, card stop) and
+       mau-r.ts (U&R inside this scan's own filters). */
+    headline: '5-year test: coils bought at their averages were flat (-0.03R held 20 sessions); undercut & rally +0.18R since mid-2025. Both beat the old breakout plan.',
     detail:
-      '10/21 coils, 11,580 pivot entries Sep 2022 - Sep 2026.\n' +
-      'Fixed 2R -0.09R · trail 21 EMA -0.07R · hold 20 sessions -0.06R. Nothing tested was positive.\n' +
-      '4.1% reached +50% before the stop; 32% of trades closed positive.\n' +
-      'One bucket did pay: a coil 3x+ ATR with the stochastic above 75 (+0.13R, ~7% of rows) — the green shading.',
-    bt: { n: 11580, fixedAvgR: -0.09, hold20AvgR: -0.06, hrRate: 4.1, winRate: 32 }
+      '10/21 now buys at the price, not on a break of the 10-day high (which sat 3-7% above it).\n' +
+      'Coils, 4,471 next-open entries Sep 2022 - Sep 2026: hold 20 sessions -0.03R, trail 21 EMA +0.01R, 2R -0.09R; 7.7% ran +50%.\n' +
+      '  by period (2022-mid 2025 / since): hold 20 -0.05 / +0.03R, trail 21 -0.05 / +0.12R.\n' +
+      'Undercut & rally (U&R), 14,757 signals in this scan\'s filters: hold 20 -0.03 / +0.18R, trail 21 -0.05 / +0.16R.\n' +
+      'The old breakout plan: hold 20 -0.14 / +0.03R. Treat 10/21 as a watchlist that has paid lately, not a proven signal.',
+    bt: { n: 4471, fixedAvgR: -0.09, hold20AvgR: -0.03, hrRate: 7.7, winRate: 31 }
   },
   ep9m: {
     headline: '5-year test: +0.02R per trade on the pullback entry, 14% ran +50%. Thin on average, fat in the tail.',

@@ -115,6 +115,8 @@ export interface Candidate {
   newsSentiment?: 'positive' | 'negative' | 'neutral' | null;
   // v1.8 — raw levels and the plan built from them.
   setupName?: string | null;
+  /** 10/21 'U&R' rows: the level undercut and reclaimed ('10-day low', '50-day', '21 EMA'). */
+  undercutOf?: string | null;
   ema10?: number | null;
   ema21?: number | null;
   ema50?: number | null;
@@ -157,6 +159,68 @@ export function serialisePlan(p: ReturnType<typeof computeTradePlan>): TradePlan
     overextended: p.overextended,
     tradeable: true,
     note: p.note,
+  };
+}
+
+/* ---- Undercut & rally (added 27 Sep 2026) --------------------------------
+   The 10/21 setup is a consolidation OR an undercut-and-rally: price drops
+   under a key level (the shakeout), then closes back above it within a few
+   bars. Rules are the ones replayed in scripts/backtest/mau-r.ts:
+     undercut   the prior close above the level, a low below it, not more
+                than 2 x ADR% below it (deeper is a breakdown)
+     reclaim    today is the FIRST close back above it, within 3 sessions
+     stop       the lowest low since the undercut
+   Levels, steadiest first in the replay: the prior 10-day low, the 50-day,
+   the 21 EMA. 5-year replay inside this scan's own filters: -0.03 / +0.18R
+   per trade held 20 sessions (2022-mid 2025 / since), against -0.14 / +0.03R
+   for the old range-high breakout plan. */
+export type UndercutLevel = 'L10' | 'S50' | 'E21';
+export const UNDERCUT_LABEL: Record<UndercutLevel, string> = { L10: '10-day low', S50: '50-day', E21: '21 EMA' };
+export function detectUndercut(bars: Bar[], adr: number): { level: UndercutLevel; stop: number; daysAgo: number } | null {
+  const n = bars.length;
+  if (n < 70 || !(adr > 0)) return null;
+  const closes = bars.map(b => b.c);
+  const at: Record<UndercutLevel, (i: number) => number | null> = {
+    L10: (i) => (i >= 10 ? Math.min(...bars.slice(i - 10, i).map(b => b.l)) : null),
+    S50: (i) => sma(closes.slice(0, i + 1), 50),
+    E21: (i) => ema(closes.slice(0, i + 1), 21),
+  };
+  const t = n - 1;
+  for (const level of ['L10', 'S50', 'E21'] as UndercutLevel[]) {
+    const S = at[level];
+    const St = S(t);
+    if (St == null || !(closes[t] > St)) continue;
+    for (let u = t; u >= t - 3; u--) {
+      const Su = S(u), Sp = S(u - 1);
+      if (Su == null || Sp == null) continue;
+      if (!(closes[u - 1] > Sp && bars[u].l < Su && bars[u].l >= Su * (1 - (2 * adr) / 100))) continue;
+      let first = -1;
+      for (let q = u; q <= t; q++) { const Sq = S(q); if (Sq != null && closes[q] > Sq) { first = q; break; } }
+      if (first !== t) continue;
+      return { level, stop: Math.min(...bars.slice(u, t + 1).map(b => b.l)), daysAgo: t - u };
+    }
+  }
+  return null;
+}
+
+/* Buy at the current price, stop where the idea is wrong. The 5-year replay's
+   next-open entry: a coil bought at its averages beat the old range-high
+   breakout in both halves (trail 21: -0.05 / +0.12R vs -0.15 / +0.06R), and
+   the range high sat 3-7% above the price, so the card told readers to buy
+   after the move. The stop is floored at 0.5% of the price, as the replay's. */
+export function atMarketPlan(price: number, stop: number | null, label: string, note: string, resistance?: number | null): TradePlanOut {
+  if (stop == null || !(stop < price)) {
+    return { family: 'at-market', tradeable: false, collapsed: true, overextended: false, note: 'No stop below the price.' };
+  }
+  const st = price - stop < price * 0.005 ? price * 0.995 : stop;
+  const risk = price - st;
+  const resR = resistance != null && resistance > price ? (resistance - price) / risk : null;
+  return {
+    family: 'at-market', trigger: round2(price), triggerLabel: label, trail: null, trailLabel: '',
+    stop: round2(st), stopPct: parseFloat(((risk / price) * 100).toFixed(2)), target: round2(price + 2 * risk),
+    rMultiple: 2, resistanceR: resR != null ? parseFloat(resR.toFixed(2)) : null,
+    resistanceLabel: resR != null ? 'prior high' : null, clear: resR == null || resR >= 2,
+    collapsed: false, overextended: false, tradeable: true, note,
   };
 }
 
@@ -278,18 +342,23 @@ export function analyzeConsolidation(
   // Positive = 10 above 21 (stacked). Near zero = coiling into the cross.
   const ema1021GapPct = price > 0 ? +(((ema10 - ema21) / price) * 100).toFixed(2) : null;
 
+  /* Shared by both setups: liquid, wide enough, strong, in an uptrend. */
   if (avgDollarVol < CONSOL.minDollarVol) return null;
   if (adr == null || adr < CONSOL.minAdrPct) return null;
   if (price < sma50 || price < sma200) return null;
   if (!(sma50 > sma200)) return null;
   if (!ema21Rising) return null;
-  if (Math.abs(distToEma10) > CONSOL.maxDistToEma10) return null;
-  if (distToEma21 > CONSOL.maxAboveEma21 || distToEma21 < -CONSOL.maxBelowEma21) return null;
-  if (range10 > CONSOL.maxRange10) return null;
-  if (coilRatio > CONSOL.maxCoilRatio) return null;
-  if (Math.abs(changePct) > CONSOL.maxDayChange) return null;
   if (pctOffHigh > CONSOL.maxPctOffHigh) return null;
   if (rsRating == null || rsRating < RS_GATE) return null;
+  /* Coil: resting at the averages in a tight range (the original gates). */
+  const coilOk =
+    Math.abs(distToEma10) <= CONSOL.maxDistToEma10 &&
+    distToEma21 <= CONSOL.maxAboveEma21 && distToEma21 >= -CONSOL.maxBelowEma21 &&
+    range10 <= CONSOL.maxRange10 && coilRatio <= CONSOL.maxCoilRatio &&
+    Math.abs(changePct) <= CONSOL.maxDayChange;
+  /* Undercut & rally: shook out under a key level and closed back above it. */
+  const undercut = coilOk ? null : detectUndercut(bars, adr);
+  if (!coilOk && !undercut) return null;
 
   /* --- Score v2 (11 Sep 2026) -------------------------------------------
      The old score paid 30 points for tightness, on the premise that a tighter
@@ -356,8 +425,8 @@ export function analyzeConsolidation(
   // planner would report the entry as already passed. The dot describes the
   // condition; the range high is still where the trade begins.
   const lastBar = bars[bars.length - 1];
-  const setupName = 'Coil';
-  const plan = computeTradePlan({
+  const setupName = coilOk ? 'Coil' : 'U&R';
+  const basePlan = computeTradePlan({
     price,
     adrPct: adr,
     atrPct: atrPctVal,
@@ -370,13 +439,25 @@ export function analyzeConsolidation(
     priorSwingHigh: priorSwingHighOf(bars),
     aboveEma10: price >= ema10,
     aboveEma21: price >= ema21,
-    setupName,
+    setupName: 'Coil',
   });
+  /* Both setups buy at the averages now, not at the range high: the coil keeps
+     the planner's stop (the one the replay measured), the undercut stops
+     under its shakeout low. */
+  const planOut: TradePlanOut = coilOk
+    ? (basePlan.tradeable
+        ? atMarketPlan(price, basePlan.stop, 'at the 10/21', 'Coiled at its averages: buy here, not on a breakout of the range.', priorSwingHighOf(bars))
+        : serialisePlan(basePlan))
+    : atMarketPlan(price, undercut!.stop, `reclaimed the ${UNDERCUT_LABEL[undercut!.level]}`,
+        `Undercut the ${UNDERCUT_LABEL[undercut!.level]} ${undercut!.daysAgo === 0 ? 'today' : `${undercut!.daysAgo} day${undercut!.daysAgo > 1 ? 's' : ''} ago`} and closed back above it.`,
+        priorSwingHighOf(bars));
 
   return {
     symbol,
     name,
     sector,
+    /* 'U&R' rows: which level was undercut and reclaimed. */
+    undercutOf: undercut ? UNDERCUT_LABEL[undercut.level] : null,
     price: +price.toFixed(2),
     score,
     changePct: +changePct.toFixed(2),
@@ -425,13 +506,18 @@ export function analyzeConsolidation(
     dayHigh: round2(lastBar?.h ?? null),
     dayLow: round2(lastBar?.l ?? null),
     priorSwingHigh: round2(priorSwingHighOf(bars)),
-    plan: serialisePlan(plan),
+    plan: planOut,
   };
 }
 
 /* The market-wide prefilter: 45 sessions of grouped bars narrow the whole
    market to the tightest GROUPED.shortlistSize names before any per-ticker
    history is fetched. Moved verbatim with the analyser it feeds. */
+/* Undercut & rally names shortlisted per run, on top of the coils. */
+export const UR_SHORTLIST = 30;
+/* Undercut & rally rows kept on the card, on top of CONSOL.finalSize coils. */
+export const UR_KEEP = 15;
+
 export const GROUPED = {
   days: 45,
   maxCalendarDays: 70,
@@ -475,6 +561,12 @@ export function shortlistConsolidation(series: Map<string, LiteBar[]>): string[]
   };
 
   const picks: { sym: string; ratio: number }[] = [];
+  /* Undercut & rally candidates (27 Sep 2026): the coil gates below reject
+     them by construction (a shakeout is neither tight nor at the 21 EMA), so
+     they get their own loose pre-check here and the full rules in
+     analyzeConsolidation / detectUndercut. Capped at UR_SHORTLIST by dollar
+     volume: each shortlisted name costs three Polygon calls per run. */
+  const urPicks: { sym: string; dv: number }[] = [];
 
   series.forEach((bars, sym) => {
     if (bars.length < 28) return;
@@ -496,6 +588,15 @@ export function shortlistConsolidation(series: Map<string, LiteBar[]>): string[]
 
     const dist10 = ((price - e10) / e10) * 100;
     const dist21 = ((price - e21) / e21) * 100;
+    if (e21Prev != null && e21 > e21Prev) {
+      // A low under the 21 EMA or under the prior 10-day low in the last 4
+      // sessions, and price back above that level now.
+      const low4 = Math.min(...bars.slice(-4).map(b => b.l));
+      const prior10Low = bars.length >= 15 ? Math.min(...bars.slice(-14, -4).map(b => b.l)) : null;
+      const underE21 = low4 < e21 && price > e21;
+      const underL10 = prior10Low != null && low4 < prior10Low && price > prior10Low;
+      if (underE21 || underL10) urPicks.push({ sym, dv: avgDollarVol });
+    }
     if (Math.abs(dist10) > CONSOL.maxDistToEma10) return;
     if (dist21 > CONSOL.maxAboveEma21 || dist21 < -CONSOL.maxBelowEma21) return;
     if (e21Prev != null && e21 <= e21Prev) return;
@@ -518,7 +619,11 @@ export function shortlistConsolidation(series: Map<string, LiteBar[]>): string[]
   });
 
   picks.sort((a, b) => a.ratio - b.ratio);
-  return picks.slice(0, GROUPED.shortlistSize).map(p => p.sym);
+  const coils = picks.slice(0, GROUPED.shortlistSize).map(p => p.sym);
+  const coilSet = new Set(coils);
+  urPicks.sort((a, b) => b.dv - a.dv);
+  const urs = urPicks.filter(p => !coilSet.has(p.sym)).slice(0, UR_SHORTLIST).map(p => p.sym);
+  return [...coils, ...urs];
 }
 
 /* ---- The swing analyser --------------------------------------------------

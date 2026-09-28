@@ -233,6 +233,8 @@ interface ConsolidationCandidate {
   ema1021GapPct?: number | null;
   blueDot?: boolean;
   setupName?: string | null;
+  /** 'U&R' rows: the level undercut and reclaimed. */
+  undercutOf?: string | null;
   catalyst?: string | null;
   catalystUrl?: string | null;
   newsPublisher?: string | null;
@@ -250,12 +252,12 @@ interface ConsolidationCandidate {
 }
 
 type RdyFilterType = 'All' | '55' | '75';
-type StatFilterType = 'All' | 'Coiled' | 'Setting Up';
+type StatFilterType = 'All' | 'Coiled' | 'Setting Up' | 'U&R';
 type VolFilterType = 'All' | '20' | '50' | '100';
 
 const RDY_BUCKETS: RdyFilterType[] = ['55', '75'];
 const VOL_BUCKETS: VolFilterType[] = ['20', '50', '100'];
-const STAT_BUCKETS: StatFilterType[] = ['Coiled', 'Setting Up'];
+const STAT_BUCKETS: StatFilterType[] = ['Coiled', 'Setting Up', 'U&R'];
 
 const COIL_COILED_MAX = 2.5;
 const COIL_SETTING_MAX = 4.0;
@@ -479,7 +481,10 @@ const planOf = (c: ConsolidationCandidate): TradePlanRow | null => {
    resolves is useful, but the card only calls it a PLAN where the evidence
    says the plan paid. Everything else reads WATCH. The scan stays the net;
    the card is where the picking happens. */
-const planTradeable = (c: ConsolidationCandidate): boolean => consolidationTier(c) === 'green';
+/* Undercut & rally rows show their plan: the coil tint that gates WATCH was
+   measured on coils and does not apply to them (lib/scans/edge). */
+const isUR = (c: ConsolidationCandidate): boolean => c.setupName === 'U&R';
+const planTradeable = (c: ConsolidationCandidate): boolean => isUR(c) || consolidationTier(c) === 'green';
 
 const planSortValue = (c: ConsolidationCandidate): number =>
   planSortValueOf(planOf(c), { watch: !planTradeable(c) });
@@ -528,7 +533,8 @@ const planTooltip = (c: ConsolidationCandidate): string => {
   return lines.join('\n');
 };
 
-const coilStat = (c: ConsolidationCandidate): 'Coiled' | 'Setting Up' | null => {
+const coilStat = (c: ConsolidationCandidate): 'Coiled' | 'Setting Up' | 'U&R' | null => {
+  if (isUR(c)) return 'U&R';
   const r = coilRatioOf(c);
   if (r == null) return null;
   if (r <= COIL_COILED_MAX) return 'Coiled';
@@ -651,9 +657,10 @@ export default function Consolidation1021() {
   /* Header counts, from the FULL scan rather than the filtered view, so they
      answer "what did the scan find today" instead of restating the filters
      already on screen. */
-  const { coiledCount, settingUpCount } = useMemo(() => ({
+  const { coiledCount, settingUpCount, urCount } = useMemo(() => ({
     coiledCount: candidates.filter(c => coilStat(c) === 'Coiled').length,
     settingUpCount: candidates.filter(c => coilStat(c) === 'Setting Up').length,
+    urCount: candidates.filter(c => coilStat(c) === 'U&R').length,
   }), [candidates]);
 
   const edgeTally = useMemo(() => edgeCounts(candidates, consolidationTier), [candidates]);
@@ -848,7 +855,7 @@ export default function Consolidation1021() {
               {txtDone ? '✓ TXT' : 'TXT'}
             </button>
           )}
-          {(coiledCount > 0 || settingUpCount > 0) && (
+          {(coiledCount > 0 || settingUpCount > 0 || urCount > 0) && (
             <span className="hidden md:flex basis-full items-center gap-1.5 mt-1" onClick={e => e.stopPropagation()}>
               {coiledCount > 0 && (
                 <button
@@ -868,10 +875,19 @@ export default function Consolidation1021() {
                   {settingUpCount} Setting Up
                 </button>
               )}
+              {urCount > 0 && (
+                <button
+                  onClick={() => { setIsExpanded(true); handleStatFilter('U&R'); }}
+                  title="Undercut & rally — dipped under the 21 EMA, the 50-day or the prior 10-day low and closed back above it. Bought at the price, stop under the shakeout low. Click to filter"
+                  className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-0.5 rounded border transition-all cursor-pointer ${statFilter === 'U&R' ? 'text-sky-300 bg-sky-500/20 border-sky-400/40 ring-1 ring-sky-400/30' : 'text-sky-400 bg-sky-500/10 border-sky-500/20 hover:bg-sky-500/20'}`}
+                >
+                  {urCount} U&amp;R
+                </button>
+              )}
             </span>
           )}
           <span className="hidden md:block basis-full text-[10px] font-bold tracking-wider uppercase text-slate-500 mt-1">
-            Top {filteredAndSorted.length} of {candidates.length} · ${CONSOL.minDollarVol >= 1e6 ? `${CONSOL.minDollarVol/1e6}M` : ''} avg $vol · ${CONSOL.minMarketCap >= 1e6 ? `${CONSOL.minMarketCap/1e6}M` : ''} cap · {CONSOL.minAdrPct}%+ ADR · above 50 &amp; 200 · coil ≤ {CONSOL.maxCoilRatio}× ATR
+            Top {filteredAndSorted.length} of {candidates.length} · ${CONSOL.minDollarVol >= 1e6 ? `${CONSOL.minDollarVol/1e6}M` : ''} avg $vol · ${CONSOL.minMarketCap >= 1e6 ? `${CONSOL.minMarketCap/1e6}M` : ''} cap · {CONSOL.minAdrPct}%+ ADR · above 50 &amp; 200 · coil ≤ {CONSOL.maxCoilRatio}× ATR or undercut &amp; rally
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -932,7 +948,9 @@ export default function Consolidation1021() {
                   onSelect={handleStatFilter}
                   titleOf={(opt) => (opt === 'Coiled'
                     ? '10-day range at or under 2.5× daily ATR — genuinely tight'
-                    : '10-day range at or under 4× daily ATR — narrowing but not there')}
+                    : opt === 'U&R'
+                      ? 'Undercut & rally — shook out under the 21 EMA, the 50-day or the prior 10-day low, then closed back above it'
+                      : '10-day range at or under 4× daily ATR — narrowing but not there')}
                 />
                 <div className={pillWrap}>
                   <span className={pillLabel}>PLAN</span>
@@ -1108,12 +1126,21 @@ export default function Consolidation1021() {
                           <DollarVolCell value={row.dVol} fallback={row.avgDollarVolM ? `$${row.avgDollarVolM}M` : undefined} />
                           <RvolCell value={row.rvol} />
                           <FloatCell value={row.float} />
-                          <td className={`${tdBase} whitespace-nowrap tabular-nums ${getCoilColor(coilR)}`} title={coilR != null ? `10-day range normalized to ${coilR.toFixed(1)}× daily ATR` : undefined}>
-                            <div className="flex flex-col leading-tight">
-                              <span className="text-[10px] font-bold">{range10 != null ? `${range10.toFixed(1)}%` : '—'}</span>
-                              <span className="text-[8px] font-semibold opacity-80">{coilR != null ? `${coilR.toFixed(1)}× ATR` : ''}</span>
-                            </div>
-                          </td>
+                          {isUR(row) ? (
+                            <td className={`${tdBase} whitespace-nowrap text-sky-400`} title={`Undercut & rally: dipped under the ${row.undercutOf ?? 'level'} and closed back above it. Stop under the shakeout low.`}>
+                              <div className="flex flex-col leading-tight">
+                                <span className="text-[10px] font-bold">U&amp;R</span>
+                                <span className="text-[8px] font-semibold opacity-80">{row.undercutOf ?? ''}</span>
+                              </div>
+                            </td>
+                          ) : (
+                            <td className={`${tdBase} whitespace-nowrap tabular-nums ${getCoilColor(coilR)}`} title={coilR != null ? `10-day range normalized to ${coilR.toFixed(1)}× daily ATR` : undefined}>
+                              <div className="flex flex-col leading-tight">
+                                <span className="text-[10px] font-bold">{range10 != null ? `${range10.toFixed(1)}%` : '—'}</span>
+                                <span className="text-[8px] font-semibold opacity-80">{coilR != null ? `${coilR.toFixed(1)}× ATR` : ''}</span>
+                              </div>
+                            </td>
+                          )}
                           <AdrCell adr={adr} />
                           <MfCell value={mf} trend={row.mfTrend} />
                           <StatusCell view={planStatusView(row)} />
