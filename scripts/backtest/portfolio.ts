@@ -314,6 +314,51 @@ function intradayMain(c: BarCache) {
   fs.writeFileSync(path.join(REPLAY, process.argv[3] ? 'portfolio_intraday_sens.json' : 'portfolio_intraday.json'), JSON.stringify(results, null, 1));
 }
 
+/* Market-on-the-day filters on the breakout entry (scripts/backtest/
+   market-filter.ts holds the rules, fixed 27 Sep 2026 BEFORE running). Every
+   variant runs on the same tagged E2 trades; PASS = beats unfiltered E2 on
+   per-trade R in both halves, account return in both halves, and the random-
+   order median. The trades each filter skips are scored too, for the reading. */
+function marketMain(c: BarCache) {
+  const tags = JSON.parse(fs.readFileSync(path.join(REPLAY, 'intraday_market_tags.json'), 'utf8')) as Record<string, Record<string, unknown>>;
+  const tagOf = (k: Cand) => tags[`${k.ticker}|${c.sessions[k.s]}`];
+  const ep = candidates(c).filter(k => k.scan === 'ep9m');
+  const spy = c.idOf.get('SPY')!;
+  const s0 = c.sessions.findIndex(d => d >= START);
+  const spyCurve = c.sessions.slice(s0).map((d, i) => ({ d, eq: EQUITY0 * c.C[spy][s0 + i] / c.O[spy][s0], n: 1 }));
+  const cut = spyCurve[Math.floor(spyCurve.length * 2 / 3)].d;
+  const base: Opts = { name: '', floor: false, exit: 'hold20', regime: false, greenOnly: true };
+  const e2 = intradayCands(c, 'E2').filter(k => tagOf(k));
+  const R = (t: Trade) => (t.xpx - t.c.fill) / (t.c.fill - t.stop);
+  const avgR = (a: Trade[]) => a.length ? +(a.reduce((x, t) => x + R(t), 0) / a.length).toFixed(3) : null;
+  const halvesR = (a: Trade[]) => [0, 1].map(h => avgR(a.filter(t => (c.sessions[t.c.ei] < cut) === (h === 0))));
+  const solo = (ic: Cand[]) => ic.map(k => walk(c, k, false, 'hold20')).filter(t => Number.isFinite(t.xi));
+  const evalSet = (name: string, ic: Cand[]) => {
+    const tr = solo(ic);
+    const cands = [...ic, ...ep];
+    const r = run(c, cands, { ...base, name });
+    const all = stats(r.curve, r.closed);
+    const h = [stats(r.curve.filter(p => p.d < cut), []).returnPct, stats(r.curve.filter(p => p.d >= cut), []).returnPct];
+    const rets: number[] = [];
+    for (let seed = 1; seed <= 200; seed++) rets.push(stats(run(c, cands, { ...base, name, seed }).curve, []).returnPct);
+    rets.sort((a, b) => a - b);
+    return { n: tr.length, avgR: avgR(tr), halvesR: halvesR(tr), win: +(100 * tr.filter(t => t.xpx > t.c.fill).length / (tr.length || 1)).toFixed(1),
+      account: all.returnPct, dd: all.maxDdPct, halves: h, median: rets[100] };
+  };
+  const b = evalSet('E2', e2);
+  console.log(`E2 (all ${b.n}) avgR ${b.avgR} (${b.halvesR.join(' / ')}) win ${b.win}% | account ${b.account}% dd ${b.dd}% halves ${b.halves.join(' / ')} | random median ${b.median}`);
+  const results: Record<string, unknown> = { E2: b };
+  for (const F of ['F1', 'F2', 'F3', 'F4']) {
+    const kept = e2.filter(k => !tagOf(k)[F]);
+    const skipped = solo(e2.filter(k => tagOf(k)[F]));
+    const v = evalSet(`E2-${F}`, kept);
+    const pass = [0, 1].every(h => (v.halvesR[h] ?? -9) > (b.halvesR[h] ?? 9)) && [0, 1].every(h => v.halves[h] > b.halves[h]) && v.median > b.median;
+    results[F] = { ...v, skipped: { n: skipped.length, avgR: avgR(skipped), halvesR: halvesR(skipped) }, pass };
+    console.log(`${F} kept ${v.n} avgR ${v.avgR} (${v.halvesR.join(' / ')}) win ${v.win}% | account ${v.account}% dd ${v.dd}% halves ${v.halves.join(' / ')} | random median ${v.median} | skipped ${skipped.length} avgR ${avgR(skipped)} (${halvesR(skipped).join(' / ')}) ${pass ? 'PASS' : 'fail'}`);
+  }
+  fs.writeFileSync(path.join(REPLAY, 'portfolio_market.json'), JSON.stringify(results, null, 1));
+}
+
 /* Stockbee ideas, fixed 27 Sep 2026 BEFORE running, against the live Model
    Book v1 rules (green rows, card stop, hold 20, RS first, 10 slots, 0.5%):
      X1   exit on the close of the 3rd straight close under the 10-day SMA
@@ -396,6 +441,7 @@ function main() {
   const t0 = Date.now();
   const c = loadAdjusted();
   if (process.argv[2] === 'intraday') { intradayMain(c); return; }
+  if (process.argv[2] === 'market') { marketMain(c); return; }
   if (process.argv[2] === 'stockbee') { stockbeeMain(c); return; }
   if (process.argv[2] === 'nofin') { nofinMain(c); return; }
   const cands = candidates(c);
