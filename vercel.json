@@ -113,6 +113,10 @@
       "schedule": "55 17,18 * * 1-5"
     },
     {
+      "path": "/api/orb/live",
+      "schedule": "* 14-20 * * 1-5"
+    },
+    {
       "path": "/api/track/tick",
       "schedule": "10 0,1 * * 2-6"
     },

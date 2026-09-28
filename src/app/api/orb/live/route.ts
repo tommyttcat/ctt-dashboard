@@ -10,8 +10,9 @@
 // and watchlist alerts see a breakout about a minute after it happens.
 //
 // Alerts: a name that turns GO, or STOPPED after GO, is emailed once per
-// state per day to the addresses in BREAKOUT_TO_KEY. That key starts empty,
-// which is a dry run: everything is judged and stored, nothing is sent.
+// state per day to the addresses in the BREAKOUT_ALERT_TO env var (comma-
+// separated; the owner only, 27 Sep 2026) plus any in BREAKOUT_TO_KEY. None
+// at all is a dry run: everything is judged and stored, nothing is sent.
 //
 // Cost, per run: one KV mget (watch + live + recipients) and one set; one
 // Webull minute-bar call per watch name (MAX_NAMES cap, 60/min endpoint
@@ -67,7 +68,8 @@ export async function GET(req: Request) {
   const alerted: Record<string, string> = { ...(prior?.session === today ? prior.alerted ?? {} : {}) };
   const fresh: OrbWatchRow[] = rows.filter(r => (r.state === 'go' || r.state === 'stopped') && alerted[r.t] !== r.state);
 
-  const recipients = (Array.isArray(to) ? to : []).filter(e => typeof e === 'string' && e.includes('@'));
+  const fromEnv = (process.env.BREAKOUT_ALERT_TO || '').split(',').map(e => e.trim());
+  const recipients = [...new Set([...fromEnv, ...(Array.isArray(to) ? to : [])])].filter(e => typeof e === 'string' && e.includes('@'));
   let sent = 0, failed = 0;
   if (fresh.length && recipients.length) {
     const apiKey = process.env.RESEND_API_KEY || '';
