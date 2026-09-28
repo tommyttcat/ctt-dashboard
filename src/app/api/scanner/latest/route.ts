@@ -11,9 +11,14 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
-/** Stocks in Play / Daily rows keep their plan only when on today's breakout watch. */
+/** Stocks in Play / Daily rows never carry the scan's plan (its buy level is
+ *  the day's high, after the move). Names on today's breakout watch keep their
+ *  `_orb` state, which carries the tested entry — the opening-range high on
+ *  volume — and the watch's stop; lib/scans/triggerProximity reads that. The
+ *  analyst routine reads this route too, so it can no longer quote a day-high
+ *  "buy above" for these names. */
 const moversOnly = (rows: Record<string, unknown>[]) =>
-  rows.map(r => (r && typeof r === 'object' && !r._orb && r.plan ? { ...r, plan: null, _mover: true } : r));
+  rows.map(r => (r && typeof r === 'object' && r.plan ? { ...r, plan: null, _mover: !r._orb } : r));
 
 export async function GET() {
   try {

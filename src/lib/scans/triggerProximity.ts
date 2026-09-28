@@ -60,8 +60,10 @@ export function trigRowOf(s: any, opts?: { keepThrough?: boolean; keepExtended?:
     ? (raw && typeof raw === 'object' && raw.tradeable === true && raw.collapsed !== true ? raw : null)
     : livePlanOf(s);
   const isVcp = s._source === 'vcp';
-  const trigger = numOrNull(plan?.trigger ?? (isVcp ? s.trigger : null));
-  const stop = numOrNull(plan?.stop ?? (isVcp ? s.stop : null));
+  // A breakout-watch row may carry no scan plan at all (movers, not buys): its stop comes from the watch.
+  const orbIn = s?._orb && typeof s._orb === 'object' ? s._orb : null;
+  const trigger = numOrNull(plan?.trigger ?? (isVcp ? s.trigger : null) ?? orbIn?.orHigh ?? orbIn?.fill);
+  const stop = numOrNull(plan?.stop ?? (isVcp ? s.stop : null) ?? orbIn?.stop);
   if (trigger == null || stop == null || trigger <= 0) return null;
 
   const pullback = PULLBACK_SOURCES.has(String(s._source ?? ''));

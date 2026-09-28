@@ -155,6 +155,8 @@ export const ORB_SOURCES = new Set(['sip', 'daily', 'swing']);
 
 export interface RowOrb {
   state: OrbWatchState;
+  /** The watch's own stop (the book's), so a row needs no scan plan. */
+  stop?: number;
   orHigh: number | null;
   fill: number | null;
   pace: number | null;
@@ -173,7 +175,7 @@ export function withOrb<T extends Record<string, unknown>>(rows: T[], watch: Orb
   return rows.map(row => {
     const w = by.get(String(row?.ticker ?? row?.symbol ?? '').toUpperCase());
     if (!w || w.state === 'nodata') return row;
-    const orb: RowOrb = { state: w.state, orHigh: w.orHigh, fill: w.fill, pace: w.pace, goAt: w.goAt, asOf: watch.asOf };
+    const orb: RowOrb = { state: w.state, stop: w.stop, orHigh: w.orHigh, fill: w.fill, pace: w.pace, goAt: w.goAt, asOf: watch.asOf };
     return { ...row, _orb: orb };
   });
 }

@@ -205,6 +205,10 @@ eq('EP9M is flagged as a pullback', trigRowOf(pull(101, 100))?.pullback, true);
   eq('nor in the summary text', buyToken(sip, 100).startsWith('Buy'), true);
   const watched = { ...sip, _orb: { state: 'wait', orHigh: 101, fill: null, pace: 1, goAt: null, asOf: 0 } };
   eq('on the breakout watch it keeps the tested entry', trigRowOf(watched, { keepThrough: true, keepExtended: true })?.trigger, 101);
+  // As served (scanner/latest strips every SIP/Daily plan): the watch alone supplies level and stop.
+  const served = { ticker: 'W', price: 99, _source: 'sip', plan: null, _orb: { state: 'wait', stop: 94, orHigh: 101, fill: null, pace: 1, goAt: null, asOf: 0 } };
+  eq('a watch row with no plan reads its level from the watch', trigRowOf(served, { keepThrough: true, keepExtended: true })?.trigger, 101);
+  eq('…and its stop', trigRowOf(served, { keepThrough: true, keepExtended: true })?.stop, 94);
   ok('other scans are unaffected', trigRowOf({ ...breakout(99, 100), _source: 'swing' }) != null);
 }
 
