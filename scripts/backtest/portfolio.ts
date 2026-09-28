@@ -363,11 +363,41 @@ function stockbeeMain(c: BarCache) {
   fs.writeFileSync(path.join(REPLAY, 'portfolio_stockbee.json'), JSON.stringify(res, null, 1));
 }
 
+/* No-financials rule in the account (rules in scripts/backtest/ep-fundamentals.ts,
+   fixed before running): Model Book v1 with EP9M flags that have no recent
+   financials removed. PASS = beats the Model Book in both halves AND its
+   random-order median beats the Model Book's. */
+function nofinMain(c: BarCache) {
+  const fin: Record<string, boolean> = JSON.parse(fs.readFileSync(path.join(REPLAY, 'ep9m_fin_flags.json'), 'utf8'));
+  const all = candidates(c);
+  const kept = all.filter(k => k.scan !== 'ep9m' || fin[`${k.ticker}|${c.sessions[k.s]}`] === true);
+  const s0 = c.sessions.findIndex(d => d >= START);
+  const spyId = c.idOf.get('SPY')!;
+  const spyCurve = c.sessions.slice(s0).map((d, i) => ({ d, eq: EQUITY0 * c.C[spyId][s0 + i] / c.O[spyId][s0], n: 1 }));
+  const cut = spyCurve[Math.floor(spyCurve.length * 2 / 3)].d;
+  const base: Opts = { name: 'BASE', floor: false, exit: 'hold20', regime: false, greenOnly: true };
+  const out: Record<string, { ret: number; dd: number; h: number[]; med: number; p10: number; trades: number; ep: number }> = {};
+  for (const [name, cands] of [['Model Book', all], ['+ skip no-financials EP9M', kept]] as const) {
+    const r = run(c, cands, { ...base, name });
+    const st = stats(r.curve, r.closed);
+    const h = [stats(r.curve.filter(p => p.d < cut), []).returnPct, stats(r.curve.filter(p => p.d >= cut), []).returnPct];
+    const rets: number[] = [];
+    for (let seed = 1; seed <= 200; seed++) rets.push(stats(run(c, cands, { ...base, name, seed }).curve, []).returnPct);
+    rets.sort((a, b) => a - b);
+    out[name] = { ret: st.returnPct, dd: st.maxDdPct, h, med: rets[100], p10: rets[20], trades: st.trades, ep: r.closed.filter(x => x.scan === 'ep9m').length };
+  }
+  const [B, N] = [out['Model Book'], out['+ skip no-financials EP9M']];
+  for (const [name, x] of Object.entries(out)) console.log(`${name.padEnd(26)} ${x.ret}% dd ${x.dd}% halves ${x.h.join(' / ')} | trades ${x.trades} (EP9M ${x.ep}) | random median ${x.med} (p10 ${x.p10})`);
+  console.log(`account part: ${N.h[0] > B.h[0] && N.h[1] > B.h[1] && N.med > B.med ? 'PASS' : 'FAIL'}`);
+  console.log(`EP9M candidates removed: ${all.length - kept.length} of ${all.filter(k => k.scan === 'ep9m').length}`);
+}
+
 function main() {
   const t0 = Date.now();
   const c = loadAdjusted();
   if (process.argv[2] === 'intraday') { intradayMain(c); return; }
   if (process.argv[2] === 'stockbee') { stockbeeMain(c); return; }
+  if (process.argv[2] === 'nofin') { nofinMain(c); return; }
   const cands = candidates(c);
   const tally = cands.reduce<Record<string, number>>((m, k) => { const key = `${k.scan}:${k.tier}`; m[key] = (m[key] || 0) + 1; return m; }, {});
   console.log('candidates', cands.length, JSON.stringify(tally));

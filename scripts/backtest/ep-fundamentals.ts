@@ -196,9 +196,57 @@ function analyze() {
   }
 }
 
+/* NO-FINANCIALS rule, fixed 27 Sep 2026 BEFORE running (the idea came from
+   the tag results above, so this is in-sample: the halves test stability,
+   the live record is the real test).
+     skip an EP9M flag when no quarterly report WITH revenue was filed before
+     the flag date for a period ending within 200 days of it.
+   PASS (all): per trade, skipped trades average >= 0.10R worse than kept on
+   hold-20 in BOTH halves (n >= 50 skipped per half), on all fills AND on green
+   rows; and in the account (portfolio.ts nofin) the Model Book with the rule
+   beats the Model Book in both halves AND lifts its random-order median.
+   Writes replay/ep9m_fin_flags.json (ticker|date -> has recent financials). */
+function hasRecentFin(qs: Q[] | null, date: string): boolean {
+  if (!qs) return false;
+  return qs.some(x => x.filed && x.filed < date && x.rev != null && (Date.parse(date) - Date.parse(x.end)) / 86400000 <= 200);
+}
+function nofin() {
+  const outcomes = new Map<string, any>();
+  for (const o of read('ep9m_v2_outcomes.jsonl')) outcomes.set(`${o.ticker}|${o.date}`, o);
+  const qcache = new Map<string, Q[] | null>();
+  const map: Record<string, boolean> = {};
+  type Row = { half: 0 | 1; green: boolean; fin: boolean; h20: number; t10: number; hr: boolean };
+  const rows: Row[] = [];
+  for (const r of flags()) {
+    if (!qcache.has(r.ticker)) qcache.set(r.ticker, quarters(r.ticker));
+    const fin = hasRecentFin(qcache.get(r.ticker) ?? null, r.date);
+    map[`${r.ticker}|${r.date}`] = fin;
+    const e = outcomes.get(`${r.ticker}|${r.date}`)?.entries?.pullback;
+    if (!e || e.status !== 'traded') continue;
+    rows.push({ half: r.date < CUT ? 0 : 1, green: ep9mTier(r) === 'green', fin, h20: e.exits.hold20.r, t10: e.exits.trail10.r, hr: !!e.homeRunHeld });
+  }
+  fs.writeFileSync(path.join(REPLAY, 'ep9m_fin_flags.json'), JSON.stringify(map));
+  const avg = (a: Row[], k: 'h20' | 't10') => (a.length ? a.reduce((x, y) => x + y[k], 0) / a.length : NaN);
+  const line = (a: Row[]) => `n ${String(a.length).padStart(4)} · hold20 ${avg(a, 'h20').toFixed(3)}R · trail10 ${avg(a, 't10').toFixed(3)}R · win ${(100 * a.filter(x => x.h20 > 0).length / (a.length || 1)).toFixed(0)}% · +50% ${(100 * a.filter(x => x.hr).length / (a.length || 1)).toFixed(1)}%`;
+  let pass = true;
+  for (const scope of ['all', 'green'] as const) {
+    const pool = scope === 'green' ? rows.filter(x => x.green) : rows;
+    console.log(`\n=== ${scope} fills ===`);
+    console.log(`kept (has financials)    ${line(pool.filter(x => x.fin))}`);
+    console.log(`skipped (no financials)  ${line(pool.filter(x => !x.fin))}`);
+    const h = [0, 1].map(k => ({ keep: pool.filter(x => x.half === k && x.fin), skip: pool.filter(x => x.half === k && !x.fin) }));
+    const gap = h.map(x => avg(x.keep, 'h20') - avg(x.skip, 'h20'));
+    const ok = h.every(x => x.skip.length >= 50) && gap.every(g => g >= 0.10);
+    pass = pass && ok;
+    console.log(`kept-minus-skipped hold20 by half: ${gap.map(g => (g >= 0 ? '+' : '') + g.toFixed(3)).join(' / ')}R (skipped n ${h.map(x => x.skip.length).join(' / ')}) ${ok ? 'ok' : 'FAIL'}`);
+  }
+  console.log(`\nper-trade part: ${pass ? 'PASS' : 'FAIL'} — account part: run portfolio.ts nofin`);
+}
+
 const mode = process.argv[2];
 if (mode === 'download') download();
 else if (mode === 'analyze') analyze();
+else if (mode === 'nofin') nofin();
 else if (mode === 'check') {
   // Spot-check: npx tsx ... check TICKER DATE [PRICE] [AVGVOL]
   const qs = quarters(process.argv[3]);
