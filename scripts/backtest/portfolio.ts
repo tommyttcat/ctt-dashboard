@@ -260,8 +260,8 @@ function stats(curve: { d: string; eq: number; n: number; x?: number }[], closed
 }
 
 /** Next-open signals re-entered by an intraday rule (scripts/backtest/intraday.ts). */
-function intradayCands(c: BarCache, entry: string): Cand[] {
-  const rows = read('intraday_entries.jsonl');
+function intradayCands(c: BarCache, entry: string, file = 'intraday_entries.jsonl'): Cand[] {
+  const rows = read(file);
   const out: Cand[] = [];
   for (const r of rows) {
     const e = r.entries?.[entry];
@@ -312,6 +312,45 @@ function intradayMain(c: BarCache) {
     console.log(`${E} per-trade n ${perTrade.n} avgR ${perTrade.avgR} (${perTrade.halvesR.join(' / ')}) avg% ${perTrade.avgPct} win ${perTrade.winPct}% | account ${all.returnPct}% dd ${all.maxDdPct}% halves ${h1.returnPct} / ${h2.returnPct} | random median ${med} (p10 ${rets[20]}, p90 ${rets[180]}) ${pass ? 'PASS' : 'fail'}`);
   }
   fs.writeFileSync(path.join(REPLAY, process.argv[3] ? 'portfolio_intraday_sens.json' : 'portfolio_intraday.json'), JSON.stringify(results, null, 1));
+}
+
+/* Wider watch list (scripts/backtest/intraday.ts header holds the rules, fixed
+   27 Sep 2026 BEFORE the yellow minute bars were downloaded). Yellow rows are
+   tagged 'green' here only so the account's green-only gate (which exists for
+   the EP9M rows) lets them through; the ranking is RS first as always. */
+function widerMain(c: BarCache) {
+  const ep = candidates(c).filter(k => k.scan === 'ep9m');
+  const spy = c.idOf.get('SPY')!;
+  const s0 = c.sessions.findIndex(d => d >= START);
+  const spyCurve = c.sessions.slice(s0).map((d, i) => ({ d, eq: EQUITY0 * c.C[spy][s0 + i] / c.O[spy][s0], n: 1 }));
+  const cut = spyCurve[Math.floor(spyCurve.length * 2 / 3)].d;
+  const base: Opts = { name: '', floor: false, exit: 'hold20', regime: false, greenOnly: true };
+  const green = intradayCands(c, 'E2');
+  const yellow = intradayCands(c, 'E2', 'intraday_entries_yellow.jsonl');
+  const R = (t: Trade) => (t.xpx - t.c.fill) / (t.c.fill - t.stop);
+  const solo = (ic: Cand[]) => ic.map(k => walk(c, k, false, 'hold20')).filter(t => Number.isFinite(t.xi));
+  const avgR = (a: Trade[]) => a.length ? +(a.reduce((x, t) => x + R(t), 0) / a.length).toFixed(3) : NaN;
+  const halvesR = (a: Trade[]) => [0, 1].map(h => avgR(a.filter(t => (c.sessions[t.c.ei] < cut) === (h === 0))));
+  const acct = (name: string, ic: Cand[]) => {
+    const cands = [...ic, ...ep];
+    const r = run(c, cands, { ...base, name });
+    const all = stats(r.curve, r.closed);
+    const h = [stats(r.curve.filter(p => p.d < cut), []).returnPct, stats(r.curve.filter(p => p.d >= cut), []).returnPct];
+    const rets: number[] = [];
+    for (let seed = 1; seed <= 200; seed++) rets.push(stats(run(c, cands, { ...base, name, seed }).curve, []).returnPct);
+    rets.sort((a, b) => a - b);
+    return { account: all.returnPct, dd: all.maxDdPct, halves: h, median: rets[100], trades: r.closed.length };
+  };
+  const ys = solo(yellow), gs = solo(green);
+  const yH = halvesR(ys);
+  console.log(`yellow E2 alone: n ${ys.length} avgR ${avgR(ys)} (${yH.join(' / ')}) win ${(100 * ys.filter(t => t.xpx > t.c.fill).length / (ys.length || 1)).toFixed(1)}%`);
+  console.log(`green  E2 alone: n ${gs.length} avgR ${avgR(gs)} (${halvesR(gs).join(' / ')})`);
+  const g = acct('green', green);
+  const gy = acct('green+yellow', [...green, ...yellow.map(k => ({ ...k, tier: 'green' }))]);
+  for (const [n, v] of [['green', g], ['green+yellow', gy]] as const) console.log(`${n.padEnd(13)} account ${v.account}% dd ${v.dd}% halves ${v.halves.join(' / ')} random median ${v.median} trades ${v.trades}`);
+  const pass = yH.every(x => x > 0) && [0, 1].every(h => gy.halves[h] > g.halves[h]) && gy.median > g.median;
+  console.log(`VERDICT (wider): ${pass ? 'PASS — add the yellow tier to the watch' : 'fail — the watch stays green only'}`);
+  fs.writeFileSync(path.join(REPLAY, 'portfolio_wider.json'), JSON.stringify({ yellow: { n: ys.length, avgR: avgR(ys), halvesR: yH }, green: g, greenYellow: gy, pass }, null, 1));
 }
 
 /* Market-on-the-day filters on the breakout entry (scripts/backtest/
@@ -442,6 +481,7 @@ function main() {
   const c = loadAdjusted();
   if (process.argv[2] === 'intraday') { intradayMain(c); return; }
   if (process.argv[2] === 'market') { marketMain(c); return; }
+  if (process.argv[2] === 'wider') { widerMain(c); return; }
   if (process.argv[2] === 'stockbee') { stockbeeMain(c); return; }
   if (process.argv[2] === 'nofin') { nofinMain(c); return; }
   const cands = candidates(c);
