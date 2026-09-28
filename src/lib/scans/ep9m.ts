@@ -467,7 +467,7 @@ export function epMoveOdds(r: { floatTurnover?: number | null; mktCap?: number |
 export const EP_MOVE_ODDS_TIP =
   'Odds of a BIG MOVE, not quality. A: float turnover 0.5x+ or market cap under $300M — ' +
   '17-23% of these ran +50% within 60 sessions. The same names had the WORST average outcome ' +
-  '(-0.26R to -0.30R, median 20-day -24%), so they need a tight stop and small size. ' +
+  '(a median of −24% after 20 sessions), so they need a tight stop and small size. ' +
   'B: float turnover 0.25x+ or cap under $2B. Unlettered: single-digit odds of a big move.';
 
 /* ---- The EP trade plan ---------------------------------------------------

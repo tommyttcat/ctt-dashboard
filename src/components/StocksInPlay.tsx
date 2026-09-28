@@ -115,9 +115,9 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     what: 'Confluence score 0–100 — how many independent factors line up: RVOL, gap, range expansion, RS, catalyst quality, persistence, VWAP, regime, sector heat, dots, runway. Hover the number for the per-row breakdown and any grade ceiling.',
     colour: 'The grade is on the ticker, not here: green 70+ (A) · amber 50+ (B) · grey below (C).',
   },
-  RTR: {
-    what: 'Reward-to-risk. How far the nearest overhead level sits above the trigger, measured in stop-widths. 2R+ means the target is reachable before anything blocks it. Trigger and stop prices are on the sub-row; hover this badge for the full plan.',
-    colour: 'Green 2R+ (clear) · slate 1R+ · amber 0.5R+ · red under 0.5R · EXT extended · ✕ no plan.',
+  ROOM: {
+    what: 'Room to run: how far the nearest overhead level (a prior high or a falling average) sits above the buy level, in %. More room than the stop distance means the trade can pay more than it risks before it meets supply.',
+    colour: 'Green: clear overhead for at least twice the stop distance · slate: room of at least one stop distance · amber: at least half of it · red: less — the ceiling is closer than the stop · EXT extended · ✕ no plan.',
   },
   PRICE: {
     what: 'Last price. The dot beside it is VWAP position.',
@@ -415,9 +415,9 @@ const planShort = (row: StockInPlay): string => {
   if (p.collapsed) return '✕';
   if (p.tradeable !== true) return '—';
   if (p.overextended) return 'EXT';
-  if (p.clear) return p.resistanceR != null ? `${p.resistanceR.toFixed(1)}R` : '2R+';
+  if (p.clear) return p.resistanceR != null && p.stopPct != null ? `${(p.resistanceR * p.stopPct).toFixed(1)}%` : 'clear';
   if (p.resistanceR == null) return '—';
-  return `${p.resistanceR.toFixed(1)}R`;
+  return p.stopPct != null ? `${(p.resistanceR * p.stopPct).toFixed(1)}%` : '—';
 };
 
 const planBadge = (row: StockInPlay): string => {
@@ -454,7 +454,7 @@ const planTooltip = (row: StockInPlay): string => {
   }
   lines.push('');
   if (p.resistanceR != null) {
-    lines.push(`Nearest overhead: ${p.resistanceLabel || 'level'} at ${p.resistanceR.toFixed(1)}R`);
+    lines.push(`Nearest overhead: ${p.resistanceLabel || 'level'}${p.stopPct != null ? `, ${(p.resistanceR * p.stopPct).toFixed(1)}% above the buy level` : ''}`);
   } else {
     lines.push('No overhead level between trigger and target.');
   }

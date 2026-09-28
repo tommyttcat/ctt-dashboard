@@ -340,23 +340,26 @@ export function computeTradePlan(i: TradePlanInput): TradePlan {
   // --- NOTE ---------------------------------------------------------------
   // Ordered so that every branch reading resistanceR has already established
   // it is non-null.
+  // Room to a level in % of the buy level (28 Sep 2026): resistanceR is in
+  // stop-widths, the reader reads R as gibberish.
+  const roomText = (r: number) => (stopPct != null && Number.isFinite(stopPct) ? `${fx(r * stopPct, 1)}%` : 'some way');
   let note: string;
   if (triggerIsPrice) {
     note = 'no level resolved — trigger is last price';
   } else if (overextended) {
     note = `${fx(extPctFrom21, 0)}% above the 21 EMA — nothing overhead because price has left its averages behind, not because the path is clear`;
   } else if (collapsed && resistanceR != null) {
-    note = `nearest level (${resistanceLabel}) is ${fx(resistanceR, 1)}R away and price is under its 21 EMA — fallen off its own averages, not clear runway`;
+    note = `nearest level (${resistanceLabel}) is ${roomText(resistanceR)} above and price is under its 21 EMA — fallen off its own averages, not clear runway`;
   } else if (resistanceR == null) {
     note = hadAnyLevel
       ? 'no overhead level — price is above every average'
       : 'no moving averages resolved — runway unknown';
   } else if (clear && resistanceR > MAX_HEALTHY_RESISTANCE_R) {
-    note = `above the 21 EMA with nothing until ${resistanceLabel} at ${fx(resistanceR, 1)}R — open runway`;
+    note = `above the 21 EMA with nothing until ${resistanceLabel}, ${roomText(resistanceR)} above — open runway`;
   } else if (clear) {
-    note = `${fx(TARGET_R, 1)}R clear, ${resistanceLabel} at ${fx(resistanceR, 1)}R`;
+    note = `clear past the target, ${resistanceLabel} ${roomText(resistanceR)} above`;
   } else {
-    note = `${resistanceLabel} sits at ${fx(resistanceR, 1)}R — needs the level to break`;
+    note = `${resistanceLabel} sits ${roomText(resistanceR)} above — needs the level to break`;
   }
 
   return {
@@ -384,9 +387,9 @@ export const tradePlanShort = (p: TradePlan): string => {
   if (!p.tradeable) return p.collapsed ? 'collapsed' : '—';
   if (p.collapsed) return 'broken';
   if (p.overextended) return 'extended';
-  if (p.clear) return `${fx(p.rMultiple, 1)}R clear`;
-  if (p.resistanceR == null) return '—';
-  return `${fx(p.resistanceR, 1)}R`;
+  if (p.clear) return 'clear';
+  if (p.resistanceR == null || p.stopPct == null) return '—';
+  return `room ${fx(p.resistanceR * p.stopPct, 1)}%`;
 };
 
 // Multi-line detail for a title attribute.
@@ -395,10 +398,10 @@ export const tradePlanTooltip = (p: TradePlan): string => {
   const lines: string[] = [];
   lines.push(`Trigger  ${fx(p.trigger, 2)}  (${p.triggerLabel})`);
   lines.push(`Stop     ${fx(p.stop, 2)}  (-${fx(p.stopPct, 1)}%)`);
-  lines.push(`Target   ${fx(p.target, 2)}  (${fx(p.rMultiple, 1)}R)`);
+  lines.push(`Target   ${fx(p.target, 2)}  (twice the stop distance)`);
   lines.push('');
   if (p.resistanceR != null) {
-    lines.push(`Nearest overhead: ${p.resistanceLabel} at ${fx(p.resistanceR, 1)}R`);
+    lines.push(`Nearest overhead: ${p.resistanceLabel}${p.stopPct != null ? `, ${fx(p.resistanceR * p.stopPct, 1)}% above the buy level` : ''}`);
   } else {
     lines.push('No overhead level between trigger and target.');
   }

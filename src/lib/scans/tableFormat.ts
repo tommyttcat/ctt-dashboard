@@ -109,9 +109,11 @@ export const planShortOf = (p: TradePlanRow | null, opts?: PlanOpts): string => 
   if (p.collapsed) return '✕';
   if (p.tradeable !== true) return '—';
   if (p.overextended) return 'EXT';
-  if (p.clear) return p.resistanceR != null ? `${p.resistanceR.toFixed(1)}R` : '2R+';
-  if (p.resistanceR == null) return '—';
-  return `${p.resistanceR.toFixed(1)}R`;
+  // Room to resistance in % (resistanceR stop-widths × the stop's % distance).
+  const room = p.resistanceR != null && p.stopPct != null ? p.resistanceR * p.stopPct : null;
+  if (p.clear) return room != null ? `${room.toFixed(1)}%` : 'clear';
+  if (room == null) return '—';
+  return `${room.toFixed(1)}%`;
 };
 
 export const planBadgeOf = (p: TradePlanRow | null, opts?: PlanOpts): string => {

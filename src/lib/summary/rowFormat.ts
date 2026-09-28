@@ -518,11 +518,23 @@ export const rtrValue = (s: any): number => {
   return -1;
 };
 
+/* Room to the nearest overhead level, as % of the buy level (28 Sep 2026 —
+   the reader reads R as gibberish). resistanceR is that room in stop-widths,
+   so multiplying by the stop's own % distance gives the % exactly. */
+export const roomPctOf = (p: any): number | null => {
+  const r = numOrNull(p?.resistanceR);
+  if (r == null) return null;
+  const t = numOrNull(p?.trigger), st = numOrNull(p?.stop);
+  const risk = numOrNull(p?.stopPct) ?? (t != null && st != null && t > 0 ? ((t - st) / t) * 100 : null);
+  return risk != null && risk > 0 ? r * risk : null;
+};
+
 export const rtrLabel = (s: any): string => {
   const p = livePlanOf(s);
   if (!p) return '—';
-  if (p.resistanceR != null) return `${Number(p.resistanceR).toFixed(1)}R`;
-  if (p.clear === true) return '2R+';
+  const room = roomPctOf(p);
+  if (room != null) return `room ${room.toFixed(1)}%`;
+  if (p.clear === true) return 'clear above';
   return '—';
 };
 

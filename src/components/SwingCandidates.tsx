@@ -152,9 +152,9 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     what: 'Swing score 0–100, built from four parts: RS Rating (35), pullback tightness — distance to the 21 EMA and how deep the stochastic has reset (30), volatility fit, which rewards an ATR near 3% and penalises both ends (20), and trend structure, 50 over 200 plus a rising 21 (15).\n\nRelative strength is the largest single component AND a hard gate: a name below RS 50 never reaches this table at all.',
     colour: 'Grey on purpose: in the 5-year test a higher swing score did not reliably mean a better trade — its top fifth won in one half and lost in the other. It sorts the list; the row colour is the part that was tested.',
   },
-  RTR: {
-    what: 'Room to resistance. How far the nearest overhead level sits above the trigger, measured in stop-widths (R = trigger minus stop). 2R+ means the target is reachable before anything blocks it. Trigger, stop and target prices are on the sub-row.',
-    colour: 'Green 2R+ (clear) · slate 1R+ · amber 0.5R+ · red under 0.5R · EXT extended · ✕ no plan.',
+  ROOM: {
+    what: 'Room to run: how far the nearest overhead level (a prior high or a falling average) sits above the buy level, in %. More room than the stop distance means the trade can pay more than it risks before it meets supply.',
+    colour: 'Green: clear overhead for at least twice the stop distance · slate: room of at least one stop distance · amber: at least half of it · red: less — the ceiling is closer than the stop · EXT extended · ✕ no plan.',
   },
   PRICE: {
     what: 'Last price. The dot beside it is VWAP position.',
@@ -468,9 +468,9 @@ const planShort = (c: SwingCandidate): string => {
   if (p.collapsed) return '✕';
   if (p.tradeable !== true) return '—';
   if (p.overextended) return 'EXT';
-  if (p.clear) return p.resistanceR != null ? `${p.resistanceR.toFixed(1)}R` : '2R+';
+  if (p.clear) return p.resistanceR != null && p.stopPct != null ? `${(p.resistanceR * p.stopPct).toFixed(1)}%` : 'clear';
   if (p.resistanceR == null) return '—';
-  return `${p.resistanceR.toFixed(1)}R`;
+  return p.stopPct != null ? `${(p.resistanceR * p.stopPct).toFixed(1)}%` : '—';
 };
 
 const planBadge = (c: SwingCandidate): string => {
@@ -513,7 +513,7 @@ const planTooltip = (c: SwingCandidate): string => {
   }
   lines.push('');
   if (p.resistanceR != null) {
-    lines.push(`Nearest overhead: ${p.resistanceLabel || 'level'} at ${p.resistanceR.toFixed(1)}R`);
+    lines.push(`Nearest overhead: ${p.resistanceLabel || 'level'}${p.stopPct != null ? `, ${(p.resistanceR * p.stopPct).toFixed(1)}% above the buy level` : ''}`);
   } else {
     lines.push('No overhead level between trigger and target.');
   }
@@ -1064,7 +1064,7 @@ export default function SwingCandidates() {
                             : 'At least one stop-width to the nearest overhead level'}
                           className={`${pillBtn} ${planFilter === opt ? filterBtnActive : filterBtnIdle}`}
                         >
-                          {opt === '1R' ? '1R+' : '2R+'}
+                          {opt === '1R' ? 'ROOM ≥ STOP' : 'ROOM ≥ 2× STOP'}
                         </button>
                       ))}
                     </div>

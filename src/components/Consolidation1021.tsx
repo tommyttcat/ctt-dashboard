@@ -135,9 +135,9 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     what: 'Readiness 0–100 — base quality, not tape action. Combines breakout volume readiness (BVR), the 10/21 EMA gap, days in coil, and the prior move. CNF says whether it is moving; RDY says whether the base is ready. Hover a row badge for the breakdown.',
     colour: 'Purple 75+ · green 55+ · amber 35+ · grey below.',
   },
-  RTR: {
-    what: 'Room to resistance. How far the nearest overhead level sits above the trigger, measured in stop-widths (R = trigger minus stop). On this table the trigger is the 10-day range high — the level the coil resolves through, not today\'s high. Trigger, stop and target prices are on the sub-row.',
-    colour: 'Green 2R+ (clear) · slate 1R+ · amber 0.5R+ · red under 0.5R · EXT extended · ✕ no plan.',
+  ROOM: {
+    what: 'Room to run: how far the nearest overhead level (a prior high or a falling average) sits above the buy level, in %. More room than the stop distance means the trade can pay more than it risks before it meets supply.',
+    colour: 'Green: clear overhead for at least twice the stop distance · slate: room of at least one stop distance · amber: at least half of it · red: less — the ceiling is closer than the stop · EXT extended · ✕ no plan.',
   },
   PRICE: {
     what: 'Last price. The dot beside it is VWAP position — a single-session read, shown for context on rows you are watching rather than used as a filter on a multi-week base.',
@@ -446,7 +446,7 @@ const rdyTooltip = (c: ConsolidationCandidate, d: RdyDetail): string => {
     lines.push(`RDY ${d.score} — ${band}`);
   }
   lines.push('');
-  lines.push('Base readiness, not tape action. CNF says whether it is moving; RTR says whether there is room once it breaks.');
+  lines.push('Base readiness, not tape action. CNF says whether it is moving; the room to the nearest overhead level says whether it can run once it breaks.');
   lines.push('');
   for (const p of d.parts) {
     lines.push(`${String(p.value).padStart(2)}/${p.max}  ${p.label} — ${p.detail}`);
@@ -509,7 +509,7 @@ const planTooltip = (c: ConsolidationCandidate): string => {
   }
   lines.push('');
   if (p.resistanceR != null) {
-    lines.push(`Nearest overhead: ${p.resistanceLabel || 'level'} at ${p.resistanceR.toFixed(1)}R`);
+    lines.push(`Nearest overhead: ${p.resistanceLabel || 'level'}${p.stopPct != null ? `, ${(p.resistanceR * p.stopPct).toFixed(1)}% above the buy level` : ''}`);
   } else {
     lines.push('No overhead level between trigger and target.');
   }
@@ -964,7 +964,7 @@ export default function Consolidation1021() {
                           : 'At least one stop-width above the range high before the first level overhead'}
                         className={`${pillBtn} ${planFilter === opt ? filterBtnActive : filterBtnIdle}`}
                       >
-                        {opt === '1R' ? '1R+' : '2R+'}
+                        {opt === '1R' ? 'ROOM ≥ STOP' : 'ROOM ≥ 2× STOP'}
                       </button>
                     ))}
                   </div>

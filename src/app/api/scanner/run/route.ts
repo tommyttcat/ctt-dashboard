@@ -508,8 +508,8 @@ const buildReadout = (t: any): string | null => {
     if (t.plan.trigger != null) bits.push(`trigger ${t.plan.trigger.toFixed(2)} (${t.plan.triggerLabel})`);
     if (t.plan.stopPct != null) bits.push(`stop −${t.plan.stopPct.toFixed(1)}%`);
     if (t.plan.overextended) bits.push('extended — no usable runway read');
-    else if (t.plan.clear) bits.push('2R clear');
-    else if (t.plan.resistanceR != null) bits.push(`${t.plan.resistanceLabel} at ${t.plan.resistanceR.toFixed(1)}R`);
+    else if (t.plan.clear) bits.push('clear overhead');
+    else if (t.plan.resistanceR != null && t.plan.stopPct != null) bits.push(`${t.plan.resistanceLabel} ${(t.plan.resistanceR * t.plan.stopPct).toFixed(1)}% above`);
     if (bits.length) parts.push(bits.join(', '));
   } else if (t.plan?.collapsed) {
     parts.push('no long plan — price has collapsed');

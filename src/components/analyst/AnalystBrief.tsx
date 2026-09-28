@@ -965,8 +965,9 @@ function AnalystCard({ stock, rank }: { stock: StockEntry; rank: number }) {
           {target != null && (
             <span className="text-slate-500">Target <span className="text-emerald-400 font-semibold">${target.toFixed(2)}</span></span>
           )}
-          {rMultiple != null && (
-            <span className="text-cyan-400 font-semibold">{rMultiple.toFixed(1)}R</span>
+          {/* % to the target, not R (28 Sep 2026: the reader reads R as gibberish). */}
+          {target != null && trigger != null && trigger > 0 && (
+            <span className="text-cyan-400 font-semibold" title="How far the target sits above the buy level">+{((target / trigger - 1) * 100).toFixed(1)}% to target</span>
           )}
         </div>
       );

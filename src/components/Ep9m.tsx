@@ -93,9 +93,9 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     what: 'Episodic Pivot score 0–100 — volume abnormality, vs-60-day-high, float turnover, catalyst, close strength, Money Flow, days-to-cover, and repeat-trigger history. Hover the number for the per-row breakdown.\n\nGrey on purpose: it measures how big the event was, not how the trade goes. In the 5-year test high and low scores traded the same on the dip entry, so it sorts the list but is not a grade.',
     colour: 'The ticker colour is BIG-MOVE ODDS, not quality: green = float turnover 0.5x+ or cap under $300M (17-23% ran +50%, but the worst average outcome), amber = 0.25x+ or under $2B, grey = single-digit odds.',
   },
-  RTR: {
-    what: 'Room to resistance. How far the nearest overhead level sits above the trigger, measured in stop-widths (R = trigger minus stop). This scan has no trend gate, so RTR is the column that separates abnormal volume you can trade from abnormal volume you cannot — and it is where over-extension shows up, since there is no posture filter on this table.',
-    colour: 'Green 2R+ (clear) · slate 1R+ · amber 0.5R+ · red under 0.5R · EXT extended · ✕ collapsed.',
+  ROOM: {
+    what: 'Room to run: how far the nearest overhead level (a prior high or a falling average) sits above the buy level, in %. More room than the stop distance means the trade can pay more than it risks before it meets supply.',
+    colour: 'Green: clear overhead for at least twice the stop distance · slate: room of at least one stop distance · amber: at least half of it · red: less — the ceiling is closer than the stop · EXT extended · ✕ no plan.',
   },
   PRICE: {
     what: 'Last price. The dot beside it is VWAP position.',
@@ -436,9 +436,9 @@ const planShort = (c: Ep9mCandidate): string => {
   if (p.collapsed) return '✕';
   if (p.tradeable !== true) return '—';
   if (p.overextended) return 'EXT';
-  if (p.clear) return p.resistanceR != null ? `${p.resistanceR.toFixed(1)}R` : '2R+';
+  if (p.clear) return p.resistanceR != null && p.stopPct != null ? `${(p.resistanceR * p.stopPct).toFixed(1)}%` : 'clear';
   if (p.resistanceR == null) return '—';
-  return `${p.resistanceR.toFixed(1)}R`;
+  return p.stopPct != null ? `${(p.resistanceR * p.stopPct).toFixed(1)}%` : '—';
 };
 
 const planBadge = (c: Ep9mCandidate): string => {
@@ -474,7 +474,7 @@ const planTooltip = (c: Ep9mCandidate): string => {
   }
   lines.push('');
   if (p.resistanceR != null) {
-    lines.push(`Nearest overhead: ${p.resistanceLabel || 'level'} at ${p.resistanceR.toFixed(1)}R`);
+    lines.push(`Nearest overhead: ${p.resistanceLabel || 'level'}${p.stopPct != null ? `, ${(p.resistanceR * p.stopPct).toFixed(1)}% above the buy level` : ''}`);
   } else {
     lines.push('No overhead level between trigger and target.');
   }
@@ -526,7 +526,7 @@ const epTooltip = (c: Ep9mCandidate): string => {
   // EP scores volume, not tradeability. Saying so here keeps a 90 from
   // reading as a recommendation on a name with nowhere to put a stop.
   lines.push('');
-  lines.push('EP scores the volume event. See RTR for whether there is a trade.');
+  lines.push('EP scores the volume event. The room to the nearest overhead level says whether there is a trade.');
 
   // And chop is a third question again — the regime the volume landed in.
   const chop = chopOf(c);
@@ -995,7 +995,7 @@ export default function Ep9m() {
                           : 'At least one stop-width to the nearest overhead level — also strips the collapsed and the already-run'}
                         className={`${pillBtn} ${planFilter === opt ? filterBtnActive : filterBtnIdle}`}
                       >
-                        {opt === '1R' ? '1R+' : '2R+'}
+                        {opt === '1R' ? 'ROOM ≥ STOP' : 'ROOM ≥ 2× STOP'}
                       </button>
                     ))}
                   </div>

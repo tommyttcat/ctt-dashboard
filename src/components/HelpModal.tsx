@@ -274,7 +274,7 @@ function DashboardTab({ tier }: { tier: string }) {
       <P>Filters narrow the board without changing the scores:</P>
       <Li title="CNF">Grade filter — show only A or B names (A = CNF 60+, B = 45–59).</Li>
       <Li title="POSTURE">Price vs 10/21 EMAs. First Touch = pullback to 21 EMA. Stacked = above both. Extended = stretched far above.</Li>
-      <Li title="PLAN">Room to the next resistance. 1R = the stock has a plan; 2R+ = at least twice the risk (buy level to stop) of room above the buy level.</Li>
+      <Li title="PLAN">Room to the next resistance. ROOM ≥ STOP = the next overhead level is at least as far above the buy level as the stop is below it; ROOM ≥ 2× STOP = at least twice that far, or nothing overhead.</Li>
       <Li title="VWAP">Above or below session VWAP.</Li>
       <Li title="ADR">Average Daily Range filter — 5%+ or 10%+ movers only.</Li>
       <Li title="CAP">Market cap — Small or Large.</Li>
@@ -721,7 +721,7 @@ function InteractionsTab() {
       <Li title="RS">Relative Strength Rating 0–99. Measures price performance vs the market over 12 months.</Li>
       <Li title="STG">Weinstein Stage. 1 = base, 2A = advance, 2B = extended, 2C = sagging, 3 = top, 4 = decline.</Li>
       <Li title="STATUS">Where it stands against its buy level: HIT · 2.2% (not there yet) · EXT · MISS · OUT. On the breakout watch names, OR (range forming) and NONE (no breakout today), and HIT only on the volume-confirmed break. Hover for the levels.</Li>
-      <Li title="PLAN">Room to the next resistance, in multiples of the risk (buy level to stop). 2R+ = room for twice the risk.</Li>
+      <Li title="PLAN">Room to the next resistance, compared with the stop distance. ROOM ≥ 2× STOP = at least twice the stop distance of room above the buy level.</Li>
       <Li title="ADR%">Average Daily Range as a percentage of price. Higher = more volatile.</Li>
       <Li title="10/21">Price position vs the 10 and 21 EMAs (Dr. Wish trend pair).</Li>
     </div>
