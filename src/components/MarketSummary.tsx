@@ -110,7 +110,8 @@ import { edgeTier as edgeOf, EDGE_TINT, EDGE_FILTER_TIP, type EdgeTier } from '@
 import EdgeFilterPills from './EdgeFilterPills';
 import { planRowsFor, planStatusOf, PLAN_STATUS_ORDER, PLAN_STATUS_META, type TrigRow, type PlanStatus } from '@/lib/scans/triggerProximity';
 import InfoDot from './InfoDot';
-import type { OrbWatchStatus, OrbWatchState } from '@/lib/orb';
+import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
+import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
 import { tierForScan, tipForScan } from '@/lib/scans/edge';
 import { newsStarCount } from '@/lib/newsStars';
 import { rsColor, rsBadge } from '@/lib/indicators/rs';
@@ -1344,7 +1345,7 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
   );
 };
 
-type LiveQuotesView = { live: boolean; asOf: number; session: string; quotes: Record<string, { price: number; pct: number; prevClose: number }>; error?: string };
+type LiveQuotesView = { live: boolean; asOf: number; session: string; quotes: Record<string, { price: number; pct: number; prevClose: number; vol?: number | null }>; error?: string };
 const fmtEtClock = (ms: number | null | undefined) =>
   ms ? new Date(ms).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) : '—';
 
@@ -1569,6 +1570,64 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
           this too. */}
       <BreakoutWatch watch={orbWatch} />
       <TriggerProximity pool={shown} />
+    </div>
+  );
+};
+
+/* ---- Early Movers ---------------------------------------------------------
+   Names already on today's lists (the Setups Summary pool plus 10/21) that are
+   moving now, on the live Webull price — lib/summary/earlyMovers holds the
+   rule. Rows are the Buy & stop box's, so a mover arrives with its plan.
+   The live fetch is the same shape as the Setups Summary's: one sorted list
+   for every viewer, so the edge cache holds it and the cost is flat in users. */
+const EarlyMovers = ({ pool, onVisibleChange }: { pool: any[]; onVisibleChange?: (tickers: string[]) => void }) => {
+  const liveSyms = React.useMemo(
+    () => [...new Set(pool.map((x: any) => String(x?.ticker ?? x?.symbol ?? '').toUpperCase()).filter(Boolean))].sort().slice(0, 100).join(','),
+    [pool],
+  );
+  const [live, setLive] = React.useState<LiveQuotesView | null>(null);
+  React.useEffect(() => {
+    if (!liveSyms) { setLive(null); return; }
+    let on = true;
+    const load = () => fetch(`/api/live-quotes?s=${liveSyms}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (on) setLive(j && typeof j === 'object' ? j : null); })
+      .catch(() => { if (on) setLive(null); });
+    load();
+    const stop = poll(load, pollMs.marketHours(30_000, 300_000));
+    return () => { on = false; stop(); };
+  }, [liveSyms]);
+
+  const movers = React.useMemo(
+    () => (live?.live && live.quotes ? earlyMovers(pool, live.quotes, live.session, etMinute(live.asOf)) : []),
+    [pool, live],
+  );
+  const visibleKey = movers.map(m => m.ticker).join(',');
+  React.useEffect(() => {
+    onVisibleChange?.(visibleKey ? visibleKey.split(',') : []);
+  }, [visibleKey, onVisibleChange]);
+
+  const session = live?.session;
+  const empty = !live?.live
+    ? 'Live prices unavailable right now — this card only works on live data.'
+    : session === 'Closed'
+      ? 'Checks live from 4:00 AM ET on trading days.'
+      : session === 'Pre-Market'
+        ? `No list name up ${EARLY_MIN_PCT}% pre-market yet.`
+        : `No list name up ${EARLY_MIN_PCT}% on ${EARLY_MIN_PACE}× volume pace yet.`;
+
+  return (
+    <div>
+      {movers.length > 0
+        ? <TriggerProximity pool={movers} />
+        : <p className="text-[10px] text-slate-500 font-medium">{empty}</p>}
+      <p className="text-[10px] text-slate-500 font-medium mt-2">
+        Today&apos;s list names up {EARLY_MIN_PCT}%+{session === 'Pre-Market' ? ' pre-market' : ` on ${EARLY_MIN_PACE}× normal volume for the time of day (RVOL here is that pace)`}.
+        {' '}Not a tested signal — what is moving, not what happens next.
+        {' '}{live?.live
+          ? <span className="text-emerald-400/80">Prices live · {fmtEtClock(live.asOf)} ET</span>
+          : <span className="text-amber-400/80">No live prices</span>}
+      </p>
     </div>
   );
 };
@@ -1878,6 +1937,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
      dashboard to avoid duplicating a dense prose block that reads better in
      its own space. The avoid-set still comes from the analyst brief. */
   { label: 'Setups Summary', color: 'violet', blurb: 'All scans pooled — filter by source or setup pattern. One stop shop.' },
+  { label: 'Early Movers', color: 'emerald', blurb: 'Names on today\'s lists moving now, on live prices — before the delayed scans see them.' },
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves now. Volume-confirmed is tradeable; a thin gap is a fade.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, and who is on air.' },
   { label: '$Vol Summary', color: 'teal', blurb: 'Top 20 by dollar volume — where the money actually is today.' },
@@ -2164,7 +2224,7 @@ export default function MarketSummary() {
   const [thesisEdge, setThesisEdge] = useState<Record<string, EdgeTier | null>>({});
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() =>
     new Set([
-      ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary'),
+      ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Early Movers'),
       'hrsTop', 'topSetups',
     ])
   );
@@ -2174,6 +2234,8 @@ export default function MarketSummary() {
      Copy and TXT hand over the visible rows rather than the whole pool. */
   const [setupVisible, setSetupVisible] = useState<string[]>([]);
   const onSetupVisible = React.useCallback((t: string[]) => setSetupVisible(t), []);
+  const [moverVisible, setMoverVisible] = useState<string[]>([]);
+  const onMoverVisible = React.useCallback((t: string[]) => setMoverVisible(t), []);
   const macroRef = useRef<MacroInsights | null>(null);
   macroRef.current = macroInsights;
   const handleScanFilter = useCallback((k: ScanFilterKey) => {
@@ -2186,7 +2248,7 @@ export default function MarketSummary() {
     if (!mi?.briefing) return;
     if (!k) {
       setCollapsedSections(new Set([
-        ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary'),
+        ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Early Movers'),
         'hrsTop', 'topSetups',
       ]));
       return;
@@ -2509,6 +2571,7 @@ export default function MarketSummary() {
                           const bodyTickers = label === 'Setups Summary'
                             // What the card is showing, not the pool behind it.
                             ? setupVisible
+                            : label === 'Early Movers' ? moverVisible
                             : (() => {
                                 const lines = body.replace(/\|\|\|/g, '\n').split('\n').filter(Boolean);
                                 const parsed = lines.map(l => parseStdLine(l)).filter(Boolean);
@@ -2743,6 +2806,8 @@ export default function MarketSummary() {
                                   onVisibleChange={onSetupVisible}
                                   orbWatch={orbWatch}
                                 />
+                              ) : isOpen && label === 'Early Movers' ? (
+                                <EarlyMovers pool={macroInsights?.earlyPool ?? []} onVisibleChange={onMoverVisible} />
                               ) : isOpen && label === 'Sector Performance' ? (
                                 <SectorBars body={body} heat={macroInsights?.sectorHeat} />
                               ) : isOpen && label === 'Sector Concentration' ? (

@@ -33,7 +33,8 @@ const MAX_SYMBOLS = 100;
 const SYMBOL = /^[A-Z][A-Z0-9.\-]{0,9}$/;
 const EDGE = { sMaxAge: 15, swr: 30 };
 
-export type LiveQuote = { price: number; pct: number; prevClose: number };
+/** `vol` is the session's share volume so far (pre-market: the extended session's) — Early Movers' pace. */
+export type LiveQuote = { price: number; pct: number; prevClose: number; vol: number | null };
 export type LiveQuotesPayload = {
   live: boolean;
   asOf: number;
@@ -67,7 +68,8 @@ export async function GET(req: Request) {
       const price = preMarket && q.extPrice ? q.extPrice : q.price;
       const prevClose = q.preClose;
       if (!(price > 0) || !(prevClose > 0)) continue;
-      quotes[q.symbol] = { price, prevClose, pct: +(((price - prevClose) / prevClose) * 100).toFixed(2) };
+      const vol = preMarket ? q.extVolume : q.volume;
+      quotes[q.symbol] = { price, prevClose, pct: +(((price - prevClose) / prevClose) * 100).toFixed(2), vol: vol != null && vol > 0 ? vol : null };
     }
     return NextResponse.json({ ...base, live: Object.keys(quotes).length > 0, quotes }, { headers: cacheHeaders(EDGE) });
   } catch (e) {
