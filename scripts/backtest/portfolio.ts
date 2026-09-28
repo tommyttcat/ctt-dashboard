@@ -58,6 +58,8 @@ interface Cand {
   tier: string | null; rs: number; riskOn: boolean;
   /** Intraday entries only: the lowest print AFTER the fill on the entry day. */
   postFillLow?: number;
+  /** Stockbee TI65 on the signal day: avg close 7 / avg close 65. */
+  ti65?: number | null;
 }
 interface Trade { c: Cand; stop: number; xi: number; xpx: number; how: string }
 
@@ -105,11 +107,17 @@ function candidates(c: BarCache): Cand[] {
     }
     push('ep9m', e, ei, fill, epLow, ep9mTier(e));
   }
+  // TI65 as of the signal day's close (known before the entry).
+  for (const k of out) {
+    const cl: number[] = [];
+    for (let j = k.s; j >= 0 && cl.length < 65; j--) if (!Number.isNaN(C[k.id][j])) cl.push(C[k.id][j]);
+    k.ti65 = cl.length >= 65 ? (cl.slice(0, 7).reduce((a, x) => a + x, 0) / 7) / (cl.reduce((a, x) => a + x, 0) / 65) : null;
+  }
   return out;
 }
 
 /** Walk one position forward. Same stop/gap/ambiguity rules as simulate.ts. */
-function walk(c: BarCache, k: Cand, floor: boolean, exit: 'ship' | 'hold20' | 'hold20run'): Trade {
+function walk(c: BarCache, k: Cand, floor: boolean, exit: 'ship' | 'hold20' | 'hold20run' | 'sma10x3'): Trade {
   const { O, H, L, C } = c; void H;
   const N = c.sessions.length;
   let stop = k.cardStop;
@@ -119,7 +127,7 @@ function walk(c: BarCache, k: Cand, floor: boolean, exit: 'ship' | 'hold20' | 'h
   const hist: number[] = [];
   for (let j = Math.max(0, k.s - 300); j < k.ei; j++) if (!Number.isNaN(C[k.id][j])) hist.push(C[k.id][j]);
   const last = Math.min(N - 1, k.ei + HOLD - 1);
-  let day = 0, lastJ = k.ei, lastC = k.fill;
+  let day = 0, lastJ = k.ei, lastC = k.fill, below10 = 0;
   for (let j = k.ei; j <= last; j++) {
     if (Number.isNaN(C[k.id][j])) continue;
     day++; lastJ = j; lastC = C[k.id][j];
@@ -127,6 +135,14 @@ function walk(c: BarCache, k: Cand, floor: boolean, exit: 'ship' | 'hold20' | 'h
     const lo = j === k.ei && k.postFillLow != null ? k.postFillLow : L[k.id][j];
     if (lo <= stop) return { c: k, stop, xi: j, xpx: j === k.ei ? stop : Math.min(stop, O[k.id][j]), how: 'stop' };
     if (exit === 'hold20') { if (day >= 20) return { c: k, stop, xi: j, xpx: lastC, how: 'time' }; }
+    else if (exit === 'sma10x3') {
+      // Stockbee: out on the close of the 3rd straight close under the 10-day SMA.
+      if (hist.length >= 10) {
+        const sma10 = hist.slice(-10).reduce((a, x) => a + x, 0) / 10;
+        below10 = lastC < sma10 ? below10 + 1 : 0;
+        if (below10 >= 3) return { c: k, stop, xi: j, xpx: lastC, how: 'time' };
+      }
+    }
     else if (exit === 'hold20run') {
       // From day 20, sell only on a close under the 21 EMA — a winner keeps running.
       if (day >= 20) { const e = ema(hist, 21); if (e == null || lastC < e) return { c: k, stop, xi: j, xpx: lastC, how: 'time' }; }
@@ -137,7 +153,7 @@ function walk(c: BarCache, k: Cand, floor: boolean, exit: 'ship' | 'hold20' | 'h
   return { c: k, stop, xi: last >= N - 1 && day < HOLD ? Infinity : lastJ, xpx: lastC, how: last >= N - 1 && day < HOLD ? 'open' : 'time' };
 }
 
-interface Opts { name: string; floor: boolean; exit: 'ship' | 'hold20' | 'hold20run'; regime: boolean; greenOnly: boolean; seed?: number; sweep?: boolean;
+interface Opts { name: string; floor: boolean; exit: 'ship' | 'hold20' | 'hold20run' | 'sma10x3'; regime: boolean; greenOnly: boolean; seed?: number; sweep?: boolean; rankBy?: 'rs' | 'ti65';
   scans?: Scan[]; swingFirst?: boolean; riskByScan?: Partial<Record<Scan, number>> }
 
 /* Deterministic PRNG for the ranking-luck check (mulberry32). */
@@ -173,7 +189,7 @@ function run(c: BarCache, cands: Cand[], o: Opts) {
     const cls = (x: Trade) => (o.swingFirst && x.c.scan === 'swing' ? 0 : 1);
     const todays = rand
       ? (byEntry.get(t) ?? []).map(x => [cls(x), rand(), x] as const).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2])
-      : (byEntry.get(t) ?? []).sort((a, b) => cls(a) - cls(b) || b.c.rs - a.c.rs);
+      : (byEntry.get(t) ?? []).sort((a, b) => cls(a) - cls(b) || (o.rankBy === 'ti65' ? (b.c.ti65 ?? -1) - (a.c.ti65 ?? -1) : b.c.rs - a.c.rs));
     for (const tr of todays) {
       if (open.length >= MAX_POS) { skippedFull++; continue; }
       if (open.some(p => p.tr.c.ticker === tr.c.ticker)) continue;
@@ -298,10 +314,60 @@ function intradayMain(c: BarCache) {
   fs.writeFileSync(path.join(REPLAY, process.argv[3] ? 'portfolio_intraday_sens.json' : 'portfolio_intraday.json'), JSON.stringify(results, null, 1));
 }
 
+/* Stockbee ideas, fixed 27 Sep 2026 BEFORE running, against the live Model
+   Book v1 rules (green rows, card stop, hold 20, RS first, 10 slots, 0.5%):
+     X1   exit on the close of the 3rd straight close under the 10-day SMA
+          (card stop kept, 60-session cap). PASS = beats SPY in both halves,
+          random-order median beats SPY, AND beats BASE in both halves.
+     R1   when buys outnumber slots, highest TI65 (avgC7/avgC65) first
+          instead of RS. PASS = beats SPY in both halves, beats BASE (RS
+          first) in both halves, AND sits above the 90th percentile of random
+          orderings (the random-median test cannot apply: randomising the
+          order removes the ranking being tested).
+     X1R1 both, reported for information only. */
+function stockbeeMain(c: BarCache) {
+  const cands = candidates(c);
+  const spy = c.idOf.get('SPY')!;
+  const s0 = c.sessions.findIndex(d => d >= START);
+  const spyCurve = c.sessions.slice(s0).map((d, i) => ({ d, eq: EQUITY0 * c.C[spy][s0 + i] / c.O[spy][s0], n: 1 }));
+  const cut = spyCurve[Math.floor(spyCurve.length * 2 / 3)].d;
+  const spyAll = stats(spyCurve, []).returnPct;
+  const spyH = [stats(spyCurve.filter(p => p.d < cut), []).returnPct, stats(spyCurve.filter(p => p.d >= cut), []).returnPct];
+  console.log(`SPY ${spyAll}% (halves ${spyH[0]} / ${spyH[1]}) · ti65 known on ${cands.filter(k => k.ti65 != null).length}/${cands.length} candidates`);
+  const base: Opts = { name: 'BASE', floor: false, exit: 'hold20', regime: false, greenOnly: true, rankBy: 'rs' };
+  const variants: Opts[] = [base, { ...base, name: 'X1 sma10x3 exit', exit: 'sma10x3' }, { ...base, name: 'R1 TI65 first', rankBy: 'ti65' }, { ...base, name: 'X1R1 both', exit: 'sma10x3', rankBy: 'ti65' }];
+  const res: Record<string, any> = {};
+  for (const v of variants) {
+    const r = run(c, cands, v);
+    const all = stats(r.curve, r.closed);
+    const h = [stats(r.curve.filter(p => p.d < cut), []).returnPct, stats(r.curve.filter(p => p.d >= cut), []).returnPct];
+    const rets: number[] = [];
+    for (let seed = 1; seed <= 200; seed++) rets.push(stats(run(c, cands, { ...v, seed }).curve, []).returnPct);
+    rets.sort((a, b) => a - b);
+    // Per trade, every green candidate on its own (no slots): is the exit itself better?
+    const solo = cands.filter(k => k.tier === 'green' && k.ei >= s0).map(k => walk(c, k, false, v.exit)).filter(t => Number.isFinite(t.xi));
+    const R = (t: Trade) => (t.xpx - t.c.fill) / (t.c.fill - t.stop);
+    const half = (h2: 0 | 1) => solo.filter(t => (c.sessions[t.c.ei] < cut) === (h2 === 0));
+    const avg = (a: Trade[]) => a.length ? +(a.reduce((x, t) => x + R(t), 0) / a.length).toFixed(3) : null;
+    res[v.name] = { all, halves: h, median: rets[100], p10: rets[20], p90: rets[180], soloR: [avg(half(0)), avg(half(1))], soloN: solo.length, days: +(solo.reduce((x, t) => x + (t.xi - t.c.ei + 1), 0) / (solo.length || 1)).toFixed(1) };
+  }
+  const B = res.BASE;
+  for (const [name, x] of Object.entries(res)) {
+    const beatsSpy = x.halves[0] > spyH[0] && x.halves[1] > spyH[1];
+    const beatsBase = x.halves[0] > B.halves[0] && x.halves[1] > B.halves[1];
+    let verdict = '';
+    if (name.startsWith('X1 ')) verdict = beatsSpy && x.median > spyAll && beatsBase ? 'PASS' : 'fail';
+    if (name.startsWith('R1 ')) verdict = beatsSpy && beatsBase && x.all.returnPct > x.p90 ? 'PASS' : 'fail';
+    console.log(`${name.padEnd(18)} account ${x.all.returnPct}% dd ${x.all.maxDdPct}% halves ${x.halves[0]} / ${x.halves[1]} | trades ${x.all.trades} win ${x.all.winPct}% avgR ${x.all.avgR} | random median ${x.median} (p10 ${x.p10}, p90 ${x.p90}) | per-trade R ${x.soloR.join(' / ')} (n ${x.soloN}, avg ${x.days}d held) ${verdict}`);
+  }
+  fs.writeFileSync(path.join(REPLAY, 'portfolio_stockbee.json'), JSON.stringify(res, null, 1));
+}
+
 function main() {
   const t0 = Date.now();
   const c = loadAdjusted();
   if (process.argv[2] === 'intraday') { intradayMain(c); return; }
+  if (process.argv[2] === 'stockbee') { stockbeeMain(c); return; }
   const cands = candidates(c);
   const tally = cands.reduce<Record<string, number>>((m, k) => { const key = `${k.scan}:${k.tier}`; m[key] = (m[key] || 0) + 1; return m; }, {});
   console.log('candidates', cands.length, JSON.stringify(tally));
