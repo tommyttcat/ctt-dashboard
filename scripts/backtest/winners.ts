@@ -45,6 +45,27 @@
 //   PASS      on TEST, the top-20-a-week list has a winner rate >= 3x the base
 //             rate AND a mean AND median fwd60 above the universe's. Then it
 //             goes to the account test; until then it is a description.
+//   RESULT    fail (27 Sep 2026): the doubling traits repeat but pick lottery
+//             tickets — top 20 a week, test: 15% doubled, fwd60 -8.6% / -23%.
+//
+// EXCESS MODE (npx tsx scripts/backtest/winners.ts excess) — RULES fixed
+// 27 Sep 2026 BEFORE running, AFTER the raw decile fwd60 of the run above
+// (both halves) had been seen. That contaminates this test somewhat; the
+// same-week measure below has not been computed before, and anything that
+// passes still has to prove itself in the live forward record.
+//   Measure   each row against the other stocks the SAME week: x = fwd60
+//             minus that date's universe median fwd60, and rk = the row's
+//             fwd60 percentile within that date (50 = the typical stock).
+//             Market timing drops out; only selection is left.
+//   Features  the 21 above, plus young (listed within the last 252 sessions,
+//             for listings that began after the data starts).
+//   Stage A   deciles set on train. A decile SELECTS when, in train, mean rk
+//             >= 55 and mean x > 0 and median x > 0. It HOLDS when the same
+//             decile in test has mean rk >= 53, mean x > 0 and median x > 0.
+//   Stage B   score = number of train-selected deciles a row sits in (chosen
+//             on train only); top 20 per sample date by score, RS breaks ties.
+//   PASS      on TEST, and in each chronological half of TEST: the top 20 a
+//             week have mean x > 0, median x > 0 and mean rk >= 55.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -141,6 +162,7 @@ function main() {
         tight: adr > 0 ? ((h10 - l10) / price * 100) / adr : NaN,
         age: newListing ? i : 9999,
         ep20: ep * 100,
+        young: newListing && i < 252 ? 1 : 0,
       };
       // Shares, market cap, sector — the latest year-end snapshot on or before the date.
       let sh: [string, number, string | null] | undefined;
@@ -196,6 +218,7 @@ function main() {
     }
   }
   for (const r of rows) for (const k of ['r21', 'r63', 'r126']) r.f[k] *= 100;
+  if (process.argv[2] === 'excess') { excess(rows); return; }
 
   const FEATURES = ['rs', 'r21', 'r63', 'r126', 'offHigh', 'aboveLow', 'trend', 'adr20', 'dvol', 'price', 'rvol', 'udv', 'tight', 'age', 'ep20', 'mcap', 'revYoY', 'revAccel', 'epsYoY', 'shortPct', 'sectorR63'];
   const train = rows.filter(r => r.half === 0), test = rows.filter(r => r.half === 1);
@@ -270,5 +293,71 @@ function main() {
   fs.writeFileSync(path.join(DATA, 'replay', 'winners_study.json'), JSON.stringify({ base, uni, summary, selected: selected.map(s => ({ k: s.k, range: s.b.label })), top20: res, pass }, null, 1));
 }
 
+
+/* ---- Excess mode: each stock against the others the same week ---------- */
+type XRow = Row & { x: number; rk: number };
+function excess(rows0: Row[]) {
+  const rows = rows0 as XRow[];
+  const byDate = new Map<number, XRow[]>();
+  for (const r of rows) (byDate.get(r.d) ?? byDate.set(r.d, []).get(r.d)!).push(r);
+  for (const list of byDate.values()) {
+    const sorted = list.map(r => r.fwd).sort((a, b) => a - b);
+    const med = sorted[Math.floor(sorted.length / 2)];
+    for (const r of list) {
+      r.x = r.fwd - med;
+      let lo = 0, hi = sorted.length; while (lo < hi) { const m = (lo + hi) >> 1; if (sorted[m] < r.fwd) lo = m + 1; else hi = m; }
+      r.rk = (100 * lo) / Math.max(1, sorted.length - 1);
+    }
+  }
+  const FEATURES = ['rs', 'r21', 'r63', 'r126', 'offHigh', 'aboveLow', 'trend', 'adr20', 'dvol', 'price', 'rvol', 'udv', 'tight', 'young', 'ep20', 'mcap', 'revYoY', 'revAccel', 'epsYoY', 'shortPct', 'sectorR63'];
+  const train = rows.filter(r => r.half === 0), test = rows.filter(r => r.half === 1);
+  const testDates = [...new Set(test.map(r => r.d))].sort((a, b) => a - b);
+  const midTest = testDates[Math.floor(testDates.length / 2)];
+  const mean = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : NaN);
+  const median = (a: number[]) => { if (!a.length) return NaN; const b = [...a].sort((x, y) => x - y); return b[Math.floor(b.length / 2)]; };
+  const st = (a: XRow[]) => ({ n: a.length, mx: mean(a.map(r => r.x)), mdx: median(a.map(r => r.x)), rk: mean(a.map(r => r.rk)) });
+  const f1 = (v: number, d = 1) => (Number.isFinite(v) ? v.toFixed(d) : '—');
+  const fmt = (z: ReturnType<typeof st>) => `n ${String(z.n).padStart(6)} x ${f1(z.mx).padStart(6)}/${f1(z.mdx).padStart(6)} rk ${f1(z.rk).padStart(5)}`;
+  type B = { lo: number; hi: number; label: string };
+  const bucketsOf = (k: string): B[] => {
+    const vals = train.map(r => r.f[k]).filter(Number.isFinite).sort((a, b) => a - b);
+    const edges = [...new Set(Array.from({ length: 9 }, (_, q) => vals[Math.floor(((q + 1) / 10) * (vals.length - 1))]))];
+    const b: B[] = []; let prev = -Infinity;
+    for (const e of [...edges, Infinity]) { if (e > prev) b.push({ lo: prev, hi: e, label: `${f1(prev)}..${f1(e)}` }); prev = e; }
+    return b;
+  };
+  const inB = (v: number, b: B) => Number.isFinite(v) && v > b.lo && v <= b.hi;
+  const selected: { k: string; b: B }[] = [];
+  const holds: string[] = [];
+  console.log(`\n=== EXCESS MODE — same-week comparison. x = fwd60 minus that week's median (mean/median), rk = percentile within the week (50 = typical)`);
+  for (const k of FEATURES) {
+    console.log(`\n${k}`);
+    for (const b of bucketsOf(k)) {
+      const tr = st(train.filter(r => inB(r.f[k], b))), te = st(test.filter(r => inB(r.f[k], b)));
+      const sel = tr.n >= 500 && tr.rk >= 55 && tr.mx > 0 && tr.mdx > 0;
+      const hold = sel && te.rk >= 53 && te.mx > 0 && te.mdx > 0;
+      if (sel) selected.push({ k, b });
+      if (hold) holds.push(`${k} ${b.label}`);
+      console.log(`  ${b.label.padEnd(18)} train ${fmt(tr)}  |  test ${fmt(te)}${sel ? (hold ? '  HOLDS' : '  selected, fails test') : ''}`);
+    }
+  }
+  console.log(`\nselected on train: ${selected.length} · hold in test: ${holds.length ? holds.join(' · ') : 'none'}`);
+  const score = (r: XRow) => selected.reduce((a, s) => a + (inB(r.f[s.k], s.b) ? 1 : 0), 0);
+  const top = (set: XRow[]) => {
+    const bd = new Map<number, XRow[]>();
+    for (const r of set) (bd.get(r.d) ?? bd.set(r.d, []).get(r.d)!).push(r);
+    const out: XRow[] = [];
+    for (const list of bd.values()) out.push(...[...list].sort((a, b) => score(b) - score(a) || (b.f.rs || 0) - (a.f.rs || 0)).slice(0, 20));
+    return out;
+  };
+  const tTr = st(top(train)), tTe = st(top(test));
+  const tA = st(top(test.filter(r => r.d < midTest))), tB = st(top(test.filter(r => r.d >= midTest)));
+  console.log(`top 20 a week — train ${fmt(tTr)}\n                 TEST  ${fmt(tTe)}\n     test, 1st half  ${fmt(tA)}\n     test, 2nd half  ${fmt(tB)}`);
+  for (const sc of [...new Set(test.map(score))].sort((a, b) => a - b)) console.log(`  test score ${sc}: ${fmt(st(test.filter(r => score(r) === sc)))}`);
+  const ok = (z: ReturnType<typeof st>) => z.mx > 0 && z.mdx > 0 && z.rk >= 55;
+  const pass = ok(tTe) && ok(tA) && ok(tB);
+  console.log(`\nVERDICT (excess): ${pass ? 'PASS — goes to the account test and the live record' : 'fail'}`);
+  fs.writeFileSync(path.join(DATA, 'replay', 'winners_excess.json'), JSON.stringify({ selected: selected.map(s => `${s.k} ${s.b.label}`), holds, top20: { train: tTr, test: tTe, testA: tA, testB: tB }, pass }, null, 1));
+}
 
 main();
