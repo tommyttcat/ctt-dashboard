@@ -42,7 +42,9 @@ export const PLAN_WEEKS_KEPT = 26;
 /** The six tables with a buy level and a stop, and the `_source` each needs:
  *  EP9M is a dip plan and VCP keeps its levels at the top of the row. */
 export const PLAN_SOURCES: Record<string, string | undefined> = {
-  sip: undefined, daily: undefined, swing: undefined, consolidation: undefined,
+  // sip/daily tagged so the movers-not-buys rule applies: no new plan
+  // positions for them from 28 Sep 2026 (they no longer publish a buy level).
+  sip: 'sip', daily: 'daily', swing: undefined, consolidation: undefined,
   ep9m: 'ep9m', vcp: 'vcp',
 };
 

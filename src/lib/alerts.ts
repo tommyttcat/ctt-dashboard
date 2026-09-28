@@ -21,8 +21,9 @@ export const ALERT_STATE_KEY = 'alert_state_v1';    // AlertState
 
 /** Scan, its KV list, the `_source` the plan rules need, and the name a reader knows. */
 export const ALERT_SCANS: { scan: string; key: string; source?: string; label: string }[] = [
-  { scan: 'sip', key: 'stocks_in_play_v6', label: 'Stocks in Play' },
-  { scan: 'daily', key: 'daily_setups_v6', label: 'Daily Setups' },
+  // source set so the movers-not-buys rule (rowFormat isMoverRow) applies.
+  { scan: 'sip', key: 'stocks_in_play_v6', source: 'sip', label: 'Stocks in Play' },
+  { scan: 'daily', key: 'daily_setups_v6', source: 'daily', label: 'Daily Setups' },
   { scan: 'swing', key: 'swing_candidates_v1', label: 'Swing' },
   { scan: 'vcp', key: 'vcp_v1', source: 'vcp', label: 'VCP' },
   { scan: 'ep9m', key: 'ep9m_v1', source: 'ep9m', label: 'EP9M' },

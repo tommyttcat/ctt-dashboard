@@ -15,16 +15,19 @@ import { eq, near, done } from './testkit.mts';
 const plan = (o: Record<string, unknown> = {}) => ({ tradeable: true, collapsed: false, overextended: false, trigger: 100, stop: 95, ...o });
 const row = (o: Record<string, unknown> = {}) => ({ ticker: 'ABC', price: 98, adrPct: 4, plan: plan(), ...o });
 const bar = (o: number, h: number, l: number, c: number) => ({ o, h, l, c });
-const pos = (o: Record<string, unknown> = {}, scan = 'daily') => newPlanPosition(scan, row(o), '2026-09-24', 'green') as PlanPosition;
+const pos = (o: Record<string, unknown> = {}, scan = 'swing') => newPlanPosition(scan, row(o), '2026-09-24', 'green') as PlanPosition;
 
 // ---- what gets recorded -----------------------------------------------------
 eq('a waiting pick is recorded', pos()?.state, 'watching');
 eq('it keeps the plan levels', `${pos().buy}/${pos().stop}`, '100/95');
-eq('EXT is not recorded (the site says do not chase)', newPlanPosition('daily', row({ plan: plan({ overextended: true }) }), 'd', null), null);
-eq('MISS is not recorded', newPlanPosition('daily', row({ price: 106 }), 'd', null), null);
-eq('OUT is not recorded', newPlanPosition('daily', row({ price: 94 }), 'd', null), null);
-eq('a collapsed plan is not recorded', newPlanPosition('daily', row({ plan: plan({ collapsed: true }) }), 'd', null), null);
+eq('EXT is not recorded (the site says do not chase)', newPlanPosition('swing', row({ plan: plan({ overextended: true }) }), 'd', null), null);
+eq('MISS is not recorded', newPlanPosition('swing', row({ price: 106 }), 'd', null), null);
+eq('OUT is not recorded', newPlanPosition('swing', row({ price: 94 }), 'd', null), null);
+eq('a collapsed plan is not recorded', newPlanPosition('swing', row({ plan: plan({ collapsed: true }) }), 'd', null), null);
 eq('a table without levels is not recorded', newPlanPosition('hrs', row(), 'd', null), null);
+// Movers, not buys (28 Sep 2026): Stocks in Play and Daily Setups publish no buy level, so nothing is recorded.
+eq('a Daily Setups pick is not recorded', newPlanPosition('daily', row(), 'd', null), null);
+eq('a Stocks in Play pick is not recorded', newPlanPosition('sip', row(), 'd', null), null);
 eq('EP9M is a dip plan', newPlanPosition('ep9m', row({ price: 103 }), 'd', null)?.dip, true);
 eq('VCP reads its top-level levels', newPlanPosition('vcp', { symbol: 'V', price: 97, trigger: 100, stop: 94, atrPct: 3 }, 'd', null)?.buy, 100);
 eq('VCP falls back to ATR for the chase line', newPlanPosition('vcp', { symbol: 'V', price: 97, trigger: 100, stop: 94, atrPct: 3 }, 'd', null)?.adr, 3);
@@ -112,7 +115,7 @@ eq('VCP falls back to ATR for the chase line', newPlanPosition('vcp', { symbol: 
   const loss = pos(); stepPlan(loss, bar(99, 101, 98.5, 100.5), 'd1'); stepPlan(loss, bar(96, 97, 94, 95), 'd2');
   const miss = pos(); stepPlan(miss, bar(105, 106, 104.5, 105), 'd1');
   for (const p of [win, loss, miss]) { eq(`${p.state} is resolved`, isResolved(p), true); foldPlan(res, p); }
-  const r = res.byScan.daily;
+  const r = res.byScan.swing;
   eq('two closed trades', r.closed, 2);
   eq('one winner', r.wins, 1);
   near('sum of R is exact', r.sumR, 1);

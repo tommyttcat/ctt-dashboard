@@ -7,7 +7,7 @@ import { eq, done } from './testkit.mts';
 
 const plan = (o: Record<string, unknown> = {}) => ({ tradeable: true, collapsed: false, overextended: false, trigger: 100, stop: 95, ...o });
 const rows = (price: number, extra: Record<string, unknown> = {}) => ({
-  stocks_in_play_v6: [{ ticker: 'ABC', price, adrPct: 4, plan: plan(), ...extra }],
+  swing_candidates_v1: [{ symbol: 'ABC', price, adrPct: 4, plan: plan(), ...extra }],
   ep9m_v1: [{ ticker: 'DIP', price: 99, adrPct: 4, plan: plan({ trigger: 100, stop: 90 }) }],
   vcp_v1: [{ symbol: 'VVV', price: 97, trigger: 100, stop: 94, atrPct: 3 }],
 });
@@ -21,7 +21,10 @@ const index = { 'a@x.com': ['ABC', 'VVV'], 'b@x.com': ['DIP'], 'c@x.com': ['NOPE
   eq('EP9M below its dip level is HIT', s.get('DIP')?.status, 'hit');
   eq('VCP reads top-level levels', s.get('VVV')?.buy, 100);
   eq('a name on no scan has no status', s.has('NOPE'), false);
-  eq('the scan label rides along', s.get('ABC')?.scan, 'Stocks in Play');
+  eq('the scan label rides along', s.get('ABC')?.scan, 'Swing');
+  // Movers, not buys (28 Sep 2026): a Stocks in Play name off the breakout watch never alerts.
+  const sip = statusesFor({ stocks_in_play_v6: [{ ticker: 'SIP', price: 98, adrPct: 4, plan: plan() }] }, new Set(['SIP']));
+  eq('a Stocks in Play name has no alert status', sip.has('SIP'), false);
 }
 
 // ---- firing -----------------------------------------------------------------------

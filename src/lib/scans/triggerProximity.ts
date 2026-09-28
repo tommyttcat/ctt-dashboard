@@ -15,7 +15,7 @@
 // scan's own, already on its table; this file does arithmetic on the distance
 // and drops the rows that are through their level.
 
-import { numOrNull, priceOf, livePlanOf, isAtMarketPlan, PULLBACK_SOURCES, PLAN_MAX_REACH_ADR } from '@/lib/summary/rowFormat';
+import { numOrNull, priceOf, livePlanOf, isAtMarketPlan, isMoverRow, PULLBACK_SOURCES, PLAN_MAX_REACH_ADR } from '@/lib/summary/rowFormat';
 import { ORB_VOL_MULT, type RowOrb } from '@/lib/orb';
 
 export type TrigRow = {
@@ -46,6 +46,8 @@ export function trigRowOf(s: any, opts?: { keepThrough?: boolean; keepExtended?:
   const ticker = s?.ticker ?? s?.symbol;
   const price = priceOf(s);
   if (!ticker || price == null || price <= 0) return null;
+  // Movers, not buys: no level for a Stocks in Play / Daily row off the watch.
+  if (isMoverRow(s)) return null;
 
   /* VCP is the one scan that carries its levels at the top level instead of
      inside a plan object; everything else goes through livePlanOf, the same

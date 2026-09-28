@@ -390,6 +390,8 @@ const rmvOf = (row: StockInPlay): number | null => {
    the bottom rather than the top, and `clear` rows have no resistanceR at all
    when price is above every average — those are the BEST rows, so they need
    a high sentinel rather than a null.                                     */
+const MOVER_TIP = 'Listed after the move, so no buy level. This table only shows a stock once it has already run, and buying above that day\'s high lost money in the 5-year test. If it closed strong it goes on tomorrow\'s breakout watch, where the buy is a volume-confirmed break of the opening range after 10:00.';
+
 const planOf = (row: StockInPlay): TradePlanRow | null => {
   const p = row.plan;
   return p && typeof p === 'object' ? p : null;
@@ -434,7 +436,7 @@ const planBadge = (row: StockInPlay): string => {
 
 const planTooltip = (row: StockInPlay): string => {
   const p = planOf(row);
-  if (!p) return 'No trade plan on this row — rerun the scan.';
+  if (!p) return (row as { _mover?: boolean })._mover ? 'Listed after the move, so no buy level. This table only shows a stock once it has already run, and buying above that day\'s high lost money in the 5-year test. If it closed strong it goes on tomorrow\'s breakout watch, where the buy is a volume-confirmed break of the opening range after 10:00.' : 'No trade plan on this row — rerun the scan.';
   if (p.tradeable !== true) return `No plan — ${p.note || 'not computable'}.`;
 
   const lines: string[] = [];
@@ -1098,7 +1100,7 @@ export default function StocksInPlay() {
                               self-explaining without a header change. */}
                           <AdrCell adr={adr} chop={chop} />
                           <MfCell value={mf} trend={row.mfTrend} />
-                          <StatusCell view={planStatusView(row)} />
+                          <StatusCell view={planStatusView(row)} emptyTip={(row as { _mover?: boolean })._mover ? MOVER_TIP : undefined} />
                           <DtcCell value={row.daysToCover} />
                           <McapCell value={row.mktCap} />
                           <StageCell stage={row.stage} />

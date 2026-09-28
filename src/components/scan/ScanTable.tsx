@@ -286,9 +286,9 @@ export function StochCell({ value, className }: { value: number | null | undefin
    in the dashboard's words (HIT / 1.2% away / EXT / MISS / OUT). The levels
    are in the hover. Replaced STOCH on every table that carries a plan
    (24 Sep 2026): a watchlist reader needs the status, not the oscillator. */
-export function StatusCell({ view }: { view: PlanStatusView | null }) {
+export function StatusCell({ view, emptyTip }: { view: PlanStatusView | null; emptyTip?: string }) {
   if (!view) {
-    return <td className={`${SCAN.td} text-[10px] whitespace-nowrap text-slate-600`} title="No buy or stop level — its plan collapsed, or this scan does not compute one">—</td>;
+    return <td className={`${SCAN.td} text-[10px] whitespace-nowrap text-slate-600`} title={emptyTip ?? 'No buy or stop level — its plan collapsed, or this scan does not compute one'}>—</td>;
   }
   return <td className={`${SCAN.td} text-[10px] font-bold whitespace-nowrap tabular-nums cursor-help ${view.cls}`} title={view.tip}>{view.text}</td>;
 }

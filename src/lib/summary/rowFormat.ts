@@ -491,6 +491,7 @@ export const PLAN_MIN_RTR = 1.0;
 export const RTR_CLEAR_SENTINEL = 99;
 
 export const livePlanOf = (s: any): any | null => {
+  if (isMoverRow(s)) return null;
   const p = s?.plan;
   if (!p || typeof p !== 'object') return null;
   if (p.tradeable !== true) return null;
@@ -535,6 +536,16 @@ export const rtrLabel = (s: any): string => {
    EP-day midpoint — so it reads "Buy dip", never "Buy above". Same set as
    lib/scans/triggerProximity, which imports it from here. */
 export const PULLBACK_SOURCES = new Set(['ep9m']);
+
+/* MOVERS, NOT BUYS (28 Sep 2026). Stocks in Play and Daily Setups list a name
+   only after it has already run (BE: +8%, buy level at the day's high), and
+   the "buy above the high" plan they carried lost money in the 5-year test
+   (-0.08% a trade bought next morning). The reader bought BE at the top of
+   the move. So these rows publish no buy level, stop or status anywhere —
+   unless the name is on today's breakout watch (`_orb`, lib/orb withOrb),
+   where the tested entry is the NEXT session's volume-confirmed break. */
+export const MOVER_SOURCES = new Set(['sip', 'daily']);
+export const isMoverRow = (s: any): boolean => MOVER_SOURCES.has(String(s?._source ?? '')) && !s?._orb;
 
 /* Scans whose own score does not rank outcomes, measured on the 5-year
    replay (24 Sep 2026): EP9M on its dip entry was flat across score

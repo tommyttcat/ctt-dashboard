@@ -196,6 +196,18 @@ eq('EP9M is flagged as a pullback', trigRowOf(pull(101, 100))?.pullback, true);
   eq('yesterday\'s watch tags nothing', (withOrb(rows, watch, '2026-09-29')[0] as any)._orb, undefined);
 }
 
+// Movers, not buys (28 Sep 2026): a Stocks in Play / Daily row publishes no
+// buy level unless it is on today's breakout watch.
+{
+  const sip = { ...breakout(99, 100), _source: 'sip' };
+  eq('a Stocks in Play row has no buy level', trigRowOf(sip, { keepThrough: true, keepExtended: true }), null);
+  eq('nor a Daily Setups row', trigRowOf({ ...sip, _source: 'daily' }, { keepThrough: true, keepExtended: true }), null);
+  eq('nor in the summary text', buyToken(sip, 100).startsWith('Buy'), true);
+  const watched = { ...sip, _orb: { state: 'wait', orHigh: 101, fill: null, pace: 1, goAt: null, asOf: 0 } };
+  eq('on the breakout watch it keeps the tested entry', trigRowOf(watched, { keepThrough: true, keepExtended: true })?.trigger, 101);
+  ok('other scans are unaffected', trigRowOf({ ...breakout(99, 100), _source: 'swing' }) != null);
+}
+
 near('distance is measured from price', trigRowOf(breakout(100, 101))?.awayPct, 1);
 ok('distance is always positive', (trigRowOf(pull(101, 100))?.awayPct ?? -1) > 0);
 
@@ -222,11 +234,13 @@ eq('the limit is honoured', trigRows([breakout(90, 100), breakout(99, 100), vcp]
    scan's plan through the same planStatusOf, and only falls back when there
    is no plan — saying so. */
 {
-  const dailyRow = { ticker: 'NBIS', price: 246.48, plan: { tradeable: true, trigger: 249.19, stop: 229.65, overextended: false, collapsed: false } };
-  const plan = scanPlanFor('NBIS', [['daily', [dailyRow]], ['swing', []], ['dvol', [{ ticker: 'NBIS' }]]]);
+  const scanRow = { ticker: 'NBIS', price: 246.48, plan: { tradeable: true, trigger: 249.19, stop: 229.65, overextended: false, collapsed: false } };
+  // Since 28 Sep 2026 a Daily Setups row carries no plan (movers, not buys), so the mechanism is tested on Swing.
+  eq('a Daily Setups row yields no plan', scanPlanFor('NBIS', [['daily', [scanRow]], ['dvol', [{ ticker: 'NBIS' }]]]), null);
+  const plan = scanPlanFor('NBIS', [['daily', [scanRow]], ['swing', [scanRow]], ['dvol', [{ ticker: 'NBIS' }]]]);
   eq('builder copies the scan trigger', plan?.trigger, 249.19);
   eq('builder copies the scan stop', plan?.stop, 229.65);
-  eq('builder records the source', plan?.source, 'daily');
+  eq('builder records the source', plan?.source, 'swing');
   eq('a row with no plan yields none', scanPlanFor('XYZ', [['dvol', [{ ticker: 'XYZ' }]]]), null);
   eq('a live plan beats a dead one', scanPlanFor('A', [
     ['daily', [{ ticker: 'A', plan: { tradeable: true, collapsed: true, trigger: 10, stop: 9 } }]],

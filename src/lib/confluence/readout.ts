@@ -18,6 +18,7 @@
 // MACD, no EMA, no R-multiples on the face of a card.
 
 import { trigRowOf, planStatusOf, type PlanStatus } from '@/lib/scans/triggerProximity';
+import { MOVER_SOURCES } from '@/lib/summary/rowFormat';
 import { numOrNull } from '@/lib/summary/rowFormat';
 
 // ---- types -----------------------------------------------------------------
@@ -85,7 +86,8 @@ const isLive = (p: ReportPlan) => p.tradeable && !p.collapsed;
 export function scanPlanFor(ticker: string, lists: [string, any[] | null | undefined][]): ReportPlan | null {
   let fallback: ReportPlan | null = null;
   for (const [source, rows] of lists) {
-    if (!Array.isArray(rows)) continue;
+    // Movers, not buys (rowFormat MOVER_SOURCES): Daily / Stocks in Play carry no plan.
+    if (!Array.isArray(rows) || MOVER_SOURCES.has(source)) continue;
     const row = rows.find(s => (s?.ticker ?? s?.symbol) === ticker);
     const plan = reportPlanOf(row, source);
     if (!plan) continue;
