@@ -73,12 +73,15 @@ function captionedImage(src: string): any {
   };
 }
 
-/* Static CNF explainer — same every week, kept here so the prose stays on-brand
-   and the cloud routine never has to regenerate boilerplate. */
-const CNF_EXPLAINER = [
-  `CNF — short for **Confluence** — is CTT's proprietary conviction score. Every stock gets graded 0 to 100 on a single question: how many things are lining up at once?`,
-  `A great setup is never one signal. It's volume confirming the move, relative strength beating the market, a real catalyst behind the tape, price respecting structure, and the broader regime cooperating — all at the same time. CNF measures that stacking effect. The more forces pulling the same direction, the higher the score. **A** is rare, high-conviction alignment. **B** is a strong, tradeable setup. **C** is on the radar but missing a piece.`,
-  `One number. Every signal. No guesswork.`,
+/* Static explainer — same every week, kept here so the prose stays on-brand
+   and the cloud routine never has to regenerate boilerplate. Since 28 Sep 2026
+   the post lists the breakout watch (Monday's names, bought only on the 10:00
+   volume breakout), not a CNF ranking, so this says how that works — and
+   that it is a backtest, not a track record. */
+const HOW_EXPLAINER = [
+  `These are Friday's strongest closers from CTT's momentum scans — names that finished at the top of their day's range, with the strongest relative strength first.`,
+  `None of them is a buy at Friday's price. A name becomes a buy only if, after 10:00 on Monday, it breaks above its 9:30–10:00 high while volume runs at least one and a half times its normal pace. No breakout, no trade. The stop is set before the open.`,
+  `In a five-year backtest that entry won 41% of the time and averaged +3.9% a trade. It is a backtest, not a track record yet — the live results build on CTT's Track page.`,
 ];
 
 /* ── Substack API (self-contained) ── */
@@ -150,8 +153,8 @@ function buildBody(n: Narrative, coverCdn?: string): any {
   if (coverCdn) content.push(captionedImage(coverCdn));
   if (n.intro) content.push(...analysisToNodes(n.intro));
 
-  content.push(heading(3, "What's a CNF Score?"));
-  content.push(blockquote(CNF_EXPLAINER.map(paraText)));
+  content.push(heading(3, 'How these are picked'));
+  content.push(blockquote(HOW_EXPLAINER.map(paraText)));
 
   for (const s of n.setups || []) {
     if (s.heading) content.push(heading(3, s.heading));

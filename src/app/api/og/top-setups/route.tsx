@@ -73,7 +73,7 @@ function levelsOf(body: string): Levels | null {
   // "buy above Monday's 10:00 high · stop 369.24 · SOON" for breakout-watch picks (28 Sep 2026).
   const m = String(body || '').replace(/\*\*/g, '').match(/buy (above|dip)\s+([\d.,]+|(?:[A-Za-z]+'s\s+)?10:00 high)\s*·\s*stop\s+([\d.,]+)\s*·\s*(HIT|MISS|EXT|OUT|SOON|\d+(?:\.\d+)?\s?% away)/i);
   if (!m) return null;
-  return { dip: m[1].toLowerCase() === 'dip', buy: m[2], stop: m[3], status: m[4].toUpperCase() };
+  return { dip: m[1].toLowerCase() === 'dip', buy: m[2].replace(/^[A-Za-z]+'s\s+/, ''), stop: m[3], status: m[4].toUpperCase() };
 }
 const statusTone = (st: string): [string, string] =>
   st === 'HIT' ? [green, '#064e3b'] : st === 'OUT' ? [rose, '#4c0519'] : st === 'EXT' ? [orange, '#431407'] : st === 'MISS' ? [amber, '#422006'] : [light, '#1e293b'];
@@ -87,7 +87,7 @@ const statusTone = (st: string): [string, string] =>
 function headingText(raw: string, ticker: string): string {
   return raw
     .replace(new RegExp(`^\\s*\\$?${ticker}\\s*[—–-]\\s*`, 'i'), '')
-    .replace(/\s*\((?:CNF\s*)?\d+(?:\s*[·|,/]\s*[A-F][+-]?)?\)\s*$/i, '')
+    .replace(/\s*\((?:CNF\s*|RS\s*)?\d+(?:\s*[·|,/]\s*[A-F][+-]?)?\)\s*$/i, '')
     .trim();
 }
 
