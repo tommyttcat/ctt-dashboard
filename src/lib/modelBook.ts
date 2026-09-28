@@ -114,7 +114,7 @@ export interface ModelBook {
   open: BookHolding[];
   closed: BookClosed[];            // newest first, capped; the totals below are not
   curve: [string, number, number | null][];   // [date, equity, SPY close]
-  totals: { trades: number; wins: number; sumR: number; pnl: number; skippedFull: number };
+  totals: { trades: number; wins: number; sumR: number; pnl: number; skippedFull: number; sumPct?: number };
   updatedAt?: string;
 }
 
@@ -267,6 +267,8 @@ export function stepBook(
     book.totals.trades += 1;
     if (closed.pnl > 0) book.totals.wins += 1;
     book.totals.sumR = +(book.totals.sumR + closed.r).toFixed(3);
+    // After costs, as % of the position — what the page shows (28 Sep 2026).
+    book.totals.sumPct = +((book.totals.sumPct ?? 0) + ((px - cost) / cost) * 100).toFixed(3);
     book.totals.pnl = round2(book.totals.pnl + closed.pnl);
   }
   book.open = still;

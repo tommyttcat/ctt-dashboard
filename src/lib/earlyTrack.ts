@@ -54,12 +54,14 @@ export interface EarlySummary {
   closed: number;
   open: number;
   avgR: number | null;
+  /** Average result per finished flag, % of the entry price. */
+  avgPct: number | null;
   winRate: number | null;
   halves: [number | null, number | null];
   verdict: 'collecting' | 'pass' | 'fail';
 }
 export interface EarlyPool { pickedOn: string; names: EarlyPoolItem[]; record?: EarlySummary | null }
-export interface EarlyClosed { t: string; scan: string; d: string; r: number }
+export interface EarlyClosed { t: string; scan: string; d: string; r: number; /** % of the entry — what the card shows. */ pct?: number | null }
 export interface EarlyTrack { startedOn: string; flags: number; open: PlanPosition[]; closed: EarlyClosed[] }
 /** Closed flags kept for the halves; ~50 bytes each, years of room. */
 export const EARLY_CLOSED_CAP = 5000;
@@ -150,6 +152,7 @@ export function summarizeEarly(track: EarlyTrack): EarlySummary {
     closed: closed.length,
     open: track.open.length,
     avgR: r4(mean(rs)),
+    avgPct: r4(mean(closed.map(c => c.pct).filter((x): x is number => x != null))),
     winRate: closed.length ? +(100 * rs.filter(r => r > 0).length / closed.length).toFixed(1) : null,
     halves: [h0, h1],
     verdict,

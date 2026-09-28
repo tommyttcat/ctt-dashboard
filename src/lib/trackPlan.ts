@@ -31,7 +31,7 @@
 // small key behind the same ten-minute CDN cache.
 
 import { trigRowOf, planStatusOf } from '@/lib/scans/triggerProximity';
-import { rMultiple, targetFor, HOLD_SESSIONS } from '@/lib/track';
+import { rMultiple, rToPct, targetFor, HOLD_SESSIONS } from '@/lib/track';
 
 export const PLAN_OPEN_KEY = 'track_plan_open_v1';
 export const PLAN_RESULTS_KEY = 'track_plan_results_v1';
@@ -77,6 +77,9 @@ export interface PlanScanRecord {
   closed: number;          // filled and finished
   wins: number;
   sumR: number;
+  /** Sum and count of results as % of the fill (28 Sep 2026; backfilled from `recent`). */
+  sumPct?: number;
+  nPct?: number;
   watching: number;        // right now, recomputed each tick
   open: number;            // right now, recomputed each tick
 }
@@ -86,6 +89,7 @@ export interface PlanScanRecord {
 export interface PlanWeek {
   reached: number; closed: number; wins: number; sumR: number;
   missed: number; failed: number; expired: number;
+  sumPct?: number; nPct?: number;
 }
 
 export interface PlanResults {
@@ -205,6 +209,24 @@ export function markFilled(results: PlanResults, p: PlanPosition): void {
 
 /** Fold a resolved position into its scan's running counts and its week.
  *  Sums, not rolling averages, so every average is exact at any sample size. */
+/** One-time backfill of the % sums from the trades already closed (they
+ *  are all in `recent` while the record is young). Idempotent: a record
+ *  that already has sumPct is left alone. */
+export function backfillPlanPct(results: PlanResults): void {
+  for (const [scan, rec] of Object.entries(results.byScan)) {
+    if (rec.sumPct != null) continue;
+    const pcts = results.recent.filter(p => p.scan === scan).map(p => rToPct(p.fill, p.stop, p.r)).filter((x): x is number => x != null);
+    rec.sumPct = +pcts.reduce((a, b) => a + b, 0).toFixed(3);
+    rec.nPct = pcts.length;
+  }
+  for (const [wk, w] of Object.entries(results.byWeek ?? {})) {
+    if (w.sumPct != null) continue;
+    const pcts = results.recent.filter(p => p.closedOn && weekOf(p.closedOn) === wk).map(p => rToPct(p.fill, p.stop, p.r)).filter((x): x is number => x != null);
+    w.sumPct = +pcts.reduce((a, b) => a + b, 0).toFixed(3);
+    w.nPct = pcts.length;
+  }
+}
+
 export function foldPlan(results: PlanResults, p: PlanPosition): void {
   const rec = (results.byScan[p.scan] ||= emptyPlanRecord());
   const w = weekRec(results, p.closedOn);
@@ -215,7 +237,12 @@ export function foldPlan(results: PlanResults, p: PlanPosition): void {
     rec.closed += 1;
     rec.sumR = +(rec.sumR + p.r).toFixed(4);
     if (p.r > 0) rec.wins += 1;
-    if (w) { w.closed += 1; w.sumR = +(w.sumR + p.r).toFixed(4); if (p.r > 0) w.wins += 1; }
+    const pct = rToPct(p.fill, p.stop, p.r);
+    if (pct != null) { rec.sumPct = +((rec.sumPct ?? 0) + pct).toFixed(3); rec.nPct = (rec.nPct ?? 0) + 1; }
+    if (w) {
+      w.closed += 1; w.sumR = +(w.sumR + p.r).toFixed(4); if (p.r > 0) w.wins += 1;
+      if (pct != null) { w.sumPct = +((w.sumPct ?? 0) + pct).toFixed(3); w.nPct = (w.nPct ?? 0) + 1; }
+    }
     results.recent = [p, ...results.recent].slice(0, PLAN_RECENT_CAP);
   }
 }

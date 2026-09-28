@@ -35,10 +35,12 @@ import {
 } from '@/lib/scans/edge';
 import { MB, SWITCH_AFTER_TRADES, type ModelBook } from '@/lib/modelBook';
 import { ORB_MINUTES, ORB_VOL_MULT } from '@/lib/orb';
+import { rToPct } from '@/lib/track';
 
 interface Interim {
   n: number;
   fixedAvgR: number | null;
+  fixedAvgPct?: number | null;
   hold20AvgR: number | null;
   winRate: number | null;
   hrRate: number | null;
@@ -53,8 +55,9 @@ interface ScanRecord {
   hrRate: number | null;
   fixedAvgR: number | null;
   hold20AvgR: number | null;
+  fixedAvgPct?: number | null;
   winRate: number | null;
-  byTier: Record<string, { n: number; avgR: number | null; hr: number | null }>;
+  byTier: Record<string, { n: number; avgR: number | null; hr: number | null; avgPct?: number | null }>;
   retAvgPct?: number | null;
   doubleRate?: number | null;
   interim?: Interim | null;
@@ -86,6 +89,7 @@ interface Detail {
 interface PlanScanRecord {
   picked: number; filled: number; missed: number; failed: number; expired: number;
   closed: number; wins: number; sumR: number; watching: number; open: number;
+  sumPct?: number; nPct?: number;
 }
 interface PlanPos {
   scan: string; t: string; d: string; tier: string | null;
@@ -131,19 +135,15 @@ const TIER_CLS: Record<string, string> = {
   red: 'text-rose-400',
 };
 
-const fmtR = (v: number | null | undefined) =>
-  v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}R`;
 const fmtPct = (v: number | null | undefined) =>
   v == null ? '—' : `${v.toFixed(1)}%`;
 
-/* R as dollars: the reader should not need to know what R is. An R is the
-   amount risked on the trade (entry minus stop), so +0.26R is "+$26 for
-   every $100 risked". Same number, plain words. */
-const fmtUsd = (r: number | null | undefined) => {
-  if (r == null) return '—';
-  const d = Math.round(r * 100);
-  return `${d > 0 ? '+' : d < 0 ? '−' : ''}$${Math.abs(d)}`;
-};
+/* Results in PERCENT of the entry price (28 Sep 2026) — the reader asked for
+   %, not R and not "per $100 risked". lib/track rToPct converts a stored R
+   back exactly with the trade's own entry, stop and 0.5% risk floor. */
+const fmtP = (v: number | null | undefined, dp = 2) =>
+  v == null ? '—' : `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(dp)}%`;
+
 
 const rCls = (v: number | null | undefined) =>
   v == null ? 'text-slate-500' : v > 0 ? 'text-emerald-400' : v < 0 ? 'text-rose-400' : 'text-slate-300';
@@ -160,8 +160,8 @@ type ScanSortKey = 'default' | 'label' | 'trades' | 'win' | 'avgR' | 'bt';
 const STATUS_META: Record<Position['status'], { label: string; cls: string; tip: string }> = {
   pending: { label: 'Pending', cls: 'text-slate-400 bg-white/[0.04] border-white/10', tip: 'Picked after the close — fills at the next session\'s open.' },
   running: { label: 'Running', cls: 'text-sky-400 bg-sky-500/10 border-sky-500/20', tip: 'Filled, not stopped, target not reached yet.' },
-  target: { label: 'Target', cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20', tip: 'Reached the 2R target before the stop. Still followed to the end of the window for the +50% test.' },
-  stopped: { label: 'Stopped', cls: 'text-rose-400 bg-rose-500/10 border-rose-500/20', tip: 'Traded through the stop. The R shown is what the bracket realised.' },
+  target: { label: 'Target', cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20', tip: 'Reached the target (twice the stop distance above the entry) before the stop. Still followed to the end of the window for the +50% test.' },
+  stopped: { label: 'Stopped', cls: 'text-rose-400 bg-rose-500/10 border-rose-500/20', tip: 'Traded through the stop. The % shown is what the trade lost.' },
   closed: { label: 'Closed', cls: 'text-slate-300 bg-white/[0.04] border-white/10', tip: 'Ran the full window without hitting either bracket — marked at the close.' },
 };
 
@@ -272,11 +272,11 @@ function PositionTable({ detail, showScan = false }: { detail: Detail; showScan?
             <th className={`${TH_SORT} !text-left`} onClick={() => toggleSort('d')}>Picked{arrow('d')}</th>
             <th className={`${TH_SORT} ${HIDE}`} onClick={() => toggleSort('fill')} title="Next session's open">Fill{arrow('fill')}</th>
             <th className={`${TH_SORT} ${HIDE}`} onClick={() => toggleSort('stop')}>Stop{arrow('stop')}</th>
-            <th className={`${TH_SORT} ${HIDE}`} onClick={() => toggleSort('target')} title="Fill + 2R">Target{arrow('target')}</th>
+            <th className={`${TH_SORT} ${HIDE}`} onClick={() => toggleSort('target')} title="Twice the entry-to-stop distance above the entry">Target{arrow('target')}</th>
             <th className={`${TH_SORT} ${HIDE}`} onClick={() => toggleSort('n')} title="Sessions since the fill">Held{arrow('n')}</th>
             <th className={`${TH_SORT} ${HIDE}`} onClick={() => toggleSort('peakPct')} title="Best print since the fill, in percent">Peak{arrow('peakPct')}</th>
-            <th className={TH_SORT} onClick={() => toggleSort('openR')} title="Marked at the last close — unrealised">Open R{arrow('openR')}</th>
-            <th className={`${TH_SORT} ${HIDE}`} onClick={() => toggleSort('exitFixed')} title="Realised R on the 2R-or-stop bracket">2R{arrow('exitFixed')}</th>
+            <th className={TH_SORT} onClick={() => toggleSort('openR')} title="Marked at the last close — unrealised, % from the entry">Open{arrow('openR')}</th>
+            <th className={`${TH_SORT} ${HIDE}`} onClick={() => toggleSort('exitFixed')} title="Result on the stop-or-target trade, % from the entry">Result{arrow('exitFixed')}</th>
             <th className={TH_SORT} onClick={() => toggleSort('status')}>Status{arrow('status')}</th>
           </tr>
         </thead>
@@ -294,7 +294,7 @@ function PositionTable({ detail, showScan = false }: { detail: Detail; showScan?
                   <TickerChartHover symbol={p.t}>
                     <span className="border-b border-dotted border-white/25 hover:border-white/60 hover:text-white transition-colors" title={`${p.t} — hover for the chart`}>{p.t}</span>
                   </TickerChartHover>
-                  {p.hr && <span className="ml-1.5 text-[9px] font-bold text-emerald-400" title="Ran +50% (or +10R) before the stop">+50%</span>}
+                  {p.hr && <span className="ml-1.5 text-[9px] font-bold text-emerald-400" title="Ran +50% before the stop (or ten times its stop distance)">+50%</span>}
                 </td>
                 {showScan && (
                   <td className={`text-[10px] px-2 py-1.5 text-left text-slate-400 whitespace-nowrap ${HIDE}`}>
@@ -307,8 +307,8 @@ function PositionTable({ detail, showScan = false }: { detail: Detail; showScan?
                 <td className={`${TD} text-slate-400 ${HIDE}`}>{fmtNum(p.target)}</td>
                 <td className={`${TD} text-slate-500 ${HIDE}`}>{p.fill == null ? '—' : p.n}</td>
                 <td className={`${TD} ${HIDE} ${(p.peakPct ?? 0) > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>{p.peakPct == null ? '—' : `${p.peakPct >= 0 ? '+' : ''}${p.peakPct.toFixed(1)}%`}</td>
-                <td className={`${TD} ${rCls(p.openR)}`}>{live ? fmtR(p.openR) : '—'}</td>
-                <td className={`${TD} font-semibold ${HIDE} ${rCls(p.exitFixed)}`}>{fmtR(p.exitFixed)}</td>
+                <td className={`${TD} ${rCls(p.openR)}`}>{live ? fmtP(rToPct(p.fill, p.stop, p.openR), 1) : '—'}</td>
+                <td className={`${TD} font-semibold ${HIDE} ${rCls(p.exitFixed)}`}>{fmtP(rToPct(p.fill, p.stop, p.exitFixed), 1)}</td>
                 <td className="px-2 py-1.5 text-right">
                   <span className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border ${st.cls}`} title={st.tip}>{st.label}</span>
                 </td>
@@ -360,7 +360,7 @@ function BookVersus({ v1, v2 }: { v1: ModelBook | null | undefined; v2: ModelBoo
         <td className={`${TD} font-semibold ${pctCls(ret)}`}>{b ? fmtSigned(ret) : '—'}</td>
         <td className={`${TD} text-slate-300`}>{b ? `${b.maxDdPct.toFixed(1)}%` : '—'}</td>
         <td className={`${TD} text-slate-300`}>{t ? <>{t.wins} <span className="text-slate-600">of {t.trades}</span></> : '—'}</td>
-        <td className={`${TD} font-semibold ${rCls(t && t.trades ? t.sumR / t.trades : null)}`}>{fmtUsd(t && t.trades ? t.sumR / t.trades : null)}</td>
+        <td className={`${TD} font-semibold ${rCls(t && t.trades ? t.sumR / t.trades : null)}`}>{fmtP(t && t.trades && t.sumPct != null ? t.sumPct / t.trades : null)}</td>
       </tr>
     );
   };
@@ -384,7 +384,7 @@ function BookVersus({ v1, v2 }: { v1: ModelBook | null | undefined; v2: ModelBoo
               <th className={TH}>Since start</th>
               <th className={TH}>Worst drop</th>
               <th className={TH}>Winners</th>
-              <th className={TH}>Per $100</th>
+              <th className={TH} title="Average result per finished trade, % of the entry price, after costs">Avg trade</th>
             </tr>
           </thead>
           <tbody>
@@ -409,6 +409,7 @@ function BookSection({ book, v2 = false }: { book: ModelBook | null | undefined;
   const spyRet = book?.spy0 && book.spyLast ? (book.spyLast / book.spy0 - 1) * 100 : null;
   const t = book?.totals;
   const perHundred = t && t.trades ? t.sumR / t.trades : null;
+  const avgTradePct = t && t.trades && t.sumPct != null ? t.sumPct / t.trades : null;
   const free = book ? Math.max(0, MB.maxPos - book.open.length) : 0;
   const buys = book ? [...book.candidates].sort((a, b) => b.rs - a.rs) : [];
   const atOpen = buys.filter(c => c.kind === 'open' || c.kind === 'orb');
@@ -454,7 +455,7 @@ function BookSection({ book, v2 = false }: { book: ModelBook | null | undefined;
             <span><span className="text-slate-500">SPY</span> <span className={`font-semibold tabular-nums ${pctCls(spyRet)}`}>{fmtSigned(spyRet)}</span></span>
             <span><span className="text-slate-500">Worst drop</span> <span className="text-slate-200 font-semibold tabular-nums">{book.maxDdPct.toFixed(1)}%</span></span>
             <span><span className="text-slate-500">Winners</span> <span className="text-slate-200 font-semibold tabular-nums">{t!.wins} of {t!.trades}</span></span>
-            <span><span className="text-slate-500">Per $100 risked</span> <span className={`font-semibold tabular-nums ${rCls(perHundred)}`}>{fmtUsd(perHundred)}</span></span>
+            <span><span className="text-slate-500">Avg trade</span> <span className={`font-semibold tabular-nums ${rCls(perHundred)}`}>{fmtP(avgTradePct)}</span></span>
             <span><span className="text-slate-500">Open</span> <span className="text-slate-200 font-semibold tabular-nums">{book.open.length} of {MB.maxPos}</span></span>
             {v2 && (
               <span><span className="text-slate-500">Data gaps</span> <span className={`font-semibold tabular-nums ${(book.dataGaps ?? 0) > 0 ? 'text-amber-400' : 'text-slate-200'}`}>{book.dataGaps ?? 0}</span></span>
@@ -545,11 +546,11 @@ function BookSection({ book, v2 = false }: { book: ModelBook | null | undefined;
                     <span className="text-slate-500 w-24 truncate shrink-0 hidden sm:inline">{BOOK_SCAN_LABEL[x.scan] ?? x.scan}</span>
                     <span className="text-slate-400 tabular-nums truncate">{x.fill.toFixed(2)} → {x.exit.toFixed(2)} · {x.how === 'stop' ? 'stopped' : 'day 20'}<span className="hidden sm:inline"> {x.exitDate}</span></span>
                     <span className={`ml-auto tabular-nums font-semibold ${x.pnl > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{x.pnl > 0 ? '+' : '−'}{money(Math.abs(x.pnl))}</span>
-                    <span className={`w-10 text-right tabular-nums font-semibold ${rCls(x.r)}`}>{fmtUsd(x.r)}</span>
+                    <span className={`w-12 text-right tabular-nums font-semibold ${rCls(x.r)}`}>{fmtP((x.exit / x.fill - 1) * 100, 1)}</span>
                   </div>
                 ))}
               </div>
-              <p className="text-[10px] text-slate-500 mt-1.5">Newest first. The right-hand $ is the result for every $100 risked.</p>
+              <p className="text-[10px] text-slate-500 mt-1.5">Newest first. The right-hand % is the trade's result after costs.</p>
             </div>
           )}
         </>
@@ -577,13 +578,23 @@ function BookSection({ book, v2 = false }: { book: ModelBook | null | undefined;
 
 function PlanSection({ plan }: { plan: PlanPayload | null | undefined }) {
   const rows = PLAN_ROWS.map(r => ({ ...r, rec: plan?.byScan?.[r.scan] }));
-  const tot = rows.reduce((a, { rec }) => {
+  const recent = plan?.recent ?? [];
+  /* % sums arrive with the tick of 28 Sep 2026; until then (and for any
+     record without them) they come from the finished trades in `recent`. */
+  const pctFromRecent = (scan?: string) => {
+    const v = recent.filter(p => p.r != null && (!scan || p.scan === scan)).map(p => rToPct(p.fill, p.stop, p.r)).filter((x): x is number => x != null);
+    return { sum: v.reduce((a, b) => a + b, 0), n: v.length };
+  };
+  const pctOf = (scan: string, rec: PlanScanRecord | undefined) =>
+    rec?.nPct != null ? { sum: rec.sumPct ?? 0, n: rec.nPct } : pctFromRecent(scan);
+  const tot = rows.reduce((a, { scan, rec }) => {
     if (!rec) return a;
     a.picked += rec.picked; a.filled += rec.filled; a.closed += rec.closed; a.wins += rec.wins; a.sumR += rec.sumR;
     a.notBought += rec.missed + rec.failed + rec.expired; a.open += rec.open; a.watching += rec.watching;
+    const pc = pctOf(scan, rec);
+    a.sumPct += pc.sum; a.nPct += pc.n;
     return a;
-  }, { picked: 0, filled: 0, closed: 0, wins: 0, sumR: 0, notBought: 0, open: 0, watching: 0 });
-  const recent = plan?.recent ?? [];
+  }, { picked: 0, filled: 0, closed: 0, wins: 0, sumR: 0, notBought: 0, open: 0, watching: 0, sumPct: 0, nPct: 0 });
 
   return (
     <div className="mb-6 border border-emerald-500/20 rounded-lg bg-slate-900/40 overflow-hidden">
@@ -611,7 +622,7 @@ function PlanSection({ plan }: { plan: PlanPayload | null | undefined }) {
           <div className="flex flex-wrap gap-x-4 gap-y-1 px-3 md:px-5 pb-2.5 text-[10px]">
             <span><span className="text-slate-500">Reached buy level</span> <span className="text-slate-200 font-semibold tabular-nums">{tot.filled} of {tot.picked}</span></span>
             <span><span className="text-slate-500">Winners</span> <span className="text-slate-200 font-semibold tabular-nums">{tot.wins} of {tot.closed}</span></span>
-            <span><span className="text-slate-500">Per $100 risked</span> <span className={`font-semibold tabular-nums ${rCls(tot.closed ? tot.sumR / tot.closed : null)}`}>{tot.closed ? fmtUsd(tot.sumR / tot.closed) : '—'}</span></span>
+            <span><span className="text-slate-500">Avg trade</span> <span className={`font-semibold tabular-nums ${rCls(tot.closed ? tot.sumR / tot.closed : null)}`}>{tot.nPct ? fmtP(tot.sumPct / tot.nPct) : '—'}</span></span>
             <span><span className="text-slate-500">Open now</span> <span className="text-slate-200 font-semibold tabular-nums">{tot.open}</span></span>
             <span><span className="text-slate-500">Waiting for the level</span> <span className="text-slate-200 font-semibold tabular-nums">{tot.watching}</span></span>
           </div>
@@ -622,19 +633,21 @@ function PlanSection({ plan }: { plan: PlanPayload | null | undefined }) {
                 <th className={`${TH} !text-left`}>Scan</th>
                 <th className={TH} title="Picks that traded their buy level, of all picks shown with one">Reached</th>
                 <th className={TH} title="Finished trades that made money">Winners</th>
-                <th className={TH} title="Average result per finished trade, for every $100 between buy level and stop">Per $100</th>
+                <th className={TH} title="Average result per finished trade, % of the entry price">Avg trade</th>
                 <th className={`${TH} ${HIDE}`} title="Gapped past (don't chase) · stop first · never reached">Not bought</th>
               </tr>
             </thead>
             <tbody>
               {rows.map(({ scan, label, rec }) => {
                 const avg = rec && rec.closed ? rec.sumR / rec.closed : null;
+                const pc = pctOf(scan, rec);
+                const avgPct = pc.n ? pc.sum / pc.n : null;
                 return (
                   <tr key={scan} className="border-b border-white/[0.04]">
                     <td className="text-[10px] px-2 py-2 text-left font-semibold text-slate-200 whitespace-nowrap">{label}</td>
                     <td className={`${TD} text-slate-300`}>{rec ? <>{rec.filled} <span className="text-slate-600">of {rec.picked}</span></> : '—'}</td>
                     <td className={`${TD} text-slate-300`}>{rec && rec.closed ? <>{rec.wins} <span className="text-slate-600">of {rec.closed}</span></> : '—'}</td>
-                    <td className={`${TD} font-semibold ${rCls(avg)}`}>{fmtUsd(avg)}</td>
+                    <td className={`${TD} font-semibold ${rCls(avg)}`}>{fmtP(avgPct)}</td>
                     <td className={`${TD} text-slate-500 ${HIDE}`} title={rec ? `${rec.missed} gapped past · ${rec.failed} stop first · ${rec.expired} never reached` : undefined}>
                       {rec ? rec.missed + rec.failed + rec.expired : '—'}
                     </td>
@@ -659,12 +672,12 @@ function PlanSection({ plan }: { plan: PlanPayload | null | undefined }) {
                       <span className="text-slate-500 w-24 truncate shrink-0 hidden sm:inline">{SCAN_LABEL[p.scan] ?? p.scan}</span>
                       <span className="text-slate-400 tabular-nums truncate">{p.dip ? 'Dip' : 'Buy'} {p.buy.toFixed(2)} · Stop {p.stop.toFixed(2)}</span>
                       <span className={`ml-auto font-semibold ${st.cls}`} title={st.tip}>{st.label}</span>
-                      <span className={`w-10 text-right tabular-nums font-semibold ${traded ? rCls(p.r) : 'text-slate-600'}`}>{traded ? fmtUsd(p.r) : '—'}</span>
+                      <span className={`w-10 text-right tabular-nums font-semibold ${traded ? rCls(p.r) : 'text-slate-600'}`}>{traded ? fmtP(rToPct(p.fill, p.stop, p.r), 1) : '—'}</span>
                     </div>
                   );
                 })}
               </div>
-              <p className="text-[10px] text-slate-500 mt-1.5">Finished trades, newest first. $ is the result for every $100 risked.</p>
+              <p className="text-[10px] text-slate-500 mt-1.5">Finished trades, newest first. % is the trade's result from the entry.</p>
             </div>
           )}
         </>
@@ -754,8 +767,8 @@ export default function TrackRecord() {
       switch (scanSort) {
         case 'trades': return (r?.settled ?? 0) > 0 ? r!.settled : (r?.interim?.n ?? 0);
         case 'win': return ((r?.settled ?? 0) > 0 ? r?.winRate : r?.interim?.winRate) ?? null;
-        case 'avgR': return ((r?.settled ?? 0) > 0 ? r?.fixedAvgR : r?.interim?.fixedAvgR) ?? null;
-        case 'bt': return SCAN_STATS[stat].bt.fixedAvgR;
+        case 'avgR': return ((r?.settled ?? 0) > 0 ? r?.fixedAvgPct : r?.interim?.fixedAvgPct) ?? null;
+        case 'bt': return SCAN_STATS[stat].bt.trackPct;
         default: return null;
       }
     };
@@ -927,7 +940,7 @@ export default function TrackRecord() {
                 <th className={`${TH_SCAN} !text-left`} onClick={() => toggleScanSort('label')}>Scan{scanArrow('label')}</th>
                 <th className={TH_SCAN} onClick={() => toggleScanSort('trades')} title="Trades finished so far, of all the stocks this scan picked">Trades{scanArrow('trades')}</th>
                 <th className={TH_SCAN} onClick={() => toggleScanSort('win')} title="Share of finished trades that made money">Winners{scanArrow('win')}</th>
-                <th className={TH_SCAN} onClick={() => toggleScanSort('avgR')} title="Average result per trade, for every $100 risked (the gap between entry and stop)">Per $100 risked{scanArrow('avgR')}</th>
+                <th className={TH_SCAN} onClick={() => toggleScanSort('avgR')} title="Average result per finished trade, % of the entry price">Avg trade{scanArrow('avgR')}</th>
                 <th className={`${TH_SCAN} ${HIDE}`} onClick={() => toggleScanSort('bt')} title="The same measure over the 5-year backtest, for comparison">5-yr test{scanArrow('bt')}</th>
               </tr>
             </thead>
@@ -946,7 +959,7 @@ export default function TrackRecord() {
                 const src: Interim | ScanRecord | null = useSettled ? (r ?? null) : interim;
                 const done = useSettled ? (r?.settled ?? 0) : (interim?.n ?? 0);
                 const winRate = src?.winRate ?? null;
-                const avgR = src?.fixedAvgR ?? null;
+                const avgPct = src?.fixedAvgPct ?? null;
                 const retAvgPct = src?.retAvgPct ?? null;
                 return (
                   <React.Fragment key={scan}>
@@ -965,18 +978,18 @@ export default function TrackRecord() {
                       {isReturn ? (
                         <>
                           <td className={`${TD} text-slate-600`} title="This scan holds for 12 months with no stop, so there is no win/loss yet">—</td>
-                          <td className={`${TD} font-semibold ${rCls(retAvgPct)}`} title="Average return since the pick. This scan is a 12-month hold with no stop, so it is measured in percent, not per $100 risked">
+                          <td className={`${TD} font-semibold ${rCls(retAvgPct)}`} title="Average return since the pick. This scan is a 12-month hold with no stop">
                             {retAvgPct == null ? '—' : `${retAvgPct >= 0 ? '+' : ''}${retAvgPct.toFixed(1)}%`}
                           </td>
                         </>
                       ) : (
                         <>
                           <td className={`${TD} text-slate-300`}>{fmtPct(winRate)}</td>
-                          <td className={`${TD} font-semibold ${rCls(avgR)}`}>{fmtUsd(avgR)}</td>
+                          <td className={`${TD} font-semibold ${rCls(avgPct)}`}>{fmtP(avgPct)}</td>
                         </>
                       )}
                       <td className={`${TD} text-slate-500 ${HIDE}`} title={SCAN_STATS[stat].detail}>
-                        {bt.fixedAvgR == null ? '—' : fmtUsd(bt.fixedAvgR)}
+                        <span title={`5-year test, same method as this page (buy at the next open, stop or 2x-the-stop target): ${bt.trackPct == null ? '—' : fmtP(bt.trackPct)} per trade, ${bt.trackWin ?? '—'}% winners`}>{fmtP(bt.trackPct)}</span>
                       </td>
                     </tr>
                     {isOpen && (
@@ -1003,7 +1016,7 @@ export default function TrackRecord() {
                               <span key={tier}>
                                 <span className={TIER_CLS[tier] ?? 'text-slate-400'}>{tier}</span>{' '}
                                 <span className="text-slate-400 tabular-nums">{v.n} trades</span>{' '}
-                                <span className={`tabular-nums ${rCls(v.avgR)}`}>{isReturn ? `${(v.avgR ?? 0).toFixed(1)}%` : fmtUsd(v.avgR)}</span>
+                                <span className={`tabular-nums ${rCls(v.avgR)}`}>{isReturn ? `${(v.avgR ?? 0).toFixed(1)}%` : fmtP(v.avgPct ?? null)}</span>
                               </span>
                             ))}
                           </div>
@@ -1020,8 +1033,9 @@ export default function TrackRecord() {
 
       {!loading && !error && totalPicks > 0 && (
         <p className="mt-2 text-[10px] text-slate-500 leading-relaxed">
-          Per $100 risked: the average result for every $100 between entry and stop — +$26 means a trade risking
-          $100 made $26 on average. Trading costs are not included.
+          Avg trade: the average result per finished trade as a percent of the entry price — +2.5% means the
+          average trade made 2.5%. The 5-yr test column is the same method over five years. Trading costs are not
+          included except in the Model Books.
         </p>
       )}
     </div>

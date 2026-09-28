@@ -109,8 +109,11 @@ export interface ScanRecord {
   hrRate: number | null;
   fixedAvgR: number | null;
   hold20AvgR: number | null;
+  /** The same results as % of the entry price — what the page shows (28 Sep 2026). */
+  fixedAvgPct?: number | null;
+  hold20AvgPct?: number | null;
   winRate: number | null;
-  byTier: Record<string, { n: number; avgR: number | null; hr: number | null }>;
+  byTier: Record<string, { n: number; avgR: number | null; hr: number | null; avgPct?: number | null }>;
   /* RETURN-mode scans report in percent, not R. */
   retAvgPct?: number | null;
   doubleRate?: number | null;
@@ -123,6 +126,8 @@ export interface ScanRecord {
     n: number;
     fixedAvgR: number | null;
     hold20AvgR: number | null;
+    fixedAvgPct?: number | null;
+    hold20AvgPct?: number | null;
     winRate: number | null;
     hrRate: number | null;
     retAvgPct?: number | null;
@@ -139,6 +144,14 @@ export function rMultiple(fill: number, stop: number, exit: number): number | nu
   const risk = Math.max(fill - stop, floor);
   if (!(risk > 0)) return null;
   return +((exit - fill) / risk).toFixed(3);
+}
+
+/** A result in R back to % of the entry price, with the same risk floor —
+ *  the number a reader actually made or lost on the position. */
+export function rToPct(fill: number | null | undefined, stop: number | null | undefined, r: number | null | undefined): number | null {
+  if (r == null || fill == null || !(fill > 0) || stop == null) return null;
+  const risk = Math.max(fill - stop, fill * (MIN_RISK_PCT / 100));
+  return +(((r * risk) / fill) * 100).toFixed(3);
 }
 
 export function homeRunLevel(fill: number, stop: number): number {

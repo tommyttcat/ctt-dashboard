@@ -112,7 +112,7 @@ import { planRowsFor, planStatusOf, planStatusLabel, PLAN_STATUS_ORDER, PLAN_STA
 import InfoDot from './InfoDot';
 import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
-import { EARLY_PASS_N, EARLY_PASS_R, type EarlySummary } from '@/lib/earlyTrack';
+import { EARLY_PASS_N, type EarlySummary } from '@/lib/earlyTrack';
 
 type EarlyNight = { pickedOn: string; names: { t: string; scan: string; avgVol: number | null; rs: number | null }[]; record: EarlySummary | null };
 import { tierForScan, tipForScan } from '@/lib/scans/edge';
@@ -1648,9 +1648,9 @@ const EarlyMovers = ({ pool: today, night, onVisibleChange }: { pool: any[]; nig
         {rec && (
           <>
             {' '}Tracked since {rec.since}: {rec.flags} flag{rec.flags !== 1 ? 's' : ''}, {rec.closed} closed
-            {rec.avgR != null ? `, ${rec.avgR >= 0 ? '+' : ''}${rec.avgR.toFixed(2)}R average, ${rec.winRate}% winners` : ''}
+            {rec.avgPct != null ? `, ${rec.avgPct >= 0 ? '+' : ''}${rec.avgPct.toFixed(2)}% average trade, ${rec.winRate}% winners` : ''}
             {' — '}{rec.verdict === 'collecting'
-              ? `collecting (the bar: ${EARLY_PASS_N} closed at +${EARLY_PASS_R.toFixed(2)}R or better in both halves).`
+              ? `collecting (the bar, fixed in advance: ${EARLY_PASS_N} finished trades, clearly profitable in both halves).`
               : rec.verdict === 'pass' ? 'passed its bar.' : 'did not pass its bar — not an edge.'}
           </>
         )}

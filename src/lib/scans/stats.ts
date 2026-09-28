@@ -7,6 +7,10 @@
 // cannot take. Costs are not modelled, and R is per trade, not compounded.
 //
 // Measured 11 Sep 2026 from CTT/backtest-data/replay/*_outcomes.jsonl.
+// trackPct / trackWin (28 Sep 2026): the open1 entry (next open, as the Track
+// page buys) on the fixedTarget exit, as % of the entry price — the reader
+// asked for results in percent, not R. In % several scans that read positive
+// in R are flat or negative: R flatters tight-stop trades.
 //
 //   scan            n        2R      best exit        +50% runs   2R win rate
 //   scanner     11,551   +0.04   hold 20  +0.15           13.0%        35%
@@ -29,7 +33,12 @@ export interface ScanStat {
   /** The full detail, for the hover. */
   detail: string;
   /** The same figures as numbers, so the live record can be shown beside them. */
-  bt: { n: number; fixedAvgR: number | null; hold20AvgR: number | null; hrRate: number | null; winRate: number | null };
+  bt: {
+    n: number; fixedAvgR: number | null; hold20AvgR: number | null; hrRate: number | null; winRate: number | null;
+    /** The Track page's own method — every pick bought at the next open, stop or 2x-the-stop target —
+     *  as % of the entry price per trade, and % of trades that made money (28 Sep 2026). */
+    trackPct: number | null; trackWin: number | null;
+  };
 }
 
 export const SCAN_STATS: Record<StatScan, ScanStat> = {
@@ -40,7 +49,7 @@ export const SCAN_STATS: Record<StatScan, ScanStat> = {
       'Fixed 2R +0.04R · trail 21 EMA +0.14R · hold 20 sessions +0.15R.\n' +
       '13.0% reached +50% before the stop; 28.8% got there at some point whether or not you were still in.\n' +
       '35% of trades closed positive on the 2R version. Costs not modelled.',
-    bt: { n: 11551, fixedAvgR: 0.04, hold20AvgR: 0.15, hrRate: 13.0, winRate: 35 }
+    bt: { n: 11551, fixedAvgR: 0.04, hold20AvgR: 0.15, hrRate: 13.0, winRate: 35, trackPct: -0.08, trackWin: 35 }
   },
   swing: {
     headline: '5-year test: +0.30R per trade held 20 sessions — the best exit measured on any table here.',
@@ -49,7 +58,7 @@ export const SCAN_STATS: Record<StatScan, ScanStat> = {
       'Fixed 2R +0.02R · trail 21 EMA +0.16R · hold 20 sessions +0.30R.\n' +
       '9.8% reached +50% before the stop (27.3% at some point). 35% closed positive on the 2R version.\n' +
       'The Stage 1 rows are the only bucket that lost (-0.19R) — see the row shading.',
-    bt: { n: 2814, fixedAvgR: 0.02, hold20AvgR: 0.30, hrRate: 9.8, winRate: 35 }
+    bt: { n: 2814, fixedAvgR: 0.02, hold20AvgR: 0.30, hrRate: 9.8, winRate: 35, trackPct: 0.05, trackWin: 35 }
   },
   vcp: {
     headline: '5-year test: +0.07R per trade taking the 2R, and the 2R is the right exit here. Only 3% ran +50%.',
@@ -58,7 +67,7 @@ export const SCAN_STATS: Record<StatScan, ScanStat> = {
       'Fixed 2R +0.07R · trail 21 EMA -0.03R · hold 20 sessions +0.01R — the one table where the target wins.\n' +
       '3.2% reached +50% before the stop, and every one of those came from the wider bases (green rows: 10.7%; red: zero in five years).\n' +
       '44% of trades closed positive. The scan also swung with the tape — negative through 2022-24, positive since — so treat the average as regime-dependent.',
-    bt: { n: 5587, fixedAvgR: 0.07, hold20AvgR: 0.01, hrRate: 3.2, winRate: 44 }
+    bt: { n: 5587, fixedAvgR: 0.07, hold20AvgR: 0.01, hrRate: 3.2, winRate: 44, trackPct: 1.62, trackWin: 45 }
   },
   consolidation: {
     /* Rewritten 27 Sep 2026 when the card stopped buying the range-high break
@@ -72,7 +81,7 @@ export const SCAN_STATS: Record<StatScan, ScanStat> = {
       '  by period (2022-mid 2025 / since): hold 20 -0.05 / +0.03R, trail 21 -0.05 / +0.12R.\n' +
       'Undercut & rally (U&R), 14,757 signals in this scan\'s filters: hold 20 -0.03 / +0.18R, trail 21 -0.05 / +0.16R.\n' +
       'The old breakout plan: hold 20 -0.14 / +0.03R. Treat 10/21 as a watchlist that has paid lately, not a proven signal.',
-    bt: { n: 4471, fixedAvgR: -0.09, hold20AvgR: -0.03, hrRate: 7.7, winRate: 31 }
+    bt: { n: 4471, fixedAvgR: -0.09, hold20AvgR: -0.03, hrRate: 7.7, winRate: 31, trackPct: -0.08, trackWin: 31 }
   },
   ep9m: {
     headline: '5-year test: +0.02R per trade on the pullback entry, 14% ran +50%. Thin on average, fat in the tail.',
@@ -81,7 +90,7 @@ export const SCAN_STATS: Record<StatScan, ScanStat> = {
       'Fixed 2R +0.02R · trail 10 EMA +0.05R · trail 21 EMA +0.03R · hold 20 sessions -0.00R.\n' +
       'The retired day-high entry, for comparison: -0.13R and -0.19R.\n' +
       '14.4% reached +50% before the stop — the highest of any table here, and where the return lives. 35% closed positive.',
-    bt: { n: 6874, fixedAvgR: 0.02, hold20AvgR: -0.00, hrRate: 14.4, winRate: 35 }
+    bt: { n: 6874, fixedAvgR: 0.02, hold20AvgR: -0.00, hrRate: 14.4, winRate: 35, trackPct: -0.48, trackWin: 34 }
   },
   hrs: {
     headline: '5-year test: +0.06R per trade, 7% ran +50%. Reads as a watchlist of quiet leaders.',
@@ -90,7 +99,7 @@ export const SCAN_STATS: Record<StatScan, ScanStat> = {
       'Fixed 2R +0.06R · trail 10 EMA +0.05R · trail 21 EMA +0.03R — flat whichever way you exit.\n' +
       '7.4% reached +50% before the stop; 43% of trades closed positive.\n' +
       'The $5-15 band is the one that separated (+0.14R, 10% ran +50%) — the green shading.',
-    bt: { n: 27786, fixedAvgR: 0.06, hold20AvgR: 0.05, hrRate: 7.4, winRate: 43 }
+    bt: { n: 27786, fixedAvgR: 0.06, hold20AvgR: 0.05, hrRate: 7.4, winRate: 43, trackPct: 0.68, trackWin: 43 }
   },
   multibagger: {
     headline: '5-year test: measured in months, not R — 17.8% of the green rows doubled inside a year against a 5.8% base rate.',
@@ -99,6 +108,6 @@ export const SCAN_STATS: Record<StatScan, ScanStat> = {
       'Revenue growth 10-25% with a cap under $3B: +13.0% excess at 12 months, 62% beat the median, 17.8% doubled in 12 months and 28.9% in 24.\n' +
       'Revenue growth 50%+: -12.4% excess, and only 3.6% doubled — below the 5.8% universe base rate.\n' +
       'This screen is a holding period, not a trade: there is no stop in the measurement.',
-    bt: { n: 1425, fixedAvgR: null, hold20AvgR: null, hrRate: null, winRate: null }
+    bt: { n: 1425, fixedAvgR: null, hold20AvgR: null, hrRate: null, winRate: null, trackPct: null, trackWin: null }
   },
 };

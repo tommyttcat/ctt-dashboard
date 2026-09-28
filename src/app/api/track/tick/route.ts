@@ -37,11 +37,11 @@ import { etGate } from '@/lib/etCron';
 import {
   TRACK_OPEN_KEY, TRACK_RESULTS_KEY, TRACK_META_KEY, TRACK_CLOSED_KEY, TRACKED_SCANS,
   CLOSED_CAP, HOLD_SESSIONS, HOLD20, RETURN_SCANS, RETURN_HOLD, DOUBLE_PCT,
-  rMultiple, homeRunLevel, targetFor,
+  rMultiple, rToPct, homeRunLevel, targetFor,
   type OpenPosition, type TrackResults, type ScanRecord,
 } from '@/lib/track';
 import {
-  PLAN_OPEN_KEY, PLAN_RESULTS_KEY, PLAN_SOURCES, newPlanPosition, stepPlan, foldPlan, markFilled, isResolved, emptyPlanRecord,
+  PLAN_OPEN_KEY, PLAN_RESULTS_KEY, PLAN_SOURCES, newPlanPosition, stepPlan, foldPlan, markFilled, isResolved, emptyPlanRecord, backfillPlanPct,
   type PlanPosition, type PlanResults,
 } from '@/lib/trackPlan';
 import { MODEL_BOOK_KEY, MODEL_BOOK_V2_KEY, BOOK_SCANS, newBook, stepBook, addPicks, orbTickers, type ModelBook, type BookScan } from '@/lib/modelBook';
@@ -130,6 +130,7 @@ export async function GET() {
   try {
     const planOpen = (await kv.get<PlanPosition[]>(PLAN_OPEN_KEY)) || [];
     planResults = (await kv.get<PlanResults>(PLAN_RESULTS_KEY)) || planResults;
+    backfillPlanPct(planResults);
     for (const p of planOpen) {
       const bar = bars.get(p.t);
       if (!bar) continue;
@@ -227,12 +228,19 @@ export async function GET() {
     }
     if (p.exitFixed != null) {
       rec.fixedAvgR = +(roll(rec.fixedAvgR, rec.settled, p.exitFixed)).toFixed(4);
+      const pct = rToPct(p.fill, p.stop, p.exitFixed);
+      if (pct != null) rec.fixedAvgPct = +(roll(rec.fixedAvgPct ?? null, rec.settled, pct)).toFixed(3);
       rec.winRate = +(roll(rec.winRate, rec.settled, p.exitFixed > 0 ? 100 : 0)).toFixed(2);
       t.n += 1;
       t.avgR = +(roll(t.avgR, t.n, p.exitFixed)).toFixed(4);
+      if (pct != null) t.avgPct = +(roll(t.avgPct ?? null, t.n, pct)).toFixed(3);
       t.hr = +(roll(t.hr, t.n, p.hr ? 100 : 0)).toFixed(2);
     }
-    if (p.exitHold20 != null) rec.hold20AvgR = +(roll(rec.hold20AvgR, rec.settled, p.exitHold20)).toFixed(4);
+    if (p.exitHold20 != null) {
+      rec.hold20AvgR = +(roll(rec.hold20AvgR, rec.settled, p.exitHold20)).toFixed(4);
+      const pct = rToPct(p.fill, p.stop, p.exitHold20);
+      if (pct != null) rec.hold20AvgPct = +(roll(rec.hold20AvgPct ?? null, rec.settled, pct)).toFixed(3);
+    }
     rec.hrRate = +(roll(rec.hrRate, rec.settled, p.hr ? 100 : 0)).toFixed(2);
   }
 
@@ -315,11 +323,14 @@ export async function GET() {
       continue;
     }
     const decided = mine.filter(p => p.exitFixed != null);
+    const avgPct = (a: (number | null)[]) => { const v = a.filter((x): x is number => x != null); return v.length ? +(v.reduce((x, y) => x + y, 0) / v.length).toFixed(3) : null; };
     const held20 = mine.filter(p => p.exitHold20 != null);
     rec.interim = decided.length === 0 && held20.length === 0 ? null : {
       n: decided.length,
       fixedAvgR: decided.length ? +(decided.reduce((a, p) => a + (p.exitFixed ?? 0), 0) / decided.length).toFixed(4) : null,
       hold20AvgR: held20.length ? +(held20.reduce((a, p) => a + (p.exitHold20 ?? 0), 0) / held20.length).toFixed(4) : null,
+      fixedAvgPct: avgPct(decided.map(p => rToPct(p.fill, p.stop, p.exitFixed))),
+      hold20AvgPct: avgPct(held20.map(p => rToPct(p.fill, p.stop, p.exitHold20))),
       winRate: decided.length ? +(100 * decided.filter(p => (p.exitFixed ?? 0) > 0).length / decided.length).toFixed(2) : null,
       hrRate: mine.length ? +(100 * mine.filter(p => p.hr).length / mine.length).toFixed(2) : null,
     };
@@ -427,7 +438,7 @@ export async function GET() {
       }
     }
     for (const p of track.open) {
-      if (p.state !== 'filled' && p.r != null) track.closed.push({ t: p.t, scan: p.scan, d: p.d, r: p.r });
+      if (p.state !== 'filled' && p.r != null) track.closed.push({ t: p.t, scan: p.scan, d: p.d, r: p.r, pct: rToPct(p.fill, p.stop, p.r) });
     }
     track.open = track.open.filter(p => p.state === 'filled');
     track.closed = track.closed.slice(-EARLY_CLOSED_CAP);

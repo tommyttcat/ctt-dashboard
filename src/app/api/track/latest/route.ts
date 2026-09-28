@@ -7,7 +7,7 @@
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
-import { TRACK_RESULTS_KEY, TRACK_META_KEY, TRACK_OPEN_KEY, type TrackResults, type OpenPosition } from '@/lib/track';
+import { TRACK_RESULTS_KEY, TRACK_META_KEY, TRACK_OPEN_KEY, rToPct, type TrackResults, type OpenPosition } from '@/lib/track';
 import { PLAN_RESULTS_KEY, type PlanResults } from '@/lib/trackPlan';
 import { MODEL_BOOK_KEY, MODEL_BOOK_V2_KEY, type ModelBook } from '@/lib/modelBook';
 
@@ -40,9 +40,18 @@ export async function GET() {
       kv.get<ModelBook>(MODEL_BOOK_V2_KEY),
     ]);
     const live = open ?? [];
+    /* The interim % (28 Sep 2026) is written by the tick; until a tick has
+       written it, it is worked out here from the same open book, which this
+       route already reads — same definition, nothing extra fetched. */
+    const res: TrackResults = results ?? {};
+    for (const [scan, rec] of Object.entries(res)) {
+      if (typeof rec !== 'object' || !rec?.interim || rec.interim.fixedAvgPct !== undefined) continue;
+      const v = live.filter(p => p.scan === scan && p.exitFixed != null).map(p => rToPct(p.fill, p.stop, p.exitFixed)).filter((x): x is number => x != null);
+      rec.interim.fixedAvgPct = v.length ? +(v.reduce((a, b) => a + b, 0) / v.length).toFixed(3) : null;
+    }
     return NextResponse.json({
       success: true,
-      results: results ?? {},
+      results: res,
       plan: plan ?? null,
       book: forPage(book),
       bookV2: forPage(bookV2),
