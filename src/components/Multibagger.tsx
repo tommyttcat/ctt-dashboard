@@ -163,7 +163,7 @@ const COLUMN_TIPS: Record<string, string> = {
   TICKER: 'Symbol. Hover for company name.',
   SCORE: 'Multibagger score 0–100. Sum of six fundamental attributes: Revenue Growth (25), Return on Capital (20), Low Debt (15), Market Cap (20), Valuation (10), Cash Generation (10). Hover the number for the breakdown.',
   PRICE: 'Current price. Green/red dot = above/below VWAP — click to filter.',
-  'CHG%': 'Today\'s price change percentage from Polygon snapshot.',
+  'CHG%': 'Today\'s price change percentage.',
   VOL: 'Today\'s trading volume.',
   DVOL: 'Dollar volume — price × volume. Measures liquidity in dollar terms.',
   RVOL: 'Relative volume — today\'s volume / 20-day average volume. ≥2 = unusual activity.\n\nFuchsia ≥3 · green ≥2 · lime ≥1.5 · grey below.',

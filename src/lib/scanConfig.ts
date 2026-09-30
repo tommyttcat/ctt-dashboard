@@ -306,7 +306,7 @@ export const MULTIBAGGER = {
 export const MULTIBAGGER_META: ScanConfigMeta = {
   title: '100-Bagger Scorecard',
   premise:
-    'Screens for stocks exhibiting the fundamental characteristics shared by historical 100-baggers — consistent revenue growth, high returns on capital, low debt, small market cap (room to multiply), reasonable valuation, and strong cash generation. Fundamentals-based, updated daily from SEC filings via Polygon. A high score means the company LOOKS like a compounder; it does not mean the stock will compound — management quality, competitive moat, and market timing are not in the data.',
+    'Screens for stocks exhibiting the fundamental characteristics shared by historical 100-baggers — consistent revenue growth, high returns on capital, low debt, small market cap (room to multiply), reasonable valuation, and strong cash generation. Fundamentals-based, updated daily from SEC filings. A high score means the company LOOKS like a compounder; it does not mean the stock will compound — management quality, competitive moat, and market timing are not in the data.',
   gates: [
     { label: 'Market cap', value: `${usd(MULTIBAGGER.minMarketCap)} – ${usd(MULTIBAGGER.maxMarketCap)}`, why: 'A $50B company cannot 100x. The upside ceiling shrinks with size — micro and small caps have the most room.' },
     { label: 'Price', value: `≥ ${usd(MULTIBAGGER.minPrice)}`, why: 'Sub-$2 names are shells and delistings, not compounders.' },
