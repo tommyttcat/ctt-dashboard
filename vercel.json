@@ -113,6 +113,14 @@
       "schedule": "55 17,18 * * 1-5"
     },
     {
+      "path": "/api/leaders/nightly",
+      "schedule": "40 21,22 * * 1-5"
+    },
+    {
+      "path": "/api/leaders/live",
+      "schedule": "*/5 13-21 * * 1-5"
+    },
+    {
       "path": "/api/positions/check",
       "schedule": "* 8-23 * * 1-5"
     },

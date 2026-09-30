@@ -112,6 +112,7 @@ import { planRowsFor, planStatusOf, planStatusLabel, PLAN_STATUS_ORDER, PLAN_STA
 import InfoDot from './InfoDot';
 import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
+import type { LeadersLive } from '@/lib/leaders';
 import { EARLY_PASS_N, type EarlySummary } from '@/lib/earlyTrack';
 
 type EarlyNight = { pickedOn: string; names: { t: string; scan: string; avgVol: number | null; rs: number | null }[]; record: EarlySummary | null };
@@ -1739,6 +1740,81 @@ const WashoutLight = () => {
   );
 };
 
+/* ---- Liquid Leaders (30 Sep 2026) --------------------------------------------
+   lib/leaders: the ~1,000 most traded NASDAQ / NYSE stocks, with the names at
+   5-year highs (price, and price against SPY), today's biggest gainers, and
+   volume against each name's own usual at the same time of day. Polygon data,
+   15 minutes delayed; refreshed every 5 minutes by /api/leaders/live. */
+type LeadersView = 'rs' | 'high' | 'gain' | 'vol';
+const LiquidLeaders = () => {
+  const [live, setLive] = React.useState<LeadersLive | null>(null);
+  const [view, setView] = React.useState<LeadersView>('rs');
+  React.useEffect(() => {
+    let on = true;
+    const load = () => fetch('/api/leaders/latest').then(r => (r.ok ? r.json() : null))
+      .then(j => { if (on && j?.live) setLive(j.live); }).catch(() => {});
+    load();
+    const stop = poll(load, pollMs.marketHours(120_000, 900_000));
+    return () => { on = false; stop(); };
+  }, []);
+  if (!live) return <p className="text-[10px] text-slate-500">The list builds after the first nightly run (about 5:40 PM ET) and updates every 5 minutes in market hours.</p>;
+  const pct = (v: number | null | undefined, dp = 2) => (v == null ? '—' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(dp)}%`);
+  const cls = (v: number | null | undefined) => (v == null ? 'text-slate-600' : v > 0 ? 'text-emerald-400' : v < 0 ? 'text-rose-400' : 'text-slate-300');
+  const trackCls = (v: number | null) => (v == null ? 'text-slate-600' : v >= 100 ? 'text-emerald-400 font-bold' : v >= 0 ? 'text-slate-200' : 'text-slate-500');
+  const rows = view === 'rs' ? live.rsHigh : view === 'high' ? live.priceHigh : view === 'gain' ? live.gainers : live.volume;
+  const tabs: [LeadersView, string, number | null][] = [
+    ['rs', 'RS high', live.counts.rsHigh], ['high', 'Price high', live.counts.priceHigh], ['gain', 'Gainers', null], ['vol', 'Volume', live.counts.heavy],
+  ];
+  const tile = (label: string, value: React.ReactNode, sub: string) => (
+    <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-2.5 py-2 min-w-0">
+      <div className="text-[8px] font-bold tracking-widest uppercase text-slate-500 truncate">{label}</div>
+      <div className="text-[15px] font-bold tabular-nums leading-tight mt-0.5">{value}</div>
+      <div className="text-[9px] text-slate-500 truncate">{sub}</div>
+    </div>
+  );
+  const clock = `${Math.floor(live.clockEt / 60) % 12 || 12}:${String(live.clockEt % 60).padStart(2, '0')}`;
+  return (
+    <div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2.5">
+        {tile('S&P 500 today', <span className={cls(live.spy?.chg)}>{pct(live.spy?.chg)}</span>, live.spy ? `SPY ${live.spy.price.toFixed(2)}` : '—')}
+        {tile('Nasdaq today', <span className={cls(live.qqq?.chg)}>{pct(live.qqq?.chg)}</span>, live.qqq ? `QQQ ${live.qqq.price.toFixed(2)}` : '—')}
+        {tile('RS lines at 5-yr high', <span className="text-slate-100">{live.counts.rsHigh}</span>, 'outrunning SPY more than ever')}
+        {tile('Heavy volume', <span className="text-slate-100">{live.counts.heavy}</span>, '2× usual pace or more')}
+      </div>
+      <div className="flex items-center gap-1 flex-wrap mb-1.5">
+        {tabs.map(([k, label, n]) => (
+          <button key={k} onClick={() => setView(k)}
+            className={`text-[7px] font-bold tracking-wider uppercase px-1.5 py-[1px] rounded border transition-all duration-200 ${view === k ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' : 'bg-[#161c2a] text-slate-500 border-white/5 hover:text-slate-300 hover:bg-white/[0.04]'}`}>
+            {label}{n != null ? ` · ${n}` : ''}
+          </button>
+        ))}
+        <InfoDot text={"RS HIGH — the stock divided by SPY is at its highest in 5 years: it is outrunning the market more than ever, often before the price itself breaks out.\n\nPRICE HIGH — the price is above its highest close of the last 5 years.\n\nGAINERS — today's biggest moves among these names.\n\nVOLUME — today's volume against this stock's own usual volume at the same time of day (its last 20 sessions, by half hour). +100% means twice its usual pace. RAW compares with a full usual day.\n\nThe universe is NASDAQ and NYSE common stock at $10+ trading $100M+ a day, rebuilt each evening. Polygon data, 15 minutes delayed; this plan's history goes back 5 years, so highs are 5-year highs, not all-time. A view of what is leading, not a tested buy signal."} />
+      </div>
+      <div className="max-h-[380px] overflow-y-auto">
+        <div className="flex items-center gap-2 py-[2px] border-b border-white/5 mb-0.5 whitespace-nowrap text-[8px] font-bold tracking-widest uppercase text-slate-500">
+          <span className="w-[38px] md:w-[44px] shrink-0 text-center">Ticker</span>
+          <span className="w-[56px] text-right shrink-0">Price</span>
+          <span className="w-[52px] text-right shrink-0">Chg</span>
+          <span className="w-[62px] text-right shrink-0">Vs usual</span>
+          {view === 'vol' && <span className="hidden md:inline-block w-[56px] text-right shrink-0">Raw</span>}
+        </div>
+        {rows.length === 0 ? <p className="text-[10px] text-slate-500 py-1">None right now.</p> : rows.map(r => (
+          <div key={r.t} className="flex items-center gap-2 py-[2px] whitespace-nowrap text-[10px] tabular-nums" title={r.n ?? r.t}>
+            <span className="inline-flex items-center shrink-0"><TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover></span>
+            <span className="w-[56px] text-right shrink-0 text-slate-200">{r.price.toFixed(2)}</span>
+            <span className={`w-[52px] text-right shrink-0 font-semibold ${cls(r.chg)}`}>{pct(r.chg)}</span>
+            <span className={`w-[62px] text-right shrink-0 ${trackCls(r.track)}`}>{r.track == null ? '—' : `${r.track >= 0 ? '+' : '−'}${Math.abs(r.track)}%`}</span>
+            {view === 'vol' && <span className="hidden md:inline-block w-[56px] text-right shrink-0 text-slate-400">{r.raw == null ? '—' : `${r.raw >= 0 ? '+' : '−'}${Math.abs(r.raw)}%`}</span>}
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] text-slate-500 font-medium mt-2">
+        {live.universe} liquid names · 5-year highs · data 15 min delayed, as of {clock} ET
+      </p>
+    </div>
+  );
+};
+
 const SetupSummaryHelp = () => {
   const [open, setOpen] = React.useState(false);
   const [pinned, setPinned] = React.useState(false);
@@ -2046,6 +2122,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Best Setups Today', color: 'emerald', blurb: 'The picks from the best-tested entry. Buy only on the volume breakout after 10:00.' },
   { label: 'Setups Summary', color: 'violet', blurb: 'All scans pooled — filter by source or setup pattern. One stop shop.' },
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves now. Volume-confirmed is tradeable; a thin gap is a fade.' },
+  { label: 'Liquid Leaders', color: 'cyan', blurb: 'The ~1,000 most traded stocks: which are at 5-year highs, outrunning the market, or trading heavy volume.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, and who is on air.' },
   { label: '$Vol Summary', color: 'teal', blurb: 'Top 20 by dollar volume — where the money actually is today.' },
   { label: 'Daily Setups Thesis', color: 'cyan', blurb: 'Day trades vs multi-day swing holds from the daily scanner — sorted by blended score.' },
@@ -2332,7 +2409,7 @@ export default function MarketSummary() {
   const [thesisEdge, setThesisEdge] = useState<Record<string, EdgeTier | null>>({});
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() =>
     new Set([
-      ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers'),
+      ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders'),
       'hrsTop', 'topSetups',
     ])
   );
@@ -2365,7 +2442,7 @@ export default function MarketSummary() {
     if (!mi?.briefing) return;
     if (!k) {
       setCollapsedSections(new Set([
-        ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers'),
+        ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders'),
         'hrsTop', 'topSetups',
       ]));
       return;
@@ -2938,6 +3015,8 @@ export default function MarketSummary() {
                                 />
                               ) : isOpen && label === 'Best Setups Today' ? (
                                 <BestSetups watch={orbWatch} />
+                              ) : isOpen && label === 'Liquid Leaders' ? (
+                                <LiquidLeaders />
                               ) : isOpen && label === 'Top Movers' && moverView === 'early' ? (
                                 <EarlyMovers pool={macroInsights?.earlyPool ?? []} night={earlyNight} onVisibleChange={onMoverVisible} />
                               ) : isOpen && label === 'Sector Performance' ? (
