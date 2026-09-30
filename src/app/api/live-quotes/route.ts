@@ -55,7 +55,7 @@ export async function GET(req: Request) {
   const mkt = getMarketSession();
   const base: LiveQuotesPayload = { live: false, asOf: Date.now(), session: mkt, quotes: {} };
   if (symbols.length === 0) return NextResponse.json(base, { headers: cacheHeaders(EDGE) });
-  if (!webullConfigured()) return NextResponse.json({ ...base, error: 'webull not configured' }, { headers: cacheHeaders(EDGE) });
+  if (!webullConfigured()) return NextResponse.json({ ...base, error: 'live feed not configured' }, { headers: cacheHeaders(EDGE) });
 
   const preMarket = mkt === 'Pre-Market';
   try {

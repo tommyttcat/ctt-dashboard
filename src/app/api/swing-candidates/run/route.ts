@@ -178,7 +178,7 @@ const NEWS_CONCURRENCY = 10;
 async function polygon<T = any>(path: string): Promise<T> {
   const sep = path.includes("?") ? "&" : "?";
   const res = await fetch(`${BASE}${path}${sep}apiKey=${POLYGON_KEY}`);
-  if (!res.ok) throw new Error(`Polygon ${res.status}: ${path.split("?")[0]}`);
+  if (!res.ok) throw new Error(`Data ${res.status}: ${path.split("?")[0]}`);
   return res.json() as Promise<T>;
 }
 
@@ -409,7 +409,7 @@ async function getEarningsBlackout(): Promise<Set<string>> {
 async function runSwingScan() {
   try {
     if (!POLYGON_KEY) {
-      return NextResponse.json({ success: false, error: 'Missing Polygon API Key' }, { status: 500 });
+      return NextResponse.json({ success: false, error: 'Missing data API key' }, { status: 500 });
     }
 
     const startedAt = Date.now();

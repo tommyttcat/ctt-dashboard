@@ -60,7 +60,7 @@ export async function GET(req: Request) {
   if (!authorized(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   const gate = etGate([17], 'liquid leaders nightly');
   if (gate) return gate;
-  if (!KEY) return NextResponse.json({ success: false, error: 'no polygon key' }, { status: 500 });
+  if (!KEY) return NextResponse.json({ success: false, error: 'no data key' }, { status: 500 });
   const t0 = Date.now();
   const deadline = t0 + BUDGET_MS;
 

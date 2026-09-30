@@ -193,7 +193,7 @@ export function withOrb<T extends Record<string, unknown>>(rows: T[], watch: Orb
 export const ORB_LIVE_KEY = 'orb_live_v1';
 
 export interface OrbLiveStatus extends OrbWatchStatus {
-  source: 'webull';
+  source: 'live';
   /** Per ticker, the last state an alert was sent for (go / stopped). */
   alerted?: Record<string, string>;
 }

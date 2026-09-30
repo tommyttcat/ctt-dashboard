@@ -40,7 +40,7 @@ export async function GET(req: Request) {
   if (!isTradingDay(new Date())) return NextResponse.json({ success: true, skipped: 'not a trading day' });
   const now = etMinute(Date.now());
   if (now < OPEN + DELAY_MIN || now > CLOSE + 30) return NextResponse.json({ success: true, skipped: 'outside the window' });
-  if (!KEY) return NextResponse.json({ success: false, error: 'no polygon key' }, { status: 500 });
+  if (!KEY) return NextResponse.json({ success: false, error: 'no data key' }, { status: 500 });
 
   const state = await kv.get<LeadersState>(LEADERS_STATE_KEY);
   if (!state?.names || !Object.keys(state.names).length) return NextResponse.json({ success: true, skipped: 'no universe yet (the nightly job builds it)' });

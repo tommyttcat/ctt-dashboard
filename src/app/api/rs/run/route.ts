@@ -181,7 +181,7 @@ export async function GET(request: Request) {
   const started = Date.now();
 
   if (!POLYGON_KEY) {
-    return NextResponse.json({ success: false, error: 'Missing Polygon API Key' }, { status: 500 });
+    return NextResponse.json({ success: false, error: 'Missing data API key' }, { status: 500 });
   }
 
   try {

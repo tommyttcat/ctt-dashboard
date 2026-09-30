@@ -565,7 +565,7 @@ export async function GET(request: Request) {
 
   const polygonKey = process.env.POLYGON_API_KEY || '';
   if (!polygonKey) {
-    return NextResponse.json({ error: 'Missing Polygon API key' }, { status: 500 });
+    return NextResponse.json({ error: 'Missing data API key' }, { status: 500 });
   }
 
   // Cache check — fundamentals don't change intraday, so 12h cache is fine

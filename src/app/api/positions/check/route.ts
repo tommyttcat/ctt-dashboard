@@ -44,7 +44,7 @@ export async function GET(req: Request) {
   if (!isTradingDay(new Date())) return NextResponse.json({ success: true, skipped: 'not a trading day' });
   const positions = parseStops(process.env.POSITION_STOPS);
   if (!positions.length) return NextResponse.json({ success: true, skipped: 'no positions' });
-  if (!webullConfigured()) return NextResponse.json({ success: false, error: 'webull not configured' }, { status: 500 });
+  if (!webullConfigured()) return NextResponse.json({ success: false, error: 'live feed not configured' }, { status: 500 });
 
   const snaps = await webullSnapshot(positions.map(p => p.t), 'US_STOCK', { extendedHours: true }).catch(() => []);
   const today = etToday();

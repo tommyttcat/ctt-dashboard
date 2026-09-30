@@ -43,7 +43,7 @@ export async function GET(req: Request) {
   const gate = etGate([10, 11, 12, 13, 14, 15], 'breakout live');
   if (gate) return gate;
   if (!isTradingDay(new Date())) return NextResponse.json({ success: true, skipped: 'not a trading day' });
-  if (!webullConfigured()) return NextResponse.json({ success: false, error: 'webull not configured' }, { status: 500 });
+  if (!webullConfigured()) return NextResponse.json({ success: false, error: 'live feed not configured' }, { status: 500 });
 
   const [watch, prior, to] = await kv.mget<[OrbWatch | null, OrbLiveStatus | null, string[] | null]>(ORB_WATCH_KEY, ORB_LIVE_KEY, BREAKOUT_TO_KEY);
   const today = etToday();
@@ -97,7 +97,7 @@ export async function GET(req: Request) {
     }
   }
 
-  const status: OrbLiveStatus = { pickedOn: watch.pickedOn, session: today, asOf: Date.now(), rows, dips, source: 'webull', alerted };
+  const status: OrbLiveStatus = { pickedOn: watch.pickedOn, session: today, asOf: Date.now(), rows, dips, source: 'live', alerted };
   await kv.set(ORB_LIVE_KEY, status);
 
   const counts: Record<string, number> = {};

@@ -1249,7 +1249,7 @@ const BestSetups = ({ watch }: { watch: OrbWatchStatus | null | undefined }) => 
         {' '}Backtest, not yet proven live: over five years these breakouts won 41% of the time and averaged +3.9% a trade,
         and a 10-position account made +221% against SPY&apos;s +110% — but reshuffled 200 ways its median only matched SPY.
         {' '}Live results build on the Track page from this week.
-        {watch && <> · Picked {watch.pickedOn} · {(watch as { source?: string }).source === 'webull' ? 'real-time, checked every minute' : 'data 15 min delayed'} · updated {new Date(watch.asOf).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })} ET</>}
+        {watch && <> · Picked {watch.pickedOn} · {(watch as { source?: string }).source ? 'real-time, checked every minute' : 'data 15 min delayed'} · updated {new Date(watch.asOf).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })} ET</>}
       </p>
     </div>
   );

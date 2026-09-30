@@ -864,7 +864,7 @@ async function runScan(request: Request) {
 
       const rawResults = groupedRes.results || [];
       const prevResults = prevGroupedRes.results || [];
-      if (rawResults.length === 0) return NextResponse.json({ error: `No historical data returned from Polygon for confirmed active date ${targetDate}` }, { status: 500 });
+      if (rawResults.length === 0) return NextResponse.json({ error: `No historical data returned from the data feed for confirmed active date ${targetDate}` }, { status: 500 });
 
       const prevCloseMap = new Map();
       prevResults.forEach((t: any) => prevCloseMap.set(t.T, t.c));

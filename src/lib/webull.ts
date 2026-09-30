@@ -68,7 +68,7 @@ function isoSeconds(): string {
 function buildSignedHeaders(uri: string, query: Record<string, string>, body?: string): Record<string, string> {
   const appKey = (process.env.WEBULL_APP_KEY || '').trim();
   const appSecret = (process.env.WEBULL_APP_SECRET || '').trim();
-  if (!appKey || !appSecret) throw new Error('WEBULL_APP_KEY / WEBULL_APP_SECRET not set');
+  if (!appKey || !appSecret) throw new Error('live feed keys not set');
 
   const signHeaders: Record<string, string> = {
     'x-app-key': appKey,
@@ -127,7 +127,8 @@ async function webullRequest<T>(
   try {
     const res = await fetch(url, { method, headers, body: bodyText, signal: controller.signal as any, cache: 'no-store' });
     const text = await res.text();
-    if (!res.ok) throw new Error(`webull ${res.status} ${uri}: ${text.slice(0, 200)}`);
+    // The body goes to the server log only; the thrown message can reach public JSON.
+    if (!res.ok) { console.error('[webull]', res.status, uri, text.slice(0, 200)); throw new Error(`live feed ${res.status} ${uri}`); }
     return JSON.parse(text) as T;
   } finally {
     clearTimeout(id);

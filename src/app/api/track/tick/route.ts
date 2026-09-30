@@ -103,7 +103,7 @@ export async function GET() {
   const gate = etGate([20], 'tracking tick');
   if (gate) return gate;
 
-  if (!POLYGON_KEY) return NextResponse.json({ success: false, error: 'no polygon key' }, { status: 500 });
+  if (!POLYGON_KEY) return NextResponse.json({ success: false, error: 'no data key' }, { status: 500 });
 
   const market = await latestBars();
   if (!market) return NextResponse.json({ success: true, skipped: 'no session bars' });

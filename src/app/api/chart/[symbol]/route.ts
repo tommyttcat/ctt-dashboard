@@ -12,7 +12,7 @@ export async function GET(
   const { symbol } = await params;
   const tf = request.nextUrl.searchParams.get('tf') || 'daily';
   const apiKey = process.env.POLYGON_API_KEY || '';
-  if (!apiKey) return NextResponse.json({ error: 'Missing Polygon key' }, { status: 500 });
+  if (!apiKey) return NextResponse.json({ error: 'Missing data key' }, { status: 500 });
 
   const timespan = tf === 'monthly' ? 'month' : tf === 'weekly' ? 'week' : 'day';
   const limit = 50000;
@@ -35,7 +35,7 @@ export async function GET(
        behind); Polygon on any failure or empty result. Both feeds stamp a bar
        with its opening time, so the date mapping is identical. */
     let bars: Bar[] = [];
-    let source: 'webull' | 'polygon' = 'polygon';
+    let source: 'live' | 'delayed' = 'delayed';
     if (webullConfigured()) {
       try {
         const sym = symbol.toUpperCase();
@@ -73,7 +73,7 @@ export async function GET(
         bars = wb
           .filter((b) => b.t >= fromMs)
           .map((b) => ({ time: new Date(b.t).toISOString().slice(0, 10), open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v }));
-        if (bars.length > 0) source = 'webull';
+        if (bars.length > 0) source = 'live';
       } catch (e) {
         console.error('[chart] Webull bars failed, using Polygon:', (e as Error)?.message || e);
       }
@@ -81,7 +81,7 @@ export async function GET(
 
     if (bars.length === 0) {
       const res = await fetch(url, { next: { revalidate: 300 } });
-      if (!res.ok) return NextResponse.json({ error: `Polygon ${res.status}` }, { status: 502 });
+      if (!res.ok) return NextResponse.json({ error: `Data ${res.status}` }, { status: 502 });
       const data = await res.json();
       const results = data.results || [];
       bars = results.map((r: any) => ({

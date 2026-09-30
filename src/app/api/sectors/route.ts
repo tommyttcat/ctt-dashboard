@@ -52,7 +52,7 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 8000) => {
 
 export async function GET() {
   const polygonKey = (process.env.POLYGON_API_KEY || '').trim();
-  if (!polygonKey) return NextResponse.json({ error: 'Missing Polygon key' }, { status: 500, headers: noCacheHeaders() });
+  if (!polygonKey) return NextResponse.json({ error: 'Missing data key' }, { status: 500, headers: noCacheHeaders() });
 
   let stale: any = null;
   try {
@@ -74,8 +74,8 @@ export async function GET() {
   /* Per-ETF reading in one shape regardless of provider. */
   type Reading = { changePct: number; vol: number; refPrice: number };
   const readings = new Map<string, Reading>();
-  let source: 'webull' | 'polygon' = 'polygon';
-  let webullError: string | undefined;
+  let source: 'live' | 'delayed' = 'delayed';
+  let quoteError: string | undefined;
 
   if (webullConfigured()) {
     try {
@@ -87,9 +87,9 @@ export async function GET() {
         const typical = r.high > 0 && r.low > 0 ? (r.high + r.low + last) / 3 : last;
         readings.set(r.symbol, { changePct: ((last - base) / base) * 100, vol: r.volume, refPrice: typical });
       }
-      if (readings.size > 0) source = 'webull';
+      if (readings.size > 0) source = 'live';
     } catch (e) {
-      webullError = String((e as Error)?.message || e).slice(0, 200);
+      quoteError = String((e as Error)?.message || e).slice(0, 200);
     }
   }
 
@@ -140,7 +140,7 @@ export async function GET() {
     return NextResponse.json({ ...stale, cached: true, stale: true }, { headers: cacheHeaders(CACHE.SCAN) });
   }
 
-  const payload = { session, updatedAt: Date.now(), sectors, source, ...(webullError ? { webullError } : {}) };
+  const payload = { session, updatedAt: Date.now(), sectors, source, ...(quoteError ? { quoteError } : {}) };
 
   if (sectors.length > 0) {
     try {

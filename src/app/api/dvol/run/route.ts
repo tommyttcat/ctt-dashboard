@@ -142,7 +142,7 @@ async function runScan(req: Request) {
   const force = url.searchParams.get('force') === 'true' || url.searchParams.get('force') === '1';
 
   if (!POLYGON_KEY) {
-    return NextResponse.json({ success: false, error: 'POLYGON_API_KEY not configured' }, { status: 500 });
+    return NextResponse.json({ success: false, error: 'data key not configured' }, { status: 500 });
   }
 
   try {

@@ -87,7 +87,7 @@ export async function GET() {
      not return (or every symbol, if the call fails) drops to FMP below. */
   type LiveQuote = { price: number; baseline: number; volume: number; extPrice: number | null };
   const live: Record<string, LiveQuote> = {};
-  const sources: { quotes: 'webull' | 'fmp' | 'mixed'; webullError?: string } = { quotes: 'fmp' };
+  const sources: { quotes: 'live' | 'fallback' | 'mixed'; quoteError?: string } = { quotes: 'fallback' };
   let capitalFlow: Record<string, WebullCapitalFlowDay[]> | null = null;
 
   if (webullConfigured()) {
@@ -103,14 +103,14 @@ export async function GET() {
         }
       }
     } else {
-      sources.webullError = String(snapRes.reason?.message || snapRes.reason).slice(0, 200);
+      sources.quoteError = String(snapRes.reason?.message || snapRes.reason).slice(0, 200);
     }
     const flows: Record<string, WebullCapitalFlowDay[]> = {};
     CAPITAL_FLOW_SYMBOLS.forEach((sym, i) => {
       const r = flowRes[i];
       if (r?.status === 'fulfilled' && r.value.length > 0) flows[sym.toLowerCase()] = r.value;
-      else if (r?.status === 'rejected' && !sources.webullError) {
-        sources.webullError = String(r.reason?.message || r.reason).slice(0, 200);
+      else if (r?.status === 'rejected' && !sources.quoteError) {
+        sources.quoteError = String(r.reason?.message || r.reason).slice(0, 200);
       }
     });
     if (Object.keys(flows).length > 0) capitalFlow = flows;
@@ -129,7 +129,7 @@ export async function GET() {
     )
   ).flat();
   const liveCount = Object.keys(live).length;
-  sources.quotes = liveCount === 0 ? 'fmp' : fmpSymbols.length <= 1 ? 'webull' : 'mixed';
+  sources.quotes = liveCount === 0 ? 'fallback' : fmpSymbols.length <= 1 ? 'live' : 'mixed';
 
   // 5-min extended chart ONLY during real pre/post, and only for FMP-served symbols.
   const ahData: Record<string, number> = {};

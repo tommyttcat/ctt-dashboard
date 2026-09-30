@@ -307,12 +307,12 @@ export async function GET(req: Request) {
     return NextResponse.json({
       probe,
       benzinga: { count: bzArr.length, sample: bzSample },
-      polygon: polygonApiKey ? polyResult : 'no key',
+      feed: polygonApiKey ? polyResult : 'no key',
     });
   }
 
   if (!polygonApiKey) {
-    return NextResponse.json({ error: 'Missing POLYGON_API_KEY' }, { status: 500, headers: noCacheHeaders() });
+    return NextResponse.json({ error: 'Missing data key' }, { status: 500, headers: noCacheHeaders() });
   }
 
   const sources: Record<string, number | string> = {};

@@ -343,7 +343,7 @@ export async function GET(request: Request) {
     }
 
     const polygonKey = process.env.POLYGON_API_KEY;
-    if (!polygonKey) throw new Error('Missing Polygon API Key');
+    if (!polygonKey) throw new Error('Missing data API key');
 
     const dateOffset = (base: string, days: number): string => {
       const d = new Date(`${base}T12:00:00Z`);
@@ -373,7 +373,7 @@ export async function GET(request: Request) {
     // print included), Polygon's 15-minute-delayed snapshot as the fallback.
     const quotes: Record<string, TapeQuote> = {};
     let snapshotUsable = false;
-    let tapeSource: 'webull' | 'polygon' | 'grouped_bars' | 'none' = 'none';
+    let tapeSource: 'live' | 'delayed' | 'grouped_bars' | 'none' = 'none';
     if (!isNonSessionDay) {
       const isExtendedNow = (currentHourDecimal >= 4 && currentHourDecimal < 9.5) || (currentHourDecimal >= 16 && currentHourDecimal < 20);
       if (webullConfigured()) {
@@ -387,7 +387,7 @@ export async function GET(request: Request) {
             quotes[r.symbol] = { ticker: r.symbol, pct: Number.isFinite(pct) ? pct : 0, price };
           }
           snapshotUsable = Object.values(quotes).some(q => q.pct !== 0);
-          if (snapshotUsable) tapeSource = 'webull';
+          if (snapshotUsable) tapeSource = 'live';
         } catch (e) {
           console.error('Tape snapshot (Webull) failed:', (e as Error)?.message || e);
         }
@@ -408,7 +408,7 @@ export async function GET(request: Request) {
           // Snapshot counts as usable only if at least one print is nonzero —
           // a fully-zeroed snapshot means Polygon has reset it (holiday, outage).
           snapshotUsable = Object.values(quotes).some(q => q.pct !== 0);
-          if (snapshotUsable) tapeSource = 'polygon';
+          if (snapshotUsable) tapeSource = 'delayed';
         } catch (e) {
           console.error('Tape snapshot failed:', e);
         }

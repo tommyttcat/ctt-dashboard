@@ -134,7 +134,7 @@ async function fetchBars(
 
   for (let page = 0; page < maxPages && nextUrl; page++) {
     const res = await fetch(nextUrl, { cache: 'no-store' });
-    if (!res.ok) throw new Error(`Polygon ${symbol} ${opts.multiplier}${opts.timespan} returned ${res.status}`);
+    if (!res.ok) throw new Error(`Bars ${symbol} ${opts.multiplier}${opts.timespan} returned ${res.status}`);
 
     const data: any = await res.json();
     if (data && Array.isArray(data.results)) {
@@ -396,7 +396,7 @@ export async function GET(request: Request) {
   const apiKey = process.env.POLYGON_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
-      { success: false, error: 'POLYGON_API_KEY is not configured' },
+      { success: false, error: 'data key is not configured' },
       { status: 500, headers: noCacheHeaders() }
     );
   }
