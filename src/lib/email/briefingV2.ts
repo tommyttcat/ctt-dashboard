@@ -34,16 +34,20 @@ function parsePickLine(line: string): Pick | null {
 function pickFromTopTrade(s: Any): Pick | null {
   if (!s?.ticker) return null;
   const thesis = String(s.thesis || '');
-  const name = thesis.split('.')[0]?.trim();
-  // The "why" is the sentence after the status sentence, before "Target".
+  // Split on sentence ends only (". " or end), never on a decimal point:
+  // "buy above 265.00, ..." used to yield the name "buy above 265" (30 Sep 2026).
   const sentences = thesis.split(/(?<=\.)\s+/).filter(Boolean);
-  const why = sentences.filter((x, i) => i >= 2 && !/^Target\b/i.test(x)).join(' ');
+  const first = (sentences[0] || '').replace(/\.$/, '').trim();
+  const hasName = !!first && first.length < 40 && !/^(last|buy)\s/i.test(first);
+  const name = hasName ? first : undefined;
+  // The "why" follows the levels sentence (the 2nd when a name leads, else the 1st), before "Target".
+  const why = sentences.filter((x, i) => i >= (hasName ? 2 : 1) && !/^Target\b/i.test(x)).join(' ');
   const target = sentences.find(x => /^Target\b/i.test(x)) || '';
   const risk = plain(s.risk || '');
   const lvl = (v: unknown) => (v == null || v === '' ? undefined : Number(v).toFixed(2));
   return {
     // Old-format theses open with "Last 206.20, ..." — that is not a name.
-    ticker: String(s.ticker), name: name && name.length < 40 && !/^Last\s/.test(name) ? name : undefined,
+    ticker: String(s.ticker), name,
     dip: /buy dip/i.test(thesis), buy: lvl(s.trigger), stop: lvl(s.stop ?? s.invalidation),
     status: statusOf(thesis), why: plain(why),
     // Why, where it could go, and how it fails — the context a bare level lacks.

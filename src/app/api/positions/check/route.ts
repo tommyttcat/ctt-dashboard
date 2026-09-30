@@ -21,6 +21,7 @@ import { etGate } from '@/lib/etCron';
 import { isTradingDay } from '@/lib/marketCalendar';
 import { webullConfigured, webullSnapshot } from '@/lib/webull';
 import { etToday } from '@/lib/orb';
+import { buildStopAlertEmail, stopAlertSubject } from '@/lib/email/stopAlertEmail';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -66,14 +67,11 @@ export async function GET(req: Request) {
   let sent = 0;
   const to = (process.env.BREAKOUT_ALERT_TO || '').split(',').map(e => e.trim()).filter(e => e.includes('@'));
   if (alerts.length && to.length && process.env.RESEND_API_KEY) {
-    const lines = alerts.map(a => a.kind === 'broke'
-      ? `${a.t} is at ${a.price.toFixed(2)} — AT OR BELOW its stop ${a.stop.toFixed(2)}.`
-      : `${a.t} is at ${a.price.toFixed(2)} — within ${(((a.price / a.stop) - 1) * 100).toFixed(1)}% of its stop ${a.stop.toFixed(2)}.`);
-    const subject = `CTT stop alert: ${alerts.map(a => `${a.t} ${a.kind === 'broke' ? 'broke its stop' : 'near its stop'}`).join(' · ')}`;
+    const etTime = new Date().toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
     const resend = new Resend(process.env.RESEND_API_KEY);
     const res = await Promise.allSettled(to.map(addr => resend.emails.send({
-      from: 'CTT <noreply@confluencetradingtools.com>', to: addr, subject,
-      text: `${lines.join('\n')}\n\nPrices include pre-market and after-hours. This is an alert, not advice — the decision is yours.`,
+      from: 'CTT <noreply@confluencetradingtools.com>', to: addr,
+      subject: stopAlertSubject(alerts), html: buildStopAlertEmail(alerts, etTime),
     })));
     sent = res.filter(r => r.status === 'fulfilled').length;
     if (sent > 0) {
