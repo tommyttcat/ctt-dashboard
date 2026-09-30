@@ -29,7 +29,7 @@ import {
   ORB_WATCH_KEY, ORB_LIVE_KEY, orbWatchRow, etMinute, etToday,
   type OrbWatch, type OrbLiveStatus, type OrbWatchRow, type Minute,
 } from '@/lib/orb';
-import { buildBreakoutEmail, breakoutSubject } from '@/lib/email/breakoutEmail';
+import { buildBreakoutEmail, breakoutSubject, breakoutText } from '@/lib/email/breakoutEmail';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -86,6 +86,7 @@ export async function GET(req: Request) {
         to: addr,
         subject: breakoutSubject(fresh),
         html: buildBreakoutEmail(fresh, etTime),
+        text: breakoutText(fresh, etTime),
       })));
       sent = results.filter(r => r.status === 'fulfilled').length;
       failed = results.length - sent;

@@ -26,3 +26,8 @@ export function buildStopAlertEmail(alerts: StopAlert[], etTime: string): string
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:6px;">${body}</table>`);
   return emailShell({ title: 'CTT Stop Alert', pill: 'Stop alert', sections: [html], footerNote: 'You get these because stop alerts are set for your positions.' });
 }
+
+/** Plain-text twin: also what the inbox shows as the preview line. */
+export const stopAlertText = (alerts: StopAlert[]): string =>
+  alerts.map(a => `${a.t} — ${a.kind === 'broke' ? 'BELOW STOP' : 'NEAR STOP'} · Now ${a.price.toFixed(2)} · Stop ${a.stop.toFixed(2)}`).join('\n') +
+  '\n\nAn alert, not advice — the decision is yours.';

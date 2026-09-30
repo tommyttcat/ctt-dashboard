@@ -21,7 +21,7 @@ import { etGate } from '@/lib/etCron';
 import { isTradingDay } from '@/lib/marketCalendar';
 import { webullConfigured, webullSnapshot } from '@/lib/webull';
 import { etToday } from '@/lib/orb';
-import { buildStopAlertEmail, stopAlertSubject } from '@/lib/email/stopAlertEmail';
+import { buildStopAlertEmail, stopAlertSubject, stopAlertText } from '@/lib/email/stopAlertEmail';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -71,7 +71,7 @@ export async function GET(req: Request) {
     const resend = new Resend(process.env.RESEND_API_KEY);
     const res = await Promise.allSettled(to.map(addr => resend.emails.send({
       from: 'CTT <noreply@confluencetradingtools.com>', to: addr,
-      subject: stopAlertSubject(alerts), html: buildStopAlertEmail(alerts, etTime),
+      subject: stopAlertSubject(alerts), html: buildStopAlertEmail(alerts, etTime), text: stopAlertText(alerts),
     })));
     sent = res.filter(r => r.status === 'fulfilled').length;
     if (sent > 0) {

@@ -46,3 +46,9 @@ export function buildBreakoutEmail(rows: OrbWatchRow[], etTime: string): string 
     footerNote: 'You get these because breakout alerts are switched on for this address.',
   });
 }
+
+/** Plain-text twin: also what the inbox shows as the preview line. */
+export function breakoutText(rows: OrbWatchRow[], etTime: string): string {
+  const lines = rows.map(r => `${r.t} — ${r.state === 'go' ? 'BUY SIGNAL' : 'STOPPED OUT'} · Buy above ${(r.fill ?? r.orHigh)?.toFixed(2) ?? '—'} · Stop ${r.stop.toFixed(2)}`);
+  return `${lines.join('\n')}\n\nOne of today's Best Setups just changed (${etTime} ET). Check your own chart before acting.`;
+}
