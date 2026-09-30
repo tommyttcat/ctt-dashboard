@@ -144,7 +144,12 @@ export interface EmailV2Input {
    price highs and heavy-volume movers. Same four columns in every block so
    the numbers line up down the card. */
 function leadersCard(l: LeadersLive | null | undefined): string {
-  if (!l || !l.universe) return '';
+  if (!l || !l.universe || Date.now() - l.asOf > 4 * 864e5) return '';
+  // Before 9:45 ET the stored lists are the prior session's; say so.
+  const day = (ms: number) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const asOf = day(l.asOf) === day(Date.now())
+    ? '15-minute delayed.'
+    : `As of the close ${new Date(l.asOf).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' })}.`;
   const TD = `padding:6px 0;border-bottom:1px solid ${C.rule};font-size:14px;`;
   const pct = (v: number | null, dp = 2) => (v == null ? '—' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(dp)}%`);
   // track is % above usual volume for the time of day; shown as a multiple (+91% -> 1.9x).
@@ -160,7 +165,7 @@ function leadersCard(l: LeadersLive | null | undefined): string {
   return card(`${label('Liquid Leaders', C.teal)}
     <div style="font-size:14px;line-height:1.5;color:${C.body};margin-top:6px;"><b style="color:${C.ink};">${l.counts.rsHigh}</b> of the ${l.universe} most traded stocks have their RS line at a 5-year high; <b style="color:${C.ink};">${l.counts.priceHigh}</b> are at a 5-year price high; <b style="color:${C.ink};">${l.counts.heavy}</b> trade at twice their usual volume for the time of day.</div>
     ${block('RS LINE AT 5-YEAR HIGH', l.rsHigh)}${block('PRICE AT 5-YEAR HIGH', l.priceHigh)}${block('HEAVIEST VOLUME VS USUAL', l.volume)}
-    <div style="font-size:12px;color:${C.muted};margin-top:10px;">15-minute delayed. What is leading, not a buy signal.</div>`);
+    <div style="font-size:12px;color:${C.muted};margin-top:10px;">${asOf} What is leading, not a buy signal.</div>`);
 }
 
 export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief, phaseKey, t2108, leaders }: EmailV2Input): string {
