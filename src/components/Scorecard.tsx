@@ -104,17 +104,17 @@ import { poll, pollMs } from '@/lib/poll';
 
 // Unified Asset Dictionary
 const MACRO_ASSETS = [
-  { id: 'SPY', fmp: 'SPY', ws: 'SPY', chart: 'SPY', name: 'S&P 500', type: 'stock' },
-  { id: 'QQQ', fmp: 'QQQ', ws: 'QQQ', chart: 'QQQ', name: 'Nasdaq 100', type: 'stock' },
-  { id: 'DIA', fmp: 'DIA', ws: 'DIA', chart: 'DIA', name: 'Dow Jones', type: 'stock' },
-  { id: 'IWM', fmp: 'IWM', ws: 'IWM', chart: 'IWM', name: 'Russell 2000', type: 'stock' },
-  { id: 'VIX', fmp: '^VIX', ws: 'VIX', chart: 'VIX', name: 'VIX Index', type: 'stock' },
-  { id: 'TLT', fmp: 'TLT', ws: 'TLT', chart: 'TLT', name: '20Y Treasury', type: 'stock' },
-  { id: 'GLD', fmp: 'GLD', ws: 'GLD', chart: 'GLD', name: 'Gold ETF', type: 'stock' },
-  { id: 'SLV', fmp: 'SLV', ws: 'SLV', chart: 'SLV', name: 'Silver ETF', type: 'stock' },
-  { id: 'USO', fmp: 'USO', ws: 'USO', chart: 'USO', name: 'Crude Oil', type: 'stock' },
-  { id: 'BTC', fmp: 'BTCUSD', ws: 'BTC-USD', chart: 'X:BTCUSD', name: 'Bitcoin', type: 'crypto' },
-  { id: 'ETH', fmp: 'ETHUSD', ws: 'ETH-USD', chart: 'X:ETHUSD', name: 'Ethereum', type: 'crypto' },
+  { id: 'SPY', ws: 'SPY', chart: 'SPY', name: 'S&P 500', type: 'stock' },
+  { id: 'QQQ', ws: 'QQQ', chart: 'QQQ', name: 'Nasdaq 100', type: 'stock' },
+  { id: 'DIA', ws: 'DIA', chart: 'DIA', name: 'Dow Jones', type: 'stock' },
+  { id: 'IWM', ws: 'IWM', chart: 'IWM', name: 'Russell 2000', type: 'stock' },
+  { id: 'VIX', ws: 'VIX', chart: 'VIX', name: 'VIX Index', type: 'stock' },
+  { id: 'TLT', ws: 'TLT', chart: 'TLT', name: '20Y Treasury', type: 'stock' },
+  { id: 'GLD', ws: 'GLD', chart: 'GLD', name: 'Gold ETF', type: 'stock' },
+  { id: 'SLV', ws: 'SLV', chart: 'SLV', name: 'Silver ETF', type: 'stock' },
+  { id: 'USO', ws: 'USO', chart: 'USO', name: 'Crude Oil', type: 'stock' },
+  { id: 'BTC', ws: 'BTC-USD', chart: 'X:BTCUSD', name: 'Bitcoin', type: 'crypto' },
+  { id: 'ETH', ws: 'ETH-USD', chart: 'X:ETHUSD', name: 'Ethereum', type: 'crypto' },
 ];
 
 interface TickData {

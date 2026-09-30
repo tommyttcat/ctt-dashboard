@@ -61,7 +61,7 @@ const fetchSafeJson = async (url: string, fallback: any, timeoutMs = 10000) => {
 
 export async function GET() {
   const fmpApiKey = (process.env.FMP_API_KEY || '').trim();
-  if (!fmpApiKey) return NextResponse.json({ error: 'Missing FMP key' }, { status: 500, headers: noCacheHeaders() });
+  if (!fmpApiKey) return NextResponse.json({ error: 'Missing data key' }, { status: 500, headers: noCacheHeaders() });
 
   // Market breadth / GMI-style regime is computed by the scanner and cached in
   // its own KV key; read it fresh on every call (cheap) and attach it.

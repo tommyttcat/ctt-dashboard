@@ -200,7 +200,7 @@ async function fetchMcaps(
 export async function GET(request: Request) {
   if (!FMP_KEY) {
     return NextResponse.json(
-      { error: 'Missing FMP API key — set FMP_API_KEY in environment' },
+      { error: 'Missing data key' },
       { status: 500, headers: noCacheHeaders() },
     );
   }
@@ -258,7 +258,7 @@ export async function GET(request: Request) {
     if (!res.ok) {
       console.error(`EARNINGS_FMP: ${res.status} ${res.statusText}`);
       return NextResponse.json(
-        { error: `FMP returned ${res.status}` },
+        { error: `Data feed returned ${res.status}` },
         { status: 502, headers: noCacheHeaders() },
       );
     }
