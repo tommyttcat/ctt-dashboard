@@ -1446,7 +1446,7 @@ export async function GET(req: Request) {
     recipients = userRecipients.length > 0 ? userRecipients : [fallback];
   }
 
-  const [macro, chopData, t2108Data, snapshotRes, chopSetting, econRes, earningsRes] = await Promise.all([
+  const [macro, chopData, t2108Data, snapshotRes, chopSetting, econRes, earningsRes, leadersRes] = await Promise.all([
     fetchJson(`${origin}/api/macro`),
     fetchJson(`${origin}/api/chop`),
     fetchJson(`${origin}/api/t2108/latest`),
@@ -1456,6 +1456,8 @@ export async function GET(req: Request) {
        KeyEventsSection uses — not the brief's prose summary of them. */
     fetchJson(`${origin}/api/econ`),
     fetchJson(`${origin}/api/earnings`),
+    // Liquid Leaders (30 Sep 2026): the CDN-cached list the dashboard card reads.
+    fetchJson(`${origin}/api/leaders/latest`),
   ]);
   const snapshot = snapshotRes?.data || {};
   const chopMode: ChopMode = chopSetting?.mode || DEFAULT_CHOP_MODE;
@@ -1475,7 +1477,7 @@ export async function GET(req: Request) {
         updatedTime: brief?.snapshotTime
           ? new Date(brief.snapshotTime).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
           : null,
-        macro, brief, t2108: t2108Data,
+        macro, brief, t2108: t2108Data, leaders: leadersRes?.live ?? null,
       })
     : buildEmail(phase, macro, chopData, t2108Data, brief, snapshot, chopMode, econ, earnings);
 

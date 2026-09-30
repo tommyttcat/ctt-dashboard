@@ -14,6 +14,8 @@
 
 import { C, esc, rich, plain, label, card, statusOf, statusPill, pickCard, outlookRows, emailShell, type Pick } from './emailKit';
 
+import type { LeadersLive } from '@/lib/leaders';
+
 type Any = any;
 
 /* ---- summary line parser ---------------------------------------------------
@@ -133,9 +135,35 @@ export interface EmailV2Input {
   phaseKey: string;
   /** /api/t2108/latest — share of stocks above their 40-day average. */
   t2108?: Any;
+  /** /api/leaders/latest `live` — Liquid Leaders (lib/leaders). */
+  leaders?: LeadersLive | null;
 }
 
-export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief, phaseKey, t2108 }: EmailV2Input): string {
+/* ---- Liquid Leaders (30 Sep 2026) ---------------------------------------
+   The dashboard card in brief: the counts, then the top five of the RS highs,
+   price highs and heavy-volume movers. Same four columns in every block so
+   the numbers line up down the card. */
+function leadersCard(l: LeadersLive | null | undefined): string {
+  if (!l || !l.universe) return '';
+  const TD = `padding:6px 0;border-bottom:1px solid ${C.rule};font-size:14px;`;
+  const pct = (v: number | null, dp = 2) => (v == null ? '—' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(dp)}%`);
+  // track is % above usual volume for the time of day; shown as a multiple (+91% -> 1.9x).
+  const xv = (t: number | null) => { if (t == null) return '—'; const m = 1 + t / 100; return `${m >= 10 ? Math.round(m) : Math.max(0, m).toFixed(1)}× vol`; };
+  const block = (title: string, rows: LeadersLive['gainers']) => rows.length ? `
+    <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:${C.muted};margin-top:14px;">${esc(title)}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:4px;">${rows.slice(0, 5).map(r => `<tr>
+      <td style="${TD}"><b style="color:${C.ink};">${esc(r.t)}</b></td>
+      <td width="24%" align="right" style="${TD}color:${C.body};white-space:nowrap;">${r.price.toFixed(2)}</td>
+      <td width="22%" align="right" style="${TD}padding-left:8px;font-weight:700;color:${r.chg >= 0 ? C.green : C.red};white-space:nowrap;">${pct(r.chg)}</td>
+      <td width="24%" align="right" style="${TD}padding-left:8px;color:${(r.track ?? -1) >= 100 ? C.green : C.muted};white-space:nowrap;">${xv(r.track)}</td>
+    </tr>`).join('')}</table>` : '';
+  return card(`${label('Liquid Leaders', C.teal)}
+    <div style="font-size:14px;line-height:1.5;color:${C.body};margin-top:6px;"><b style="color:${C.ink};">${l.counts.rsHigh}</b> of the ${l.universe} most traded stocks have their RS line at a 5-year high; <b style="color:${C.ink};">${l.counts.priceHigh}</b> are at a 5-year price high; <b style="color:${C.ink};">${l.counts.heavy}</b> trade at twice their usual volume for the time of day.</div>
+    ${block('RS LINE AT 5-YEAR HIGH', l.rsHigh)}${block('PRICE AT 5-YEAR HIGH', l.priceHigh)}${block('HEAVIEST VOLUME VS USUAL', l.volume)}
+    <div style="font-size:12px;color:${C.muted};margin-top:10px;">15-minute delayed. What is leading, not a buy signal.</div>`);
+}
+
+export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief, phaseKey, t2108, leaders }: EmailV2Input): string {
   const rd = brief?.regimeDetail || {};
   const regime = plain(rd.regime);
   const firstStop = regime.search(/[.—]\s/);
@@ -284,7 +312,7 @@ export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief,
     title: `CTT ${phaseLabel}`,
     pill: `${phaseLabel} · ${dateLabel}`,
     updatedTime,
-    sections: [hero, since, macroCard, breadthCard, next, picksHtml, avoid, news, money, moversHtml, sipHtml, cal, earn, tomorrow],
+    sections: [hero, since, macroCard, breadthCard, next, picksHtml, leadersCard(leaders), avoid, news, money, moversHtml, sipHtml, cal, earn, tomorrow],
     footerNote: "Levels are each scan's own plan.",
   });
 }
