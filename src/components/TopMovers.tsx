@@ -362,7 +362,7 @@ export default function TopMovers() {
                 {scanMeta?.moversSession && (activeTab === 'Gainers' || activeTab === 'Losers') && (
                   <span
                     className={`px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap border ${scanMeta.moversSession === 'Pre-Market' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'}`}
-                    title={`${scanMeta.moversSession === 'Pre-Market' ? 'Pre-market' : 'After-hours'} session — Movers Up / Down are ranked on the extended-session move, real-time from Webull, not the regular-session change.`}
+                    title={`${scanMeta.moversSession === 'Pre-Market' ? 'Pre-market' : 'After-hours'} session — Movers Up / Down are ranked on the extended-session move, in real time, not the regular-session change.`}
                   >
                     {scanMeta.moversSession === 'Pre-Market' ? 'PRE-MARKET' : 'AFTER HOURS'}
                   </span>
