@@ -1766,8 +1766,8 @@ const leaderSortVal = (r: LeaderRow, k: LeaderSortKey): number | null =>
   k === 'chg' ? r.chg : k === 'price' ? r.price : k === 'rvol' ? r.track : k === 'vol' ? (r.vol ?? null) : (r.rs ?? null);
 const LiquidLeaders = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => {
   const [live, setLive] = React.useState<LeadersLive | null>(null);
-  // Per list: null = the list's own order (RS list by change, volume list by RVOL).
-  const [sorts, setSorts] = React.useState<Record<string, { key: LeaderSortKey; dir: SortDir } | null>>({});
+  // Per list; both open on % change, high to low.
+  const [sorts, setSorts] = React.useState<Record<string, { key: LeaderSortKey; dir: SortDir }>>({});
   React.useEffect(() => {
     let on = true;
     const load = () => fetch('/api/leaders/latest').then(r => (r.ok ? r.json() : null))
@@ -1787,20 +1787,19 @@ const LiquidLeaders = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => {
   const H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
   const badge = 'inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center';
   const list = (title: string, n: number | null, rawRows: LeaderRow[]) => {
-    const sort = sorts[title] ?? null;
-    // Click: high to low, again: low to high, a third time: back to the list's own order. Blanks sort last.
+    const sort = sorts[title] ?? { key: 'chg' as LeaderSortKey, dir: 'desc' as SortDir };
+    // Click a column: high to low; click it again: low to high. Blanks sort last.
     const onSort = (k: LeaderSortKey) => setSorts(prev => {
-      const cur = prev[title];
-      const next = !cur || cur.key !== k ? { key: k, dir: 'desc' as SortDir } : cur.dir === 'desc' ? { key: k, dir: 'asc' as SortDir } : null;
+      const next = sort.key !== k ? { key: k, dir: 'desc' as SortDir } : { key: k, dir: (sort.dir === 'desc' ? 'asc' : 'desc') as SortDir };
       return { ...prev, [title]: next };
     });
-    const rows = !sort ? rawRows : [...rawRows].sort((a, b) => {
+    const rows = [...rawRows].sort((a, b) => {
       const av = leaderSortVal(a, sort.key), bv = leaderSortVal(b, sort.key);
       if (av == null || bv == null) return av == null ? (bv == null ? 0 : 1) : -1;
       return sort.dir === 'desc' ? bv - av : av - bv;
     });
     const S = 'cursor-pointer hover:text-slate-400 transition-colors select-none';
-    const arrow = (k: LeaderSortKey) => (sort?.key === k ? (sort.dir === 'desc' ? ' ↓' : ' ↑') : '');
+    const arrow = (k: LeaderSortKey) => (sort.key === k ? (sort.dir === 'desc' ? ' ↓' : ' ↑') : '');
     return (
     <div className="min-w-0">
       <div className="text-[8px] font-bold tracking-widest uppercase text-cyan-400 mb-1">{title}{n != null ? ` · ${n}` : ''}</div>
