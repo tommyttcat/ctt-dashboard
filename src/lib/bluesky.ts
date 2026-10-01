@@ -125,3 +125,29 @@ export async function postToBluesky(
   const data = await res.json();
   return { uri: data.uri, cid: data.cid };
 }
+
+/* Cashtag search for Social Sentiment (lib/sentiment). The public AppView
+   refuses anonymous searchPosts (403), so this signs in as the site's account
+   — one session per run, then one search per name. Returns the texts of posts
+   from the last `hours`, up to 100 per name; null when not configured or the
+   sign-in fails, so the card can say Bluesky is unavailable. */
+export async function blueskyCashtagPosts(tickers: string[], hours = 24): Promise<Map<string, string[]> | null> {
+  const handle = process.env.BLUESKY_HANDLE;
+  const password = process.env.BLUESKY_APP_PASSWORD;
+  if (!handle || !password) return null;
+  let session: BskySession;
+  try { session = await createSession(handle, password); } catch { return null; }
+  const since = new Date(Date.now() - hours * 3_600_000).toISOString();
+  const out = new Map<string, string[]>();
+  for (let i = 0; i < tickers.length; i += 5) {
+    await Promise.all(tickers.slice(i, i + 5).map(async t => {
+      const url = `${BSKY_SERVICE}/xrpc/app.bsky.feed.searchPosts?q=${encodeURIComponent('$' + t)}&sort=latest&limit=100&since=${encodeURIComponent(since)}`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${session.accessJwt}` }, cache: 'no-store', signal: AbortSignal.timeout(10000) }).catch(() => null);
+      const j = res?.ok ? await res.json().catch(() => null) : null;
+      // The search matches the word as well as the cashtag; keep posts that carry the cashtag itself.
+      const rx = new RegExp(`\\$${t}\\b`, 'i');
+      out.set(t, (j?.posts ?? []).map((p: { record?: { text?: string } }) => String(p?.record?.text ?? '')).filter((s: string) => rx.test(s)));
+    }));
+  }
+  return out;
+}

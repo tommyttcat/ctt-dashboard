@@ -113,6 +113,7 @@ import InfoDot from './InfoDot';
 import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
 import type { LeadersLive, LeaderRow } from '@/lib/leaders';
+import { bullShare, type SentimentLive } from '@/lib/sentiment';
 import { EARLY_PASS_N, type EarlySummary } from '@/lib/earlyTrack';
 
 type EarlyNight = { pickedOn: string; names: { t: string; scan: string; avgVol: number | null; rs: number | null }[]; record: EarlySummary | null };
@@ -1855,6 +1856,68 @@ const LiquidLeaders = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => {
   );
 };
 
+/* ---- Social Sentiment (1 Oct 2026) -----------------------------------------
+   lib/sentiment: the ~25 names StockTwits and Reddit talk about most, with the
+   StockTwits bull / bear tags, Reddit mentions against 24 hours ago, and
+   Bluesky cashtag posts. Refreshed every 15 minutes by /api/sentiment/refresh;
+   read through the CDN-cached /api/sentiment/latest. Columns follow the scan
+   tables (TICKER, CHG%, PRC) and then the three sources; the ⓘ at the end of a
+   row is StockTwits' own one-line reason the name is trending. */
+const leanCls = (pct: number | null) => (pct == null ? 'text-slate-600' : pct >= 70 ? 'text-emerald-400' : pct <= 40 ? 'text-rose-400' : 'text-slate-300');
+const SocialSentiment = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => {
+  const [live, setLive] = React.useState<SentimentLive | null>(null);
+  React.useEffect(() => {
+    let on = true;
+    const load = () => fetch('/api/sentiment/latest').then(r => (r.ok ? r.json() : null))
+      .then(j => { if (on && j?.live) setLive(j.live); }).catch(() => {});
+    load();
+    const stop = poll(load, pollMs.marketHours(300_000, 900_000));
+    return () => { on = false; stop(); };
+  }, []);
+  if (!live) return <p className="text-[10px] text-slate-500">Builds on the first refresh (every 15 minutes, 7 AM to 8 PM ET on weekdays).</p>;
+  const H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
+  const asOf = new Date(live.asOf).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+  const down = Object.entries(live.sources).filter(([, v]) => v === 'unavailable').map(([k]) => k === 'stocktwits' ? 'StockTwits' : k === 'reddit' ? 'Reddit' : 'Bluesky');
+  return (
+    <div>
+      <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
+        <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
+        <span className={`${H} w-[46px] md:w-[52px] text-right ml-1`}>Chg%</span>
+        <span className={`${H} w-[36px] md:w-[42px] text-right ml-2 md:ml-1`}>Prc</span>
+        <span className={`${H} w-[34px] md:w-[44px] text-right ml-2 md:ml-1`}>ST bull</span>
+        <span className={`${H} w-[42px] md:w-[56px] text-right ml-2 md:ml-1`}>Reddit</span>
+        <span className={`${H} w-[30px] md:w-[44px] text-right ml-2 md:ml-1`}>Bsky</span>
+        <span className="ml-1"><InfoDot text={"ST BULL — StockTwits: of the latest 30 messages that are tagged bullish or bearish, the share tagged bullish. Green 70%+, red 40% or less. A dash means fewer than 5 tagged.\n\nREDDIT — mentions across the stock subreddits in the last 24 hours (ApeWisdom), and how that compares with the 24 hours before. 3x means three times as many.\n\nBSKY — Bluesky posts with the cashtag in the last 24 hours. The colour is a crude word count (buy, calls, breakout against sell, puts, crash), shown only with 5+ posts that lean.\n\nⓘ — StockTwits' own one-line summary of why the name is trending.\n\nX is not included: reading it needs X's paid search plan.\n\nThe ~25 names come from StockTwits trending and Reddit's most mentioned. Crowd sentiment is not a tested signal here — at extremes it marks tops as often as starts. Prices 15 minutes delayed."} /></span>
+      </div>
+      <div className="max-h-[420px] overflow-y-auto">
+        {live.rows.map(r => {
+          const stPct = r.st ? bullShare(r.st.bull, r.st.bear) : null;
+          const bsPct = r.bsky ? bullShare(r.bsky.bull, r.bsky.bear) : null;
+          const rx = r.reddit && r.reddit.prev > 0 ? r.reddit.mentions / r.reddit.prev : null;
+          const edge = edgeMap?.[r.t] ?? null;
+          return (
+            <div key={r.t} className={`flex items-center whitespace-nowrap py-[1px] ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
+              title={edge ? `${r.n ?? r.t} · ${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : (r.n ?? r.t)}>
+              <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
+              <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${r.chg == null ? 'text-slate-600' : r.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{r.chg == null ? '—' : `${r.chg >= 0 ? '+' : ''}${r.chg.toFixed(2)}%`}</span>
+              <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-2 md:ml-1">{r.price == null ? '—' : r.price.toFixed(2)}</span>
+              <span className={`text-[9px] tabular-nums font-semibold inline-block w-[34px] md:w-[44px] text-right ml-2 md:ml-1 ${leanCls(stPct)}`}>{stPct == null ? '—' : `${stPct}%`}</span>
+              <span className="text-[9px] tabular-nums inline-block w-[42px] md:w-[56px] text-right ml-2 md:ml-1 text-slate-300">
+                {r.reddit ? <>{r.reddit.mentions}{rx != null && rx >= 1.5 ? <span className="text-emerald-400"> {rx >= 10 ? Math.round(rx) : rx.toFixed(1)}x</span> : null}</> : <span className="text-slate-600">—</span>}
+              </span>
+              <span className={`text-[9px] tabular-nums inline-block w-[30px] md:w-[44px] text-right ml-2 md:ml-1 ${r.bsky && r.bsky.posts > 0 ? leanCls(bsPct) === 'text-slate-600' ? 'text-slate-300' : leanCls(bsPct) : 'text-slate-600'}`}>{r.bsky ? r.bsky.posts : '—'}</span>
+              <span className="inline-block w-[14px] ml-1 text-center">{r.st?.summary ? <InfoDot text={r.st.summary} /> : null}</span>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-[10px] text-slate-500 font-medium mt-2">
+        StockTwits · Reddit · Bluesky · as of {asOf} ET{down.length ? ` · ${down.join(', ')} unavailable this round` : ''} · X not included
+      </p>
+    </div>
+  );
+};
+
 const SetupSummaryHelp = () => {
   const [open, setOpen] = React.useState(false);
   const [pinned, setPinned] = React.useState(false);
@@ -2162,6 +2225,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Best Setups Today', color: 'emerald', blurb: 'The picks from the best-tested entry. Buy only on the volume breakout after 10:00.' },
   { label: 'Setups Summary', color: 'violet', blurb: 'All scans pooled — filter by source or setup pattern. One stop shop.' },
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves now. Volume-confirmed is tradeable; a thin gap is a fade.' },
+  { label: 'Social Sentiment', color: 'violet', blurb: 'What StockTwits, Reddit and Bluesky are talking about most, and which way they lean. The crowd, not a signal.' },
   { label: 'Liquid Leaders', color: 'cyan', blurb: 'The ~1,000 most traded stocks: which are outrunning the market most, and which trade the heaviest volume.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, and who is on air.' },
   { label: '$Vol Summary', color: 'teal', blurb: 'Top 20 by dollar volume — where the money actually is today.' },
@@ -3055,6 +3119,8 @@ export default function MarketSummary() {
                                 />
                               ) : isOpen && label === 'Best Setups Today' ? (
                                 <BestSetups watch={orbWatch} />
+                              ) : isOpen && label === 'Social Sentiment' ? (
+                                <SocialSentiment edgeMap={macroInsights?.edgeMap} />
                               ) : isOpen && label === 'Liquid Leaders' ? (
                                 <LiquidLeaders edgeMap={macroInsights?.edgeMap} />
                               ) : isOpen && label === 'Top Movers' && moverView === 'early' ? (
