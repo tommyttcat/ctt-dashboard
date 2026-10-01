@@ -1877,42 +1877,49 @@ const SocialSentiment = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) =>
   const H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
   const asOf = new Date(live.asOf).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
   const down = Object.entries(live.sources).filter(([, v]) => v === 'unavailable').map(([k]) => k === 'stocktwits' ? 'StockTwits' : k === 'reddit' ? 'Reddit' : 'Bluesky');
+  const header = (
+    <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
+      <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
+      <span className={`${H} w-[46px] md:w-[52px] text-right ml-1`}>Chg%</span>
+      <span className={`${H} w-[36px] md:w-[42px] text-right ml-2 md:ml-1`}>Prc</span>
+      <span className={`${H} w-[30px] md:w-[36px] text-right ml-2 md:ml-1`}>ST</span>
+      <span className={`${H} w-[42px] md:w-[52px] text-right ml-2 md:ml-1`}>Red</span>
+      <span className={`${H} w-[28px] md:w-[36px] text-right ml-2 md:ml-1`}>Bsky</span>
+    </div>
+  );
+  const row = (r: SentimentLive['rows'][number]) => {
+    const stPct = r.st ? bullShare(r.st.bull, r.st.bear) : null;
+    const bsPct = r.bsky ? bullShare(r.bsky.bull, r.bsky.bear) : null;
+    const rx = r.reddit && r.reddit.prev > 0 ? r.reddit.mentions / r.reddit.prev : null;
+    const edge = edgeMap?.[r.t] ?? null;
+    return (
+      <div key={r.t} className={`flex items-center whitespace-nowrap py-[1px] ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
+        title={edge ? `${r.n ?? r.t} · ${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : (r.n ?? r.t)}>
+        <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
+        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${r.chg == null ? 'text-slate-600' : r.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{r.chg == null ? '—' : `${r.chg >= 0 ? '+' : ''}${r.chg.toFixed(2)}%`}</span>
+        <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-2 md:ml-1">{r.price == null ? '—' : r.price.toFixed(2)}</span>
+        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[30px] md:w-[36px] text-right ml-2 md:ml-1 ${leanCls(stPct)}`}>{stPct == null ? '—' : `${stPct}%`}</span>
+        <span className="text-[9px] tabular-nums inline-block w-[42px] md:w-[52px] text-right ml-2 md:ml-1 text-slate-300">
+          {r.reddit ? <>{r.reddit.mentions}{rx != null && rx >= 1.5 ? <span className="text-emerald-400"> {rx >= 10 ? Math.round(rx) : rx.toFixed(1)}x</span> : null}</> : <span className="text-slate-600">—</span>}
+        </span>
+        <span className={`text-[9px] tabular-nums inline-block w-[28px] md:w-[36px] text-right ml-2 md:ml-1 ${r.bsky && r.bsky.posts > 0 ? (bsPct == null ? 'text-slate-300' : leanCls(bsPct)) : 'text-slate-600'}`}>{r.bsky ? r.bsky.posts : '—'}</span>
+        <span className="inline-block w-[14px] ml-1 text-center">{r.st?.summary ? <InfoDot text={r.st.summary} /> : null}</span>
+      </div>
+    );
+  };
+  // The top 10, five a side (stacked on a phone).
+  const top = live.rows.slice(0, 10);
   return (
     <div>
-      <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
-        <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
-        <span className={`${H} w-[46px] md:w-[52px] text-right ml-1`}>Chg%</span>
-        <span className={`${H} w-[36px] md:w-[42px] text-right ml-2 md:ml-1`}>Prc</span>
-        <span className={`${H} w-[34px] md:w-[44px] text-right ml-2 md:ml-1`}>ST bull</span>
-        <span className={`${H} w-[42px] md:w-[56px] text-right ml-2 md:ml-1`}>Reddit</span>
-        <span className={`${H} w-[30px] md:w-[44px] text-right ml-2 md:ml-1`}>Bsky</span>
-        <span className="ml-1"><InfoDot text={"ST BULL — StockTwits: of the latest 30 messages that are tagged bullish or bearish, the share tagged bullish. Green 70%+, red 40% or less. A dash means fewer than 5 tagged.\n\nREDDIT — mentions across the stock subreddits in the last 24 hours (ApeWisdom), and how that compares with the 24 hours before. 3x means three times as many.\n\nBSKY — Bluesky posts with the cashtag in the last 24 hours. The colour is a crude word count (buy, calls, breakout against sell, puts, crash), shown only with 5+ posts that lean.\n\nⓘ — StockTwits' own one-line summary of why the name is trending.\n\nX is not included: reading it needs X's paid search plan.\n\nThe ~25 names come from StockTwits trending and Reddit's most mentioned. Crowd sentiment is not a tested signal here — at extremes it marks tops as often as starts. Prices 15 minutes delayed."} /></span>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">
+        {[top.slice(0, 5), top.slice(5, 10)].filter(c => c.length).map((col, i) => (
+          <div key={i} className="min-w-0">{header}{col.map(row)}</div>
+        ))}
       </div>
-      <div className="max-h-[420px] overflow-y-auto">
-        {live.rows.map(r => {
-          const stPct = r.st ? bullShare(r.st.bull, r.st.bear) : null;
-          const bsPct = r.bsky ? bullShare(r.bsky.bull, r.bsky.bear) : null;
-          const rx = r.reddit && r.reddit.prev > 0 ? r.reddit.mentions / r.reddit.prev : null;
-          const edge = edgeMap?.[r.t] ?? null;
-          return (
-            <div key={r.t} className={`flex items-center whitespace-nowrap py-[1px] ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
-              title={edge ? `${r.n ?? r.t} · ${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : (r.n ?? r.t)}>
-              <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
-              <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${r.chg == null ? 'text-slate-600' : r.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{r.chg == null ? '—' : `${r.chg >= 0 ? '+' : ''}${r.chg.toFixed(2)}%`}</span>
-              <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-2 md:ml-1">{r.price == null ? '—' : r.price.toFixed(2)}</span>
-              <span className={`text-[9px] tabular-nums font-semibold inline-block w-[34px] md:w-[44px] text-right ml-2 md:ml-1 ${leanCls(stPct)}`}>{stPct == null ? '—' : `${stPct}%`}</span>
-              <span className="text-[9px] tabular-nums inline-block w-[42px] md:w-[56px] text-right ml-2 md:ml-1 text-slate-300">
-                {r.reddit ? <>{r.reddit.mentions}{rx != null && rx >= 1.5 ? <span className="text-emerald-400"> {rx >= 10 ? Math.round(rx) : rx.toFixed(1)}x</span> : null}</> : <span className="text-slate-600">—</span>}
-              </span>
-              <span className={`text-[9px] tabular-nums inline-block w-[30px] md:w-[44px] text-right ml-2 md:ml-1 ${r.bsky && r.bsky.posts > 0 ? leanCls(bsPct) === 'text-slate-600' ? 'text-slate-300' : leanCls(bsPct) : 'text-slate-600'}`}>{r.bsky ? r.bsky.posts : '—'}</span>
-              <span className="inline-block w-[14px] ml-1 text-center">{r.st?.summary ? <InfoDot text={r.st.summary} /> : null}</span>
-            </div>
-          );
-        })}
+      <div className="text-[10px] text-slate-500 font-medium mt-2 flex items-center gap-1">
+        <span>ST StockTwits · RED Reddit · BSKY Bluesky · as of {asOf} ET{down.length ? ` · ${down.join(', ')} unavailable this round` : ''} · X not included</span>
+        <InfoDot text={"ST — StockTwits: of the latest 30 messages tagged bullish or bearish, the share tagged bullish. Green 70%+, red 40% or less. A dash means fewer than 5 tagged.\n\nRED — Reddit mentions across the stock subreddits in the last 24 hours (ApeWisdom); 3x means three times the 24 hours before.\n\nBSKY — Bluesky posts with the cashtag in the last 24 hours. The colour is a crude word count (buy, calls, breakout against sell, puts, crash), shown only with 5+ posts that lean.\n\nⓘ on a row — StockTwits' own one-line summary of why the name is trending.\n\nX is not included: reading it needs X's paid search plan.\n\nThe 10 names are the most talked about across StockTwits trending and Reddit. Crowd sentiment is not a tested signal here — at extremes it marks tops as often as starts. Prices 15 minutes delayed."} />
       </div>
-      <p className="text-[10px] text-slate-500 font-medium mt-2">
-        StockTwits · Reddit · Bluesky · as of {asOf} ET{down.length ? ` · ${down.join(', ')} unavailable this round` : ''} · X not included
-      </p>
     </div>
   );
 };

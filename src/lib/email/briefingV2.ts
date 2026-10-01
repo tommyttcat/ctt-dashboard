@@ -15,6 +15,7 @@
 import { C, esc, rich, plain, label, card, statusOf, statusPill, pickCard, outlookRows, emailShell, type Pick } from './emailKit';
 
 import type { LeadersLive } from '@/lib/leaders';
+import { bullShare, type SentimentLive } from '@/lib/sentiment';
 
 type Any = any;
 
@@ -137,6 +138,7 @@ export interface EmailV2Input {
   t2108?: Any;
   /** /api/leaders/latest `live` — Liquid Leaders (lib/leaders). */
   leaders?: LeadersLive | null;
+  sentiment?: SentimentLive | null;
 }
 
 /* ---- Liquid Leaders (30 Sep 2026) ---------------------------------------
@@ -168,7 +170,36 @@ function leadersCard(l: LeadersLive | null | undefined): string {
     <div style="font-size:12px;color:${C.muted};margin-top:10px;">${asOf} What is leading, not a buy signal.</div>`);
 }
 
-export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief, phaseKey, t2108, leaders }: EmailV2Input): string {
+/* ---- Social Sentiment (1 Oct 2026) --------------------------------------
+   The dashboard card in brief: the 10 most talked-about names with the
+   StockTwits bull share, Reddit mentions and Bluesky posts. Dropped when the
+   data is more than 2 hours old (the refresh runs 7 AM-8 PM ET). */
+function sentimentCard(s: SentimentLive | null | undefined): string {
+  if (!s?.rows?.length || Date.now() - s.asOf > 2 * 3_600_000) return '';
+  const TD = `padding:6px 0;border-bottom:1px solid ${C.rule};font-size:14px;white-space:nowrap;`;
+  const TH = `font-size:10px;font-weight:700;letter-spacing:1px;color:${C.muted};padding:4px 0;border-bottom:1px solid ${C.border};`;
+  const lean = (p: number | null) => (p == null ? C.muted : p >= 70 ? C.green : p <= 40 ? C.red : C.body);
+  const rows = s.rows.slice(0, 10).map(r => {
+    const st = r.st ? bullShare(r.st.bull, r.st.bear) : null;
+    const rx = r.reddit && r.reddit.prev > 0 ? r.reddit.mentions / r.reddit.prev : null;
+    const chg = r.chg == null ? '—' : `${r.chg >= 0 ? '+' : '−'}${Math.abs(r.chg).toFixed(2)}%`;
+    return `<tr>
+      <td style="${TD}"><b style="color:${C.ink};">${esc(r.t)}</b></td>
+      <td align="right" style="${TD}padding-left:8px;font-weight:700;color:${r.chg == null ? C.muted : r.chg >= 0 ? C.green : C.red};">${chg}</td>
+      <td align="right" style="${TD}padding-left:8px;font-weight:700;color:${lean(st)};">${st == null ? '—' : `${st}%`}</td>
+      <td align="right" style="${TD}padding-left:8px;color:${C.body};">${r.reddit ? `${r.reddit.mentions}${rx != null && rx >= 1.5 ? ` <span style="color:${C.green};">${rx >= 10 ? Math.round(rx) : rx.toFixed(1)}×</span>` : ''}` : '—'}</td>
+      <td align="right" style="${TD}padding-left:8px;color:${C.body};">${r.bsky ? r.bsky.posts : '—'}</td>
+    </tr>`;
+  }).join('');
+  return card(`${label('Social Sentiment', C.teal)}
+    <div style="font-size:14px;line-height:1.5;color:${C.body};margin-top:6px;">The names the crowd is talking about most right now, and which way it leans.</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;"><tr>
+      <td style="${TH}">TICKER</td><td align="right" style="${TH}">CHG</td><td align="right" style="${TH}">ST</td><td align="right" style="${TH}">RED</td><td align="right" style="${TH}">BSKY</td>
+    </tr>${rows}</table>
+    <div style="font-size:12px;line-height:1.5;color:${C.muted};margin-top:10px;">ST: StockTwits bullish share of tagged posts. RED: Reddit mentions in 24 hours (× vs the day before). BSKY: Bluesky posts in 24 hours. X not included. The crowd, not a signal.</div>`);
+}
+
+export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief, phaseKey, t2108, leaders, sentiment }: EmailV2Input): string {
   const rd = brief?.regimeDetail || {};
   const regime = plain(rd.regime);
   const firstStop = regime.search(/[.—]\s/);
@@ -317,7 +348,7 @@ export function buildEmailV2({ phaseLabel, dateLabel, updatedTime, macro, brief,
     title: `CTT ${phaseLabel}`,
     pill: `${phaseLabel} · ${dateLabel}`,
     updatedTime,
-    sections: [hero, since, macroCard, breadthCard, next, picksHtml, leadersCard(leaders), avoid, news, money, moversHtml, sipHtml, cal, earn, tomorrow],
+    sections: [hero, since, macroCard, breadthCard, next, picksHtml, leadersCard(leaders), sentimentCard(sentiment), avoid, news, money, moversHtml, sipHtml, cal, earn, tomorrow],
     footerNote: "Levels are each scan's own plan.",
   });
 }
