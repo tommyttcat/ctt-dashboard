@@ -1517,10 +1517,20 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
     { key: 'red', label: 'RED', cls: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
   ];
 
+  /* Each pill counts what clicking it would show with the OTHER filters as they
+     are now (setup/source, colour, the page's scan filter), so GREEN reads 0
+     while CNF is on and holds no green names. A pill whose count is 0 in the
+     whole pool stays hidden; one that is 0 only because of another filter
+     stays, greyed, so the empty result is visible before it is clicked. */
+  const activeSetup = activeKey ? ALL_SETUP_FILTERS.find(f => f.key === activeKey) : null;
+  const sfPool = sf ? taggedPool.filter(item => passesPoolFilter(sf, item)) : taggedPool;
+  const edgeBase = activeSetup ? sfPool.filter(activeSetup.match) : sfPool;
+  const setupBase = edgeKey ? sfPool.filter(item => edgeOf(item) === edgeKey) : sfPool;
+
   const edgePills = () =>
     EDGE_FILTERS.map(f => {
-      const count = taggedPool.filter(item => edgeOf(item) === f.key).length;
-      if (count === 0) return null;
+      if (!taggedPool.some(item => edgeOf(item) === f.key)) return null;
+      const count = edgeBase.filter(item => edgeOf(item) === f.key).length;
       const on = edgeKey === f.key;
       return (
         <button
@@ -1528,7 +1538,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
           onClick={() => setEdgeKey(edgeKey === f.key ? null : f.key)}
           title={`${f.label} rows — ${EDGE_FILTER_TIP[f.key]}`}
           className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border transition-all duration-150 ${
-            on ? f.cls : edgeKey == null ? f.cls : 'text-slate-600 bg-transparent border-white/5'
+            on ? f.cls : edgeKey == null && count > 0 ? f.cls : 'text-slate-600 bg-transparent border-white/5'
           }`}
         >
           {f.label} {count}
@@ -1539,15 +1549,15 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
   const pills = (filters: SetupFilter[]) =>
     filters.map(f => {
       const on = activeKey === f.key;
-      const count = taggedPool.filter(f.match).length;
-      // A pill with nothing behind it is noise: hide it rather than grey it.
-      if (count === 0) return null;
+      // A pill with nothing behind it in the whole pool is noise: hide it.
+      if (!taggedPool.some(f.match)) return null;
+      const count = setupBase.filter(f.match).length;
       return (
         <button
           key={f.key}
           onClick={() => toggle(f.key)}
           className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border transition-all duration-150 ${
-            on ? f.cls : activeKey == null ? f.cls : 'text-slate-600 bg-transparent border-white/5'
+            on ? f.cls : activeKey == null && count > 0 ? f.cls : 'text-slate-600 bg-transparent border-white/5'
           }`}
         >
           {f.label} {count}
@@ -1750,8 +1760,13 @@ const WashoutLight = () => {
    RS (renderStdRow / SortableHeader). RVOL is against the name's own usual
    volume by this time of day, as a multiple. RS is the site's RS Rating. */
 const fmtShares = (v: number | undefined) => (v == null || !(v > 0) ? '' : v >= 1e9 ? `${(v / 1e9).toFixed(1)}B` : v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${Math.round(v / 1e3)}K` : String(v));
+type LeaderSortKey = 'chg' | 'price' | 'rvol' | 'vol' | 'rs';
+const leaderSortVal = (r: LeaderRow, k: LeaderSortKey): number | null =>
+  k === 'chg' ? r.chg : k === 'price' ? r.price : k === 'rvol' ? r.track : k === 'vol' ? (r.vol ?? null) : (r.rs ?? null);
 const LiquidLeaders = () => {
   const [live, setLive] = React.useState<LeadersLive | null>(null);
+  // Per list: null = the list's own order (RS list by change, volume list by RVOL).
+  const [sorts, setSorts] = React.useState<Record<string, { key: LeaderSortKey; dir: SortDir } | null>>({});
   React.useEffect(() => {
     let on = true;
     const load = () => fetch('/api/leaders/latest').then(r => (r.ok ? r.json() : null))
@@ -1770,16 +1785,31 @@ const LiquidLeaders = () => {
   );
   const H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
   const badge = 'inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center';
-  const list = (title: string, n: number | null, rows: LeaderRow[]) => (
+  const list = (title: string, n: number | null, rawRows: LeaderRow[]) => {
+    const sort = sorts[title] ?? null;
+    // Click: high to low, again: low to high, a third time: back to the list's own order. Blanks sort last.
+    const onSort = (k: LeaderSortKey) => setSorts(prev => {
+      const cur = prev[title];
+      const next = !cur || cur.key !== k ? { key: k, dir: 'desc' as SortDir } : cur.dir === 'desc' ? { key: k, dir: 'asc' as SortDir } : null;
+      return { ...prev, [title]: next };
+    });
+    const rows = !sort ? rawRows : [...rawRows].sort((a, b) => {
+      const av = leaderSortVal(a, sort.key), bv = leaderSortVal(b, sort.key);
+      if (av == null || bv == null) return av == null ? (bv == null ? 0 : 1) : -1;
+      return sort.dir === 'desc' ? bv - av : av - bv;
+    });
+    const S = 'cursor-pointer hover:text-slate-400 transition-colors select-none';
+    const arrow = (k: LeaderSortKey) => (sort?.key === k ? (sort.dir === 'desc' ? ' ↓' : ' ↑') : '');
+    return (
     <div className="min-w-0">
       <div className="text-[8px] font-bold tracking-widest uppercase text-cyan-400 mb-1">{title}{n != null ? ` · ${n}` : ''}</div>
       <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
         <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
-        <span className={`${H} w-[46px] md:w-[52px] text-right ml-1`}>Chg%</span>
-        <span className={`${H} w-[36px] md:w-[42px] text-right ml-2 md:ml-1`}>Prc</span>
-        <span className={`${H} w-[36px] md:w-[40px] text-right ml-2 md:ml-1`}>Rvol</span>
-        <span className={`${H} w-[30px] md:w-[36px] text-right ml-2 md:ml-1`}>Vol</span>
-        <span className={`${H} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`}>RS</span>
+        <span className={`${H} ${S} w-[46px] md:w-[52px] text-right ml-1`} onClick={() => onSort('chg')}>Chg%{arrow('chg')}</span>
+        <span className={`${H} ${S} w-[36px] md:w-[42px] text-right ml-2 md:ml-1`} onClick={() => onSort('price')}>Prc{arrow('price')}</span>
+        <span className={`${H} ${S} w-[36px] md:w-[40px] text-right ml-2 md:ml-1`} onClick={() => onSort('rvol')}>Rvol{arrow('rvol')}</span>
+        <span className={`${H} ${S} w-[30px] md:w-[36px] text-right ml-2 md:ml-1`} onClick={() => onSort('vol')}>Vol{arrow('vol')}</span>
+        <span className={`${H} ${S} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`} onClick={() => onSort('rs')}>RS{arrow('rs')}</span>
       </div>
       <div className="max-h-[260px] overflow-y-auto">
         {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">None right now.</p> : rows.map(r => {
@@ -1799,7 +1829,8 @@ const LiquidLeaders = () => {
         })}
       </div>
     </div>
-  );
+    );
+  };
   const clock = `${Math.floor(live.clockEt / 60) % 12 || 12}:${String(live.clockEt % 60).padStart(2, '0')}`;
   return (
     <div>
