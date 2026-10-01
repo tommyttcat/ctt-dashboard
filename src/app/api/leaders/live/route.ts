@@ -13,6 +13,7 @@ import { authorized } from '@/lib/apiAuth';
 import { etGate } from '@/lib/etCron';
 import { isTradingDay } from '@/lib/marketCalendar';
 import { etMinute } from '@/lib/orb';
+import { loadRsRatings } from '@/lib/indicators/rs';
 import { LEADERS_STATE_KEY, LEADERS_LIVE_KEY, buildLive, type LeadersState, type Quote } from '@/lib/leaders';
 
 export const dynamic = 'force-dynamic';
@@ -42,7 +43,8 @@ export async function GET(req: Request) {
   if (now < OPEN + DELAY_MIN || now > CLOSE + 30) return NextResponse.json({ success: true, skipped: 'outside the window' });
   if (!KEY) return NextResponse.json({ success: false, error: 'no data key' }, { status: 500 });
 
-  const state = await kv.get<LeadersState>(LEADERS_STATE_KEY);
+  // Two KV reads a run: the universe and the RS map (one GET via the shared lookup).
+  const [state, rsLookup] = await Promise.all([kv.get<LeadersState>(LEADERS_STATE_KEY), loadRsRatings()]);
   if (!state?.names || !Object.keys(state.names).length) return NextResponse.json({ success: true, skipped: 'no universe yet (the nightly job builds it)' });
 
   const tickers = [...Object.keys(state.names), 'SPY', 'QQQ'];
@@ -56,7 +58,7 @@ export async function GET(req: Request) {
   if (!spyQ || !(spyQ.price > 0)) return NextResponse.json({ success: false, error: 'no SPY quote' }, { status: 502 });
   const idx = (q: Quote | null) => (q && q.prevClose > 0 ? { price: q.price, chg: +((q.price / q.prevClose - 1) * 100).toFixed(2) } : null);
   const clock = Math.min(CLOSE, now - DELAY_MIN);
-  const live = buildLive(state, quotes, spyQ.price, clock, Date.now(), { spy: idx(spyQ), qqq: idx(qqqQ) });
+  const live = buildLive(state, quotes, spyQ.price, clock, Date.now(), { spy: idx(spyQ), qqq: idx(qqqQ) }, rsLookup.available ? rsLookup.get : undefined);
   await kv.set(LEADERS_LIVE_KEY, live);
-  return NextResponse.json({ success: true, universe: live.universe, counts: live.counts, clockEt: clock, quotes: quotes.length });
+  return NextResponse.json({ success: true, universe: live.universe, counts: live.counts, clockEt: clock, quotes: quotes.length, rs: rsLookup.available ? rsLookup.asOf : rsLookup.reason });
 }

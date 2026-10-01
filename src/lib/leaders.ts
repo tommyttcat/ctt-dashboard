@@ -32,7 +32,8 @@ export interface LeaderHist {
 }
 export interface LeadersState { date: string; builtAt: string; names: Record<string, LeaderHist> }
 
-export interface LeaderRow { t: string; n?: string; price: number; chg: number; track: number | null; raw: number | null }
+// vol: today's shares so far. rs: the site's RS Rating (1-99, lib/indicators/rs), null when unrated.
+export interface LeaderRow { t: string; n?: string; price: number; chg: number; track: number | null; raw: number | null; vol?: number; rs?: number | null }
 export interface LeadersLive {
   asOf: number;
   clockEt: number;              // the minute the (delayed) data describes, ET minutes after midnight
@@ -75,8 +76,8 @@ export function profileOf(sessions: number[][]): number[] {
 export interface Quote { t: string; price: number; prevClose: number; vol: number }
 
 /** The four lists from one snapshot. `clockEt` is the minute the data describes. */
-export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number, clockEt: number, asOf: number, idx: Pick<LeadersLive, 'spy' | 'qqq'>): LeadersLive {
-  const rows: (LeaderRow & { rs: boolean; hi: boolean })[] = [];
+export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number, clockEt: number, asOf: number, idx: Pick<LeadersLive, 'spy' | 'qqq'>, rsOf?: (t: string) => number | null): LeadersLive {
+  const rows: (LeaderRow & { isRs: boolean; isHi: boolean })[] = [];
   for (const q of quotes) {
     const h = state.names[q.t];
     if (!h || !(q.price > 0) || !(q.prevClose > 0)) continue;
@@ -86,14 +87,15 @@ export function buildLive(state: LeadersState, quotes: Quote[], spyPrice: number
     rows.push({
       t: q.t, n: h.n, price: q.price, chg: +chg.toFixed(2),
       track: track == null ? null : Math.round(track), raw: raw == null ? null : Math.round(raw),
-      rs: spyPrice > 0 && q.price / spyPrice >= h.maxRs,
-      hi: q.price >= h.maxClose,
+      vol: q.vol, rs: rsOf ? rsOf(q.t) : null,
+      isRs: spyPrice > 0 && q.price / spyPrice >= h.maxRs,
+      isHi: q.price >= h.maxClose,
     });
   }
-  const strip = ({ rs: _r, hi: _h, ...r }: LeaderRow & { rs: boolean; hi: boolean }): LeaderRow => r;
+  const strip = ({ isRs: _r, isHi: _h, ...r }: LeaderRow & { isRs: boolean; isHi: boolean }): LeaderRow => r;
   const byChg = (a: LeaderRow, b: LeaderRow) => b.chg - a.chg;
-  const rsHigh = rows.filter(r => r.rs).sort(byChg);
-  const priceHigh = rows.filter(r => r.hi).sort(byChg);
+  const rsHigh = rows.filter(r => r.isRs).sort(byChg);
+  const priceHigh = rows.filter(r => r.isHi).sort(byChg);
   return {
     asOf, clockEt, ...idx, universe: rows.length,
     rsHigh: rsHigh.map(strip),

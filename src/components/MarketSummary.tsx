@@ -112,7 +112,7 @@ import { planRowsFor, planStatusOf, planStatusLabel, PLAN_STATUS_ORDER, PLAN_STA
 import InfoDot from './InfoDot';
 import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
-import type { LeadersLive } from '@/lib/leaders';
+import type { LeadersLive, LeaderRow } from '@/lib/leaders';
 import { EARLY_PASS_N, type EarlySummary } from '@/lib/earlyTrack';
 
 type EarlyNight = { pickedOn: string; names: { t: string; scan: string; avgVol: number | null; rs: number | null }[]; record: EarlySummary | null };
@@ -1745,10 +1745,13 @@ const WashoutLight = () => {
    5-year highs (price, and price against SPY), today's biggest gainers, and
    volume against each name's own usual at the same time of day. Polygon data,
    15 minutes delayed; refreshed every 5 minutes by /api/leaders/live. */
-type LeadersView = 'rs' | 'high' | 'gain' | 'vol';
+/* The four lists sit side by side (2 x 2 from lg up, stacked on a phone), each
+   on the scanner tables' column order and widths: TICKER, CHG%, PRC, RVOL, VOL,
+   RS (renderStdRow / SortableHeader). RVOL is against the name's own usual
+   volume by this time of day, as a multiple. RS is the site's RS Rating. */
+const fmtShares = (v: number | undefined) => (v == null || !(v > 0) ? '' : v >= 1e9 ? `${(v / 1e9).toFixed(1)}B` : v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${Math.round(v / 1e3)}K` : String(v));
 const LiquidLeaders = () => {
   const [live, setLive] = React.useState<LeadersLive | null>(null);
-  const [view, setView] = React.useState<LeadersView>('rs');
   React.useEffect(() => {
     let on = true;
     const load = () => fetch('/api/leaders/latest').then(r => (r.ok ? r.json() : null))
@@ -1758,13 +1761,6 @@ const LiquidLeaders = () => {
     return () => { on = false; stop(); };
   }, []);
   if (!live) return <p className="text-[10px] text-slate-500">The list builds after the first nightly run (about 5:40 PM ET) and updates every 5 minutes in market hours.</p>;
-  const pct = (v: number | null | undefined, dp = 2) => (v == null ? '—' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(dp)}%`);
-  const cls = (v: number | null | undefined) => (v == null ? 'text-slate-600' : v > 0 ? 'text-emerald-400' : v < 0 ? 'text-rose-400' : 'text-slate-300');
-  const trackCls = (v: number | null) => (v == null ? 'text-slate-600' : v >= 100 ? 'text-emerald-400 font-bold' : v >= 0 ? 'text-slate-200' : 'text-slate-500');
-  const rows = view === 'rs' ? live.rsHigh : view === 'high' ? live.priceHigh : view === 'gain' ? live.gainers : live.volume;
-  const tabs: [LeadersView, string, number | null][] = [
-    ['rs', 'RS high', live.counts.rsHigh], ['high', 'Price high', live.counts.priceHigh], ['gain', 'Gainers', null], ['vol', 'Volume', live.counts.heavy],
-  ];
   const tile = (label: string, value: React.ReactNode, sub: string) => (
     <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-2.5 py-2 min-w-0">
       <div className="text-[8px] font-bold tracking-widest uppercase text-slate-500 truncate">{label}</div>
@@ -1772,41 +1768,53 @@ const LiquidLeaders = () => {
       <div className="text-[9px] text-slate-500 truncate">{sub}</div>
     </div>
   );
+  const H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
+  const badge = 'inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center';
+  const list = (title: string, n: number | null, rows: LeaderRow[]) => (
+    <div className="min-w-0">
+      <div className="text-[8px] font-bold tracking-widest uppercase text-cyan-400 mb-1">{title}{n != null ? ` · ${n}` : ''}</div>
+      <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
+        <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
+        <span className={`${H} w-[46px] md:w-[52px] text-right ml-1`}>Chg%</span>
+        <span className={`${H} w-[36px] md:w-[42px] text-right ml-2 md:ml-1`}>Prc</span>
+        <span className={`${H} w-[36px] md:w-[40px] text-right ml-2 md:ml-1`}>Rvol</span>
+        <span className={`${H} w-[30px] md:w-[36px] text-right ml-2 md:ml-1`}>Vol</span>
+        <span className={`${H} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`}>RS</span>
+      </div>
+      <div className="max-h-[260px] overflow-y-auto">
+        {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">None right now.</p> : rows.map(r => {
+          const rv = r.track == null ? null : Math.max(0, 1 + r.track / 100);
+          return (
+            <div key={r.t} className="flex items-center whitespace-nowrap py-[1px]" title={r.n ?? r.t}>
+              <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
+              <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${r.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{r.chg >= 0 ? '+' : ''}{r.chg.toFixed(2)}%</span>
+              <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-2 md:ml-1">{r.price.toFixed(2)}</span>
+              <span className={`text-[9px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-2 md:ml-1 ${rv == null ? 'text-slate-600' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv == null ? '—' : `${rv < 10 ? rv.toFixed(1) : Math.round(rv)}x`}</span>
+              <span className="text-[9px] tabular-nums inline-block w-[30px] md:w-[36px] text-right text-slate-400 ml-2 md:ml-1">{fmtShares(r.vol)}</span>
+              <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{r.rs != null
+                ? <span className={`${badge} ${rsBadge(r.rs)}`}>{r.rs}</span>
+                : <span className={`${badge} text-slate-600 border-slate-700/40 bg-slate-800/30`}>-</span>}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
   const clock = `${Math.floor(live.clockEt / 60) % 12 || 12}:${String(live.clockEt % 60).padStart(2, '0')}`;
   return (
     <div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2.5">
-        {tile('S&P 500 today', <span className={cls(live.spy?.chg)}>{pct(live.spy?.chg)}</span>, live.spy ? `SPY ${live.spy.price.toFixed(2)}` : '—')}
-        {tile('Nasdaq today', <span className={cls(live.qqq?.chg)}>{pct(live.qqq?.chg)}</span>, live.qqq ? `QQQ ${live.qqq.price.toFixed(2)}` : '—')}
-        {tile('RS lines at 5-yr high', <span className="text-slate-100">{live.counts.rsHigh}</span>, 'outrunning SPY more than ever')}
-        {tile('Heavy volume', <span className="text-slate-100">{live.counts.heavy}</span>, '2× usual pace or more')}
-      </div>
-      <div className="flex items-center gap-1 flex-wrap mb-1.5">
-        {tabs.map(([k, label, n]) => (
-          <button key={k} onClick={() => setView(k)}
-            className={`text-[7px] font-bold tracking-wider uppercase px-1.5 py-[1px] rounded border transition-all duration-200 ${view === k ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' : 'bg-[#161c2a] text-slate-500 border-white/5 hover:text-slate-300 hover:bg-white/[0.04]'}`}>
-            {label}{n != null ? ` · ${n}` : ''}
-          </button>
-        ))}
-        <InfoDot text={"RS HIGH — the stock divided by SPY is at its highest in 5 years: it is outrunning the market more than ever, often before the price itself breaks out.\n\nPRICE HIGH — the price is above its highest close of the last 5 years.\n\nGAINERS — today's biggest moves among these names.\n\nVOLUME — today's volume against this stock's own usual volume at the same time of day (its last 20 sessions, by half hour). +100% means twice its usual pace. RAW compares with a full usual day.\n\nThe universe is NASDAQ and NYSE common stock at $10+ trading $100M+ a day, rebuilt each evening. Data is 15 minutes delayed; the history goes back 5 years, so highs are 5-year highs, not all-time. A view of what is leading, not a tested buy signal."} />
-      </div>
-      <div className="max-h-[380px] overflow-y-auto">
-        <div className="flex items-center gap-2 py-[2px] border-b border-white/5 mb-0.5 whitespace-nowrap text-[8px] font-bold tracking-widest uppercase text-slate-500">
-          <span className="w-[38px] md:w-[44px] shrink-0 text-center">Ticker</span>
-          <span className="w-[56px] text-right shrink-0">Price</span>
-          <span className="w-[52px] text-right shrink-0">Chg</span>
-          <span className="w-[62px] text-right shrink-0">Vs usual</span>
-          {view === 'vol' && <span className="hidden md:inline-block w-[56px] text-right shrink-0">Raw</span>}
+      <div className="flex items-start gap-2 mb-2.5">
+        <div className="grid grid-cols-2 gap-2 flex-1">
+          {tile('RS lines at 5-yr high', <span className="text-slate-100">{live.counts.rsHigh}</span>, 'outrunning SPY more than ever')}
+          {tile('Heavy volume', <span className="text-slate-100">{live.counts.heavy}</span>, '2x usual pace or more')}
         </div>
-        {rows.length === 0 ? <p className="text-[10px] text-slate-500 py-1">None right now.</p> : rows.map(r => (
-          <div key={r.t} className="flex items-center gap-2 py-[2px] whitespace-nowrap text-[10px] tabular-nums" title={r.n ?? r.t}>
-            <span className="inline-flex items-center shrink-0"><TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover></span>
-            <span className="w-[56px] text-right shrink-0 text-slate-200">{r.price.toFixed(2)}</span>
-            <span className={`w-[52px] text-right shrink-0 font-semibold ${cls(r.chg)}`}>{pct(r.chg)}</span>
-            <span className={`w-[62px] text-right shrink-0 ${trackCls(r.track)}`}>{r.track == null ? '—' : `${r.track >= 0 ? '+' : '−'}${Math.abs(r.track)}%`}</span>
-            {view === 'vol' && <span className="hidden md:inline-block w-[56px] text-right shrink-0 text-slate-400">{r.raw == null ? '—' : `${r.raw >= 0 ? '+' : '−'}${Math.abs(r.raw)}%`}</span>}
-          </div>
-        ))}
+        <InfoDot text={"RS LINE HIGH — the RS line is the stock's price divided by SPY. When it rises the stock is beating the market; at a 5-year high it is beating the market by more than at any time in 5 years, often before the price itself breaks out.\n\nPRICE HIGH — the price is above its highest close of the last 5 years.\n\nGAINERS — today's biggest moves among these names.\n\nHEAVIEST VOLUME — RVOL: today's volume against this stock's own usual volume by this time of day (its last 20 sessions, by half hour). 2x means twice its usual pace.\n\nRS — the RS Rating, 1-99: stronger than that % of the market over the last 12 months, as of yesterday's close. Different from the RS line: the rating ranks the stock against all others, the line compares it with SPY.\n\nVOL — shares traded today so far.\n\nThe universe is NASDAQ and NYSE common stock at $10+ trading $100M+ a day, rebuilt each evening. Data is 15 minutes delayed; the history goes back 5 years, so highs are 5-year highs, not all-time. A view of what is leading, not a tested buy signal."} />
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">
+        {list('RS line at 5-yr high', live.counts.rsHigh, live.rsHigh)}
+        {list('Price at 5-yr high', live.counts.priceHigh, live.priceHigh)}
+        {list('Gainers', null, live.gainers)}
+        {list('Heaviest volume vs usual', live.counts.heavy, live.volume)}
       </div>
       <p className="text-[10px] text-slate-500 font-medium mt-2">
         {live.universe} liquid names · 5-year highs · data 15 min delayed, as of {clock} ET
