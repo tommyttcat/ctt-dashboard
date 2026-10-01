@@ -20,7 +20,10 @@ eq('too few tagged', bullShare(2, 1), null);
 
 const rows = buildRows(['MU', 'GOOG'], new Map([['MU', { t: 'MU', rank: 6, summary: 'why' }]]),
   new Map([['MU', { bull: 16, bear: 1, msgs: 30 }]]), new Map(reddit.map(r => [r.t, r])),
-  new Map([['MU', { posts: 12, bull: 6, bear: 1 }]]), new Map([['MU', { price: 1095, chg: 3 }]]));
+  new Map([['MU', { posts: 12, bull: 6, bear: 1 }]]), new Map([['MU', { price: 1095, chg: 3, vol: 40e6 }]]),
+  new Map([['MU', { rvol: 1.4, rs: 97 }]]));
+eq('volume carried', rows[0].vol, 40e6);
+eq('RVOL and RS carried', `${rows[0].rvol}/${rows[0].rs}`, '1.4/97');
 eq('StockTwits tags carried', rows[0].st?.bull, 16);
 eq('summary carried', rows[0].st?.summary, 'why');
 eq('Reddit-only name has no StockTwits block', rows[1].st, null);

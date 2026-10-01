@@ -12,6 +12,9 @@ import { kv } from '@vercel/kv';
 import { authorized } from '@/lib/apiAuth';
 import { etGate } from '@/lib/etCron';
 import { blueskyCashtagPosts } from '@/lib/bluesky';
+import { loadRsRatings } from '@/lib/indicators/rs';
+import { LEADERS_STATE_KEY, trackingPct, type LeadersState } from '@/lib/leaders';
+import { etMinute } from '@/lib/orb';
 import {
   SENTIMENT_KEY, pickUniverse, buildRows, postLean,
   type StIn, type RedditIn, type SentimentLive,
@@ -62,10 +65,12 @@ export async function GET(req: Request) {
     }));
   }
 
-  // 3. Bluesky, and 4. prices — in parallel.
-  const [bskyPosts, snap] = await Promise.all([
+  // 3. Bluesky, 4. prices, 5. RS and usual volume (two KV reads: the RS map, the Liquid Leaders profiles) — in parallel.
+  const [bskyPosts, snap, rsLookup, leaders] = await Promise.all([
     blueskyCashtagPosts(names),
     KEY ? getJson<{ tickers?: any[] }>(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${names.join(',')}&apiKey=${KEY}`) : Promise.resolve(null),
+    loadRsRatings(),
+    kv.get<LeadersState>(LEADERS_STATE_KEY).catch(() => null),
   ]);
   const bsky = new Map<string, { posts: number; bull: number; bear: number }>();
   for (const [t, texts] of bskyPosts ?? []) {
@@ -73,15 +78,24 @@ export async function GET(req: Request) {
     for (const s of texts) { const l = postLean(s); if (l === 'bull') bull++; else if (l === 'bear') bear++; }
     bsky.set(t, { posts: texts.length, bull, bear });
   }
-  const quotes = new Map<string, { price: number; chg: number }>();
+  const quotes = new Map<string, { price: number; chg: number; vol?: number }>();
   for (const s of snap?.tickers ?? []) {
     const price = s.lastTrade?.p || s.min?.c || s.day?.c || 0, prev = s.prevDay?.c || 0;
-    if (price > 0 && prev > 0) quotes.set(s.ticker, { price, chg: +((price / prev - 1) * 100).toFixed(2) });
+    if (price > 0 && prev > 0) quotes.set(s.ticker, { price, chg: +((price / prev - 1) * 100).toFixed(2), vol: s.day?.v || 0 });
+  }
+  // RVOL on the same footing as Liquid Leaders: against the name's usual volume by this
+  // (15-minute delayed) time of day. Names outside that universe (under $10 or $100M a day) stay blank.
+  const clock = Math.min(16 * 60, etMinute(Date.now()) - 15);
+  const extra = new Map<string, { rvol: number | null; rs: number | null }>();
+  for (const t of names) {
+    const h = leaders?.names?.[t], v = quotes.get(t)?.vol ?? 0;
+    const tr = h?.prof?.length && v > 0 ? trackingPct(v, h.prof, clock) : null;
+    extra.set(t, { rvol: tr == null ? null : +Math.max(0, 1 + tr / 100).toFixed(2), rs: rsLookup.available ? rsLookup.get(t) : null });
   }
 
   const live: SentimentLive = {
     asOf: Date.now(),
-    rows: buildRows(names, new Map(st.map(s => [s.t, s])), stTags, new Map(reddit.map(r => [r.t, r])), bsky, quotes),
+    rows: buildRows(names, new Map(st.map(s => [s.t, s])), stTags, new Map(reddit.map(r => [r.t, r])), bsky, quotes, extra),
     sources: {
       stocktwits: stJ ? `${stTags.size} of ${names.length} read` : 'unavailable',
       reddit: apeJ ? 'ok' : 'unavailable',

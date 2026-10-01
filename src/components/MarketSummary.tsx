@@ -1863,8 +1863,17 @@ const LiquidLeaders = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => {
    tables (TICKER, CHG%, PRC) and then the three sources; the ⓘ at the end of a
    row is StockTwits' own one-line reason the name is trending. */
 const leanCls = (pct: number | null) => (pct == null ? 'text-slate-600' : pct >= 70 ? 'text-emerald-400' : pct <= 40 ? 'text-rose-400' : 'text-slate-300');
-const SocialSentiment = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => {
+type SentSortKey = 'cnf' | 'chg' | 'price' | 'rvol' | 'vol' | 'rs' | 'st' | 'red' | 'bsky';
+const sentSortVal = (r: SentimentLive['rows'][number], k: SentSortKey, cnfMap?: Record<string, number>): number | null =>
+  k === 'cnf' ? (cnfMap?.[r.t] ?? null) : k === 'chg' ? (r.chg ?? null) : k === 'price' ? (r.price ?? null)
+  : k === 'rvol' ? (r.rvol ?? null) : k === 'vol' ? (r.vol ?? null) : k === 'rs' ? (r.rs ?? null)
+  : k === 'st' ? (r.st ? bullShare(r.st.bull, r.st.bear) : null)
+  : k === 'red' ? (r.reddit?.mentions ?? null) : (r.bsky?.posts ?? null);
+const SocialSentiment = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTier>; cnfMap?: Record<string, number> }) => {
   const [live, setLive] = React.useState<SentimentLive | null>(null);
+  // null = most talked about first. Click: high to low, again: low to high, a third time: back.
+  const [sort, setSort] = React.useState<{ key: SentSortKey; dir: SortDir } | null>(null);
+  const onSort = (k: SentSortKey) => setSort(cur => (!cur || cur.key !== k ? { key: k, dir: 'desc' } : cur.dir === 'desc' ? { key: k, dir: 'asc' } : null));
   React.useEffect(() => {
     let on = true;
     const load = () => fetch('/api/sentiment/latest').then(r => (r.ok ? r.json() : null))
@@ -1877,14 +1886,21 @@ const SocialSentiment = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) =>
   const H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
   const asOf = new Date(live.asOf).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
   const down = Object.entries(live.sources).filter(([, v]) => v === 'unavailable').map(([k]) => k === 'stocktwits' ? 'StockTwits' : k === 'reddit' ? 'Reddit' : 'Bluesky');
+  const SS = 'cursor-pointer hover:text-slate-400 transition-colors select-none';
+  const badge = 'inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center';
+  const arrow = (k: SentSortKey) => (sort?.key === k ? (sort.dir === 'desc' ? ' ↓' : ' ↑') : '');
   const header = (
     <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
       <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
-      <span className={`${H} w-[46px] md:w-[52px] text-right ml-1`}>Chg%</span>
-      <span className={`${H} w-[36px] md:w-[42px] text-right ml-2 md:ml-1`}>Prc</span>
-      <span className={`${H} w-[30px] md:w-[36px] text-right ml-2 md:ml-1`}>ST</span>
-      <span className={`${H} w-[42px] md:w-[52px] text-right ml-2 md:ml-1`}>Red</span>
-      <span className={`${H} w-[28px] md:w-[36px] text-right ml-2 md:ml-1`}>Bsky</span>
+      <span className={`${H} ${SS} w-[20px] md:w-[22px] text-center ml-2 md:ml-1`} onClick={() => onSort('cnf')}>CNF{arrow('cnf')}</span>
+      <span className={`${H} ${SS} w-[46px] md:w-[52px] text-right ml-1`} onClick={() => onSort('chg')}>Chg%{arrow('chg')}</span>
+      <span className={`${H} ${SS} hidden md:inline-block w-[42px] text-right ml-1`} onClick={() => onSort('price')}>Prc{arrow('price')}</span>
+      <span className={`${H} ${SS} w-[36px] md:w-[40px] text-right ml-2 md:ml-1`} onClick={() => onSort('rvol')}>Rvol{arrow('rvol')}</span>
+      <span className={`${H} ${SS} hidden md:inline-block w-[36px] text-right ml-1`} onClick={() => onSort('vol')}>Vol{arrow('vol')}</span>
+      <span className={`${H} ${SS} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`} onClick={() => onSort('rs')}>RS{arrow('rs')}</span>
+      <span className={`${H} ${SS} w-[30px] md:w-[36px] text-right ml-2 md:ml-1`} onClick={() => onSort('st')}>ST{arrow('st')}</span>
+      <span className={`${H} ${SS} w-[42px] md:w-[52px] text-right ml-2 md:ml-1`} onClick={() => onSort('red')}>Red{arrow('red')}</span>
+      <span className={`${H} ${SS} w-[28px] md:w-[36px] text-right ml-2 md:ml-1`} onClick={() => onSort('bsky')}>Bsky{arrow('bsky')}</span>
     </div>
   );
   const row = (r: SentimentLive['rows'][number]) => {
@@ -1892,12 +1908,22 @@ const SocialSentiment = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) =>
     const bsPct = r.bsky ? bullShare(r.bsky.bull, r.bsky.bear) : null;
     const rx = r.reddit && r.reddit.prev > 0 ? r.reddit.mentions / r.reddit.prev : null;
     const edge = edgeMap?.[r.t] ?? null;
+    const cnf = cnfMap?.[r.t] ?? null;
+    const rv = r.rvol ?? null;
     return (
       <div key={r.t} className={`flex items-center whitespace-nowrap py-[1px] ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
         title={edge ? `${r.n ?? r.t} · ${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : (r.n ?? r.t)}>
         <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
+        <span className="inline-block w-[20px] md:w-[22px] text-center ml-2 md:ml-1">{cnf != null
+          ? <span className={`${badge} ${cnfBadgeCls(cnf)}`}>{Math.round(cnf)}</span>
+          : <span className={`${badge} text-slate-600 border-slate-700/40 bg-slate-800/30`}>-</span>}</span>
         <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${r.chg == null ? 'text-slate-600' : r.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{r.chg == null ? '—' : `${r.chg >= 0 ? '+' : ''}${r.chg.toFixed(2)}%`}</span>
-        <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-2 md:ml-1">{r.price == null ? '—' : r.price.toFixed(2)}</span>
+        <span className="text-[9px] tabular-nums hidden md:inline-block w-[42px] text-right text-slate-300 ml-1">{r.price == null ? '—' : r.price.toFixed(2)}</span>
+        <span className={`text-[9px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-2 md:ml-1 ${rv == null ? 'text-slate-600' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv == null ? '—' : `${rv < 10 ? rv.toFixed(1) : Math.round(rv)}x`}</span>
+        <span className="text-[9px] tabular-nums hidden md:inline-block w-[36px] text-right text-slate-400 ml-1">{fmtShares(r.vol ?? undefined)}</span>
+        <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{r.rs != null
+          ? <span className={`${badge} ${rsBadge(r.rs)}`}>{r.rs}</span>
+          : <span className={`${badge} text-slate-600 border-slate-700/40 bg-slate-800/30`}>-</span>}</span>
         <span className={`text-[9px] tabular-nums font-semibold inline-block w-[30px] md:w-[36px] text-right ml-2 md:ml-1 ${leanCls(stPct)}`}>{stPct == null ? '—' : `${stPct}%`}</span>
         <span className="text-[9px] tabular-nums inline-block w-[42px] md:w-[52px] text-right ml-2 md:ml-1 text-slate-300">
           {r.reddit ? <>{r.reddit.mentions}{rx != null && rx >= 1.5 ? <span className="text-emerald-400"> {rx >= 10 ? Math.round(rx) : rx.toFixed(1)}x</span> : null}</> : <span className="text-slate-600">—</span>}
@@ -1907,8 +1933,12 @@ const SocialSentiment = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) =>
       </div>
     );
   };
-  // The top 10, five a side (stacked on a phone).
-  const top = live.rows.slice(0, 10);
+  // The top 10, sorted as a set, then five a side (stacked on a phone). Blanks sort last.
+  const top = !sort ? live.rows.slice(0, 10) : [...live.rows.slice(0, 10)].sort((a, b) => {
+    const av = sentSortVal(a, sort.key, cnfMap), bv = sentSortVal(b, sort.key, cnfMap);
+    if (av == null || bv == null) return av == null ? (bv == null ? 0 : 1) : -1;
+    return sort.dir === 'desc' ? bv - av : av - bv;
+  });
   return (
     <div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">
@@ -1918,7 +1948,7 @@ const SocialSentiment = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) =>
       </div>
       <div className="text-[10px] text-slate-500 font-medium mt-2 flex items-center gap-1">
         <span>ST StockTwits · RED Reddit · BSKY Bluesky · as of {asOf} ET{down.length ? ` · ${down.join(', ')} unavailable this round` : ''} · X not included</span>
-        <InfoDot text={"ST — StockTwits: of the latest 30 messages tagged bullish or bearish, the share tagged bullish. Green 70%+, red 40% or less. A dash means fewer than 5 tagged.\n\nRED — Reddit mentions across the stock subreddits in the last 24 hours (ApeWisdom); 3x means three times the 24 hours before.\n\nBSKY — Bluesky posts with the cashtag in the last 24 hours. The colour is a crude word count (buy, calls, breakout against sell, puts, crash), shown only with 5+ posts that lean.\n\nⓘ on a row — StockTwits' own one-line summary of why the name is trending.\n\nX is not included: reading it needs X's paid search plan.\n\nThe 10 names are the most talked about across StockTwits trending and Reddit. Crowd sentiment is not a tested signal here — at extremes it marks tops as often as starts. Prices 15 minutes delayed."} />
+        <InfoDot text={"ST — StockTwits: of the latest 30 messages tagged bullish or bearish, the share tagged bullish. Green 70%+, red 40% or less. A dash means fewer than 5 tagged.\n\nRED — Reddit mentions across the stock subreddits in the last 24 hours (ApeWisdom); 3x means three times the 24 hours before.\n\nBSKY — Bluesky posts with the cashtag in the last 24 hours. The colour is a crude word count (buy, calls, breakout against sell, puts, crash), shown only with 5+ posts that lean.\n\nCNF — the site's confluence score, for names one of the scans carries today; a dash means no scan has it.\n\nRVOL — today's volume against the stock's own usual by this time of day (Liquid Leaders' 20-session profile); blank for names outside that list (under $10 or $100M a day). VOL — shares today. RS — the RS Rating, 1-99, as of yesterday's close. On a phone PRC and VOL are hidden to fit.\n\nⓘ on a row — StockTwits' own one-line summary of why the name is trending.\n\nX is not included: reading it needs X's paid search plan.\n\nThe 10 names are the most talked about across StockTwits trending and Reddit. Crowd sentiment is not a tested signal here — at extremes it marks tops as often as starts. Prices 15 minutes delayed."} />
       </div>
     </div>
   );
@@ -2540,6 +2570,16 @@ export default function MarketSummary() {
   const onSetupVisible = React.useCallback((t: string[]) => setSetupVisible(t), []);
   const [moverVisible, setMoverVisible] = useState<string[]>([]);
   const onMoverVisible = React.useCallback((t: string[]) => setMoverVisible(t), []);
+  // Social Sentiment's CNF column: the best scan score each name has today (scoreOf, the
+  // Setups Summary's number), from the pool already on the page.
+  const sentCnfMap = React.useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const item of (macroInsights?.setupPool ?? []) as any[]) {
+      const t = String(item?.ticker ?? '').toUpperCase(), v = scoreOf(item);
+      if (t && v > 0 && (m[t] == null || v > m[t])) m[t] = v;
+    }
+    return m;
+  }, [macroInsights?.setupPool]);
   const macroRef = useRef<MacroInsights | null>(null);
   macroRef.current = macroInsights;
   const handleScanFilter = useCallback((k: ScanFilterKey) => {
@@ -3126,7 +3166,7 @@ export default function MarketSummary() {
                               ) : isOpen && label === 'Best Setups Today' ? (
                                 <BestSetups watch={orbWatch} />
                               ) : isOpen && label === 'Social Sentiment' ? (
-                                <SocialSentiment edgeMap={macroInsights?.edgeMap} />
+                                <SocialSentiment edgeMap={macroInsights?.edgeMap} cnfMap={sentCnfMap} />
                               ) : isOpen && label === 'Liquid Leaders' ? (
                                 <LiquidLeaders edgeMap={macroInsights?.edgeMap} />
                               ) : isOpen && label === 'Top Movers' && moverView === 'early' ? (

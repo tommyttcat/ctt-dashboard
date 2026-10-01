@@ -28,6 +28,9 @@ export interface SentimentRow {
   n?: string;
   price?: number | null;
   chg?: number | null;
+  vol?: number | null;     // shares today
+  rvol?: number | null;    // today's volume / usual by this time of day (Liquid Leaders profile), a multiple
+  rs?: number | null;      // the site's RS Rating
   st?: { rank: number | null; bull: number; bear: number; msgs: number; watchers?: number; summary?: string } | null;
   reddit?: { rank: number; mentions: number; prev: number } | null;
   bsky?: { posts: number; bull: number; bear: number } | null;
@@ -78,15 +81,19 @@ export function buildRows(
   stTags: Map<string, { bull: number; bear: number; msgs: number }>,
   reddit: Map<string, RedditIn>,
   bsky: Map<string, { posts: number; bull: number; bear: number }>,
-  quotes: Map<string, { price: number; chg: number }>,
+  quotes: Map<string, { price: number; chg: number; vol?: number }>,
+  extra: Map<string, { rvol: number | null; rs: number | null }> = new Map(),
 ): SentimentRow[] {
   return names.map(t => {
-    const s = st.get(t), tags = stTags.get(t), r = reddit.get(t), q = quotes.get(t);
+    const s = st.get(t), tags = stTags.get(t), r = reddit.get(t), q = quotes.get(t), x = extra.get(t);
     return {
       t,
       n: s?.n ?? r?.n,
       price: q?.price ?? null,
       chg: q?.chg ?? null,
+      vol: q?.vol ?? null,
+      rvol: x?.rvol ?? null,
+      rs: x?.rs ?? null,
       st: s || tags ? { rank: s?.rank ?? null, bull: tags?.bull ?? 0, bear: tags?.bear ?? 0, msgs: tags?.msgs ?? 0, watchers: s?.watchers, summary: s?.summary } : null,
       reddit: r ? { rank: r.rank, mentions: r.mentions, prev: r.prev } : null,
       bsky: bsky.get(t) ?? null,
