@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { authorizedOrAdmin } from '@/lib/apiAuth';
 import { kv } from '@vercel/kv';
 import { getMarketDay, isMarketSessionWindow } from '@/lib/marketCalendar';
 
@@ -475,9 +476,9 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const force = url.searchParams.get('force') === '1';
 
-  const cronSecret = process.env.CRON_SECRET;
-  const authHeader = req.headers.get('authorization');
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}` && !force) {
+  /* `force` skips the session gates below; it no longer skips auth (it
+     used to, so `?force=1` let anyone rewrite the live brief). */
+  if (!(await authorizedOrAdmin(req))) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 

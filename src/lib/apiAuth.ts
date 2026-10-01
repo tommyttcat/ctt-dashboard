@@ -1,3 +1,4 @@
+import { verifySession, SESSION_COOKIE } from '@/lib/auth';
 /* lib/apiAuth.ts — who may write through the public API.
  *
  * WHY THIS EXISTS
@@ -46,4 +47,19 @@ export function authorized(req: Request): boolean {
 export function internalAuthHeaders(): Record<string, string> {
   const key = process.env.SOCIAL_POST_KEY || process.env.CRON_SECRET || '';
   return key ? { authorization: `Bearer ${key}` } : {};
+}
+
+/* The admin page sends from the browser, which cannot hold either key; it
+   carries the signed session cookie instead. Until 24 Sep 2026 the phase
+   email, Substack and analyst-generate routes let it through with `?force=1`
+   and no credential at all — which let anyone email every subscriber, publish
+   to Substack and post to X/Bluesky by typing a URL. A signed-in admin is the
+   credential the page actually has. JWT only, no KV read. */
+export async function authorizedOrAdmin(req: Request): Promise<boolean> {
+  if (authorized(req)) return true;
+  const cookie = req.headers.get('cookie') || '';
+  const m = cookie.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));
+  if (!m) return false;
+  const session = await verifySession(decodeURIComponent(m[1])).catch(() => null);
+  return !!session?.isAdmin;
 }

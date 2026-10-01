@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { authorizedOrAdmin } from '@/lib/apiAuth';
 import { etGate } from '@/lib/etCron';
 import { Resend } from 'resend';
 import { kv } from '@vercel/kv';
@@ -1351,8 +1352,11 @@ export async function GET(req: Request) {
 
   const force = url.searchParams.get('force') === '1';
   const cronSecret = process.env.CRON_SECRET;
-  const authHeader = req.headers.get('authorization');
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}` && !force) {
+  /* `force` skips the clock and holiday gates below — it used to skip this
+     check too, which let anyone email every subscriber and post to Substack,
+     X and Bluesky with `?force=1`. A key (cron, routine) or a signed-in admin
+     (the admin page) is now required whatever the flags say. */
+  if (!(await authorizedOrAdmin(req))) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 

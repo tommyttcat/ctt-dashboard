@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { internalAuthHeaders } from '@/lib/apiAuth';
+import { internalAuthHeaders, authorizedOrAdmin } from '@/lib/apiAuth';
 import { kv } from '@vercel/kv';
 import { stampLogo, fetchImageBytes, socialImage } from '@/lib/socialCover';
 
@@ -478,12 +478,11 @@ export async function GET(req: Request) {
   const send = url.searchParams.get('send') !== '0';
   const force = url.searchParams.get('force') === '1';
 
-  const secret = process.env.CRON_SECRET;
-  if (!preview && !force && secret) {
-    const auth = req.headers.get('authorization') || '';
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-    }
+  /* Preview renders and publishes nothing, so it stays open. `force` no
+     longer skips this check — it used to, which let anyone publish to
+     Substack with `?force=1`. */
+  if (!preview && !(await authorizedOrAdmin(req))) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
   const origin = resolveOrigin(req);

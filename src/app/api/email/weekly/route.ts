@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { authorized } from '@/lib/apiAuth';
+import { authorized, authorizedOrAdmin } from '@/lib/apiAuth';
 import { PLAN_RESULTS_KEY, type PlanResults } from '@/lib/trackPlan';
 import { etGate } from '@/lib/etCron';
 import { Resend } from 'resend';
@@ -698,7 +698,9 @@ export async function GET(req: Request) {
      `force` KEEPS its real job — the routine fires at 15:00 ET and needs it
      to pass the 17:00 ET gate — it just no longer opens the door on the way
      through. `preview` stays open: it renders the email and sends nothing. */
-  if (!preview && !authorized(req)) {
+  /* The admin page's "send weekly" button calls this from the browser,
+     which has no key — only the admin session cookie. */
+  if (!preview && !(await authorizedOrAdmin(req))) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
