@@ -1745,7 +1745,7 @@ const WashoutLight = () => {
    5-year highs (price, and price against SPY), today's biggest gainers, and
    volume against each name's own usual at the same time of day. Polygon data,
    15 minutes delayed; refreshed every 5 minutes by /api/leaders/live. */
-/* The four lists sit side by side (2 x 2 from lg up, stacked on a phone), each
+/* The two lists (RS line high, heaviest volume) sit side by side from lg up, stacked on a phone,, each
    on the scanner tables' column order and widths: TICKER, CHG%, PRC, RVOL, VOL,
    RS (renderStdRow / SortableHeader). RVOL is against the name's own usual
    volume by this time of day, as a multiple. RS is the site's RS Rating. */
@@ -1808,12 +1808,10 @@ const LiquidLeaders = () => {
           {tile('RS lines at 5-yr high', <span className="text-slate-100">{live.counts.rsHigh}</span>, 'outrunning SPY more than ever')}
           {tile('Heavy volume', <span className="text-slate-100">{live.counts.heavy}</span>, '2x usual pace or more')}
         </div>
-        <InfoDot text={"RS LINE HIGH — the RS line is the stock's price divided by SPY. When it rises the stock is beating the market; at a 5-year high it is beating the market by more than at any time in 5 years, often before the price itself breaks out.\n\nPRICE HIGH — the price is above its highest close of the last 5 years.\n\nGAINERS — today's biggest moves among these names.\n\nHEAVIEST VOLUME — RVOL: today's volume against this stock's own usual volume by this time of day (its last 20 sessions, by half hour). 2x means twice its usual pace.\n\nRS — the RS Rating, 1-99: stronger than that % of the market over the last 12 months, as of yesterday's close. Different from the RS line: the rating ranks the stock against all others, the line compares it with SPY.\n\nVOL — shares traded today so far.\n\nThe universe is NASDAQ and NYSE common stock at $10+ trading $100M+ a day, rebuilt each evening. Data is 15 minutes delayed; the history goes back 5 years, so highs are 5-year highs, not all-time. A view of what is leading, not a tested buy signal."} />
+        <InfoDot text={"RS LINE HIGH — the RS line is the stock's price divided by SPY. When it rises the stock is beating the market; at a 5-year high it is beating the market by more than at any time in 5 years, often before the price itself breaks out.\n\nHEAVIEST VOLUME — RVOL: today's volume against this stock's own usual volume by this time of day (its last 20 sessions, by half hour). 2x means twice its usual pace.\n\nRS — the RS Rating, 1-99: stronger than that % of the market over the last 12 months, as of yesterday's close. Different from the RS line: the rating ranks the stock against all others, the line compares it with SPY.\n\nVOL — shares traded today so far.\n\nThe universe is NASDAQ and NYSE common stock at $10+ trading $100M+ a day, rebuilt each evening. Data is 15 minutes delayed; the history goes back 5 years, so highs are 5-year highs, not all-time. A view of what is leading, not a tested buy signal."} />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">
         {list('RS line at 5-yr high', live.counts.rsHigh, live.rsHigh)}
-        {list('Price at 5-yr high', live.counts.priceHigh, live.priceHigh)}
-        {list('Gainers', null, live.gainers)}
         {list('Heaviest volume vs usual', live.counts.heavy, live.volume)}
       </div>
       <p className="text-[10px] text-slate-500 font-medium mt-2">
@@ -2130,7 +2128,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Best Setups Today', color: 'emerald', blurb: 'The picks from the best-tested entry. Buy only on the volume breakout after 10:00.' },
   { label: 'Setups Summary', color: 'violet', blurb: 'All scans pooled — filter by source or setup pattern. One stop shop.' },
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves now. Volume-confirmed is tradeable; a thin gap is a fade.' },
-  { label: 'Liquid Leaders', color: 'cyan', blurb: 'The ~1,000 most traded stocks: which are at 5-year highs, outrunning the market, or trading heavy volume.' },
+  { label: 'Liquid Leaders', color: 'cyan', blurb: 'The ~1,000 most traded stocks: which are outrunning the market most, and which trade the heaviest volume.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, and who is on air.' },
   { label: '$Vol Summary', color: 'teal', blurb: 'Top 20 by dollar volume — where the money actually is today.' },
   { label: 'Daily Setups Thesis', color: 'cyan', blurb: 'Day trades vs multi-day swing holds from the daily scanner — sorted by blended score.' },
