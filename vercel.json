@@ -105,6 +105,10 @@
       "schedule": "50 21,22 * * 1-5"
     },
     {
+      "path": "/api/analyst/ledger/score",
+      "schedule": "40 0,1 * * 2-6"
+    },
+    {
       "path": "/api/social/scorecard?slot=open",
       "schedule": "55 14,15 * * 1-5"
     },
