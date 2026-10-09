@@ -308,62 +308,14 @@ function buildFallbackNarrative(data: any): any {
     catalysts.push({ title: `${sip.ticker} ${sip.chg} — ${catLabel}`, body });
   }
 
-  // Build watch stocks with real analysis
-  const featured = data.featured || {};
-  const stockAnalysis: Record<string, { title: string; body: string }> = {
-    SPCX: {
-      title: 'Aerospace leader — watching for continuation',
-      body: 'SpaceX has been the strongest name on the tape.',
-    },
-    RKLB: {
-      title: 'Rocket Lab riding the space trade',
-      body: 'Rocket Lab has been running with the broader aerospace/launch sector.',
-    },
-    ASTS: {
-      title: 'Satellite-to-cell thesis remains live',
-      body: 'AST SpaceMobile continues to build higher lows.',
-    },
-  };
-
-  // Dynamic watch stocks: top 3 by CNF score from scanner data
-  const watchTickers = topSIPs
-    .filter((s: any) => s.cnfScore >= 50 && !(s.stage && /4/.test(s.stage)))
-    .sort((a: any, b: any) => (b.cnfScore || 0) - (a.cnfScore || 0))
-    .slice(0, 3)
-    .map((s: any) => s.ticker);
-  if (watchTickers.length < 3) {
-    for (const s of topSIPs) {
-      if (!watchTickers.includes(s.ticker) && !(s.stage && /4/.test(s.stage))) watchTickers.push(s.ticker);
-      if (watchTickers.length >= 3) break;
-    }
-  }
-
-  const watchStocks = watchTickers.map((t: string) => {
-    const fd = featured[t];
-    const sip = topSIPs.find((s: any) => s.ticker === t);
-    const base = stockAnalysis[t] || { title: 'Active', body: '' };
-    const price = fd?.close ? `$${fmtPrice(fd.close)}` : '?';
-    const pct = fd?.pct || sip?.chg || '?';
-
-    let body = `Closed at ${price}, ${pct} on the week. `;
-    if (sip) {
-      body += `${sip.setup ? sip.setup + ' setup, ' : ''}${sip.stage || ''}. `;
-      if (sip.extended) {
-        body += `Currently overextended (${sip.distToEma21 ? sip.distToEma21 + '% above 21 EMA' : 'extended'}) — wait for a pullback to act on this.`;
-      } else {
-        body += `Watch for continuation above ${price} or a pullback to the 10/21 EMA zone for a swing entry.`;
-      }
-    } else {
-      body += `${base.body} Watch for follow-through above ${price} or a pullback to recent consolidation for entry.`;
-    }
-    return { ticker: t, title: sip?.setup ? `${sip.setup} — ${sip.stage || 'Active'}` : base.title, body };
-  });
+  /* No watch picks (9 Oct 2026). The brief's picks lost money against SPY
+     (31 Aug-8 Oct: 110 picks, 37% winners, -0.8% a trade vs SPY 0.0%), so
+     CTT publishes no picks anywhere; the key stays, empty, for the renderers. */
+  const watchStocks: { ticker: string; title: string; body: string }[] = [];
 
   // Build avoid section — never overlap with watch list
-  const watchSet = new Set(watchTickers);
   const traps = data.traps || [];
   const avoidStocks = traps
-    .filter((t: any) => !watchSet.has(t.ticker))
     .slice(0, 3)
     .map((t: any) => ({
       ticker: t.ticker,
