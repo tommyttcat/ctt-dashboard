@@ -5,15 +5,16 @@
 // sessions plus the sessions 21 and 252 back (dates from SPY's own daily
 // history), ranks, and writes the top 50.
 //
-// Cost per run: 1 KV write (~6 KB). Polygon: ~7 reference pages, 1 SPY
+// Cost per run: 1 KV write (~6 KB), plus the hidden paper record's 1 get +
+// 1 set (~20 KB). Polygon: ~7 reference pages, 1 SPY
 // history call, 22 grouped-daily calls. Flat in users — the page reads it
 // through /api/momentum/latest behind the CDN.
 
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { etGate } from '@/lib/etCron';
-import { authorized } from '@/lib/apiAuth';
-import { MOMENTUM_KEY, rankMomentum, type MomentumList } from '@/lib/momentum';
+import { authorized, authorizedOrAdmin } from '@/lib/apiAuth';
+import { MOMENTUM_KEY, MOMENTUM_PAPER_KEY, newPaper, rankMomentum, stepPaper, type MomentumList, type MomentumPaper } from '@/lib/momentum';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -32,10 +33,16 @@ async function pg<T>(pathOrUrl: string): Promise<T | null> {
   return null;
 }
 
-type Grouped = { results?: { T: string; c: number; v: number }[] };
-const toMap = (j: Grouped | null) => new Map((j?.results ?? []).map(r => [r.T, { c: r.c, v: r.v }]));
+type Grouped = { results?: { T: string; o: number; c: number; v: number }[] };
+const toMap = (j: Grouped | null) => new Map((j?.results ?? []).map(r => [r.T, { o: r.o, c: r.c, v: r.v }]));
 
 export async function GET(req: Request) {
+  if (new URL(req.url).searchParams.get('view') === '1') {
+    if (!(await authorizedOrAdmin(req))) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    const p = await kv.get<MomentumPaper>(MOMENTUM_PAPER_KEY);
+    const last = p?.daily.at(-1);
+    return NextResponse.json(p ? { startedOn: p.startedOn, lastDate: p.lastDate, navPct: last ? +((last[1] - 1) * 100).toFixed(2) : null, spyPct: last ? +((last[2] - 1) * 100).toFixed(2) : null, days: p.daily.length, daily: p.daily } : { empty: true });
+  }
   if (!authorized(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   const gate = etGate([18], 'momentum leaders nightly');
   if (gate) return gate;
@@ -71,5 +78,20 @@ export async function GET(req: Request) {
   if (rows.length < 20) return NextResponse.json({ success: false, error: `only ${rows.length} ranked names`, universe }, { status: 502 });
   const list: MomentumList = { asOf: cal[last], builtAt: new Date().toISOString(), universe, rows };
   await kv.set(MOMENTUM_KEY, list);
-  return NextResponse.json({ success: true, asOf: list.asOf, universe, top: rows.slice(0, 10).map(r => `${r.t} ${r.mom.toFixed(0)}%`) });
+
+  /* The hidden forward record: the same list held as the test held it. Fenced
+     so a fault here never costs the list itself. 1 KV get + 1 set. */
+  let paper: Record<string, unknown> | string = 'skipped (error, see logs)';
+  try {
+    const month = cal[last].slice(0, 7);
+    const som = cal.filter(d => d.slice(0, 7) === month).length;
+    const p = (await kv.get<MomentumPaper>(MOMENTUM_PAPER_KEY)) ?? newPaper(cal[last]);
+    stepPaper(p, cal[last], som, recent[0], rows.map(r => r.t));
+    await kv.set(MOMENTUM_PAPER_KEY, p);
+    const d = p.daily.at(-1);
+    paper = { som, held: p.sleeves.map(s => s.hold.length), navPct: d ? +((d[1] - 1) * 100).toFixed(2) : null, spyPct: d ? +((d[2] - 1) * 100).toFixed(2) : null };
+  } catch (e) {
+    console.error('MOMENTUM_PAPER_ERROR', e);
+  }
+  return NextResponse.json({ success: true, asOf: list.asOf, universe, top: rows.slice(0, 10).map(r => `${r.t} ${r.mom.toFixed(0)}%`), paper });
 }

@@ -66,3 +66,64 @@ export function rankMomentum(
   rows.sort((x, y) => y.mom - x.mom);
   return { universe, rows: rows.slice(0, MOMENTUM_TOP) };
 }
+
+/* ---- Forward paper record (hidden) -----------------------------------------
+   The list above, held exactly as rank-refine.ts V1 tested it: four sleeves
+   of 25%, each rebalanced to the top 50 on the 1st / 6th / 11th / 16th
+   session of the month, filled at the NEXT session's open, 0.1% a side on
+   turnover, marked on closes; against SPY bought at the first fill. Shown
+   nowhere; read with /api/momentum/nightly?view=1. */
+export const MOMENTUM_PAPER_KEY = 'momentum_paper_v1';
+export const SLEEVE_DAYS = [1, 6, 11, 16] as const;
+export const PAPER_COST = 0.001;
+
+export interface Sleeve {
+  k: number;                              // session of the month it rebalances on
+  base: number;                           // NAV at the last fill, after costs
+  nav: number;                            // NAV at the last close
+  hold: { t: string; entry: number; last: number }[];
+  pending: string[] | null;               // chosen at a rebalance close, filled at the next open
+}
+export interface MomentumPaper {
+  startedOn: string;
+  lastDate: string | null;
+  spyEntry: number | null;
+  sleeves: Sleeve[];
+  daily: [string, number, number][];      // [date, combined NAV, SPY growth]
+}
+export const newPaper = (date: string): MomentumPaper => ({
+  startedOn: date, lastDate: null, spyEntry: null,
+  sleeves: SLEEVE_DAYS.map(k => ({ k, base: 1, nav: 1, hold: [], pending: null })), daily: [],
+});
+
+type OC = { o: number; c: number };
+
+/** One session forward. `som` = this session's number within its month (1-based). */
+export function stepPaper(p: MomentumPaper, date: string, som: number, bars: Map<string, OC>, top: string[]): void {
+  if (p.lastDate === date) return;
+  for (const s of p.sleeves) {
+    if (s.pending) {
+      // sell the old book and buy the new one at today's open
+      let v = s.base;
+      if (s.hold.length) {
+        const r = s.hold.reduce((a, h) => { const b = bars.get(h.t); const px = b && b.o > 0 ? b.o : h.last; return a + px / h.entry - 1; }, 0) / s.hold.length;
+        v = s.base * (1 + r);
+      }
+      const old = new Set(s.hold.map(h => h.t));
+      const next = s.pending.filter(t => (bars.get(t)?.o ?? 0) > 0);
+      const turn = next.length ? next.filter(t => !old.has(t)).length / next.length : 0;
+      s.base = v * (1 - 2 * PAPER_COST * turn);
+      s.hold = next.map(t => ({ t, entry: bars.get(t)!.o, last: bars.get(t)!.o }));
+      s.pending = null;
+    }
+    for (const h of s.hold) { const b = bars.get(h.t); if (b && b.c > 0) h.last = b.c; }
+    s.nav = s.hold.length ? s.base * (1 + s.hold.reduce((a, h) => a + h.last / h.entry - 1, 0) / s.hold.length) : s.base;
+    if (som === s.k) s.pending = top.slice();
+  }
+  const spy = bars.get('SPY');
+  if (p.spyEntry == null && p.sleeves.some(s => s.hold.length) && spy?.o) p.spyEntry = spy.o;
+  const nav = p.sleeves.reduce((a, s) => a + s.nav, 0) / p.sleeves.length;
+  if (p.spyEntry != null && spy?.c) p.daily.push([date, +nav.toFixed(6), +(spy.c / p.spyEntry).toFixed(6)]);
+  p.daily = p.daily.slice(-800);
+  p.lastDate = date;
+}
