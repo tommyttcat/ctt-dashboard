@@ -163,7 +163,12 @@ function simulate(c: BarCache, g: Sig, mins: M[]): Trade | 'noOR' | 'negOR' | 't
     if (day >= 3 && left > 0 && C[id][s] < sma10(s)) { exits.push([s, left, C[id][s]]); left = 0; break; }
     if (day >= 120) { exits.push([s, left, C[id][s]]); left = 0; break; }
   }
-  if (left > 0) exits.push([c.sessions.length - 1, left, C[id][c.sessions.length - 1]]);
+  if (left > 0) {
+    // Still open at the data's end: mark at the last session it actually traded.
+    let s = c.sessions.length - 1;
+    while (s > e && Number.isNaN(C[id][s])) s--;
+    exits.push([s, left, C[id][s]]);
+  }
   const ret = exits.reduce((a, [, f, p]) => a + f * (p / fill - 1), 0) - 2 * COST;
   return { ticker: g.ticker, date: g.date, ei: e, mkt: g.mkt, r63: g.gap, fill, stop: Math.min(lod, fill * 0.995), exits, ret };
 }
