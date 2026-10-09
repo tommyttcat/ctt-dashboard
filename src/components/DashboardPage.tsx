@@ -11,7 +11,7 @@ import { WatchlistProvider } from './WatchlistContext';
 
 
 import Scorecard from './Scorecard';
-import MarketSummary from './MarketSummary';
+import MarketSummary, { ExposureStrip } from './MarketSummary';
 import TechnicalsEcon from './TechnicalsEcon';
 import EarningsCalendar from './EarningsCalendar';
 
@@ -69,6 +69,7 @@ export default function DailySetupsPage() {
             <div className="px-0 md:px-10 py-6 space-y-6">
               <QuickStart onOpen={() => setHelpOpen(true)} />
               <Scorecard />
+              <ExposureStrip />
               <MarketSummary />
               {tier !== 'core' && <TechnicalsEcon />}
               {tier !== 'core' && <EarningsCalendar />}

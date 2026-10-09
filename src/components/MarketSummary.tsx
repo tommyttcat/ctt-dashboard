@@ -1617,7 +1617,7 @@ type ExposureView = {
   asOf: string; mode: 'in' | 'out' | 'boost'; exposure: number; qqq: number; sma200: number;
   pctFrom200: number; breadth: number | null; boostDay: number | null;
 };
-const ExposureStrip = () => {
+export const ExposureStrip = () => {
   const [s, setS] = React.useState<ExposureView | null>(null);
   React.useEffect(() => {
     let on = true;
@@ -2927,7 +2927,6 @@ export default function MarketSummary() {
                           </button>
                         )}
                       </div>
-                      <ExposureStrip />
                       <div className="mb-3 px-1">
                         <ScanLegend activeFilter={scanFilter} onFilterChange={handleScanFilter} />
                       </div>
