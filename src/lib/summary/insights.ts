@@ -27,7 +27,6 @@ import {
   fmtLevel,
   fmtVolStr,
   hasRealCatalyst,
-  livePlanOf,
   num,
   numOrNull,
   pctFrom10,
@@ -37,8 +36,6 @@ import {
   priceOf,
   reachInAdr,
   rtrLabel,
-  buyToken,
-  stopToken,
   rvolOf,
   scoreOf,
   setupOf,
@@ -295,13 +292,7 @@ export const buildCatalystBrief = (s: any): string => {
   if (d21 != null) bits.push(`${d21 >= 0 ? '+' : ''}${d21.toFixed(1)}% vs the 21 EMA`);
   if (cnf) bits.push(`CNF ${cnf}`);
 
-  // If the name has a live plan, the levels belong in the brief — a catalyst
-  // without an entry and an exit is a story, not a trade.
-  const p = livePlanOf(s);
-  if (p?.trigger != null) {
-    bits.push(buyToken(s, p.trigger));
-    if (p.stop != null) bits.push(stopToken(p.stop));
-  }
+  // No buy or stop levels (9 Oct 2026): the published levels lost money live.
   return bits.join(' · ') + '.';
 };
 
@@ -346,19 +337,7 @@ export const buildWatchReason = (s: any): string => {
     else parts.push(`${d21.toFixed(1)}% under the 21 EMA — structure needs repair first`);
   }
 
-  // The card keeps reach where the Trade Plan row drops it: the row is a
-  // ranked list already filtered on reach, but a watch card can hold a name
-  // whose trigger is nowhere near, and saying so is the whole point.
-  const p = livePlanOf(s);
-  if (p?.trigger != null) {
-    // Two numbers only: where it becomes a buy, where it is wrong.
-    parts.push(p.stop != null ? `${buyToken(s, p.trigger)} · ${stopToken(p.stop)}` : buyToken(s, p.trigger));
-  } else if (s?.plan?.collapsed === true) {
-    parts.push('no long plan — price has collapsed away from its averages');
-  } else if (s?.plan?.overextended === true) {
-    parts.push('no usable plan — too far past the 21 EMA to size a stop');
-  }
-
+  // No buy or stop levels (9 Oct 2026): the published levels lost money live.
   if (s?.stochK != null && !isNaN(Number(s.stochK))) {
     const k = Number(s.stochK);
     if (k <= 25) parts.push(`stoch ${k.toFixed(0)} (oversold reset)`);

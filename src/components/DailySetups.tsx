@@ -1,6 +1,11 @@
 'use client';
 
-// DailySetups — v2.4
+// DailySetups — v2.5
+//
+// v2.5: STATUS column and PLAN filter removed. The site publishes no buy
+//       levels, stops or targets any more — the published buy levels lost
+//       money live — so nothing on this table reads the trade plan except
+//       the POSTURE filter's extension check.
 //
 // v2.4: news asterisk beside the ticker, and provenance on the sub-row
 //       headline. Same treatment as StocksInPlay v3.4 and TopMovers v1.4.
@@ -65,7 +70,6 @@
 //       only the churners) and is the one worth pressing daily.
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 import { fetchScannerLatest } from '@/lib/scannerLatest';
 import { useMarketData } from './MarketDataContext';
 import { rmeLabel } from '@/lib/indicators/rme';
@@ -78,22 +82,20 @@ import { WatchlistToggle } from './WatchlistPanel';
 import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
 import { edgeTier, EDGE_FILTER_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
-import ScanStatsNote from './ScanStatsNote';
 import {
   formatTime,
-  planShortOf, planBadgeOf, planSortValueOf, cnfBreakdownLines, matchesCapFilter,
-  CNF_BUCKETS, CNF_MIN_SCORE, ADR_BUCKETS, PLAN_BUCKETS, CAP_BUCKETS,
+  cnfBreakdownLines, matchesCapFilter,
+  CNF_BUCKETS, CNF_MIN_SCORE, ADR_BUCKETS, CAP_BUCKETS,
   type TradePlanRow, type SortDirection, type CnfFilterType, type VwapFilterType,
-  type AdrFilterType, type PlanFilterType, type CapFilterType,
+  type AdrFilterType, type CapFilterType,
 } from '@/lib/scans/tableFormat';
 import {
   SCAN, SortHeader, FilterPillGroup, BlueDot, RedDot,
   ScoreCell, RsCell, PriceCell, ChgCell, Ema1021Cell, VolCell, DollarVolCell,
-  RvolCell, FloatCell, AdrCell, MfCell, StatusCell, DtcCell, McapCell, StageCell, SectorCell,
+  RvolCell, FloatCell, AdrCell, MfCell, DtcCell, McapCell, StageCell, SectorCell,
 } from './scan/ScanTable';
 import { usePhoneTable } from './scan/usePhoneTable';
 import { TickerCell } from './scan/TickerCell';
-import { planStatusView } from '@/lib/scans/triggerProximity';
 import { poll } from '@/lib/poll';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
@@ -101,10 +103,6 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   CNF: {
     what: 'Confluence score 0–100 — how many independent factors line up: RVOL, gap, range expansion, RS, catalyst quality, persistence, VWAP, regime, sector heat, dots, runway. Hover the number for the per-row breakdown and any grade ceiling.',
     colour: 'The grade is on the ticker, not here: green 70+ (A) · amber 50+ (B) · grey below (C).',
-  },
-  ROOM: {
-    what: 'Room to run: how far the nearest overhead level (a prior high or a falling average) sits above the buy level, in %. More room than the stop distance means the trade can pay more than it risks before it meets supply.',
-    colour: 'Green: clear overhead for at least twice the stop distance · slate: room of at least one stop distance · amber: at least half of it · red: less — the ceiling is closer than the stop · EXT extended · ✕ no plan.',
   },
   PRICE: {
     what: 'Last price. The dot beside it is VWAP position.',
@@ -125,7 +123,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Amber 2x+ · green 1.5x+ · grey below.',
   },
   ADR: {
-    what: 'Two readings, stacked, because neither means much alone.\n\nTOP — ADR: 20-day average daily range. The scan floor is 3%. Also the stop basis: 1.25× ADR or 2.5%, whichever is wider.\n\nBOTTOM — CHOP: 14-day Choppiness Index. Distance travelled over ground covered. ADR says the name MOVES; CHOP says it moves SOMEWHERE. A wide ADR with CHOP above 61.8 is the trap — huge daily range, no resolution, triggers fire and reverse.',
+    what: 'Two readings, stacked, because neither means much alone.\n\nTOP — ADR: 20-day average daily range. The scan floor is 3%.\n\nBOTTOM — CHOP: 14-day Choppiness Index. Distance travelled over ground covered. ADR says the name MOVES; CHOP says it moves SOMEWHERE. A wide ADR with CHOP above 61.8 is the trap — huge daily range, no resolution, triggers fire and reverse.',
     colour: 'ADR: purple 10%+ · green 5%+ · grey at the floor.\nCHOP: teal/green trending · slate mixed · amber choppy · red dead chop.',
   },
   MF: {
@@ -283,88 +281,12 @@ const tradeTypeLabel = (tradeType: string | null | undefined): string | null => 
   return tradeType.toUpperCase();
 };
 
-/* ---- Trade plan ---------------------------------------------------------
-   The scanner computes trigger / stop / 2R target / distance-to-resistance
-   and ships them on every row. These read that object; nothing is
-   recalculated here, so the table cannot disagree with the score.
-
-   SORT VALUE needs care. A name with no plan must sort to the bottom rather
-   than the top, and `clear` rows have no resistanceR at all when price is
-   above every average — those are the BEST rows, so they need a high
-   sentinel rather than a null.                                           */
-const MOVER_TIP = 'Listed after the move, so no buy level. This table only shows a stock once it has already run, and buying above that day\'s high lost money in the 5-year test. If it closed strong it goes on tomorrow\'s breakout watch, where the buy is a volume-confirmed break of the opening range after 10:00.';
-
+/* The scanner still ships its trade-plan object on every row. Nothing here
+   displays it — the site shows no buy or stop levels — but POSTURE reads its
+   overextended verdict, so the accessor stays. */
 const planOf = (row: SetupData): TradePlanRow | null => {
   const p = row.plan;
   return p && typeof p === 'object' ? p : null;
-};
-
-
-const planSortValue = (row: SetupData): number => planSortValueOf(planOf(row));
-
-const planShort = (row: SetupData): string => planShortOf(planOf(row));
-
-const planBadge = (row: SetupData): string => planBadgeOf(planOf(row));
-
-// Holding period leads the tooltip. It also has its own filter now, but the
-// tooltip is where you are already looking when you care about the levels,
-// and the same trigger means a different position depending on whether you
-// intend to be out by the close.
-const planTooltip = (row: SetupData): string => {
-  const p = planOf(row);
-  const tt = tradeTypeLabel(row.tradeType);
-  if (!p) return (row as { _mover?: boolean })._mover ? 'Listed after the move, so no buy level. This table only shows a stock once it has already run, and buying above that day\'s high lost money in the 5-year test. If it closed strong it goes on tomorrow\'s breakout watch, where the buy is a volume-confirmed break of the opening range after 10:00.' : 'No trade plan on this row — rerun the scan.';
-  if (p.tradeable !== true) return `No plan — ${p.note || 'not computable'}.`;
-
-  const lines: string[] = [];
-  if (tt) lines.push(`${tt}${tt === 'DAY' ? ' — intraday only' : ' — multi-day hold viable'}`);
-  if (tt) lines.push('');
-  lines.push(`Trigger  ${p.trigger != null ? p.trigger.toFixed(2) : '—'}  (${p.triggerLabel || '—'})`);
-  lines.push(`Stop     ${p.stop != null ? p.stop.toFixed(2) : '—'}  (${p.stopPct != null ? `−${p.stopPct.toFixed(1)}%` : '—'})`);
-  /* The measured exit comes first and the target is labelled as what it is —
-     a reference level, not the plan. On this table the fixed 2R was the worst
-     exit tested; see EXIT_GUIDANCE for the numbers. */
-  if (p.trail != null) {
-    lines.push(`Exit     trail the ${p.trailLabel || '21 EMA'}, now ${p.trail.toFixed(2)}`);
-  }
-  lines.push(`Target   ${p.target != null ? p.target.toFixed(2) : '—'}  (twice the stop distance — reference only)`);
-  if (p.trigger != null && p.stop != null) {
-    lines.push(`Risk     ${(p.trigger - p.stop).toFixed(2)} per share`);
-  }
-  lines.push('');
-  if (p.resistanceR != null) {
-    lines.push(`Nearest overhead: ${p.resistanceLabel || 'level'}${p.stopPct != null ? `, ${(p.resistanceR * p.stopPct).toFixed(1)}% above the buy level` : ''}`);
-  } else {
-    lines.push('No overhead level between trigger and target.');
-  }
-  if (p.note) {
-    lines.push('');
-    lines.push(p.note);
-  }
-
-  /* A chop reading belongs in the PLAN tooltip, not just the ADR cell,
-     because it is the thing most likely to invalidate the plan. A clean 2R
-     setup inside a churning range is a trigger that fires and reverses —
-     the levels are correct and the trade still does not work.
-
-     WORSE ON A SWING ROW THAN A DAY ROW. A day trade is out by the close and
-     only needs the move to hold for hours; a swing is held across sessions,
-     which is exactly the window a churning range uses to take it back. */
-  const chop = chopOf(row);
-  if (chop != null && chop >= CHOP_CHOP_MIN) {
-    lines.push('');
-    lines.push(
-      tt === 'SWING'
-        ? `CHOP ${chop.toFixed(0)} — the levels are sound but the range keeps rejecting both edges. A multi-day hold is the worst way to own that.`
-        : `CHOP ${chop.toFixed(0)} — the levels are sound but the range has been rejecting both edges. Expect this trigger to fail.`
-    );
-  }
-
-  lines.push('');
-  lines.push('Stop is the wider of 1.25× ADR or 2.5%. The target (twice the stop distance) is shown for sizing; it is not the exit this table measured best.');
-  lines.push('');
-  lines.push(EXIT_GUIDANCE['scanner']);
-  return lines.join('\n');
 };
 
 /* ---- POSTURE ------------------------------------------------------------
@@ -390,7 +312,7 @@ const postureOf = (row: SetupData): PostureBucket | null => {
   if (above21 == null) return null;
 
   // Extension first — see the note above. The scanner's own verdict wins if
-  // it has one, since that is what the RTR column is already showing.
+  // it has one.
   const p = planOf(row);
   if (p?.overextended === true) return 'extended';
 
@@ -402,8 +324,7 @@ const postureOf = (row: SetupData): PostureBucket | null => {
   }
 
   if (above21 === false) return 'below-21';
-  // Holding the 21 but back under the 10 — the Dr. Wish first touch, the one
-  // bucket where the stop is both defined and close.
+  // Holding the 21 but back under the 10 — the Dr. Wish first touch.
   if (row.aboveEma10 === false) return 'first-touch';
   return 'stacked';
 };
@@ -412,7 +333,7 @@ const POSTURE_META: Record<PostureFilterType, { label: string; title: string }> 
   'All': { label: 'ALL', title: '' },
   'first-touch': {
     label: 'FIRST TOUCH',
-    title: 'Holding the 21 EMA but pulled back under the 10 — the Dr. Wish first touch, where the stop is defined and close.',
+    title: 'Holding the 21 EMA but pulled back under the 10 — the Dr. Wish first touch.',
   },
   'stacked': {
     label: 'STACKED',
@@ -420,7 +341,7 @@ const POSTURE_META: Record<PostureFilterType, { label: string; title: string }> 
   },
   'extended': {
     label: 'EXTENDED',
-    title: 'More than three ATRs above the 21 EMA — no room to place a stop. Select to inspect these; leave off to exclude them.',
+    title: 'More than three ATRs above the 21 EMA — stretched far from its average. Select to inspect these; leave off to exclude them.',
   },
 };
 
@@ -468,7 +389,7 @@ const rowStatus = (row: SetupData): 'Ready' | 'Forming' | null => {
 };
 
 export default function DailySetups() {
-  // Phones: six core columns, tap a row for the rest (components/scan/usePhoneTable).
+  // Phones: five core columns, tap a row for the rest (components/scan/usePhoneTable).
   const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();
 
@@ -484,7 +405,6 @@ export default function DailySetups() {
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [adrFilter, setAdrFilter] = useState<AdrFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
-  const [planFilter, setPlanFilter] = useState<PlanFilterType>('All');
   const [holdFilter, setHoldFilter] = useState<HoldFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
@@ -586,7 +506,6 @@ export default function DailySetups() {
   const handleAdrFilter = (val: AdrFilterType) => setAdrFilter(prev => prev === val ? 'All' : val);
   const handleChopFilter = (val: ChopFilterType) => setChopFilter(prev => prev === val ? 'All' : val);
   const toggleVwap = (status: 'above' | 'below') => setVwapFilter(prev => prev === status ? 'All' : status);
-  const handlePlanFilter = (val: PlanFilterType) => setPlanFilter(prev => prev === val ? 'All' : val);
   const handleCapFilter = (val: CapFilterType) => setMarketCapFilter(prev => prev === val ? 'All' : val);
   const handlePostureFilter = (val: PostureFilterType) => setPostureFilter(prev => prev === val ? 'All' : val);
   const handleHoldFilter = (val: HoldFilterType) => setHoldFilter(prev => prev === val ? 'All' : val);
@@ -651,26 +570,9 @@ export default function DailySetups() {
     if (vwapFilter !== 'All') {
       filtered = filtered.filter(s => s.vwapStatus === vwapFilter);
     }
-    /* Plan filter drops anything without a usable entry, then applies a
-       threshold in stop-widths.
-
-       `clear` rows carry no resistanceR at all — there is nothing overhead to
-       measure — so they satisfy BOTH levels rather than falling out of the
-       stricter one. */
-    if (planFilter !== 'All') {
-      const minR = planFilter === '2R' ? 2.0 : 1.0;
-      filtered = filtered.filter(s => {
-        const p = planOf(s);
-        if (!p || p.tradeable !== true || p.collapsed || p.overextended) return false;
-        if (p.clear === true) return true;
-        return p.resistanceR != null && p.resistanceR >= minR;
-      });
-    }
     if (!sortConfig) return filtered;
     return [...filtered].sort((a, b) => {
-      const val = (r: SetupData) => sortConfig.key === 'planR' ? planSortValue(r)
-        : sortConfig.key === 'status' ? (planStatusView(r)?.sort ?? null)
-        : (r as any)[sortConfig.key];
+      const val = (r: SetupData) => (r as any)[sortConfig.key];
       const aVal = val(a);
       const bVal = val(b);
       if (aVal === null || aVal === undefined) return 1;
@@ -679,7 +581,7 @@ export default function DailySetups() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [setups, sortConfig, postureFilter, chopFilter, holdFilter, marketCapFilter, cnfFilter, adrFilter, vwapFilter, planFilter, edge.key]);
+  }, [setups, sortConfig, postureFilter, chopFilter, holdFilter, marketCapFilter, cnfFilter, adrFilter, vwapFilter, edge.key]);
 
   /* The 60s poll must not reorder these rows while a chart opened from one of
      them is on screen — see useFreezeWhileChartOpen. */
@@ -752,8 +654,7 @@ export default function DailySetups() {
     (marketCapFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
     (adrFilter !== 'All' ? 1 : 0) +
-    (vwapFilter !== 'All' ? 1 : 0) +
-    (planFilter !== 'All' ? 1 : 0);
+    (vwapFilter !== 'All' ? 1 : 0);
 
   return (
     <div id="daily-setups-card" {...(setups.length > 0 ? { 'data-loaded': true } : {})} className="bg-[#101623] border-0 md:border md:border-white/5 md:rounded-2xl p-2 md:p-5 relative overflow-visible md:shadow-xl w-full max-w-[1280px] mx-auto">
@@ -867,16 +768,6 @@ export default function DailySetups() {
                     titleOf={(opt) => CHOP_META[opt].title}
                   />
                 )}
-                <FilterPillGroup
-                  label="PLAN"
-                  options={PLAN_BUCKETS}
-                  active={planFilter}
-                  onSelect={handlePlanFilter}
-                  labelOf={(opt) => (opt === '1R' ? 'ROOM ≥ STOP' : 'ROOM ≥ 2× STOP')}
-                  titleOf={(opt) => (opt === '2R'
-                    ? 'At least two stop-widths to the nearest overhead level, or clear air above the trigger'
-                    : 'At least one stop-width to the nearest overhead level')}
-                />
                 {/* HOLD is unique to this table — SIPs has no tradeType. It is
                     also the group most worth pairing with CHOP: a swing hold
                     is exactly the exposure a churning range punishes. */}
@@ -916,7 +807,7 @@ export default function DailySetups() {
           </div>
 
           <div className="relative z-0 overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            {/* min-w 940 to fit RTR; widths match SIPs v3.0. */}
+            {/* min-w 940; widths match SIPs v3.0. STATUS's 5% went to SECTOR. */}
             <table ref={phoneTableRef} className="scan-table w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
@@ -936,19 +827,18 @@ export default function DailySetups() {
                       header cannot carry two sort keys. */}
                   <SortHeader label="ADR" width="w-[5%]" title={colTip('ADR')} icon={getSortIcon('adrPct')} onSort={() => handleSort('adrPct')} />
                   <SortHeader label="MF" width="w-[4%]" title={colTip('MF')} icon={getSortIcon('mf')} onSort={() => handleSort('mf')} />
-                  <SortHeader label="STATUS" width="w-[5%]" title={colTip('STATUS')} icon={getSortIcon('status')} onSort={() => handleSort('status')} />
                   <SortHeader label="DTC" width="w-[5%]" title={colTip('DTC')} icon={getSortIcon('daysToCover')} onSort={() => handleSort('daysToCover')} />
                   <SortHeader label="MCAP" width="w-[5%]" title={colTip('MCAP')} icon={getSortIcon('mktCap')} onSort={() => handleSort('mktCap')} />
                   <SortHeader label="STAGE" width="w-[5%]" className="border-l border-white/5" variant="stage" title={colTip('STAGE')} icon={getSortIcon('stage')} onSort={() => handleSort('stage')} />
-                  <SortHeader label="SECTOR" width="w-[7%]" variant="sector" title={colTip('SECTOR')} icon={getSortIcon('sector')} onSort={() => handleSort('sector')} />
+                  <SortHeader label="SECTOR" width="w-[12%]" variant="sector" title={colTip('SECTOR')} icon={getSortIcon('sector')} onSort={() => handleSort('sector')} />
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-white/5">
                 {status.includes('Syncing') && setups.length === 0 ? (
-                  <tr><td colSpan={18} className="py-12 text-center border-b border-white/5"><div className="w-5 h-5 border-2 border-white/10 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
+                  <tr><td colSpan={17} className="py-12 text-center border-b border-white/5"><div className="w-5 h-5 border-2 border-white/10 border-t-indigo-400 rounded-full animate-spin mx-auto mb-3"></div><span className="text-xs text-slate-500 font-medium">Fetching DB Snapshot...</span></td></tr>
                 ) : filteredAndSortedSetups.length === 0 ? (
-                  <tr><td colSpan={18} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">{setups.length > 0 ? 'No names match the current filters.' : 'No active tracking items currently matching momentum criteria.'}</td></tr>
+                  <tr><td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium border-b border-white/5">{setups.length > 0 ? 'No names match the current filters.' : 'No active tracking items currently matching momentum criteria.'}</td></tr>
                 ) : (
                   filteredAndSortedSetups.map((row, i) => {
                     const tag = catalystTagOf(row);
@@ -958,7 +848,6 @@ export default function DailySetups() {
                     const adr = adrOf(row);
                     const chop = chopOf(row);
                     const mf = mfOf(row);
-                    const plan = planOf(row);
                     const posture = postureOf(row);
                     const tier = edgeTier(row);
                     return (
@@ -991,7 +880,6 @@ export default function DailySetups() {
                               self-explaining without a header change. */}
                           <AdrCell adr={adr} chop={chop} />
                           <MfCell value={mf} trend={row.mfTrend} />
-                          <StatusCell view={planStatusView(row)} emptyTip={(row as { _mover?: boolean })._mover ? MOVER_TIP : undefined} />
                           <DtcCell value={row.daysToCover} />
                           <McapCell value={row.mktCap} />
                           <StageCell stage={row.stage} />
@@ -999,10 +887,8 @@ export default function DailySetups() {
                         </tr>
                         {/* Sub-row starts at column 1 so the setup name sits
                             directly under the ticker. Order down the left edge:
-                            symbol, then what it is. Then the three levels you
-                            would actually place, then the headline, then
-                            RMV/RME. DAY/SWING is in the plan tooltip and the
-                            HOLD filter.
+                            symbol, then what it is, then the headline.
+                            DAY/SWING is in the HOLD filter.
 
                             The STATE and Ready/Forming cells were removed, so
                             the row spans the full table. There is no readiness
@@ -1018,7 +904,7 @@ export default function DailySetups() {
                             </div>
                           </td>
                           <td />
-                          <td colSpan={16} className="pb-1.5 pt-1 pr-3">
+                          <td colSpan={15} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
                               <span className="shrink-0 w-[48px] px-0.5 text-center text-[#7c8bfa]/90 font-bold text-[7px] tracking-[0.04em] uppercase leading-none whitespace-nowrap">
                                 {bdRev ? <BlueDot /> : (formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : '—')}
@@ -1065,7 +951,6 @@ export default function DailySetups() {
               </tbody>
             </table>
           </div>
-          <ScanStatsNote scan="scanner" />
         </>
       )}
     </div>

@@ -10,7 +10,7 @@ interface HelpModalProps {
   tier?: string;
 }
 
-type Tab = 'quickstart' | 'overview' | 'dashboard' | 'news' | 'analyst' | 'confluence' | 'track' | 'interactions' | 'updates';
+type Tab = 'quickstart' | 'overview' | 'dashboard' | 'news' | 'analyst' | 'confluence' | 'interactions' | 'updates';
 
 const ALL_TABS: { key: Tab; label: string; minTier: 'starter' | 'core' | 'pro' }[] = [
   { key: 'quickstart', label: 'Quick start', minTier: 'starter' },
@@ -19,7 +19,6 @@ const ALL_TABS: { key: Tab; label: string; minTier: 'starter' | 'core' | 'pro' }
   { key: 'news', label: 'News', minTier: 'core' },
   { key: 'analyst', label: 'Analyst Brief', minTier: 'core' },
   { key: 'confluence', label: 'Confluence', minTier: 'pro' },
-  { key: 'track', label: 'Track Record', minTier: 'core' },
   { key: 'interactions', label: 'Controls', minTier: 'core' },
   { key: 'updates', label: 'Updates', minTier: 'starter' },
 ];
@@ -148,13 +147,10 @@ function OverviewTab({ tier }: { tier: string }) {
           </Li>
           <Li title="Analyst Brief (/analyst)">
             AI-generated market analysis updated throughout the trading day. Regime assessment, session updates,
-            top trade ideas with thesis and risk, and actionable catalysts.
+            and the day's catalysts.
           </Li>
           <Li title="News (/news)">
             The day&apos;s headlines, scoped to the names your scans are carrying — plus the broader market wire.
-          </Li>
-          <Li title="Track Record (/track)">
-            Every name every scan has published, scored as it matures. The receipts.
           </Li>
           <Li title="Archive (/briefs)">
             Past briefings, by date.
@@ -169,7 +165,7 @@ function OverviewTab({ tier }: { tier: string }) {
           </Li>
           <Li title="Analyst Brief (/analyst)">
             AI-generated market analysis updated throughout the trading day. Regime assessment, session updates
-            (pre-market, midday, closing), top trade ideas with thesis and risk, and actionable catalysts.
+            (pre-market, midday, closing), and the day's catalysts.
           </Li>
           <Li title="Scanners (/scanners)">
             All 11 scanners in a single vertical stack — Setup Confluence, Top Movers, Stocks in Play,
@@ -178,15 +174,11 @@ function OverviewTab({ tier }: { tier: string }) {
           </Li>
           <Li title="Confluence (/confluence)">
             Multi-timeframe confluence report. Shows which stocks score highly across daily, weekly, and monthly
-            timeframes. Sector filtering and an AI summary with top picks.
+            timeframes. Sector filtering and an AI summary.
           </Li>
           <Li title="News (/news)">
             The day&apos;s headlines scoped to the names your scans are carrying, with the score, RS, volume and
             row colour each name already has elsewhere — plus the broader market wire underneath it.
-          </Li>
-          <Li title="Track Record (/track)">
-            Every name every scan has published, recorded the evening it appeared and scored as it matures
-            against the same measuring stick as the five-year backtest.
           </Li>
           <Li title="Archive (/briefs)">
             Past briefings, by date — the public record of what was said before the outcome was known.
@@ -245,19 +237,10 @@ function DashboardTab({ tier }: { tier: string }) {
         CNF is selected by default. Click a pill to switch; click again to deselect and show all.
       </P>
 
-      <H>Buy &amp; stop</H>
+      <H>No buy or stop levels</H>
       <P>
-        Sits under the Setups Summary: the recommended names from the card above, each with the scan&apos;s
-        own <strong className="text-slate-200">buy level and stop</strong> and one word for where it stands.
-        Nothing here is newly measured — they are the levels the scan tables already show.
-      </P>
-      <Li title="↑ BUY ABOVE">A breakout plan — Daily Setups, Stocks in Play, Swing, VCP. It becomes a buy once price trades above the level.</Li>
-      <Li title="↓ BUY DIP">EP9M&apos;s plan is a pullback: buy on a dip to the level, not a break above it.</Li>
-      <Li title="STOP">The plan&apos;s own line. Below it the idea was wrong.</Li>
-      <Li title="STAT">HIT at the buy level · 2.2% not there yet, that far away · EXT too stretched to place a stop, don&apos;t chase · MISS already ran more than a normal day past it, don&apos;t chase · OUT fell below the stop. On the breakout watch names (last night&apos;s green Stocks in Play, Daily and Swing picks) HIT means the tested entry happened: a break of the 9:30–10:00 high on 1.5× volume pace. OR — the opening range is still forming; NONE — the session closed without that break.</Li>
-      <P>
-        Click STAT to sort: HIT first, then the nearest. Rows carry the usual green / yellow / red, each
-        from its own scan&apos;s rule. The scan tables show the same word in their STATUS column.
+        Since 9 Oct 2026 the site publishes no buy levels, stops, targets or statuses. The ones it published
+        lost money live, so the dashboard shows what is moving and why, not what to buy.
       </P>
 
       <H>Top Movers</H>
@@ -274,7 +257,6 @@ function DashboardTab({ tier }: { tier: string }) {
       <P>Filters narrow the board without changing the scores:</P>
       <Li title="CNF">Grade filter — show only A or B names (A = CNF 60+, B = 45–59).</Li>
       <Li title="POSTURE">Price vs 10/21 EMAs. First Touch = pullback to 21 EMA. Stacked = above both. Extended = stretched far above.</Li>
-      <Li title="PLAN">Room to the next resistance. ROOM ≥ STOP = the next overhead level is at least as far above the buy level as the stop is below it; ROOM ≥ 2× STOP = at least twice that far, or nothing overhead.</Li>
       <Li title="VWAP">Above or below session VWAP.</Li>
       <Li title="ADR">Average Daily Range filter — 5%+ or 10%+ movers only.</Li>
       <Li title="CAP">Market cap — Small or Large.</Li>
@@ -306,8 +288,7 @@ function DashboardTab({ tier }: { tier: string }) {
         <>
           <H>Daily Setups<ProBadge /></H>
           <P>
-            Intraday setup candidates with the same filter set as SIPs. The STATUS column says where each name
-            stands against its buy level; each row expands to show the buy level, stop and target. The setup name (EP, VCP, COIL, SWING, etc.) appears under the ticker.
+            Intraday setup candidates with the same filter set as SIPs. The setup name (EP, VCP, COIL, SWING, etc.) appears under the ticker.
           </P>
 
           <H>Swing Candidates<ProBadge /></H>
@@ -333,7 +314,6 @@ function DashboardTab({ tier }: { tier: string }) {
           <H>EP9M (Episodic Pivot)<ProBadge /></H>
           <P>
             Pradeep Bonde / Stockbee episodic pivots — stocks trading at least $9M in dollar volume on at least 3x their usual volume.
-            The plan is a dip: buy on a pullback to the EP day&apos;s midpoint, stop at that day&apos;s low.
             No trend gate, so STAGE is the main way to separate accumulation from capitulation. The fuchsia dot
             marks unprecedented volume (beat its own 60-day high).
           </P>
@@ -425,44 +405,6 @@ function NewsTab() {
   );
 }
 
-function TrackTab() {
-  return (
-    <div>
-      <H>Track Record — the receipts</H>
-      <P>
-        Every pick is recorded the evening it appears,
-        <strong className="text-slate-200"> before anything is known about what it does next</strong>.
-        Nothing is added later and nothing is removed for looking bad. The page keeps two records.
-      </P>
-
-      <H>Followed the levels</H>
-      <P>
-        The record kept the way the site tells you to trade: only picks shown with a buy level and a stop,
-        and only counted once they actually reach the buy level.
-      </P>
-      <Li title="REACHED">Traded its buy level within 10 sessions — at the level, or at the open if it opened through it.</Li>
-      <Li title="NOT BOUGHT">Gapped more than a normal day past the level (don&apos;t chase), hit its stop first, or never got there. Counted separately, never hidden.</Li>
-      <Li title="RESULT">Closed at the stop, at twice the risk above the buy level, or after 60 sessions — shown as dollars per $100 risked.</Li>
-
-      <H>Every pick, bought at the next open</H>
-      <P>
-        The mechanical version: every name bought at the next morning&apos;s open whether or not it reached its
-        level, with the same stop and target. It is how the 5-year test was run, so this is the record
-        its column compares against.
-      </P>
-
-      <H>Reading the numbers</H>
-      <Li title="PER $100 RISKED">The average result for every $100 between entry and stop. +$26 means a trade risking $100 made $26 on average. Costs are not included.</Li>
-      <Li title="SAMPLE SIZE">Early samples are far too small to conclude anything from. A scan needs hundreds of finished trades before its average means much.</Li>
-      <Li title="BY COLOUR">Each scan breaks its record down by green / yellow / red, which is how you check the row colour is earning its keep on live picks, not only in the backtest.</Li>
-
-      <H>Getting around</H>
-      <Li title="CLICK ANY SCAN">Opens the individual picks behind its numbers. Hover a ticker for its chart.</Li>
-      <Li title="OPEN RIGHT NOW">Every position still being followed, across every scan, in one list.</Li>
-    </div>
-  );
-}
-
 function AnalystTab({ tier }: { tier: string }) {
   const isPro = tierRank(tier) >= 2;
   return (
@@ -521,13 +463,11 @@ function AnalystTab({ tier }: { tier: string }) {
         Hover any ticker chip for a mini chart.
       </P>
 
-      <H>Actionable Summary</H>
+      <H>No picks</H>
       <P>
-        The bottom section distills the analysis into three buckets:
+        Since 9 Oct 2026 the brief publishes no picks, buy levels or stops — the ones it published lost money
+        against SPY. It says what moved and why, and names a few stocks to avoid.
       </P>
-      <Li title="Top picks">The 1–3 best names: buy level, stop, status (HIT / % away), why, the target and how it fails.</Li>
-      <Li title="Also watching">Up to 4 more names, same levels and status.</Li>
-      <Li title="Avoid">Names that look tempting but are OUT, EXT or MISS — or broken for another reason.</Li>
     </div>
   );
 }
@@ -581,8 +521,8 @@ function InteractionsTab() {
 
       <H>Expandable Rows</H>
       <P>
-        On tables with trade plans (SIPs, Daily Setups, Swing Candidates), click a row to expand it and see
-        the sub-row with the buy level, stop and target, along with EMA positions, sector, and scan provenance.
+        On SIPs, Daily Setups and Swing Candidates, click a row to expand it and see EMA positions, sector,
+        and scan provenance.
       </P>
 
       <H>My Watchlist</H>
@@ -644,21 +584,6 @@ function InteractionsTab() {
         in local storage.
       </P>
 
-      <H>Exits — what the backtest says to do after the buy</H>
-      <P>
-        Every table shows the same plan shape: buy level, stop, and a target at twice the risk (2R). Five years
-        of replays say that shape is right on some tables and wrong on others, so the guidance differs per scan.
-        Figures are the average result per $100 risked, Sep 2022 – Sep 2026, before costs.
-      </P>
-      <Li title="SIPS / DAILY">Trailing beats the target: 2R +$4, trail the 21 EMA +$14, hold 20 sessions +$15.</Li>
-      <Li title="SWING">Hold it — 2R +$3, trail 21 EMA +$16, hold 20 sessions +$30. The best exit measured anywhere on the dashboard.</Li>
-      <Li title="VCP">Take the 2R — the one table where the fixed target wins (+$12 vs −$1 trailing). A base breakout that works reaches 2R fast and gives it back.</Li>
-      <Li title="10/21">No exit produced an edge (2R −$10, trailing −$8). Worth watching, not yet worth trading.</Li>
-      <Li title="EP9M">The entry was the problem, not the exit: breaking the day high lost with every exit (−$13 to −$19), so since 11 Sep 2026 the card plans the pullback to the EP day&apos;s midpoint instead, stop at that day&apos;s low. That version is positive in both halves but thin (+$2 on a 2R target, +$5 trailing the 10 EMA) — the return is in the 14% that run +50%.</Li>
-      <Li title="HIDDEN RS">Flat either way. Read it as a watchlist of quiet leaders.</Li>
-      <P>
-        The same guidance appears in each table&apos;s PLAN tooltip, next to that row&apos;s own levels.
-      </P>
 
       <H>Row Shading (green / yellow / red)</H>
       <P>
@@ -677,9 +602,7 @@ function InteractionsTab() {
       </P>
       <P>
         The same three colours run through the whole site on the same rules — the scan tables, the Setups
-        Summary, the Buy &amp; stop box, the Confluence report, the News page, and the Track Record,
-        which breaks each scan&apos;s live results down by colour so you can check the shading is still
-        earning its keep.
+        Summary, the Confluence report and the News page.
       </P>
       <P>
         <strong className="text-slate-200">The rules are per-scan, not universal</strong> — each one was measured
@@ -692,15 +615,6 @@ function InteractionsTab() {
       <Li title="10/21">Green = a coil 3x+ ATR with the stochastic above 75 (+$13, breaks out 89% of the time), roughly 7% of the table. Red = the tight-coil majority and anything more than 11% off its high.</Li>
       <Li title="HIDDEN RS">Green = price $5–15 (+$14, 10% ran +50%) — the band that LOSES on the momentum tables. There is no red here: nothing on this scan lost consistently.</Li>
       <Li title="100-BAGGER">Red = revenue growth above 50% (trailed its own universe by 12%, only 3.6% doubled inside a year against a 5.8% base rate). Green = growth of 10–25% with a cap under $3B (+13% excess, 18% doubled in a year).</Li>
-
-      <H>Track Record</H>
-      <P>
-        Every scan card carries a one-line summary of what its plan has been worth over five years — hover it
-        for the full breakdown. The <strong className="text-slate-200">Track Record</strong> page records every
-        name each scan publishes on the evening it appears, before the outcome is known, and scores it on the
-        same measuring stick as the backtest. See the <strong className="text-slate-200">Track Record</strong>
-        tab above for how a pick is scored and how to read the starred figures.
-      </P>
 
       <H>Ticker Colour by Table</H>
       <P>
@@ -720,8 +634,6 @@ function InteractionsTab() {
       <Li title="$VOL">Dollar Volume — price × shares traded. Measures institutional liquidity.</Li>
       <Li title="RS">Relative Strength Rating 0–99. Measures price performance vs the market over 12 months.</Li>
       <Li title="STG">Weinstein Stage. 1 = base, 2A = advance, 2B = extended, 2C = sagging, 3 = top, 4 = decline.</Li>
-      <Li title="STATUS">Where it stands against its buy level: HIT · 2.2% (not there yet) · EXT · MISS · OUT. On the breakout watch names, OR (range forming) and NONE (no breakout today), and HIT only on the volume-confirmed break. Hover for the levels.</Li>
-      <Li title="PLAN">Room to the next resistance, compared with the stop distance. ROOM ≥ 2× STOP = at least twice the stop distance of room above the buy level.</Li>
       <Li title="ADR%">Average Daily Range as a percentage of price. Higher = more volatile.</Li>
       <Li title="10/21">Price position vs the 10 and 21 EMAs (Dr. Wish trend pair).</Li>
     </div>
@@ -925,7 +837,6 @@ export default function HelpModal({ isOpen, onClose, tier = 'pro' }: HelpModalPr
           {safeTab === 'overview' && <OverviewTab tier={tier} />}
           {safeTab === 'dashboard' && <DashboardTab tier={tier} />}
           {safeTab === 'news' && <NewsTab />}
-          {safeTab === 'track' && <TrackTab />}
           {safeTab === 'analyst' && <AnalystTab tier={tier} />}
           {safeTab === 'confluence' && <ConfluenceTab />}
           {safeTab === 'interactions' && <InteractionsTab />}

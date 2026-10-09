@@ -14,7 +14,6 @@ import { displaySector } from '@/lib/sectors';
 import { NewsStars, type CatalystRow } from '@/lib/catalyst';
 import TickerChartHover, { WatchlistBtn } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
-import ScanStatsNote from './ScanStatsNote';
 import { SCAN, VolCell, ChgCell, RvolCell } from './scan/ScanTable';
 import { usePhoneTable } from './scan/usePhoneTable';
 import { alphaOnWeakDaysColor, weakDayOutperformColor, pctBelow52wHighColor } from '@/lib/indicators/columnColors';
@@ -579,7 +578,6 @@ export default function HiddenRelativeStrength() {
                   })}
                 </tbody>
               </table>
-              <ScanStatsNote scan="hrs" />
             </div>
           )}
         </>

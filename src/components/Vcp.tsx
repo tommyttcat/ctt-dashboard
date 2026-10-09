@@ -1,6 +1,12 @@
 'use client';
 
-// Vcp — Volatility Contraction Pattern (Mark Minervini) — v1.2
+// Vcp — Volatility Contraction Pattern (Mark Minervini) — v1.3
+//
+// v1.3: STATUS column removed, and the trigger / stop / target hover on the
+//       PIVOT cell with it. The site publishes no buy levels, stops or
+//       targets any more — the published buy levels lost money live. The
+//       pivot stays as the pattern's own measurement, described as the high
+//       of the final contraction rather than as a buy point.
 //
 // v1.2: news asterisk beside the ticker, and provenance on the sub-row.
 //       Completes the set — the same amber asterisk now means the same thing
@@ -86,11 +92,8 @@ import { tickerChipCls, scoreCellCls } from '@/lib/indicators/columnColors';
 import { vcpEdgeGrade, VCP_EDGE_GRADE_TIP } from '@/lib/scans/vcp';
 import { vcpTier, VCP_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
-import { EXIT_GUIDANCE } from '@/lib/scans/exits';
-import ScanStatsNote from './ScanStatsNote';
-import { SCAN, StageCell, SectorCell, StatusCell } from './scan/ScanTable';
+import { SCAN, StageCell, SectorCell } from './scan/ScanTable';
 import { usePhoneTable } from './scan/usePhoneTable';
-import { planStatusView } from '@/lib/scans/triggerProximity';
 import { poll } from '@/lib/poll';
 
 /* A breakout further than this above the pivot has run away from its own
@@ -103,11 +106,11 @@ const FRESH_BREAKOUT_PCT = 3;
    elsewhere; they now sit under the shared COLUMN_NOTES in scanConfig. */
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: {
-    what: 'Symbol. Hover for the company name. The dot is base status — see the STATUS column.',
+    what: 'Symbol. Hover for the company name. The word beneath it says where price sits against the pivot — WATCH, READY, FRESH or EXTENDED.',
   },
   CNF: {
     what: 'Pattern score 0–100. Weights the contraction shape most heavily (final leg tightness and how far the legs contract), then volume drying, then RS Rating, then the Trend Template. Hover the number for the per-row breakdown.',
-    colour: 'The ticker colour is the EDGE grade, not the pattern score: green = ATR 3.5%+ with an 8%+ stop, amber = ATR 2.5%+, grey = the tightest bases, which lost money across the 5-year backtest.',
+    colour: 'The ticker colour is the EDGE grade, not the pattern score: green = ATR 3.5%+ with an 8%+ final contraction, amber = ATR 2.5%+, grey = the tightest bases, which lost money across the 5-year backtest.',
   },
   RS: {
     what: 'Minervini / IBD Relative Strength Rating — a PERCENTILE against every liquid stock in the market, not a spread versus SPY. 88 means stronger than 88% of the market over the trailing year, with the most recent quarter double-weighted. Minervini gates at 70 and prefers 80–90+.',
@@ -123,7 +126,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'The final figure is coloured by tightness — green under 8%, slate under 12%, amber above.',
   },
   PIVOT: {
-    what: 'The buy point — the high of the final contraction — and how far price sits from it. Negative means price is already above the pivot.',
+    what: 'The pivot — the high of the final contraction — and how far price sits from it. Negative means price is already above the pivot.',
     colour: 'Green within 3% below · slate further out · amber already extended past it.',
   },
   BASE: { what: 'Length of the base in trading days, measured from the start of the first contraction. Minervini wants at least three weeks; shorter bases fail more often because supply has not had time to change hands.' },
@@ -280,25 +283,25 @@ const STATUS_META: Record<EffStatus, { label: string; dot: string; text: string;
     label: 'WATCH',
     dot: 'bg-slate-400',
     text: 'text-slate-400',
-    title: 'Base still building — price is more than 3% below the pivot. Nothing to do yet; this is the list to keep an eye on.',
+    title: 'Base still building — price is more than 3% below the pivot.',
   },
   ready: {
     label: 'READY',
     dot: 'bg-emerald-400',
     text: 'text-emerald-400',
-    title: 'Within 3% of the pivot and still below it. This is the alert level — set the trigger and wait for volume.',
+    title: 'Within 3% of the pivot and still below it.',
   },
   fresh: {
     label: 'FRESH',
     dot: 'bg-cyan-400',
     text: 'text-cyan-400',
-    title: 'Just cleared the pivot and still within 3% of it. The entry is live rather than passed.',
+    title: 'Just cleared the pivot and still within 3% of it.',
   },
   extended: {
     label: 'EXTENDED',
     dot: 'bg-amber-400',
     text: 'text-amber-400',
-    title: 'Cleared the pivot and ran. The pattern was real and the entry has gone — chasing from here gives up the tight stop that made the setup worth taking.',
+    title: 'Cleared the pivot and ran more than 3% past it.',
   },
   unknown: {
     label: '—',
@@ -391,7 +394,7 @@ const vcpTooltip = (row: VcpCandidate): string => {
   }
 
   lines.push('');
-  lines.push('The score rates the pattern. See the STATUS dot for whether the entry is still available.');
+  lines.push('The score rates the pattern. The word under the ticker says where price sits against the pivot.');
 
   return lines.join('\n');
 };
@@ -451,36 +454,8 @@ const ttTooltip = (row: VcpCandidate): string => {
   return lines.join('\n');
 };
 
-const planTooltip = (row: VcpCandidate): string => {
-  if (row.trigger == null) return 'No levels — the pivot could not be resolved.';
-
-  const lines: string[] = [
-    `Trigger  ${formatLevel(row.trigger)}   (pivot — high of the final contraction)`,
-    `Stop     ${formatLevel(row.stop)}   (${row.stopPct != null ? `−${row.stopPct.toFixed(1)}%` : '—'}, low of the final contraction)`,
-    `Target   ${formatLevel(row.target)}   (twice the stop distance)`,
-  ];
-
-  if (row.trigger != null && row.stop != null) {
-    lines.push(`Risk     ${(row.trigger - row.stop).toFixed(2)} per share`);
-  }
-
-  lines.push('');
-  lines.push('The stop is the pattern\'s own invalidation — price back under the tightest leg means the absorption read was wrong. That is usually tighter than an ATR stop, and it is the reason to trade a VCP at all.');
-
-  lines.push('');
-  lines.push(EXIT_GUIDANCE.vcp);
-
-  const eff = effStatusOf(row);
-  if (eff === 'extended') {
-    lines.push('');
-    lines.push('PRICE IS ALREADY WELL ABOVE THE TRIGGER. Entering here gives up the tight stop that made the setup worth taking.');
-  }
-
-  return lines.join('\n');
-};
-
 export default function Vcp() {
-  // Phones: six core columns, tap a row for the rest (components/scan/usePhoneTable).
+  // Phones: five core columns, tap a row for the rest (components/scan/usePhoneTable).
   const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();
 
@@ -597,7 +572,7 @@ export default function Vcp() {
 
     if (!sortConfig) return list;
     return list.sort((a, b) => {
-      const val = (r: any) => sortConfig.key === 'status' ? (planStatusView(r, 'vcp')?.sort ?? null) : r[sortConfig.key];
+      const val = (r: any) => r[sortConfig.key];
       const aVal = val(a);
       const bVal = val(b);
       if (aVal === null || aVal === undefined) return 1;
@@ -726,7 +701,7 @@ export default function Vcp() {
               {statusCounts.fresh > 0 && (
                 <button onClick={(e) => { e.stopPropagation(); setIsExpanded(true); handleStatusFilter('fresh'); }}
                   className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-0.5 rounded border transition-all cursor-pointer ${statusFilter === 'fresh' ? 'text-cyan-300 bg-cyan-500/20 border-cyan-400/40 ring-1 ring-cyan-400/30' : 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20 hover:bg-cyan-500/20'}`}
-                  title="Just cleared the pivot, entry still live — click to filter">
+                  title="Just cleared the pivot, still within 3% of it — click to filter">
                   {statusCounts.fresh} Fresh
                 </button>
               )}
@@ -786,9 +761,7 @@ export default function Vcp() {
             {showFilters && (
               <div className="flex flex-wrap justify-center items-center gap-3 w-full">
                 {/* STATUS leads. On the first live scan five of nine names had
-                    already broken out and run — the pattern was real and the
-                    entry was gone. This is the control that separates a
-                    watchlist from a history lesson. */}
+                    already broken out and run well past the pivot. */}
                 <div className={pillWrap}>
                   <span className={pillLabel}>STATUS</span>
                   <div className="flex items-center gap-1">
@@ -893,7 +866,6 @@ export default function Vcp() {
                   {/* The signature column — the pattern itself, not a summary
                       of it. Wider than anything else for that reason. */}
                   <th className={`${thBase} w-[12%]`} title={colTip('CONTRACTIONS')} onClick={() => handleSort('contractionCount')}>CONTRACTIONS{getSortIcon('contractionCount')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('STATUS')} onClick={() => handleSort('status')}>STATUS{getSortIcon('status')}</th>
                   <th className={`${thBase} w-[9%]`} title={colTip('PIVOT')} onClick={() => handleSort('pctToPivot')}>PIVOT{getSortIcon('pctToPivot')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('BASE')} onClick={() => handleSort('baseLengthBars')}>BASE{getSortIcon('baseLengthBars')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('VOL')} onClick={() => handleSort('volumeDryingRatio')}>VOL{getSortIcon('volumeDryingRatio')}</th>
@@ -901,14 +873,14 @@ export default function Vcp() {
                   <th className={`${thBase} w-[5%]`} title={colTip('ATR')} onClick={() => handleSort('atrPct')}>ATR{getSortIcon('atrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
                   <th className={`${thStage} w-[5%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thSector} w-[7%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thSector} w-[12%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
                   <tr>
-                    <td colSpan={16} className="py-12 text-center text-slate-500 text-sm font-medium">
+                    <td colSpan={15} className="py-12 text-center text-slate-500 text-sm font-medium">
                       {status === 'Live'
                         ? (candidates.length > 0
                             ? 'No bases match the current filters.'
@@ -997,11 +969,7 @@ export default function Vcp() {
                             </div>
                           </td>
 
-                          {/* STATUS replaced LEGS (24 Sep 2026): LEGS repeated the
-                              count the CONTRACTIONS column already draws. */}
-                          <StatusCell view={planStatusView(row, 'vcp')} />
-
-                          <td className={`${tdBase} whitespace-nowrap tabular-nums cursor-help`} title={planTooltip(row)}>
+                          <td className={`${tdBase} whitespace-nowrap tabular-nums cursor-help`} title="Pivot — the high of the final contraction — and how far price sits from it">
                             <div className="flex flex-col leading-tight">
                               <span className="text-xs font-bold text-slate-200">
                                 {formatLevel(row.pivot)}
@@ -1045,10 +1013,8 @@ export default function Vcp() {
                           <SectorCell text={sectorText} />
                         </tr>
 
-                        {/* Sub-row: status word first, then the three levels,
-                            then the headline. Status leads because on this
-                            table it decides whether the rest of the row is a
-                            trade or a post-mortem. */}
+                        {/* Sub-row: where price sits against the pivot, then
+                            the headline. */}
                         <tr className="bg-transparent border-t border-white/5">
                           <td className="align-top pt-1">
                             <div className="flex items-center gap-1 pl-6">
@@ -1056,7 +1022,7 @@ export default function Vcp() {
                             </div>
                           </td>
                           <td />
-                          <td colSpan={12} className="pb-1.5 pt-1 pr-3">
+                          <td colSpan={11} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
                               <span
                                 className={`shrink-0 w-[48px] px-0.5 text-center font-bold text-[7px] tracking-[0.04em] uppercase leading-none truncate cursor-help ${meta.text}`}
@@ -1102,7 +1068,6 @@ export default function Vcp() {
               </tbody>
             </table>
           </div>
-          <ScanStatsNote scan="vcp" />
 
           {funnelNote && (
             <div className="relative z-10 mt-3 text-center">

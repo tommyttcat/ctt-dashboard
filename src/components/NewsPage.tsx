@@ -206,7 +206,7 @@ function Stats({ s }: { s: Partial<StatRow> | null | undefined }) {
    is before reading it; the headline at 15px; the names underneath; the small
    facts last, below a hairline. The day's move for the lead name sits top
    right, where the Confluence report puts it. */
-function NewsCard({ tag, tagHint, headline, summary, url, move, flags, tickers, showName, meta, stats, tier, plan }: {
+function NewsCard({ tag, tagHint, headline, summary, url, move, flags, tickers, showName, meta, stats, tier }: {
   tag: NewsTag;
   tagHint?: string;
   headline: string;
@@ -221,8 +221,6 @@ function NewsCard({ tag, tagHint, headline, summary, url, move, flags, tickers, 
   stats?: Partial<StatRow> | null;
   /** The lead name's tier on its own scan — tints the card like every scan table. */
   tier?: EdgeTier | null;
-  /** The scan's buy level / stop / status for the lead name, when it has one. */
-  plan?: { buy: number; stop: number; dip: boolean; mkt?: boolean; status: string } | null;
 }) {
   const head = (
     <p className="text-[15px] leading-[1.45] font-semibold text-slate-100 break-words group-hover/hl:text-cyan-300 transition-colors">
@@ -245,15 +243,6 @@ function NewsCard({ tag, tagHint, headline, summary, url, move, flags, tickers, 
         </a>
       ) : head}
       {summary && <p className="text-[13px] leading-[1.55] text-slate-300 line-clamp-3 -mt-1">{summary}</p>}
-      {plan && (
-        <div className="flex items-center gap-4 rounded-xl bg-[#0b1220] px-3 py-2 text-[13px] tabular-nums">
-          {plan.mkt
-            ? <span className="text-emerald-400 font-semibold">At market</span>
-            : <span className="text-slate-400">{plan.dip ? 'Buy dip' : 'Buy above'} <b className="text-slate-100">{plan.buy.toFixed(2)}</b></span>}
-          <span className="text-slate-400">Stop <b className="text-rose-400">{plan.stop.toFixed(2)}</b></span>
-          <span className={`ml-auto rounded-full px-2.5 py-0.5 text-[11px] font-bold tracking-wide ${PLAN_PILL[plan.status] ?? 'text-slate-200 bg-slate-500/15'}`}>{plan.status.toUpperCase()}</span>
-        </div>
-      )}
       <div className="mt-auto flex items-center gap-x-2 gap-y-1 flex-wrap text-[11px] text-slate-500 border-t border-[#1e293b] pt-2">
         {tag !== 'general' && <TagPill tag={tag} hint={tagHint} small />}
         {flags}
@@ -276,10 +265,6 @@ function Stars({ n }: { n: number }) {
 }
 
 const TIER_RANK: Record<string, number> = { green: 0, yellow: 1, red: 2 };
-const PLAN_PILL: Record<string, string> = {
-  HIT: 'text-emerald-400 bg-emerald-500/15', EXT: 'text-orange-400 bg-orange-500/15',
-  MISS: 'text-amber-400 bg-amber-500/15', OUT: 'text-rose-400 bg-rose-500/15',
-};
 
 const poolTag = (it: PoolItem): NewsTag => tagOf(it.catalyst);
 const wireTag = (a: WireItem): NewsTag => tagOf(a.aiTag);
@@ -310,7 +295,6 @@ function PoolCard({ it }: { it: PoolItem }) {
       meta={[it.newsPublisher, age, delayed ? 'delayed' : null].filter(Boolean).join(' · ')}
       stats={it}
       tier={it.tier ?? null}
-      plan={it.plan ?? null}
     />
   );
 }

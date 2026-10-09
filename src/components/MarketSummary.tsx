@@ -108,7 +108,6 @@ import { WatchlistToggle } from './WatchlistPanel';
 import { hrsEdgeGrade } from '@/lib/scans/hrs';
 import { edgeTier as edgeOf, EDGE_TINT, EDGE_FILTER_TIP, type EdgeTier } from '@/lib/scans/edge';
 import EdgeFilterPills from './EdgeFilterPills';
-import { planRowsFor, planStatusOf, planStatusLabel, PLAN_STATUS_ORDER, PLAN_STATUS_META, type TrigRow, type PlanStatus } from '@/lib/scans/triggerProximity';
 import InfoDot from './InfoDot';
 import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
@@ -1105,52 +1104,23 @@ const thesisTips = (label: string): Record<EdgeTier, string> => {
   };
 };
 
-/* ---- Buy & stop --------------------------------------------------------
-   The card's basic stats, then the plan: where it becomes a buy, where the
-   idea is wrong, and one coloured word for where it stands now (WAIT / HIT /
-   MISS / OUT). The status rule and its tests live in
-   lib/scans/triggerProximity (planStatusOf).
+/* ---- Mover rows ---------------------------------------------------------
+   The stats row for Early Movers, on the Setups Summary pixel grid. This was
+   the "Buy & stop" box; buy levels, stops and statuses were removed on
+   9 Oct 2026 (the published levels lost money live), so it carries only the
+   stats. PHONE: ~250px, so no sideways scroll. */
 
-   PHONE: PRC, CHG% and SCAN step aside below md — the ↑/↓ arrow already says
-   breakout or EP pullback — so STATUS, the column that matters most, keeps
-   room for "WAIT 8.9%".
+type TrigSortKey = 'cnf' | 'chg' | 'rvol' | 'rs';
 
-   Rows carry the same green/yellow/red tint as the card above (each scan's
-   own measured tier), so a name reads the same colour in both places.
-
-   LEVELS PRINT TO THE CENT. formatLevel drops to whole dollars above $100,
-   which would round a 222.73 level to 223. */
-
-type TrigSortKey = 'cnf' | 'chg' | 'rvol' | 'rs' | 'status';
-
-const trigSortValue = (r: TrigRow, k: TrigSortKey): number => {
+const trigSortValue = (s: any, k: TrigSortKey): number => {
   switch (k) {
-    case 'cnf': return scoreOf(r.s);
-    case 'chg': return chgOf(r.s);
-    case 'rvol': return rvolOf(r.s) ?? 0;
-    case 'rs': return num(r.s.rsRating);
-    // Status first, then nearest-first inside it, as one number.
-    case 'status': return PLAN_STATUS_ORDER[planStatusOf(r)] * 1000 + r.awayPct;
+    case 'cnf': return scoreOf(s);
+    case 'chg': return chgOf(s);
+    case 'rvol': return rvolOf(s) ?? 0;
+    case 'rs': return num(s.rsRating);
   }
 };
 
-const STATUS_META = PLAN_STATUS_META;
-
-/* Same pixel grid as the Setups Summary rows (renderStdRow / SortableHeader)
-   so the columns land under the card's columns on desktop. PHONE: every
-   column stays (the reader wants the stats there too); each is cut to its
-   widest real value at 9px and the card's invisible spacers are dropped, so
-   a full row is ~302px. The 28px lead that lines the tickers up with the
-   card's (whose lead holds the watchlist star) is 6px below md: at 28px the
-   row was 324px in a 314px box on a 360px phone, which scrolled STAT out of
-   sight (measured 25 Sep 2026); 6px leaves 12px spare at 360 and 27 at 375,
-   at the cost of the tickers sitting 22px left of the card's on phones.
-   The fixed 4px gaps apply from md up only, since
-   justify-between spaces the columns on a phone. Spare width is shared out evenly between columns
-   (justify-between, header and rows alike, identical widths — so they stay
-   aligned) instead of pooling on the right. Narrower than that the box scrolls
-   sideways rather than clipping BUY / STOP / STAT. BUY/STOP/STAT are sized to their
-   widest real value at 9px ("↑1234.56", "229.65", "MISS"), no slack. */
 const TP_H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
 const TP_SORT = 'cursor-pointer hover:text-slate-400 transition-colors select-none';
 
@@ -1256,41 +1226,25 @@ const BestSetups = ({ watch }: { watch: OrbWatchStatus | null | undefined }) => 
   );
 };
 
-const TriggerProximity = ({ pool }: { pool: any[] }) => {
-  /* The SET is the recommended names — exactly the rows on the Setups
-     Summary card above, same pills, same green default. */
-  const all = React.useMemo(() => planRowsFor(pool), [pool]);
-  /* Every name on the card appears here. A name with no levels at all (its
-     plan collapsed, or its scan does not compute one) gets a row of dashes
-     at the bottom rather than silently vanishing. */
-  const noPlan = React.useMemo(() => {
-    const have = new Set(all.map(r => r.ticker));
-    return pool.filter(s => { const t = s?.ticker ?? s?.symbol; return t && !have.has(t); });
-  }, [pool, all]);
-
-  const [sortKey, setSortKey] = React.useState<TrigSortKey>('status');
-  const [sortDir, setSortDir] = React.useState<SortDir>('asc');
+const MoverRows = ({ pool }: { pool: any[] }) => {
+  const [sortKey, setSortKey] = React.useState<TrigSortKey>('chg');
+  const [sortDir, setSortDir] = React.useState<SortDir>('desc');
   const handleSort = (k: TrigSortKey) => {
-    const first: SortDir = k === 'status' ? 'asc' : 'desc';
-    if (k !== sortKey) { setSortKey(k); setSortDir(first); return; }
-    if (sortDir === first) setSortDir(first === 'asc' ? 'desc' : 'asc');
-    else { setSortKey('status'); setSortDir('asc'); }
+    if (k !== sortKey) { setSortKey(k); setSortDir('desc'); return; }
+    setSortDir(d => (d === 'desc' ? 'asc' : 'desc'));
   };
 
-  const rows = React.useMemo(() => {
-    const d = (a: TrigRow, b: TrigRow) => trigSortValue(a, sortKey) - trigSortValue(b, sortKey);
-    return [...all].sort((a, b) => (sortDir === 'desc' ? -d(a, b) : d(a, b)));
-  }, [all, sortKey, sortDir]);
+  const items = React.useMemo(() => {
+    const d = (a: any, b: any) => trigSortValue(a, sortKey) - trigSortValue(b, sortKey);
+    return pool.filter(s => s?.ticker ?? s?.symbol).sort((a, b) => (sortDir === 'desc' ? -d(a, b) : d(a, b)));
+  }, [pool, sortKey, sortDir]);
 
-  if (rows.length === 0 && noPlan.length === 0) return null;
+  if (items.length === 0) return null;
 
   const arrow = (k: TrigSortKey) => (sortKey === k ? (sortDir === 'desc' ? ' ↓' : ' ↑') : '');
 
   const head = (
     <div className="flex items-center justify-between md:justify-start whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
-      {/* 28px lead = the card's "3×" count column, so TICKER sits over the
-          card's tickers. Grouped with the ticker so justify-between cannot
-          push space in between them. */}
       <span className="inline-flex items-center shrink-0"><span className="inline-block w-[6px] md:w-[28px]" /><span className={`${TP_H} w-[38px] md:w-[44px] text-center mx-0.5`}>TICKER</span></span>
       <span className="hidden md:inline-block w-[28px]" />
       <span className={`${TP_H} ${TP_SORT} w-[20px] md:w-[22px] text-center md:ml-1`} onClick={() => handleSort('cnf')}>CNF{arrow('cnf')}</span>
@@ -1298,23 +1252,16 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
       <span className={`${TP_H} w-[34px] md:w-[42px] text-right md:ml-1`}>PRC</span>
       <span className={`${TP_H} ${TP_SORT} w-[28px] md:w-[40px] text-right md:ml-1`} onClick={() => handleSort('rvol')}>RVOL{arrow('rvol')}</span>
       <span className={`${TP_H} ${TP_SORT} w-[22px] md:w-[24px] text-center md:ml-1`} onClick={() => handleSort('rs')}>RS{arrow('rs')}</span>
-      <span className={`${TP_H} w-[42px] md:w-[46px] text-right md:ml-1`} title="↑ buy above this price · ↓ buy on a dip to it (EP9M)">BUY</span>
-      <span className={`${TP_H} w-[36px] md:w-[40px] text-right md:ml-1`} title="Out below this — the idea is wrong">STOP</span>
-      <span className={`${TP_H} ${TP_SORT} w-[32px] md:w-[34px] text-right md:ml-1`} onClick={() => handleSort('status')} title="Where it stands now">STAT{arrow('status')}</span>
     </div>
   );
 
-  const row = (r: TrigRow | null, src: any) => {
-    const s0 = r ? r.s : src;
-    const ticker: string = r ? r.ticker : (s0?.ticker ?? s0?.symbol);
-    const st: PlanStatus | null = r ? planStatusOf(r) : null;
-    const meta = st ? STATUS_META[st] : null;
+  const row = (s0: any) => {
+    const ticker: string = s0?.ticker ?? s0?.symbol;
     const t = tierForScan(s0._source, s0);
     const cnf = scoreOf(s0);
     const chg = chgOf(s0);
     const rv = rvolOf(s0);
     const rs = numOrNull(s0.rsRating);
-    const price = r ? r.price : priceOf(s0);
     const unranked = SCORE_UNRANKED_SOURCES.has(String(s0?._source ?? ''));
     const grade: 'A' | 'B' | null = unranked ? null : cnf >= 70 ? 'A' : cnf >= 50 ? 'B' : null;
     return (
@@ -1324,72 +1271,24 @@ const TriggerProximity = ({ pool }: { pool: any[] }) => {
         <span className="hidden md:inline-block w-[28px]" />
         <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border md:ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${unranked ? CNF_NEUTRAL : cnfBadgeCls(cnf)}`}>{cnf}</span>
         <span className={`text-[9px] tabular-nums font-semibold inline-block w-[40px] md:w-[52px] text-right md:ml-1 ${chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>
-        <span className="text-[9px] tabular-nums inline-block w-[34px] md:w-[42px] text-right text-slate-300 md:ml-1">{fmtPrc(price)}</span>
+        <span className="text-[9px] tabular-nums inline-block w-[34px] md:w-[42px] text-right text-slate-300 md:ml-1">{fmtPrc(priceOf(s0))}</span>
         <span className={`text-[9px] tabular-nums font-semibold inline-block w-[28px] md:w-[40px] text-right md:ml-1 ${rv == null ? 'text-transparent' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv != null ? `${rv < 1 ? rv.toFixed(1) : Math.round(rv)}x` : ''}</span>
         <span className="inline-block w-[22px] md:w-[24px] text-center md:ml-1">{rs != null
           ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(rs)}`}>{rs}</span>
           : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
-        {r && meta && st ? (
-          <>
-            {r.atMarket ? (
-              <span className="text-[9px] font-semibold inline-block w-[42px] md:w-[46px] text-right md:ml-1 text-emerald-400"
-                title={r.pullback ? `At market — already under the dip level (${r.trigger.toFixed(2)}); the plan buys at the price` : 'At market — the plan buys at the price, no level to wait for'}>
-                MKT
-              </span>
-            ) : (
-              <span className="text-[9px] tabular-nums font-semibold inline-block w-[42px] md:w-[46px] text-right md:ml-1 text-slate-200"
-                title={`${r.pullback ? 'Buy on a dip to' : 'Buy above'} ${r.trigger.toFixed(2)} — ${r.label}`}>
-                <span className={r.pullback ? 'text-fuchsia-400' : 'text-emerald-400'}>{r.pullback ? '↓' : '↑'}</span>{r.trigger.toFixed(2)}
-              </span>
-            )}
-            <span className="text-[9px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right md:ml-1 text-rose-400">{r.stop.toFixed(2)}</span>
-            {(() => {
-              // Shared with the scan tables, so the breakout states (OR, NONE) read the same.
-              const lab = planStatusLabel(r, st);
-              return (
-                <span className={`text-[9px] tabular-nums font-bold inline-block w-[32px] md:w-[34px] text-right md:ml-1 ${meta.cls}`} title={lab.tip}>
-                  {lab.text}
-                </span>
-              );
-            })()}
-          </>
-        ) : (
-          <>
-            <span className="text-[9px] inline-block w-[42px] md:w-[46px] text-right md:ml-1 text-slate-600">—</span>
-            <span className="text-[9px] inline-block w-[36px] md:w-[40px] text-right md:ml-1 text-slate-600">—</span>
-            <span className="text-[9px] inline-block w-[32px] md:w-[34px] text-right md:ml-1 text-slate-600" title="No buy or stop level for this name — its plan collapsed, or its scan does not compute one">—</span>
-          </>
-        )}
       </div>
     );
   };
 
   /* Two columns past five rows, split at the midpoint — same rule as the
-     card above; the right half's header is desktop-only, like the card's. */
-  const items: { r: TrigRow | null; s: any }[] = [...rows.map(r => ({ r, s: r.s })), ...noPlan.map(s => ({ r: null, s }))];
+     Setups Summary card; the right half's header is desktop-only. */
   const useTwoCols = items.length > 5;
   const mid = useTwoCols ? Math.ceil(items.length / 2) : items.length;
-  const draw = (it: { r: TrigRow | null; s: any }) => row(it.r, it.s);
 
   return (
-    <div className="mt-4 pt-3 border-t border-white/5">
-      <div className="flex items-center mb-1">
-        <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400">Buy &amp; stop</span>
-        <InfoDot text={"Buy level and stop for every name on the card above — same filters.\n\n↑ buy above that price. ↓ buy on a dip to it (EP9M).\n\nSTAT: a percentage means not there yet, this far away. HIT — at the buy level. MISS — ran past it by more than a normal day's move; buying now is chasing. EXT — too far above its 21-day average to place a sensible stop; levels are for reference only. OUT — below the stop; the idea failed.\n\nA name with no levels at all shows dashes.\n\nTIMING — the entry that tested best (5 years, 3,821 picks from Stocks in Play, Daily Setups and Swing): the session after a name makes the list, wait until 10:00 and buy only if it breaks the high of the first 30 minutes while volume runs at least 1.5× its normal pace. 41% of those trades won, against 30% for buying the open. It was not tested on EP9M, VCP or 10/21.\n\nFor the names on today's breakout watch (last night's green Stocks in Play, Daily and Swing picks) the status follows that rule: OR while the opening range forms, a percentage to the opening-range high while waiting, HIT only on the volume-confirmed break, NONE if the session closes without one. Checked every minute on real-time minute bars from 10:00 ET, so a HIT shows about a minute after the break (15-minute delayed data is the fallback)."} />
-      </div>
-      <div className={useTwoCols ? 'grid grid-cols-1 md:grid-cols-2 gap-x-6' : ''}>
-        <div className="min-w-0 overflow-x-auto overflow-y-hidden md:overflow-visible"><div className="min-w-max md:min-w-0">{head}{items.slice(0, mid).map(draw)}</div></div>
-        {useTwoCols && (
-          <div className="min-w-0 overflow-x-auto overflow-y-hidden md:overflow-visible"><div className="min-w-max md:min-w-0"><div className="hidden md:block">{head}</div>{items.slice(mid).map(draw)}</div></div>
-        )}
-      </div>
-      <p className="text-[10px] text-slate-500 font-medium mt-1">
-        <span className="text-slate-300 font-bold">0.3%</span> not there yet · <span className="text-emerald-400 font-bold">HIT</span> at the buy level · <span className="text-amber-400 font-bold">MISS</span> ran past, don&apos;t chase · <span className="text-orange-400 font-bold">EXT</span> too stretched · <span className="text-rose-400 font-bold">OUT</span> below the stop · <span className="text-slate-300 font-bold">OR</span> opening range forming · <span className="text-amber-400 font-bold">NONE</span> no breakout today
-      </p>
-      {/* The tested entry (lib/orb, scripts/backtest/intraday.ts E2), in one line. */}
-      <p className="text-[10px] text-slate-500 font-medium mt-0.5">
-        <span className="text-slate-300 font-bold">Timing</span>{' · '}after 10:00, buy the break of the first 30 minutes&apos; high on 1.5× normal volume
-      </p>
+    <div className={useTwoCols ? 'grid grid-cols-1 md:grid-cols-2 gap-x-6' : ''}>
+      <div className="min-w-0">{head}{items.slice(0, mid).map(row)}</div>
+      {useTwoCols && <div className="min-w-0"><div className="hidden md:block">{head}</div>{items.slice(mid).map(row)}</div>}
     </div>
   );
 };
@@ -1623,11 +1522,6 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
           </p>
         </>
       )}
-      {/* Under the card, deliberately: the list above says what is set up,
-          this gives the buy level and stop for each of THOSE names. Built
-          from the same filtered list, so a pill that narrows the card narrows
-          this too. */}
-      <TriggerProximity pool={shown} />
     </div>
   );
 };
@@ -1635,7 +1529,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
 /* ---- Early Movers ---------------------------------------------------------
    Names already on today's lists (the Setups Summary pool plus 10/21) that are
    moving now, on the live Webull price — lib/summary/earlyMovers holds the
-   rule. Rows are the Buy & stop box's, so a mover arrives with its plan.
+   rule. Rows are the shared mover rows (stats only, no levels).
    The live fetch is the same shape as the Setups Summary's: one sorted list
    for every viewer, so the edge cache holds it and the cost is flat in users. */
 const EarlyMovers = ({ pool: today, night, onVisibleChange }: { pool: any[]; night: EarlyNight | null; onVisibleChange?: (tickers: string[]) => void }) => {
@@ -1688,7 +1582,7 @@ const EarlyMovers = ({ pool: today, night, onVisibleChange }: { pool: any[]; nig
   return (
     <div>
       {movers.length > 0
-        ? <TriggerProximity pool={movers} />
+        ? <MoverRows pool={movers} />
         : <p className="text-[10px] text-slate-500 font-medium">{empty}</p>}
       <p className="text-[10px] text-slate-500 font-medium mt-2">
         Today&apos;s list names up {EARLY_MIN_PCT}%+{session === 'Pre-Market' ? ' pre-market' : ` on ${EARLY_MIN_PACE}× normal volume for the time of day (RVOL here is that pace)`}.

@@ -137,20 +137,12 @@
       "schedule": "* 8-23 * * 1-5"
     },
     {
-      "path": "/api/orb/live",
-      "schedule": "* 14-20 * * 1-5"
-    },
-    {
       "path": "/api/track/tick",
       "schedule": "10 0,1 * * 2-6"
     },
     {
       "path": "/api/health/scans?alert=1",
       "schedule": "30 19,20 * * 1-5"
-    },
-    {
-      "path": "/api/alerts/check",
-      "schedule": "*/15 13-21 * * 1-5"
     }
   ]
 }

@@ -1,6 +1,10 @@
 'use client';
 
-// Ep9m — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee) — v2.6
+// Ep9m — 9 Million Episodic Pivot (Pradeep Bonde / Stockbee) — v2.7
+//
+// v2.7: STATUS column and PLAN filter removed. The site publishes no buy
+//       levels, stops or targets any more — the published buy levels lost
+//       money live — so nothing on this table reads the trade plan.
 //
 // v2.6: news asterisk beside the ticker, and provenance on the sub-row.
 //
@@ -60,7 +64,6 @@
 //       would let the eye take one without the other.
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 import { cachedJson } from '@/lib/scannerLatest';
 import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort} from '@/lib/indicators/stage';
@@ -80,11 +83,8 @@ import { dtcColor as getDtcColor, tickerChipCls, scoreCellNeutralCls } from '@/l
 import { epMoveOdds, EP_MOVE_ODDS_TIP } from '@/lib/scans/ep9m';
 import { ep9mTier, EP9M_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
-import ScanStatsNote from './ScanStatsNote';
-import { SCAN, RvolCell, RsCell, PriceCell, DollarVolCell, AdrCell, StatusCell, McapCell, StageCell, SectorCell } from './scan/ScanTable';
+import { SCAN, RvolCell, RsCell, PriceCell, DollarVolCell, AdrCell, McapCell, StageCell, SectorCell } from './scan/ScanTable';
 import { usePhoneTable } from './scan/usePhoneTable';
-import { planStatusView } from '@/lib/scans/triggerProximity';
-import { isAtMarketPlan } from '@/lib/summary/rowFormat';
 import { poll } from '@/lib/poll';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
@@ -92,10 +92,6 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   CNF: {
     what: 'Episodic Pivot score 0–100 — volume abnormality, vs-60-day-high, float turnover, catalyst, close strength, Money Flow, days-to-cover, and repeat-trigger history. Hover the number for the per-row breakdown.\n\nGrey on purpose: it measures how big the event was, not how the trade goes. In the 5-year test high and low scores traded the same on the dip entry, so it sorts the list but is not a grade.',
     colour: 'The ticker colour is BIG-MOVE ODDS, not quality: green = float turnover 0.5x+ or cap under $300M (17-23% ran +50%, but the worst average outcome), amber = 0.25x+ or under $2B, grey = single-digit odds.',
-  },
-  ROOM: {
-    what: 'Room to run: how far the nearest overhead level (a prior high or a falling average) sits above the buy level, in %. More room than the stop distance means the trade can pay more than it risks before it meets supply.',
-    colour: 'Green: clear overhead for at least twice the stop distance · slate: room of at least one stop distance · amber: at least half of it · red: less — the ceiling is closer than the stop · EXT extended · ✕ no plan.',
   },
   PRICE: {
     what: 'Last price. The dot beside it is VWAP position.',
@@ -106,7 +102,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Green up · red down.',
   },
   '10/21': {
-    what: 'Price vs the 10 and 21 EMAs — the Dr. Wish trend pair. Shown for context; there is no filter on it here, because the extension case it would catch is already reported by RTR as EXT.',
+    what: 'Price vs the 10 and 21 EMAs — the Dr. Wish trend pair. Shown for context; there is no filter on it here.',
     colour: 'Green dot above that EMA · red below · grey no data.',
   },
   VOL: {
@@ -122,7 +118,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Fuchsia 1.0x+ · purple 0.5x+ · green 0.25x+ · lime 0.1x+.',
   },
   ADR: {
-    what: 'Two readings, stacked, because neither means much alone.\n\nTOP — ADR: 20-day average daily range. The anti-chop measure, and the stop basis: 1.25× ADR or 2.5%, whichever is wider.\n\nBOTTOM — CHOP: 14-day Choppiness Index. Distance travelled over ground covered. This scan has no trend gate, so CHOP is the only reading that says whether the range the volume landed in can resolve. Above 61.8 the name churns; below 38.2 it trends.',
+    what: 'Two readings, stacked, because neither means much alone.\n\nTOP — ADR: 20-day average daily range. The anti-chop measure.\n\nBOTTOM — CHOP: 14-day Choppiness Index. Distance travelled over ground covered. This scan has no trend gate, so CHOP is the only reading that says whether the range the volume landed in can resolve. Above 61.8 the name churns; below 38.2 it trends.',
     colour: 'ADR: purple 10%+ · green 5%+ · grey at the floor.\nCHOP: teal/green trending · slate mixed · amber choppy · red dead chop.',
   },
   MF: {
@@ -234,7 +230,6 @@ type EpTypeFilterType = 'All' | 'growth' | 'turnaround' | 'delayed' | 'theme' | 
 type RvolFilterType = 'All' | '5';
 type CatalystFilterType = 'All' | 'News' | 'Silent';
 type VwapFilterType = 'All' | 'above' | 'below';
-type PlanFilterType = 'All' | '1R' | '2R';
 type CapFilterType = 'All' | 'Small' | 'Large';
 type ChopFilterType = 'All' | 'trend' | 'nochop';
 
@@ -245,7 +240,6 @@ const EP_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
    extreme end, because RVOL's denominator is a 20-day average that prior
    spikes have already inflated. */
 const RVOL_BUCKETS: RvolFilterType[] = ['5'];
-const PLAN_BUCKETS: PlanFilterType[] = ['1R', '2R'];
 const CAP_BUCKETS: CapFilterType[] = ['Small', 'Large'];
 const CHOP_BUCKETS: ChopFilterType[] = ['trend', 'nochop'];
 
@@ -305,7 +299,7 @@ const epTypeTooltip = (type: string, theme: string | null): string => {
   switch (type) {
     case 'growth': return 'Classical Growth EP — driven by explosive revenue surprise (50%+ sales growth with an earnings catalyst). The market is re-pricing to reflect fundamentals it missed.';
     case 'turnaround': return 'Turnaround EP — a neglected or struggling company posting results, or new leadership reshaping the story. These tend to run for several quarters.';
-    case 'delayed': return 'Delayed Reaction EP — this name triggered EP9M recently and is re-appearing. The initial gap is priced; this is the re-break after a pullback, which allows a tighter stop and larger position.';
+    case 'delayed': return 'Delayed Reaction EP — this name triggered EP9M recently and is re-appearing. The initial gap is priced; this is the re-break after a pullback.';
     case 'theme': return `Stories & Themes EP${theme ? ` (${theme})` : ''} — the narrative drives the move, not fundamentals. Based on market manias; can run hundreds of percent, but the stock may never turn a profit.`;
     case 'volume': return 'EP 9 Million — pure volume anomaly. Institutions are moving size; the catalyst has not been classified into a specific EP variation.';
     default: return '';
@@ -328,16 +322,6 @@ const formatNumber = (num: number | null | undefined) => {
   return num.toLocaleString();
 };
 
-
-// Price levels drop the cents on anything three digits or more — at $886 the
-// pennies are noise, at $4.18 they are the whole trade.
-const formatLevel = (v: number | null | undefined): string => {
-  if (v == null || isNaN(Number(v))) return '—';
-  const n = Number(v);
-  if (n >= 100) return n.toFixed(0);
-  if (n >= 10) return n.toFixed(1);
-  return n.toFixed(2);
-};
 
 const formatRs = (rs: number | null | undefined): string => {
   if (rs == null || isNaN(Number(rs))) return '—';
@@ -405,101 +389,6 @@ const mfOf = (c: Ep9mCandidate): number | null =>
 const vs60dOf = (c: Ep9mCandidate): number | null =>
   c.volVs60dMax == null || isNaN(Number(c.volVs60dMax)) ? null : Number(c.volVs60dMax);
 
-/* ---- Trade plan ---------------------------------------------------------
-   Reads the `plan` object the scan ships. Nothing is recalculated here, so
-   the table cannot disagree with the score.
-
-   SORT VALUE needs care. A name with no plan must sort to the bottom rather
-   than the top, and `clear` rows have no resistanceR at all when price is
-   above every average — those are the BEST rows, so they need a high
-   sentinel rather than a null.                                            */
-const planOf = (c: Ep9mCandidate): TradePlanRow | null => {
-  const p = c.plan;
-  return p && typeof p === 'object' ? p : null;
-};
-
-const PLAN_SORT_CLEAR = 99;
-const PLAN_SORT_NONE = -1;
-
-const planSortValue = (c: Ep9mCandidate): number => {
-  const p = planOf(c);
-  if (!p || p.tradeable !== true) return PLAN_SORT_NONE;
-  if (p.collapsed) return PLAN_SORT_NONE;
-  if (p.overextended) return PLAN_SORT_NONE;
-  if (p.clear) return p.resistanceR != null ? p.resistanceR : PLAN_SORT_CLEAR;
-  return p.resistanceR != null ? p.resistanceR : PLAN_SORT_NONE;
-};
-
-const planShort = (c: Ep9mCandidate): string => {
-  const p = planOf(c);
-  if (!p) return '—';
-  if (p.collapsed) return '✕';
-  if (p.tradeable !== true) return '—';
-  if (p.overextended) return 'EXT';
-  if (p.clear) return p.resistanceR != null && p.stopPct != null ? `${(p.resistanceR * p.stopPct).toFixed(1)}%` : 'clear';
-  if (p.resistanceR == null) return '—';
-  return p.stopPct != null ? `${(p.resistanceR * p.stopPct).toFixed(1)}%` : '—';
-};
-
-const planBadge = (c: Ep9mCandidate): string => {
-  const p = planOf(c);
-  if (!p) return 'bg-white/[0.02] text-slate-600 border-white/5';
-  if (p.collapsed) return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
-  if (p.tradeable !== true) return 'bg-white/[0.02] text-slate-600 border-white/5';
-  if (p.overextended) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-  if (p.clear) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-  const r = p.resistanceR;
-  if (r == null) return 'bg-white/[0.02] text-slate-600 border-white/5';
-  if (r >= 1.0) return 'bg-slate-500/10 text-slate-300 border-white/10';
-  if (r >= 0.5) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-  return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
-};
-
-const planTooltip = (c: Ep9mCandidate): string => {
-  const p = planOf(c);
-  if (!p) return 'No trade plan on this row — the EP9M scan does not yet compute one.';
-  if (p.tradeable !== true) return `No plan — ${p.note || 'not computable'}.`;
-
-  const lines: string[] = [];
-  // Already under the dip level and above the stop: nothing left to wait for.
-  if (isAtMarketPlan({ ...c, _source: 'ep9m' })) {
-    lines.push(`At market · Stop ${p.stop != null ? p.stop.toFixed(2) : '—'} — the price is already under the dip level, so the plan buys at the price.`);
-    lines.push('');
-  }
-  lines.push(`Trigger  ${p.trigger != null ? p.trigger.toFixed(2) : '—'}  (${p.triggerLabel || '—'})`);
-  lines.push(`Stop     ${p.stop != null ? p.stop.toFixed(2) : '—'}  (${p.stopPct != null ? `−${p.stopPct.toFixed(1)}%` : '—'})`);
-  lines.push(`Target   ${p.target != null ? p.target.toFixed(2) : '—'}  (twice the stop distance)`);
-  if (p.trigger != null && p.stop != null) {
-    lines.push(`Risk     ${(p.trigger - p.stop).toFixed(2)} per share`);
-  }
-  lines.push('');
-  if (p.resistanceR != null) {
-    lines.push(`Nearest overhead: ${p.resistanceLabel || 'level'}${p.stopPct != null ? `, ${(p.resistanceR * p.stopPct).toFixed(1)}% above the buy level` : ''}`);
-  } else {
-    lines.push('No overhead level between trigger and target.');
-  }
-  if (p.note) {
-    lines.push('');
-    lines.push(p.note);
-  }
-
-  /* Chop cuts the other way now. Since 11 Sep 2026 the trigger is the EP-day
-     MIDPOINT, not the day high — you are waiting for the name to come back to
-     you — so a churning range is what fills the order rather than what
-     rejects it. What chop threatens here is the hold after the fill. */
-  const chop = chopOf(c);
-  if (chop != null && chop >= CHOP_CHOP_MIN) {
-    lines.push('');
-    lines.push(`CHOP ${chop.toFixed(0)} — a churning range fills this pullback easily but tends to give the 2R back. Expect to be stopped or to sit.`);
-  }
-
-  lines.push('');
-  lines.push('Trigger is the midpoint of the EP day\'s range, stop is that day\'s LOW, target a fixed 2R. Valid for 10 sessions; a close below the low cancels it.');
-  lines.push('');
-  lines.push(EXIT_GUIDANCE['ep9m']);
-  return lines.join('\n');
-};
-
 const epTooltip = (c: Ep9mCandidate): string => {
   const lines: string[] = [
     `EP ${c.score} — how big the event was. Not a quality grade: in the 5-year test high and low scores traded the same on the dip entry.`,
@@ -524,9 +413,9 @@ const epTooltip = (c: Ep9mCandidate): string => {
   }
 
   // EP scores volume, not tradeability. Saying so here keeps a 90 from
-  // reading as a recommendation on a name with nowhere to put a stop.
+  // reading as a recommendation.
   lines.push('');
-  lines.push('EP scores the volume event. The room to the nearest overhead level says whether there is a trade.');
+  lines.push('EP scores the volume event, not whether there is a trade.');
 
   // And chop is a third question again — the regime the volume landed in.
   const chop = chopOf(c);
@@ -545,7 +434,7 @@ const unprecTooltip = (chop: number | null): string => {
   const base = "Unprecedented — today's volume exceeds this stock's own 60-day high.";
   if (chop == null) return base;
   if (chop >= CHOP_CHOP_MIN) {
-    return `${base}\n\nBut CHOP ${chop.toFixed(0)} (${chopLabel(chop).toLowerCase()}) — record size is moving inside a range that keeps rejecting both edges. Research it; do not chase the break.`;
+    return `${base}\n\nBut CHOP ${chop.toFixed(0)} (${chopLabel(chop).toLowerCase()}) — record size is moving inside a range that keeps rejecting both edges. Research it.`;
   }
   if (chop <= CHOP_TREND_MAX) {
     return `${base}\n\nCHOP ${chop.toFixed(0)} (${chopLabel(chop).toLowerCase()}) — and the tape is trending, so the volume has somewhere to go. This is the combination the scan exists to find.`;
@@ -573,7 +462,7 @@ const above21 = (c: Ep9mCandidate) => c.aboveEma21 ?? (c.distToEma21 != null ? c
 const above10 = (c: Ep9mCandidate) => c.aboveEma10 ?? (c.distToEma10 != null ? c.distToEma10 >= 0 : null);
 
 export default function Ep9m() {
-  // Phones: six core columns, tap a row for the rest (components/scan/usePhoneTable).
+  // Phones: five core columns, tap a row for the rest (components/scan/usePhoneTable).
   const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();
 
@@ -588,7 +477,6 @@ export default function Ep9m() {
   const [epFilter, setEpFilter] = useState<EpFilterType>('All');
   const [rvolFilter, setRvolFilter] = useState<RvolFilterType>('All');
   const [catalystFilter, setCatalystFilter] = useState<CatalystFilterType>('All');
-  const [planFilter, setPlanFilter] = useState<PlanFilterType>('All');
   const [chopFilter, setChopFilter] = useState<ChopFilterType>('All');
   const [showUnprecedentedOnly, setShowUnprecedentedOnly] = useState<boolean>(false);
   const [showSugarBabyOnly, setShowSugarBabyOnly] = useState<boolean>(false);
@@ -641,7 +529,6 @@ export default function Ep9m() {
   const handleRvolFilter = (val: RvolFilterType) => setRvolFilter(prev => prev === val ? 'All' : val);
   const handleCatalystFilter = (val: CatalystFilterType) => setCatalystFilter(prev => prev === val ? 'All' : val);
   const toggleVwap = (status: 'above' | 'below') => setVwapFilter(prev => prev === status ? 'All' : status);
-  const handlePlanFilter = (val: PlanFilterType) => setPlanFilter(prev => prev === val ? 'All' : val);
   const handleCapFilter = (val: CapFilterType) => setMarketCapFilter(prev => prev === val ? 'All' : val);
   const handleChopFilter = (val: ChopFilterType) => setChopFilter(prev => prev === val ? 'All' : val);
   const handleEpTypeFilter = (val: EpTypeFilterType) => setEpTypeFilter(prev => prev === val ? 'All' : val);
@@ -689,19 +576,6 @@ export default function Ep9m() {
         return chopFilter === 'trend' ? v <= CHOP_TREND_MAX : v < CHOP_CHOP_MIN;
       });
     }
-    /* Plan filter drops anything without a usable entry, then applies a
-       threshold in stop-widths. On this table that is the sharpest cut
-       available — it strips the collapsed and the already-run and leaves only
-       volume events you could act on. */
-    if (planFilter !== 'All') {
-      const minR = planFilter === '2R' ? 2.0 : 1.0;
-      list = list.filter(c => {
-        const p = planOf(c);
-        if (!p || p.tradeable !== true || p.collapsed || p.overextended) return false;
-        if (p.clear === true) return true;
-        return p.resistanceR != null && p.resistanceR >= minR;
-      });
-    }
     if (showUnprecedentedOnly) list = list.filter(c => c.unprecedented === true);
     if (showSugarBabyOnly) list = list.filter(c => c.sugarBaby === true);
     if (showStage2Only) list = list.filter(c => stageShort(c.stage).startsWith('2'));
@@ -723,9 +597,7 @@ export default function Ep9m() {
 
     if (!sortConfig) return list;
     return list.sort((a, b) => {
-      const val = (r: any) => sortConfig.key === 'planR' ? planSortValue(r)
-        : sortConfig.key === 'status' ? (planStatusView(r, 'ep9m')?.sort ?? null)
-        : r[sortConfig.key];
+      const val = (r: any) => r[sortConfig.key];
       const aVal = val(a);
       const bVal = val(b);
       if (aVal === null || aVal === undefined) return 1;
@@ -734,7 +606,7 @@ export default function Ep9m() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, epFilter, rvolFilter, catalystFilter, planFilter, chopFilter, showUnprecedentedOnly, showSugarBabyOnly, showStage2Only, marketCapFilter, vwapFilter, epTypeFilter, edge.key]);
+  }, [candidates, sortConfig, epFilter, rvolFilter, catalystFilter, chopFilter, showUnprecedentedOnly, showSugarBabyOnly, showStage2Only, marketCapFilter, vwapFilter, epTypeFilter, edge.key]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -836,7 +708,6 @@ export default function Ep9m() {
 
   const activeFilterCount =
     (epFilter !== 'All' ? 1 : 0) +
-    (planFilter !== 'All' ? 1 : 0) +
     (chopFilter !== 'All' ? 1 : 0) +
     (rvolFilter !== 'All' ? 1 : 0) +
     (showUnprecedentedOnly ? 1 : 0) +
@@ -903,7 +774,7 @@ export default function Ep9m() {
               {unprecInChopCount > 0 && (
                 <span
                   className="text-[9px] font-bold tracking-wider uppercase text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded cursor-help"
-                  title={`${unprecInChopCount} name${unprecInChopCount === 1 ? '' : 's'} printed record volume INSIDE a chop regime — the volume event is real and the range is not resolving it. Research these; do not chase the break.`}
+                  title={`${unprecInChopCount} name${unprecInChopCount === 1 ? '' : 's'} printed record volume INSIDE a chop regime — the volume event is real and the range is not resolving it. Research these.`}
                 >
                   {unprecInChopCount} In Chop
                 </span>
@@ -979,23 +850,6 @@ export default function Ep9m() {
                         className={`${pillBtn} ${epFilter === g ? filterBtnActive : filterBtnIdle}`}
                       >
                         {g}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className={pillWrap}>
-                  <span className={pillLabel}>PLAN</span>
-                  <div className="flex items-center gap-1">
-                    {PLAN_BUCKETS.map((opt) => (
-                      <button
-                        key={opt}
-                        onClick={() => handlePlanFilter(opt)}
-                        title={opt === '2R'
-                          ? 'At least two stop-widths to the nearest overhead level, or clear air above the trigger'
-                          : 'At least one stop-width to the nearest overhead level — also strips the collapsed and the already-run'}
-                        className={`${pillBtn} ${planFilter === opt ? filterBtnActive : filterBtnIdle}`}
-                      >
-                        {opt === '1R' ? 'ROOM ≥ STOP' : 'ROOM ≥ 2× STOP'}
                       </button>
                     ))}
                   </div>
@@ -1107,8 +961,8 @@ export default function Ep9m() {
           </div>
 
           <div className="relative z-0 overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            {/* 18 columns (N added between TICKER and EP).
-                min-w 960; widths sum ~99. */}
+            {/* 18 columns. STATUS's 5% went to SECTOR when the column was
+                removed with every buy and stop level (9 Oct 2026). */}
             <table ref={phoneTableRef} className="scan-table w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
@@ -1129,18 +983,17 @@ export default function Ep9m() {
                       header cannot carry two sort keys. */}
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('STATUS')} onClick={() => handleSort('status')}>STATUS{getSortIcon('status')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thStage} w-[5%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thSector} w-[7%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thSector} w-[12%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
                   <tr>
-                    <td colSpan={19} className="py-12 text-center text-slate-500 text-sm font-medium">
+                    <td colSpan={18} className="py-12 text-center text-slate-500 text-sm font-medium">
                       {status === 'Live'
                         ? (candidates.length > 0
                             ? 'No names match the current filters.'
@@ -1159,7 +1012,6 @@ export default function Ep9m() {
                     const chop = chopOf(row);
                     const mf = mfOf(row);
                     const vs60d = vs60dOf(row);
-                    const plan = planOf(row);
                     /* EP's OWN tint — lib/scans/edge ep9mTier, measured on the
                        pullback entry this card ships, not the momentum rules. */
                     const tier = ep9mTier(row);
@@ -1239,7 +1091,6 @@ export default function Ep9m() {
                           <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${mfColor(mf)}`} title={`Money Flow (21) — ${mfLabel(mf)}. Heavy volume with MF under 45 is distribution, however strong today's close. Arrow shows the 5-day direction.`}>
                             {mf != null ? `${mf.toFixed(0)}${mfArrow(row.mfTrend ?? 0)}` : '—'}
                           </td>
-                          <StatusCell view={planStatusView(row, 'ep9m')} />
                           <td className={`${tdBase} text-[10px] font-bold whitespace-nowrap tabular-nums ${getDtcColor(row.daysToCover)}`} title="Days to cover — short interest divided by average daily volume. Squeeze fuel.">
                             {row.daysToCover != null ? row.daysToCover.toFixed(1) : '—'}
                           </td>
@@ -1247,9 +1098,9 @@ export default function Ep9m() {
                           <StageCell stage={row.stage} />
                           <SectorCell text={sectorText} />
                         </tr>
-                        {/* Levels lead, same slot the setup name occupies on
-                            SIPs and Daily, then VS60D, which is the signal this
-                            scan exists for.
+                        {/* VS60D leads, in the slot the setup name occupies
+                            on SIPs and Daily — it is the signal this scan
+                            exists for.
 
                             The STATE cell was removed to match the other
                             scanners. UNPREC/SILENT STAYS: unlike Ready/Forming
@@ -1265,7 +1116,7 @@ export default function Ep9m() {
                             </div>
                           </td>
                           <td />
-                          <td colSpan={17} className="pb-1.5 pt-1 pr-3">
+                          <td colSpan={16} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
                               <span
                                 className="shrink-0 flex items-baseline gap-1 pr-2.5 cursor-help whitespace-nowrap"
@@ -1325,7 +1176,6 @@ export default function Ep9m() {
               </tbody>
             </table>
           </div>
-          <ScanStatsNote scan="ep9m" />
 
           {funnelNote && (
             <div className="relative z-10 mt-3 text-center">

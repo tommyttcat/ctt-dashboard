@@ -12,12 +12,10 @@ import { WatchlistProvider } from './WatchlistContext';
 import WatchlistPanel from './WatchlistPanel';
 import { ChartLevelsCtx } from './analyst/MiniChart';
 import type { ExternalLevel } from './analyst/MiniChart';
-import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 import {
-  levelsFor, statusText, fmtLvl, verdictOf, trendLine, whyLine, flagsOf, shortName, shortRisk, bestLine,
-  STATUS_HELP, type ReadoutReport, type ReportTf, type FlagTone,
+  fmtLvl, verdictOf, trendLine, whyLine, flagsOf, shortName, shortRisk, bestLine,
+  type ReadoutReport, type ReportTf, type FlagTone,
 } from '@/lib/confluence/readout';
-import type { PlanStatus } from '@/lib/scans/triggerProximity';
 import { poll } from '@/lib/poll';
 
 // ---- types ------------------------------------------------------------------
@@ -97,13 +95,6 @@ function TickerBadge({ ticker, grade }: { ticker: string; grade: string | null |
 
 const LAB = 'text-[11px] font-bold tracking-[0.14em] uppercase';
 
-const STATUS_PILL: Record<PlanStatus, string> = {
-  wait: 'text-slate-300 bg-slate-700/60',
-  hit: 'text-emerald-300 bg-emerald-500/15',
-  miss: 'text-rose-300 bg-rose-500/15',
-  ext: 'text-orange-400 bg-orange-950/60',
-  out: 'text-rose-300 bg-rose-500/15',
-};
 
 const FLAG_TONE: Record<FlagTone, string> = {
   amber: 'text-amber-400',
@@ -224,9 +215,6 @@ function Details({ r }: { r: Report }) {
           ].filter(Boolean).join(' · ')}
         </div>
       ))}
-      {r.tradeRec && <div>Drawn target {r.tradeRec.takeProfit}</div>}
-      {/* What the 5-year replay of these tables says to do with that target. */}
-      <div>{EXIT_GUIDANCE.scanner}</div>
     </div>
   );
 }
@@ -241,7 +229,6 @@ function StockCard({ report: r }: { report: Report }) {
      muddy (olive / teal / maroon) across a grid of cards. */
   const tint = tier === 'green' ? 'border-l-4 border-l-emerald-400/50' : tier === 'yellow' ? 'border-l-4 border-l-amber-400/50' : tier === 'red' ? 'border-l-4 border-l-rose-400/50' : '';
   const name = shortName(r.name, r.ticker);
-  const lv = levelsFor(r);
   const why = whyLine(r);
   const flags = flagsOf(r);
 
@@ -257,26 +244,6 @@ function StockCard({ report: r }: { report: Report }) {
           </div>
           <span className={`font-bold tabular-nums shrink-0 ${r.changePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmtPct(r.changePct)}</span>
         </div>
-
-        {lv && (
-          <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2 mt-3 px-3 py-2.5 rounded-xl bg-[#0a1220]">
-            <div className="min-w-0">
-              <div className="text-slate-400">{lv.kind === 'scan' ? (lv.buyLabel === 'At market' ? 'Buy' : lv.buyLabel) : 'Buy above'}</div>
-              <div className="font-bold text-slate-100 tabular-nums">{lv.kind === 'scan' ? (lv.buyLabel === 'At market' ? 'At market' : fmtLvl(lv.trigger)) : lv.trigger}</div>
-            </div>
-            <div className="min-w-0">
-              <div className="text-slate-400">Stop</div>
-              <div className="font-bold text-rose-400 tabular-nums">{lv.kind === 'scan' ? fmtLvl(lv.stop) : lv.stop}</div>
-            </div>
-            <div>
-              {lv.kind === 'scan' && (
-                <span className={`inline-block font-bold uppercase tracking-wide rounded-full px-2.5 py-0.5 whitespace-nowrap ${STATUS_PILL[lv.status]}`}>
-                  {statusText(lv.status, lv.awayPct)}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
 
         <div className="mt-2 text-slate-300"><span className="font-semibold text-slate-100 mr-1">Trend</span>{trendLine(r)}</div>
         {(nearSupport(r).length > 0 || nearResistance(r).length > 0) && (
@@ -328,23 +295,13 @@ export default function ConfluenceReport() {
   // Opens on every name (null), strongest first — a green-only default left two
   // cards and hid the lead pick.
   const edge = useEdgeFilter(edgeTally, null);
-  /* Most actionable first: names at or near their buy level (nearest first),
-     then stretched / missed / broken ones; within each, green before yellow
-     before red. A green name that is EXT is not something to act on today. */
+  /* Green before yellow before red, then the stronger trend bias. No buy or
+     stop levels since 9 Oct 2026 (the published levels lost money live), so
+     nothing sorts on distance to a level any more. */
   const visibleReports = useMemo(() => {
     const TIER: Record<string, number> = { green: 0, yellow: 1, red: 2 };
-    const ST: Record<string, number> = { hit: 0, wait: 1, ext: 2, miss: 3, out: 4 };
-    const rank = (r: Report) => {
-      const lv = levelsFor(r);
-      const st = lv && lv.kind === 'scan' ? (ST[lv.status] ?? 5) : 5;
-      const away = lv && lv.kind === 'scan' && lv.status === 'wait' ? lv.awayPct : 0;
-      return [st, TIER[edgeTier(r) ?? ''] ?? 3, away] as const;
-    };
     const list = edge.key ? sectorReports.filter(r => edgeTier(r) === edge.key) : sectorReports;
-    return [...list].sort((a, b) => {
-      const x = rank(a), y = rank(b);
-      return x[0] - y[0] || (x[0] === 1 ? x[2] - y[2] : 0) || x[1] - y[1] || b.biasScore - a.biasScore;
-    });
+    return [...list].sort((a, b) => (TIER[edgeTier(a) ?? ''] ?? 3) - (TIER[edgeTier(b) ?? ''] ?? 3) || b.biasScore - a.biasScore);
   }, [sectorReports, edge.key]);
 
   const fetchData = useCallback(async () => {
@@ -466,9 +423,6 @@ export default function ConfluenceReport() {
                   )}
                 </span>
               )}
-              <span className="flex items-center text-slate-500">
-                Levels<InfoDot text={STATUS_HELP} />
-              </span>
             </div>
 
             <div className="grid gap-3.5 grid-cols-1 md:grid-cols-2 md:auto-rows-fr [&>*]:h-full">
@@ -483,7 +437,7 @@ export default function ConfluenceReport() {
         <div className="mt-6 px-4 md:px-5 py-3 rounded-2xl border border-white/[0.06] bg-[#0b101a]">
           <div className="text-[11px] font-bold tracking-widest uppercase text-amber-400/70 mb-1.5">Good to know</div>
           <ul className="text-[12px] text-slate-500 space-y-0.5 list-disc list-inside">
-            <li>Buy and stop levels are the scan&apos;s own — the same ones on the dashboard. Names not on a scan today show this report&apos;s levels and say so.</li>
+            <li>No buy or stop levels: the ones CTT published lost money live, so the report shows the names and why, not a trade plan.</li>
             <li>Support and resistance come from recent swing highs and lows and may miss some levels.</li>
             <li>Price data is delayed. Always apply your own risk management.</li>
           </ul>

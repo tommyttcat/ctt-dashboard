@@ -1,6 +1,11 @@
 'use client';
 
-// SwingCandidates — v2.4
+// SwingCandidates — v2.5
+//
+// v2.5: STATUS column and PLAN filter removed. The site publishes no buy
+//       levels, stops or targets any more — the published buy levels lost
+//       money live — so nothing on this table reads the trade plan except
+//       the POSTURE extension check.
 //
 // v2.4: news asterisk beside the ticker, and provenance on the sub-row
 //       headline. Same treatment as StocksInPlay v3.4 and DailySetups v2.4.
@@ -120,7 +125,6 @@
 //       exists to prevent.
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 import { cachedJson } from '@/lib/scannerLatest';
 import { swingTier, SWING_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
@@ -139,11 +143,9 @@ import { SWING, COLUMN_NOTES, columnTip } from '@/lib/scanConfig';
 import { WatchlistToggle } from './WatchlistPanel';
 import { scoreCellNeutralCls } from '@/lib/indicators/columnColors';
 import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
-import ScanStatsNote from './ScanStatsNote';
-import { SCAN, RsCell, PriceCell, ChgCell, VolCell, RvolCell, FloatCell, AdrCell, MfCell, DtcCell, McapCell, StageCell, SectorCell, StatusCell } from './scan/ScanTable';
+import { SCAN, RsCell, PriceCell, ChgCell, VolCell, RvolCell, FloatCell, AdrCell, MfCell, DtcCell, McapCell, StageCell, SectorCell } from './scan/ScanTable';
 import { usePhoneTable } from './scan/usePhoneTable';
 import { TickerCell } from './scan/TickerCell';
-import { planStatusView } from '@/lib/scans/triggerProximity';
 import { poll } from '@/lib/poll';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
@@ -151,10 +153,6 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   CNF: {
     what: 'Swing score 0–100, built from four parts: RS Rating (35), pullback tightness — distance to the 21 EMA and how deep the stochastic has reset (30), volatility fit, which rewards an ATR near 3% and penalises both ends (20), and trend structure, 50 over 200 plus a rising 21 (15).\n\nRelative strength is the largest single component AND a hard gate: a name below RS 50 never reaches this table at all.',
     colour: 'Grey on purpose: in the 5-year test a higher swing score did not reliably mean a better trade — its top fifth won in one half and lost in the other. It sorts the list; the row colour is the part that was tested.',
-  },
-  ROOM: {
-    what: 'Room to run: how far the nearest overhead level (a prior high or a falling average) sits above the buy level, in %. More room than the stop distance means the trade can pay more than it risks before it meets supply.',
-    colour: 'Green: clear overhead for at least twice the stop distance · slate: room of at least one stop distance · amber: at least half of it · red: less — the ceiling is closer than the stop · EXT extended · ✕ no plan.',
   },
   PRICE: {
     what: 'Last price. The dot beside it is VWAP position.',
@@ -175,7 +173,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Amber 2x+ · green 1.5x+ · grey below.',
   },
   ADR: {
-    what: 'Two readings, stacked, because neither means much alone.\n\nTOP — ADR: 20-day average daily range. The scan floor is 3%. Also the stop basis (1.25× ADR or 2.5%, whichever is wider) and the extension test behind the EXTENDED posture.\n\nBOTTOM — CHOP: 14-day Choppiness Index. Distance travelled over ground covered. ADR was long described here as the anti-chop gate, and it is not one — it says the name MOVES, not that it moves SOMEWHERE. CHOP is the actual anti-chop reading, and on this table it is the only thing separating a pullback into a trend from a pullback inside a range.',
+    what: 'Two readings, stacked, because neither means much alone.\n\nTOP — ADR: 20-day average daily range. The scan floor is 3%. Also the extension test behind the EXTENDED posture.\n\nBOTTOM — CHOP: 14-day Choppiness Index. Distance travelled over ground covered. ADR was long described here as the anti-chop gate, and it is not one — it says the name MOVES, not that it moves SOMEWHERE. CHOP is the actual anti-chop reading, and on this table it is the only thing separating a pullback into a trend from a pullback inside a range.',
     colour: 'ADR: purple 10%+ · green 5%+ · grey at the floor.\nCHOP: teal/green trending · slate mixed · amber choppy · red dead chop.',
   },
   MF: {
@@ -283,7 +281,6 @@ type SortDirection = 'asc' | 'desc';
 type CnfFilterType = 'All' | 'A' | 'B';
 type VwapFilterType = 'All' | 'above' | 'below';
 type AdrFilterType = 'All' | '5' | '10';
-type PlanFilterType = 'All' | '1R' | '2R';
 type CapFilterType = 'All' | 'Small' | 'Large';
 type PostureFilterType = 'All' | 'first-touch' | 'stacked' | 'extended';
 type ChopFilterType = 'All' | 'trend' | 'nochop';
@@ -291,7 +288,6 @@ type ChopFilterType = 'All' | 'trend' | 'nochop';
 const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
 const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
 const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
-const PLAN_BUCKETS: PlanFilterType[] = ['1R', '2R'];
 const CAP_BUCKETS: CapFilterType[] = ['Small', 'Large'];
 const POSTURE_BUCKETS: PostureFilterType[] = ['first-touch', 'stacked', 'extended'];
 const CHOP_BUCKETS: ChopFilterType[] = ['trend', 'nochop'];
@@ -338,16 +334,6 @@ const formatCurrency = (num: number | null | undefined) => {
   if (num >= 1e9) return '$' + (num / 1e9).toFixed(1) + 'B';
   if (num >= 1e6) return '$' + (num / 1e6).toFixed(1) + 'M';
   return '$' + num.toLocaleString();
-};
-
-// Price levels drop the cents on anything three digits or more — at $886 the
-// pennies are noise, at $4.18 they are the whole trade.
-const formatLevel = (v: number | null | undefined): string => {
-  if (v == null || isNaN(Number(v))) return '—';
-  const n = Number(v);
-  if (n >= 100) return n.toFixed(0);
-  if (n >= 10) return n.toFixed(1);
-  return n.toFixed(2);
 };
 
 const statePair = (rmv: number | null, rme: number | null): string => {
@@ -432,113 +418,12 @@ const rmvOf = (c: SwingCandidate): number | null => {
 };
 
 
-const tradeTypeLabel = (tradeType: string | null | undefined): string | null => {
-  const t = (tradeType || 'swing').toLowerCase();
-  if (t.startsWith('day')) return 'DAY';
-  if (t.startsWith('swing')) return 'SWING';
-  return String(tradeType).toUpperCase();
-};
-
-/* ---- Trade plan ---------------------------------------------------------
-   Reads the `plan` object the scanner ships. Nothing is recalculated here,
-   so the table cannot disagree with the score.
-
-   Route v1.8 emits these. Every helper still degrades to "—" rather than
-   throwing, so a stale payload renders honestly instead of breaking.     */
+/* The scanner still ships its trade-plan object on every row. Nothing here
+   displays it — the site shows no buy or stop levels — but POSTURE reads its
+   overextended verdict, so the accessor stays. */
 const planOf = (c: SwingCandidate): TradePlanRow | null => {
   const p = c.plan;
   return p && typeof p === 'object' ? p : null;
-};
-
-const PLAN_SORT_CLEAR = 99;
-const PLAN_SORT_NONE = -1;
-
-const planSortValue = (c: SwingCandidate): number => {
-  const p = planOf(c);
-  if (!p || p.tradeable !== true) return PLAN_SORT_NONE;
-  if (p.collapsed) return PLAN_SORT_NONE;
-  if (p.overextended) return PLAN_SORT_NONE;
-  if (p.clear) return p.resistanceR != null ? p.resistanceR : PLAN_SORT_CLEAR;
-  return p.resistanceR != null ? p.resistanceR : PLAN_SORT_NONE;
-};
-
-const planShort = (c: SwingCandidate): string => {
-  const p = planOf(c);
-  if (!p) return '—';
-  if (p.collapsed) return '✕';
-  if (p.tradeable !== true) return '—';
-  if (p.overextended) return 'EXT';
-  if (p.clear) return p.resistanceR != null && p.stopPct != null ? `${(p.resistanceR * p.stopPct).toFixed(1)}%` : 'clear';
-  if (p.resistanceR == null) return '—';
-  return p.stopPct != null ? `${(p.resistanceR * p.stopPct).toFixed(1)}%` : '—';
-};
-
-const planBadge = (c: SwingCandidate): string => {
-  const p = planOf(c);
-  if (!p) return 'bg-white/[0.02] text-slate-600 border-white/5';
-  if (p.collapsed) return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
-  if (p.tradeable !== true) return 'bg-white/[0.02] text-slate-600 border-white/5';
-  if (p.overextended) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-  if (p.clear) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-  const r = p.resistanceR;
-  if (r == null) return 'bg-white/[0.02] text-slate-600 border-white/5';
-  if (r >= 1.0) return 'bg-slate-500/10 text-slate-300 border-white/10';
-  if (r >= 0.5) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-  return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
-};
-
-// Holding period leads the tooltip. There is no HOLD filter on this table —
-// tradeTypeLabel defaults to 'swing', so every row would read SWING and the
-// control would narrow nothing.
-const planTooltip = (c: SwingCandidate): string => {
-  const p = planOf(c);
-  const tt = tradeTypeLabel(c.tradeType);
-  if (!p) return 'No trade plan on this row — rerun the swing scan.';
-  if (p.tradeable !== true) return `No plan — ${p.note || 'not computable'}.`;
-
-  const lines: string[] = [];
-  if (tt) lines.push(`${tt}${tt === 'DAY' ? ' — intraday only' : ' — multi-day hold viable'}`);
-  if (tt) lines.push('');
-  lines.push(`Trigger  ${p.trigger != null ? p.trigger.toFixed(2) : '—'}  (${p.triggerLabel || '—'})`);
-  lines.push(`Stop     ${p.stop != null ? p.stop.toFixed(2) : '—'}  (${p.stopPct != null ? `−${p.stopPct.toFixed(1)}%` : '—'})`);
-  /* The measured exit comes first and the target is labelled as what it is —
-     a reference level, not the plan. On this table the fixed 2R was the worst
-     exit tested; see EXIT_GUIDANCE for the numbers. */
-  if (p.trail != null) {
-    lines.push(`Exit     trail the ${p.trailLabel || '21 EMA'}, now ${p.trail.toFixed(2)}`);
-  }
-  lines.push(`Target   ${p.target != null ? p.target.toFixed(2) : '—'}  (twice the stop distance — reference only)`);
-  if (p.trigger != null && p.stop != null) {
-    lines.push(`Risk     ${(p.trigger - p.stop).toFixed(2)} per share`);
-  }
-  lines.push('');
-  if (p.resistanceR != null) {
-    lines.push(`Nearest overhead: ${p.resistanceLabel || 'level'}${p.stopPct != null ? `, ${(p.resistanceR * p.stopPct).toFixed(1)}% above the buy level` : ''}`);
-  } else {
-    lines.push('No overhead level between trigger and target.');
-  }
-  if (p.note) {
-    lines.push('');
-    lines.push(p.note);
-  }
-
-  /* The swing trigger is TODAY'S HIGH — the level that says the pullback is
-     over. Inside a range that level is nothing of the sort: it is one more
-     bounce off the bottom of a box, and the box top is the real resistance
-     the plan has not measured. The levels are arithmetically correct and the
-     premise underneath them is wrong, which is the failure mode chop exists
-     to catch on this table. */
-  const chop = chopOf(c);
-  if (chop != null && chop >= CHOP_CHOP_MIN) {
-    lines.push('');
-    lines.push(`CHOP ${chop.toFixed(0)} — the trigger assumes a pullback that resumes. In a range this is a bounce off the low, not the end of a pullback.`);
-  }
-
-  lines.push('');
-  lines.push('Stop is the wider of 1.25× ADR or 2.5%. The target (twice the stop distance) is shown for sizing; it is not the exit this table measured best.');
-  lines.push('');
-  lines.push(EXIT_GUIDANCE['swing']);
-  return lines.join('\n');
 };
 
 const cnfTooltip = (c: SwingCandidate): string => {
@@ -625,8 +510,7 @@ const EXTENSION_FALLBACK_PCT = 12;
 const postureOf = (c: SwingCandidate): PostureBucket | null => {
   const a21 = above21(c);
 
-  // The scanner's own verdict wins if it has one, since that is what the RTR
-  // column is already showing.
+  // The scanner's own verdict wins if it has one.
   const p = planOf(c);
   if (p?.overextended === true) return 'extended';
 
@@ -652,7 +536,7 @@ const POSTURE_META: Record<PostureFilterType, { label: string; title: string }> 
   'All': { label: 'ALL', title: '' },
   'first-touch': {
     label: 'FIRST TOUCH',
-    title: 'Holding the 21 EMA but pulled back under the 10 — the Dr. Wish first touch, where the stop is defined and close. On this scan it should be the common case. Pair with CHOP: this bucket cannot tell a pullback in a trend from a bounce off the bottom of a range.',
+    title: 'Holding the 21 EMA but pulled back under the 10 — the Dr. Wish first touch. On this scan it should be the common case. Pair with CHOP: this bucket cannot tell a pullback in a trend from a bounce off the bottom of a range.',
   },
   'stacked': {
     label: 'STACKED',
@@ -660,7 +544,7 @@ const POSTURE_META: Record<PostureFilterType, { label: string; title: string }> 
   },
   'extended': {
     label: 'EXTENDED',
-    title: 'More than three ATRs above the 21 EMA — no room to place a stop. This should be near-empty on a pullback scan; if it fills, the upstream pullback gate has stopped working.',
+    title: 'More than three ATRs above the 21 EMA — stretched far from its average. This should be near-empty on a pullback scan; if it fills, the upstream pullback gate has stopped working.',
   },
 };
 
@@ -668,7 +552,7 @@ const POSTURE_META: Record<PostureFilterType, { label: string; title: string }> 
 const isReady = (c: SwingCandidate) => c.stochK <= 25 && Math.abs(c.distToEma21) <= 2.5;
 
 export default function SwingCandidates() {
-  // Phones: six core columns, tap a row for the rest (components/scan/usePhoneTable).
+  // Phones: five core columns, tap a row for the rest (components/scan/usePhoneTable).
   const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();
 
@@ -686,7 +570,6 @@ export default function SwingCandidates() {
   const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
   const [adrFilter, setAdrFilter] = useState<AdrFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
-  const [planFilter, setPlanFilter] = useState<PlanFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
 
@@ -728,26 +611,17 @@ export default function SwingCandidates() {
   const handleChopFilter = (val: ChopFilterType) => setChopFilter(prev => prev === val ? 'All' : val);
   const toggleVwap = (status: 'above' | 'below') => setVwapFilter(prev => prev === status ? 'All' : status);
   const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
-  const handlePlanFilter = (val: PlanFilterType) => setPlanFilter(prev => prev === val ? 'All' : val);
   const handleCapFilter = (val: CapFilterType) => setMarketCapFilter(prev => prev === val ? 'All' : val);
   const handlePostureFilter = (val: PostureFilterType) => setPostureFilter(prev => prev === val ? 'All' : val);
 
-  /* Does ANY row carry a plan object? Drives whether the PLAN group renders.
-     Route v1.8 emits plans, so this should now be true — kept because it
-     costs nothing and a stale payload would otherwise leave a filter that
+  /* Does ANY row carry a chop reading (route v1.9)? Drives whether the CHOP
+     group renders — a stale payload would otherwise leave a filter that
      empties the table rather than narrowing it. */
-  const anyPlan = useMemo(() => candidates.some(c => planOf(c) != null), [candidates]);
-
-  /* Same guard for chop, which arrives with route v1.9. */
   const anyChop = useMemo(() => candidates.some(c => chopOf(c) != null), [candidates]);
 
-  // A hidden group must not keep filtering. Without these, selecting an
+  // A hidden group must not keep filtering. Without this, selecting an
   // option and then losing the underlying data on the next poll would leave
   // an invisible filter holding the table empty with no control to clear it.
-  useEffect(() => {
-    if (!anyPlan && planFilter !== 'All') setPlanFilter('All');
-  }, [anyPlan, planFilter]);
-
   useEffect(() => {
     if (!anyChop && chopFilter !== 'All') setChopFilter('All');
   }, [anyChop, chopFilter]);
@@ -801,26 +675,9 @@ export default function SwingCandidates() {
     if (vwapFilter !== 'All') {
       filtered = filtered.filter(c => c.vwapStatus === vwapFilter);
     }
-    /* Plan filter drops anything without a usable entry, then applies a
-       threshold in stop-widths.
-
-       `clear` rows carry no resistanceR at all — there is nothing overhead to
-       measure — so they satisfy BOTH levels rather than falling out of the
-       stricter one. */
-    if (planFilter !== 'All') {
-      const minR = planFilter === '2R' ? 2.0 : 1.0;
-      filtered = filtered.filter(c => {
-        const p = planOf(c);
-        if (!p || p.tradeable !== true || p.collapsed || p.overextended) return false;
-        if (p.clear === true) return true;
-        return p.resistanceR != null && p.resistanceR >= minR;
-      });
-    }
     if (!sortConfig) return filtered;
     return filtered.sort((a, b) => {
-      const val = (r: any) => sortConfig.key === 'planR' ? planSortValue(r)
-        : sortConfig.key === 'status' ? (planStatusView(r)?.sort ?? null)
-        : r[sortConfig.key];
+      const val = (r: any) => r[sortConfig.key];
       const aVal = val(a);
       const bVal = val(b);
       if (aVal === null || aVal === undefined) return 1;
@@ -829,7 +686,7 @@ export default function SwingCandidates() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, showReadyOnly, postureFilter, chopFilter, marketCapFilter, cnfFilter, adrFilter, vwapFilter, planFilter, edge.key]);
+  }, [candidates, sortConfig, showReadyOnly, postureFilter, chopFilter, marketCapFilter, cnfFilter, adrFilter, vwapFilter, edge.key]);
 
   /* Header count, from the FULL scan rather than the filtered view. Unlike
      Daily and SIPs this table already has a readiness filter (STAT), so the
@@ -898,8 +755,7 @@ export default function SwingCandidates() {
     (marketCapFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
     (adrFilter !== 'All' ? 1 : 0) +
-    (vwapFilter !== 'All' ? 1 : 0) +
-    (planFilter !== 'All' ? 1 : 0);
+    (vwapFilter !== 'All' ? 1 : 0);
 
   return (
     <div className="bg-[#101623] border-0 md:border md:border-white/5 md:rounded-2xl p-2 md:p-5 relative overflow-visible md:shadow-xl w-full max-w-[1280px] mx-auto">
@@ -1049,27 +905,6 @@ export default function SwingCandidates() {
                     </button>
                   </div>
                 </div>
-                {/* PLAN only renders once a row actually carries one — see
-                    the note by `anyPlan`. */}
-                {anyPlan && (
-                  <div className={pillWrap}>
-                    <span className={pillLabel}>PLAN</span>
-                    <div className="flex items-center gap-1">
-                      {PLAN_BUCKETS.map((opt) => (
-                        <button
-                          key={opt}
-                          onClick={() => handlePlanFilter(opt)}
-                          title={opt === '2R'
-                            ? 'At least two stop-widths to the nearest overhead level, or clear air above the trigger'
-                            : 'At least one stop-width to the nearest overhead level'}
-                          className={`${pillBtn} ${planFilter === opt ? filterBtnActive : filterBtnIdle}`}
-                        >
-                          {opt === '1R' ? 'ROOM ≥ STOP' : 'ROOM ≥ 2× STOP'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
                 <div className={pillWrap}>
                   <span className={pillLabel}>CNF</span>
                   <div className="flex items-center gap-1">
@@ -1120,7 +955,7 @@ export default function SwingCandidates() {
           </div>
 
           <div className="relative z-0 overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            {/* min-w 940 to fit RTR; widths match SIPs v3.0. */}
+            {/* min-w 940; widths match SIPs v3.0. STATUS's 5% went to SECTOR. */}
             <table ref={phoneTableRef} className="scan-table w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
@@ -1140,17 +975,16 @@ export default function SwingCandidates() {
                       header cannot carry two sort keys. */}
                   <th className={`${thBase} w-[5%]`} title={colTip('ADR')} onClick={() => handleSort('adrPct')}>ADR{getSortIcon('adrPct')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('MF')} onClick={() => handleSort('mf')}>MF{getSortIcon('mf')}</th>
-                  <th className={`${thBase} w-[5%]`} title={colTip('STATUS')} onClick={() => handleSort('status')}>STATUS{getSortIcon('status')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('DTC')} onClick={() => handleSort('daysToCover')}>DTC{getSortIcon('daysToCover')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('MCAP')} onClick={() => handleSort('mktCap')}>MCAP{getSortIcon('mktCap')}</th>
                   <th className={`${thStage} w-[5%] border-l border-white/5`} title={colTip('STAGE')} onClick={() => handleSort('stage')}>STAGE{getSortIcon('stage')}</th>
-                  <th className={`${thSector} w-[7%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
+                  <th className={`${thSector} w-[12%]`} title={colTip('SECTOR')} onClick={() => handleSort('sector')}>SECTOR{getSortIcon('sector')}</th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
-                  <tr><td colSpan={18} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No candidates in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
+                  <tr><td colSpan={17} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No candidates in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
                 ) : (
                   filteredAndSorted.map((row) => {
                     const tag = catalystTagOf(row);
@@ -1162,7 +996,6 @@ export default function SwingCandidates() {
                     const chop = chopOf(row);
                     const mf = mfOf(row);
                     const dot = dotOf(row);
-                    const plan = planOf(row);
                     const posture = postureOf(row);
                     /* Swing's OWN tint — see lib/scans/edge. Close strength is
                        deliberately not part of it: on a pullback scan a weak
@@ -1214,7 +1047,6 @@ export default function SwingCandidates() {
                               on the board until you see the second line. */}
                           <AdrCell adr={adr} chop={chop} />
                           <MfCell value={mf} trend={row.mfTrend} />
-                          <StatusCell view={planStatusView(row)} />
                           <DtcCell value={row.daysToCover} />
                           <McapCell value={row.mktCap} />
                           <StageCell stage={row.stage} />
@@ -1222,9 +1054,7 @@ export default function SwingCandidates() {
                         </tr>
                         {/* Sub-row starts at column 1 so the setup name sits
                             directly under the ticker. Order down the left edge:
-                            symbol, then what it is. Then the three levels you
-                            would actually place, then the headline, then
-                            RMV/RME. DAY/SWING lives in the plan tooltip.
+                            symbol, then what it is, then the headline.
 
                             The STATE and Ready/Forming cells were removed, so
                             the row spans the full table. STAT still filters on
@@ -1239,7 +1069,7 @@ export default function SwingCandidates() {
                             </div>
                           </td>
                           <td />
-                          <td colSpan={16} className="pb-1.5 pt-1 pr-3">
+                          <td colSpan={15} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
                               <span className="shrink-0 w-[48px] px-0.5 text-center text-[#7c8bfa]/90 font-bold text-[7px] tracking-[0.04em] uppercase leading-none whitespace-nowrap">
                                 {bdRev ? <BlueDot /> : (formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : 'EMA PB')}
@@ -1283,7 +1113,6 @@ export default function SwingCandidates() {
               </tbody>
             </table>
           </div>
-          <ScanStatsNote scan="swing" />
         </>
       )}
     </div>

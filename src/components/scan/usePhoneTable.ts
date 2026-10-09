@@ -1,9 +1,11 @@
 'use client';
 // components/scan/usePhoneTable.ts — every scanner table on a 360px phone.
 //
-// The tables are 940px of 19 columns. Below md (768px) they become the six
-// columns a reader acts on — TICKER · CNF · CHG% · PRICE · RVOL · STATUS —
-// and a tap on a row opens every other column underneath it, labelled. The
+// The tables are 940px of up to 19 columns. Below md (768px) they become the five
+// columns a reader acts on — TICKER · CNF · CHG% · PRICE · RVOL — and a tap
+// on a row opens every other column underneath it, labelled. (STATUS was the
+// sixth until 9 Oct 2026, when the site stopped publishing buy and stop
+// levels and the column went with them.) The
 // layout itself is CSS in globals.css (`table.scan-table`); this hook only
 // supplies what CSS cannot know:
 //
@@ -36,7 +38,6 @@ const CORE: Record<string, string> = {
   'CHG%': 'chg',
   PRICE: 'price',
   RVOL: 'rvol',
-  STATUS: 'status',
 };
 
 const PHONE = '(max-width: 767px)';

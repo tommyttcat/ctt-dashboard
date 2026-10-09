@@ -1,6 +1,10 @@
 'use client';
 
-// Consolidation1021 — v3.1
+// Consolidation1021 — v3.2
+//
+// v3.2: STATUS column and PLAN filter removed. The site publishes no buy
+//       levels, stops or targets any more — the published buy levels lost
+//       money live — so nothing on this table reads the trade plan.
 //
 // v3.1: news asterisk beside the ticker, and provenance on the sub-row
 //       headline. Same treatment as the other four tables.
@@ -96,7 +100,6 @@
 //       looks at 60 days so it does not cover this).
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 import { consolidationTier, CONSOLIDATION_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import { cachedJson } from '@/lib/scannerLatest';
@@ -107,22 +110,20 @@ import { CatalystChip, NewsStars, catalystTooltip, isGenericCatalyst, hasNews } 
 import { displaySector } from '@/lib/sectors';
 import { CONSOL, COLUMN_NOTES, columnTip } from '@/lib/scanConfig';
 import { WatchlistToggle } from './WatchlistPanel';
-import ScanStatsNote from './ScanStatsNote';
 import {
   formatTime, numField, cnfBreakdownLines, matchesCapFilter,
-  planShortOf, planBadgeOf, planSortValueOf, BASE_CNF_LABELS,
-  CNF_BUCKETS, CNF_MIN_SCORE, ADR_BUCKETS, PLAN_BUCKETS, CAP_BUCKETS,
+  BASE_CNF_LABELS,
+  CNF_BUCKETS, CNF_MIN_SCORE, ADR_BUCKETS, CAP_BUCKETS,
   type TradePlanRow, type SortDirection, type CnfFilterType, type VwapFilterType,
-  type AdrFilterType, type PlanFilterType, type CapFilterType,
+  type AdrFilterType, type CapFilterType,
 } from '@/lib/scans/tableFormat';
 import {
   SCAN, SortHeader, FilterPillGroup, BlueDot,
   ScoreCell, RsCell, PriceCell, ChgCell, Ema1021Cell, VolCell, DollarVolCell,
-  RvolCell, FloatCell, AdrCell, MfCell, StatusCell, DtcCell, McapCell, StageCell, SectorCell,
+  RvolCell, FloatCell, AdrCell, MfCell, DtcCell, McapCell, StageCell, SectorCell,
 } from './scan/ScanTable';
 import { usePhoneTable } from './scan/usePhoneTable';
 import { TickerCell } from './scan/TickerCell';
-import { planStatusView } from '@/lib/scans/triggerProximity';
 import { poll } from '@/lib/poll';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
@@ -134,10 +135,6 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   RDY: {
     what: 'Readiness 0–100 — base quality, not tape action. Combines breakout volume readiness (BVR), the 10/21 EMA gap, days in coil, and the prior move. CNF says whether it is moving; RDY says whether the base is ready. Hover a row badge for the breakdown.',
     colour: 'Purple 75+ · green 55+ · amber 35+ · grey below.',
-  },
-  ROOM: {
-    what: 'Room to run: how far the nearest overhead level (a prior high or a falling average) sits above the buy level, in %. More room than the stop distance means the trade can pay more than it risks before it meets supply.',
-    colour: 'Green: clear overhead for at least twice the stop distance · slate: room of at least one stop distance · amber: at least half of it · red: less — the ceiling is closer than the stop · EXT extended · ✕ no plan.',
   },
   PRICE: {
     what: 'Last price. The dot beside it is VWAP position — a single-session read, shown for context on rows you are watching rather than used as a filter on a multi-week base.',
@@ -162,7 +159,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
     colour: 'Purple ≤2.5× (coiled) · green ≤4× (setting up) · grey looser.',
   },
   ADR: {
-    what: '20-day average daily range. The anti-chop gate — scan floor is 3%. Also the basis for the stop: 1.25× ADR or 2.5%, whichever is wider.',
+    what: '20-day average daily range. The anti-chop gate — scan floor is 3%.',
     colour: 'Purple 10%+ · green 5%+ · grey at the floor.',
   },
   MF: {
@@ -266,8 +263,6 @@ const COIL_SETTING_MAX = 4.0;
 
 
 
-// Price levels drop the cents on anything three digits or more — at $886 the
-// pennies are noise, at $4.18 they are the whole trade.
 
 
 const catalystTagOf = (c: ConsolidationCandidate): string | null => {
@@ -458,80 +453,8 @@ const rdyTooltip = (c: ConsolidationCandidate, d: RdyDetail): string => {
   return lines.join('\n');
 };
 
-/* ---- Trade plan ---------------------------------------------------------
-   Reads the `plan` object the swing route ships. Nothing is recalculated
-   here, so the table cannot disagree with the score.
-
-   The trigger on this table is the 10-DAY RANGE HIGH, not today's high —
-   the route tags these rows 'Coil' so the planner uses rangeHigh. That is
-   the level the base actually resolves through.                          */
-const planOf = (c: ConsolidationCandidate): TradePlanRow | null => {
-  const p = c.plan;
-  return p && typeof p === 'object' ? p : null;
-};
-
-
-/* The plan on this table is gated on the shading, and that is the whole
-   point of the change made on 11 Sep 2026.
-   Over 11,580 pivot entries the breakout plan averaged -0.09R and no exit
-   tested was positive — EXCEPT in one bucket: a coil 3x+ ATR with the
-   stochastic above 75 returned +0.13R and broke out 89% of the time. That
-   bucket is the green shading and it is about 7% of the table.
-   So the levels still render for every row, because knowing where the coil
-   resolves is useful, but the card only calls it a PLAN where the evidence
-   says the plan paid. Everything else reads WATCH. The scan stays the net;
-   the card is where the picking happens. */
-/* Undercut & rally rows show their plan: the coil tint that gates WATCH was
-   measured on coils and does not apply to them (lib/scans/edge). */
+/* Undercut & rally rows: the level was undercut and reclaimed. */
 const isUR = (c: ConsolidationCandidate): boolean => c.setupName === 'U&R';
-const planTradeable = (c: ConsolidationCandidate): boolean => isUR(c) || consolidationTier(c) === 'green';
-
-const planSortValue = (c: ConsolidationCandidate): number =>
-  planSortValueOf(planOf(c), { watch: !planTradeable(c) });
-
-const planShort = (c: ConsolidationCandidate): string =>
-  planShortOf(planOf(c), { watch: !planTradeable(c) });
-
-const planBadge = (c: ConsolidationCandidate): string =>
-  planBadgeOf(planOf(c), { watch: !planTradeable(c) });
-
-const planTooltip = (c: ConsolidationCandidate): string => {
-  const p = planOf(c);
-  if (!p) return 'No trade plan on this row — rerun the swing scan.';
-  if (p.tradeable !== true) return `No plan — ${p.note || 'not computable'}.`;
-
-  const lines: string[] = [];
-  lines.push(`Trigger  ${p.trigger != null ? p.trigger.toFixed(2) : '—'}  (${p.triggerLabel || '—'})`);
-  lines.push(`Stop     ${p.stop != null ? p.stop.toFixed(2) : '—'}  (${p.stopPct != null ? `−${p.stopPct.toFixed(1)}%` : '—'})`);
-  lines.push(`Target   ${p.target != null ? p.target.toFixed(2) : '—'}  (twice the stop distance)`);
-  if (p.trigger != null && p.stop != null) {
-    lines.push(`Risk     ${(p.trigger - p.stop).toFixed(2)} per share`);
-  }
-  lines.push('');
-  if (p.resistanceR != null) {
-    lines.push(`Nearest overhead: ${p.resistanceLabel || 'level'}${p.stopPct != null ? `, ${(p.resistanceR * p.stopPct).toFixed(1)}% above the buy level` : ''}`);
-  } else {
-    lines.push('No overhead level between trigger and target.');
-  }
-  if (p.note) {
-    lines.push('');
-    lines.push(p.note);
-  }
-  lines.push('');
-  lines.push('Stop is the wider of 1.25× ADR or 2.5%. The target (twice the stop distance) is shown for sizing.');
-  lines.push('');
-  if (!planTradeable(c)) {
-    lines.push(
-      'WATCH, not a plan. Bought at the averages, coils like this were flat over five years (0.00% a trade ' +
-      'held 20 sessions). The exception is a coil 3x+ ATR with the stochastic above 75 — the green rows — which ' +
-      'made +1.21% a trade held 20 sessions and broke out 89% of the time. The levels above are where this coil ' +
-      'resolves; the evidence does not support taking the break on this row.',
-    );
-    lines.push('');
-  }
-  lines.push(EXIT_GUIDANCE['consolidation']);
-  return lines.join('\n');
-};
 
 const coilStat = (c: ConsolidationCandidate): 'Coiled' | 'Setting Up' | 'U&R' | null => {
   if (isUR(c)) return 'U&R';
@@ -580,7 +503,7 @@ const above21 = (c: ConsolidationCandidate) => c.aboveEma21 ?? (c.distToEma21 !=
 const above10 = (c: ConsolidationCandidate) => c.aboveEma10 ?? (c.distToEma10 != null ? c.distToEma10 >= 0 : null);
 
 export default function Consolidation1021() {
-  // Phones: six core columns, tap a row for the rest (components/scan/usePhoneTable).
+  // Phones: five core columns, tap a row for the rest (components/scan/usePhoneTable).
   const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();
 
@@ -597,7 +520,6 @@ export default function Consolidation1021() {
   const [adrFilter, setAdrFilter] = useState<AdrFilterType>('All');
   const [statFilter, setStatFilter] = useState<StatFilterType>('All');
   const [volFilter, setVolFilter] = useState<VolFilterType>('All');
-  const [planFilter, setPlanFilter] = useState<PlanFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [showFilters, setShowFilters] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
@@ -650,7 +572,6 @@ export default function Consolidation1021() {
   const handleRdyFilter = (val: RdyFilterType) => setRdyFilter(prev => prev === val ? 'All' : val);
   const handleStatFilter = (val: StatFilterType) => setStatFilter(prev => prev === val ? 'All' : val);
   const handleVolFilter = (val: VolFilterType) => setVolFilter(prev => prev === val ? 'All' : val);
-  const handlePlanFilter = (val: PlanFilterType) => setPlanFilter(prev => prev === val ? 'All' : val);
   const handleCapFilter = (val: CapFilterType) => setMarketCapFilter(prev => prev === val ? 'All' : val);
   const toggleVwap = (status: 'above' | 'below') => setVwapFilter(prev => prev === status ? 'All' : status);
 
@@ -705,22 +626,6 @@ export default function Consolidation1021() {
       const minVol = Number(volFilter) * 1e6;
       filtered = filtered.filter(c => (c.dVol ?? (c.avgDollarVolM ? c.avgDollarVolM * 1e6 : 0)) >= minVol);
     }
-    /* Plan filter drops anything without a usable entry, then applies a
-       threshold in stop-widths.
-
-       `clear` rows carry no resistanceR at all — there is nothing overhead to
-       measure — so they satisfy BOTH levels rather than falling out of the
-       stricter one. That is the correction v2.9 makes: the old pair had
-       "Clear" as a subset of "1R+" and called them two options. */
-    if (planFilter !== 'All') {
-      const minR = planFilter === '2R' ? 2.0 : 1.0;
-      filtered = filtered.filter(c => {
-        const p = planOf(c);
-        if (!p || p.tradeable !== true || p.collapsed || p.overextended) return false;
-        if (p.clear === true) return true;
-        return p.resistanceR != null && p.resistanceR >= minR;
-      });
-    }
     if (vwapFilter !== 'All') {
       filtered = filtered.filter(c => c.vwapStatus === vwapFilter);
     }
@@ -728,25 +633,17 @@ export default function Consolidation1021() {
     return filtered.sort((a, b) => {
       const aVal = sortConfig.key === 'rdy'
         ? (rdyBySymbol.get(a.symbol)?.score ?? null)
-        : sortConfig.key === 'planR'
-          ? planSortValue(a)
-          : sortConfig.key === 'status'
-            ? (planStatusView(a)?.sort ?? null)
-            : ((a as any)[sortConfig.key] as any);
+        : ((a as any)[sortConfig.key] as any);
       const bVal = sortConfig.key === 'rdy'
         ? (rdyBySymbol.get(b.symbol)?.score ?? null)
-        : sortConfig.key === 'planR'
-          ? planSortValue(b)
-          : sortConfig.key === 'status'
-            ? (planStatusView(b)?.sort ?? null)
-            : ((b as any)[sortConfig.key] as any);
+        : ((b as any)[sortConfig.key] as any);
       if (aVal === null || aVal === undefined) return 1;
       if (bVal === null || bVal === undefined) return -1;
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, rdyBySymbol, sortConfig, showStage2Only, marketCapFilter, cnfFilter, rdyFilter, adrFilter, statFilter, volFilter, planFilter, vwapFilter, edge.key]);
+  }, [candidates, rdyBySymbol, sortConfig, showStage2Only, marketCapFilter, cnfFilter, rdyFilter, adrFilter, statFilter, volFilter, vwapFilter, edge.key]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -813,7 +710,6 @@ export default function Consolidation1021() {
   const activeFilterCount =
     (rdyFilter !== 'All' ? 1 : 0) +
     (statFilter !== 'All' ? 1 : 0) +
-    (planFilter !== 'All' ? 1 : 0) +
     (cnfFilter !== 'All' ? 1 : 0) +
     (volFilter !== 'All' ? 1 : 0) +
     (adrFilter !== 'All' ? 1 : 0) +
@@ -878,7 +774,7 @@ export default function Consolidation1021() {
               {urCount > 0 && (
                 <button
                   onClick={() => { setIsExpanded(true); handleStatFilter('U&R'); }}
-                  title="Undercut & rally — dipped under the 21 EMA, the 50-day or the prior 10-day low and closed back above it. Bought at the price, stop under the shakeout low. Click to filter"
+                  title="Undercut & rally — dipped under the 21 EMA, the 50-day or the prior 10-day low and closed back above it. Click to filter"
                   className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-0.5 rounded border transition-all cursor-pointer ${statFilter === 'U&R' ? 'text-sky-300 bg-sky-500/20 border-sky-400/40 ring-1 ring-sky-400/30' : 'text-sky-400 bg-sky-500/10 border-sky-500/20 hover:bg-sky-500/20'}`}
                 >
                   {urCount} U&amp;R
@@ -952,23 +848,6 @@ export default function Consolidation1021() {
                       ? 'Undercut & rally — shook out under the 21 EMA, the 50-day or the prior 10-day low, then closed back above it'
                       : '10-day range at or under 4× daily ATR — narrowing but not there')}
                 />
-                <div className={pillWrap}>
-                  <span className={pillLabel}>PLAN</span>
-                  <div className="flex items-center gap-1">
-                    {PLAN_BUCKETS.map((opt) => (
-                      <button
-                        key={opt}
-                        onClick={() => handlePlanFilter(opt)}
-                        title={opt === '2R'
-                          ? 'At least two stop-widths above the range high before the first level overhead, or clear air'
-                          : 'At least one stop-width above the range high before the first level overhead'}
-                        className={`${pillBtn} ${planFilter === opt ? filterBtnActive : filterBtnIdle}`}
-                      >
-                        {opt === '1R' ? 'ROOM ≥ STOP' : 'ROOM ≥ 2× STOP'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
                 <div className={pillWrap}>
                   <span className={pillLabel}>CNF</span>
                   <div className="flex items-center gap-1">
@@ -1046,7 +925,7 @@ export default function Consolidation1021() {
           </div>
 
           <div className="relative z-0 overflow-x-auto overflow-y-hidden custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
-            {/* 20 columns — min-w 980. */}
+            {/* 19 columns. STATUS's 5% went to SECTOR. */}
             <table ref={phoneTableRef} className="scan-table w-full min-w-[940px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-white/5 select-none">
@@ -1065,17 +944,16 @@ export default function Consolidation1021() {
                   <SortHeader label="COIL" width="w-[6%]" title={colTip('COIL')} icon={getSortIcon('coilRatio')} onSort={() => handleSort('coilRatio')} />
                   <SortHeader label="ADR" width="w-[5%]" title={colTip('ADR')} icon={getSortIcon('adrPct')} onSort={() => handleSort('adrPct')} />
                   <SortHeader label="MF" width="w-[4%]" title={colTip('MF')} icon={getSortIcon('mf')} onSort={() => handleSort('mf')} />
-                  <SortHeader label="STATUS" width="w-[5%]" title={colTip('STATUS')} icon={getSortIcon('status')} onSort={() => handleSort('status')} />
                   <SortHeader label="DTC" width="w-[5%]" title={colTip('DTC')} icon={getSortIcon('daysToCover')} onSort={() => handleSort('daysToCover')} />
                   <SortHeader label="MCAP" width="w-[5%]" title={colTip('MCAP')} icon={getSortIcon('mktCap')} onSort={() => handleSort('mktCap')} />
                   <SortHeader label="STAGE" width="w-[5%]" className="border-l border-white/5" variant="stage" title={colTip('STAGE')} icon={getSortIcon('stage')} onSort={() => handleSort('stage')} />
-                  <SortHeader label="SECTOR" width="w-[7%]" variant="sector" title={colTip('SECTOR')} icon={getSortIcon('sector')} onSort={() => handleSort('sector')} />
+                  <SortHeader label="SECTOR" width="w-[12%]" variant="sector" title={colTip('SECTOR')} icon={getSortIcon('sector')} onSort={() => handleSort('sector')} />
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-white/5">
                 {filteredAndSorted.length === 0 ? (
-                  <tr><td colSpan={20} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No consolidations in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
+                  <tr><td colSpan={19} className="py-12 text-center text-slate-500 text-sm font-medium">{status === 'Live' ? (candidates.length > 0 ? 'No candidates match current filter criteria.' : 'No consolidations in the current scan.') : status === 'Syncing...' ? 'Running scan…' : 'Feed unavailable — awaiting next scheduled scan.'}</td></tr>
                 ) : (
                   filteredAndSorted.map((row) => {
                     const tag = catalystTagOf(row);
@@ -1087,7 +965,6 @@ export default function Consolidation1021() {
                     const coilR = coilRatioOf(row);
                     const range10 = range10Of(row);
                     const rdy = rdyBySymbol.get(row.symbol) ?? computeRdy(row);
-                    const plan = planOf(row);
                     const gap = gap1021Of(row);
                     /* The coil's own tint — see lib/scans/edge. Green is the
                        ~7% of this table that carried the edge in the 5-year
@@ -1127,7 +1004,7 @@ export default function Consolidation1021() {
                           <RvolCell value={row.rvol} />
                           <FloatCell value={row.float} />
                           {isUR(row) ? (
-                            <td className={`${tdBase} whitespace-nowrap text-sky-400`} title={`Undercut & rally: dipped under the ${row.undercutOf ?? 'level'} and closed back above it. Stop under the shakeout low.`}>
+                            <td className={`${tdBase} whitespace-nowrap text-sky-400`} title={`Undercut & rally: dipped under the ${row.undercutOf ?? 'level'} and closed back above it.`}>
                               <div className="flex flex-col leading-tight">
                                 <span className="text-[10px] font-bold">U&amp;R</span>
                                 <span className="text-[8px] font-semibold opacity-80">{row.undercutOf ?? ''}</span>
@@ -1143,16 +1020,13 @@ export default function Consolidation1021() {
                           )}
                           <AdrCell adr={adr} />
                           <MfCell value={mf} trend={row.mfTrend} />
-                          <StatusCell view={planStatusView(row)} />
                           <DtcCell value={row.daysToCover} />
                           <McapCell value={row.mktCap} />
                           <StageCell stage={row.stage} />
                           <SectorCell text={sectorText} />
                         </tr>
-                        {/* Levels sit under the ticker where the setup name
-                            goes on the other tables. There is no setup name to
-                            show here — every row is a coil — so the trigger
-                            leads instead.
+                        {/* There is no setup name to show under the ticker
+                            here — every row is a coil — so its slot reads "—".
 
                             The STATE and Coiled/Setting Up cells were removed to
                             match the other scanners, so the row now spans the
@@ -1166,7 +1040,7 @@ export default function Consolidation1021() {
                             </div>
                           </td>
                           <td />
-                          <td colSpan={18} className="pb-1.5 pt-1 pr-3">
+                          <td colSpan={17} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
                               <span className="shrink-0 w-[48px] px-0.5 text-center text-[#7c8bfa]/90 font-bold text-[7px] tracking-[0.04em] uppercase leading-none whitespace-nowrap">—</span>
                               <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={newsTooltip(row) || headline || undefined}>
@@ -1211,7 +1085,6 @@ export default function Consolidation1021() {
               </tbody>
             </table>
           </div>
-          <ScanStatsNote scan="consolidation" />
         </>
       )}
     </div>

@@ -10,7 +10,6 @@ const LINKS: readonly { href: string; label: string; proOnly?: boolean }[] = [
   { href: '/analyst', label: 'Briefing' },
   { href: '/news', label: 'News' },
   { href: '/confluence', label: 'Confluence', proOnly: true },
-  { href: '/track', label: 'Track Record' },
   { href: '/scanners', label: 'Scanners', proOnly: true },
   { href: '/briefs', label: 'Archive' },
 ];

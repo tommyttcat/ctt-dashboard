@@ -9,11 +9,8 @@
 //   3. records today's picks as tomorrow's fills
 //
 // Plus the plan record (lib/trackPlan, 24 Sep 2026): two more reads and two
-// more writes, same bars, same scan lists — still flat in users. And the
-// Model Book (lib/modelBook, 24 Sep 2026): one more read and one more write,
-// reusing the scan rows already read here. Model Book v2 (25 Sep 2026): one
-// more read and write, plus one Polygon minute-bar call per breakout
-// candidate (~4-7 a night) — still nothing per page view.
+// more writes, same bars, same scan lists — still flat in users. (The two
+// Model Books that also stepped here were removed on 9 Oct 2026.)
 //
 // Cost per tick, measured 11 Sep 2026: 10 KV reads (8 scan lists + open
 // positions + results), 2 KV writes, 1 Polygon grouped-daily call. Flat in
@@ -44,8 +41,7 @@ import {
   PLAN_OPEN_KEY, PLAN_RESULTS_KEY, PLAN_SOURCES, newPlanPosition, stepPlan, foldPlan, markFilled, isResolved, emptyPlanRecord, backfillPlanPct,
   type PlanPosition, type PlanResults,
 } from '@/lib/trackPlan';
-import { MODEL_BOOK_KEY, MODEL_BOOK_V2_KEY, BOOK_SCANS, newBook, stepBook, addPicks, orbTickers, type ModelBook, type BookScan } from '@/lib/modelBook';
-import { fetchSessionMinutes, ORB_WATCH_KEY, type Minute, type OrbWatch } from '@/lib/orb';
+import { fetchSessionMinutes } from '@/lib/orb';
 import {
   EARLY_POOL_KEY, EARLY_TRACK_KEY, EARLY_CLOSED_CAP, earlyPoolFrom, earlyFlag, openEarly, summarizeEarly,
   type EarlyPool, type EarlyTrack,
@@ -261,13 +257,11 @@ export async function GET() {
   const live = new Set(kept.map(p => `${p.scan}|${p.t}`));
   let added = 0;
   const emptyScans: string[] = [];
-  const bookRows: Partial<Record<BookScan, Record<string, unknown>[]>> = {};
   const allRows: Record<string, Record<string, unknown>[]> = {};
   for (const { scan, key, sym } of TRACKED_SCANS) {
     const rows = (await kv.get<Record<string, unknown>[]>(key)) || [];
     if (!rows.length) { emptyScans.push(scan); continue; }
     allRows[scan] = rows;
-    if ((BOOK_SCANS as string[]).includes(scan)) bookRows[scan as BookScan] = rows;
     const rec = (results[scan] ||= emptyRecord());
     for (const row of rows) {
       const t = String(row[sym] ?? '').toUpperCase();
@@ -359,52 +353,9 @@ export async function GET() {
     }
   }
 
-  /* Model Book last, fenced like the plan record: a fault here skips the
-     book for one tick and touches nothing else. Stepped on today's bars with
-     yesterday's candidates BEFORE tonight's picks are added, so a pick is
-     never bought on the evening it was made. */
-  const spy = bars.get('SPY')?.c ?? null;
-  let bookOut: Record<string, unknown> | string = 'skipped (error, see logs)';
-  try {
-    const book = (await kv.get<ModelBook>(MODEL_BOOK_KEY)) || newBook(date, spy);
-    stepBook(book, date, bars, spy);
-    const picked = addPicks(book, date, bookRows);
-    book.updatedAt = new Date().toISOString();
-    await kv.set(MODEL_BOOK_KEY, book);
-    bookOut = { equity: book.equity, open: book.open.length, candidates: book.candidates.length, picked };
-  } catch (e) {
-    console.error('TRACK_BOOK_ERROR', e);
-  }
-
-  /* Model Book v2 — its own fence, so neither book can take the other down.
-     Breakout candidates from last night are judged on TODAY's minute bars,
-     fetched only for names that actually traded today. */
-  let bookV2Out: Record<string, unknown> | string = 'skipped (error, see logs)';
-  try {
-    const v2 = (await kv.get<ModelBook>(MODEL_BOOK_V2_KEY)) || newBook(date, spy, 'orb');
-    const minutes = new Map<string, Minute[] | null>();
-    for (const t of orbTickers(v2)) if (bars.has(t)) minutes.set(t, await fetchSessionMinutes(t, date, POLYGON_KEY));
-    const gapsBefore = v2.dataGaps ?? 0;
-    stepBook(v2, date, bars, spy, minutes);
-    const picked = addPicks(v2, date, bookRows);
-    v2.updatedAt = new Date().toISOString();
-    await kv.set(MODEL_BOOK_V2_KEY, v2);
-    /* Tomorrow's breakout watch for the dashboard: exactly the breakout
-       candidates v2 just took on (lib/orb). The scanner re-judges them every
-       run tomorrow. One small write a night. */
-    const watch: OrbWatch = {
-      pickedOn: date,
-      names: v2.candidates.filter(c => c.kind === 'orb' && c.d === date)
-        .map(c => ({ t: c.t, scan: c.scan, stop: c.stop, avgVol: c.avgVol ?? null, rs: c.rs })),
-      // The book's dip buys too, for the Best Setups card (28 Sep 2026).
-      dips: v2.candidates.filter(c => c.kind === 'dip' && c.d === date && c.buy != null)
-        .map(c => ({ t: c.t, scan: c.scan, buy: c.buy as number, stop: c.stop, rs: c.rs })),
-    };
-    await kv.set(ORB_WATCH_KEY, watch);
-    bookV2Out = { equity: v2.equity, open: v2.open.length, candidates: v2.candidates.length, picked, minuteCalls: minutes.size, newDataGaps: (v2.dataGaps ?? 0) - gapsBefore };
-  } catch (e) {
-    console.error('TRACK_BOOK_V2_ERROR', e);
-  }
+  /* Model Books v1/v2 removed 9 Oct 2026 at the owner's request: both paper
+     books lost money live and the site no longer publishes picks. Their KV
+     keys (model_book_v1/v2, orb_watch) are left as they were, unread. */
 
   /* Early Movers record (lib/earlyTrack) — its own fence. Open flags are
      walked on today's bar first, then last night's pool is judged on today's
@@ -455,7 +406,7 @@ export async function GET() {
   }
 
   return NextResponse.json({
-    success: true, barDate: date, added, open: kept.length, book: bookOut, bookV2: bookV2Out, early: earlyOut,
+    success: true, barDate: date, added, open: kept.length, early: earlyOut,
     plan: planOk ? { watching: planKept.filter(p => p.state === 'watching').length, open: planKept.filter(p => p.state === 'filled').length } : 'skipped (error, see logs)',
     settled: settledToday.length, emptyScans,
   });

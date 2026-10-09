@@ -20,7 +20,6 @@ import { NewsStars } from '@/lib/catalyst';
 import { stageColor as stgColor, stageBadge, stageShort as stgShort, stageDescription } from '@/lib/indicators/stage';
 import { rvolColorLowFloor as rvolColor, tickerChipCls, scoreCellCls } from '@/lib/indicators/columnColors';
 import { displaySector } from '@/lib/sectors';
-import ScanStatsNote from './ScanStatsNote';
 import { SCAN, VolCell, DollarVolCell } from './scan/ScanTable';
 import { usePhoneTable } from './scan/usePhoneTable';
 import { poll } from '@/lib/poll';
@@ -805,7 +804,6 @@ export default function Multibagger() {
                 })}
               </tbody>
             </table>
-            <ScanStatsNote scan="multibagger" />
           </div>
         )}
       </div>
