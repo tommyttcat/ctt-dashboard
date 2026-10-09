@@ -42,6 +42,7 @@ export interface MomentumRow {
   rvol?: number | null;  // today's shares / the prior 20 sessions' average
   rs?: number | null;    // the site's RS Rating (lib/indicators/rs), as of the last RS run
   stage?: string | null; // Weinstein stage (lib/indicators/stage), from a year of the name's own bars
+  atr?: number | null;   // $ ATR(14) through this close — the live ATR% from LOD column divides by it
 }
 
 export interface MomentumList {
@@ -114,6 +115,21 @@ export function suspectJump(closes: number[]): number {
 }
 
 /** Today's shares over the prior 20 sessions' average (vols oldest first, today last). */
+/** Mean true range over the last 14 sessions (needs 15 bars for the first prior close). */
+export function atr14(highs: number[], lows: number[], closes: number[]): number | null {
+  const n = closes.length;
+  if (n < 15 || highs.length !== n || lows.length !== n) return null;
+  let s = 0;
+  for (let i = n - 14; i < n; i++) s += Math.max(highs[i], closes[i - 1]) - Math.min(lows[i], closes[i - 1]);
+  return s / 14;
+}
+
+/** How much of its average daily range a stock has covered off today's low: (price − low) / ATR, in %. */
+export function atrFromLow(price: number, low: number, atr: number | null | undefined): number | null {
+  if (!(atr != null && atr > 0) || !(price > 0) || !(low > 0) || low > price) return null;
+  return ((price - low) / atr) * 100;
+}
+
 export function rvolOf(vols: number[]): number | null {
   if (vols.length < 21) return null;
   const prior = vols.slice(-21, -1);

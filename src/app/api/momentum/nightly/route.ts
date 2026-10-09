@@ -19,7 +19,7 @@ import { etGate } from '@/lib/etCron';
 import { authorized, authorizedOrAdmin } from '@/lib/apiAuth';
 import {
   MOMENTUM_KEY, MOMENTUM_PAPER_KEY, MOMENTUM_PAPER_P2_KEY, MOMENTUM_UNIVERSE_KEY, MIN_SUE_NAMES,
-  newPaper, rankMomentum, rankCombined, rvolOf, stepPaper, suspectJump, type MomentumList, type MomentumPaper,
+  newPaper, rankMomentum, rankCombined, rvolOf, atr14, stepPaper, suspectJump, type MomentumList, type MomentumPaper,
 } from '@/lib/momentum';
 import { computeStage } from '@/lib/indicators/stage';
 import { loadRsRatings } from '@/lib/indicators/rs';
@@ -100,13 +100,13 @@ export async function GET(req: Request) {
     ...ranked.all.slice(0, ENRICH_N).map(r => r.t),
     ...(useCombined ? rankCombined(ranked.all, sue, cal[last], ENRICH_N).map(r => r.t) : []),
   ])];
-  const extra = new Map<string, { vol: number | null; rvol: number | null; stage: string | null }>();
+  const extra = new Map<string, { vol: number | null; rvol: number | null; stage: string | null; atr: number | null }>();
   const reused: string[] = [];
   const figi = async (t: string, date?: string) => (await pg<{ results?: { composite_figi?: string; name?: string } }>(`/v3/reference/tickers/${encodeURIComponent(t)}${date ? `?date=${date}` : ''}`))?.results ?? null;
   for (let i = 0; i < cand.length; i += 10) {
     const batch = cand.slice(i, i + 10);
     await Promise.all(batch.map(async t => {
-      const h = await pg<{ results?: { t: number; c: number; v: number }[] }>(`/v2/aggs/ticker/${encodeURIComponent(t)}/range/1/day/${cal[last - 260]}/${cal[last]}?adjusted=true&sort=asc&limit=400`);
+      const h = await pg<{ results?: { t: number; h: number; l: number; c: number; v: number }[] }>(`/v2/aggs/ticker/${encodeURIComponent(t)}/range/1/day/${cal[last - 260]}/${cal[last]}?adjusted=true&sort=asc&limit=400`);
       const bars = h?.results ?? [];
       if (!bars.length) return;
       const closes = bars.map(b => b.c), vols = bars.map(b => b.v);
@@ -116,7 +116,7 @@ export async function GET(req: Request) {
         const same = before && now && (before.composite_figi && now.composite_figi ? before.composite_figi === now.composite_figi : before.name === now.name);
         if (!same) { reused.push(t); return; }
       }
-      extra.set(t, { vol: vols.at(-1) ?? null, rvol: rvolOf(vols), stage: closes.length >= 210 ? computeStage(closes) : null });
+      extra.set(t, { vol: vols.at(-1) ?? null, rvol: rvolOf(vols), stage: closes.length >= 210 ? computeStage(closes) : null, atr: atr14(bars.map(b => b.h), bars.map(b => b.l), closes) });
     }));
   }
   const drop = new Set(reused);
