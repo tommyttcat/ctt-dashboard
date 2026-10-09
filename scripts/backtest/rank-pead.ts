@@ -31,6 +31,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { pathToFileURL } from 'node:url';
 import { DATA } from './cache';
 import { sessions, syms, pool, staggered, spyNav, report, offsets, momTop50, pct } from './rank-engine';
 
@@ -70,13 +71,15 @@ function eligible(t: number) {
   return out;
 }
 const p1 = (t: number) => eligible(t).slice().sort((a, b) => b.sue - a.sue).slice(0, 50).map(x => x.id);
-const p2 = (t: number) => {
+export const p2 = (t: number) => {
   const e = eligible(t);
   const rs = new Map(e.slice().sort((a, b) => b.sue - a.sue).map((x, i) => [x.id, i]));
   const rm = new Map(e.slice().sort((a, b) => b.mom - a.mom).map((x, i) => [x.id, i]));
   return e.slice().sort((a, b) => (rs.get(a.id)! + rm.get(a.id)!) - (rs.get(b.id)! + rm.get(b.id)!)).slice(0, 50).map(x => x.id);
 };
 
+if (import.meta.url === pathToFileURL(process.argv[1]).href) main();
+function main() {
 const ends = [...new Set(sessions.map((_, i) => i))].filter(i => i >= 253 && i + 1 < sessions.length && sessions[i].slice(0, 7) !== sessions[i + 1].slice(0, 7));
 const cov = ends.map(t => [eligible(t).length, pool(t).length]);
 console.log(`SUE coverage: median ${cov.map(x => x[0]).sort((a, b) => a - b)[cov.length >> 1]} eligible of ${cov.map(x => x[1]).sort((a, b) => a - b)[cov.length >> 1]} universe names`);
@@ -91,3 +94,4 @@ for (const [name, pick] of [['P1 SUE top50', p1], ['P2 SUE+momentum top50', p2]]
 }
 console.log(`(MOM12_1 top50 for reference: ${offsets(momTop50)})`);
 void pct;
+}
