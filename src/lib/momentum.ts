@@ -8,7 +8,9 @@
 // Held as four staggered monthly sleeves it made +159% against SPY's +112%.
 // The costs of that: it trailed SPY for the first two years (+44% vs +58%),
 // fell further (worst drop -32% vs -19%), and per unit of drawdown it did
-// WORSE than SPY. Momentum is a known, decades-old effect with long dry
+// WORSE than SPY — and QQQ made the same return with smaller drops
+// (scripts/backtest/rank-risk-check.ts), so the lead is risk, not picking.
+// Momentum is a known, decades-old effect with long dry
 // spells and sharp crashes in market rebounds. This is a ranking, not a buy
 // signal — no buy levels, no stops.
 //
