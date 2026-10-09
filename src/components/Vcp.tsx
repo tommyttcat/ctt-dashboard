@@ -904,7 +904,7 @@ export default function Vcp() {
                     return (
                       <React.Fragment key={row.symbol}>
                         <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
-                          title={tier === 'red' ? `${tier.toUpperCase()} — ${VCP_TIP[tier]}` : undefined}>
+                          title={tier ? `${tier.toUpperCase()} — ${VCP_TIP[tier]}` : undefined}>
                           <td className={tdBase}>
                             <div className="flex items-center justify-start gap-1.5">
                               <WatchlistBtn symbol={row.symbol} />

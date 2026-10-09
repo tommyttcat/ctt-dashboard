@@ -973,7 +973,7 @@ export default function Consolidation1021() {
                     return (
                       <React.Fragment key={row.symbol}>
                         <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
-                          title={tier === 'red' ? `${tier.toUpperCase()} — ${CONSOLIDATION_TIP[tier]}` : undefined}>
+                          title={tier ? `${tier.toUpperCase()} — ${CONSOLIDATION_TIP[tier]}` : undefined}>
                           <TickerCell symbol={row.symbol} name={row.name} score={row.score} />
                           <td className={tdBase}><NewsStars row={row} /></td>
                           <ScoreCell value={row.score} title={cnfTooltip(row)} />

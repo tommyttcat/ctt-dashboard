@@ -227,8 +227,7 @@ function StockCard({ report: r }: { report: Report }) {
   const tier = edgeTier(r);
   /* Rating as a thin coloured left edge, not a background tint — tints read
      muddy (olive / teal / maroon) across a grid of cards. */
-  // Red only (9 Oct 2026): live, green did no better than yellow.
-  const tint = tier === 'red' ? 'border-l-4 border-l-rose-400/50' : '';
+  const tint = tier === 'green' ? 'border-l-4 border-l-emerald-400/50' : tier === 'yellow' ? 'border-l-4 border-l-amber-400/50' : tier === 'red' ? 'border-l-4 border-l-rose-400/50' : '';
   const name = shortName(r.name, r.ticker);
   const why = whyLine(r);
   const flags = flagsOf(r);
@@ -296,10 +295,11 @@ export default function ConfluenceReport() {
   // Opens on every name (null), strongest first — a green-only default left two
   // cards and hid the lead pick.
   const edge = useEdgeFilter(edgeTally, null);
-  /* Red (avoid) last, then the stronger trend bias. Green is not ranked above
-     yellow (9 Oct 2026: live, it did no better). */
+  /* Green before yellow before red, then the stronger trend bias. No buy or
+     stop levels since 9 Oct 2026 (the published levels lost money live), so
+     nothing sorts on distance to a level any more. */
   const visibleReports = useMemo(() => {
-    const TIER: Record<string, number> = { green: 0, yellow: 0, red: 1 };
+    const TIER: Record<string, number> = { green: 0, yellow: 1, red: 2 };
     const list = edge.key ? sectorReports.filter(r => edgeTier(r) === edge.key) : sectorReports;
     return [...list].sort((a, b) => (TIER[edgeTier(a) ?? ''] ?? 3) - (TIER[edgeTier(b) ?? ''] ?? 3) || b.biasScore - a.biasScore);
   }, [sectorReports, edge.key]);

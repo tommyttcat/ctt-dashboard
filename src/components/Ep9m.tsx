@@ -1018,7 +1018,7 @@ export default function Ep9m() {
                     return (
                       <React.Fragment key={row.ticker}>
                         <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
-                          title={tier === 'red' ? `${tier.toUpperCase()} — ${EP9M_TIP[tier]}` : undefined}>
+                          title={tier ? `${tier.toUpperCase()} — ${EP9M_TIP[tier]}` : undefined}>
                           <td className={tdBase}>
                             <div className="flex items-center justify-start gap-1.5">
                               <WatchlistBtn symbol={row.ticker} />

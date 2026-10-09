@@ -596,9 +596,9 @@ function InteractionsTab() {
       <Li title="RED">ADR above 9% (−$27) or price between $5 and $10 (−$15). Both lost money in every half of the test.</Li>
       <Li title="NO TINT">ADR or the day&apos;s range is missing, so no claim is made.</Li>
       <P>
-        Only <strong className="text-slate-200">red</strong> rows are shaded: the bucket that lost in each scan&apos;s
-        5-year test, and lost most live (−8.7% average since 11 Sep). Every card carries a RED pill to isolate them.
-        Green and yellow are no longer shaded or offered as a shortlist — live, green did no better than yellow.
+        Hover any tinted row for the numbers behind its colour. <strong className="text-slate-200">Every card
+        carries GREEN / YELLOW / RED filter pills</strong> and opens on green, which is the shortlist. Click a
+        pill again for all rows; a colour with nothing behind it today is hidden rather than greyed.
       </P>
       <P>
         The same three colours run through the whole site on the same rules — the scan tables, the Setups

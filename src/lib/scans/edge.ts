@@ -62,14 +62,9 @@ export function edgeTier(row: EdgeInput | null | undefined): EdgeTier | null {
   return cs >= 0.9 ? 'green' : 'yellow';
 }
 
-/* Only RED is shown (9 Oct 2026). Live since 11 Sep, green picks did no
-   better than yellow (-2.3% vs -1.6% average, both losing) while red lost
-   far more (-8.7%), so red stays as an "avoid" warning and green / yellow
-   carry no shading. The tier functions are unchanged — the nightly record
-   still logs every tier so the live check can be repeated. */
 export const EDGE_TINT: Record<EdgeTier, string> = {
-  green: '',
-  yellow: '',
+  green: 'bg-emerald-500/[0.11]',
+  yellow: 'bg-amber-400/[0.08]',
   red: 'bg-rose-500/[0.11]',
 };
 

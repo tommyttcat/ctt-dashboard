@@ -742,7 +742,7 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
 
   return (
     <div key={idx} className={`flex items-center ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
-      title={edge === 'red' ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : undefined}>
+      title={edge ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : undefined}>
       {!skipWatchlistBtn && <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={p.ticker} /></span></span>}
       <div className={`${scrollRowCls} flex-1 min-w-0`} style={scrollRowStyle}>
       <div className="flex items-center whitespace-nowrap py-[1px]">
@@ -1008,7 +1008,7 @@ const renderSetupRow = (
 
   return (
     <div key={`ss-${s.ticker}-${i}`} className={`flex items-center gap-0 ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
-      title={edge === 'red' ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : undefined}>
+      title={edge ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : undefined}>
       <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={s.ticker} /></span></span>
       <div className="w-[28px] shrink-0 flex items-center justify-end pr-1.5 gap-0.5">
         {hasIndicator && (
@@ -1267,7 +1267,7 @@ const MoverRows = ({ pool }: { pool: any[] }) => {
     const grade: 'A' | 'B' | null = unranked ? null : cnf >= 70 ? 'A' : cnf >= 50 ? 'B' : null;
     return (
       <div key={`tp-${ticker}`} className={`flex items-center justify-between md:justify-start whitespace-nowrap py-[1px] ${t ? `${EDGE_TINT[t.tier]} rounded-sm` : ''}`}
-        title={t?.tier === 'red' ? `${t.tier.toUpperCase()} — ${t.tip}` : undefined}>
+        title={t ? `${t.tier.toUpperCase()} — ${t.tip}` : undefined}>
         <span className="inline-flex items-center shrink-0"><span className="inline-block w-[6px] md:w-[28px]" /><TickerChartHover symbol={ticker}><span className={`${gradeChipCls(grade, false)} w-[38px] md:w-[44px]`}>{ticker}</span></TickerChartHover></span>
         <span className="hidden md:inline-block w-[28px]" />
         <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border md:ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${unranked ? CNF_NEUTRAL : cnfBadgeCls(cnf)}`}>{cnf}</span>
@@ -1357,10 +1357,10 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
     setActiveKey(prev => prev === key ? null : key);
   };
 
-  /* Opens on everything (9 Oct 2026). It opened on green as a shortlist until
-     the live record showed green no better than yellow; only RED (avoid) is
-     offered as a filter now. */
-  const [edgeKey, setEdgeKey] = React.useState<EdgeTier | null>(null);
+  /* Green by default: the card is the shortlist, so it opens on the names
+     that cleared both losing filters and closed strong. The pills switch to
+     yellow, red, or all with one click. */
+  const [edgeKey, setEdgeKey] = React.useState<EdgeTier | null>('green');
 
   const filtered = React.useMemo(() => {
     const activeFilter = activeKey ? ALL_SETUP_FILTERS.find(f => f.key === activeKey) : null;
@@ -1413,6 +1413,8 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
      click to isolate, click again for all. Counts come from the same pool the
      rows do, so an empty state is visible before it is clicked. */
   const EDGE_FILTERS: { key: EdgeTier; label: string; cls: string }[] = [
+    { key: 'green', label: 'GREEN', cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
+    { key: 'yellow', label: 'YELLOW', cls: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
     { key: 'red', label: 'RED', cls: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
   ];
 
@@ -1512,9 +1514,11 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
               scanner backtest and only use traits that held in both halves —
               the tooltip carries the numbers so the line stays one row. */}
           <p className="relative group/edge text-[10px] text-slate-500 font-medium mt-1 cursor-help inline-flex items-center gap-2">
+            <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-500/30" />green</span>
+            <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-400/30" />yellow</span>
             <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-rose-500/30" />red</span>
             <span className="absolute bottom-full left-0 mb-2 w-72 px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 font-normal whitespace-normal opacity-0 pointer-events-none group-hover/edge:opacity-100 transition-opacity z-[9999]">
-              Red rows: ADR above 9% or price $5–10 — both lost in both periods of the 5-year backtest, and red names lost most live (−8.7% average since 11 Sep). Green and yellow are no longer shaded: live, green did no better than yellow.
+              This card shows only the green rows: names that closed in the top 10% of the day&apos;s range (+2.50% a trade held 20 sessions) AND avoided the two filters that lost money in both periods of the 5-year backtest — ADR above 9% (−5.05%) and price $5–10 (−2.17%). The individual scan cards still show everything, tinted green/yellow/red.
             </span>
           </p>
         </>
@@ -1727,7 +1731,7 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
             /* Same green / yellow / red tint as the scan cards, from the shared
                per-ticker map; a name no scan carries stays untinted. */
             <div key={r.t} className={`flex items-center whitespace-nowrap py-[1px] ${edgeMap?.[r.t] ? `${EDGE_TINT[edgeMap[r.t]]} rounded-sm` : ''}`}
-              title={edgeMap?.[r.t] === 'red' ? `${r.n ?? r.t} · ${edgeMap[r.t].toUpperCase()} — ${EDGE_FILTER_TIP[edgeMap[r.t]]}` : (r.n ?? r.t)}>
+              title={edgeMap?.[r.t] ? `${r.n ?? r.t} · ${edgeMap[r.t].toUpperCase()} — ${EDGE_FILTER_TIP[edgeMap[r.t]]}` : (r.n ?? r.t)}>
               <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
               <span className="inline-block w-[20px] md:w-[22px] text-center ml-2 md:ml-1">{cnf != null
                 ? <span className={`${badge} ${cnfBadgeCls(cnf)}`}>{Math.round(cnf)}</span>
@@ -1920,7 +1924,7 @@ const SocialSentiment = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTie
     const rv = r.rvol ?? null;
     return (
       <div key={r.t} className={`flex items-center whitespace-nowrap py-[1px] ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
-        title={edge === 'red' ? `${r.n ?? r.t} · ${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : (r.n ?? r.t)}>
+        title={edge ? `${r.n ?? r.t} · ${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : (r.n ?? r.t)}>
         <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
         <span className="inline-block w-[20px] md:w-[22px] text-center ml-2 md:ml-1">{cnf != null
           ? <span className={`${badge} ${cnfBadgeCls(cnf)}`}>{Math.round(cnf)}</span>
@@ -2554,8 +2558,8 @@ export default function MarketSummary() {
      is empty on a quiet calendar — and an index-keyed set would silently
      collapse whichever section slid into that slot. */
   /* Colour filter per Thesis card. A label present in the map means the
-     reader clicked a pill, and their choice stands; absent means everything
-     (green is no longer the default — 9 Oct 2026). */
+     reader clicked a pill, and their choice stands; absent means the default
+     — green, or everything when the card has no green rows today. */
   const [thesisEdge, setThesisEdge] = useState<Record<string, EdgeTier | null>>({});
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() =>
     new Set([
@@ -2973,7 +2977,7 @@ export default function MarketSummary() {
                             : null;
                           const activeEdge: EdgeTier | null = !secEdge || !secCounts || !label ? null
                             : label in thesisEdge ? thesisEdge[label]
-                            : null;
+                            : secCounts.green > 0 ? 'green' : null;
                           const edgeOk = (t: string) => !activeEdge || secEdge?.[t] === activeEdge;
                           const rowEdgeMap = secEdge ?? macroInsights?.edgeMap;
                           const neutralScore = label === 'EP9M Thesis' || label === 'Reversal Swing Thesis';
@@ -3606,7 +3610,7 @@ export default function MarketSummary() {
                                     const edge = macroInsights.edgeMap?.[s.symbol] ?? null;
                                     return (
                                       <div key={idx} className={`flex items-center whitespace-nowrap py-[1px] ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
-                                        title={edge === 'red' ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : undefined}>
+                                        title={edge ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : undefined}>
                                         <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={s.symbol} /></span></span>
                                         <TickerChartHover symbol={s.symbol}><span className={`${gradeChipCls(s.grade, isAvoid)} w-[38px] md:w-[44px]`}>{s.symbol}</span></TickerChartHover>
                                         <span className="inline-block w-[12px] text-center leading-none shrink-0" />

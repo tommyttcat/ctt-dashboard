@@ -14,9 +14,10 @@
  *   - a pill with no rows behind it is hidden rather than greyed.
  *   - counts come from the UNFILTERED rows, so an empty bucket is visible
  *     before it is clicked.
- *   - opens on everything. Until 9 Oct 2026 it opened on GREEN as a
- *     shortlist; live, green did no better than yellow, so only the RED
- *     (avoid) pill is offered now.
+ *   - opens on GREEN, since the point of the card is the shortlist. A scan
+ *     with no green rows today falls back to showing everything rather than
+ *     an empty table, until the reader clicks — after that their choice
+ *     stands.
  */
 
 import React from 'react';
@@ -24,9 +25,7 @@ import { EDGE_TINT, type EdgeTier } from '@/lib/scans/edge';
 
 export type { EdgeTier };
 
-/* RED only since 9 Oct 2026: green did no better than yellow live, so it is no
-   longer offered as a shortlist; red stays as the avoid filter. */
-const ORDER: EdgeTier[] = ['red'];
+const ORDER: EdgeTier[] = ['green', 'yellow', 'red'];
 
 const PILL_CLS: Record<EdgeTier, string> = {
   green: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
@@ -51,7 +50,7 @@ export function edgeCounts<T>(rows: T[], tierOf: (r: T) => EdgeTier | null): Rec
  * the reader clicks anything their choice stands, including a deliberate
  * click onto an empty bucket.
  */
-export function useEdgeFilter(counts: Record<EdgeTier, number>, initial: EdgeTier | null = null) {
+export function useEdgeFilter(counts: Record<EdgeTier, number>, initial: EdgeTier | null = 'green') {
   const [key, setKey] = React.useState<EdgeTier | null>(initial);
   const [touched, setTouched] = React.useState(false);
 
@@ -104,7 +103,7 @@ export default function EdgeFilterPills({
 export function EdgeLegend({ tips, className = '' }: { tips: Record<EdgeTier, string>; className?: string }) {
   return (
     <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-500 ${className}`}>
-      <span>Red rows — the bucket that lost in this scan&apos;s 5-year test and live:</span>
+      <span>Row shading — what the 5-year test measured on this scan:</span>
       {ORDER.map(t => (
         <span key={t} className="inline-flex items-center gap-1" title={tips[t]}>
           <span className={`inline-block w-2.5 h-2.5 rounded-sm ${EDGE_TINT[t]} border border-white/10`} />
