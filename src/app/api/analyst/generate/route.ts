@@ -413,11 +413,6 @@ function buildBrief(snapshot: any, chop: any, news: any, earnings: any, econ: an
     .slice(0, 20);
 
   const scored = allStocks.map(s => ({ ...s, _rank: scoreStock(s) }));
-  const topStocks = scored
-    .filter(s => !isAvoidStock(s) && s._rank > 0)
-    .sort((a, b) => b._rank - a._rank)
-    .slice(0, 7)
-    .map(s => ({ ...s, sentiment: 'bullish' as const }));
 
   const avoidStocks = scored
     .filter(s => isAvoidStock(s))
@@ -425,19 +420,13 @@ function buildBrief(snapshot: any, chop: any, news: any, earnings: any, econ: an
     .slice(0, 4)
     .map(s => ({ ...s, sentiment: 'bearish' as const }));
 
+  /* No picks (9 Oct 2026). Scored from the archive, the brief's picks lost
+     money against SPY from 31 Aug to 8 Oct (110 picks, 37% winners,
+     -0.8% a trade vs SPY 0.0%), so neither this fallback nor the analyst
+     routine publishes conviction names, a watchlist or Top Trades any more.
+     The keys stay, empty, because every renderer reads them. */
   const convictions: string[] = [];
-  if (topStocks[0]) {
-    const cat0 = topStocks[0].thesis || topStocks[0].catalyst;
-    convictions.push(`**${topStocks[0].ticker}** top-ranked — ${cat0 || topStocks[0].setup || 'strong confluence'}${topStocks[0].rvol ? `, RVOL ${topStocks[0].rvol.toFixed(1)}` : ''}.`);
-  }
-  if (topStocks[1]) {
-    const cat1 = topStocks[1].thesis || topStocks[1].catalyst;
-    convictions.push(`**${topStocks[1].ticker}** showing strength${cat1 ? ` — ${cat1}` : ''}.`);
-  }
-
-  const watchlist = topStocks.slice(2, 5).map(s =>
-    `**${s.ticker}** — ${s.thesis || s.setup || 'potential breakout'}${s.rs ? `, RS ${s.rs}` : ''}`
-  );
+  const watchlist: string[] = [];
   const traps = avoidStocks.slice(0, 3).map(s =>
     `**${s.ticker}** ${fmtPct(s.changePct)}${s.stage ? ` Stage ${s.stage}` : ''} — avoid`
   );
@@ -457,7 +446,7 @@ function buildBrief(snapshot: any, chop: any, news: any, earnings: any, econ: an
   sections.push(
     { section: gapperLabel, analysis: '', stocks: gapperStocks },
     { section: 'Stocks in Play Today', analysis: '', stocks: sipStocks },
-    { section: 'Top Trades', analysis: '', stocks: topStocks },
+    { section: 'Top Trades', analysis: '', stocks: [] },
     { section: 'Top Avoid', analysis: '', stocks: avoidStocks },
   );
 

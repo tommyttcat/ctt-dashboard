@@ -43,7 +43,9 @@ const muted = '#64748b';
 const green = '#34d399';
 const amber = '#fbbf24';
 
-type Setup = { ticker?: string; heading?: string; body?: string };
+/* `weekPct` (since 9 Oct 2026): the recap's Friday-to-Friday move, shown on
+   the right where the buy and stop used to be. */
+type Setup = { ticker?: string; heading?: string; body?: string; weekPct?: number };
 type Narrative = { title?: string; subtitle?: string; setups?: Setup[] };
 
 /* Monday–Friday of the week that just ended. The post runs Saturday morning
@@ -136,7 +138,7 @@ export async function GET(req: Request) {
       {/* header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', fontSize: 17, fontWeight: 800, color: teal, letterSpacing: 3 }}>
-          CTT · TOP SETUPS OF THE WEEK
+          CTT · WHAT MOVED THIS WEEK
         </div>
         <div style={{
           display: 'flex', fontSize: 17, fontWeight: 700, color: teal, backgroundColor: '#0e2a33',
@@ -146,7 +148,7 @@ export async function GET(req: Request) {
 
       {/* the week's theme */}
       <div style={{ display: 'flex', fontSize: 38, fontWeight: 800, color: white, letterSpacing: -0.5, marginTop: 16, lineHeight: 1.15 }}>
-        {theme || 'Top Setups of the Week'}
+        {theme || 'What Moved This Week'}
       </div>
       <div style={{ display: 'flex', height: 3, width: 120, backgroundColor: teal, borderRadius: 2, marginTop: 16, marginBottom: 14 }} />
 
@@ -169,6 +171,11 @@ export async function GET(req: Request) {
               <div style={{ display: 'flex', flex: 1, fontSize: 20, color: light, marginLeft: 18 }}>
                 {clip(headingText(s.heading || '', ticker), lv ? 34 : 60)}
               </div>
+              {!lv && typeof s.weekPct === 'number' && Number.isFinite(s.weekPct) && (
+                <div style={{ display: 'flex', fontSize: 26, fontWeight: 800, color: s.weekPct >= 0 ? green : rose }}>
+                  {`${s.weekPct >= 0 ? '+' : '−'}${Math.abs(s.weekPct).toFixed(1)}%`}
+                </div>
+              )}
               {lv && (
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', marginRight: 16 }}>
@@ -197,7 +204,7 @@ export async function GET(req: Request) {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
         <div style={{ display: 'flex', fontSize: 16, fontWeight: 700, color: white }}>confluencetradingtools.com</div>
-        <div style={{ display: 'flex', fontSize: 14, color: muted }}>Setups, not signals · Not financial advice</div>
+        <div style={{ display: 'flex', fontSize: 14, color: muted }}>What moved, not what to buy · Not financial advice</div>
       </div>
     </div>
   );

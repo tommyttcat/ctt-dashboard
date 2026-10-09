@@ -22,7 +22,7 @@ const KV_KEY = 'top_setups_data';
 // Reader-facing links point to the public site, not the gated app subdomain.
 const DASH_URL = 'www.confluencetradingtools.com';
 
-type Setup = { ticker?: string; heading?: string; body?: string };
+type Setup = { ticker?: string; heading?: string; body?: string; weekPct?: number };
 type Narrative = {
   title?: string;
   subtitle?: string;
@@ -74,14 +74,12 @@ function captionedImage(src: string): any {
 }
 
 /* Static explainer — same every week, kept here so the prose stays on-brand
-   and the cloud routine never has to regenerate boilerplate. Since 28 Sep 2026
-   the post lists the breakout watch (Monday's names, bought only on the 10:00
-   volume breakout), not a CNF ranking, so this says how that works — and
-   that it is a backtest, not a track record. */
+   and the cloud routine never has to regenerate boilerplate. Since 9 Oct 2026
+   the post is a recap of what moved, not a pick list: the picks it used to
+   carry lost money live (31 Aug-8 Oct), so it names no buy levels or stops. */
 const HOW_EXPLAINER = [
-  `These are Friday's strongest closers from CTT's momentum scans — names that finished at the top of their day's range, with the strongest relative strength first.`,
-  `None of them is a buy at Friday's price. A name becomes a buy only if, after 10:00 on Monday, it breaks above its 9:30–10:00 high while volume runs at least one and a half times its normal pace. No breakout, no trade. The stop is set before the open.`,
-  `In a five-year backtest that entry won 41% of the time and averaged +3.9% a trade. It is a backtest, not a track record yet — the live results build on CTT's Track page.`,
+  `These are the week's biggest movers among liquid US stocks, ranked by how far they moved from last Friday's close to this Friday's, with the reason each one moved.`,
+  `It is a record of what happened, not a list of buys. CTT is not publishing buy levels or stops until an entry has a positive live record.`,
 ];
 
 /* ── Substack API (self-contained) ── */
@@ -153,7 +151,7 @@ function buildBody(n: Narrative, coverCdn?: string): any {
   if (coverCdn) content.push(captionedImage(coverCdn));
   if (n.intro) content.push(...analysisToNodes(n.intro));
 
-  content.push(heading(3, 'How these are picked'));
+  content.push(heading(3, 'How this list is built'));
   content.push(blockquote(HOW_EXPLAINER.map(paraText)));
 
   for (const s of n.setups || []) {
@@ -169,7 +167,7 @@ function buildBody(n: Narrative, coverCdn?: string): any {
 
   content.push(hr());
   if (n.cashtags?.length) content.push(para([bold(n.cashtags.join('  '))]));
-  content.push(para([link('See the setups live before the bell →', `https://${DASH_URL}`)]));
+  content.push(para([link("See what's moving live on the dashboard →", `https://${DASH_URL}`)]));
   content.push(paraText('*Confluence Trading Tools. Analysis only. Not financial advice.*'));
   return { type: 'doc', content };
 }
@@ -178,7 +176,7 @@ function buildBody(n: Narrative, coverCdn?: string): any {
    X rejects posts with more than one cashtag ($SYMBOL) — a 403 — so the X
    variant passes maxCashtags=1. Bluesky has no such limit. */
 function socialText(n: Narrative, postUrl: string, max: number, maxCashtags = 99): string {
-  const title = n.title || 'Top Setups of the Week';
+  const title = n.title || 'What Moved This Week';
   const teaser = (n.social || '').trim();
   const tagLine = [...(n.cashtags || []).slice(0, maxCashtags), ...(n.hashtags || []).slice(0, 3)].join(' ');
   const parts = [title];
@@ -293,8 +291,8 @@ export async function GET(req: Request) {
   const coverBuf = await fetchCover(origin);
   const coverCdn = coverBuf ? await uploadCover(pubUrl, session, coverBuf).catch(() => null) : null;
 
-  const title = n.title || 'Top Setups of the Week';
-  const subtitle = n.subtitle || 'The highest-confluence setups from this past week.';
+  const title = n.title || 'What Moved This Week';
+  const subtitle = n.subtitle || "The week's biggest movers and why they moved.";
   const bodyJson = buildBody(n, coverCdn || undefined);
 
   const draft = await createDraft(pubUrl, session, title, subtitle, bodyJson, coverCdn || undefined, n.tags);

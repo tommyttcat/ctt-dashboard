@@ -2289,7 +2289,8 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   /* Market Regime lives on the /analyst briefing page only — removed from the
      dashboard to avoid duplicating a dense prose block that reads better in
      its own space. The avoid-set still comes from the analyst brief. */
-  { label: 'Best Setups Today', color: 'emerald', blurb: 'The picks from the best-tested entry. Buy only on the volume breakout after 10:00.' },
+  /* Best Setups Today removed 9 Oct 2026 at the user's request: the
+     breakout-watch picks lost money live (Model Book v2 down to $96.8k). */
   { label: 'Setups Summary', color: 'violet', blurb: 'All scans pooled — filter by source or setup pattern. One stop shop.' },
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves now. Volume-confirmed is tradeable; a thin gap is a fade.' },
   { label: 'Social Sentiment', color: 'violet', blurb: 'What StockTwits, Reddit and Bluesky are talking about most, and which way they lean. The crowd, not a signal.' },
