@@ -38,6 +38,10 @@ export interface MomentumRow {
   price: number;
   dvol: number;    // 20-session average dollar volume
   sue?: number | null;  // earnings surprise (lib/sue) when the ranking uses it
+  vol?: number | null;   // today's shares
+  rvol?: number | null;  // today's shares / the prior 20 sessions' average
+  rs?: number | null;    // the site's RS Rating (lib/indicators/rs), as of the last RS run
+  stage?: string | null; // Weinstein stage (lib/indicators/stage), from a year of the name's own bars
 }
 
 export interface MomentumList {
@@ -85,11 +89,36 @@ export function rankMomentum(
  * (SUE rank + momentum rank). `all` must be momentum-sorted (rankMomentum),
  * which is also the tie-break, as in the test.
  */
-export function rankCombined(all: MomentumRow[], sue: Record<string, SueEntry>, date: string): MomentumRow[] {
+export function rankCombined(all: MomentumRow[], sue: Record<string, SueEntry>, date: string, n = MOMENTUM_TOP): MomentumRow[] {
   const e = all.filter(r => sueFresh(sue[r.t], date)).map(r => ({ ...r, sue: sue[r.t].s as number }));
   const rs = new Map(e.slice().sort((a, b) => (b.sue as number) - (a.sue as number)).map((x, i) => [x.t, i]));
   const rm = new Map(e.map((x, i) => [x.t, i]));
-  return e.slice().sort((a, b) => (rs.get(a.t)! + rm.get(a.t)!) - (rs.get(b.t)! + rm.get(b.t)!)).slice(0, MOMENTUM_TOP);
+  return e.slice().sort((a, b) => (rs.get(a.t)! + rm.get(a.t)!) - (rs.get(b.t)! + rm.get(b.t)!)).slice(0, n);
+}
+
+/* ---- Ticker-reuse guard ------------------------------------------------------
+   A ticker can change hands: on 9 Oct 2026 "BNY" topped the list at +1,489%
+   because the price a year ago belonged to whatever traded as BNY before the
+   bank took the symbol. A one-session move this large is the tell; the route
+   then asks Polygon whether the company before and after it is the same. */
+export const JUMP_UP = 2.5;    // +150% in one session
+export const JUMP_DOWN = 0.4;  // -60% in one session
+
+/** Index of the first suspicious one-session move in closes (oldest first), or -1. */
+export function suspectJump(closes: number[]): number {
+  for (let i = 1; i < closes.length; i++) {
+    const r = closes[i] / closes[i - 1];
+    if (closes[i - 1] > 0 && (r >= JUMP_UP || r <= JUMP_DOWN)) return i;
+  }
+  return -1;
+}
+
+/** Today's shares over the prior 20 sessions' average (vols oldest first, today last). */
+export function rvolOf(vols: number[]): number | null {
+  if (vols.length < 21) return null;
+  const prior = vols.slice(-21, -1);
+  const avg = prior.reduce((a, b) => a + b, 0) / 20;
+  return avg > 0 ? vols[vols.length - 1] / avg : null;
 }
 
 /* ---- Forward paper record (hidden) -----------------------------------------

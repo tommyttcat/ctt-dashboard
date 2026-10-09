@@ -121,7 +121,7 @@ import { tierForScan, tipForScan } from '@/lib/scans/edge';
 import { newsStarCount } from '@/lib/newsStars';
 import { rsColor, rsBadge } from '@/lib/indicators/rs';
 import { toCanonicalSector, isEtfSector, industryHeat, displaySector } from '@/lib/sectors';
-import { stageColor, stageBadge } from '@/lib/indicators/stage';
+import { stageColor, stageBadge, stageShort } from '@/lib/indicators/stage';
 import { rvolColor, stochColor, CNF_NEUTRAL } from '@/lib/indicators/columnColors';
 import { getMarketSession } from '@/lib/indicators/marketScorecard';
 /* The row formatters and scan-field accessors moved to lib/summary/rowFormat
@@ -1783,7 +1783,7 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
    day it was rebalanced on (scripts/backtest/rank-*.ts). A ranking, not a buy
    signal: no levels. Rebuilt nightly by /api/momentum/nightly, read through
    the CDN, fetched once per page load (it changes once a night). */
-type MomSortKey = 'mom' | 'r1m' | 'price' | 'dvol' | 'sue';
+type MomSortKey = 'mom' | 'r1m' | 'price' | 'dvol' | 'sue' | 'vol' | 'rvol' | 'rs' | 'stage';
 const MomentumLeaders = () => {
   const [list, setList] = React.useState<MomentumList | null>(null);
   const [failed, setFailed] = React.useState(false);
@@ -1798,7 +1798,11 @@ const MomentumLeaders = () => {
   if (!list) return <p className="text-[10px] text-slate-500">{failed ? 'Not built yet — the list builds after the first nightly run (about 6:10 PM ET).' : 'Loading…'}</p>;
   const onSort = (k: MomSortKey) => setSort(cur => (cur.key !== k ? { key: k, dir: 'desc' } : { key: k, dir: cur.dir === 'desc' ? 'asc' : 'desc' }));
   const combined = list.ranking === 'momentum+earnings';
-  const val = (r: MomentumRow) => (sort.key === 'sue' ? (r.sue ?? -Infinity) : r[sort.key]);
+  const val = (r: MomentumRow): number => {
+    if (sort.key === 'stage') { const v = parseFloat(stageShort(r.stage)); return Number.isFinite(v) ? v : -Infinity; }
+    const v = r[sort.key];
+    return typeof v === 'number' && Number.isFinite(v) ? v : -Infinity;
+  };
   const rows = [...list.rows].sort((a, b) => (sort.dir === 'desc' ? val(b) - val(a) : val(a) - val(b)));
   const H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
   const S = 'cursor-pointer hover:text-slate-400 transition-colors select-none';
@@ -1813,7 +1817,11 @@ const MomentumLeaders = () => {
       <span className={`${H} ${S} w-[42px] md:w-[48px] text-right ml-2 md:ml-1`} onClick={() => onSort('r1m')}>1M{arrow('r1m')}</span>
       {combined && <span className={`${H} ${S} w-[36px] md:w-[40px] text-right ml-2 md:ml-1`} onClick={() => onSort('sue')}>Surp{arrow('sue')}</span>}
       <span className={`${H} ${S} hidden md:inline-block w-[42px] text-right ml-1`} onClick={() => onSort('price')}>Prc{arrow('price')}</span>
-      <span className={`${H} ${S} w-[38px] md:w-[40px] text-right ml-2 md:ml-1`} onClick={() => onSort('dvol')}>$Vol{arrow('dvol')}</span>
+      <span className={`${H} ${S} w-[32px] md:w-[36px] text-right ml-2 md:ml-1`} onClick={() => onSort('rvol')}>Rvol{arrow('rvol')}</span>
+      <span className={`${H} ${S} hidden md:inline-block w-[36px] text-right ml-1`} onClick={() => onSort('vol')}>Vol{arrow('vol')}</span>
+      <span className={`${H} ${S} hidden md:inline-block w-[40px] text-right ml-1`} onClick={() => onSort('dvol')}>$Vol{arrow('dvol')}</span>
+      <span className={`${H} ${S} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`} onClick={() => onSort('rs')}>RS{arrow('rs')}</span>
+      <span className={`${H} ${S} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`} onClick={() => onSort('stage')}>Stg{arrow('stage')}</span>
     </div>
   );
   const row = (r: MomentumRow) => (
@@ -1824,7 +1832,15 @@ const MomentumLeaders = () => {
       <span className={`text-[9px] tabular-nums inline-block w-[42px] md:w-[48px] text-right ml-2 md:ml-1 ${pctCls(r.r1m)}`}>{r.r1m >= 0 ? '+' : ''}{r.r1m.toFixed(1)}%</span>
       {combined && <span className={`text-[9px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-2 md:ml-1 ${r.sue == null ? 'text-slate-600' : r.sue >= 2 ? 'text-emerald-400' : r.sue > 0 ? 'text-slate-300' : 'text-rose-400'}`}>{r.sue == null ? '—' : `${r.sue >= 0 ? '+' : ''}${r.sue.toFixed(1)}`}</span>}
       <span className="text-[9px] tabular-nums hidden md:inline-block w-[42px] text-right text-slate-300 ml-1">{r.price.toFixed(2)}</span>
-      <span className="text-[9px] tabular-nums inline-block w-[38px] md:w-[40px] text-right text-slate-300 ml-2 md:ml-1">{fmtDollars(r.dvol)}</span>
+      <span className={`text-[9px] tabular-nums font-semibold inline-block w-[32px] md:w-[36px] text-right ml-2 md:ml-1 ${r.rvol == null ? 'text-slate-600' : r.rvol >= 2 ? 'text-emerald-400' : r.rvol >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{r.rvol == null ? '—' : `${r.rvol < 10 ? r.rvol.toFixed(1) : Math.round(r.rvol)}x`}</span>
+      <span className="text-[9px] tabular-nums hidden md:inline-block w-[36px] text-right text-slate-400 ml-1">{fmtShares(r.vol ?? undefined)}</span>
+      <span className="text-[9px] tabular-nums hidden md:inline-block w-[40px] text-right text-slate-300 ml-1">{fmtDollars(r.dvol)}</span>
+      <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{r.rs != null
+        ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(r.rs)}`}>{r.rs}</span>
+        : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
+      <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{r.stage
+        ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(r.stage)}`}>{stageShort(r.stage)}</span>
+        : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
     </div>
   );
   const half = Math.ceil(rows.length / 2);
@@ -1836,7 +1852,7 @@ const MomentumLeaders = () => {
             ? <>The {list.rows.length} liquid stocks ranked on two things together: the strongest 12-month run (skipping the latest month) and the biggest jump in quarterly earnings against a year earlier. Ranked, not recommended — in testing it matched QQQ, not beat it. No buy levels.</>
             : <>The {list.rows.length} liquid stocks with the strongest 12-month return, skipping the latest month — ranked, not recommended. No buy levels. (The earnings half of the ranking switches on once enough companies have earnings scores.)</>}
         </p>
-        <InfoDot text={"WHAT IT IS — every common stock or ADR at $5+ trading $20M+ a day. 12M is its return from 12 months ago to 1 month ago; 1M is the latest month (left out of the ranking: last month's winners tend to give some back). SURP — the earnings surprise: the latest quarter's earnings per share against the same quarter a year earlier, measured against how much that number usually moves (+2 = an unusually big improvement). The list ranks on 12M and SURP together.\n\nWHY THIS LIST — tested on Oct 2022 – Sep 2026, held as four staggered monthly portfolios: momentum and earnings together made +165% against SPY's +112%, beat SPY whichever day of the month it was rebalanced on (20 of 20, median +68%), and did better than momentum alone (+159%). Ranking on momentum alone among the same companies made +134%, so the earnings half adds something.\n\nTHE COSTS — it trailed SPY in 2022–24 (+34% vs +58%) and fell further (worst drop −29% vs −19%). And simply holding QQQ made the same +166% over those four years with smaller drops (−23%): the list's lead over SPY came from taking more risk, not from picking better. Four years is a short test, and the live earnings data comes from a different provider than the test's.\n\nNot a buy list and not advice. Rebuilt each evening from the day's close."} />
+        <InfoDot text={"WHAT IT IS — every common stock or ADR at $5+ trading $20M+ a day. 12M is its return from 12 months ago to 1 month ago; 1M is the latest month (left out of the ranking: last month's winners tend to give some back). SURP — the earnings surprise: the latest quarter's earnings per share against the same quarter a year earlier, measured against how much that number usually moves (+2 = an unusually big improvement). The list ranks on 12M and SURP together. RVOL is today's volume against its 20-day average; VOL is today's shares; RS is the relative-strength rating (1–99); STG is the Weinstein stage. Those four are shown for context only — none of them is part of the ranking or was tested with it.\n\nWHY THIS LIST — tested on Oct 2022 – Sep 2026, held as four staggered monthly portfolios: momentum and earnings together made +165% against SPY's +112%, beat SPY whichever day of the month it was rebalanced on (20 of 20, median +68%), and did better than momentum alone (+159%). Ranking on momentum alone among the same companies made +134%, so the earnings half adds something.\n\nTHE COSTS — it trailed SPY in 2022–24 (+34% vs +58%) and fell further (worst drop −29% vs −19%). And simply holding QQQ made the same +166% over those four years with smaller drops (−23%): the list's lead over SPY came from taking more risk, not from picking better. Four years is a short test, and the live earnings data comes from a different provider than the test's.\n\nNot a buy list and not advice. Rebuilt each evening from the day's close."} />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-2">
         <div className="min-w-0">{header}{rows.slice(0, half).map(row)}</div>
