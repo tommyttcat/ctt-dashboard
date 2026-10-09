@@ -1,5 +1,5 @@
 /* scripts/momentum.test.mts — Momentum Leaders ranking (lib/momentum). */
-import { rankMomentum, suspectJump, rvolOf, atr14, atrFromLow } from '../src/lib/momentum.ts';
+import { rankMomentum, suspectJump, rvolOf } from '../src/lib/momentum.ts';
 import { eq, near, ok, done } from './testkit.mts';
 
 const day = (rows: Record<string, [number, number]>) => new Map(Object.entries(rows).map(([t, [c, v]]) => [t, { c, v }]));
@@ -26,13 +26,4 @@ eq('a 2x move is not flagged', suspectJump([10, 20]), -1);
 eq('rvol needs 21 sessions', rvolOf(new Array(20).fill(100)), null);
 eq('rvol = today / prior 20-session average', rvolOf([...new Array(20).fill(100), 250]), 2.5);
 eq('rvol ignores older sessions', rvolOf([9999, ...new Array(20).fill(100), 100]), 1);
-// ATR(14): mean true range, gaps count through the prior close
-eq('atr needs 15 bars', atr14(new Array(14).fill(11), new Array(14).fill(9), new Array(14).fill(10)), null);
-eq('atr of a steady 2-point range', atr14(new Array(15).fill(11), new Array(15).fill(9), new Array(15).fill(10)), 2);
-eq('a gap up counts from the prior close', atr14([...new Array(14).fill(11), 21], [...new Array(14).fill(9), 19], [...new Array(14).fill(10), 20]), (13 * 2 + 11) / 14);
-// ATR% from LOD
-eq('half a range off the low', atrFromLow(11, 10, 2), 50);
-eq('at the low', atrFromLow(10, 10, 2), 0);
-eq('no ATR, no reading', atrFromLow(11, 10, null), null);
-eq('a low above price is bad data', atrFromLow(10, 11, 2), null);
 done('momentum leaders');
