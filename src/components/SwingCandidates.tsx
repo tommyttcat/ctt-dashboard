@@ -261,6 +261,8 @@ interface SwingCandidate {
   dotBarsSince?: number | null;
   tradeType?: string | null;
   setupName?: string | null;
+  /** Undercut & rally: the level undercut and reclaimed ('10-day low', '50-day', '21 EMA'). */
+  undercutOf?: string | null;
   catalyst?: string | null;
   catalystUrl?: string | null;
   newsPublisher?: string | null;
@@ -564,6 +566,7 @@ export default function SwingCandidates() {
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: SortDirection } | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [showReadyOnly, setShowReadyOnly] = useState<boolean>(false);
+  const [showUROnly, setShowUROnly] = useState<boolean>(false);
   const [postureFilter, setPostureFilter] = useState<PostureFilterType>('All');
   const [chopFilter, setChopFilter] = useState<ChopFilterType>('All');
   const [marketCapFilter, setMarketCapFilter] = useState<CapFilterType>('All');
@@ -636,6 +639,7 @@ export default function SwingCandidates() {
     let filtered = [...candidates];
     if (edge.key) filtered = filtered.filter(c => swingTier(c) === edge.key);
     if (showReadyOnly) filtered = filtered.filter(isReady);
+    if (showUROnly) filtered = filtered.filter(c => !!c.undercutOf);
     if (postureFilter !== 'All') {
       filtered = filtered.filter(c => postureOf(c) === postureFilter);
     }
@@ -686,12 +690,13 @@ export default function SwingCandidates() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [candidates, sortConfig, showReadyOnly, postureFilter, chopFilter, marketCapFilter, cnfFilter, adrFilter, vwapFilter, edge.key]);
+  }, [candidates, sortConfig, showReadyOnly, showUROnly, postureFilter, chopFilter, marketCapFilter, cnfFilter, adrFilter, vwapFilter, edge.key]);
 
   /* Header count, from the FULL scan rather than the filtered view. Unlike
      Daily and SIPs this table already has a readiness filter (STAT), so the
      chip drives it rather than just reporting — the VCP pattern. */
   const readyCount = useMemo(() => candidates.filter(isReady).length, [candidates]);
+  const urCount = useMemo(() => candidates.filter(c => !!c.undercutOf).length, [candidates]);
 
   const handleCopyTickers = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -750,6 +755,7 @@ export default function SwingCandidates() {
 
   const activeFilterCount =
     (showReadyOnly ? 1 : 0) +
+    (showUROnly ? 1 : 0) +
     (postureFilter !== 'All' ? 1 : 0) +
     (chopFilter !== 'All' ? 1 : 0) +
     (marketCapFilter !== 'All' ? 1 : 0) +
@@ -777,6 +783,17 @@ export default function SwingCandidates() {
                 className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border transition-all cursor-pointer ${showReadyOnly ? 'text-emerald-300 bg-emerald-500/20 border-emerald-400/40 ring-1 ring-emerald-400/30' : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/20'}`}
               >
                 {readyCount} Ready
+              </button>
+            </span>
+          )}
+          {urCount > 0 && (
+            <span className="hidden md:flex items-center gap-2">
+              <button
+                onClick={(e) => { e.stopPropagation(); setIsExpanded(true); setShowUROnly(!showUROnly); }}
+                title="Undercut & rally — dipped under the 21 EMA, the 50-day or the prior 10-day low and closed back above it today — click to filter"
+                className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border transition-all cursor-pointer ${showUROnly ? 'text-sky-300 bg-sky-500/20 border-sky-400/40 ring-1 ring-sky-400/30' : 'text-sky-400 bg-sky-500/10 border-sky-500/20 hover:bg-sky-500/20'}`}
+              >
+                {urCount} U&amp;R
               </button>
             </span>
           )}
@@ -1071,9 +1088,15 @@ export default function SwingCandidates() {
                           <td />
                           <td colSpan={15} className="pb-1.5 pt-1 pr-3">
                             <div className="flex items-center text-left gap-0 min-w-0">
+                              {row.undercutOf ? (
+                                <span className="shrink-0 w-[48px] px-0.5 text-center text-sky-400 font-bold text-[7px] tracking-[0.04em] uppercase leading-none whitespace-nowrap" title={`Undercut & rally: dipped under the ${row.undercutOf} and closed back above it today.`}>
+                                  U&amp;R
+                                </span>
+                              ) : (
                               <span className="shrink-0 w-[48px] px-0.5 text-center text-[#7c8bfa]/90 font-bold text-[7px] tracking-[0.04em] uppercase leading-none whitespace-nowrap">
                                 {bdRev ? <BlueDot /> : (formatSetupName(row.setupName) !== '—' ? formatSetupName(row.setupName) : 'EMA PB')}
                               </span>
+                              )}
                               <p className="flex-1 min-w-0 text-[10px] leading-relaxed border-l border-white/10 pl-2.5 pr-3 truncate" title={newsTooltip(row) || headline || undefined}>
                                 {headline || tag ? (
                                   <>

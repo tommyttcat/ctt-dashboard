@@ -762,6 +762,11 @@ export function analyze(
   // pullback is finished, not a moving average it is already sitting on.
   const lastBar = bars[bars.length - 1];
   const setupName = 'EMA PB';
+  /* Undercut & rally (9 Oct 2026): the same check as the 10/21 table's —
+     a shakeout under the prior 10-day low, the 50-day or the 21 EMA, closed
+     back above today. A label only: it does not change which names pass or
+     their score. */
+  const undercut = adr != null ? detectUndercut(bars, adr) : null;
   const plan = computeTradePlan({
     price,
     adrPct: adr,
@@ -811,6 +816,7 @@ export function analyze(
     goldenCross: sma50 > sma200,
     ema21Rising,
     setupName,
+    undercutOf: undercut ? UNDERCUT_LABEL[undercut.level] : null,
     ema10: round2(ema10),
     ema21: round2(ema21),
     ema50: round2(ema50),
