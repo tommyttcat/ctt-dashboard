@@ -121,6 +121,10 @@
       "schedule": "40 21,22 * * 1-5"
     },
     {
+      "path": "/api/momentum/nightly",
+      "schedule": "10 22,23 * * 1-5"
+    },
+    {
       "path": "/api/leaders/live",
       "schedule": "*/5 13-21 * * 1-5"
     },

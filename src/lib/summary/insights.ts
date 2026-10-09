@@ -1058,7 +1058,7 @@ export const buildLocalInsights = (
   const mbFinal = mbPara || '100-Bagger Thesis: No candidates — awaiting scan.';
 
   const orderedParas = [
-    setupsPara, moversPara, 'Liquid Leaders: interactive', 'Social Sentiment: interactive', sipsFinal, dvolPara,
+    setupsPara, moversPara, 'Liquid Leaders: interactive', 'Momentum Leaders: interactive', 'Social Sentiment: interactive', sipsFinal, dvolPara,
     dailyPara, swingThesisPara,
     ema1021Para, vcpPara, ep9mFinal, mbFinal,
     sectorBarsPara, heatPara, etfPara, moneyPara, keyEventsPara,

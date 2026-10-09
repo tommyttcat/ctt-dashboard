@@ -112,6 +112,7 @@ import InfoDot from './InfoDot';
 import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
 import type { LeadersLive, LeaderRow } from '@/lib/leaders';
+import type { MomentumList, MomentumRow } from '@/lib/momentum';
 import { bullShare, type SentimentLive } from '@/lib/sentiment';
 import { EARLY_PASS_N, type EarlySummary } from '@/lib/earlyTrack';
 
@@ -1776,6 +1777,70 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
   );
 };
 
+/* ---- Momentum Leaders (9 Oct 2026) -----------------------------------------
+   lib/momentum: the 50 liquid stocks with the strongest 12-month return,
+   skipping the latest month — the one monthly ranking that beat SPY whichever
+   day it was rebalanced on (scripts/backtest/rank-*.ts). A ranking, not a buy
+   signal: no levels. Rebuilt nightly by /api/momentum/nightly, read through
+   the CDN, fetched once per page load (it changes once a night). */
+type MomSortKey = 'mom' | 'r1m' | 'price' | 'dvol';
+const MomentumLeaders = () => {
+  const [list, setList] = React.useState<MomentumList | null>(null);
+  const [failed, setFailed] = React.useState(false);
+  const [sort, setSort] = React.useState<{ key: MomSortKey; dir: SortDir }>({ key: 'mom', dir: 'desc' });
+  React.useEffect(() => {
+    let on = true;
+    fetch('/api/momentum/latest').then(r => (r.ok ? r.json() : null))
+      .then(j => { if (on) { if (j?.list) setList(j.list); else setFailed(true); } })
+      .catch(() => { if (on) setFailed(true); });
+    return () => { on = false; };
+  }, []);
+  if (!list) return <p className="text-[10px] text-slate-500">{failed ? 'Not built yet — the list builds after the first nightly run (about 6:10 PM ET).' : 'Loading…'}</p>;
+  const onSort = (k: MomSortKey) => setSort(cur => (cur.key !== k ? { key: k, dir: 'desc' } : { key: k, dir: cur.dir === 'desc' ? 'asc' : 'desc' }));
+  const rows = [...list.rows].sort((a, b) => (sort.dir === 'desc' ? b[sort.key] - a[sort.key] : a[sort.key] - b[sort.key]));
+  const H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
+  const S = 'cursor-pointer hover:text-slate-400 transition-colors select-none';
+  const arrow = (k: MomSortKey) => (sort.key === k ? (sort.dir === 'desc' ? ' ↓' : ' ↑') : '');
+  const rank = new Map(list.rows.map((r, i) => [r.t, i + 1]));
+  const pctCls = (v: number) => (v >= 0 ? 'text-emerald-400' : 'text-rose-400');
+  const header = (
+    <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
+      <span className={`${H} w-[18px] text-right`}>#</span>
+      <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-1`}>Ticker</span>
+      <span className={`${H} ${S} w-[48px] md:w-[52px] text-right ml-1`} onClick={() => onSort('mom')}>12M{arrow('mom')}</span>
+      <span className={`${H} ${S} w-[42px] md:w-[48px] text-right ml-2 md:ml-1`} onClick={() => onSort('r1m')}>1M{arrow('r1m')}</span>
+      <span className={`${H} ${S} hidden md:inline-block w-[42px] text-right ml-1`} onClick={() => onSort('price')}>Prc{arrow('price')}</span>
+      <span className={`${H} ${S} w-[38px] md:w-[40px] text-right ml-2 md:ml-1`} onClick={() => onSort('dvol')}>$Vol{arrow('dvol')}</span>
+    </div>
+  );
+  const row = (r: MomentumRow) => (
+    <div key={r.t} className="flex items-center whitespace-nowrap py-[1px]" title={r.n ?? r.t}>
+      <span className="text-[9px] tabular-nums text-slate-600 w-[18px] text-right">{rank.get(r.t)}</span>
+      <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px] mx-1`}>{r.t}</span></TickerChartHover>
+      <span className={`text-[9px] tabular-nums font-semibold inline-block w-[48px] md:w-[52px] text-right ml-1 ${pctCls(r.mom)}`}>{r.mom >= 0 ? '+' : ''}{r.mom.toFixed(0)}%</span>
+      <span className={`text-[9px] tabular-nums inline-block w-[42px] md:w-[48px] text-right ml-2 md:ml-1 ${pctCls(r.r1m)}`}>{r.r1m >= 0 ? '+' : ''}{r.r1m.toFixed(1)}%</span>
+      <span className="text-[9px] tabular-nums hidden md:inline-block w-[42px] text-right text-slate-300 ml-1">{r.price.toFixed(2)}</span>
+      <span className="text-[9px] tabular-nums inline-block w-[38px] md:w-[40px] text-right text-slate-300 ml-2 md:ml-1">{fmtDollars(r.dvol)}</span>
+    </div>
+  );
+  const half = Math.ceil(rows.length / 2);
+  return (
+    <div>
+      <div className="flex items-start gap-2 mb-2">
+        <p className="text-[10px] text-slate-400 leading-snug flex-1">
+          The {list.rows.length} liquid stocks with the strongest 12-month return, skipping the latest month — ranked, not recommended. No buy levels.
+        </p>
+        <InfoDot text={"WHAT IT IS — every common stock or ADR at $5+ trading $20M+ a day, ranked by its return from 12 months ago to 1 month ago. 12M is that return; 1M is the latest month (left out of the ranking on purpose: last month's winners tend to give some back).\n\nWHY THIS LIST — of six monthly rankings tested on Sep 2022 – Sep 2026, it is the only one that beat SPY whichever day of the month it was rebalanced on (20 of 20). Held as four staggered monthly portfolios it made +159% against SPY's +112%.\n\nTHE COSTS — it trailed SPY for the first two of those years (+44% vs +58%), fell further (worst drop −32% vs −19%), and per unit of drawdown did WORSE than SPY. Momentum is a decades-old, well-documented effect with long dry spells and sharp crashes when beaten-down stocks rebound. Four years is a short test.\n\nNot a buy list and not advice. Rebuilt each evening from the day's close."} />
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-2">
+        <div className="min-w-0">{header}{rows.slice(0, half).map(row)}</div>
+        <div className="min-w-0"><div className="hidden lg:block">{header}</div>{rows.slice(half).map(row)}</div>
+      </div>
+      <p className="text-[10px] text-slate-500 font-medium mt-2">{list.universe} names ranked · as of the {list.asOf} close</p>
+    </div>
+  );
+};
+
 /* ---- Social Sentiment (1 Oct 2026) -----------------------------------------
    lib/sentiment: the ~25 names StockTwits and Reddit talk about most, with the
    StockTwits bull / bear tags, Reddit mentions against 24 hours ago, and
@@ -2185,6 +2250,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves now. Volume-confirmed is tradeable; a thin gap is a fade.' },
   { label: 'Social Sentiment', color: 'violet', blurb: 'What StockTwits, Reddit and Bluesky are talking about most, and which way they lean. The crowd, not a signal.' },
   { label: 'Liquid Leaders', color: 'cyan', blurb: 'The ~1,000 most traded stocks: which are outrunning the market most, and which trade the heaviest volume.' },
+  { label: 'Momentum Leaders', color: 'cyan', blurb: 'The 50 liquid stocks with the strongest 12-month run — the one ranking that beat SPY in testing, with bigger drops. A ranking, not a buy list.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, and who is on air.' },
   { label: '$Vol Summary', color: 'teal', blurb: 'Top 20 by dollar volume — where the money actually is today.' },
   { label: 'Daily Setups Thesis', color: 'cyan', blurb: 'Day trades vs multi-day swing holds from the daily scanner — sorted by blended score.' },
@@ -2471,7 +2537,7 @@ export default function MarketSummary() {
   const [thesisEdge, setThesisEdge] = useState<Record<string, EdgeTier | null>>({});
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() =>
     new Set([
-      ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders'),
+      ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Momentum Leaders'),
       'hrsTop', 'topSetups',
     ])
   );
@@ -2527,7 +2593,7 @@ export default function MarketSummary() {
     if (!mi?.briefing) return;
     if (!k) {
       setCollapsedSections(new Set([
-        ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders'),
+        ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Momentum Leaders'),
         'hrsTop', 'topSetups',
       ]));
       return;
@@ -3104,6 +3170,8 @@ export default function MarketSummary() {
                                 <SocialSentiment edgeMap={macroInsights?.edgeMap} cnfMap={sentCnfMap} />
                               ) : isOpen && label === 'Liquid Leaders' ? (
                                 <LiquidLeaders edgeMap={macroInsights?.edgeMap} cnfMap={sentCnfMap} stageMap={macroInsights?.stageMap} newsMap={scanNewsMap} />
+                              ) : isOpen && label === 'Momentum Leaders' ? (
+                                <MomentumLeaders />
                               ) : isOpen && label === 'Top Movers' && moverView === 'early' ? (
                                 <EarlyMovers pool={macroInsights?.earlyPool ?? []} night={earlyNight} onVisibleChange={onMoverVisible} />
                               ) : isOpen && label === 'Sector Performance' ? (
