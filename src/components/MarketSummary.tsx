@@ -1756,15 +1756,26 @@ const WashoutLight = () => {
    5-year highs (price, and price against SPY), today's biggest gainers, and
    volume against each name's own usual at the same time of day. Polygon data,
    15 minutes delayed; refreshed every 5 minutes by /api/leaders/live. */
-/* The two lists (RS line high, heaviest volume) sit side by side from lg up, stacked on a phone,, each
-   on the scanner tables' column order and widths: TICKER, CHG%, PRC, RVOL, VOL,
-   RS (renderStdRow / SortableHeader). RVOL is against the name's own usual
-   volume by this time of day, as a multiple. RS is the site's RS Rating. */
+/* The two lists (RS line high, heaviest volume) sit side by side from lg up, stacked on a phone, each
+   on the summary rows' column order and widths: TICKER, CNF, CHG%, PRC, RVOL,
+   VOL, $VOL, RS, STG, N (renderStdRow / SortableHeader). RVOL is against the
+   name's own usual volume by this time of day, as a multiple. CNF, STG and N
+   come from the scans, so a name no scan carries shows a dash there. On a
+   phone PRC, VOL and $VOL are hidden to fit, as on Social Sentiment. */
 const fmtShares = (v: number | undefined) => (v == null || !(v > 0) ? '' : v >= 1e9 ? `${(v / 1e9).toFixed(1)}B` : v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${Math.round(v / 1e3)}K` : String(v));
-type LeaderSortKey = 'chg' | 'price' | 'rvol' | 'vol' | 'rs';
-const leaderSortVal = (r: LeaderRow, k: LeaderSortKey): number | null =>
-  k === 'chg' ? r.chg : k === 'price' ? r.price : k === 'rvol' ? r.track : k === 'vol' ? (r.vol ?? null) : (r.rs ?? null);
-const LiquidLeaders = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => {
+const fmtDollars = (v: number | null) => (v == null || !(v > 0) ? '' : v >= 1e9 ? `$${(v / 1e9).toFixed(1)}B` : v >= 1e6 ? `$${(v / 1e6).toFixed(0)}M` : `$${(v / 1e3).toFixed(0)}K`);
+const leaderDollars = (r: LeaderRow) => (r.vol != null && r.vol > 0 ? r.vol * r.price : null);
+type LeaderSortKey = 'cnf' | 'chg' | 'price' | 'rvol' | 'vol' | 'dvol' | 'rs' | 'stg';
+type ScanNews = { n: number; url: string | null; tip: string };
+const leaderSortVal = (r: LeaderRow, k: LeaderSortKey, cnfMap?: Record<string, number>, stageMap?: Record<string, string>): number | null => {
+  if (k === 'cnf') return cnfMap?.[r.t] ?? null;
+  if (k === 'stg') { const v = parseFloat(stageMap?.[r.t] ?? ''); return Number.isFinite(v) ? v : null; }
+  return k === 'chg' ? r.chg : k === 'price' ? r.price : k === 'rvol' ? r.track : k === 'vol' ? (r.vol ?? null)
+    : k === 'dvol' ? leaderDollars(r) : (r.rs ?? null);
+};
+const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
+  edgeMap?: Record<string, EdgeTier>; cnfMap?: Record<string, number>; stageMap?: Record<string, string>; newsMap?: Record<string, ScanNews>;
+}) => {
   const [live, setLive] = React.useState<LeadersLive | null>(null);
   // Per list; both open on % change, high to low.
   const [sorts, setSorts] = React.useState<Record<string, { key: LeaderSortKey; dir: SortDir }>>({});
@@ -1794,7 +1805,7 @@ const LiquidLeaders = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => {
       return { ...prev, [title]: next };
     });
     const rows = [...rawRows].sort((a, b) => {
-      const av = leaderSortVal(a, sort.key), bv = leaderSortVal(b, sort.key);
+      const av = leaderSortVal(a, sort.key, cnfMap, stageMap), bv = leaderSortVal(b, sort.key, cnfMap, stageMap);
       if (av == null || bv == null) return av == null ? (bv == null ? 0 : 1) : -1;
       return sort.dir === 'desc' ? bv - av : av - bv;
     });
@@ -1805,28 +1816,48 @@ const LiquidLeaders = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => {
       <div className="text-[8px] font-bold tracking-widest uppercase text-cyan-400 mb-1">{title}{n != null ? ` · ${n}` : ''}</div>
       <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
         <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
+        <span className={`${H} ${S} w-[20px] md:w-[22px] text-center ml-2 md:ml-1`} onClick={() => onSort('cnf')}>CNF{arrow('cnf')}</span>
         <span className={`${H} ${S} w-[46px] md:w-[52px] text-right ml-1`} onClick={() => onSort('chg')}>Chg%{arrow('chg')}</span>
-        <span className={`${H} ${S} w-[36px] md:w-[42px] text-right ml-2 md:ml-1`} onClick={() => onSort('price')}>Prc{arrow('price')}</span>
+        <span className={`${H} ${S} hidden md:inline-block w-[42px] text-right ml-1`} onClick={() => onSort('price')}>Prc{arrow('price')}</span>
         <span className={`${H} ${S} w-[36px] md:w-[40px] text-right ml-2 md:ml-1`} onClick={() => onSort('rvol')}>Rvol{arrow('rvol')}</span>
-        <span className={`${H} ${S} w-[30px] md:w-[36px] text-right ml-2 md:ml-1`} onClick={() => onSort('vol')}>Vol{arrow('vol')}</span>
+        <span className={`${H} ${S} hidden md:inline-block w-[36px] text-right ml-1`} onClick={() => onSort('vol')}>Vol{arrow('vol')}</span>
+        <span className={`${H} ${S} hidden md:inline-block w-[40px] text-right ml-1`} onClick={() => onSort('dvol')}>$Vol{arrow('dvol')}</span>
         <span className={`${H} ${S} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`} onClick={() => onSort('rs')}>RS{arrow('rs')}</span>
+        <span className={`${H} ${S} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`} onClick={() => onSort('stg')}>Stg{arrow('stg')}</span>
+        <span className={`${H} w-[14px] md:w-[16px] text-center ml-2 md:ml-1`}>N</span>
       </div>
       <div className="max-h-[260px] overflow-y-auto">
         {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">None right now.</p> : rows.map(r => {
           const rv = r.track == null ? null : Math.max(0, 1 + r.track / 100);
+          const cnf = cnfMap?.[r.t] ?? null;
+          const stg = stageMap?.[r.t] ?? null;
+          const news = newsMap?.[r.t] ?? null;
           return (
             /* Same green / yellow / red tint as the scan cards, from the shared
                per-ticker map; a name no scan carries stays untinted. */
             <div key={r.t} className={`flex items-center whitespace-nowrap py-[1px] ${edgeMap?.[r.t] ? `${EDGE_TINT[edgeMap[r.t]]} rounded-sm` : ''}`}
               title={edgeMap?.[r.t] ? `${r.n ?? r.t} · ${edgeMap[r.t].toUpperCase()} — ${EDGE_FILTER_TIP[edgeMap[r.t]]}` : (r.n ?? r.t)}>
               <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
+              <span className="inline-block w-[20px] md:w-[22px] text-center ml-2 md:ml-1">{cnf != null
+                ? <span className={`${badge} ${cnfBadgeCls(cnf)}`}>{Math.round(cnf)}</span>
+                : <span className={`${badge} text-slate-600 border-slate-700/40 bg-slate-800/30`}>-</span>}</span>
               <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${r.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{r.chg >= 0 ? '+' : ''}{r.chg.toFixed(2)}%</span>
-              <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-2 md:ml-1">{r.price.toFixed(2)}</span>
+              <span className="text-[9px] tabular-nums hidden md:inline-block w-[42px] text-right text-slate-300 ml-1">{r.price.toFixed(2)}</span>
               <span className={`text-[9px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-2 md:ml-1 ${rv == null ? 'text-slate-600' : rv >= 2 ? 'text-emerald-400' : rv >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{rv == null ? '—' : `${rv < 10 ? rv.toFixed(1) : Math.round(rv)}x`}</span>
-              <span className="text-[9px] tabular-nums inline-block w-[30px] md:w-[36px] text-right text-slate-400 ml-2 md:ml-1">{fmtShares(r.vol)}</span>
+              <span className="text-[9px] tabular-nums hidden md:inline-block w-[36px] text-right text-slate-400 ml-1">{fmtShares(r.vol)}</span>
+              <span className="text-[9px] tabular-nums hidden md:inline-block w-[40px] text-right text-slate-300 ml-1">{fmtDollars(leaderDollars(r))}</span>
               <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{r.rs != null
                 ? <span className={`${badge} ${rsBadge(r.rs)}`}>{r.rs}</span>
                 : <span className={`${badge} text-slate-600 border-slate-700/40 bg-slate-800/30`}>-</span>}</span>
+              <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{stg
+                ? <span className={`${badge} ${stageBadge(stg)}`}>{stg}</span>
+                : <span className={`${badge} text-slate-600 border-slate-700/40 bg-slate-800/30`}>-</span>}</span>
+              {news ? (
+                <a href={news.url || '#'} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                  className={`inline-block w-[14px] md:w-[16px] text-center ml-2 md:ml-1 ${news.n >= 2 ? 'text-amber-400' : 'text-slate-500'} hover:brightness-125 font-bold text-[7px] leading-none`}>
+                  <InfoDot content={<span>{news.tip}</span>}>{'★'.repeat(news.n)}</InfoDot>
+                </a>
+              ) : <span className="inline-block w-[14px] md:w-[16px] ml-2 md:ml-1" />}
             </div>
           );
         })}
@@ -1842,7 +1873,7 @@ const LiquidLeaders = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => {
           {tile('RS lines at 5-yr high', <span className="text-slate-100">{live.counts.rsHigh}</span>, 'outrunning SPY more than ever')}
           {tile('Heavy volume', <span className="text-slate-100">{live.counts.heavy}</span>, '2x usual pace or more')}
         </div>
-        <InfoDot text={"RS LINE HIGH — the RS line is the stock's price divided by SPY. When it rises the stock is beating the market; at a 5-year high it is beating the market by more than at any time in 5 years, often before the price itself breaks out.\n\nHEAVIEST VOLUME — RVOL: today's volume against this stock's own usual volume by this time of day (its last 20 sessions, by half hour). 2x means twice its usual pace.\n\nRS — the RS Rating, 1-99: stronger than that % of the market over the last 12 months, as of yesterday's close. Different from the RS line: the rating ranks the stock against all others, the line compares it with SPY.\n\nVOL — shares traded today so far.\n\nROW COLOUR — the same green / yellow / red as the scan cards, for names one of the scans also carries today. An uncoloured row is not on any scan.\n\nThe universe is NASDAQ and NYSE common stock at $10+ trading $100M+ a day, rebuilt each evening. Data is 15 minutes delayed; the history goes back 5 years, so highs are 5-year highs, not all-time. A view of what is leading, not a tested buy signal."} />
+        <InfoDot text={"RS LINE HIGH — the RS line is the stock's price divided by SPY. When it rises the stock is beating the market; at a 5-year high it is beating the market by more than at any time in 5 years, often before the price itself breaks out.\n\nHEAVIEST VOLUME — RVOL: today's volume against this stock's own usual volume by this time of day (its last 20 sessions, by half hour). 2x means twice its usual pace.\n\nRS — the RS Rating, 1-99: stronger than that % of the market over the last 12 months, as of yesterday's close. Different from the RS line: the rating ranks the stock against all others, the line compares it with SPY.\n\nVOL — shares traded today so far. $VOL — dollars traded today (shares × price).\n\nCNF, STG and N come from the scans: CNF is the site's confluence score, STG the Weinstein stage, N the news star (click for the story). A dash means no scan carries the name today. On a phone PRC, VOL and $VOL are hidden to fit.\n\nROW COLOUR — the same green / yellow / red as the scan cards, for names one of the scans also carries today. An uncoloured row is not on any scan.\n\nThe universe is NASDAQ and NYSE common stock at $10+ trading $100M+ a day, rebuilt each evening. Data is 15 minutes delayed; the history goes back 5 years, so highs are 5-year highs, not all-time. A view of what is leading, not a tested buy signal."} />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">
         {list('RS line at 5-yr high', live.counts.rsHigh, live.rsHigh)}
@@ -2580,6 +2611,19 @@ export default function MarketSummary() {
     }
     return m;
   }, [macroInsights?.setupPool]);
+  /* The scans' news star per ticker, for cards that list names from outside
+     the scans (Liquid Leaders) — the same count, link and tooltip a scan
+     row's N column carries (rowFormat newsEndToken). */
+  const scanNewsMap = React.useMemo(() => {
+    const m: Record<string, ScanNews> = {};
+    for (const item of (macroInsights?.setupPool ?? []) as any[]) {
+      const t = String(item?.ticker ?? '').toUpperCase(), n = newsStarCount(item);
+      if (!t || n === 0 || (m[t] && m[t].n >= n)) continue;
+      const meta = [item.catalyst, item.newsPublisher, item.newsAge].filter(Boolean).join(' · ');
+      m[t] = { n, url: item.catalystUrl || null, tip: `${meta ? `${meta} — ` : ''}${item.thesis || ''}`.replace(/[\r\n]+/g, ' ').slice(0, 240) };
+    }
+    return m;
+  }, [macroInsights?.setupPool]);
   const macroRef = useRef<MacroInsights | null>(null);
   macroRef.current = macroInsights;
   const handleScanFilter = useCallback((k: ScanFilterKey) => {
@@ -3168,7 +3212,7 @@ export default function MarketSummary() {
                               ) : isOpen && label === 'Social Sentiment' ? (
                                 <SocialSentiment edgeMap={macroInsights?.edgeMap} cnfMap={sentCnfMap} />
                               ) : isOpen && label === 'Liquid Leaders' ? (
-                                <LiquidLeaders edgeMap={macroInsights?.edgeMap} />
+                                <LiquidLeaders edgeMap={macroInsights?.edgeMap} cnfMap={sentCnfMap} stageMap={macroInsights?.stageMap} newsMap={scanNewsMap} />
                               ) : isOpen && label === 'Top Movers' && moverView === 'early' ? (
                                 <EarlyMovers pool={macroInsights?.earlyPool ?? []} night={earlyNight} onVisibleChange={onMoverVisible} />
                               ) : isOpen && label === 'Sector Performance' ? (
