@@ -966,7 +966,7 @@ export default function StocksInPlay() {
                     return (
                       <React.Fragment key={i}>
                         <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
-                          title={tier ? `${tier.toUpperCase()} — ${EDGE_FILTER_TIP[tier]}` : undefined}>
+                          title={tier === 'red' ? `${tier.toUpperCase()} — ${EDGE_FILTER_TIP[tier]}` : undefined}>
                           <TickerCell symbol={row.ticker} name={row.name} score={row.conviction} />
                           <td className={tdBase}><NewsStars row={row} /></td>
                           <ScoreCell value={row.conviction} title={cnfTooltip(row)} />

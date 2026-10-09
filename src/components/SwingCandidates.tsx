@@ -1004,7 +1004,7 @@ export default function SwingCandidates() {
                     return (
                       <React.Fragment key={row.symbol}>
                         <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
-                          title={tier ? `${tier.toUpperCase()} — ${SWING_TIP[tier]}` : undefined}>
+                          title={tier === 'red' ? `${tier.toUpperCase()} — ${SWING_TIP[tier]}` : undefined}>
                           <TickerCell symbol={row.symbol} name={row.name} score={null} />
                           <td className={tdBase}><NewsStars row={row} /></td>
                           <td className={tdBase}>
