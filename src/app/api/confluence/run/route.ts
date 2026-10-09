@@ -166,7 +166,7 @@ function findSwingLevels(bars: Bar[], lookback = 60): { resistance: number[]; su
         out.push(v);
       }
     }
-    return out.slice(0, 3);
+    return out;
   };
   return { resistance: dedup(resistance), support: dedup(support.sort((a, b) => a - b).reverse()) };
 }
@@ -178,6 +178,8 @@ interface TradeRec {
   entry: string;
   stopLoss: string;
   takeProfit: string;
+  /** 'level' = the nearest swing level beyond price; 'atr' = 3 ATR, when there is none within 25%. */
+  targetBasis: 'level' | 'atr';
   rr: string;
 }
 
@@ -216,6 +218,7 @@ function tradeRec(stock: ScanStock, dailyBars: Bar[], levels: { resistance: numb
     entry: `$${fmtPrice(entry)}`,
     stopLoss: `$${fmtPrice(stop)}`,
     takeProfit: `$${fmtPrice(target)}`,
+    targetBasis: (bullish ? levels.resistance[0] : levels.support[0]) != null ? 'level' : 'atr',
     rr: `1:${rr}`,
   };
 }
@@ -443,9 +446,12 @@ export async function GET(request: Request) {
       // S/R from daily bars, filtered to within 25% of current price
       const rawLevels = dailyBars.length > 10 ? findSwingLevels(dailyBars) : { resistance: [], support: [] };
       const curPrice = stock.price ?? dailyBars[dailyBars.length - 1]?.c ?? 0;
+      /* Nearest first, three each side. The swing points are deduped over the
+         whole lookback BEFORE this filter — trimming to three first kept the
+         three highest, which dropped the levels nearest the price. */
       const levels = {
-        resistance: rawLevels.resistance.filter(v => v > curPrice && v <= curPrice * 1.25),
-        support: rawLevels.support.filter(v => v < curPrice && v >= curPrice * 0.75),
+        resistance: rawLevels.resistance.filter(v => v > curPrice && v <= curPrice * 1.25).sort((a, b) => a - b).slice(0, 3),
+        support: rawLevels.support.filter(v => v < curPrice && v >= curPrice * 0.75).sort((a, b) => b - a).slice(0, 3),
       };
 
       // Trade rec

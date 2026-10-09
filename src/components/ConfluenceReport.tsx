@@ -33,6 +33,7 @@ interface TradeRec {
   entry: string;
   stopLoss: string;
   takeProfit: string;
+  targetBasis?: 'level' | 'atr';
   rr: string;
 }
 
@@ -110,8 +111,17 @@ const fmtDvol = (v: number) => v >= 1e9 ? '$' + (v / 1e9).toFixed(1) + 'B' : v >
 const stageNum = (stage: string) => (stage || '').replace(/^Stage\s*/i, '').trim();
 
 /** Support nearest-first (highest below price), resistance nearest-first (lowest above). */
-const nearSupport = (r: Report) => [...r.levels.support].sort((a, b) => b - a).slice(0, 2);
-const nearResistance = (r: Report) => [...r.levels.resistance].sort((a, b) => a - b).slice(0, 2);
+const nearSupport = (r: Report) => r.levels.support.filter(v => v < r.price).sort((a, b) => b - a).slice(0, 2);
+const nearResistance = (r: Report) => r.levels.resistance.filter(v => v > r.price).sort((a, b) => a - b).slice(0, 2);
+/** The report's target, only when it sits on the trade's side of the price (older runs could put it behind). */
+const targetOf = (r: Report): { text: string; up: boolean; basis: string } | null => {
+  const t = r.tradeRec;
+  if (!t) return null;
+  const v = parseFloat(t.takeProfit.replace(/[$,]/g, ''));
+  const up = t.direction !== 'SHORT';
+  if (!(v > 0) || (up ? v <= r.price : v >= r.price)) return null;
+  return { text: fmtLvl(v), up, basis: t.targetBasis === 'atr' ? '3 ATR — no level within 25%' : up ? 'next resistance' : 'next support' };
+};
 const lvlList = (v: number[]) => (v.length ? v.map(fmtLvl).join(', ') : '—');
 
 /** Ticker names inside a sentence keep their chart hover. */
@@ -231,6 +241,7 @@ function StockCard({ report: r }: { report: Report }) {
   const name = shortName(r.name, r.ticker);
   const why = whyLine(r);
   const flags = flagsOf(r);
+  const tgt = targetOf(r);
 
   /* One size for the whole card (13px); weight and colour carry the
      hierarchy instead. */
@@ -246,12 +257,22 @@ function StockCard({ report: r }: { report: Report }) {
         </div>
 
         <div className="mt-2 text-slate-300"><span className="font-semibold text-slate-100 mr-1">Trend</span>{trendLine(r)}</div>
-        {(nearSupport(r).length > 0 || nearResistance(r).length > 0) && (
-          <div className="mt-1 text-slate-300">
-            {nearSupport(r).length > 0 && <><span className="font-semibold text-slate-100 mr-1">Support</span>{lvlList(nearSupport(r))}</>}
-            {nearResistance(r).length > 0 && <><span className={`font-semibold text-slate-100 mr-1 ${nearSupport(r).length > 0 ? 'ml-3' : ''}`}>Resistance</span>{lvlList(nearResistance(r))}</>}
+        <div className="grid grid-cols-3 gap-2 mt-3 px-3 py-2.5 rounded-xl bg-[#0a1220]">
+          <div className="min-w-0">
+            <div className="text-slate-400">Target</div>
+            {tgt
+              ? <div className="font-bold tabular-nums text-slate-100" title={tgt.basis}>{tgt.up ? '▲' : '▼'} {tgt.text}</div>
+              : <div className="text-slate-600">—</div>}
           </div>
-        )}
+          <div className="min-w-0">
+            <div className="text-slate-400">Resistance</div>
+            <div className="font-bold tabular-nums text-rose-300 truncate">{lvlList(nearResistance(r))}</div>
+          </div>
+          <div className="min-w-0">
+            <div className="text-slate-400">Support</div>
+            <div className="font-bold tabular-nums text-emerald-300 truncate">{lvlList(nearSupport(r))}</div>
+          </div>
+        </div>
         {why && <div className="mt-1 text-slate-300"><span className="font-semibold text-slate-100 mr-1">Why</span>{why}</div>}
 
         {flags.length > 0 && (
@@ -438,7 +459,8 @@ export default function ConfluenceReport() {
           <div className="text-[11px] font-bold tracking-widest uppercase text-amber-400/70 mb-1.5">Good to know</div>
           <ul className="text-[12px] text-slate-500 space-y-0.5 list-disc list-inside">
             <li>No buy or stop levels: the ones CTT published lost money live, so the report shows the names and why, not a trade plan.</li>
-            <li>Support and resistance come from recent swing highs and lows and may miss some levels.</li>
+            <li>Support and resistance are the nearest swing lows below and swing highs above the price over the last 60 sessions, within 25%; they may miss some levels.</li>
+            <li>Target is the next resistance above (or support below, for a downtrend), or 3 ATR when there is no level within 25%. Untested as an exit: on the scan rows the 5-year replay found a fixed target averaged −0.08% a trade.</li>
             <li>Price data is delayed. Always apply your own risk management.</li>
           </ul>
         </div>
