@@ -55,7 +55,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ momentum: view(p), momentumPlusEarnings: view(p2) });
   }
   if (!authorized(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  const gate = etGate([18], 'momentum leaders nightly');
+  /* force=1 (cron secret only) rebuilds outside the 18:00 ET hour — a same-day
+     rerun is safe: the list is overwritten and stepPaper skips a date it has done. */
+  const gate = new URL(req.url).searchParams.get('force') === '1' ? null : etGate([18], 'momentum leaders nightly');
   if (gate) return gate;
   if (!KEY) return NextResponse.json({ success: false, error: 'no data key' }, { status: 500 });
 

@@ -189,6 +189,48 @@ function OverviewTab({ tier }: { tier: string }) {
   );
 }
 
+/* Row colours: one entry per scan, mirroring lib/scans/edge.ts (the rules
+   and the 5-year numbers in its *_TIP tables). Change both together. */
+const COLOUR_RULES: { scan: string; green: string; yellow: string; red: string; tested: string }[] = [
+  { scan: 'Stocks in Play · Daily Setups · Confluence', green: "Closed in the top 10% of the day's range", yellow: 'Passes, but closed lower in the range', red: 'Daily range (ADR) above 9%, or price $5–10', tested: 'Green +2.50% a trade, yellow +1.35%, red −5.05% (ADR) / −2.17% ($5–10)' },
+  { scan: 'Reversal / Swing', green: 'RS 95+ or Money Flow 65+', yellow: 'Neither', red: 'Stage 1 base', tested: 'Green +1.33%, yellow +0.24%, red −0.48%' },
+  { scan: '10/21', green: 'Coil 3× ATR or wider with the stochastic 75+ (pressed at the top of its range)', yellow: 'In between', red: 'Tight coil (under 2.5× ATR) or more than 11% off the high. Undercut & rally rows have no colour.', tested: 'Green +1.21%, yellow +0.22%, red −0.34% / −0.53%' },
+  { scan: 'EP9M', green: 'Money Flow 65+ or price $50+', yellow: 'Neither', red: 'ADR above 9%, shares traded today at least equal to the float, or market cap under $300M', tested: 'Green +0.28%, yellow +0.26%, red −1.58% — but red runs +50% most often (19%): the lottery bucket' },
+  { scan: 'VCP', green: 'ATR 3.5%+ and a last contraction of 10%+', yellow: 'In between', red: 'ATR under 2.5% or a stop under 5%', tested: '+50% runs: green 10.7%, yellow 1.7%, red none in five years' },
+  { scan: '100-Bagger', green: 'Revenue growth 10–25% and market cap under $3B', yellow: 'Everything else', red: 'Revenue growth 50%+', tested: 'Green beat its universe by 13% over 12 months, red trailed by 12%' },
+  { scan: 'Hidden RS', green: 'Price $5–15', yellow: 'Everything else', red: 'Not used — nothing on this scan lost consistently', tested: 'Green +1.84%, yellow +0.18%' },
+];
+
+function ColourRules() {
+  return (
+    <>
+      <H>Row Colours</H>
+      <P>
+        Each scan has its own colour rules, taken from its own backtest (Sep 2022 – Sep 2026). Only
+        traits that held in both halves of the test are used. The rules differ on purpose: a trait that pays on
+        one scan can be the losing one on another. Returns are % per trade, held 20 sessions, unless stated.
+      </P>
+      <div className="space-y-2 mb-3">
+        {COLOUR_RULES.map(r => (
+          <div key={r.scan} className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-[13px] leading-[1.7]">
+            <div className="font-semibold text-slate-100 mb-1">{r.scan}</div>
+            <div className="text-slate-400"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-emerald-500/60 mr-2 align-middle" /><span className="font-semibold text-emerald-400 mr-1">Green</span>{r.green}</div>
+            <div className="text-slate-400"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-amber-400/60 mr-2 align-middle" /><span className="font-semibold text-amber-400 mr-1">Yellow</span>{r.yellow}</div>
+            <div className="text-slate-400"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-rose-500/60 mr-2 align-middle" /><span className="font-semibold text-rose-400 mr-1">Red</span>{r.red}</div>
+            <div className="text-slate-500 mt-1">Tested: {r.tested}</div>
+          </div>
+        ))}
+      </div>
+      <P>
+        <strong className="text-slate-200">Live so far (11 Sep – 9 Oct 2026, about 440 picks):</strong> green −2.3% a
+        trade, yellow −1.6%, red −8.7%. Green has done no better than yellow; red has clearly been worst. Read red as
+        &ldquo;avoid&rdquo;, not green as &ldquo;buy&rdquo;. No colour means the data behind the rule is missing. Hover any
+        row for what its colour means on that scan.
+      </P>
+    </>
+  );
+}
+
 function DashboardTab({ tier }: { tier: string }) {
   const isPro = tierRank(tier) >= 2;
   const isCore = tierRank(tier) === 1;
@@ -205,6 +247,8 @@ function DashboardTab({ tier }: { tier: string }) {
           </P>
         </>
       )}
+
+      <ColourRules />
 
       <H>Setups Summary</H>
       <P>
@@ -585,36 +629,11 @@ function InteractionsTab() {
       </P>
 
 
-      <H>Row Shading (green / yellow / red)</H>
+      <H>Row Colours</H>
       <P>
-        Rows are tinted by what a five-year backtest of these scans actually paid, not by the score.
-        Every rule below held in the first two-thirds of the test period AND the last third; anything
-        that only worked in one half was left out.
+        The green / yellow / red rules for every scan are under <strong className="text-slate-200">Help → Dashboard → Row Colours</strong>.
+        Every card has GREEN / YELLOW / RED filter pills; click a pill again to show all rows.
       </P>
-      <Li title="GREEN">Cleared both losing filters and closed in the top 10% of the day&apos;s range — the strongest single trait, worth about +$26 per $100 risked.</Li>
-      <Li title="YELLOW">Cleared the filters but closed lower in the range. Tradeable, just not the best version.</Li>
-      <Li title="RED">ADR above 9% (−$27) or price between $5 and $10 (−$15). Both lost money in every half of the test.</Li>
-      <Li title="NO TINT">ADR or the day&apos;s range is missing, so no claim is made.</Li>
-      <P>
-        Hover any tinted row for the numbers behind its colour. <strong className="text-slate-200">Every card
-        carries GREEN / YELLOW / RED filter pills</strong> and opens on green, which is the shortlist. Click a
-        pill again for all rows; a colour with nothing behind it today is hidden rather than greyed.
-      </P>
-      <P>
-        The same three colours run through the whole site on the same rules — the scan tables, the Setups
-        Summary, the Confluence report and the News page.
-      </P>
-      <P>
-        <strong className="text-slate-200">The rules are per-scan, not universal</strong> — each one was measured
-        on its own five-year replay, and on the entry that card actually plans:
-      </P>
-      <Li title="SIPS / DAILY / CONFLUENCE">Above. The Confluence report is built from these tables, so it uses their rules.</Li>
-      <Li title="EP9M">Red = ADR above 9%, float turnover 1x+, or cap under $300M (−$14). Green = clears those with money flow 65+ or a $50+ price (+$22). Note the red bucket has the HIGHEST rate of +50% runs (19%) and the worst average — it is the lottery bucket, not a dead one.</Li>
-      <Li title="SWING">Red = a Stage 1 base, the only bucket that lost (−$19). Green = RS 95+ or money flow 65+ (+$58).</Li>
-      <Li title="VCP">Green = ATR 3.5%+ with a final contraction of 10%+ — 10.7% of those ran +50%, against 1.7% for yellow and ZERO for red (ATR under 2.5% or a stop under 5%) in five years. Tightness, the thing the pattern is named for, is what loses.</Li>
-      <Li title="10/21">Green = a coil 3x+ ATR with the stochastic above 75 (+$13, breaks out 89% of the time), roughly 7% of the table. Red = the tight-coil majority and anything more than 11% off its high.</Li>
-      <Li title="HIDDEN RS">Green = price $5–15 (+$14, 10% ran +50%) — the band that LOSES on the momentum tables. There is no red here: nothing on this scan lost consistently.</Li>
-      <Li title="100-BAGGER">Red = revenue growth above 50% (trailed its own universe by 12%, only 3.6% doubled inside a year against a 5.8% base rate). Green = growth of 10–25% with a cap under $3B (+13% excess, 18% doubled in a year).</Li>
 
       <H>Ticker Colour by Table</H>
       <P>
