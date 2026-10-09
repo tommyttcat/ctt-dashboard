@@ -1602,42 +1602,42 @@ const EarlyMovers = ({ pool: today, night, onVisibleChange }: { pool: any[]; nig
   );
 };
 
-/* ---- Washout light (28 Sep 2026) --------------------------------------------
-   One line at the top of the dashboard. ON when the share of stocks above
-   their 40-day average CLOSED at 20% or lower — the one volatility trade that
-   passed its test (scripts/backtest/panic.ts: SPY bought at the next open,
-   held 10 sessions, +1.9% a trade, 72% winners, 18 times in five years; thin
-   evidence). During market hours a reading that low shows as CLOSE: the test
-   judged the closing number. Reads /api/t2108/latest (CDN-cached, the same
-   route the Scorecard reads). */
-const WashoutLight = () => {
-  const [t, setT] = React.useState<{ value: number; updatedAt: string } | null>(null);
+/* ---- Market exposure (9 Oct 2026) ------------------------------------------
+   One line at the top of the dashboard: how much of the index the tested rule
+   holds for the next session (lib/exposure, scripts/backtest/index-overlay.ts
+   O4) — QQQ above its 200-day: in; below: cash; 150% for 10 sessions after a
+   washout close. Decided once a night by /api/exposure/nightly; read through
+   the CDN once per page load. Replaced the Washout light, whose breadth came
+   from the scanner universe and ran a few points off the tested one. */
+type ExposureView = {
+  asOf: string; mode: 'in' | 'out' | 'boost'; exposure: number; qqq: number; sma200: number;
+  pctFrom200: number; breadth: number | null; boostDay: number | null;
+};
+const ExposureStrip = () => {
+  const [s, setS] = React.useState<ExposureView | null>(null);
   React.useEffect(() => {
     let on = true;
-    const load = () => fetch('/api/t2108/latest')
-      .then(r => (r.ok ? r.json() : null))
-      .then(j => { if (on && j && typeof j.value === 'number') setT({ value: j.value, updatedAt: j.updatedAt }); })
-      .catch(() => {});
-    load();
-    const stop = poll(load, pollMs.marketHours(120_000, 600_000));
-    return () => { on = false; stop(); };
+    fetch('/api/exposure/latest').then(r => (r.ok ? r.json() : null)).then(j => { if (on && j?.state) setS(j.state); }).catch(() => {});
+    return () => { on = false; };
   }, []);
-  if (!t) return null;
-  const low = t.value <= 20;
-  const open = getMarketSession() === 'Open';
-  const state = !low ? 'off' : open ? 'close' : 'on';
-  const dot = state === 'on' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : state === 'close' ? 'bg-amber-400' : 'bg-slate-600';
-  const text = state === 'on'
-    ? 'WASHOUT — ON. The market got crushed. Historically, buying SPY or QQQ at the next open and holding about two weeks paid 7 times in 10.'
-    : state === 'close'
-      ? 'WASHOUT — CLOSE. The market is getting crushed right now. It only counts if it closes this way.'
-      : 'Washout — off. The market has not been crushed enough to buy the panic.';
+  if (!s) return null;
+  const pill = s.mode === 'boost'
+    ? { text: `Boost · 150% · day ${s.boostDay ?? '?'} of 10`, cls: 'text-indigo-300 bg-indigo-500/15 border-indigo-400/30' }
+    : s.mode === 'in'
+      ? { text: 'In · 100%', cls: 'text-emerald-300 bg-emerald-500/15 border-emerald-400/30' }
+      : { text: 'Out · cash', cls: 'text-amber-300 bg-amber-500/15 border-amber-400/30' };
+  const trend = `QQQ ${s.qqq.toFixed(2)} is ${Math.abs(s.pctFrom200).toFixed(1)}% ${s.pctFrom200 >= 0 ? 'above' : 'below'} its 200-day (${s.sma200.toFixed(2)})`;
+  const panic = s.mode === 'boost'
+    ? `Washout: only ${s.breadth?.toFixed(0)}% of stocks were above their 40-day`
+    : `Panic signal: off · ${s.breadth?.toFixed(0) ?? '—'}% of stocks above their 40-day`;
   return (
-    <div className="mb-2 px-1 flex items-center gap-2 text-[10px] font-medium"
-      title={`${t.value.toFixed(0)}% of stocks are above their 40-day average (lights up at 20% or less, judged at the close). 5-year test: bought the next morning and held 10 days, +1.9% a trade, 72% winners, worst −5.3% — but it fired only 18 times, so it is thin evidence.`}>
-      <span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${dot}`} />
-      <span className={state === 'off' ? 'text-slate-500' : state === 'on' ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold'}>{text}</span>
-      <span className="text-slate-600 tabular-nums shrink-0">{t.value.toFixed(0)}%</span>
+    <div className={`mb-2 px-3 py-2 rounded-lg border bg-[#0f1524] flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] ${s.mode === 'boost' ? 'border-indigo-400/30' : 'border-white/[0.06]'}`}>
+      <span className="font-bold tracking-widest uppercase text-slate-400">Market exposure</span>
+      <span className={`font-bold px-2 py-[1px] rounded border ${pill.cls}`}>{pill.text}</span>
+      <span className="text-slate-200">{trend}</span>
+      <span className="text-slate-500">{panic}</span>
+      <span className="text-slate-600 ml-auto">for the session after the {s.asOf} close</span>
+      <InfoDot text={"HOW MUCH OF THE INDEX TO HOLD, NOT WHICH STOCKS. In (100% QQQ) while QQQ closes above its 200-day average; out (cash) when it closes below; 150% for the 10 sessions after a washout close — 20% or fewer of all stocks above their own 40-day average. Decided at each close for the next session.\n\nTESTED Jun 2022 – Sep 2026: +197% against QQQ +156% and SPY +103%; worst drop −20% against QQQ −23%.\n\nTHE WEAKNESSES — the washout part fired only 11 times and was found on the same data, so expect less. It is on a knife-edge: a few readings of 19.9% vs 20.1% move the four-year result by about 28 points, and only 10 of 15 nearby settings beat QQQ. The 200-day half is the long-published, well-tested part (it cut the worst drop from −23% to −14% on its own). 150% needs margin or a leveraged fund. Not advice."} />
     </div>
   );
 };
@@ -2907,7 +2907,7 @@ export default function MarketSummary() {
                           </button>
                         )}
                       </div>
-                      <WashoutLight />
+                      <ExposureStrip />
                       <div className="mb-3 px-1">
                         <ScanLegend activeFilter={scanFilter} onFilterChange={handleScanFilter} />
                       </div>
