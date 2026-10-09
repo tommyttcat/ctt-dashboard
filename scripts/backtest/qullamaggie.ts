@@ -72,7 +72,7 @@ const SIG_FILE = path.join(REPLAY, 'kq_signals.jsonl');
 const LOOK = 130;
 const COST = 0.001;
 
-function polygonKey(): string {
+export function polygonKey(): string {
   const txt = fs.readFileSync(path.resolve(DATA, '../.env.backtest'), 'utf8');
   const m = txt.match(/^POLYGON_API_KEY=(.+)$/m);
   if (!m) throw new Error('POLYGON_API_KEY missing from CTT/.env.backtest');
@@ -85,7 +85,7 @@ type Sig = {
 };
 
 // ---- per-ticker rolling helpers -------------------------------------------
-function prefix(a: Float32Array, f: (x: number, j: number) => number): { sum: Float64Array; nan: Int32Array } {
+export function prefix(a: Float32Array, f: (x: number, j: number) => number): { sum: Float64Array; nan: Int32Array } {
   const n = a.length, sum = new Float64Array(n + 1), nan = new Int32Array(n + 1);
   for (let j = 0; j < n; j++) {
     const v = f(a[j], j);
@@ -94,10 +94,10 @@ function prefix(a: Float32Array, f: (x: number, j: number) => number): { sum: Fl
   }
   return { sum, nan };
 }
-const mean = (p: { sum: Float64Array; nan: Int32Array }, from: number, to: number) =>
+export const mean = (p: { sum: Float64Array; nan: Int32Array }, from: number, to: number) =>
   p.nan[to + 1] - p.nan[from] > 0 ? NaN : (p.sum[to + 1] - p.sum[from]) / (to - from + 1);
 
-function qqqFilter(c: BarCache): boolean[] {
+export function qqqFilter(c: BarCache): boolean[] {
   const id = c.idOf.get('QQQ');
   if (id === undefined) throw new Error('QQQ missing from cache');
   const p = prefix(c.C[id], x => x);
@@ -184,11 +184,11 @@ function buildSignals() {
 }
 
 // ---- minute bars (trigger day only) ----------------------------------------------
-type M = [number, number, number, number, number, number];
+export type M = [number, number, number, number, number, number];
 const fileOf = (g: Sig) => path.join(MIN_DIR, g.trigDate.slice(0, 4), `${g.ticker}_${g.trigDate}.json.gz`);
 const etFmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' });
-const etMin = (ms: number) => { const p = Object.fromEntries(etFmt.formatToParts(new Date(ms)).map(x => [x.type, x.value])); return (+p.hour % 24) * 60 + +p.minute; };
-const isRth = (ms: number) => { const m = etMin(ms); return m >= 570 && m < 960; };
+export const etMin = (ms: number) => { const p = Object.fromEntries(etFmt.formatToParts(new Date(ms)).map(x => [x.type, x.value])); return (+p.hour % 24) * 60 + +p.minute; };
+export const isRth = (ms: number) => { const m = etMin(ms); return m >= 570 && m < 960; };
 const readSigs = (): Sig[] => fs.readFileSync(SIG_FILE, 'utf8').trim().split('\n').map(l => JSON.parse(l));
 
 async function download() {
@@ -221,7 +221,8 @@ async function download() {
 }
 
 // ---- trades ------------------------------------------------------------------------
-type Trade = {
+export type Trade = {
+  /** r63 doubles as the same-day ranking key (EP test: the gap size). */
   ticker: string; date: string; ei: number; mkt: boolean; r63: number;
   fill: number; stop: number;
   /** [session index, fraction of the position sold, price] */
@@ -263,8 +264,8 @@ function simulate(c: BarCache, g: Sig, mins: M[]): Trade | 'nofill' | 'chase' | 
   return { ticker: g.ticker, date: g.trigDate, ei: e, mkt: g.mkt, r63: g.r63, fill, stop: Math.min(lod, fill * 0.995), exits, ret };
 }
 
-const pct = (x: number) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(2)}%`;
-function stats(ts: Trade[]) {
+export const pct = (x: number) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(2)}%`;
+export function stats(ts: Trade[]) {
   if (!ts.length) return 'n=0';
   const r = ts.map(t => t.ret), w = r.filter(x => x > 0), l = r.filter(x => x <= 0);
   const avg = r.reduce((a, b) => a + b, 0) / r.length;
@@ -275,7 +276,7 @@ function stats(ts: Trade[]) {
 }
 
 /** Daily mark-to-market account. order: 'rank' or a seeded shuffle of same-day signals. */
-function account(c: BarCache, trades: Trade[], from: number, to: number, seed?: number) {
+export function account(c: BarCache, trades: Trade[], from: number, to: number, seed?: number) {
   let rnd = seed ?? 1;
   const rand = () => { rnd = (rnd * 16807) % 2147483647; return rnd / 2147483647; };
   const byDay = new Map<number, Trade[]>();
@@ -317,7 +318,7 @@ function account(c: BarCache, trades: Trade[], from: number, to: number, seed?: 
   return { final: eq, maxDD, curve };
 }
 
-function spy(c: BarCache, from: number, to: number) {
+export function spy(c: BarCache, from: number, to: number) {
   const id = c.idOf.get('SPY')!;
   let peak = 0, dd = 0;
   for (let s = from; s <= to; s++) { const x = c.C[id][s]; peak = Math.max(peak, x); dd = Math.max(dd, 1 - x / peak); }
@@ -360,8 +361,10 @@ function run() {
   }
 }
 
-const mode = process.argv[2];
-if (mode === 'signals') buildSignals();
+/* Dispatch only when run directly, so ep-neglect.ts can import the helpers. */
+const mode = process.argv[1]?.endsWith('qullamaggie.ts') ? process.argv[2] : '__import__';
+if (mode === '__import__') { /* imported */ }
+else if (mode === 'signals') buildSignals();
 else if (mode === 'download') download().catch(e => { console.error(e); process.exit(1); });
 else if (mode === 'run') run();
 else console.log('usage: qullamaggie.ts signals | download | run');
