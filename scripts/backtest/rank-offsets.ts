@@ -84,6 +84,10 @@ for (let k = 1; k <= 20; k++) {
   console.log(line.join(' | '));
 }
 for (const [name, rs] of Object.entries(rows)) {
+  const med = (a: number[]) => a.slice().sort((x, y) => x - y)[a.length >> 1];
+  console.log(`${name.padEnd(14)} median by half: 1st ${pct(med(rs.map(r => r.h1)))} vs SPY ${pct(med(rs.map(r => r.s1)))}; 2nd ${pct(med(rs.map(r => r.h2)))} vs SPY ${pct(med(rs.map(r => r.s2)))}; 1st half beats SPY on ${rs.filter(r => r.h1 > r.s1).length}/20 days, 2nd half on ${rs.filter(r => r.h2 > r.s2).length}/20`);
+}
+for (const [name, rs] of Object.entries(rows)) {
   const tots = rs.map(r => r.tot - r.spy).sort((a, b) => a - b);
   const bothHalves = rs.filter(r => r.h1 > r.s1 && r.h2 > r.s2).length;
   const beatTot = rs.filter(r => r.tot > r.spy).length;
