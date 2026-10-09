@@ -17,7 +17,13 @@
 // 253 sessions present": traded today, 21 sessions ago, 252 sessions ago, and
 // on at least 18 of the last 20 sessions.
 
+import { sueFresh, type SueEntry } from './sue';
+
 export const MOMENTUM_KEY = 'momentum_leaders_v1';
+/** Tonight's ranked universe (tickers), for /api/earnings/sue to keep scores for. */
+export const MOMENTUM_UNIVERSE_KEY = 'momentum_universe_v1';
+/** Below this many names with a fresh earnings score, the list falls back to plain momentum. */
+export const MIN_SUE_NAMES = 100;
 export const MOMENTUM_TOP = 50;
 export const MOMENTUM_MIN_PRICE = 5;
 export const MOMENTUM_MIN_DVOL = 20e6;
@@ -29,12 +35,17 @@ export interface MomentumRow {
   r1m: number;     // % return over the last 21 sessions (not used to rank)
   price: number;
   dvol: number;    // 20-session average dollar volume
+  sue?: number | null;  // earnings surprise (lib/sue) when the ranking uses it
 }
 
 export interface MomentumList {
   asOf: string;          // the session the closes are from
   builtAt: string;
   universe: number;
+  /** 'momentum+earnings' = rank-pead.ts P2 (the tested best); 'momentum' = the fallback. */
+  ranking?: 'momentum' | 'momentum+earnings';
+  /** Names with a fresh earnings score, of the universe. */
+  scored?: number;
   rows: MomentumRow[];
 }
 
@@ -49,7 +60,7 @@ export function rankMomentum(
   recent: Map<string, Bar>[],
   d21: Map<string, Bar>,
   d252: Map<string, Bar>,
-): { universe: number; rows: MomentumRow[] } {
+): { universe: number; rows: MomentumRow[]; all: MomentumRow[] } {
   const rows: MomentumRow[] = [];
   let universe = 0;
   for (const [t, name] of names) {
@@ -64,7 +75,19 @@ export function rankMomentum(
     rows.push({ t, n: name, mom: (b.c / a.c - 1) * 100, r1m: (today.c / b.c - 1) * 100, price: today.c, dvol: dv / n });
   }
   rows.sort((x, y) => y.mom - x.mom);
-  return { universe, rows: rows.slice(0, MOMENTUM_TOP) };
+  return { universe, rows: rows.slice(0, MOMENTUM_TOP), all: rows };
+}
+
+/**
+ * rank-pead.ts P2: among names with a fresh earnings score, the top 50 by
+ * (SUE rank + momentum rank). `all` must be momentum-sorted (rankMomentum),
+ * which is also the tie-break, as in the test.
+ */
+export function rankCombined(all: MomentumRow[], sue: Record<string, SueEntry>, date: string): MomentumRow[] {
+  const e = all.filter(r => sueFresh(sue[r.t], date)).map(r => ({ ...r, sue: sue[r.t].s as number }));
+  const rs = new Map(e.slice().sort((a, b) => (b.sue as number) - (a.sue as number)).map((x, i) => [x.t, i]));
+  const rm = new Map(e.map((x, i) => [x.t, i]));
+  return e.slice().sort((a, b) => (rs.get(a.t)! + rm.get(a.t)!) - (rs.get(b.t)! + rm.get(b.t)!)).slice(0, MOMENTUM_TOP);
 }
 
 /* ---- Forward paper record (hidden) -----------------------------------------
@@ -73,7 +96,8 @@ export function rankMomentum(
    session of the month, filled at the NEXT session's open, 0.1% a side on
    turnover, marked on closes; against SPY bought at the first fill. Shown
    nowhere; read with /api/momentum/nightly?view=1. */
-export const MOMENTUM_PAPER_KEY = 'momentum_paper_v1';
+export const MOMENTUM_PAPER_KEY = 'momentum_paper_v1';          // plain momentum
+export const MOMENTUM_PAPER_P2_KEY = 'momentum_paper_p2_v1';    // momentum + earnings (what the card shows)
 export const SLEEVE_DAYS = [1, 6, 11, 16] as const;
 export const PAPER_COST = 0.001;
 
