@@ -141,6 +141,10 @@
       "schedule": "10 0,1 * * 2-6"
     },
     {
+      "path": "/api/track/epn",
+      "schedule": "25 0,1 * * 2-6"
+    },
+    {
       "path": "/api/health/scans?alert=1",
       "schedule": "30 19,20 * * 1-5"
     }
