@@ -78,9 +78,9 @@ const bench = (id: number) => { const v = new Float64Array(N).fill(1); for (let 
 const seg = (v: Float64Array, a: number, b: number) => { let pk = 0, dd = 0; for (let d = a; d <= b; d++) { pk = Math.max(pk, v[d]); dd = Math.max(dd, 1 - v[d] / pk); } const tot = v[b] / v[a - 1] - 1; return { tot, dd, r: ((1 + tot) ** (252 / (b - a + 1)) - 1) / dd }; };
 const pct = (x: number) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(1)}%`;
 const series: [string, Float64Array][] = [['QQQ', bench(qId)], ['SPY', bench(spyId)], ...Object.entries(pick).map(([n, f]) => [n, nav(f)] as [string, Float64Array])];
-const H = [[START + 1, MID - 1], [MID, N - 1]];
+const HALF = [[START + 1, MID - 1], [MID, N - 1]];
 const years = [...new Set(sessions.slice(START + 1).map(d => d.slice(0, 4)))];
 console.log(`year  ${series.map(s => s[0].split(' ')[0].padStart(8)).join('')}`);
 for (const y of years) { const a = Math.max(START + 1, idx(`${y}-01-01`)), b = Math.min(N, idx(`${+y + 1}-01-01`)) - 1; console.log(`${y}  ${series.map(([, v]) => pct(v[b] / v[a - 1] - 1).padStart(8)).join('')}`); }
-const q = H.map(([a, b]) => seg(series[0][1], a, b));
-for (const [n, v] of series) { const h = H.map(([a, b]) => seg(v, a, b)); const pass = n.startsWith('P') && h.every((x, i) => x.tot > q[i].tot && x.r > q[i].r); console.log(`${n.padEnd(26)} 2016-20 ${pct(h[0].tot).padStart(8)} drop ${pct(-h[0].dd).padStart(7)} r ${h[0].r.toFixed(2)} | 2021-26 ${pct(h[1].tot).padStart(8)} drop ${pct(-h[1].dd).padStart(7)} r ${h[1].r.toFixed(2)}${n.startsWith('P') ? (pass ? '  → PASS' : '  → fail') : ''}`); }
+const q = HALF.map(([a, b]) => seg(series[0][1], a, b));
+for (const [n, v] of series) { const h = HALF.map(([a, b]) => seg(v, a, b)); const pass = n.startsWith('P') && h.every((x, i) => x.tot > q[i].tot && x.r > q[i].r); console.log(`${n.padEnd(26)} 2016-20 ${pct(h[0].tot).padStart(8)} drop ${pct(-h[0].dd).padStart(7)} r ${h[0].r.toFixed(2)} | 2021-26 ${pct(h[1].tot).padStart(8)} drop ${pct(-h[1].dd).padStart(7)} r ${h[1].r.toFixed(2)}${n.startsWith('P') ? (pass ? '  → PASS' : '  → fail') : ''}`); }
