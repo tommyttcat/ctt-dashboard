@@ -66,6 +66,7 @@ import MacroScorecardPanel from './MacroScorecardPanel';
 import BenchmarkStrips from './BenchmarkStrip';
 import TickerChartHover from './TickerChartHover';
 import ExposureStrip from './ExposureStrip';
+import SystemCard from './SystemCard';
 
 import {
   getMarketSession,
@@ -1164,6 +1165,7 @@ export default function MacroScorecard() {
           />
 
           <ExposureStrip />
+          <SystemCard />
 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4 relative z-10">
             {MACRO_ASSETS.map((asset) => {
