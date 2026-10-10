@@ -17,7 +17,9 @@
 //   (b) BREAKOUTS: take an A trade only when good at its breakout session; account as in
 //       progressive-exposure.ts. PASS: account and random-order median beat QQQ held, both halves.
 
-import { loadAdjusted, listSessions, readDay } from './cache';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { DATA, loadAdjusted, listSessions, readDay } from './cache';
 import { loadReference, refAt } from './reference';
 
 const c = loadAdjusted();
@@ -79,7 +81,7 @@ for (let id = 0; id < syms.length; id++) {
 const pct = (x: number) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(1)}%`;
 const A = trades.filter(t => t.kind === 'A');
 // ---- readings per session
-const vixMap = new Map<string, number>((JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname, '../../../backtest-data/vix.json'), 'utf8')) as { date: string; price: number }[]).map(r => [r.date, r.price]));
+const vixMap = new Map<string, number>((JSON.parse(readFileSync(join(DATA, 'vix.json'), 'utf8')) as { date: string; price: number }[]).map(r => [r.date, r.price]));
 const VIX = new Float64Array(N).fill(NaN); { let lastV = NaN; for (let t = 0; t < N; t++) { const v = vixMap.get(sessions[t]); if (v != null) lastV = v; VIX[t] = lastV; } }
 const above = new Float64Array(N), tot = new Float64Array(N), up4 = new Float64Array(N), dn4 = new Float64Array(N);
 for (let id = 0; id < syms.length; id++) {
@@ -96,7 +98,6 @@ for (let id = 0; id < syms.length; id++) {
 }
 const br = (t: number) => 100 * above[t] / tot[t];
 const mv = (t: number) => { let u = 0, d = 0; for (let j = t - 4; j <= t; j++) { u += up4[j]; d += dn4[j]; } return [u, d]; };
-const q200 = (t: number) => { let s = 0; for (let j = t - 199; j <= t; j++) s += C[qId][j]; return C[qId][t] > s / 200; };
 const RULES: [string, (t: number) => boolean, boolean][] = [
   ['BREADTH >= 60% above 50-day', t => br(t) >= 60, true],
   ['breadth > 40% (control)', t => br(t) > 40, false],
