@@ -7,6 +7,8 @@
 // becomes a feature; a model learns their weights from the past only, and
 // predicts each year it has never seen.
 //
+// NOSEC=1 (10 Oct, for production: SIC sectors are local-only) leaves the two
+// sector features at 0. EXPORT=1 also fits on every week and prints the weights.
 // RULES — fixed 10 Oct 2026, before the first run.
 //   Universe each week (every 5th session from 2016): CS/ADRC, real close >= $2,
 //     20-session $ volume >= $20M, 260 sessions of history.
@@ -95,7 +97,8 @@ for (let t = start; t + 20 < N; t += 5) {
   rows.forEach(r => { const s = sec2(syms[r.id]); const a = s ? secR.get(s)! : null; if (a && a.length >= 5) { const m = a.reduce((x, y) => x + y, 0) / a.length; r.f[27] = m; r.f[28] = r.f[2] - m; } });
   const n = rows.length, X = new Float32Array(n * F), y = new Float32Array(n), fwd = new Float32Array(n), dv = new Float32Array(n);
   const rankInto = (vals: number[], put: (i: number, v: number) => void) => { const o = vals.map((v, i) => [v, i] as [number, number]).filter(p => Number.isFinite(p[0])).sort((a, b) => a[0] - b[0]); const m = o.length; o.forEach(([, i], r) => put(i, m > 1 ? r / (m - 1) - 0.5 : 0)); };
-  for (let f = 0; f < F; f++) rankInto(rows.map(r => r.f[f]), (i, v) => { X[i * F + f] = v; });
+  const NOSEC = process.env.NOSEC === '1';
+  for (let f = 0; f < F; f++) { if (NOSEC && f >= 27) continue; rankInto(rows.map(r => r.f[f]), (i, v) => { X[i * F + f] = v; }); }
   rankInto(rows.map(r => r.fwd), (i, v) => { y[i] = v; });
   rows.forEach((r, i) => { fwd[i] = r.fwd; dv[i] = r.dv; });
   weeks.push({ t, ids: rows.map(r => r.id), X, y, fwd, dv });
@@ -169,6 +172,10 @@ const passIc = yearsPos >= 7;
 const pL = [['2018-01-01', '2021-12-31'], ['2022-01-01', '2026-12-31']].every(([a, b]) => book(false, a, b) > qq(a, b));
 const pS = [['2018-01-01', '2021-12-31'], ['2022-01-01', '2026-12-31']].every(([a, b]) => book(true, a, b) > 0);
 console.log(`  → IC positive in ${yearsPos}/${yrs.length} years; long beats QQQ both: ${pL}; long/short positive both: ${pS} → ${passIc && pL && pS ? 'PASS' : 'fail'}`);
+if (process.env.EXPORT === '1') {
+  const all = fit(weeks);
+  console.log('\nEXPORT ' + JSON.stringify({ feats: FEATS, trainedOn: `${sessions[weeks[0].t]}..${sessions[weeks[weeks.length - 1].t]}`, weeks: weeks.length, beta: Array.from(all).map(x => +x.toPrecision(6)) }));
+}
 // what the last model weighs most (linear term)
 const last = coefsByYear[2026] ?? Object.values(coefsByYear).pop()!;
 const w = FEATS.map((f, i) => [f, last[1 + i], last[1 + F + i]] as [string, number, number]).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
