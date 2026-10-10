@@ -1747,8 +1747,8 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
    day it was rebalanced on (scripts/backtest/rank-*.ts). A ranking, not a buy
    signal: no levels. Rebuilt nightly by /api/momentum/nightly, read through
    the CDN, fetched once per page load (it changes once a night). */
-type MomSortKey = 'mom' | 'r1m' | 'price' | 'dvol' | 'sue' | 'vol' | 'rvol' | 'rs' | 'stage';
-const MomentumLeaders = () => {
+type MomSortKey = 'mom' | 'r1m' | 'price' | 'dvol' | 'sue' | 'vol' | 'rvol' | 'rs' | 'stage' | 'cnf';
+const MomentumLeaders = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTier>; cnfMap?: Record<string, number> }) => {
   const [list, setList] = React.useState<MomentumList | null>(null);
   const [failed, setFailed] = React.useState(false);
   const [sort, setSort] = React.useState<{ key: MomSortKey; dir: SortDir }>({ key: 'mom', dir: 'desc' });
@@ -1764,7 +1764,8 @@ const MomentumLeaders = () => {
   const combined = list.ranking === 'momentum+earnings';
   const val = (r: MomentumRow): number => {
     if (sort.key === 'stage') { const v = parseFloat(stageShort(r.stage)); return Number.isFinite(v) ? v : -Infinity; }
-    const v = r[sort.key];
+    if (sort.key === 'cnf') return cnfMap?.[r.t] ?? -Infinity;
+    const v = r[sort.key as keyof MomentumRow];
     return typeof v === 'number' && Number.isFinite(v) ? v : -Infinity;
   };
   const rows = [...list.rows].sort((a, b) => (sort.dir === 'desc' ? val(b) - val(a) : val(a) - val(b)));
@@ -1773,40 +1774,56 @@ const MomentumLeaders = () => {
   const arrow = (k: MomSortKey) => (sort.key === k ? (sort.dir === 'desc' ? ' ↓' : ' ↑') : '');
   const rank = new Map(list.rows.map((r, i) => [r.t, i + 1]));
   const pctCls = (v: number) => (v >= 0 ? 'text-emerald-400' : 'text-rose-400');
+  const dash = 'inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30';
+  const badge = 'inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center';
+  /* Top Movers' row (renderStdRow / SortableHeader): same widths, same order,
+     same scrollRowCls wrapper, with 12M in CHG%'s place and SURP after it.
+     # and 1M are tablet-up only, so a phone shows what Top Movers shows. */
   const header = (
-    <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
-      <span className={`${H} w-[18px] text-right`}>#</span>
-      <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-1`}>Ticker</span>
-      <span className={`${H} ${S} w-[48px] md:w-[52px] text-right ml-1`} onClick={() => onSort('mom')}>12M{arrow('mom')}</span>
-      <span className={`${H} ${S} w-[42px] md:w-[48px] text-right ml-2 md:ml-1`} onClick={() => onSort('r1m')}>1M{arrow('r1m')}</span>
-      {combined && <span className={`${H} ${S} w-[36px] md:w-[40px] text-right ml-2 md:ml-1`} onClick={() => onSort('sue')}>Surp{arrow('sue')}</span>}
-      <span className={`${H} ${S} hidden md:inline-block w-[42px] text-right ml-1`} onClick={() => onSort('price')}>Prc{arrow('price')}</span>
-      <span className={`${H} ${S} w-[32px] md:w-[36px] text-right ml-2 md:ml-1`} onClick={() => onSort('rvol')}>Rvol{arrow('rvol')}</span>
-      <span className={`${H} ${S} hidden md:inline-block w-[36px] text-right ml-1`} onClick={() => onSort('vol')}>Vol{arrow('vol')}</span>
-      <span className={`${H} ${S} hidden md:inline-block w-[40px] text-right ml-1`} onClick={() => onSort('dvol')}>$Vol{arrow('dvol')}</span>
-      <span className={`${H} ${S} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`} onClick={() => onSort('rs')}>RS{arrow('rs')}</span>
-      <span className={`${H} ${S} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`} onClick={() => onSort('stage')}>Stg{arrow('stage')}</span>
+    <div className={scrollRowCls} style={scrollRowStyle}>
+      <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
+        <span className={`${H} hidden md:inline-block w-[18px] text-right mr-1`}>#</span>
+        <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
+        <span className={`${H} ${S} w-[20px] md:w-[22px] text-center ml-2 md:ml-1`} onClick={() => onSort('cnf')}>CNF{arrow('cnf')}</span>
+        <span className={`${H} ${S} w-[46px] md:w-[52px] text-right ml-1`} onClick={() => onSort('mom')}>12M{arrow('mom')}</span>
+        <span className={`${H} ${S} hidden md:inline-block w-[46px] text-right ml-1`} onClick={() => onSort('r1m')}>1M{arrow('r1m')}</span>
+        {combined && <span className={`${H} ${S} w-[30px] md:w-[36px] text-right ml-2 md:ml-1`} onClick={() => onSort('sue')}>Surp{arrow('sue')}</span>}
+        <span className={`${H} ${S} w-[36px] md:w-[42px] text-right ml-2 md:ml-1`} onClick={() => onSort('price')}>Prc{arrow('price')}</span>
+        <span className={`${H} ${S} w-[36px] md:w-[40px] text-right ml-2 md:ml-1`} onClick={() => onSort('rvol')}>Rvol{arrow('rvol')}</span>
+        <span className={`${H} ${S} w-[30px] md:w-[36px] text-right ml-2 md:ml-1`} onClick={() => onSort('vol')}>Vol{arrow('vol')}</span>
+        <span className={`${H} ${S} w-[36px] md:w-[40px] text-right ml-2 md:ml-1`} onClick={() => onSort('dvol')}>$Vol{arrow('dvol')}</span>
+        <span className={`${H} ${S} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`} onClick={() => onSort('rs')}>RS{arrow('rs')}</span>
+        <span className={`${H} ${S} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`} onClick={() => onSort('stage')}>Stg{arrow('stage')}</span>
+      </div>
     </div>
   );
-  const row = (r: MomentumRow) => (
-    <div key={r.t} className="flex items-center whitespace-nowrap py-[1px]" title={r.n ?? r.t}>
-      <span className="text-[9px] tabular-nums text-slate-600 w-[18px] text-right">{rank.get(r.t)}</span>
-      <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px] mx-1`}>{r.t}</span></TickerChartHover>
-      <span className={`text-[9px] tabular-nums font-semibold inline-block w-[48px] md:w-[52px] text-right ml-1 ${pctCls(r.mom)}`}>{r.mom >= 0 ? '+' : ''}{r.mom.toFixed(0)}%</span>
-      <span className={`text-[9px] tabular-nums inline-block w-[42px] md:w-[48px] text-right ml-2 md:ml-1 ${pctCls(r.r1m)}`}>{r.r1m >= 0 ? '+' : ''}{r.r1m.toFixed(1)}%</span>
-      {combined && <span className={`text-[9px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-2 md:ml-1 ${r.sue == null ? 'text-slate-600' : r.sue >= 2 ? 'text-emerald-400' : r.sue > 0 ? 'text-slate-300' : 'text-rose-400'}`}>{r.sue == null ? '—' : `${r.sue >= 0 ? '+' : ''}${r.sue.toFixed(1)}`}</span>}
-      <span className="text-[9px] tabular-nums hidden md:inline-block w-[42px] text-right text-slate-300 ml-1">{r.price.toFixed(2)}</span>
-      <span className={`text-[9px] tabular-nums font-semibold inline-block w-[32px] md:w-[36px] text-right ml-2 md:ml-1 ${r.rvol == null ? 'text-slate-600' : r.rvol >= 2 ? 'text-emerald-400' : r.rvol >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{r.rvol == null ? '—' : `${r.rvol < 10 ? r.rvol.toFixed(1) : Math.round(r.rvol)}x`}</span>
-      <span className="text-[9px] tabular-nums hidden md:inline-block w-[36px] text-right text-slate-400 ml-1">{fmtShares(r.vol ?? undefined)}</span>
-      <span className="text-[9px] tabular-nums hidden md:inline-block w-[40px] text-right text-slate-300 ml-1">{fmtDollars(r.dvol)}</span>
-      <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{r.rs != null
-        ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(r.rs)}`}>{r.rs}</span>
-        : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
-      <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{r.stage
-        ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${stageBadge(r.stage)}`}>{stageShort(r.stage)}</span>
-        : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
-    </div>
-  );
+  const row = (r: MomentumRow) => {
+    const edge = edgeMap?.[r.t] ?? null;
+    const cnf = cnfMap?.[r.t] ?? null;
+    return (
+      /* Same green / yellow / red tint as the scan cards and Top Movers, from
+         the shared per-ticker map; a name no scan carries stays untinted. */
+      <div key={r.t} className={`${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
+        title={edge ? `${r.n ?? r.t} · ${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : (r.n ?? r.t)}>
+        <div className={scrollRowCls} style={scrollRowStyle}>
+          <div className="flex items-center whitespace-nowrap py-[1px]">
+            <span className="text-[9px] tabular-nums text-slate-600 hidden md:inline-block w-[18px] text-right mr-1">{rank.get(r.t)}</span>
+            <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px] mx-0.5`}>{r.t}</span></TickerChartHover>
+            <span className="inline-block w-[20px] md:w-[22px] text-center ml-2 md:ml-1">{cnf != null ? <span className={`${badge} ${cnfBadgeCls(cnf)}`}>{Math.round(cnf)}</span> : <span className={dash}>-</span>}</span>
+            <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${pctCls(r.mom)}`}>{r.mom >= 0 ? '+' : ''}{r.mom.toFixed(0)}%</span>
+            <span className={`text-[9px] tabular-nums hidden md:inline-block w-[46px] text-right ml-1 ${pctCls(r.r1m)}`}>{r.r1m >= 0 ? '+' : ''}{r.r1m.toFixed(1)}%</span>
+            {combined && <span className={`text-[9px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-2 md:ml-1 ${r.sue == null ? 'text-slate-600' : r.sue >= 2 ? 'text-emerald-400' : r.sue > 0 ? 'text-slate-300' : 'text-rose-400'}`}>{r.sue == null ? '—' : `${r.sue >= 0 ? '+' : ''}${r.sue.toFixed(1)}`}</span>}
+            <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-2 md:ml-1">{fmtPrc(r.price)}</span>
+            <span className={`text-[9px] tabular-nums font-semibold inline-block w-[36px] md:w-[40px] text-right ml-2 md:ml-1 ${r.rvol == null ? 'text-slate-600' : r.rvol >= 2 ? 'text-emerald-400' : r.rvol >= 1.5 ? 'text-white' : 'text-slate-400'}`}>{r.rvol == null ? '—' : `${r.rvol < 1 ? r.rvol.toFixed(1) : r.rvol < 10 ? r.rvol.toFixed(1) : Math.round(r.rvol)}x`}</span>
+            <span className="text-[9px] tabular-nums inline-block w-[30px] md:w-[36px] text-right text-slate-400 ml-2 md:ml-1">{fmtShares(r.vol ?? undefined)}</span>
+            <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[40px] text-right text-slate-300 ml-2 md:ml-1">{fmtDollars(r.dvol)}</span>
+            <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{r.rs != null ? <span className={`${badge} ${rsBadge(r.rs)}`}>{r.rs}</span> : <span className={dash}>-</span>}</span>
+            <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{r.stage ? <span className={`${badge} ${stageBadge(r.stage)}`}>{stageShort(r.stage)}</span> : <span className={dash}>-</span>}</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
   const half = Math.ceil(rows.length / 2);
   return (
     <div>
@@ -1816,7 +1833,7 @@ const MomentumLeaders = () => {
             ? <>The {list.rows.length} liquid stocks ranked on two things together: the strongest 12-month run (skipping the latest month) and the biggest jump in quarterly earnings against a year earlier. Ranked, not recommended — in testing it matched QQQ, not beat it. No buy levels.</>
             : <>The {list.rows.length} liquid stocks with the strongest 12-month return, skipping the latest month — ranked, not recommended. No buy levels. (The earnings half of the ranking switches on once enough companies have earnings scores.)</>}
         </p>
-        <InfoDot text={"WHAT IT IS — every common stock or ADR at $5+ trading $20M+ a day. 12M is its return from 12 months ago to 1 month ago; 1M is the latest month (left out of the ranking: last month's winners tend to give some back). SURP — the earnings surprise: the latest quarter's earnings per share against the same quarter a year earlier, measured against how much that number usually moves (+2 = an unusually big improvement). The list ranks on 12M and SURP together. RVOL is today's volume against its 20-day average; VOL is today's shares; RS is the relative-strength rating (1–99); STG is the Weinstein stage. Those four are shown for context only — none of them is part of the ranking or was tested with it.\n\nWHY THIS LIST — tested on Oct 2022 – Sep 2026, held as four staggered monthly portfolios: momentum and earnings together made +165% against SPY's +112%, beat SPY whichever day of the month it was rebalanced on (20 of 20, median +68%), and did better than momentum alone (+159%). Ranking on momentum alone among the same companies made +134%, so the earnings half adds something.\n\nTHE COSTS — it trailed SPY in 2022–24 (+34% vs +58%) and fell further (worst drop −29% vs −19%). And simply holding QQQ made the same +166% over those four years with smaller drops (−23%): the list's lead over SPY came from taking more risk, not from picking better. Four years is a short test, and the live earnings data comes from a different provider than the test's.\n\nNot a buy list and not advice. Rebuilt each evening from the day's close."} />
+        <InfoDot text={"WHAT IT IS — every common stock or ADR at $5+ trading $20M+ a day. 12M is its return from 12 months ago to 1 month ago; 1M is the latest month (left out of the ranking: last month's winners tend to give some back). SURP — the earnings surprise: the latest quarter's earnings per share against the same quarter a year earlier, measured against how much that number usually moves (+2 = an unusually big improvement). The list ranks on 12M and SURP together. RVOL is today's volume against its 20-day average; VOL is today's shares; RS is the relative-strength rating (1–99); STG is the Weinstein stage. CNF is the site's confluence score from the scans. Those are shown for context only — none is part of the ranking or was tested with it. On a phone # and 1M are hidden, as on Top Movers' layout.\n\nROW COLOUR — the same green / yellow / red as the scan cards, for names one of the scans also carries today. An uncoloured row is not on any scan.\n\nWHY THIS LIST — tested on Oct 2022 – Sep 2026, held as four staggered monthly portfolios: momentum and earnings together made +165% against SPY's +112%, beat SPY whichever day of the month it was rebalanced on (20 of 20, median +68%), and did better than momentum alone (+159%). Ranking on momentum alone among the same companies made +134%, so the earnings half adds something.\n\nTHE COSTS — it trailed SPY in 2022–24 (+34% vs +58%) and fell further (worst drop −29% vs −19%). And simply holding QQQ made the same +166% over those four years with smaller drops (−23%): the list's lead over SPY came from taking more risk, not from picking better. Four years is a short test, and the live earnings data comes from a different provider than the test's.\n\nNot a buy list and not advice. Rebuilt each evening from the day's close."} />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-2">
         <div className="min-w-0">{header}{rows.slice(0, half).map(row)}</div>
@@ -3156,7 +3173,7 @@ export default function MarketSummary() {
                               ) : isOpen && label === 'Liquid Leaders' ? (
                                 <LiquidLeaders edgeMap={macroInsights?.edgeMap} cnfMap={sentCnfMap} stageMap={macroInsights?.stageMap} newsMap={scanNewsMap} />
                               ) : isOpen && label === 'Momentum Leaders' ? (
-                                <MomentumLeaders />
+                                <MomentumLeaders edgeMap={macroInsights?.edgeMap} cnfMap={sentCnfMap} />
                               ) : isOpen && label === 'Top Movers' && moverView === 'early' ? (
                                 <EarlyMovers pool={macroInsights?.earlyPool ?? []} night={earlyNight} onVisibleChange={onMoverVisible} />
                               ) : isOpen && label === 'Sector Performance' ? (
