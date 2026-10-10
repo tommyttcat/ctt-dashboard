@@ -65,6 +65,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { DATA, loadAdjusted, type BarCache } from './cache';
+import { loadReference, refAt } from './reference';
 
 const REPLAY = path.join(DATA, 'replay');
 const MIN_DIR = path.join(DATA, 'minute', 'kq');
@@ -332,7 +333,14 @@ export function spy(c: BarCache, from: number, to: number) {
 
 function run() {
   const c = loadAdjusted();
-  const sigs = readSigs();
+  /* STOCKS=1 (added 9 Oct 2026): common stock and ADRs only. The original
+     signal build had no type filter, so ~7% of signals were leveraged /
+     inverse ETFs, ETNs, commodity funds and a warrant. */
+  let sigs = readSigs();
+  if (process.env.STOCKS === '1') {
+    const ref = loadReference();
+    sigs = sigs.filter(g => { const t = (refAt(ref, g.ticker, g.trigDate)?.type || '').toUpperCase(); return t === 'CS' || t === 'ADRC'; });
+  }
   const tally: Record<string, number> = {};
   const trades: Trade[] = [];
   for (const g of sigs) {
@@ -344,7 +352,7 @@ function run() {
     if (typeof t === 'string') { tally[t] = (tally[t] ?? 0) + 1; continue; }
     trades.push(t);
   }
-  fs.writeFileSync(path.join(REPLAY, 'kq_trades.jsonl'), trades.map(t => JSON.stringify(t)).join('\n') + '\n');
+  if (process.env.STOCKS !== '1') fs.writeFileSync(path.join(REPLAY, 'kq_trades.jsonl'), trades.map(t => JSON.stringify(t)).join('\n') + '\n');
   console.log(`signals ${sigs.length} → trades ${trades.length}; skipped`, tally);
 
   const dates = trades.map(t => t.ei).sort((a, b) => a - b);
