@@ -40,6 +40,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DATA, loadAdjusted, listSessions, readDay } from './cache';
 import { loadReference, refAt } from './reference';
+import { featuresAt } from '../../src/lib/system';
 
 const c = loadAdjusted();
 const ref = loadReference();
@@ -72,24 +73,9 @@ for (let t = start; t + 20 < N; t += 5) {
     for (let j = t - 19; j <= t; j++) dv += cl[j] * V[id][j]; dv /= 20;
     if (dv < 20e6 || !isStock(syms[id], sessions[t])) continue;
     let k = t + 20; while (k > t && Number.isNaN(cl[k])) k--; if (k === t) continue;
-    const ret = (a: number) => cl[t] / cl[t - a] - 1;
-    const dr = (j: number) => cl[j] / cl[j - 1] - 1;
-    const sd = (n: number) => { let s = 0, s2 = 0; for (let j = t - n + 1; j <= t; j++) { const x = dr(j); s += x; s2 += x * x; } const m = s / n; return Math.sqrt(Math.max(0, s2 / n - m * m)); };
-    const sma = (n: number, at = t) => { let s = 0; for (let j = at - n + 1; j <= at; j++) s += cl[j]; return s / n; };
-    let hi252 = -Infinity, lo20 = Infinity, adr = 0, atr = 0, up = 0, dn = 0, mx = -Infinity, mn = Infinity, g = 0, ls = 0, v20 = 0, v5 = 0, v50 = 0;
-    for (let j = t - 251; j <= t; j++) { hi252 = Math.max(hi252, H[id][j]); const x = dr(j); if (x > 0) up++; else if (x < 0) dn++; }
-    for (let j = t - 19; j <= t; j++) { lo20 = Math.min(lo20, L[id][j]); adr += H[id][j] / L[id][j] - 1; v20 += V[id][j]; }
-    for (let j = t - 13; j <= t; j++) { atr += Math.max(H[id][j], cl[j - 1]) - Math.min(L[id][j], cl[j - 1]); const x = dr(j); if (x > 0) g += x; else ls -= x; }
-    for (let j = t - 20; j <= t; j++) { const x = dr(j); mx = Math.max(mx, x); mn = Math.min(mn, x); }
-    for (let j = t - 4; j <= t; j++) v5 += V[id][j]; for (let j = t - 49; j <= t; j++) v50 += V[id][j];
-    let sxy = 0, sxx = 0; for (let j = t - 59; j <= t; j++) { const a = qr(j), b = dr(j); sxy += a * b; sxx += a * a; }
-    const r12 = ret(252);
-    rows.push({ id, dv, fwd: cl[k] / cl[t] - 1, f: [
-      ret(5), ret(21), ret(63), ret(126), cl[t - 21] / cl[t - 252] - 1, sd(20), sd(60), adr / 20, -Math.sign(r12) * (dn - up) / 252,
-      cl[t] / hi252 - 1, cl[t] / sma(20) - 1, cl[t] / sma(50) - 1, cl[t] / sma(200) - 1, sma(50) / sma(50, t - 10) - 1,
-      V[id][t] / (v20 / 20), (v5 / 5) / (v50 / 50), dr(t), (H[id][t] - L[id][t]) / (atr / 14),
-      H[id][t] > L[id][t] ? (cl[t] - L[id][t]) / (H[id][t] - L[id][t]) : 0.5, O[id][t] / cl[t - 1] - 1, ls === 0 ? 100 : 100 - 100 / (1 + g / ls),
-      mx, mn, Math.log(dv), sxx > 0 ? sxy / sxx : 1, Math.log(RC[id][t]), cl[t] / lo20 - 1, NaN, NaN] });
+    /* Features from the shared production code (lib/system featuresAt), so live
+       scores and this test use the same arithmetic. */
+    rows.push({ id, dv, fwd: cl[k] / cl[t] - 1, f: featuresAt({ o: O[id], h: H[id], l: L[id], c: cl, v: V[id] }, t, C[qId], RC[id][t], dv) });
   }
   if (rows.length < 100) continue;
   // sector momentum
