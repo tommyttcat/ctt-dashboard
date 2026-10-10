@@ -129,6 +129,10 @@
       "schedule": "20 22,23 * * 1-5"
     },
     {
+      "path": "/api/structure/nightly",
+      "schedule": "55 21,22 * * 1-5"
+    },
+    {
       "path": "/api/earnings/sue",
       "schedule": "40 22,23 * * 1-5"
     },

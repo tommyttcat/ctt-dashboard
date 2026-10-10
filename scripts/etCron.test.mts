@@ -33,6 +33,7 @@ const GUARDED: { match: string; hours: number[]; wants: string }[] = [
   { match: '/api/momentum/nightly', hours: [18], wants: '18:10' },
   { match: '/api/earnings/sue', hours: [18], wants: '18:40' },
   { match: '/api/exposure/nightly', hours: [18], wants: '18:20' },
+  { match: '/api/structure/nightly', hours: [17], wants: '17:55' },
   { match: '/api/analyst/ledger/score', hours: [20], wants: '20:40' },
   { match: '/api/health/scans', hours: [15], wants: '15:30' },
 ];

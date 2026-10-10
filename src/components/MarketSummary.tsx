@@ -113,6 +113,7 @@ import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
 import type { LeadersLive, LeaderRow } from '@/lib/leaders';
 import type { MomentumList, MomentumRow } from '@/lib/momentum';
+import type { StructureRow, StructureState } from '@/lib/structure';
 import { rulesShortlist } from '@/lib/momentum';
 import { bullShare, type SentimentLive } from '@/lib/sentiment';
 import { EARLY_PASS_N, type EarlySummary } from '@/lib/earlyTrack';
@@ -1821,6 +1822,99 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
   );
 };
 
+/* ---- Chart Structure (9 Oct 2026) ------------------------------------------
+   lib/structure: each Liquid Leaders name's chart shape from its last ~260
+   daily bars — trend, channel, range, bounce off support, range breakout.
+   Rebuilt nightly by /api/structure/nightly; read once per page load through
+   the CDN. Descriptive: no shape here was tested as a buy signal. */
+type StructView = 'bounce' | 'up' | 'channel' | 'range' | 'breakout' | 'down';
+const STRUCT_VIEWS: { key: StructView; label: string; match: (r: StructureRow) => boolean; tip: string }[] = [
+  { key: 'bounce', label: 'Bounces', match: r => r.bounce, tip: "Today's low reached support (the lower channel line, or the range low) and the close came back into the upper half of the day's range." },
+  { key: 'up', label: 'Uptrend', match: r => r.shape === 'uptrend' || r.shape === 'channel-up', tip: 'A straight-ish rise over 6 months: +3% a month or more with a fit of 0.6+.' },
+  { key: 'channel', label: 'Channels', match: r => r.shape === 'channel-up' || r.shape === 'channel-down', tip: 'A trend whose highs AND lows both keep touching parallel lines (2+ touches each side).' },
+  { key: 'range', label: 'Range', match: r => r.shape === 'range', tip: 'Sideways for 60 sessions between a clear high and low, touched 2+ times each.' },
+  { key: 'breakout', label: 'Breakouts', match: r => r.breakout, tip: 'A range name that closed above its prior 60-session high today.' },
+  { key: 'down', label: 'Downtrend', match: r => r.shape === 'downtrend' || r.shape === 'channel-down', tip: 'A straight-ish decline over 6 months: −3% a month or worse with a fit of 0.6+.' },
+];
+const SHAPE_LABEL: Record<string, { text: string; cls: string }> = {
+  'uptrend': { text: 'UP', cls: 'text-emerald-400' },
+  'channel-up': { text: 'CH↑', cls: 'text-emerald-300' },
+  'channel-down': { text: 'CH↓', cls: 'text-rose-300' },
+  'downtrend': { text: 'DN', cls: 'text-rose-400' },
+  'range': { text: 'RNG', cls: 'text-sky-300' },
+};
+const ChartStructure = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => {
+  const [st, setSt] = React.useState<StructureState | null>(null);
+  const [failed, setFailed] = React.useState(false);
+  const [view, setView] = React.useState<StructView | null>(null);
+  React.useEffect(() => {
+    let on = true;
+    fetch('/api/structure/latest').then(r => (r.ok ? r.json() : null))
+      .then(j => { if (on) { if (j?.state) setSt(j.state); else setFailed(true); } })
+      .catch(() => { if (on) setFailed(true); });
+    return () => { on = false; };
+  }, []);
+  if (!st) return <p className="text-[10px] text-slate-500">{failed ? 'Not built yet — the list builds after the first nightly run (about 5:55 PM ET).' : 'Loading…'}</p>;
+  const counts = Object.fromEntries(STRUCT_VIEWS.map(v => [v.key, st.rows.filter(v.match).length])) as Record<StructView, number>;
+  const cur = view ?? (counts.bounce > 0 ? 'bounce' : 'up');
+  const vdef = STRUCT_VIEWS.find(v => v.key === cur)!;
+  const rows = st.rows.filter(vdef.match).sort((a, b) => (b.fit ?? 0) - (a.fit ?? 0));
+  const H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
+  const lvl = (v: number | null) => (v == null ? '—' : fmtPrc(v));
+  return (
+    <div>
+      <div className="flex items-start gap-2 mb-2">
+        <div className="flex items-center gap-1.5 flex-wrap flex-1">
+          {STRUCT_VIEWS.map(v => (
+            <button key={v.key} onClick={() => setView(v.key)} title={v.tip}
+              className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border transition-all duration-150 ${cur === v.key ? 'text-teal-200 bg-teal-500/20 border-teal-400/40 ring-1 ring-teal-400/30' : counts[v.key] > 0 ? 'text-teal-400 bg-teal-500/10 border-teal-500/20' : 'text-slate-600 bg-transparent border-white/5'}`}>
+              {v.label} {counts[v.key]}
+            </button>
+          ))}
+        </div>
+        <InfoDot text={"WHAT IT IS — each of the ~1,000 most traded NASDAQ / NYSE stocks ($10+, $100M+ a day), sorted by the shape of its last six months.\n\nSHAPE — a straight line is fitted through 126 daily closes on a log scale. SLOPE is its rise or fall per month; FIT is how closely price hugs it (1 = dead straight). UP / DN = trending +/−3% a month or more with a fit of 0.6+. CH↑ / CH↓ = a trend whose highs and lows both keep touching parallel lines. RNG = sideways for 60 sessions between a clear high and low.\n\nPOS — where today's close sits in the channel, in standard deviations from the line (−1 = at the lower line, +1 = at the upper). SUP / RES — the lower and upper lines today (the range low / high for ranges).\n\nBOUNCES — today's low reached support and the close came back into the upper half of the day. BREAKOUTS — a range name closing above its 60-session high.\n\nWHAT THE TESTS SAY — a description, not a signal. Buying rising-trendline touches with a stop under the line made 0.00% a trade against QQQ's +0.53% over the same windows (scripts/backtest/trendline.ts). Inside the Momentum Leaders list, position in the channel and the number of support touches did not predict the next month consistently; the steadiest trends did a little better than the jumpiest, but nothing passed.\n\nRow colour — the scan cards' green / yellow / red, for names a scan carries today. Rebuilt each evening from the close."} />
+      </div>
+      <div className={scrollRowCls} style={scrollRowStyle}>
+        <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
+          <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
+          <span className={`${H} w-[28px] md:w-[30px] text-center ml-2 md:ml-1`}>Shape</span>
+          <span className={`${H} w-[46px] md:w-[52px] text-right ml-1`}>Chg%</span>
+          <span className={`${H} w-[36px] md:w-[42px] text-right ml-2 md:ml-1`}>Prc</span>
+          <span className={`${H} w-[36px] md:w-[40px] text-right ml-2 md:ml-1`}>Slope</span>
+          <span className={`${H} w-[26px] md:w-[30px] text-right ml-2 md:ml-1`}>Fit</span>
+          <span className={`${H} w-[28px] md:w-[32px] text-right ml-2 md:ml-1`}>Pos</span>
+          <span className={`${H} w-[40px] md:w-[44px] text-right ml-2 md:ml-1`}>Sup</span>
+          <span className={`${H} w-[40px] md:w-[44px] text-right ml-2 md:ml-1`}>Res</span>
+        </div>
+      </div>
+      <div className="max-h-[320px] overflow-y-auto">
+        {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">None today.</p> : rows.map(r => {
+          const sh = r.shape ? SHAPE_LABEL[r.shape] : null;
+          const edge = edgeMap?.[r.t] ?? null;
+          return (
+            <div key={r.t} className={edge ? `${EDGE_TINT[edge]} rounded-sm` : ''} title={edge ? `${r.n ?? r.t} · ${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : (r.n ?? r.t)}>
+              <div className={scrollRowCls} style={scrollRowStyle}>
+                <div className="flex items-center whitespace-nowrap py-[1px]">
+                  <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px] mx-0.5`}>{r.t}</span></TickerChartHover>
+                  <span className={`text-[8px] font-bold inline-block w-[28px] md:w-[30px] text-center ml-2 md:ml-1 ${sh?.cls ?? 'text-slate-600'}`}>{sh?.text ?? '—'}</span>
+                  <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${r.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{r.chg >= 0 ? '+' : ''}{r.chg.toFixed(2)}%</span>
+                  <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-2 md:ml-1">{fmtPrc(r.price)}</span>
+                  <span className={`text-[9px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-2 md:ml-1 ${(r.slopeMo ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{r.slopeMo == null ? '—' : `${r.slopeMo >= 0 ? '+' : ''}${r.slopeMo.toFixed(1)}%`}</span>
+                  <span className="text-[9px] tabular-nums inline-block w-[26px] md:w-[30px] text-right text-slate-300 ml-2 md:ml-1">{r.fit == null ? '—' : r.fit.toFixed(2)}</span>
+                  <span className="text-[9px] tabular-nums inline-block w-[28px] md:w-[32px] text-right text-slate-400 ml-2 md:ml-1">{r.pos == null ? '—' : `${r.pos >= 0 ? '+' : ''}${r.pos.toFixed(1)}`}</span>
+                  <span className="text-[9px] tabular-nums inline-block w-[40px] md:w-[44px] text-right text-emerald-300 ml-2 md:ml-1">{lvl(r.support)}</span>
+                  <span className="text-[9px] tabular-nums inline-block w-[40px] md:w-[44px] text-right text-rose-300 ml-2 md:ml-1">{lvl(r.resistance)}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-[10px] text-slate-500 font-medium mt-2">{st.rows.length} of {st.universe} liquid names have a clear shape · as of the {st.asOf} close · sorted by fit</p>
+    </div>
+  );
+};
+
 /* ---- Momentum Leaders (9 Oct 2026) -----------------------------------------
    lib/momentum: the 50 liquid stocks with the strongest 12-month return,
    skipping the latest month — the one monthly ranking that beat SPY whichever
@@ -2333,6 +2427,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves now. Volume-confirmed is tradeable; a thin gap is a fade.' },
   { label: 'Social Sentiment', color: 'violet', blurb: 'What StockTwits, Reddit and Bluesky are talking about most, and which way they lean. The crowd, not a signal.' },
   { label: 'Liquid Leaders', color: 'cyan', blurb: 'The ~1,000 most traded stocks: which are outrunning the market most, and which trade the heaviest volume.' },
+  { label: 'Chart Structure', color: 'teal', blurb: 'The ~1,000 most traded stocks sorted by chart shape: trending, in a channel, in a range, bouncing off support or breaking out. A description, not a signal.' },
   { label: 'Momentum Leaders', color: 'cyan', blurb: 'The 50 liquid stocks with the strongest 12-month run — the one ranking that beat SPY in testing, with bigger drops. A ranking, not a buy list.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, and who is on air.' },
   { label: '$Vol Summary', color: 'teal', blurb: 'Top 20 by dollar volume — where the money actually is today.' },
@@ -2620,7 +2715,7 @@ export default function MarketSummary() {
   const [thesisEdge, setThesisEdge] = useState<Record<string, EdgeTier | null>>({});
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() =>
     new Set([
-      ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Momentum Leaders'),
+      ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Momentum Leaders' && l !== 'Chart Structure'),
       'hrsTop', 'topSetups',
     ])
   );
@@ -2676,7 +2771,7 @@ export default function MarketSummary() {
     if (!mi?.briefing) return;
     if (!k) {
       setCollapsedSections(new Set([
-        ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Momentum Leaders'),
+        ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Momentum Leaders' && l !== 'Chart Structure'),
         'hrsTop', 'topSetups',
       ]));
       return;
@@ -3253,6 +3348,8 @@ export default function MarketSummary() {
                                 <SocialSentiment edgeMap={macroInsights?.edgeMap} cnfMap={sentCnfMap} />
                               ) : isOpen && label === 'Liquid Leaders' ? (
                                 <LiquidLeaders edgeMap={macroInsights?.edgeMap} cnfMap={sentCnfMap} stageMap={macroInsights?.stageMap} newsMap={scanNewsMap} />
+                              ) : isOpen && label === 'Chart Structure' ? (
+                                <ChartStructure edgeMap={macroInsights?.edgeMap} />
                               ) : isOpen && label === 'Momentum Leaders' ? (
                                 <MomentumLeaders edgeMap={macroInsights?.edgeMap} cnfMap={sentCnfMap} />
                               ) : isOpen && label === 'Top Movers' && moverView === 'early' ? (
