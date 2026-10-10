@@ -121,8 +121,9 @@ for (let i = 0; i + 1 < ends.length; i++) {
   const pool: { id: number; mom: number }[] = [];
   for (let id = 0; id < syms.length; id++) { if (!inUni(id, t)) continue; const m = C[id][t - 21] / C[id][t - 252] - 1; if (Number.isFinite(m)) pool.push({ id, mom: m }); }
   pool.sort((x, y) => y.mom - x.mom);
-  const top = pool.slice(0, 50);
-  const r = mean(top.map(p => { let k = b; while (k > a && Number.isNaN(O[p.id][k])) k--; const px = Number.isNaN(O[p.id][k]) ? C[p.id][k - 1] : O[p.id][k]; return px / O[p.id][a] - 1; })) - 2 * COST * 0.6;
+  /* bookkeeping fix: a name must have a next-open fill (NaN opens made whole months NaN) */
+  const top = pool.filter(p => O[p.id][a] > 0).slice(0, 50);
+  const r = mean(top.map(p => { let k = b; while (k > a && !(O[p.id][k] > 0)) k--; const px = O[p.id][k] > 0 ? O[p.id][k] : C[p.id][k - 1]; return px / O[p.id][a] - 1; }).filter(Number.isFinite)) - 2 * COST * 0.6;
   mRet.push({ t, m: r, q: O[qId][b] / O[qId][a] - 1, s: O[spyId][b] / O[spyId][a] - 1 });
 }
 console.log(`\nB MOMENTUM top 50 (12-1), monthly`);

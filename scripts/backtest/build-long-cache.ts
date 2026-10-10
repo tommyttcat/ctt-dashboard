@@ -48,12 +48,21 @@ async function main() {
 
   const files = fs.readdirSync(path.join(FMP, 'daily')).filter(f => f.endsWith('.json.gz'));
   const scale = new Map<string, number>();
-  const tally = { tickers: files.length, empty: 0, noOverlap: 0, unstable: 0, scaled: 0, kept: 0 };
+  const tally = { tickers: files.length, empty: 0, jumpDropped: 0, noOverlap: 0, unstable: 0, scaled: 0, kept: 0, badBars: 0 };
   // Pass 1: per-ticker scale against Polygon
   for (const f of files) {
     const t = f.replace(/\.json\.gz$/, '').replace(/_/g, '/');
     const rows: D[] = gz(path.join(FMP, 'daily', f));
     if (!rows.length) { tally.empty++; continue; }
+    /* Data cleaning (9 Oct 2026, set before any long result was trusted):
+       ~5% of FMP's old series carry broken split adjustments (GOEV, EMITF
+       "rising" 10^12x overnight). A ticker with any one-day close move of 4x
+       or more either way is dropped from the long history entirely. This also
+       drops a few genuine one-day 4x moves (a small bias against lottery
+       tickets, stated). */
+    let jump = false;
+    for (let i = 1; i < rows.length; i++) { const a = rows[i - 1][4], b = rows[i][4]; if (a > 0 && b > 0 && (b / a >= 4 || a / b >= 4)) { jump = true; break; } }
+    if (jump) { tally.jumpDropped++; continue; }
     const pc = polyClose.get(t);
     const ratios: number[] = [];
     if (pc) for (const r of rows) { const p = pc.get(r[0]); if (p && r[4] > 0) ratios.push(p / r[4]); }
@@ -82,7 +91,7 @@ async function main() {
       for (const r of rows) {
         const d = r[0];
         if (d.slice(0, 4) !== y || d >= first) continue;
-        if (!(r[4] > 0)) continue;
+        if (!(r[1] > 0 && r[2] > 0 && r[3] > 0 && r[4] > 0) || r[2] < r[3] || r[2] / r[3] > 3 || r[4] > r[2] * 1.01 || r[4] < r[3] * 0.99) { tally.badBars++; continue; }
         let F = 1; for (const [sd, num, den] of splits) if (sd > d && num > 0 && den > 0) F *= num / den;
         const o = r[1] * k, h = r[2] * k, l = r[3] * k, c = r[4] * k, v = r[5] / k;
         (adj.get(d) ?? adj.set(d, []).get(d)!).push([t, o, h, l, c, v, null]);
@@ -96,6 +105,6 @@ async function main() {
     days += adj.size;
     console.log(`${y}: ${adj.size} sessions, ${[...adj.values()].reduce((a, r) => a + r.length, 0)} bars`);
   }
-  console.log(`done: ${days} sessions before ${first}`);
+  console.log(`done: ${days} sessions before ${first}; bad bars dropped ${tally.badBars}`);
 }
 main().catch(e => { console.error(e); process.exit(1); });
