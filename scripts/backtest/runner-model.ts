@@ -126,7 +126,7 @@ for (let t = start; t + 40 < N; t += 5) {
   const n = rows.length, X = new Float32Array(n * F), y = new Float32Array(n), fwd = new Float32Array(n), dv = new Float32Array(n);
   const rankInto = (vals: number[], put: (i: number, v: number) => void) => { const o = vals.map((v, i) => [v, i] as [number, number]).filter(p => Number.isFinite(p[0])).sort((a, b) => a[0] - b[0]); const m = o.length; o.forEach(([, i], r) => put(i, m > 1 ? r / (m - 1) - 0.5 : 0)); };
   const NOSEC = process.env.NOSEC === '1';
-  for (let f = 0; f < F; f++) { if (NOSEC && (f === 27 || f === 28)) continue;  // sector features only (bug fix: was f >= 27, which also blanked EXTRA) rankInto(rows.map(r => r.f[f]), (i, v) => { X[i * F + f] = v; }); }
+  for (let f = 0; f < F; f++) { if (NOSEC && (f === 27 || f === 28)) continue; /* sector features only (bug fix: was f >= 27, which also blanked EXTRA) */ rankInto(rows.map(r => r.f[f]), (i, v) => { X[i * F + f] = v; }); }
   if (process.env.TARGET === 'trade') rankInto(rows.map(r => r.trade), (i, v) => { y[i] = v; }); else rows.forEach((r, i) => { y[i] = r.run; });
   rows.forEach((r, i) => { fwd[i] = r.fwd; dv[i] = r.dv; });
   const run = new Uint8Array(n), trade = new Float32Array(n), momRank = new Float32Array(n);
