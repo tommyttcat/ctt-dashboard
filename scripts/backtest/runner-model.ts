@@ -183,4 +183,8 @@ const halves = [['2018-01-01', '2021-12-31'], ['2022-01-01', '2026-12-31']];
 const l3 = halves.map(([a, b]) => { const t = book(a, b), bt = baseTrades(a, b); console.log(`  ${a.slice(0, 4)}-${b.slice(0, 4)}: avg trade ${pct(mean(t))} win ${(100 * mean(t.map(x => +(x > 0)))).toFixed(0)}% hit +20% ${(100 * mean(t.map(x => +(x > 0.19)))).toFixed(0)}% n ${t.length} | random stock same rule ${pct(mean(bt))}`); return mean(t) > 0; });
 if (process.env.TARGET === 'trade') console.log(`\n→ TRADE target: top decile beats all-names avg trade in ${tradeYears}/${yrs.length} years; book both halves ${l3.every(Boolean)} → ${tradeYears >= 7 && l3.every(Boolean) ? 'PASS' : 'fail'}`);
 else console.log(`\n→ L1 lift>=1.5 in ${l1}/${yrs.length} years; L2 in ${l2}/${yrs.length}; L3 both halves ${l3.every(Boolean)} → ${l1 >= 7 && l2 >= 7 && l3.every(Boolean) ? 'PASS' : 'fail'}`);
+if (process.env.DECILES === '1') { // POST-HOC (for colour cut-offs): avg trade by score decile, by half
+  for (const [a, b] of halves) { const dec: number[][] = Array.from({ length: 10 }, () => []);
+    for (const p of preds) { if (sessions[p.w.t] < a || sessions[p.w.t] > b) continue; const o = Array.from(p.p.keys()).sort((x, z) => p.p[z] - p.p[x]); o.forEach((i, r) => dec[Math.min(9, Math.floor(10 * r / o.length))].push(p.w.trade[i])); }
+    console.log(`DECILES ${a.slice(0, 4)}-${b.slice(0, 4)} (1 = best): ` + dec.map((d, k) => `${k + 1}:${pct(mean(d))}`).join(' ')); } }
 if (process.env.EXPORT === '1') { const all = fit(weeks.filter(w => w.t + 40 < N)); console.log('\nEXPORT ' + JSON.stringify({ feats: FEATS, trainedOn: `${sessions[weeks[0].t]}..${sessions[weeks[weeks.length - 1].t]}`, weeks: weeks.length, beta: Array.from(all).map(x => +x.toPrecision(6)) })); }
