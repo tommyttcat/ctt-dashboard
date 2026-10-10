@@ -247,9 +247,9 @@ function StockCard({ report: r }: { report: Report }) {
   const tgt = targetOf(r);
   const mv = moveStatus(r);
   const MOVE = {
-    early: { label: "Hasn't moved", border: 'border-emerald-400/45', pill: 'text-emerald-300 bg-emerald-500/15 border-emerald-400/30' },
-    moving: { label: 'Moving', border: 'border-amber-400/45', pill: 'text-amber-300 bg-amber-500/15 border-amber-400/30' },
-    extended: { label: 'Extended — move done', border: 'border-rose-400/45', pill: 'text-rose-300 bg-rose-500/15 border-rose-400/30' },
+    early: { label: "Hasn't moved", pill: 'text-emerald-300 bg-emerald-500/15 border-emerald-400/30' },
+    moving: { label: 'Moving', pill: 'text-amber-300 bg-amber-500/15 border-amber-400/30' },
+    extended: { label: 'Extended — move done', pill: 'text-rose-300 bg-rose-500/15 border-rose-400/30' },
   } as const;
   const mvMeta = mv ? MOVE[mv.state] : null;
   const mvTip = mv ? [
@@ -260,7 +260,7 @@ function StockCard({ report: r }: { report: Report }) {
   /* One size for the whole card (13px); weight and colour carry the
      hierarchy instead. */
   return (
-    <div className={`rounded-2xl border ${mvMeta ? mvMeta.border : 'border-white/[0.08]'} bg-[#0b101a] overflow-hidden min-w-0`}>
+    <div className="rounded-2xl border border-white/[0.08] bg-[#0b101a] overflow-hidden min-w-0">
       <div className={`h-full px-4 py-4 text-[13px] ${tint}`}>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
@@ -480,7 +480,7 @@ export default function ConfluenceReport() {
           <div className="text-[11px] font-bold tracking-widest uppercase text-amber-400/70 mb-1.5">Good to know</div>
           <ul className="text-[12px] text-slate-500 space-y-0.5 list-disc list-inside">
             <li>No buy or stop levels: the ones CTT published lost money live, so the report shows the names and why, not a trade plan.</li>
-            <li>Card outline: green = hasn&apos;t moved (near its 21-day line on a normal day), amber = moving, red = extended (3+ average daily ranges above its 21-day line, 1.5+ ranges up today, or RSI 75+). It describes the stretch; it is not a tested signal. The left edge is still the scan&apos;s green / yellow / red rating.</li>
+            <li>Move label: green = hasn&apos;t moved (near its 21-day line on a normal day), amber = moving, red = extended (3+ average daily ranges above its 21-day line, 1.5+ ranges up today, or RSI 75+). Cards are sorted hasn&apos;t moved first. It describes the stretch; it is not a tested signal. The left edge is the scan&apos;s green / yellow / red rating.</li>
             <li>Support and resistance are the nearest swing lows below and swing highs above the price over the last 60 sessions, within 25%; they may miss some levels.</li>
             <li>Target is the next resistance above (or support below, for a downtrend), or 3 ATR when there is no level within 25%. Untested as an exit: on the scan rows the 5-year replay found a fixed target averaged −0.08% a trade.</li>
             <li>Price data is delayed. Always apply your own risk management.</li>
