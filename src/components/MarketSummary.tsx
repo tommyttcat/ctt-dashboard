@@ -3511,7 +3511,7 @@ export default function MarketSummary() {
                                             ));
                                           };
                                           return (
-                                            <div key={ci} className="space-y-1.5">
+                                            <div key={ci} className="space-y-0.5">
                                               {isHeading ? renderWithSub(rows) : (
                                                 <>{earnHeader}{colLines.map(render)}</>
                                               )}
@@ -3522,7 +3522,7 @@ export default function MarketSummary() {
                                       return (
                                         <>
                                           <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-y-5">
-                                            <div className="space-y-1.5 overflow-hidden md:overflow-x-auto md:overflow-y-hidden pr-4">
+                                            <div className="space-y-0.5 overflow-hidden md:overflow-x-auto md:overflow-y-hidden pr-4">
                                               {renderEconBlock()}
                                             </div>
                                             <div className="hidden md:block w-px bg-white/10 self-stretch" />
@@ -3533,7 +3533,7 @@ export default function MarketSummary() {
                                           {afterCols && (() => {
                                             const acLines = afterCols.trim().split('\n').filter(Boolean);
                                             return (
-                                              <div className="space-y-1.5 mt-4 pt-3 border-t border-white/5">
+                                              <div className="space-y-0.5 mt-4 pt-3 border-t border-white/5">
                                                 {acLines.map((line, li) =>
                                                   renderBodyLine(line, li, false, macroInsights?.gradeMap, macroInsights?.dotMap, macroInsights?.postureMap, macroInsights?.avoidSet, macroInsights?.priceMap, macroInsights?.rsMap, macroInsights?.stageMap, rowEdgeMap, neutralScore)
                                                 )}
@@ -3547,7 +3547,7 @@ export default function MarketSummary() {
                                     return (
                                       <>
                                         {topBlock && (
-                                          <div className="space-y-1.5 mb-4 pb-3 border-b border-white/5">
+                                          <div className="space-y-0.5 mb-4 pb-3 border-b border-white/5">
                                             {(() => {
                                               const tbLines = topBlock.split('\n').filter(Boolean);
                                               let headerInserted = false;
@@ -3656,7 +3656,7 @@ export default function MarketSummary() {
                                               ));
                                             };
                                             return (
-                                              <div key={ci} className="space-y-1.5">
+                                              <div key={ci} className="space-y-0.5">
                                                 {isHeading ? (<>
                                                   <p className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5">{heading.replace(/:$/, '')}</p>
                                                   {renderWithSubHeadings(rows)}
@@ -3686,7 +3686,7 @@ export default function MarketSummary() {
                                           });
                                           if (acCur.rows.length > 0 || acCur.heading) acGroups.push(acCur);
                                           return (
-                                            <div className="space-y-1.5 mt-4 pt-3 border-t border-white/5">
+                                            <div className="space-y-0.5 mt-4 pt-3 border-t border-white/5">
                                               {acGroups.map((g, gi) => (
                                                 <React.Fragment key={gi}>
                                                   {g.heading && <p className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pb-0.5 pt-1">{g.heading}</p>}
@@ -3734,7 +3734,7 @@ export default function MarketSummary() {
                                     const rightIdxs = useTwoCols ? sortedFiltered.slice(mid) : [];
                                     const hdrEl = hasHeader ? <SortableHeader sortKey={ss?.key ?? 'cnf'} sortDir={ss?.dir ?? 'desc'} onSort={(k) => handleSectionSort(sk, k)} isVcp={label === 'VCP Thesis'} /> : null;
                                     return (
-                                      <div className="space-y-1.5">
+                                      <div className="space-y-0.5">
                                         {nonStock.length > 0 && <div className="space-y-1 mb-1">{nonStock}</div>}
                                         {useTwoCols ? (
                                           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
