@@ -1,6 +1,6 @@
 /* scripts/edgeModel.test.mts — model colours with the red override (lib/scans/edge + lib/modelScores). */
 import { edgeTier, swingTier, blendModelMap, modelBand } from '../src/lib/scans/edge.ts';
-import { setModelScores } from '../src/lib/modelScores.ts';
+import { setModelScores } from '../src/lib/modelScoreStore.ts';
 import { eq, done } from './testkit.mts';
 
 eq('no scores: the old rule stands', edgeTier({ ticker: 'AAA', adrPct: 3, price: 50, closeStrength: 0.95 } as any), 'green');

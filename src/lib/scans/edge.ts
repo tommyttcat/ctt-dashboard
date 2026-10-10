@@ -40,7 +40,7 @@ export type EdgeTier = 'green' | 'yellow' | 'red';
    store is empty, so these functions behave exactly as before. The 100-Bagger
    screen (multi-year, fundamentals) keeps its own rule: a 20-day model says
    nothing about it. */
-import { modelScoreOf } from '@/lib/modelScores';
+import { modelScoreOf } from '@/lib/modelScoreStore';
 const tickerOf = (row: unknown): string | undefined => { const r = row as { ticker?: string; symbol?: string; t?: string } | null; return r?.ticker ?? r?.symbol ?? r?.t; };
 export function modelBand(score: number): EdgeTier { return score >= 2 / 3 ? 'green' : score >= 1 / 3 ? 'yellow' : 'red'; }
 export function blendModel(rule: EdgeTier | null, row: unknown): EdgeTier | null {
