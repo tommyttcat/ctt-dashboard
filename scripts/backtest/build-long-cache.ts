@@ -44,38 +44,79 @@ async function main() {
   const overlap = poly.filter(d => d <= '2021-12-31');
   // Polygon closes on the overlap, per ticker
   const polyClose = new Map<string, Map<string, number>>();
-  for (const d of overlap) for (const r of readDay('adj', d)) { let m = polyClose.get(r[0]); if (!m) polyClose.set(r[0], (m = new Map())); m.set(d, r[4]); }
+  const polyReal = new Map<string, Map<string, number>>();
+  for (const d of overlap) {
+    for (const r of readDay('adj', d)) { let m = polyClose.get(r[0]); if (!m) polyClose.set(r[0], (m = new Map())); m.set(d, r[4]); }
+    for (const r of readDay('unadj', d)) { let m = polyReal.get(r[0]); if (!m) polyReal.set(r[0], (m = new Map())); m.set(d, r[4]); }
+  }
+  /* Real (traded) price factor per ticker. Where the ticker overlaps Polygon,
+     the factor at the overlap is Polygon's own unadj / adj ratio, and only
+     splits BEFORE the overlap come from FMP's list — FMP lists some events it
+     never applied to its prices (AMC's 2022 APE unit dividend as a 2:1 split). */
+  const realAt = new Map<string, number>();
 
   const files = fs.readdirSync(path.join(FMP, 'daily')).filter(f => f.endsWith('.json.gz'));
   const scale = new Map<string, number>();
-  const tally = { tickers: files.length, empty: 0, jumpDropped: 0, noOverlap: 0, unstable: 0, scaled: 0, kept: 0, badBars: 0 };
+  const cleaned = new Map<string, D[]>();
+  const tally = { tickers: files.length, empty: 0, jumpDropped: 0, splitFixed: 0, spikeBars: 0, realKept: 0, noOverlap: 0, unstable: 0, scaled: 0, kept: 0, badBars: 0 };
   // Pass 1: per-ticker scale against Polygon
   for (const f of files) {
     const t = f.replace(/\.json\.gz$/, '').replace(/_/g, '/');
     const rows: D[] = gz(path.join(FMP, 'daily', f));
     if (!rows.length) { tally.empty++; continue; }
-    /* Data cleaning (9 Oct 2026, set before any long result was trusted):
-       ~5% of FMP's old series carry broken split adjustments (GOEV, EMITF
-       "rising" 10^12x overnight). A ticker with any one-day close move of 4x
-       or more either way is dropped from the long history entirely. This also
-       drops a few genuine one-day 4x moves (a small bias against lottery
-       tickets, stated). */
-    let jump = false;
-    for (let i = 1; i < rows.length; i++) { const a = rows[i - 1][4], b = rows[i][4]; if (a > 0 && b > 0 && (b / a >= 4 || a / b >= 4)) { jump = true; break; } }
-    if (jump) { tally.jumpDropped++; continue; }
+    /* Data cleaning (rev. 10 Oct 2026). The first version dropped every
+       ticker with a 4x one-day move, which also removed real moonshots (NVAX,
+       AMC) — exactly the names a momentum trader lives on. Now each 4x jump
+       is classified:
+         split   a split in FMP's split history within 5 days whose ratio
+                 matches the jump (within 30%): an unadjusted split. The bars
+                 before it are rescaled instead of dropping the name.
+         spike   the close is back within 1.5x of the pre-jump close within 3
+                 sessions: a bad print. Those bars are dropped.
+         absurd  more than 20x in a day with no split: the series is broken.
+                 The ticker is dropped.
+         real    anything else is kept as a genuine move. */
+    const splitsF = path.join(FMP, 'splits', f);
+    const splitList: [string, number, number][] = fs.existsSync(splitsF) ? gz(splitsF) : [];
+    const badIdx = new Set<number>();
+    let absurd = false;
+    for (let i = 1; i < rows.length; i++) {
+      const a = rows[i - 1][4], b = rows[i][4];
+      if (!(a > 0 && b > 0)) continue;
+      const r = b / a;
+      if (r < 4 && r > 0.25) continue;
+      const d = Date.parse(rows[i][0]);
+      const sp = splitList.find(([sd, num, den]) => Math.abs(Date.parse(sd) - d) <= 5 * 86400000 && num > 0 && den > 0
+        && (Math.abs(Math.log(r) - Math.log(den / num)) < Math.log(1.3) || Math.abs(Math.log(r) - Math.log(num / den)) < Math.log(1.3)));
+      if (sp) {
+        for (let j = 0; j < i; j++) for (let k = 1; k <= 4; k++) rows[j][k] = (rows[j][k] as number) * r;
+        for (let j = 0; j < i; j++) rows[j][5] = (rows[j][5] as number) / r;
+        tally.splitFixed++; continue;
+      }
+      let back = -1;
+      for (let j = i + 1; j <= Math.min(rows.length - 1, i + 3); j++) { const x = rows[j][4] / a; if (x < 1.5 && x > 1 / 1.5) { back = j; break; } }
+      if (back > 0) { for (let j = i; j < back; j++) badIdx.add(j); tally.spikeBars += back - i; continue; }
+      if (r > 20 || r < 1 / 20) { absurd = true; break; }
+      tally.realKept++;
+    }
+    if (absurd) { tally.jumpDropped++; continue; }
+    if (badIdx.size) { const kept = rows.filter((_, j) => !badIdx.has(j)); rows.length = 0; rows.push(...kept); }
     const pc = polyClose.get(t);
     const ratios: number[] = [];
     if (pc) for (const r of rows) { const p = pc.get(r[0]); if (p && r[4] > 0) ratios.push(p / r[4]); }
     if (!ratios.length) {
       // Delisted before Polygon's window (or never in it): nothing to stitch to; keep as is.
       if (rows[rows.length - 1][0] >= first) { tally.noOverlap++; continue; }
-      scale.set(t, 1); tally.kept++; continue;
+      scale.set(t, 1); tally.kept++; cleaned.set(t, rows); continue;
     }
     ratios.sort((a, b) => a - b);
     const med = ratios[ratios.length >> 1];
     if (ratios[ratios.length - 1] / ratios[0] > 1.02) { tally.unstable++; continue; }
     if (Math.abs(med - 1) > 0.005) tally.scaled++;
-    scale.set(t, med); tally.kept++;
+    scale.set(t, med); tally.kept++; cleaned.set(t, rows);
+    const pr = polyReal.get(t); const rr: number[] = [];
+    if (pr && pc) for (const [d, adjC] of pc) { const u = pr.get(d); if (u && adjC > 0) rr.push(u / adjC); }
+    if (rr.length) { rr.sort((a, b) => a - b); realAt.set(t, rr[rr.length >> 1]); }
   }
   console.log('stitch:', tally);
 
@@ -85,14 +126,16 @@ async function main() {
   for (const y of years) {
     const adj = new Map<string, any[]>(), unadj = new Map<string, any[]>();
     for (const [t, k] of scale) {
-      const f = path.join(FMP, 'daily', `${t.replace(/\//g, '_')}.json.gz`);
-      const rows: D[] = gz(f);
+      const rows: D[] = cleaned.get(t)!;
       const splits: [string, number, number][] = fs.existsSync(path.join(FMP, 'splits', `${t.replace(/\//g, '_')}.json.gz`)) ? gz(path.join(FMP, 'splits', `${t.replace(/\//g, '_')}.json.gz`)) : [];
       for (const r of rows) {
         const d = r[0];
         if (d.slice(0, 4) !== y || d >= first) continue;
         if (!(r[1] > 0 && r[2] > 0 && r[3] > 0 && r[4] > 0) || r[2] < r[3] || r[2] / r[3] > 3 || r[4] > r[2] * 1.01 || r[4] < r[3] * 0.99) { tally.badBars++; continue; }
-        let F = 1; for (const [sd, num, den] of splits) if (sd > d && num > 0 && den > 0) F *= num / den;
+        let F = 1;
+        const ra = realAt.get(t);
+        if (ra != null) { F = ra; for (const [sd, num, den] of splits) if (sd > d && sd <= first && num > 0 && den > 0) F *= num / den; }
+        else for (const [sd, num, den] of splits) if (sd > d && num > 0 && den > 0) F *= num / den;
         const o = r[1] * k, h = r[2] * k, l = r[3] * k, c = r[4] * k, v = r[5] / k;
         (adj.get(d) ?? adj.set(d, []).get(d)!).push([t, o, h, l, c, v, null]);
         (unadj.get(d) ?? unadj.set(d, []).get(d)!).push([t, o * F, h * F, l * F, c * F, v / F, null]);
