@@ -103,7 +103,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useModelScores, allModelScores } from '@/lib/modelScores';
 import { blendModelMap } from '@/lib/scans/edge';
-import SystemCard from './SystemCard';
 import { cachedJson, fetchScannerLatest } from '@/lib/scannerLatest';
 import { isTradingDay } from '@/lib/marketCalendar';
 import TickerChartHover, { ActiveChartProvider, WatchlistBtn } from './TickerChartHover';
@@ -2021,7 +2020,6 @@ const MomentumLeaders = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTie
   const half = Math.ceil(rows.length / 2);
   return (
     <div>
-      <SystemCard embedded />
       <div className="flex items-start gap-2 mb-2">
         <p className="text-[10px] text-slate-400 leading-snug flex-1">
           {combined
@@ -2449,7 +2447,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Social Sentiment', color: 'violet', blurb: 'What StockTwits, Reddit and Bluesky are talking about most, and which way they lean. The crowd, not a signal.' },
   { label: 'Liquid Leaders', color: 'cyan', blurb: 'The ~1,000 most traded stocks: which are outrunning the market most, and which trade the heaviest volume.' },
   { label: 'Chart Structure', color: 'teal', blurb: 'The ~1,000 most traded stocks sorted by chart shape: trending, in a channel, in a range, bouncing off support or breaking out. A description, not a signal.' },
-  { label: 'Momentum Leaders', color: 'cyan', blurb: 'The System on top: the 2× QQQ core and the model\'s top 10 of ~2,000 liquid stocks. Below it, the 50 strongest 12-month runs with each name\'s model score (Mdl). Rankings, not a buy list.' },
+  { label: 'Momentum Leaders', color: 'cyan', blurb: 'The 30 strongest 12-month runs, with each name\'s model score (Mdl) and how far it sits below its 12-month high. A ranking, not a buy list.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, and who is on air.' },
   { label: '$Vol Summary', color: 'teal', blurb: 'Top 20 by dollar volume — where the money actually is today.' },
   { label: 'Daily Setups Thesis', color: 'cyan', blurb: 'Day trades vs multi-day swing holds from the daily scanner — sorted by blended score.' },
