@@ -1,5 +1,5 @@
 /* scripts/momentum.test.mts — Momentum Leaders ranking (lib/momentum). */
-import { rankMomentum, suspectJump, rvolOf } from '../src/lib/momentum.ts';
+import { rankMomentum, suspectJump, rvolOf, rulesShortlist } from '../src/lib/momentum.ts';
 import { eq, near, ok, done } from './testkit.mts';
 
 const day = (rows: Record<string, [number, number]>) => new Map(Object.entries(rows).map(([t, [c, v]]) => [t, { c, v }]));
@@ -26,4 +26,15 @@ eq('a 2x move is not flagged', suspectJump([10, 20]), -1);
 eq('rvol needs 21 sessions', rvolOf(new Array(20).fill(100)), null);
 eq('rvol = today / prior 20-session average', rvolOf([...new Array(20).fill(100), 250]), 2.5);
 eq('rvol ignores older sessions', rvolOf([9999, ...new Array(20).fill(100), 100]), 1);
+// rules shortlist: highest 12M first, no Stage 3/4, no red rows
+const sl = [
+  { t: 'TOP', mom: 900, r1m: 0, price: 10, dvol: 1, stage: 'Stage 3B' },
+  { t: 'A', mom: 300, r1m: 0, price: 10, dvol: 1, stage: 'Stage 2A' },
+  { t: 'B', mom: 250, r1m: 0, price: 10, dvol: 1, stage: 'Stage 2C' },
+  { t: 'RED', mom: 280, r1m: 0, price: 10, dvol: 1, stage: 'Stage 2A' },
+  { t: 'C', mom: 200, r1m: 0, price: 10, dvol: 1, stage: null },
+  { t: 'D', mom: 100, r1m: 0, price: 10, dvol: 1, stage: 'Stage 4' },
+];
+eq('shortlist skips stage 3/4 and red, highest 12M first', rulesShortlist(sl, new Set(['RED']), 5).map(r => r.t).join(','), 'A,B,C');
+eq('shortlist caps at n', rulesShortlist(sl, new Set(), 2).map(r => r.t).join(','), 'A,RED');
 done('momentum leaders');

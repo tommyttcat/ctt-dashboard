@@ -182,3 +182,21 @@ export function stepPaper(p: MomentumPaper, date: string, som: number, bars: Map
   p.daily = p.daily.slice(-800);
   p.lastDate = date;
 }
+
+/* ---- Rules shortlist (9 Oct 2026) --------------------------------------------
+   The Momentum Leaders card's top 5, picked mechanically from what held up:
+     - only while the Market exposure rule is in (the caller checks),
+     - highest 12-1 momentum first (the most consistent trait inside the list,
+       scripts/backtest/next-move.ts),
+     - skip Stage 3 / 4 (topping / declining) — a judgement call, NOT tested,
+     - skip names a scan tints red (red was the clearly worst bucket live).
+   Equal weight, re-ranked monthly in the test the list comes from. */
+export const SHORTLIST_N = 5;
+export function rulesShortlist(rows: MomentumRow[], redSet: Set<string> = new Set(), n = SHORTLIST_N): MomentumRow[] {
+  const stageNum = (s?: string | null) => { const m = /([1-4])/.exec(s ?? ''); return m ? +m[1] : null; };
+  return rows
+    .filter(r => { const s = stageNum(r.stage); return s !== 3 && s !== 4; })
+    .filter(r => !redSet.has(r.t))
+    .sort((a, b) => b.mom - a.mom)
+    .slice(0, n);
+}

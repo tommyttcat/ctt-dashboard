@@ -113,6 +113,7 @@ import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
 import type { LeadersLive, LeaderRow } from '@/lib/leaders';
 import type { MomentumList, MomentumRow } from '@/lib/momentum';
+import { rulesShortlist } from '@/lib/momentum';
 import { bullShare, type SentimentLive } from '@/lib/sentiment';
 import { EARLY_PASS_N, type EarlySummary } from '@/lib/earlyTrack';
 
@@ -1298,7 +1299,80 @@ type LiveQuotesView = { live: boolean; asOf: number; session: string; quotes: Re
 const fmtEtClock = (ms: number | null | undefined) =>
   ms ? new Date(ms).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) : '—';
 
-const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter: sf, rsMap, stageMap, topSet, onVisibleChange, orbWatch }: {
+/* ---- RULES (Setups Summary pill, 9 Oct 2026) ------------------------------
+   The Rules shortlist (lib/momentum rulesShortlist): Momentum Leaders' top 5
+   by 12-month return, no Stage 3 / 4, no red rows — shown only while the
+   Market exposure rule is in. Loaded when the pill is tapped: two CDN-cached
+   reads (/api/momentum/latest, /api/exposure/latest), 0 extra KV per viewer
+   beyond the cache misses those routes already have. */
+const RulesShortlist = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => {
+  const [list, setList] = React.useState<MomentumList | null>(null);
+  const [mode, setMode] = React.useState<'in' | 'out' | 'boost' | null>(null);
+  const [failed, setFailed] = React.useState(false);
+  React.useEffect(() => {
+    let on = true;
+    Promise.all([
+      fetch('/api/momentum/latest').then(r => (r.ok ? r.json() : null)),
+      fetch('/api/exposure/latest').then(r => (r.ok ? r.json() : null)),
+    ]).then(([m, e]) => {
+      if (!on) return;
+      if (m?.list) setList(m.list); else setFailed(true);
+      setMode(e?.state?.mode ?? null);
+    }).catch(() => { if (on) setFailed(true); });
+    return () => { on = false; };
+  }, []);
+  if (!list) return <p className="text-[10px] text-slate-500">{failed ? 'The momentum list has not been built yet.' : 'Loading…'}</p>;
+  const red = new Set(Object.entries(edgeMap ?? {}).filter(([, t]) => t === 'red').map(([k]) => k));
+  const picks = rulesShortlist(list.rows, red);
+  const H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
+  const badge = 'inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center';
+  const dash = `${badge} text-slate-600 border-slate-700/40 bg-slate-800/30`;
+  const pctCls = (v: number) => (v >= 0 ? 'text-emerald-400' : 'text-rose-400');
+  const out = mode === 'out';
+  return (
+    <div>
+      <div className="flex items-start gap-2 mb-2">
+        <p className="text-[10px] text-slate-400 leading-snug flex-1">
+          {out
+            ? <><span className="font-bold text-amber-300">Rules say cash.</span> QQQ closed below its 200-day average, so the tested rule holds nothing until it closes back above. The names below are what the list would hold.</>
+            : <><span className="font-bold text-emerald-300">Market: {mode === 'boost' ? 'Boost (150%)' : 'In'}.</span> The top {picks.length} Momentum Leaders by 12-month return, skipping Stage 3 / 4 and red rows. Equal weight, re-ranked monthly. Not advice — expect about QQQ&apos;s return with bigger swings.</>}
+        </p>
+        <InfoDot text={"THE RULES — applied mechanically to data the site already has:\n1. Only while the Market exposure strip says In (QQQ above its 200-day). Out = cash.\n2. From Momentum Leaders, the highest 12-month return first — the most consistent trait inside the list in testing (top third: +1.0 / +3.2 points a month over the rest, both halves).\n3. Skip Stage 3 and 4 (topping / declining). A judgement call, NOT tested.\n4. Skip names a scan tints red — red was the clearly worst bucket live.\n5. Equal weight; re-rank monthly. No entry timing: every entry rule tested on this list (breakouts, pullbacks, opening range, VWAP, selling half) did worse than simply holding.\n\nWHAT TO EXPECT — the list matched QQQ over 2022–26 (+165% vs +166%) with deeper drops (−29% vs −23%). The 200-day rule is the part that beat QQQ. Four years is a short test.\n\nNot advice. Rebuilt each evening from the close."} />
+      </div>
+      <div className={scrollRowCls} style={scrollRowStyle}>
+        <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
+          <span className={`${H} w-[14px] text-right mr-1`}>#</span>
+          <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
+          <span className={`${H} w-[46px] md:w-[52px] text-right ml-1`}>12M</span>
+          <span className={`${H} w-[42px] md:w-[46px] text-right ml-2 md:ml-1`}>1M</span>
+          <span className={`${H} w-[30px] md:w-[36px] text-right ml-2 md:ml-1`}>Surp</span>
+          <span className={`${H} w-[36px] md:w-[42px] text-right ml-2 md:ml-1`}>Prc</span>
+          <span className={`${H} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`}>RS</span>
+          <span className={`${H} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`}>Stg</span>
+        </div>
+      </div>
+      {picks.map((r, i) => (
+        <div key={r.t} className={`${edgeMap?.[r.t] ? `${EDGE_TINT[edgeMap[r.t]]} rounded-sm` : ''} ${out ? 'opacity-50' : ''}`} title={r.n ?? r.t}>
+          <div className={scrollRowCls} style={scrollRowStyle}>
+            <div className="flex items-center whitespace-nowrap py-[1px]">
+              <span className="text-[9px] tabular-nums text-slate-500 w-[14px] text-right mr-1">{i + 1}</span>
+              <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px] mx-0.5`}>{r.t}</span></TickerChartHover>
+              <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${pctCls(r.mom)}`}>{r.mom >= 0 ? '+' : ''}{r.mom.toFixed(0)}%</span>
+              <span className={`text-[9px] tabular-nums inline-block w-[42px] md:w-[46px] text-right ml-2 md:ml-1 ${pctCls(r.r1m)}`}>{r.r1m >= 0 ? '+' : ''}{r.r1m.toFixed(1)}%</span>
+              <span className={`text-[9px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-2 md:ml-1 ${r.sue == null ? 'text-slate-600' : r.sue >= 2 ? 'text-emerald-400' : r.sue > 0 ? 'text-slate-300' : 'text-rose-400'}`}>{r.sue == null ? '—' : `${r.sue >= 0 ? '+' : ''}${r.sue.toFixed(1)}`}</span>
+              <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-2 md:ml-1">{fmtPrc(r.price)}</span>
+              <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{r.rs != null ? <span className={`${badge} ${rsBadge(r.rs)}`}>{r.rs}</span> : <span className={dash}>-</span>}</span>
+              <span className="inline-block w-[22px] md:w-[24px] text-center ml-2 md:ml-1">{r.stage ? <span className={`${badge} ${stageBadge(r.stage)}`}>{stageShort(r.stage)}</span> : <span className={dash}>-</span>}</span>
+            </div>
+          </div>
+        </div>
+      ))}
+      <p className="text-[10px] text-slate-500 font-medium mt-2">Rules shortlist · as of the {list.asOf} close · from Momentum Leaders</p>
+    </div>
+  );
+};
+
+const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter: sf, rsMap, stageMap, topSet, onVisibleChange, orbWatch, edgeMap }: {
   pool: any[];
   gradeMap?: Record<string, 'A' | 'B'>;
   dotMap?: Record<string, 'blue' | 'red'>;
@@ -1310,6 +1384,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
   topSet?: Set<string>;
   onVisibleChange?: (tickers: string[]) => void;
   orbWatch?: OrbWatchStatus | null;
+  edgeMap?: Record<string, EdgeTier>;
 }) => {
   const taggedPool = React.useMemo(() => {
     if (!topSet?.size) return pool;
@@ -1469,11 +1544,16 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
   return (
     <div>
       <div className="flex items-center gap-1.5 flex-wrap mb-2">
+        <button
+          onClick={() => toggle('rules')}
+          title="The Rules shortlist: top 5 Momentum Leaders by 12-month return, no Stage 3/4, no red rows, only while the market strip says In"
+          className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border transition-all duration-150 ${activeKey === 'rules' ? 'text-emerald-300 bg-emerald-500/20 border-emerald-400/40 ring-1 ring-emerald-400/30' : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'}`}
+        >RULES</button>
         {pills(SETUP_SOURCE_FILTERS)}
         {pills(SETUP_PATTERN_FILTERS)}
         {edgePills()}
       </div>
-      {filtered.length === 0 ? (
+      {activeKey === 'rules' ? <RulesShortlist edgeMap={edgeMap} /> : filtered.length === 0 ? (
         <p className="text-[10px] text-slate-500 font-medium">No names match the active filter.</p>
       ) : (
         <>
@@ -3165,6 +3245,7 @@ export default function MarketSummary() {
                                   topSet={macroInsights?.watching?.length ? new Set(macroInsights.watching.map((w: any) => w.symbol)) : undefined}
                                   onVisibleChange={onSetupVisible}
                                   orbWatch={orbWatch}
+                                  edgeMap={macroInsights?.edgeMap}
                                 />
                               ) : isOpen && label === 'Best Setups Today' ? (
                                 <BestSetups watch={orbWatch} />
