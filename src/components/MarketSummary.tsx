@@ -1552,16 +1552,11 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
           title="The Rules shortlist: top 5 Momentum Leaders by 12-month return, no Stage 3/4, no red rows, only while the market strip says In"
           className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border transition-all duration-150 ${activeKey === 'rules' ? 'text-emerald-300 bg-emerald-500/20 border-emerald-400/40 ring-1 ring-emerald-400/30' : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'}`}
         >RULES</button>
-        <button
-          onClick={() => toggle('chart')}
-          title="Chart Structure: the ~1,000 most traded stocks by chart shape — bounces, uptrends, channels, ranges, breakouts, downtrends"
-          className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border transition-all duration-150 ${activeKey === 'chart' ? 'text-teal-200 bg-teal-500/20 border-teal-400/40 ring-1 ring-teal-400/30' : 'text-teal-400 bg-teal-500/10 border-teal-500/20'}`}
-        >CHART</button>
         {pills(SETUP_SOURCE_FILTERS)}
         {pills(SETUP_PATTERN_FILTERS)}
         {edgePills()}
       </div>
-      {activeKey === 'rules' ? <RulesShortlist edgeMap={edgeMap} /> : activeKey === 'chart' ? <ChartStructure edgeMap={edgeMap} /> : filtered.length === 0 ? (
+      {activeKey === 'rules' ? <RulesShortlist edgeMap={edgeMap} /> : filtered.length === 0 ? (
         <p className="text-[10px] text-slate-500 font-medium">No names match the active filter.</p>
       ) : (
         <>
@@ -2444,7 +2439,6 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Top Movers', color: 'emerald', blurb: 'Biggest moves now. Volume-confirmed is tradeable; a thin gap is a fade.' },
   { label: 'Social Sentiment', color: 'violet', blurb: 'What StockTwits, Reddit and Bluesky are talking about most, and which way they lean. The crowd, not a signal.' },
   { label: 'Liquid Leaders', color: 'cyan', blurb: 'The ~1,000 most traded stocks: which are outrunning the market most, and which trade the heaviest volume.' },
-  { label: 'Chart Structure', color: 'teal', blurb: 'The ~1,000 most traded stocks sorted by chart shape: trending, in a channel, in a range, bouncing off support or breaking out. A description, not a signal.' },
   { label: 'Momentum Leaders', color: 'cyan', blurb: 'The 30 strongest 12-month runs, with each name\'s model score (Mdl) and how far it sits below its 12-month high. A ranking, not a buy list.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, and who is on air.' },
   { label: '$Vol Summary', color: 'teal', blurb: 'Top 20 by dollar volume — where the money actually is today.' },
@@ -2523,12 +2517,9 @@ const formatBriefingText = (text: string) => {
 /* Interactive cards render from their own data, not the briefing text, so a
    briefing built before a card existed must not hide it: insert the card's
    placeholder after the one it follows when the text lacks it. */
-const withInteractive = (paras: string[]): string[] => {
-  if (paras.some(p => p.startsWith('Chart Structure:'))) return paras;
-  const i = paras.findIndex(p => p.startsWith('Momentum Leaders:'));
-  if (i < 0) return paras;
-  return [...paras.slice(0, i + 1), 'Chart Structure: interactive', ...paras.slice(i + 1)];
-};
+const withInteractive = (paras: string[]): string[] =>
+  /* Chart Structure card removed 10 Oct 2026: drop its placeholder from briefings built before. */
+  paras.filter(p => !p.startsWith('Chart Structure:'));
 
 const splitBriefingSection = (para: string): { label: string | null; color: string; blurb: string; body: string } => {
   for (const sec of BRIEFING_SECTIONS) {
@@ -2745,7 +2736,7 @@ export default function MarketSummary() {
   const [thesisEdge, setThesisEdge] = useState<Record<string, EdgeTier | null>>({});
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() =>
     new Set([
-      ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Momentum Leaders' && l !== 'Chart Structure'),
+      ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Momentum Leaders'),
       'hrsTop', 'topSetups',
     ])
   );
@@ -2801,7 +2792,7 @@ export default function MarketSummary() {
     if (!mi?.briefing) return;
     if (!k) {
       setCollapsedSections(new Set([
-        ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Momentum Leaders' && l !== 'Chart Structure'),
+        ...BRIEFING_SECTIONS.map(s => s.label).filter(l => l !== 'Setups Summary' && l !== 'Best Setups Today' && l !== 'Top Movers' && l !== 'Liquid Leaders' && l !== 'Momentum Leaders'),
         'hrsTop', 'topSetups',
       ]));
       return;
@@ -3378,8 +3369,6 @@ export default function MarketSummary() {
                                 <SocialSentiment edgeMap={modelEdgeMap} cnfMap={sentCnfMap} />
                               ) : isOpen && label === 'Liquid Leaders' ? (
                                 <LiquidLeaders edgeMap={modelEdgeMap} cnfMap={sentCnfMap} stageMap={macroInsights?.stageMap} newsMap={scanNewsMap} />
-                              ) : isOpen && label === 'Chart Structure' ? (
-                                <ChartStructure edgeMap={modelEdgeMap} />
                               ) : isOpen && label === 'Momentum Leaders' ? (
                                 <MomentumLeaders edgeMap={modelEdgeMap} cnfMap={sentCnfMap} />
                               ) : isOpen && label === 'Top Movers' && moverView === 'early' ? (
