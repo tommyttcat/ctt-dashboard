@@ -88,6 +88,7 @@
 //       unscored name is not evidence of a trend.
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useModelScores } from '@/lib/modelScores';
 import { fetchScannerLatest } from '@/lib/scannerLatest';
 import { useMarketData } from './MarketDataContext';
 import { stageColor} from '@/lib/indicators/stage';
@@ -492,6 +493,8 @@ const rowStatus = (row: StockInPlay): 'Ready' | 'Forming' | null => {
 };
 
 export default function StocksInPlay() {
+  /* Re-render when the model's nightly scores arrive: they re-colour the rows (lib/scans/edge). */
+  useModelScores();
   // Phones: five core columns, tap a row for the rest (components/scan/usePhoneTable).
   const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();

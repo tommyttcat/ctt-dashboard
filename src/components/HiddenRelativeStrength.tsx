@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useModelScores } from '@/lib/modelScores';
 import { cachedJson } from '@/lib/scannerLatest';
 import { useMarketData } from './MarketDataContext';
 import { HRS } from '@/lib/scanConfig';
@@ -128,6 +129,8 @@ function toCatalystRow(row: HrsCandidate): CatalystRow {
 }
 
 export default function HiddenRelativeStrength() {
+  /* Re-render when the model's nightly scores arrive: they re-colour the rows (lib/scans/edge). */
+  useModelScores();
   // Phones: six core columns, tap a row for the rest (components/scan/usePhoneTable).
   const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();

@@ -78,6 +78,7 @@
 //   has been edited since the scan ran, and the key should show the former.
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useModelScores } from '@/lib/modelScores';
 import { cachedJson } from '@/lib/scannerLatest';
 import { useMarketData } from './MarketDataContext';
 import { stageColor} from '@/lib/indicators/stage';
@@ -455,6 +456,8 @@ const ttTooltip = (row: VcpCandidate): string => {
 };
 
 export default function Vcp() {
+  /* Re-render when the model's nightly scores arrive: they re-colour the rows (lib/scans/edge). */
+  useModelScores();
   // Phones: five core columns, tap a row for the rest (components/scan/usePhoneTable).
   const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();

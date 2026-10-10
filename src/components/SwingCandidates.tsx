@@ -125,6 +125,7 @@
 //       exists to prevent.
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useModelScores } from '@/lib/modelScores';
 import { cachedJson } from '@/lib/scannerLatest';
 import { swingTier, SWING_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
@@ -554,6 +555,8 @@ const POSTURE_META: Record<PostureFilterType, { label: string; title: string }> 
 const isReady = (c: SwingCandidate) => c.stochK <= 25 && Math.abs(c.distToEma21) <= 2.5;
 
 export default function SwingCandidates() {
+  /* Re-render when the model's nightly scores arrive: they re-colour the rows (lib/scans/edge). */
+  useModelScores();
   // Phones: five core columns, tap a row for the rest (components/scan/usePhoneTable).
   const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();

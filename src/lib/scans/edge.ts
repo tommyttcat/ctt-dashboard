@@ -30,6 +30,37 @@
 //   hrsTier           Hidden Relative Strength
 
 export type EdgeTier = 'green' | 'yellow' | 'red';
+/* ---- Model colours (10 Oct 2026) -----------------------------------------
+   Rows are coloured by the System model's nightly score (lib/system: a
+   walk-forward ridge over ~27 price / volume features, right way round in 7 of
+   9 unseen years) — top third green, middle yellow, bottom third red — with
+   each scan's own RED rule kept as an override, since those losing traits were
+   the clearest signal live. Names the model did not score (under $20M a day,
+   under a year of history) keep the scan's own colour. On the server the score
+   store is empty, so these functions behave exactly as before. The 100-Bagger
+   screen (multi-year, fundamentals) keeps its own rule: a 20-day model says
+   nothing about it. */
+import { modelScoreOf } from '@/lib/modelScores';
+const tickerOf = (row: unknown): string | undefined => { const r = row as { ticker?: string; symbol?: string; t?: string } | null; return r?.ticker ?? r?.symbol ?? r?.t; };
+export function modelBand(score: number): EdgeTier { return score >= 2 / 3 ? 'green' : score >= 1 / 3 ? 'yellow' : 'red'; }
+export function blendModel(rule: EdgeTier | null, row: unknown): EdgeTier | null {
+  if (rule === 'red') return 'red';
+  const s = modelScoreOf(tickerOf(row));
+  return s == null ? rule : modelBand(s);
+}
+/** A ticker-keyed map (the summary edgeMap) re-coloured the same way. */
+export function blendModelMap(rule: Record<string, EdgeTier> | undefined, scores: Record<string, number> | null): Record<string, EdgeTier> {
+  const out: Record<string, EdgeTier> = {};
+  if (scores) for (const [t, s] of Object.entries(scores)) out[t] = modelBand(s);
+  for (const [t, tier] of Object.entries(rule ?? {})) if (tier === 'red' || out[t] == null) out[t] = tier;
+  return out;
+}
+const MODEL_TIP = {
+  green: "GREEN — top third of the model's nightly score: steady leaders near their highs, above the 200-day, not after a spike. Where the model has no score, this scan's own rule: ",
+  yellow: "YELLOW — middle third of the model's score. Where the model has no score, this scan's own rule: ",
+  red: "RED — the model's bottom third, OR this scan's own red rule (which always wins): ",
+};
+
 
 export interface EdgeInput {
   adrPct?: number | null;
@@ -44,7 +75,7 @@ export interface EdgeInput {
 const num = (v: unknown): number | null =>
   typeof v === 'number' && Number.isFinite(v) ? v : null;
 
-export function edgeTier(row: EdgeInput | null | undefined): EdgeTier | null {
+function edgeTierRule(row: EdgeInput | null | undefined): EdgeTier | null {
   if (!row) return null;
   const adr = num(row.adrPct);
   const price = num(row.price);
@@ -123,7 +154,7 @@ export const MULTIBAGGER_TIP: Record<EdgeTier, string> = {
    A swing setup in a Stage 1 base is a name with nothing behind it yet; the
    scan's own structure gates let those through and they are the only bucket
    that loses. */
-export function swingTier(row: { rsRating?: number | null; mf?: number | null; stage?: string | null } | null | undefined): EdgeTier | null {
+function swingTierRule(row: { rsRating?: number | null; mf?: number | null; stage?: string | null } | null | undefined): EdgeTier | null {
   if (!row) return null;
   const stage = (row.stage || '').trim();
   if (stage.startsWith('Stage 1')) return 'red';
@@ -154,7 +185,7 @@ export const SWING_TIP: Record<EdgeTier, string> = {
    Green is that last row and nothing else — roughly 7% of the table. Red is
    the tight-coil majority and the names repairing from more than 11% off
    their high, which is where the losses concentrated. */
-export function consolidationTier(row: { coilRatio?: number | null; stochK?: number | null; pctOffHigh?: number | null; setupName?: string | null } | null | undefined): EdgeTier | null {
+function consolidationTierRule(row: { coilRatio?: number | null; stochK?: number | null; pctOffHigh?: number | null; setupName?: string | null } | null | undefined): EdgeTier | null {
   if (!row) return null;
   /* Undercut & rally rows (27 Sep 2026): these bands were measured on coils
      and do not describe a shakeout — no tint beats a borrowed one. */
@@ -203,7 +234,7 @@ export const CONSOLIDATION_TIP: Record<EdgeTier, string> = {
    of +50% runs and the worst average. That is the whole character of this
    scan — the lottery-ticket bucket. Red does not mean "will not move", it
    means "pays for the ticket less often than it costs". */
-export function ep9mTier(row: {
+function ep9mTierRule(row: {
   adrPct?: number | null; floatTurnover?: number | null; mktCap?: number | null;
   mf?: number | null; price?: number | null;
 } | null | undefined): EdgeTier | null {
@@ -247,7 +278,7 @@ export const EP9M_TIP: Record<EdgeTier, string> = {
    in the weak first half (-0.25R) while its trailing average was flat — the
    edge lives in the tail, which is an argument for trailing, not for the
    target. Tightness, the thing the pattern is named for, is what loses. */
-export function vcpTier(row: { atrPct?: number | null; stopPct?: number | null; finalDepthPct?: number | null } | null | undefined): EdgeTier | null {
+function vcpTierRule(row: { atrPct?: number | null; stopPct?: number | null; finalDepthPct?: number | null } | null | undefined): EdgeTier | null {
   if (!row) return null;
   const atr = num(row.atrPct);
   if (atr == null) return null;
@@ -278,7 +309,7 @@ export const VCP_TIP: Record<EdgeTier, string> = {
    rules are kept apart. There is no red here: nothing on this scan lost
    consistently, which is also why it reads as a watchlist rather than a
    trade signal. */
-export function hrsTier(row: { price?: number | null } | null | undefined): EdgeTier | null {
+function hrsTierRule(row: { price?: number | null } | null | undefined): EdgeTier | null {
   if (!row) return null;
   const px = num(row.price);
   if (px == null) return null;
@@ -328,4 +359,28 @@ export function tipForScan(source: string | null | undefined, tier: EdgeTier | n
   if (!tier) return undefined;
   const entry = TIER_BY_SOURCE[String(source ?? '')] ?? TIER_BY_SOURCE.daily;
   return entry.tip[tier];
+}
+
+/** edgeTier: the scan's own rule, re-coloured by the model where it scored the name (red rule wins). */
+export function edgeTier(row: Parameters<typeof edgeTierRule>[0]): EdgeTier | null { return blendModel(edgeTierRule(row), row); }
+
+/** swingTier: the scan's own rule, re-coloured by the model where it scored the name (red rule wins). */
+export function swingTier(row: Parameters<typeof swingTierRule>[0]): EdgeTier | null { return blendModel(swingTierRule(row), row); }
+
+/** consolidationTier: the scan's own rule, re-coloured by the model where it scored the name (red rule wins). */
+export function consolidationTier(row: Parameters<typeof consolidationTierRule>[0]): EdgeTier | null { return blendModel(consolidationTierRule(row), row); }
+
+/** ep9mTier: the scan's own rule, re-coloured by the model where it scored the name (red rule wins). */
+export function ep9mTier(row: Parameters<typeof ep9mTierRule>[0]): EdgeTier | null { return blendModel(ep9mTierRule(row), row); }
+
+/** vcpTier: the scan's own rule, re-coloured by the model where it scored the name (red rule wins). */
+export function vcpTier(row: Parameters<typeof vcpTierRule>[0]): EdgeTier | null { return blendModel(vcpTierRule(row), row); }
+
+/** hrsTier: the scan's own rule, re-coloured by the model where it scored the name (red rule wins). */
+export function hrsTier(row: Parameters<typeof hrsTierRule>[0]): EdgeTier | null { return blendModel(hrsTierRule(row), row); }
+
+for (const m of [EDGE_FILTER_TIP, SWING_TIP, CONSOLIDATION_TIP, EP9M_TIP, VCP_TIP, HRS_TIP]) {
+  (m as Record<EdgeTier, string>).green = MODEL_TIP.green + m.green;
+  (m as Record<EdgeTier, string>).yellow = MODEL_TIP.yellow + m.yellow;
+  (m as Record<EdgeTier, string>).red = MODEL_TIP.red + m.red;
 }

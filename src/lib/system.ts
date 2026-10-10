@@ -14,6 +14,9 @@
 // featuresAt() is shared with the backtest, so live scores use the tested code.
 
 export const SYSTEM_KEY = 'system_v1';
+/** Every scored name's percentile (0 = worst, 1 = best), for row colours site-wide. */
+export const SYSTEM_SCORES_KEY = 'system_scores_v1';
+export interface SystemScores { asOf: string; scores: Record<string, number> }
 export const LEVERAGE = 2;
 export const SHORTLIST_N = 10;
 export const MIN_DVOL_PICK = 50e6;

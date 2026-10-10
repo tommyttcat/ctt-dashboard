@@ -70,6 +70,7 @@
 //       only the churners) and is the one worth pressing daily.
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useModelScores } from '@/lib/modelScores';
 import { fetchScannerLatest } from '@/lib/scannerLatest';
 import { useMarketData } from './MarketDataContext';
 import { rmeLabel } from '@/lib/indicators/rme';
@@ -395,6 +396,8 @@ const rowStatus = (row: SetupData): 'Ready' | 'Forming' | null => {
 };
 
 export default function DailySetups() {
+  /* Re-render when the model's nightly scores arrive: they re-colour the rows (lib/scans/edge). */
+  useModelScores();
   // Phones: five core columns, tap a row for the rest (components/scan/usePhoneTable).
   const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();

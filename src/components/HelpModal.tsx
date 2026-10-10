@@ -206,6 +206,13 @@ function ColourRules() {
     <>
       <H>Row Colours</H>
       <P>
+        <strong className="text-slate-200">Since 10 Oct 2026 the colours come from the System model</strong>: every liquid stock
+        ($20M+ a day, a year of history) is scored each evening on ~27 price and volume measures — top third green, middle
+        yellow, bottom third red. Trained only on earlier years, it ranked stocks the right way round in 7 of 9 unseen years (a
+        small, real edge). Each scan&apos;s own red rule below still wins, because those losing traits were the clearest signal
+        live. Names the model doesn&apos;t score, and the 100-Bagger screen, keep the rules below.
+      </P>
+      <P>
         Each scan has its own colour rules, taken from its own backtest (Sep 2022 – Sep 2026). Only
         traits that held in both halves of the test are used. The rules differ on purpose: a trait that pays on
         one scan can be the losing one on another. Returns are % per trade, held 20 sessions, unless stated.

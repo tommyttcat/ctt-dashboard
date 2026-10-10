@@ -101,6 +101,8 @@
    sideways to read one. */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useModelScores, allModelScores } from '@/lib/modelScores';
+import { blendModelMap } from '@/lib/scans/edge';
 import { cachedJson, fetchScannerLatest } from '@/lib/scannerLatest';
 import { isTradingDay } from '@/lib/marketCalendar';
 import TickerChartHover, { ActiveChartProvider, WatchlistBtn } from './TickerChartHover';
@@ -1604,7 +1606,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
             <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-400/30" />yellow</span>
             <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-rose-500/30" />red</span>
             <span className="absolute bottom-full left-0 mb-2 w-72 px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 font-normal whitespace-normal opacity-0 pointer-events-none group-hover/edge:opacity-100 transition-opacity z-[9999]">
-              This card shows only the green rows: names that closed in the top 10% of the day&apos;s range (+2.50% a trade held 20 sessions) AND avoided the two filters that lost money in both periods of the 5-year backtest — ADR above 9% (−5.05%) and price $5–10 (−2.17%). The individual scan cards still show everything, tinted green/yellow/red.
+              Row colours come from the System model&apos;s nightly score: top third green, middle yellow, bottom third red (steady leaders near their highs, above the 200-day, not after a spike score best). Each scan&apos;s own red rule — wild daily range, $5–10 on the momentum scans, a Stage 1 base on swing, tight coils on 10/21 — always wins. Names the model did not score keep their scan&apos;s colour. Opens on green.
             </span>
           </p>
         </>
@@ -2704,8 +2706,11 @@ interface HrsRow {
 }
 
 export default function MarketSummary() {
+  /* The model's nightly scores re-colour every summary row (lib/scans/edge blendModelMap). */
+  const modelV = useModelScores();
   const [data, setData] = useState<SummaryData | null>(null);
   const [macroInsights, setMacroInsights] = useState<MacroInsights | null>(null);
+  const modelEdgeMap = React.useMemo(() => blendModelMap(macroInsights?.edgeMap, allModelScores()), [macroInsights, modelV]); // eslint-disable-line react-hooks/exhaustive-deps
   const [orbWatch, setOrbWatch] = useState<OrbWatchStatus | null>(null);
   const [earlyNight, setEarlyNight] = useState<EarlyNight | null>(null);
   /* When each card's scan last ran, shown as "as of" in its header: the rows'
@@ -3152,7 +3157,7 @@ export default function MarketSummary() {
                             : label in thesisEdge ? thesisEdge[label]
                             : secCounts.green > 0 ? 'green' : null;
                           const edgeOk = (t: string) => !activeEdge || secEdge?.[t] === activeEdge;
-                          const rowEdgeMap = secEdge ?? macroInsights?.edgeMap;
+                          const rowEdgeMap = secEdge ?? modelEdgeMap;
                           const neutralScore = label === 'EP9M Thesis' || label === 'Reversal Swing Thesis';
                           const copyTickers = activeEdge ? bodyTickers.filter(edgeOk) : bodyTickers;
                           const sectionAligns = !!label && ALIGNED_SECTIONS.has(label);
@@ -3362,18 +3367,18 @@ export default function MarketSummary() {
                                   topSet={macroInsights?.watching?.length ? new Set(macroInsights.watching.map((w: any) => w.symbol)) : undefined}
                                   onVisibleChange={onSetupVisible}
                                   orbWatch={orbWatch}
-                                  edgeMap={macroInsights?.edgeMap}
+                                  edgeMap={modelEdgeMap}
                                 />
                               ) : isOpen && label === 'Best Setups Today' ? (
                                 <BestSetups watch={orbWatch} />
                               ) : isOpen && label === 'Social Sentiment' ? (
-                                <SocialSentiment edgeMap={macroInsights?.edgeMap} cnfMap={sentCnfMap} />
+                                <SocialSentiment edgeMap={modelEdgeMap} cnfMap={sentCnfMap} />
                               ) : isOpen && label === 'Liquid Leaders' ? (
-                                <LiquidLeaders edgeMap={macroInsights?.edgeMap} cnfMap={sentCnfMap} stageMap={macroInsights?.stageMap} newsMap={scanNewsMap} />
+                                <LiquidLeaders edgeMap={modelEdgeMap} cnfMap={sentCnfMap} stageMap={macroInsights?.stageMap} newsMap={scanNewsMap} />
                               ) : isOpen && label === 'Chart Structure' ? (
-                                <ChartStructure edgeMap={macroInsights?.edgeMap} />
+                                <ChartStructure edgeMap={modelEdgeMap} />
                               ) : isOpen && label === 'Momentum Leaders' ? (
-                                <MomentumLeaders edgeMap={macroInsights?.edgeMap} cnfMap={sentCnfMap} />
+                                <MomentumLeaders edgeMap={modelEdgeMap} cnfMap={sentCnfMap} />
                               ) : isOpen && label === 'Top Movers' && moverView === 'early' ? (
                                 <EarlyMovers pool={macroInsights?.earlyPool ?? []} night={earlyNight} onVisibleChange={onMoverVisible} />
                               ) : isOpen && label === 'Sector Performance' ? (

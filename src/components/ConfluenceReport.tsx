@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useModelScores } from '@/lib/modelScores';
 import { ThemeToggle } from './ThemeProvider';
 import DashNav from './DashNav';
 import { edgeTier, EDGE_FILTER_TIP } from '@/lib/scans/edge';
@@ -315,6 +316,8 @@ function StockCard({ report: r }: { report: Report }) {
 // ---- main page --------------------------------------------------------------
 
 export default function ConfluenceReport() {
+  /* Re-render when the model's nightly scores arrive: they re-colour the rows (lib/scans/edge). */
+  useModelScores();
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastScan, setLastScan] = useState<number | null>(null);

@@ -64,6 +64,7 @@
 //       would let the eye take one without the other.
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useModelScores } from '@/lib/modelScores';
 import { cachedJson } from '@/lib/scannerLatest';
 import { useMarketData } from './MarketDataContext';
 import { stageColor, stageShort} from '@/lib/indicators/stage';
@@ -462,6 +463,8 @@ const above21 = (c: Ep9mCandidate) => c.aboveEma21 ?? (c.distToEma21 != null ? c
 const above10 = (c: Ep9mCandidate) => c.aboveEma10 ?? (c.distToEma10 != null ? c.distToEma10 >= 0 : null);
 
 export default function Ep9m() {
+  /* Re-render when the model's nightly scores arrive: they re-colour the rows (lib/scans/edge). */
+  useModelScores();
   // Phones: five core columns, tap a row for the rest (components/scan/usePhoneTable).
   const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();

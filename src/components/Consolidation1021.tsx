@@ -100,6 +100,7 @@
 //       looks at 60 days so it does not cover this).
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useModelScores } from '@/lib/modelScores';
 import { consolidationTier, CONSOLIDATION_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import { cachedJson } from '@/lib/scannerLatest';
@@ -503,6 +504,8 @@ const above21 = (c: ConsolidationCandidate) => c.aboveEma21 ?? (c.distToEma21 !=
 const above10 = (c: ConsolidationCandidate) => c.aboveEma10 ?? (c.distToEma10 != null ? c.distToEma10 >= 0 : null);
 
 export default function Consolidation1021() {
+  /* Re-render when the model's nightly scores arrive: they re-colour the rows (lib/scans/edge). */
+  useModelScores();
   // Phones: five core columns, tap a row for the rest (components/scan/usePhoneTable).
   const phoneTableRef = usePhoneTable();
   const { session } = useMarketData();
