@@ -98,6 +98,13 @@ export function prefix(a: Float32Array, f: (x: number, j: number) => number): { 
 export const mean = (p: { sum: Float64Array; nan: Int32Array }, from: number, to: number) =>
   p.nan[to + 1] - p.nan[from] > 0 ? NaN : (p.sum[to + 1] - p.sum[from]) / (to - from + 1);
 
+let qEma: Float64Array | null = null;
+function qEma21Ok(c: BarCache, s: number): boolean {
+  const id = c.idOf.get('QQQ')!;
+  if (!qEma) { qEma = new Float64Array(c.sessions.length); let e = c.C[id][0]; for (let i = 0; i < c.sessions.length; i++) { e = c.C[id][i] * (2 / 22) + e * (20 / 22); qEma[i] = e; } }
+  return c.C[id][s] > qEma[s];
+}
+
 export function qqqFilter(c: BarCache): boolean[] {
   const id = c.idOf.get('QQQ');
   if (id === undefined) throw new Error('QQQ missing from cache');
@@ -350,6 +357,10 @@ function run() {
     if (!mins.length) { tally.nominute = (tally.nominute ?? 0) + 1; continue; }
     const t = simulate(c, g, mins);
     if (typeof t === 'string') { tally[t] = (tally[t] ?? 0) + 1; continue; }
+    /* MKT=ema21 (added 10 Oct 2026, user: "KQ didn't trade if QQQ was below the
+       21-day"): the market filter becomes QQQ's close above its 21-day EMA at the
+       setup close, replacing the 10-over-20 rule. */
+    if (process.env.MKT === 'ema21') t.mkt = qEma21Ok(c, t.ei - 1);
     trades.push(t);
   }
   if (process.env.STOCKS !== '1') fs.writeFileSync(path.join(REPLAY, 'kq_trades.jsonl'), trades.map(t => JSON.stringify(t)).join('\n') + '\n');
