@@ -18,14 +18,32 @@ export const DATA = path.resolve(APP, '../backtest-data');
 
 export type Row = [string, number, number, number, number, number, number | null]; // T o h l c v vw
 
+/* LONG=1 (9 Oct 2026) adds the FMP 2015-2021 sessions written by
+   build-long-cache.ts (grouped_fmp/) in front of the Polygon ones. Off by
+   default, so every earlier script reproduces exactly. */
+export const LONG = process.env.LONG === '1';
+const FMP_ROOT = path.join(DATA, 'grouped_fmp');
+let fmpDays: Set<string> | null = null;
+const fmpHas = (date: string) => {
+  if (!LONG) return false;
+  if (!fmpDays) {
+    fmpDays = new Set();
+    const root = path.join(FMP_ROOT, 'adj');
+    if (fs.existsSync(root)) for (const y of fs.readdirSync(root)) for (const f of fs.readdirSync(path.join(root, y))) if (f.endsWith('.json.gz')) fmpDays.add(f.slice(0, 10));
+  }
+  return fmpDays.has(date);
+};
+
 export function readDay(kind: 'adj' | 'unadj', date: string): Row[] {
-  const file = path.join(DATA, 'grouped', kind, date.slice(0, 4), `${date}.json.gz`);
+  const base = fmpHas(date) ? FMP_ROOT : path.join(DATA, 'grouped');
+  const file = path.join(base, kind, date.slice(0, 4), `${date}.json.gz`);
   return JSON.parse(zlib.gunzipSync(fs.readFileSync(file)).toString()).rows;
 }
 
 export function listSessions(): string[] {
   const root = path.join(DATA, 'grouped', 'adj');
   const out: string[] = [];
+  if (LONG) { fmpHas(''); out.push(...[...fmpDays!].sort()); }
   for (const year of fs.readdirSync(root).sort()) {
     for (const f of fs.readdirSync(path.join(root, year)).sort()) {
       if (!f.endsWith('.json.gz')) continue;
@@ -35,6 +53,7 @@ export function listSessions(): string[] {
       if (!fs.existsSync(path.join(DATA, 'grouped', 'unadj', year, f))) {
         throw new Error(`unadj file missing for ${f.slice(0, 10)} — finish the download first`);
       }
+      if (out.length && f.slice(0, 10) <= out[out.length - 1]) continue;
       out.push(f.slice(0, 10));
     }
   }
