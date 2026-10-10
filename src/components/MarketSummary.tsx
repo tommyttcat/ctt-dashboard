@@ -1550,11 +1550,16 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
           title="The Rules shortlist: top 5 Momentum Leaders by 12-month return, no Stage 3/4, no red rows, only while the market strip says In"
           className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border transition-all duration-150 ${activeKey === 'rules' ? 'text-emerald-300 bg-emerald-500/20 border-emerald-400/40 ring-1 ring-emerald-400/30' : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'}`}
         >RULES</button>
+        <button
+          onClick={() => toggle('chart')}
+          title="Chart Structure: the ~1,000 most traded stocks by chart shape — bounces, uptrends, channels, ranges, breakouts, downtrends"
+          className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border transition-all duration-150 ${activeKey === 'chart' ? 'text-teal-200 bg-teal-500/20 border-teal-400/40 ring-1 ring-teal-400/30' : 'text-teal-400 bg-teal-500/10 border-teal-500/20'}`}
+        >CHART</button>
         {pills(SETUP_SOURCE_FILTERS)}
         {pills(SETUP_PATTERN_FILTERS)}
         {edgePills()}
       </div>
-      {activeKey === 'rules' ? <RulesShortlist edgeMap={edgeMap} /> : filtered.length === 0 ? (
+      {activeKey === 'rules' ? <RulesShortlist edgeMap={edgeMap} /> : activeKey === 'chart' ? <ChartStructure edgeMap={edgeMap} /> : filtered.length === 0 ? (
         <p className="text-[10px] text-slate-500 font-medium">No names match the active filter.</p>
       ) : (
         <>
@@ -1861,19 +1866,7 @@ const ChartStructure = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => 
   const rows = st.rows.filter(vdef.match).sort((a, b) => (b.fit ?? 0) - (a.fit ?? 0));
   const H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
   const lvl = (v: number | null) => (v == null ? '—' : fmtPrc(v));
-  return (
-    <div>
-      <div className="flex items-start gap-2 mb-2">
-        <div className="flex items-center gap-1.5 flex-wrap flex-1">
-          {STRUCT_VIEWS.map(v => (
-            <button key={v.key} onClick={() => setView(v.key)} title={v.tip}
-              className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border transition-all duration-150 ${cur === v.key ? 'text-teal-200 bg-teal-500/20 border-teal-400/40 ring-1 ring-teal-400/30' : counts[v.key] > 0 ? 'text-teal-400 bg-teal-500/10 border-teal-500/20' : 'text-slate-600 bg-transparent border-white/5'}`}>
-              {v.label} {counts[v.key]}
-            </button>
-          ))}
-        </div>
-        <InfoDot text={"WHAT IT IS — each of the ~1,000 most traded NASDAQ / NYSE stocks ($10+, $100M+ a day), sorted by the shape of its last six months.\n\nSHAPE — a straight line is fitted through 126 daily closes on a log scale. SLOPE is its rise or fall per month; FIT is how closely price hugs it (1 = dead straight). UP / DN = trending +/−3% a month or more with a fit of 0.6+. CH↑ / CH↓ = a trend whose highs and lows both keep touching parallel lines. RNG = sideways for 60 sessions between a clear high and low.\n\nPOS — where today's close sits in the channel, in standard deviations from the line (−1 = at the lower line, +1 = at the upper). SUP / RES — the lower and upper lines today (the range low / high for ranges).\n\nBOUNCES — today's low reached support and the close came back into the upper half of the day. BREAKOUTS — a range name closing above its 60-session high.\n\nWHAT THE TESTS SAY — a description, not a signal. Buying rising-trendline touches with a stop under the line made 0.00% a trade against QQQ's +0.53% over the same windows (scripts/backtest/trendline.ts). Inside the Momentum Leaders list, position in the channel and the number of support touches did not predict the next month consistently; the steadiest trends did a little better than the jumpiest, but nothing passed.\n\nRow colour — the scan cards' green / yellow / red, for names a scan carries today. Rebuilt each evening from the close."} />
-      </div>
+  const header = (
       <div className={scrollRowCls} style={scrollRowStyle}>
         <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
           <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
@@ -1887,8 +1880,8 @@ const ChartStructure = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => 
           <span className={`${H} w-[40px] md:w-[44px] text-right ml-2 md:ml-1`}>Res</span>
         </div>
       </div>
-      <div className="max-h-[320px] overflow-y-auto">
-        {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">None today.</p> : rows.map(r => {
+  );
+  const rowEl = (r: StructureRow) => {
           const sh = r.shape ? SHAPE_LABEL[r.shape] : null;
           const edge = edgeMap?.[r.t] ?? null;
           return (
@@ -1908,8 +1901,27 @@ const ChartStructure = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => 
               </div>
             </div>
           );
-        })}
+        };
+  const half = Math.ceil(rows.length / 2);
+  return (
+    <div>
+      <div className="flex items-start gap-2 mb-2">
+        <div className="flex items-center gap-1.5 flex-wrap flex-1">
+          {STRUCT_VIEWS.map(v => (
+            <button key={v.key} onClick={() => setView(v.key)} title={v.tip}
+              className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border transition-all duration-150 ${cur === v.key ? 'text-teal-200 bg-teal-500/20 border-teal-400/40 ring-1 ring-teal-400/30' : counts[v.key] > 0 ? 'text-teal-400 bg-teal-500/10 border-teal-500/20' : 'text-slate-600 bg-transparent border-white/5'}`}>
+              {v.label} {counts[v.key]}
+            </button>
+          ))}
+        </div>
+        <InfoDot text={"WHAT IT IS — each of the ~1,000 most traded NASDAQ / NYSE stocks ($10+, $100M+ a day), sorted by the shape of its last six months.\n\nSHAPE — a straight line is fitted through 126 daily closes on a log scale. SLOPE is its rise or fall per month; FIT is how closely price hugs it (1 = dead straight). UP / DN = trending +/−3% a month or more with a fit of 0.6+. CH↑ / CH↓ = a trend whose highs and lows both keep touching parallel lines. RNG = sideways for 60 sessions between a clear high and low.\n\nPOS — where today's close sits in the channel, in standard deviations from the line (−1 = at the lower line, +1 = at the upper). SUP / RES — the lower and upper lines today (the range low / high for ranges).\n\nBOUNCES — today's low reached support and the close came back into the upper half of the day. BREAKOUTS — a range name closing above its 60-session high.\n\nWHAT THE TESTS SAY — a description, not a signal. Buying rising-trendline touches with a stop under the line made 0.00% a trade against QQQ's +0.53% over the same windows (scripts/backtest/trendline.ts). Inside the Momentum Leaders list, position in the channel and the number of support touches did not predict the next month consistently; the steadiest trends did a little better than the jumpiest, but nothing passed.\n\nRow colour — the scan cards' green / yellow / red, for names a scan carries today. Rebuilt each evening from the close."} />
       </div>
+      {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">None today.</p> : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-2">
+          <div className="min-w-0">{header}<div className="max-h-[320px] overflow-y-auto">{rows.slice(0, half).map(rowEl)}</div></div>
+          <div className="min-w-0"><div className="hidden lg:block">{header}</div><div className="max-h-[320px] overflow-y-auto">{rows.slice(half).map(rowEl)}</div></div>
+        </div>
+      )}
       <p className="text-[10px] text-slate-500 font-medium mt-2">{st.rows.length} of {st.universe} liquid names have a clear shape · as of the {st.asOf} close · sorted by fit</p>
     </div>
   );

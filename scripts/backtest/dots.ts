@@ -49,7 +49,7 @@ const mk = (): Acc => ({ n: 0, s: HOLDS.map(() => 0) });
 const keys = ['base', 'SITE blue', 'SITE red', 'WISH blue', 'WISH red'];
 const subsets = ['all', 'uptrend', 'market on'];
 const acc: Record<string, Acc[][]> = {};   // key|subset -> [half][]
-for (const k of keys) for (const s of subsets) acc[`${k}|${s}`] = [[mk()], [mk()]].map(x => x) as unknown as Acc[][];
+for (const k of keys) for (const s of subsets) acc[`${k}|${s}`] = [mk(), mk()] as unknown as Acc[][];
 const get = (k: string, s: string, h: number): Acc => (acc[`${k}|${s}`] as unknown as Acc[])[h];
 
 for (let id = 0; id < syms.length; id++) {
