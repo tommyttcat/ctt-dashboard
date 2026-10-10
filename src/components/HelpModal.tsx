@@ -206,6 +206,14 @@ function ColourRules() {
     <>
       <H>Row Colours</H>
       <P>
+        <strong className="text-slate-200">One rule on every card (since 10 Oct 2026): green = go, yellow = look, red = stay away.</strong>{' '}
+        Each evening a trade model scores ~2,000 liquid stocks on the expected result of a simple trade from the close
+        (+20% target, −10% stop, out after 40 days). Green is its top 30%, yellow the middle 40%, red the bottom 30%. On
+        years it never saw (2018–2026) its top 10% beat the average trade in 8 of 9 years, and the average trade fell
+        steadily from the top band to the bottom in both halves. Each scan&apos;s own red rule below still wins. Names the
+        model doesn&apos;t score (under $20M a day or under a year of history) keep the rules below.
+      </P>
+      <P>
         Each scan has its own colour rules, taken from its own backtest (Sep 2022 – Sep 2026). Only
         traits that held in both halves of the test are used. The rules differ on purpose: a trait that pays on
         one scan can be the losing one on another. Returns are % per trade, held 20 sessions, unless stated.

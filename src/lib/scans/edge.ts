@@ -38,14 +38,15 @@ export type EdgeTier = 'green' | 'yellow' | 'red';
    the clearest signal live. Names the model did not score (under $20M a day,
    under a year of history) keep the scan's own colour. On the server the score
    store is empty, so these functions behave exactly as before. The 100-Bagger
-   screen (multi-year, fundamentals) keeps its own rule: a 20-day model says
-   nothing about it. */
+   screen now takes the model colours too (universal, by request). */
 import { modelScoreOf } from '@/lib/modelScoreStore';
-/* Off since 10 Oct 2026 at the user's request (the average-return model's colours fought
-   a momentum trader's read). Flip back on when a model's colours are wanted again. */
-export const MODEL_COLOURS = false;
+/* ON (10 Oct 2026, evening): colours now come from the GO model (lib/system scoreGo —
+   the expected result of a +20% / -10% / 40-session trade), universal across every card:
+   GREEN = go (top 30%), YELLOW = look (middle 40%), RED = stay away (bottom 30%, or any
+   scan's own red rule). The earlier average-return model's colours were switched off. */
+export const MODEL_COLOURS = true;
 const tickerOf = (row: unknown): string | undefined => { const r = row as { ticker?: string; symbol?: string; t?: string } | null; return r?.ticker ?? r?.symbol ?? r?.t; };
-export function modelBand(score: number): EdgeTier { return score >= 2 / 3 ? 'green' : score >= 1 / 3 ? 'yellow' : 'red'; }
+export function modelBand(score: number): EdgeTier { return score >= 0.7 ? 'green' : score >= 0.3 ? 'yellow' : 'red'; }
 export function blendModel(rule: EdgeTier | null, row: unknown): EdgeTier | null {
   if (!MODEL_COLOURS || rule === 'red') return rule;
   const s = modelScoreOf(tickerOf(row));
@@ -60,9 +61,9 @@ export function blendModelMap(rule: Record<string, EdgeTier> | undefined, scores
   return out;
 }
 const MODEL_TIP = {
-  green: "GREEN — top third of the model's nightly score: steady leaders near their highs, above the 200-day, not after a spike. Where the model has no score, this scan's own rule: ",
-  yellow: "YELLOW — middle third of the model's score. Where the model has no score, this scan's own rule: ",
-  red: "RED — the model's bottom third, OR this scan's own red rule (which always wins): ",
+  green: "GO — top 30% of the trade model (expected result of a +20% target / −10% stop / 40-day trade). In testing on unseen years this band averaged +0.9-1.2% a trade (2018-21) and +0.2-0.5% (2022-26). Where the model has no score, this scan's own rule: ",
+  yellow: "LOOK — the middle 40% of the trade model: around break-even in testing. Where the model has no score, this scan's own rule: ",
+  red: "STAY AWAY — the trade model's bottom 30% (−0.4% to −1.6% a trade in testing), OR this scan's own red rule, which always wins: ",
 };
 
 
@@ -124,7 +125,7 @@ export const EDGE_FILTER_TIP: Record<EdgeTier, string> = {
 
    So the letter the screen is named for actually works — but only in the
    boring growth band, and only at the small end. */
-export function multibaggerTier(row: { revGrowthPct?: number | null; marketCap?: number | null } | null | undefined): EdgeTier | null {
+function multibaggerTierRule(row: { revGrowthPct?: number | null; marketCap?: number | null } | null | undefined): EdgeTier | null {
   if (!row) return null;
   const g = num(row.revGrowthPct);
   const cap = num(row.marketCap);
@@ -383,8 +384,11 @@ export function vcpTier(row: Parameters<typeof vcpTierRule>[0]): EdgeTier | null
 /** hrsTier: the scan's own rule, re-coloured by the model where it scored the name (red rule wins). */
 export function hrsTier(row: Parameters<typeof hrsTierRule>[0]): EdgeTier | null { return blendModel(hrsTierRule(row), row); }
 
-if (MODEL_COLOURS) for (const m of [EDGE_FILTER_TIP, SWING_TIP, CONSOLIDATION_TIP, EP9M_TIP, VCP_TIP, HRS_TIP]) {
+if (MODEL_COLOURS) for (const m of [EDGE_FILTER_TIP, SWING_TIP, CONSOLIDATION_TIP, EP9M_TIP, VCP_TIP, HRS_TIP, MULTIBAGGER_TIP]) {
   (m as Record<EdgeTier, string>).green = MODEL_TIP.green + m.green;
   (m as Record<EdgeTier, string>).yellow = MODEL_TIP.yellow + m.yellow;
   (m as Record<EdgeTier, string>).red = MODEL_TIP.red + m.red;
 }
+
+/** multibaggerTier: universal model colours too (user, 10 Oct: colours should be universal). */
+export function multibaggerTier(row: Parameters<typeof multibaggerTierRule>[0]): EdgeTier | null { return blendModel(multibaggerTierRule(row), row); }

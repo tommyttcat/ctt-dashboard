@@ -14,7 +14,7 @@
 // featuresAt() is shared with the backtest, so live scores use the tested code.
 
 export const SYSTEM_KEY = 'system_v1';
-/** Every scored name's percentile (0 = worst, 1 = best), for row colours site-wide. */
+/** Every scored name's GO-model percentile (0 = worst, 1 = best), for row colours site-wide. */
 export const SYSTEM_SCORES_KEY = 'system_scores_v1';
 export interface SystemScores { asOf: string; scores: Record<string, number> }
 export const LEVERAGE = 2;
@@ -23,6 +23,15 @@ export const MIN_DVOL_PICK = 50e6;
 export const FEATS = ["r5", "r21", "r63", "r126", "mom", "vol20", "vol60", "adr", "smooth", "off52", "vs20", "vs50", "vs200", "slope50", "rvol1", "rvol5", "chg1", "atrExp", "closeStr", "gap", "rsi", "max21", "min21", "logDvol", "beta", "logPx", "offLow20", "secMom", "relSec"] as const;
 const F = FEATS.length;
 const BETA = [2.36156e-05, -0.0138996, -0.00569994, -0.0131359, -0.00666106, -0.00223766, 0.00887931, 0.0134461, -0.00896412, 0.0135414, 0.0276815, 8.24731e-05, 0.00469604, 0.0110611, -0.0142097, 0.0063631, 0.000509765, 0.00646796, -0.0039605, -0.000759493, 0.00496864, -0.000156974, -0.00317803, 0.0052939, 0.0014516, 0.00406233, 0.0148739, -0.00386386, 0, 0, -0.00778085, -0.00622687, -0.00795606, -0.00898219, 0.00137238, -0.0172202, -0.0159748, -0.0169689, -0.0136283, -0.0165607, -0.00573775, -0.00260067, -0.0068651, -0.0102235, -0.00945193, -0.0114331, -0.00879753, -0.00706442, 0.00021837, -0.000494252, 0.00119601, -0.0115476, -0.0224966, 0.00461351, 0.00311054, -0.0106064, -0.0092428, 1.65925e-15, 1.65925e-15];
+/* GO model (10 Oct 2026, scripts/backtest/runner-model.ts TARGET=trade NOSEC=1): the same
+   features, trained on the RESULT of a +20% target / -10% stop / 40-session trade from the
+   close. Walk-forward 2018-2026 it PASSED its pre-registered bar: the top decile beat the
+   average trade in 8 of 9 unseen years; its top 10 a week averaged +1.71% (2018-21) and
+   +0.49% (2022-26) a trade after costs vs +0.34% / -0.08% for a random stock. Average trade
+   by score decile fell steadily from best to worst in both halves — the basis of the
+   site's colours (top 30% go, middle 40% look, bottom 30% stay away). Fitted on every week
+   2016-01-04..2026-07-14 (530 weeks); frozen. */
+const BETA_GO = [2.52231e-05, -0.0103635, -0.010472, -0.0128317, -0.00439529, -0.012867, 0.00388619, -0.00614373, -0.0388361, 0.0103892, 0.0360789, 0.00319015, 0.0102304, 0.0130433, -0.0102058, -0.00160283, 0.00944212, 0.00852838, -0.0049249, -0.00455962, 0.0014552, -0.000198835, -0.00823278, 0.00201556, 0.00175423, -0.000643904, 0.0127123, -0.00646824, 0, 0, -0.00909259, -0.00386621, -0.0125136, -0.0162157, -0.00565154, -0.0172791, -0.0152221, -0.0198935, -0.0119183, -0.0187832, -0.0074952, -0.00466482, -0.0130208, -0.0134294, -0.000731991, -0.00446203, -0.0108262, -0.00435906, -0.00163301, -0.0071739, -0.00108454, -0.00728185, -0.0125752, 0.00593002, 0.000513858, -0.0114396, -0.00737307, 1.85639e-15, 1.85639e-15];
 const SECTOR_FROM = 27;   // secMom, relSec: not used live (left at 0, as NOSEC=1 trained it)
 
 export interface Bars { o: ArrayLike<number>; h: ArrayLike<number>; l: ArrayLike<number>; c: ArrayLike<number>; v: ArrayLike<number> }
@@ -69,11 +78,13 @@ export function rankFeatures(rows: number[][]): Float32Array {
 }
 
 /** Model score for row i of ranked X (higher = better expected next-20-session rank). */
-export function scoreRow(X: Float32Array, i: number): number {
-  let s = BETA[0];
-  for (let f = 0; f < F; f++) { const x = X[i * F + f]; s += BETA[1 + f] * x + BETA[1 + F + f] * (x * x - 1 / 12); }
+export function scoreRow(X: Float32Array, i: number, beta: number[] = BETA): number {
+  let s = beta[0];
+  for (let f = 0; f < F; f++) { const x = X[i * F + f]; s += beta[1 + f] * x + beta[1 + F + f] * (x * x - 1 / 12); }
   return s;
 }
+/** GO score: expected result of the +20% / -10% / 40-session trade (higher = better). */
+export const scoreGo = (X: Float32Array, i: number) => scoreRow(X, i, BETA_GO);
 
 /** Spiked today: the LATE idea in two numbers (day change > +4%, or range > 2x ATR). */
 export const isLate = (chg1: number, atrExp: number) => chg1 > 0.04 || atrExp > 2;

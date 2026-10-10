@@ -17,7 +17,7 @@ import { kv } from '@vercel/kv';
 import { authorized, authorizedOrAdmin } from '@/lib/apiAuth';
 import { etGate } from '@/lib/etCron';
 import {
-  SYSTEM_KEY, SYSTEM_SCORES_KEY, LEVERAGE, SHORTLIST_N, MIN_DVOL_PICK, featuresAt, rankFeatures, scoreRow, isLate,
+  SYSTEM_KEY, SYSTEM_SCORES_KEY, LEVERAGE, SHORTLIST_N, MIN_DVOL_PICK, featuresAt, rankFeatures, scoreRow, scoreGo, isLate,
   type SystemState, type SystemPick, type SystemDay,
 } from '@/lib/system';
 
@@ -116,7 +116,10 @@ export async function GET(req: Request) {
 
   const state: SystemState = { asOf, builtAt: new Date().toISOString(), universe: rows.length, core, picks, history };
   await kv.set(SYSTEM_KEY, state);
-  const scoreMap: Record<string, number> = {}; meta.forEach((m, i) => { scoreMap[m.t] = +pctl[i].toFixed(3); });
+  /* Row colours and the Mdl column use the GO model (trade result), ranked to percentiles. */
+  const go = rows.map((_, i) => scoreGo(X, i));
+  const goOrder = go.map((g, i) => [g, i] as [number, number]).sort((a, b) => a[0] - b[0]);
+  const scoreMap: Record<string, number> = {}; goOrder.forEach(([, i], k) => { scoreMap[meta[i].t] = +(k / (rows.length - 1)).toFixed(3); });
   await kv.set(SYSTEM_SCORES_KEY, { asOf, scores: scoreMap });
   return NextResponse.json({ success: true, asOf, universe: rows.length, ms: Date.now() - t0, core, top: picks.map(p => `${p.t}${p.late ? '*' : ''}`), historyDays: history.length });
 }

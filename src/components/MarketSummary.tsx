@@ -1571,7 +1571,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
             const right = useTwoCols ? filtered.slice(mid) : [];
             return (
               <div className={useTwoCols ? 'grid grid-cols-1 md:grid-cols-2 gap-x-6' : ''}>
-                <div className="space-y-0">
+                <div className="space-y-0.5">
                   <div className="flex items-center gap-0">
                     <div className="w-[28px] shrink-0" />
                     <div className="flex-1 min-w-0"><SortableHeader sortKey={sortKey} sortDir={sortDir} onSort={handleSort} /></div>
@@ -1579,7 +1579,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
                   {shown.slice(0, mid).map((s, i) => renderSetupRow(s, i, gradeMap, dotMap, postureMap, avoidSet, rsMap, stageMap))}
                 </div>
                 {right.length > 0 && (
-                  <div className="space-y-0">
+                  <div className="space-y-0.5">
                     <div className="hidden md:flex items-center gap-0">
                       <div className="w-[28px] shrink-0" />
                       <div className="flex-1 min-w-0"><SortableHeader sortKey={sortKey} sortDir={sortDir} onSort={handleSort} /></div>
@@ -1606,7 +1606,7 @@ const SetupSummary = ({ pool, gradeMap, dotMap, postureMap, avoidSet, scanFilter
             <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-400/30" />yellow</span>
             <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-rose-500/30" />red</span>
             <span className="absolute bottom-full left-0 mb-2 w-72 px-3.5 py-2.5 rounded-lg bg-[#1a2035] border border-white/10 shadow-2xl text-[10px] leading-[1.6] text-slate-300 font-normal whitespace-normal opacity-0 pointer-events-none group-hover/edge:opacity-100 transition-opacity z-[9999]">
-              This card shows only the green rows: names that closed in the top 10% of the day&apos;s range (+2.50% a trade held 20 sessions) AND avoided the two filters that lost money in both periods of the 5-year backtest — ADR above 9% (−5.05%) and price $5–10 (−2.17%). The individual scan cards still show everything, tinted green/yellow/red.
+              Colours are the same on every card: GREEN = go (top 30% of the trade model), YELLOW = look (middle 40%), RED = stay away (bottom 30%, or any scan&apos;s red rule — wild range, $5–10 on the momentum scans, Stage 1 base, tight coil). The trade model scores ~2,000 liquid stocks each evening on the expected result of a +20% target / −10% stop / 40-day trade; on years it never saw, its top band beat the average trade in 8 of 9 years. Opens on green.
             </span>
           </p>
         </>
@@ -1769,7 +1769,7 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
         <span className={`${H} ${S} w-[22px] md:w-[24px] text-center ml-2 md:ml-1`} onClick={() => onSort('stg')}>Stg{arrow('stg')}</span>
         <span className={`${H} w-[14px] md:w-[16px] text-center ml-2 md:ml-1`}>N</span>
       </div>
-      <div className="max-h-[260px] overflow-y-auto">
+      <div className="max-h-[260px] overflow-y-auto space-y-0.5">
         {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">None right now.</p> : rows.map(r => {
           const rv = r.track == null ? null : Math.max(0, 1 + r.track / 100);
           const cnf = cnfMap?.[r.t] ?? null;
@@ -1920,8 +1920,8 @@ const ChartStructure = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => 
       </div>
       {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">None today.</p> : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-2">
-          <div className="min-w-0">{header}<div className="max-h-[320px] overflow-y-auto">{rows.slice(0, half).map(rowEl)}</div></div>
-          <div className="min-w-0"><div className="hidden lg:block">{header}</div><div className="max-h-[320px] overflow-y-auto">{rows.slice(half).map(rowEl)}</div></div>
+          <div className="min-w-0">{header}<div className="max-h-[320px] overflow-y-auto space-y-0.5">{rows.slice(0, half).map(rowEl)}</div></div>
+          <div className="min-w-0"><div className="hidden lg:block">{header}</div><div className="max-h-[320px] overflow-y-auto space-y-0.5">{rows.slice(half).map(rowEl)}</div></div>
         </div>
       )}
       <p className="text-[10px] text-slate-500 font-medium mt-2">{st.rows.length} of {st.universe} liquid names have a clear shape · as of the {st.asOf} close · sorted by fit</p>
@@ -2027,8 +2027,8 @@ const MomentumLeaders = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTie
         <InfoDot text={"WHAT IT IS — every common stock or ADR at $5+ trading $20M+ a day. 12M is its return from 12 months ago to 1 month ago; 1M is the latest month (left out of the ranking: last month's winners tend to give some back). SURP — the earnings surprise: the latest quarter's earnings per share against the same quarter a year earlier, measured against how much that number usually moves (+2 = an unusually big improvement). The list ranks on 12M and SURP together. RVOL is today's volume against its 20-day average; VOL is today's shares; STG is the Weinstein stage. Mdl is the System model's score (0-100, percentile of ~2,000 liquid stocks); Off hi is the % below the 12-month high. Those are shown for context only — none is part of the ranking or was tested with it. On a phone # and 1M are hidden, as on Top Movers' layout.\n\nROW COLOUR — the same green / yellow / red as the scan cards, for names one of the scans also carries today. An uncoloured row is not on any scan.\n\nWHY THIS LIST — tested on Oct 2022 – Sep 2026, held as four staggered monthly portfolios: momentum and earnings together made +165% against SPY's +112%, beat SPY whichever day of the month it was rebalanced on (20 of 20, median +68%), and did better than momentum alone (+159%). Ranking on momentum alone among the same companies made +134%, so the earnings half adds something.\n\nTHE COSTS — it trailed SPY in 2022–24 (+34% vs +58%) and fell further (worst drop −29% vs −19%). And simply holding QQQ made the same +166% over those four years with smaller drops (−23%): the list's lead over SPY came from taking more risk, not from picking better. Four years is a short test, and the live earnings data comes from a different provider than the test's.\n\nNot a buy list and not advice. Rebuilt each evening from the day's close."} />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-2">
-        <div className="min-w-0">{header}{rows.slice(0, half).map(row)}</div>
-        <div className="min-w-0"><div className="hidden lg:block">{header}</div>{rows.slice(half).map(row)}</div>
+        <div className="min-w-0 space-y-0.5">{header}{rows.slice(0, half).map(row)}</div>
+        <div className="min-w-0 space-y-0.5"><div className="hidden lg:block">{header}</div>{rows.slice(half).map(row)}</div>
       </div>
       <p className="text-[10px] text-slate-500 font-medium mt-2">{list.universe} names ranked{combined ? ` · ${list.scored} with earnings scores` : ''} · as of the {list.asOf} close</p>
     </div>
@@ -3582,8 +3582,8 @@ export default function MarketSummary() {
                                           const hdr = <SortableHeader sortKey={secSort.key} sortDir={secSort.dir} onSort={(k) => handleSectionSort(secSortKey, k)} />;
                                           return (
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
-                                              <div className="space-y-0">{hdr}{leftLines.map((l, i) => render(l, i))}</div>
-                                              <div className="space-y-0">{hdr}{rightLines.map((l, i) => render(l, 500 + i))}</div>
+                                              <div className="space-y-0.5">{hdr}{leftLines.map((l, i) => render(l, i))}</div>
+                                              <div className="space-y-0.5">{hdr}{rightLines.map((l, i) => render(l, 500 + i))}</div>
                                             </div>
                                           );
                                         })() : (
