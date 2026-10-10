@@ -17,7 +17,7 @@ import { kv } from '@vercel/kv';
 import { authorized, authorizedOrAdmin } from '@/lib/apiAuth';
 import { etGate } from '@/lib/etCron';
 import {
-  SYSTEM_KEY, SYSTEM_SCORES_KEY, LEVERAGE, SHORTLIST_N, MIN_DVOL_PICK, featuresAt, rankFeatures, scoreRow, scoreGo, isLate,
+  SYSTEM_KEY, SYSTEM_SCORES_KEY, LEVERAGE, SHORTLIST_N, MIN_DVOL_PICK, featuresAt, rankFeatures, scoreRow, scoreGo, isLate, stepColours,
   type SystemState, type SystemPick, type SystemDay,
 } from '@/lib/system';
 
@@ -114,12 +114,19 @@ export async function GET(req: Request) {
   }
   history = [...history, { d: asOf, on: (core.on ? 1 : 0) as 0 | 1, qqq: core.qqq, picks: picks.map(p => p.t), listRet }].slice(-1000);
 
-  const state: SystemState = { asOf, builtAt: new Date().toISOString(), universe: rows.length, core, picks, history };
-  await kv.set(SYSTEM_KEY, state);
+
   /* Row colours and the Mdl column use the GO model (trade result), ranked to percentiles. */
   const go = rows.map((_, i) => scoreGo(X, i));
   const goOrder = go.map((g, i) => [g, i] as [number, number]).sort((a, b) => a[0] - b[0]);
   const scoreMap: Record<string, number> = {}; goOrder.forEach(([, i], k) => { scoreMap[meta[i].t] = +(k / (rows.length - 1)).toFixed(3); });
+  /* Live colour scorecard: last night's groups marked to tonight's closes (same night = rebuilt in place). */
+  const closesNow: Record<string, number> = {}; meta.forEach(m => { closesNow[m.t] = m.price; });
+  const prevCol = prev?.colours && prev.asOf !== asOf ? prev.colours : undefined;
+  const colours = prev?.colours && prev.asOf === asOf
+    ? { ...prev.colours, prevBands: stepColours(undefined, asOf, closesNow, scoreMap).prevBands, prevCloses: closesNow }
+    : stepColours(prevCol, asOf, closesNow, scoreMap);
+  const state: SystemState = { asOf, builtAt: new Date().toISOString(), universe: rows.length, core, picks, history, colours };
+  await kv.set(SYSTEM_KEY, state);
   await kv.set(SYSTEM_SCORES_KEY, { asOf, scores: scoreMap });
   return NextResponse.json({ success: true, asOf, universe: rows.length, ms: Date.now() - t0, core, top: picks.map(p => `${p.t}${p.late ? '*' : ''}`), historyDays: history.length });
 }

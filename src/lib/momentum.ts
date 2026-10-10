@@ -184,19 +184,19 @@ export function stepPaper(p: MomentumPaper, date: string, som: number, bars: Map
   p.lastDate = date;
 }
 
-/* ---- Rules shortlist (9 Oct 2026) --------------------------------------------
-   The Momentum Leaders card's top 5, picked mechanically from what held up:
+/* ---- Rules shortlist (rev. 10 Oct 2026) --------------------------------------
+   The Momentum Leaders that are GREEN — strongest trend AND a go on the trade model:
      - only while the Market exposure rule is in (the caller checks),
-     - highest 12-1 momentum first (the most consistent trait inside the list,
-       scripts/backtest/next-move.ts),
-     - skip Stage 3 / 4 (topping / declining) — a judgement call, NOT tested,
-     - skip names a scan tints red (red was the clearly worst bucket live).
-   Equal weight, re-ranked monthly in the test the list comes from. */
+     - GO score in the top 30% (lib/system scoreGo percentile >= 0.70; the model that
+       passed walk-forward: top band +0.9-1.2% / +0.2-0.5% a trade on unseen years),
+     - not red on any scan (scan red rules always win),
+     - then highest 12-1 momentum first; top 5.
+   Names without a GO score are skipped. */
 export const SHORTLIST_N = 5;
-export function rulesShortlist(rows: MomentumRow[], redSet: Set<string> = new Set(), n = SHORTLIST_N): MomentumRow[] {
-  const stageNum = (s?: string | null) => { const m = /([1-4])/.exec(s ?? ''); return m ? +m[1] : null; };
+export const GO_MIN = 0.7;
+export function rulesShortlist(rows: MomentumRow[], redSet: Set<string> = new Set(), scores: Record<string, number> | null = null, n = SHORTLIST_N): MomentumRow[] {
   return rows
-    .filter(r => { const s = stageNum(r.stage); return s !== 3 && s !== 4; })
+    .filter(r => (scores?.[r.t] ?? -1) >= GO_MIN)
     .filter(r => !redSet.has(r.t))
     .sort((a, b) => b.mom - a.mom)
     .slice(0, n);

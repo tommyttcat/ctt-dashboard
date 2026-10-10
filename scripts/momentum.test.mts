@@ -26,15 +26,15 @@ eq('a 2x move is not flagged', suspectJump([10, 20]), -1);
 eq('rvol needs 21 sessions', rvolOf(new Array(20).fill(100)), null);
 eq('rvol = today / prior 20-session average', rvolOf([...new Array(20).fill(100), 250]), 2.5);
 eq('rvol ignores older sessions', rvolOf([9999, ...new Array(20).fill(100), 100]), 1);
-// rules shortlist: highest 12M first, no Stage 3/4, no red rows
+// rules shortlist: green (GO >= 0.7), not red, highest 12M first
 const sl = [
-  { t: 'TOP', mom: 900, r1m: 0, price: 10, dvol: 1, stage: 'Stage 3B' },
-  { t: 'A', mom: 300, r1m: 0, price: 10, dvol: 1, stage: 'Stage 2A' },
-  { t: 'B', mom: 250, r1m: 0, price: 10, dvol: 1, stage: 'Stage 2C' },
-  { t: 'RED', mom: 280, r1m: 0, price: 10, dvol: 1, stage: 'Stage 2A' },
-  { t: 'C', mom: 200, r1m: 0, price: 10, dvol: 1, stage: null },
-  { t: 'D', mom: 100, r1m: 0, price: 10, dvol: 1, stage: 'Stage 4' },
+  { t: 'TOP', mom: 900, r1m: 0, price: 10, dvol: 1 },
+  { t: 'A', mom: 300, r1m: 0, price: 10, dvol: 1 },
+  { t: 'B', mom: 250, r1m: 0, price: 10, dvol: 1 },
+  { t: 'RED', mom: 280, r1m: 0, price: 10, dvol: 1 },
+  { t: 'C', mom: 200, r1m: 0, price: 10, dvol: 1 },
 ];
-eq('shortlist skips stage 3/4 and red, highest 12M first', rulesShortlist(sl, new Set(['RED']), 5).map(r => r.t).join(','), 'A,B,C');
-eq('shortlist caps at n', rulesShortlist(sl, new Set(), 2).map(r => r.t).join(','), 'A,RED');
+const sc = { TOP: 0.2, A: 0.9, B: 0.75, RED: 0.95, C: 0.71 };
+eq('shortlist: green only, no red, highest 12M first', rulesShortlist(sl, new Set(['RED']), sc, 5).map(r => r.t).join(','), 'A,B,C');
+eq('shortlist: no scores, no picks', rulesShortlist(sl, new Set(), null, 5).length, 0);
 done('momentum leaders');

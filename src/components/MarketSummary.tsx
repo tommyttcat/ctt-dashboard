@@ -115,7 +115,6 @@ import { etMinute, type OrbWatchStatus, type OrbWatchState } from '@/lib/orb';
 import { earlyMovers, EARLY_MIN_PCT, EARLY_MIN_PACE } from '@/lib/summary/earlyMovers';
 import type { LeadersLive, LeaderRow } from '@/lib/leaders';
 import type { MomentumList, MomentumRow } from '@/lib/momentum';
-import type { StructureRow, StructureState } from '@/lib/structure';
 import { rulesShortlist } from '@/lib/momentum';
 import { bullShare, type SentimentLive } from '@/lib/sentiment';
 import { EARLY_PASS_N, type EarlySummary } from '@/lib/earlyTrack';
@@ -1326,7 +1325,7 @@ const RulesShortlist = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => 
   }, []);
   if (!list) return <p className="text-[10px] text-slate-500">{failed ? 'The momentum list has not been built yet.' : 'Loading…'}</p>;
   const red = new Set(Object.entries(edgeMap ?? {}).filter(([, t]) => t === 'red').map(([k]) => k));
-  const picks = rulesShortlist(list.rows, red);
+  const picks = rulesShortlist(list.rows, red, allModelScores());
   const H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
   const badge = 'inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center';
   const dash = `${badge} text-slate-600 border-slate-700/40 bg-slate-800/30`;
@@ -1338,9 +1337,9 @@ const RulesShortlist = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => 
         <p className="text-[10px] text-slate-400 leading-snug flex-1">
           {out
             ? <><span className="font-bold text-amber-300">Rules say cash.</span> QQQ closed below its 200-day average, so the tested rule holds nothing until it closes back above. The names below are what the list would hold.</>
-            : <><span className="font-bold text-emerald-300">Market: {mode === 'boost' ? 'Boost (150%)' : 'In'}.</span> The top {picks.length} Momentum Leaders by 12-month return, skipping Stage 3 / 4 and red rows. Equal weight, re-ranked monthly. Not advice — expect about QQQ&apos;s return with bigger swings.</>}
+            : <><span className="font-bold text-emerald-300">Market: {mode === 'boost' ? 'Boost (150%)' : 'In'}.</span> The Momentum Leaders that are green — strongest 12-month trend AND a go on the trade model — top {picks.length} by 12-month return. Not advice.</>}
         </p>
-        <InfoDot text={"THE RULES — applied mechanically to data the site already has:\n1. Only while the Market exposure strip says In (QQQ above its 200-day). Out = cash.\n2. From Momentum Leaders, the highest 12-month return first — the most consistent trait inside the list in testing (top third: +1.0 / +3.2 points a month over the rest, both halves).\n3. Skip Stage 3 and 4 (topping / declining). A judgement call, NOT tested.\n4. Skip names a scan tints red — red was the clearly worst bucket live.\n5. Equal weight; re-rank monthly. No entry timing: every entry rule tested on this list (breakouts, pullbacks, opening range, VWAP, selling half) did worse than simply holding.\n\nWHAT TO EXPECT — the list matched QQQ over 2022–26 (+165% vs +166%) with deeper drops (−29% vs −23%). The 200-day rule is the part that beat QQQ. Four years is a short test.\n\nNot advice. Rebuilt each evening from the close."} />
+        <InfoDot text={"THE RULES — applied mechanically each evening:\n1. Only while the Market exposure strip says In (QQQ above its 200-day). Out = cash.\n2. From Momentum Leaders, only names that are GREEN on the trade model (top 30% of ~2,000 liquid stocks on the expected result of a +20% target / −10% stop / 40-day trade).\n3. Never a name a scan marks red.\n4. Highest 12-month return first; top 5.\n\nTHE EVIDENCE — the trade model, tested only on years it never saw (2018–2026), put its top 10% above the average trade in 8 of 9 years; its green band averaged +0.9–1.2% a trade in 2018–21 and +0.2–0.5% in 2022–26. Momentum alone over 2016–2026 beat QQQ in 2016–20 but fell 46% in 2021 — the green filter is there to skip the stretched, wild names that caused that. The combination itself has not been tested as one rule.\n\nNot advice. Rebuilt each evening from the close."} />
       </div>
       <div className={scrollRowCls} style={scrollRowStyle}>
         <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
@@ -1824,106 +1823,6 @@ const LiquidLeaders = ({ edgeMap, cnfMap, stageMap, newsMap }: {
   );
 };
 
-/* ---- Chart Structure (9 Oct 2026) ------------------------------------------
-   lib/structure: each Liquid Leaders name's chart shape from its last ~260
-   daily bars — trend, channel, range, bounce off support, range breakout.
-   Rebuilt nightly by /api/structure/nightly; read once per page load through
-   the CDN. Descriptive: no shape here was tested as a buy signal. */
-type StructView = 'bounce' | 'up' | 'channel' | 'range' | 'breakout' | 'down';
-const STRUCT_VIEWS: { key: StructView; label: string; match: (r: StructureRow) => boolean; tip: string }[] = [
-  { key: 'bounce', label: 'Bounces', match: r => r.bounce, tip: "Today's low reached support (the lower channel line, or the range low) and the close came back into the upper half of the day's range." },
-  { key: 'up', label: 'Uptrend', match: r => r.shape === 'uptrend' || r.shape === 'channel-up', tip: 'A straight-ish rise over 6 months: +3% a month or more with a fit of 0.6+.' },
-  { key: 'channel', label: 'Channels', match: r => r.shape === 'channel-up' || r.shape === 'channel-down', tip: 'A trend whose highs AND lows both keep touching parallel lines (2+ touches each side).' },
-  { key: 'range', label: 'Range', match: r => r.shape === 'range', tip: 'Sideways for 60 sessions between a clear high and low, touched 2+ times each.' },
-  { key: 'breakout', label: 'Breakouts', match: r => r.breakout, tip: 'A range name that closed above its prior 60-session high today.' },
-  { key: 'down', label: 'Downtrend', match: r => r.shape === 'downtrend' || r.shape === 'channel-down', tip: 'A straight-ish decline over 6 months: −3% a month or worse with a fit of 0.6+.' },
-];
-const SHAPE_LABEL: Record<string, { text: string; cls: string }> = {
-  'uptrend': { text: 'UP', cls: 'text-emerald-400' },
-  'channel-up': { text: 'CH↑', cls: 'text-emerald-300' },
-  'channel-down': { text: 'CH↓', cls: 'text-rose-300' },
-  'downtrend': { text: 'DN', cls: 'text-rose-400' },
-  'range': { text: 'RNG', cls: 'text-sky-300' },
-};
-const ChartStructure = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => {
-  const [st, setSt] = React.useState<StructureState | null>(null);
-  const [failed, setFailed] = React.useState(false);
-  const [view, setView] = React.useState<StructView | null>(null);
-  React.useEffect(() => {
-    let on = true;
-    fetch('/api/structure/latest').then(r => (r.ok ? r.json() : null))
-      .then(j => { if (on) { if (j?.state) setSt(j.state); else setFailed(true); } })
-      .catch(() => { if (on) setFailed(true); });
-    return () => { on = false; };
-  }, []);
-  if (!st) return <p className="text-[10px] text-slate-500">{failed ? 'Not built yet — the list builds after the first nightly run (about 5:55 PM ET).' : 'Loading…'}</p>;
-  const counts = Object.fromEntries(STRUCT_VIEWS.map(v => [v.key, st.rows.filter(v.match).length])) as Record<StructView, number>;
-  const cur = view ?? (counts.bounce > 0 ? 'bounce' : 'up');
-  const vdef = STRUCT_VIEWS.find(v => v.key === cur)!;
-  const rows = st.rows.filter(vdef.match).sort((a, b) => (b.fit ?? 0) - (a.fit ?? 0));
-  const H = 'inline-block text-[7px] font-bold tracking-widest uppercase text-slate-600';
-  const lvl = (v: number | null) => (v == null ? '—' : fmtPrc(v));
-  const header = (
-      <div className={scrollRowCls} style={scrollRowStyle}>
-        <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
-          <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
-          <span className={`${H} w-[28px] md:w-[30px] text-center ml-2 md:ml-1`}>Shape</span>
-          <span className={`${H} w-[46px] md:w-[52px] text-right ml-1`}>Chg%</span>
-          <span className={`${H} w-[36px] md:w-[42px] text-right ml-2 md:ml-1`}>Prc</span>
-          <span className={`${H} w-[36px] md:w-[40px] text-right ml-2 md:ml-1`}>Slope</span>
-          <span className={`${H} w-[26px] md:w-[30px] text-right ml-2 md:ml-1`}>Fit</span>
-          <span className={`${H} w-[28px] md:w-[32px] text-right ml-2 md:ml-1`}>Pos</span>
-          <span className={`${H} w-[40px] md:w-[44px] text-right ml-2 md:ml-1`}>Sup</span>
-          <span className={`${H} w-[40px] md:w-[44px] text-right ml-2 md:ml-1`}>Res</span>
-        </div>
-      </div>
-  );
-  const rowEl = (r: StructureRow) => {
-          const sh = r.shape ? SHAPE_LABEL[r.shape] : null;
-          const edge = edgeMap?.[r.t] ?? null;
-          return (
-            <div key={r.t} className={edge ? `${EDGE_TINT[edge]} rounded-sm` : ''} title={edge ? `${r.n ?? r.t} · ${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : (r.n ?? r.t)}>
-              <div className={scrollRowCls} style={scrollRowStyle}>
-                <div className="flex items-center whitespace-nowrap py-[1px]">
-                  <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px] mx-0.5`}>{r.t}</span></TickerChartHover>
-                  <span className={`text-[8px] font-bold inline-block w-[28px] md:w-[30px] text-center ml-2 md:ml-1 ${sh?.cls ?? 'text-slate-600'}`}>{sh?.text ?? '—'}</span>
-                  <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${r.chg >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{r.chg >= 0 ? '+' : ''}{r.chg.toFixed(2)}%</span>
-                  <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-2 md:ml-1">{fmtPrc(r.price)}</span>
-                  <span className={`text-[9px] tabular-nums inline-block w-[36px] md:w-[40px] text-right ml-2 md:ml-1 ${(r.slopeMo ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{r.slopeMo == null ? '—' : `${r.slopeMo >= 0 ? '+' : ''}${r.slopeMo.toFixed(1)}%`}</span>
-                  <span className="text-[9px] tabular-nums inline-block w-[26px] md:w-[30px] text-right text-slate-300 ml-2 md:ml-1">{r.fit == null ? '—' : r.fit.toFixed(2)}</span>
-                  <span className="text-[9px] tabular-nums inline-block w-[28px] md:w-[32px] text-right text-slate-400 ml-2 md:ml-1">{r.pos == null ? '—' : `${r.pos >= 0 ? '+' : ''}${r.pos.toFixed(1)}`}</span>
-                  <span className="text-[9px] tabular-nums inline-block w-[40px] md:w-[44px] text-right text-emerald-300 ml-2 md:ml-1">{lvl(r.support)}</span>
-                  <span className="text-[9px] tabular-nums inline-block w-[40px] md:w-[44px] text-right text-rose-300 ml-2 md:ml-1">{lvl(r.resistance)}</span>
-                </div>
-              </div>
-            </div>
-          );
-        };
-  const half = Math.ceil(rows.length / 2);
-  return (
-    <div>
-      <div className="flex items-start gap-2 mb-2">
-        <div className="flex items-center gap-1.5 flex-wrap flex-1">
-          {STRUCT_VIEWS.map(v => (
-            <button key={v.key} onClick={() => setView(v.key)} title={v.tip}
-              className={`text-[9px] font-bold tracking-wider uppercase px-1.5 py-[2px] rounded border transition-all duration-150 ${cur === v.key ? 'text-teal-200 bg-teal-500/20 border-teal-400/40 ring-1 ring-teal-400/30' : counts[v.key] > 0 ? 'text-teal-400 bg-teal-500/10 border-teal-500/20' : 'text-slate-600 bg-transparent border-white/5'}`}>
-              {v.label} {counts[v.key]}
-            </button>
-          ))}
-        </div>
-        <InfoDot text={"WHAT IT IS — each of the ~1,000 most traded NASDAQ / NYSE stocks ($10+, $100M+ a day), sorted by the shape of its last six months.\n\nSHAPE — a straight line is fitted through 126 daily closes on a log scale. SLOPE is its rise or fall per month; FIT is how closely price hugs it (1 = dead straight). UP / DN = trending +/−3% a month or more with a fit of 0.6+. CH↑ / CH↓ = a trend whose highs and lows both keep touching parallel lines. RNG = sideways for 60 sessions between a clear high and low.\n\nPOS — where today's close sits in the channel, in standard deviations from the line (−1 = at the lower line, +1 = at the upper). SUP / RES — the lower and upper lines today (the range low / high for ranges).\n\nBOUNCES — today's low reached support and the close came back into the upper half of the day. BREAKOUTS — a range name closing above its 60-session high.\n\nWHAT THE TESTS SAY — a description, not a signal. Buying rising-trendline touches with a stop under the line made 0.00% a trade against QQQ's +0.53% over the same windows (scripts/backtest/trendline.ts). Inside the Momentum Leaders list, position in the channel and the number of support touches did not predict the next month consistently; the steadiest trends did a little better than the jumpiest, but nothing passed.\n\nRow colour — the scan cards' green / yellow / red, for names a scan carries today. Rebuilt each evening from the close."} />
-      </div>
-      {rows.length === 0 ? <p className="text-[9px] text-slate-500 py-1">None today.</p> : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-2">
-          <div className="min-w-0">{header}<div className="max-h-[320px] overflow-y-auto space-y-0.5">{rows.slice(0, half).map(rowEl)}</div></div>
-          <div className="min-w-0"><div className="hidden lg:block">{header}</div><div className="max-h-[320px] overflow-y-auto space-y-0.5">{rows.slice(half).map(rowEl)}</div></div>
-        </div>
-      )}
-      <p className="text-[10px] text-slate-500 font-medium mt-2">{st.rows.length} of {st.universe} liquid names have a clear shape · as of the {st.asOf} close · sorted by fit</p>
-    </div>
-  );
-};
-
 /* ---- Momentum Leaders (9 Oct 2026) -----------------------------------------
    lib/momentum: the 50 liquid stocks with the strongest 12-month return,
    skipping the latest month — the one monthly ranking that beat SPY whichever
@@ -1935,8 +1834,11 @@ const MomentumLeaders = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTie
   const [list, setList] = React.useState<MomentumList | null>(null);
   const [failed, setFailed] = React.useState(false);
   const [sort, setSort] = React.useState<{ key: MomSortKey; dir: SortDir }>({ key: 'mom', dir: 'desc' });
+  /* The live colour scorecard (lib/system stepColours), from the System nightly. */
+  const [colours, setColours] = React.useState<{ since: string; days: number; green: number; yellow: number; red: number } | null>(null);
   React.useEffect(() => {
     let on = true;
+    fetch('/api/system/latest').then(r => (r.ok ? r.json() : null)).then(j => { if (on && j?.colours) setColours(j.colours); }).catch(() => {});
     fetch('/api/momentum/latest').then(r => (r.ok ? r.json() : null))
       .then(j => { if (on) { if (j?.list) setList(j.list); else setFailed(true); } })
       .catch(() => { if (on) setFailed(true); });
@@ -2019,13 +1921,16 @@ const MomentumLeaders = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTie
             ? <>The top {shownRows.length} liquid stocks ranked on two things together: the strongest 12-month run (skipping the latest month) and the biggest jump in quarterly earnings against a year earlier. Ranked, not recommended — in testing it matched QQQ, not beat it. No buy levels.<br /><span className="text-slate-500">SURP = earnings surprise: this quarter&apos;s earnings vs the same quarter last year, scaled to the company&apos;s usual swing (+2 = unusually big jump, negative = worse).</span></>
             : <>The top {shownRows.length} liquid stocks with the strongest 12-month return, skipping the latest month — ranked, not recommended. No buy levels. (The earnings half of the ranking switches on once enough companies have earnings scores.)</>}
         </p>
-        <InfoDot text={"WHAT IT IS — every common stock or ADR at $5+ trading $20M+ a day. 12M is its return from 12 months ago to 1 month ago; 1M is the latest month (left out of the ranking: last month's winners tend to give some back). SURP — the earnings surprise: the latest quarter's earnings per share against the same quarter a year earlier, measured against how much that number usually moves (+2 = an unusually big improvement). The list ranks on 12M and SURP together. RVOL is today's volume against its 20-day average; VOL is today's shares; STG is the Weinstein stage. Mdl is the System model's score (0-100, percentile of ~2,000 liquid stocks); Off hi is the % below the 12-month high. Those are shown for context only — none is part of the ranking or was tested with it. On a phone # and 1M are hidden, as on Top Movers' layout.\n\nROW COLOUR — the same green / yellow / red as the scan cards, for names one of the scans also carries today. An uncoloured row is not on any scan.\n\nWHY THIS LIST — tested on Oct 2022 – Sep 2026, held as four staggered monthly portfolios: momentum and earnings together made +165% against SPY's +112%, beat SPY whichever day of the month it was rebalanced on (20 of 20, median +68%), and did better than momentum alone (+159%). Ranking on momentum alone among the same companies made +134%, so the earnings half adds something.\n\nTHE COSTS — it trailed SPY in 2022–24 (+34% vs +58%) and fell further (worst drop −29% vs −19%). And simply holding QQQ made the same +166% over those four years with smaller drops (−23%): the list's lead over SPY came from taking more risk, not from picking better. Four years is a short test, and the live earnings data comes from a different provider than the test's.\n\nNot a buy list and not advice. Rebuilt each evening from the day's close."} />
+        <InfoDot text={"WHAT IT IS — every common stock or ADR at $5+ trading $20M+ a day. 12M is its return from 12 months ago to 1 month ago; 1M is the latest month (left out of the ranking: last month's winners tend to give some back). SURP — the earnings surprise: the latest quarter's earnings per share against the same quarter a year earlier, measured against how much that number usually moves (+2 = an unusually big improvement). The list ranks on 12M and SURP together. RVOL is today's volume against its 20-day average; VOL is today's shares; STG is the Weinstein stage. Mdl is the System model's score (0-100, percentile of ~2,000 liquid stocks); Off hi is the % below the 12-month high. Those are shown for context only — none is part of the ranking or was tested with it. On a phone # and 1M are hidden, as on Top Movers' layout.\n\nROW COLOUR — the same green / yellow / red as the scan cards, for names one of the scans also carries today. An uncoloured row is not on any scan.\n\nWHAT THE TESTS SAY — over 2016–2026, a monthly top 50 by 12-month momentum made +331% against QQQ's +207% in 2016–20, then fell 46% in 2021 and made +20% against QQQ's +122% in 2021–26, with a worst drop near −60%. Momentum is real but crashes; no market filter we tested fixed that. The Mdl column (the trade model) and the row colours are there to steer toward the steadier leaders. A ranking, not a buy list.\n\nNot a buy list and not advice. Rebuilt each evening from the day's close."} />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-2">
         <div className="min-w-0 space-y-0.5">{header}{rows.slice(0, half).map(row)}</div>
         <div className="min-w-0 space-y-0.5"><div className="hidden lg:block">{header}</div>{rows.slice(half).map(row)}</div>
       </div>
       <p className="text-[10px] text-slate-500 font-medium mt-2">{list.universe} names ranked{combined ? ` · ${list.scored} with earnings scores` : ''} · as of the {list.asOf} close</p>
+      <p className="text-[10px] text-slate-500 font-medium mt-1">{colours && colours.days >= 1
+        ? <>Colour scorecard, live since {colours.since} ({colours.days} day{colours.days === 1 ? '' : 's'}): <span className="text-emerald-400">green {colours.green >= 0 ? '+' : ''}{(colours.green * 100).toFixed(1)}%</span> · <span className="text-amber-300">yellow {colours.yellow >= 0 ? '+' : ''}{(colours.yellow * 100).toFixed(1)}%</span> · <span className="text-rose-400">red {colours.red >= 0 ? '+' : ''}{(colours.red * 100).toFixed(1)}%</span> — each evening&apos;s groups across ~2,000 liquid stocks, equal weight, marked to the next close.</>
+        : <>Colour scorecard starts with the next evening build — it tracks how each evening&apos;s green, yellow and red stocks do from there.</>}</p>
     </div>
   );
 };

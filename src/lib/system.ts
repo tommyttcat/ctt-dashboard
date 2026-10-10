@@ -120,6 +120,27 @@ export interface SystemState {
   core: { on: boolean; leverage: number; qqq: number; sma200: number; pctFrom200: number };
   picks: SystemPick[];
   history: SystemDay[];      // one entry per nightly build, newest last (live record)
+  /* Live colour scorecard (10 Oct 2026): each evening's green / yellow / red groups (GO
+     model only — no scan red override) marked to the next close; equal weight, daily. */
+  colours?: ColourRecord;
+}
+export interface ColourRecord {
+  since: string;
+  nav: [number, number, number];                    // green, yellow, red: growth of 1
+  daily: [string, number, number, number][];        // [date, green, yellow, red] day returns
+  prevBands: Record<string, 0 | 1 | 2>;             // last night's band per ticker
+  prevCloses: Record<string, number>;               // last night's close per ticker
+}
+export const bandOf = (pctl: number): 0 | 1 | 2 => (pctl >= 0.7 ? 0 : pctl >= 0.3 ? 1 : 2);
+/** One night forward: mark last night's bands to today's closes. Pure, for tests. */
+export function stepColours(prev: ColourRecord | undefined, date: string, closes: Record<string, number>, pctls: Record<string, number>): ColourRecord {
+  const bands: Record<string, 0 | 1 | 2> = {}; for (const [t, p] of Object.entries(pctls)) bands[t] = bandOf(p);
+  if (!prev) return { since: date, nav: [1, 1, 1], daily: [], prevBands: bands, prevCloses: { ...closes } };
+  const sums = [0, 0, 0], ns = [0, 0, 0];
+  for (const [t, b] of Object.entries(prev.prevBands)) { const a = prev.prevCloses[t], c = closes[t]; if (a > 0 && c > 0) { sums[b] += c / a - 1; ns[b]++; } }
+  const r = [0, 1, 2].map(b => (ns[b] ? sums[b] / ns[b] : 0));
+  const nav: [number, number, number] = [prev.nav[0] * (1 + r[0]), prev.nav[1] * (1 + r[1]), prev.nav[2] * (1 + r[2])];
+  return { since: prev.since, nav, daily: [...prev.daily, [date, +r[0].toFixed(6), +r[1].toFixed(6), +r[2].toFixed(6)] as [string, number, number, number]].slice(-1000), prevBands: bands, prevCloses: { ...closes } };
 }
 
 /** Live record: 2x QQQ core NAV and the daily-updated top-10 list NAV, from history. */

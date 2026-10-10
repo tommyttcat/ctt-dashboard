@@ -1,5 +1,5 @@
 /* scripts/system.test.mts — the System card (lib/system). */
-import { rankFeatures, scoreRow, isLate, liveRecord, FEATS } from '../src/lib/system.ts';
+import { rankFeatures, scoreRow, isLate, liveRecord, FEATS, stepColours, bandOf } from '../src/lib/system.ts';
 import { eq, ok, done } from './testkit.mts';
 
 const F = FEATS.length;
@@ -16,4 +16,11 @@ const step = (r: number) => 1 + 2 * r - 0.0095 / 252 - 0.04 / 252;
 ok('core is 2x QQQ while on (both days on)', Math.abs(rec.core - (step(0.01) * step(99 / 101 - 1) - 1)) < 1e-9);
 ok('list compounds its daily returns', Math.abs(rec.list - (1.02 * 0.99 - 1)) < 1e-9);
 eq('qqq return over the record', +rec.qqq.toFixed(4), -0.01);
+// colour scorecard
+eq('bands: 0.7 green, 0.3 yellow, below red', [bandOf(0.7), bandOf(0.5), bandOf(0.29)].join(','), '0,1,2');
+const c0 = stepColours(undefined, 'd0', { G: 100, Y: 50, R: 20 }, { G: 0.9, Y: 0.5, R: 0.1 });
+eq('first night only records bands', c0.daily.length, 0);
+const c1 = stepColours(c0, 'd1', { G: 110, Y: 50, R: 18 }, { G: 0.9, Y: 0.5, R: 0.1 });
+eq('next night marks each group to the close', c1.daily[0].slice(1).map(x => +(x as number).toFixed(3)).join(','), '0.1,0,-0.1');
+eq('nav compounds', c1.nav.map(x => +x.toFixed(3)).join(','), '1.1,1,0.9');
 done('system card');
