@@ -89,3 +89,30 @@ for (const [lab, f, graded] of [
   for (const p of parts) console.log(`  ${p.h}: ${k$(p.r.ret)} vs base ${k$(p.base.ret)} (max drop -${(100 * p.r.dd).toFixed(0)}%) | fear episodes ${p.r.episodes}, QQQ next 10 sessions avg ${pct(p.r.after)}`);
 }
 console.log(`\n→ ${pass ? 'PASS' : 'fail'}`);
+
+/* ROBUSTNESS — added after the PASS, 10 Oct 2026: a single-day washout shift in 2020 moves the
+   BASE by ~50 points (long-history.ts fires 26 Feb at 19.8%, this file 27 Feb at 20.2%), so
+   the boost is re-checked over nearby settings and two washout lines. Counted, not graded. */
+{
+  const runX = (vixMin: number, win: number, wLine: number, a: number, b: number, withFear: boolean) => {
+    let nav = 1, exp = 0, wSince = 99, fSince = 99;
+    for (let t = a; t <= b; t++) {
+      if (t > a) { const r = C[qId][t] / C[qId][t - 1] - 1; const fin = exp > 1 ? -(exp - 1) * 0.05 / 252 : (1 - exp) * 0.04 / 252; nav *= 1 + exp * r + fin; }
+      wSince++; fSince++;
+      if (t40[t] >= 100 && 100 * a40[t] / t40[t] <= wLine && wSince > 10) wSince = 0;
+      if (withFear && up(t) && VIX[t] >= vixMin && fSince > win) fSince = 0;
+      const next = wSince < 10 || fSince < win ? 1.5 : up(t) ? 1 : 0;
+      nav *= 1 - 0.002 * Math.abs(next - exp); exp = next;
+    }
+    return nav - 1;
+  };
+  for (const wLine of [20, 21]) {
+    let better = 0, total = 0; const rows: string[] = [];
+    for (const vm of [20, 22, 25, 28, 30]) for (const win of [5, 10, 20]) {
+      const d = HALF.map(([, a, b]) => runX(vm, win, wLine, a, b, true) - runX(vm, win, wLine, a, b, false));
+      total++; if (d.every(x => x > 0)) better++;
+      rows.push(`VIX>=${vm} ${win}d: ${d.map(x => `${x >= 0 ? '+' : ''}${(100 * x).toFixed(0)}`).join('/')}`);
+    }
+    console.log(`\nROBUSTNESS washout line ${wLine}% — boost beats base in both halves in ${better} of ${total} settings (gain in $k per $100k, 2016-20/2021-26):\n  ${rows.join('\n  ')}`);
+  }
+}
