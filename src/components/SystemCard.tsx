@@ -15,7 +15,9 @@ type View = {
 };
 const pct = (x: number, d = 0) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(d)}%`;
 
-const SystemCard = () => {
+/* Embedded at the top of Momentum Leaders since 10 Oct 2026 (was its own card under
+   the Market exposure strip). */
+const SystemCard = ({ embedded = false }: { embedded?: boolean }) => {
   const [v, setV] = useState<View | null>(null);
   useEffect(() => {
     let on = true;
@@ -27,9 +29,9 @@ const SystemCard = () => {
   const rec = v.record;
   const H = 'text-[7px] font-bold tracking-widest uppercase text-slate-600';
   return (
-    <div className="relative z-10 mb-4 md:mb-5 px-3 py-2.5 rounded-lg border border-white/[0.06] bg-[#0f1524] text-[10px]">
+    <div className={embedded ? 'mb-3 px-3 py-2.5 rounded-lg border border-white/[0.06] bg-[#0b101a] text-[10px]' : 'relative z-10 mb-4 md:mb-5 px-3 py-2.5 rounded-lg border border-white/[0.06] bg-[#0f1524] text-[10px]'}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="font-bold tracking-widest uppercase text-slate-400">System</span>
+        <span className="font-bold tracking-widest uppercase text-slate-400">{embedded ? 'Model top 10' : 'System'}</span>
         <span className={`font-bold px-2 py-[1px] rounded border ${core.on ? 'text-emerald-300 bg-emerald-500/15 border-emerald-400/30' : 'text-amber-300 bg-amber-500/15 border-amber-400/30'}`}>
           {core.on ? `Core: ${core.leverage}× QQQ` : 'Core: cash'}
         </span>
@@ -41,14 +43,13 @@ const SystemCard = () => {
       <div className="mt-1 text-slate-500">
         {rec && rec.days >= 2
           ? <>Live since {rec.since}: core {pct(rec.core, 1)} · list {pct(rec.list, 1)} · QQQ {pct(rec.qqq, 1)}</>
-          : <>Live record starts {asOf}.</>}
+          : <>Live record starts {asOf}.</>} · ranked best of {universe.toLocaleString()} liquid stocks
       </div>
       <div className="mt-2 overflow-x-auto">
         <div className="min-w-[340px]">
           <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
             <span className={`${H} w-[14px] text-right mr-1`}>#</span>
             <span className={`${H} w-[44px] text-center mx-0.5`}>Ticker</span>
-            <span className={`${H} w-[30px] text-right ml-2`}>Score</span>
             <span className={`${H} w-[46px] text-right ml-2`}>12M</span>
             <span className={`${H} w-[40px] text-right ml-2`}>Off hi</span>
             <span className={`${H} w-[36px] text-right ml-2`}>Today</span>
@@ -59,7 +60,6 @@ const SystemCard = () => {
             <div key={p.t} className="flex items-center whitespace-nowrap py-[1px]" title={p.n ?? p.t}>
               <span className="text-[9px] tabular-nums text-slate-500 w-[14px] text-right mr-1">{i + 1}</span>
               <TickerChartHover symbol={p.t}><span className="inline-block w-[44px] mx-0.5 text-center text-[9px] font-bold tracking-wide rounded border border-white/10 bg-white/[0.03] text-slate-200 py-[1px]">{p.t}</span></TickerChartHover>
-              <span className="text-[9px] tabular-nums text-slate-300 w-[30px] text-right ml-2">{Math.round(p.pctl * 100)}</span>
               <span className={`text-[9px] tabular-nums font-semibold w-[46px] text-right ml-2 ${p.mom >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{pct(p.mom)}</span>
               <span className="text-[9px] tabular-nums text-slate-400 w-[40px] text-right ml-2">{pct(p.off52)}</span>
               <span className={`text-[9px] tabular-nums w-[36px] text-right ml-2 ${p.chg1 >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{pct(p.chg1, 1)}</span>

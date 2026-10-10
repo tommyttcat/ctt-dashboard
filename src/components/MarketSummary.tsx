@@ -103,6 +103,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useModelScores, allModelScores } from '@/lib/modelScores';
 import { blendModelMap } from '@/lib/scans/edge';
+import SystemCard from './SystemCard';
 import { cachedJson, fetchScannerLatest } from '@/lib/scannerLatest';
 import { isTradingDay } from '@/lib/marketCalendar';
 import TickerChartHover, { ActiveChartProvider, WatchlistBtn } from './TickerChartHover';
@@ -1935,7 +1936,7 @@ const ChartStructure = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => 
    day it was rebalanced on (scripts/backtest/rank-*.ts). A ranking, not a buy
    signal: no levels. Rebuilt nightly by /api/momentum/nightly, read through
    the CDN, fetched once per page load (it changes once a night). */
-type MomSortKey = 'mom' | 'r1m' | 'price' | 'dvol' | 'sue' | 'vol' | 'rvol' | 'rs' | 'stage' | 'cnf';
+type MomSortKey = 'mom' | 'r1m' | 'price' | 'dvol' | 'sue' | 'vol' | 'rvol' | 'rs' | 'stage' | 'cnf' | 'model';
 const MomentumLeaders = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTier>; cnfMap?: Record<string, number> }) => {
   const [list, setList] = React.useState<MomentumList | null>(null);
   const [failed, setFailed] = React.useState(false);
@@ -1953,6 +1954,7 @@ const MomentumLeaders = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTie
   const val = (r: MomentumRow): number => {
     if (sort.key === 'stage') { const v = parseFloat(stageShort(r.stage)); return Number.isFinite(v) ? v : -Infinity; }
     if (sort.key === 'cnf') return cnfMap?.[r.t] ?? -Infinity;
+    if (sort.key === 'model') return allModelScores()?.[r.t] ?? -Infinity;
     const v = r[sort.key as keyof MomentumRow];
     return typeof v === 'number' && Number.isFinite(v) ? v : -Infinity;
   };
@@ -1973,6 +1975,7 @@ const MomentumLeaders = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTie
         <span className={`${H} hidden md:inline-block w-[18px] text-right mr-1`}>#</span>
         <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
         <span className={`${H} ${S} w-[20px] md:w-[22px] text-center ml-2 md:ml-1`} onClick={() => onSort('cnf')}>CNF{arrow('cnf')}</span>
+        <span className={`${H} ${S} w-[24px] md:w-[26px] text-center ml-2 md:ml-1`} onClick={() => onSort('model')} title="The System model's score, 0-100 (percentile of ~2,000 liquid stocks)">Mdl{arrow('model')}</span>
         <span className={`${H} ${S} w-[46px] md:w-[52px] text-right ml-1`} onClick={() => onSort('mom')}>12M{arrow('mom')}</span>
         <span className={`${H} ${S} hidden md:inline-block w-[46px] text-right ml-1`} onClick={() => onSort('r1m')}>1M{arrow('r1m')}</span>
         {combined && <span className={`${H} ${S} w-[30px] md:w-[36px] text-right ml-2 md:ml-1`}><InfoDot content={<span>{"SURP — EARNINGS SURPRISE. The latest quarter's earnings per share against the same quarter a year earlier, divided by how much that year-on-year change usually moves for this company (its last 4-8 quarters). +2 = an unusually big improvement; 0 = about normal; negative = earnings got worse. Only quarters reported in the last 92 days count; a dash means no recent score."}</span>}><span onClick={() => onSort('sue')}>Surp{arrow('sue')}</span></InfoDot></span>}
@@ -1998,6 +2001,7 @@ const MomentumLeaders = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTie
             <span className="text-[9px] tabular-nums text-slate-600 hidden md:inline-block w-[18px] text-right mr-1">{rank.get(r.t)}</span>
             <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px] mx-0.5`}>{r.t}</span></TickerChartHover>
             <span className="inline-block w-[20px] md:w-[22px] text-center ml-2 md:ml-1">{cnf != null ? <span className={`${badge} ${cnfBadgeCls(cnf)}`}>{Math.round(cnf)}</span> : <span className={dash}>-</span>}</span>
+            {(() => { const ms = allModelScores()?.[r.t]; return <span className={`text-[9px] tabular-nums font-semibold inline-block w-[24px] md:w-[26px] text-center ml-2 md:ml-1 ${ms == null ? 'text-slate-600' : ms >= 2 / 3 ? 'text-emerald-400' : ms >= 1 / 3 ? 'text-amber-300' : 'text-rose-400'}`}>{ms == null ? '—' : Math.round(ms * 100)}</span>; })()}
             <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${pctCls(r.mom)}`}>{r.mom >= 0 ? '+' : ''}{r.mom.toFixed(0)}%</span>
             <span className={`text-[9px] tabular-nums hidden md:inline-block w-[46px] text-right ml-1 ${pctCls(r.r1m)}`}>{r.r1m >= 0 ? '+' : ''}{r.r1m.toFixed(1)}%</span>
             {combined && <span className={`text-[9px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-2 md:ml-1 ${r.sue == null ? 'text-slate-600' : r.sue >= 2 ? 'text-emerald-400' : r.sue > 0 ? 'text-slate-300' : 'text-rose-400'}`}>{r.sue == null ? '—' : `${r.sue >= 0 ? '+' : ''}${r.sue.toFixed(1)}`}</span>}
@@ -2015,6 +2019,7 @@ const MomentumLeaders = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTie
   const half = Math.ceil(rows.length / 2);
   return (
     <div>
+      <SystemCard embedded />
       <div className="flex items-start gap-2 mb-2">
         <p className="text-[10px] text-slate-400 leading-snug flex-1">
           {combined
@@ -2442,7 +2447,7 @@ const BRIEFING_SECTIONS: { label: string; color: string; blurb: string }[] = [
   { label: 'Social Sentiment', color: 'violet', blurb: 'What StockTwits, Reddit and Bluesky are talking about most, and which way they lean. The crowd, not a signal.' },
   { label: 'Liquid Leaders', color: 'cyan', blurb: 'The ~1,000 most traded stocks: which are outrunning the market most, and which trade the heaviest volume.' },
   { label: 'Chart Structure', color: 'teal', blurb: 'The ~1,000 most traded stocks sorted by chart shape: trending, in a channel, in a range, bouncing off support or breaking out. A description, not a signal.' },
-  { label: 'Momentum Leaders', color: 'cyan', blurb: 'The 50 liquid stocks with the strongest 12-month run — the one ranking that beat SPY in testing, with bigger drops. A ranking, not a buy list.' },
+  { label: 'Momentum Leaders', color: 'cyan', blurb: 'The System on top: the 2× QQQ core and the model\'s top 10 of ~2,000 liquid stocks. Below it, the 50 strongest 12-month runs with each name\'s model score (Mdl). Rankings, not a buy list.' },
   { label: 'SIPs Thesis', color: 'cyan', blurb: 'Stocks in play — who has real volume behind the move, and who is on air.' },
   { label: '$Vol Summary', color: 'teal', blurb: 'Top 20 by dollar volume — where the money actually is today.' },
   { label: 'Daily Setups Thesis', color: 'cyan', blurb: 'Day trades vs multi-day swing holds from the daily scanner — sorted by blended score.' },
