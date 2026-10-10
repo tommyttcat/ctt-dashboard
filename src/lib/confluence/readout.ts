@@ -305,3 +305,32 @@ export function bestLine(r: ReadoutReport | undefined): string {
     : 'weak on both timeframes';
   return where ? `${r.ticker} leads: ${where}, ${trend}.` : `${r.ticker} leads: ${trend}.`;
 }
+
+// ---- has the move happened? (9 Oct 2026) -------------------------------------
+/* How far the name has already run, in its own average daily ranges (ADR), so
+   a $20 stock and a $900 stock read the same:
+     today   today's change / ADR%           (1.0 = a full normal day already)
+     stretch (price − daily 21 EMA) / ADR    (distance above its 21-day line)
+   extended  stretch 3+ ADRs, or today 1.5+ ADRs, or daily RSI 75+
+   moving    stretch 1.5+ ADRs, or today 0.75+ ADRs
+   early     neither — still near its 21-day line on a normal day
+   The thresholds are a description, not a tested signal: buying names that
+   had used little of the day's range did no better over 10 days in
+   scripts/backtest/atr-lod.ts. */
+export type MoveState = 'early' | 'moving' | 'extended';
+export interface MoveRead { state: MoveState; today: number | null; stretch: number | null }
+export function moveStatus(r: ReadoutReport): MoveRead | null {
+  const adr = r.adrPct;
+  if (!(adr != null && adr > 0) || !(r.price > 0)) return null;
+  const d = r.timeframes.find(t => t.timeframe === 'Daily') as (ReportTf & { ema21?: number | null }) | undefined;
+  const e21 = d?.ema21 ?? null;
+  const today = r.changePct != null ? r.changePct / adr : null;
+  const stretch = e21 != null && e21 > 0 ? ((r.price - e21) / e21) * 100 / adr : null;
+  if (today == null && stretch == null) return null;
+  const rsi = d?.rsi ?? null;
+  const state: MoveState =
+    (stretch != null && stretch >= 3) || (today != null && today >= 1.5) || (rsi != null && rsi >= 75) ? 'extended'
+      : (stretch != null && stretch >= 1.5) || (today != null && today >= 0.75) ? 'moving'
+        : 'early';
+  return { state, today, stretch };
+}

@@ -13,7 +13,7 @@ import WatchlistPanel from './WatchlistPanel';
 import { ChartLevelsCtx } from './analyst/MiniChart';
 import type { ExternalLevel } from './analyst/MiniChart';
 import {
-  fmtLvl, verdictOf, trendLine, whyLine, flagsOf, shortName, shortRisk, bestLine,
+  fmtLvl, verdictOf, trendLine, whyLine, flagsOf, shortName, shortRisk, bestLine, moveStatus,
   type ReadoutReport, type ReportTf, type FlagTone,
 } from '@/lib/confluence/readout';
 import { poll } from '@/lib/poll';
@@ -117,8 +117,11 @@ const nearResistance = (r: Report) => r.levels.resistance.filter(v => v > r.pric
 const targetOf = (r: Report): { text: string; up: boolean; basis: string } | null => {
   const t = r.tradeRec;
   if (!t) return null;
-  const v = parseFloat(t.takeProfit.replace(/[$,]/g, ''));
   const up = t.direction !== 'SHORT';
+  /* The stored target is rounded to whole dollars over $100; when it IS the
+     next level, show that level exactly so it matches the column beside it. */
+  const lvl = t.targetBasis === 'level' ? (up ? nearResistance(r)[0] : nearSupport(r)[0]) : undefined;
+  const v = lvl ?? parseFloat(t.takeProfit.replace(/[$,]/g, ''));
   if (!(v > 0) || (up ? v <= r.price : v >= r.price)) return null;
   return { text: fmtLvl(v), up, basis: t.targetBasis === 'atr' ? '3 ATR — no level within 25%' : up ? 'next resistance' : 'next support' };
 };
@@ -242,18 +245,32 @@ function StockCard({ report: r }: { report: Report }) {
   const why = whyLine(r);
   const flags = flagsOf(r);
   const tgt = targetOf(r);
+  const mv = moveStatus(r);
+  const MOVE = {
+    early: { label: "Hasn't moved", border: 'border-emerald-400/45', pill: 'text-emerald-300 bg-emerald-500/15 border-emerald-400/30' },
+    moving: { label: 'Moving', border: 'border-amber-400/45', pill: 'text-amber-300 bg-amber-500/15 border-amber-400/30' },
+    extended: { label: 'Extended — move done', border: 'border-rose-400/45', pill: 'text-rose-300 bg-rose-500/15 border-rose-400/30' },
+  } as const;
+  const mvMeta = mv ? MOVE[mv.state] : null;
+  const mvTip = mv ? [
+    mv.today != null ? `Today ${mv.today >= 0 ? '+' : ''}${mv.today.toFixed(1)}× its average daily range` : null,
+    mv.stretch != null ? `${Math.abs(mv.stretch).toFixed(1)} average daily ranges ${mv.stretch >= 0 ? 'above' : 'below'} its 21-day line` : null,
+  ].filter(Boolean).join(' · ') : '';
 
   /* One size for the whole card (13px); weight and colour carry the
      hierarchy instead. */
   return (
-    <div className="rounded-2xl border border-white/[0.08] bg-[#0b101a] overflow-hidden min-w-0">
+    <div className={`rounded-2xl border ${mvMeta ? mvMeta.border : 'border-white/[0.08]'} bg-[#0b101a] overflow-hidden min-w-0`}>
       <div className={`h-full px-4 py-4 text-[13px] ${tint}`}>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <TickerBadge ticker={r.ticker} grade={r.cnfGrade} />
             {name && <span className="text-slate-400 truncate">{name}</span>}
           </div>
-          <span className={`font-bold tabular-nums shrink-0 ${r.changePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmtPct(r.changePct)}</span>
+          <div className="flex items-center gap-2 shrink-0">
+            {mvMeta && <span className={`font-semibold rounded-full border px-2.5 py-0.5 whitespace-nowrap ${mvMeta.pill}`} title={mvTip}>{mvMeta.label}</span>}
+            <span className={`font-bold tabular-nums ${r.changePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmtPct(r.changePct)}</span>
+          </div>
         </div>
 
         <div className="mt-2 text-slate-300"><span className="font-semibold text-slate-100 mr-1">Trend</span>{trendLine(r)}</div>
@@ -459,6 +476,7 @@ export default function ConfluenceReport() {
           <div className="text-[11px] font-bold tracking-widest uppercase text-amber-400/70 mb-1.5">Good to know</div>
           <ul className="text-[12px] text-slate-500 space-y-0.5 list-disc list-inside">
             <li>No buy or stop levels: the ones CTT published lost money live, so the report shows the names and why, not a trade plan.</li>
+            <li>Card outline: green = hasn&apos;t moved (near its 21-day line on a normal day), amber = moving, red = extended (3+ average daily ranges above its 21-day line, 1.5+ ranges up today, or RSI 75+). It describes the stretch; it is not a tested signal. The left edge is still the scan&apos;s green / yellow / red rating.</li>
             <li>Support and resistance are the nearest swing lows below and swing highs above the price over the last 60 sessions, within 25%; they may miss some levels.</li>
             <li>Target is the next resistance above (or support below, for a downtrend), or 3 ATR when there is no level within 25%. Untested as an exit: on the scan rows the 5-year replay found a fixed target averaged −0.08% a trade.</li>
             <li>Price data is delayed. Always apply your own risk management.</li>
