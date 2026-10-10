@@ -339,7 +339,11 @@ export default function ConfluenceReport() {
   const visibleReports = useMemo(() => {
     const TIER: Record<string, number> = { green: 0, yellow: 1, red: 2 };
     const list = edge.key ? sectorReports.filter(r => edgeTier(r) === edge.key) : sectorReports;
-    return [...list].sort((a, b) => (TIER[edgeTier(a) ?? ''] ?? 3) - (TIER[edgeTier(b) ?? ''] ?? 3) || b.biasScore - a.biasScore);
+    /* Hasn't moved first, then moving, then extended (moveStatus); within
+       each, green before yellow before red, then the stronger trend bias. */
+    const MV: Record<string, number> = { early: 0, moving: 1, extended: 2 };
+    const mvRank = (r: Report) => MV[moveStatus(r)?.state ?? ''] ?? 3;
+    return [...list].sort((a, b) => mvRank(a) - mvRank(b) || (TIER[edgeTier(a) ?? ''] ?? 3) - (TIER[edgeTier(b) ?? ''] ?? 3) || b.biasScore - a.biasScore);
   }, [sectorReports, edge.key]);
 
   const fetchData = useCallback(async () => {
