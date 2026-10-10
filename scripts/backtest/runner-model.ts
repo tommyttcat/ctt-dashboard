@@ -26,6 +26,11 @@
 //     Liquidity buckets ($20-50M, $50-200M, $200M+): runner rates, base and top decile.
 //   PASS: L1 lift >= 1.5 in >= 7 of 9 years AND L2 top > bottom in >= 7 of 9 years AND
 //     L3 average trade > 0 in both halves.
+// TARGET=trade (added 10 Oct 2026 before its run, after the runner label picked
+//   volatility — runs AND stops — and its book lost): the TRADE result itself is the
+//   target (expected value of the +20% / -10% / 40-session trade). PASS for this variant:
+//   top-decile average trade above the all-names average in >= 7 of 9 years AND the
+//   L3 book's average trade > 0 in both halves.
 // (ai-system.ts rules follow)
 // RULES — fixed 10 Oct 2026, before the first run.
 //   Universe each week (every 5th session from 2016): CS/ADRC, real close >= $2,
@@ -107,7 +112,7 @@ for (let t = start; t + 40 < N; t += 5) {
   const rankInto = (vals: number[], put: (i: number, v: number) => void) => { const o = vals.map((v, i) => [v, i] as [number, number]).filter(p => Number.isFinite(p[0])).sort((a, b) => a[0] - b[0]); const m = o.length; o.forEach(([, i], r) => put(i, m > 1 ? r / (m - 1) - 0.5 : 0)); };
   const NOSEC = process.env.NOSEC === '1';
   for (let f = 0; f < F; f++) { if (NOSEC && f >= 27) continue; rankInto(rows.map(r => r.f[f]), (i, v) => { X[i * F + f] = v; }); }
-  rows.forEach((r, i) => { y[i] = r.run; });
+  if (process.env.TARGET === 'trade') rankInto(rows.map(r => r.trade), (i, v) => { y[i] = v; }); else rows.forEach((r, i) => { y[i] = r.run; });
   rows.forEach((r, i) => { fwd[i] = r.fwd; dv[i] = r.dv; });
   const run = new Uint8Array(n), trade = new Float32Array(n), momRank = new Float32Array(n);
   rows.forEach((r, i) => { run[i] = r.run; trade[i] = r.trade; momRank[i] = X[i * F + 4] + 0.5; });
@@ -146,7 +151,7 @@ for (let Y = 2018; Y <= 2026; Y++) {
 const pct = (x: number) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(2)}%`;
 const mean = (xs: number[]) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN;
 const yrs = [...new Set(preds.map(p => sessions[p.w.t].slice(0, 4)))];
-let l1 = 0, l2 = 0;
+let l1 = 0, l2 = 0, tradeYears = 0; const tradeLines: string[] = [];
 console.log(`weeks ${weeks.length}; OUT OF SAMPLE. runner = +20% close within 40 sessions before a -10% close`);
 console.log(`  year  base   top-decile  lift | momentum leaders: top-third  bottom-third`);
 for (const y of yrs) {
@@ -159,8 +164,12 @@ for (const y of yrs) {
     if (th >= 1) { ml.slice(0, th).forEach(i => mt.push(p.w.run[i])); ml.slice(-th).forEach(i => mb.push(p.w.run[i])); }
   }
   const lift = mean(top) / mean(all); if (lift >= 1.5) l1++; if (mean(mt) > mean(mb)) l2++;
+  const tAll: number[] = [], tTop: number[] = []; for (const p of ps) { const o = Array.from(p.p.keys()).sort((a, b) => p.p[b] - p.p[a]); const d = Math.floor(o.length / 10); o.forEach(i => tAll.push(p.w.trade[i])); o.slice(0, d).forEach(i => tTop.push(p.w.trade[i])); }
+  if (mean(tTop) > mean(tAll)) tradeYears++;
+  tradeLines.push(`  ${y}  avg trade: all ${pct(mean(tAll))}  model top decile ${pct(mean(tTop))}`);
   console.log(`  ${y}  ${(100 * mean(all)).toFixed(1).padStart(4)}%  ${(100 * mean(top)).toFixed(1).padStart(5)}%     ${lift.toFixed(2)} |   ${(100 * mean(mt)).toFixed(1).padStart(5)}%       ${(100 * mean(mb)).toFixed(1).padStart(5)}%`);
 }
+console.log(tradeLines.join('\n'));
 console.log(`\nLIQUIDITY (all years): runner rate base | model top decile`);
 for (const [lo, hi, nm] of [[20e6, 50e6, '$20-50M'], [50e6, 200e6, '$50-200M'], [200e6, 1e15, '$200M+']] as [number, number, string][]) {
   const b: number[] = [], t: number[] = [];
@@ -172,5 +181,6 @@ const baseTrades = (a: string, b: string) => { const tr: number[] = []; for (con
 console.log(`\nBOOK (top 10 a week, +20% / -10% / 40 sessions):`);
 const halves = [['2018-01-01', '2021-12-31'], ['2022-01-01', '2026-12-31']];
 const l3 = halves.map(([a, b]) => { const t = book(a, b), bt = baseTrades(a, b); console.log(`  ${a.slice(0, 4)}-${b.slice(0, 4)}: avg trade ${pct(mean(t))} win ${(100 * mean(t.map(x => +(x > 0)))).toFixed(0)}% hit +20% ${(100 * mean(t.map(x => +(x > 0.19)))).toFixed(0)}% n ${t.length} | random stock same rule ${pct(mean(bt))}`); return mean(t) > 0; });
-console.log(`\n→ L1 lift>=1.5 in ${l1}/${yrs.length} years; L2 in ${l2}/${yrs.length}; L3 both halves ${l3.every(Boolean)} → ${l1 >= 7 && l2 >= 7 && l3.every(Boolean) ? 'PASS' : 'fail'}`);
+if (process.env.TARGET === 'trade') console.log(`\n→ TRADE target: top decile beats all-names avg trade in ${tradeYears}/${yrs.length} years; book both halves ${l3.every(Boolean)} → ${tradeYears >= 7 && l3.every(Boolean) ? 'PASS' : 'fail'}`);
+else console.log(`\n→ L1 lift>=1.5 in ${l1}/${yrs.length} years; L2 in ${l2}/${yrs.length}; L3 both halves ${l3.every(Boolean)} → ${l1 >= 7 && l2 >= 7 && l3.every(Boolean) ? 'PASS' : 'fail'}`);
 if (process.env.EXPORT === '1') { const all = fit(weeks.filter(w => w.t + 40 < N)); console.log('\nEXPORT ' + JSON.stringify({ feats: FEATS, trainedOn: `${sessions[weeks[0].t]}..${sessions[weeks[weeks.length - 1].t]}`, weeks: weeks.length, beta: Array.from(all).map(x => +x.toPrecision(6)) })); }
