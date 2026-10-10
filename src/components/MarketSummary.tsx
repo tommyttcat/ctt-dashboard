@@ -2503,6 +2503,16 @@ const formatBriefingText = (text: string) => {
     .replace(/(Sector Flow:)/gi, '\n\n$1');
 };
 
+/* Interactive cards render from their own data, not the briefing text, so a
+   briefing built before a card existed must not hide it: insert the card's
+   placeholder after the one it follows when the text lacks it. */
+const withInteractive = (paras: string[]): string[] => {
+  if (paras.some(p => p.startsWith('Chart Structure:'))) return paras;
+  const i = paras.findIndex(p => p.startsWith('Momentum Leaders:'));
+  if (i < 0) return paras;
+  return [...paras.slice(0, i + 1), 'Chart Structure: interactive', ...paras.slice(i + 1)];
+};
+
 const splitBriefingSection = (para: string): { label: string | null; color: string; blurb: string; body: string } => {
   for (const sec of BRIEFING_SECTIONS) {
     if (para.startsWith(`${sec.label}:`)) {
@@ -2778,7 +2788,7 @@ export default function MarketSummary() {
     }
     const collapsed = new Set<string>();
     const ctx: ScanFilterCtx = { gradeMap: mi.gradeMap, postureMap: mi.postureMap, avoidSet: mi.avoidSet, dotMap: mi.dotMap };
-    const paras = formatBriefingText(mi.briefing).split('\n\n').filter(Boolean);
+    const paras = withInteractive(formatBriefingText(mi.briefing).split('\n\n').filter(Boolean));
     for (const p of paras) {
       const sec = splitBriefingSection(p.trim());
       if (!sec.label) continue;
@@ -3053,7 +3063,7 @@ export default function MarketSummary() {
 
               <div className="relative z-10 flex flex-col gap-6 md:gap-8">
                 {(() => {
-                  const paras = formatBriefing(macroInsights.briefing).split('\n\n').filter(Boolean);
+                  const paras = withInteractive(formatBriefing(macroInsights.briefing).split('\n\n').filter(Boolean));
                   const sections = paras.map((p, i) => {
                     const parsed = splitBriefingSection(p.trim());
                     return { ...parsed, key: parsed.label || `sec-${i}` };
