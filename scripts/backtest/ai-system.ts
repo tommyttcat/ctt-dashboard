@@ -119,7 +119,7 @@ function fit(train: Week[]): Float64Array {
   const lam = 10 * rows / 1000; for (let a = 1; a < P; a++) A[a * P + a] += lam;
   return solve(A, b, P);
 }
-const spearman = (a: Float32Array | number[], b: Float32Array | number[]) => { const n = a.length; const rk = (v: ArrayLike<number>) => { const o = Array.from({ length: n }, (_, i) => i).sort((x, y) => v[x] - v[y]); const r = new Float64Array(n); o.forEach((i, k) => (r[i] = k)); return r; }; const ra = rk(a), rb = rk(b); let s = 0; for (let i = 0; i < n; i++) s += (ra[i] - rb[i]) ** 2; return 1 - 6 * s / (n * (n * n - 1)); };
+const spearman = (a: ArrayLike<number>, b: ArrayLike<number>) => { const n = a.length; const rk = (v: ArrayLike<number>) => { const o = Array.from({ length: n }, (_, i) => i).sort((x, y) => v[x] - v[y]); const r = new Float64Array(n); o.forEach((i, k) => (r[i] = k)); return r; }; const ra = rk(a), rb = rk(b); let s = 0; for (let i = 0; i < n; i++) s += (ra[i] - rb[i]) ** 2; return 1 - 6 * s / (n * (n * n - 1)); };
 
 type Pred = { w: Week; p: Float64Array };
 const preds: Pred[] = [];
