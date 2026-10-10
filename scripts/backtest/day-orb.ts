@@ -87,7 +87,13 @@ for (const d of dates) {
     for (let k = 0; k < rest.length; k++) { const b = rest[k]; if (side > 0 ? b[2] > level : b[3] < level) { fill = side > 0 ? Math.max(level, b[1]) : Math.min(level, b[1]); k0 = k; break; } }
     if (k0 < 0) continue;
     const stop = fill - side * risk; let exit = NaN;
-    for (let k = k0; k < rest.length; k++) { const b = rest[k]; if (side > 0 ? b[3] <= stop : b[2] >= stop) { exit = k === k0 ? stop : (side > 0 ? Math.min(stop, b[1]) : Math.max(stop, b[1])); break; } }
+    /* STOPNEXT=1 (POST-HOC, added after the first run): the fill minute only
+       stops the trade if it CLOSES beyond the stop; touches count from the next
+       minute. 1-minute bars cannot order the fill and the low inside a minute. */
+    const stopNext = process.env.STOPNEXT === '1';
+    for (let k = k0; k < rest.length; k++) { const b = rest[k];
+      if (stopNext && k === k0) { if (side > 0 ? b[4] <= stop : b[4] >= stop) { exit = b[4]; break; } continue; }
+      if (side > 0 ? b[3] <= stop : b[2] >= stop) { exit = k === k0 ? stop : (side > 0 ? Math.min(stop, b[1]) : Math.max(stop, b[1])); break; } }
     if (Number.isNaN(exit)) exit = rest[rest.length - 1][4];
     const ret = side * (exit / fill - 1) - 2 * COST;
     trades.push({ d, side, R: ret / (risk / fill), notionalPerRisk: fill / risk, ret });
