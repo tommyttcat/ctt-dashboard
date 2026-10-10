@@ -146,3 +146,28 @@ for (const [lab, f, slots, graded] of [
   for (const p of parts) console.log(`  ${p.h}: ${k$(p.r.ret)} (dd -${(100 * p.r.dd).toFixed(0)}%) | random median ${k$(p.rmed)} | taken ${p.r.taken}, win ${(100 * p.r.win).toFixed(0)}%, avg ${pct(p.r.avg)} | invested ${(100 * p.r.inMkt).toFixed(0)}% of days`);
 }
 console.log(`\n→ ${pass ? 'PASS' : 'fail'}`);
+
+/* CHOP FOLLOW-UP — added 10 Oct 2026 after the run above failed, rules fixed before its run.
+   Market chop = mean of QQQ's and SPY's 14-day Choppiness Index at the breakout session
+   (100*log10(sum TR14 / (hi14 - lo14)) / log10(14); lib/indicators/chopMarket's daily leg).
+   PRIMARY: take a trade only when chop < 50 (the dashboard's VERY SENSITIVE chop line).
+   Controls: < 38.2 (trending), < 61.8 (skip only clear chop), < 50 AND last-20 positive.
+   PASS: as above. */
+const spyId = c.idOf.get('SPY')!;
+const ci = (id: number, t: number) => { let tr = 0, hi = -Infinity, lo = Infinity; for (let j = t - 13; j <= t; j++) { tr += Math.max(H[id][j], C[id][j - 1]) - Math.min(L[id][j], C[id][j - 1]); hi = Math.max(hi, H[id][j]); lo = Math.min(lo, L[id][j]); } return 100 * Math.log10(tr / (hi - lo)) / Math.log10(14); };
+const chop = (t: Tr) => (ci(qId, t.e) + ci(spyId, t.e)) / 2;
+{ const days = HALF.map(([h, a, b]) => { let n = 0, lt = 0; for (let t = a; t <= b; t++) { n++; if ((ci(qId, t) + ci(spyId, t)) / 2 < 50) lt++; } return `${h} ${(100 * lt / n).toFixed(0)}%`; }); console.log(`\nCHOP FOLLOW-UP — share of days with chop < 50: ${days.join(', ')}`); }
+let passC = false;
+for (const [lab, f, graded] of [
+  ['PRIMARY: chop < 50', (t: Tr) => chop(t) < 50, true],
+  ['chop < 38.2 (trending)', (t: Tr) => chop(t) < 38.2, false],
+  ['chop < 61.8', (t: Tr) => chop(t) < 61.8, false],
+  ['chop < 50 AND last 20 positive', (t: Tr) => chop(t) < 50 && h20.get(t)! > 0, false],
+] as const) {
+  const ts = A.filter(f);
+  const parts = HALF.map(([h, a, b]) => { const r = account(ts, a, b, 20); const rs = Array.from({ length: 50 }, (_, i) => account(ts, a, b, 20, 11 + i).ret).sort((x, y) => x - y); return { h, r, rmed: rs[25], q: qq(a, b) }; });
+  if (graded) passC = parts.every(p => p.r.ret > p.q && p.rmed > p.q);
+  console.log(`\n${lab}${graded ? '' : ' (control)'}`);
+  for (const p of parts) console.log(`  ${p.h}: ${k$(p.r.ret)} (dd -${(100 * p.r.dd).toFixed(0)}%) | random median ${k$(p.rmed)} | taken ${p.r.taken}, win ${(100 * p.r.win).toFixed(0)}%, avg ${pct(p.r.avg)} | invested ${(100 * p.r.inMkt).toFixed(0)}% of days`);
+}
+console.log(`\n→ chop follow-up ${passC ? 'PASS' : 'fail'}`);
