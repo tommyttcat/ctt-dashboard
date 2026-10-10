@@ -38,6 +38,7 @@ import {
 } from '@/lib/indicators/columnColors';
 import { formatNumber, formatCurrency, emaDotClass } from '@/lib/scans/tableFormat';
 import type { PlanStatusView } from '@/lib/scans/triggerProximity';
+import { FIT_TIP } from '@/lib/scans/fit';
 
 /* The format itself. These were identical, character for character, in every
    table that declared them; they are the rule made literal. */
@@ -145,6 +146,21 @@ export function ScoreCell({ value, title }: { value: number | null | undefined; 
     <td className={SCAN.td}>
       <span title={title} className={scoreCellCls(value)}>
         {value != null ? value : '--'}
+      </span>
+    </td>
+  );
+}
+
+/* OK / LATE (lib/scans/fit) — replaced the CNF grade on the SIP and Daily
+   tables on 9 Oct 2026. Same badge box as ScoreCell so the column keeps its
+   width; '--' when the scan has not scored the row yet. */
+export function FitCell({ late, title }: { late: boolean | null | undefined; title?: string }) {
+  const cls = late == null ? 'text-slate-600 border-slate-700/40 bg-slate-800/30'
+    : late ? 'text-rose-300 border-rose-500/30 bg-rose-500/10' : 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10';
+  return (
+    <td className={SCAN.td}>
+      <span title={title ?? (late == null ? 'Not scored' : late ? FIT_TIP.late : FIT_TIP.ok)} className={`inline-block px-1 py-[1px] rounded border text-[9px] font-bold tracking-wide cursor-help ${cls}`}>
+        {late == null ? '--' : late ? 'LATE' : 'OK'}
       </span>
     </td>
   );

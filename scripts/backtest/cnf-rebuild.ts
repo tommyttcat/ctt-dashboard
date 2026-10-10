@@ -133,3 +133,6 @@ for (const c of kept) {
   const loSide = test.filter(r => Number.isFinite(r.f[c.k]) && (c.flag ? r.f[c.k] === (c.dir > 0 ? 0 : 1) : (c.cuts!.filter(cut => r.f[c.k] >= cut).length === (c.dir > 0 ? 0 : 4))));
   console.log(`  test check ${c.k.padEnd(14)} better end ${pct(mean(hiSide.map(r => r.ex)))} (n ${hiSide.length}) vs worse end ${pct(mean(loSide.map(r => r.ex)))} (n ${loSide.length})`);
 }
+
+// Frozen parameters for src/lib/scans/fit.ts (printed, not re-fitted).
+if (process.argv.includes('--params')) console.log(JSON.stringify({ cutB, kept: kept.map(c => ({ k: c.k, dir: c.dir, flag: !!c.flag, cuts: c.cuts })) }, null, 1));

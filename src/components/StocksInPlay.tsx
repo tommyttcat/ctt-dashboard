@@ -106,16 +106,16 @@ import { WatchlistToggle } from './WatchlistPanel';
 import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
 import { edgeTier, EDGE_FILTER_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
-import { SCAN, ScoreCell, RsCell, PriceCell, ChgCell, Ema1021Cell, VolCell, DollarVolCell, RvolCell, FloatCell, AdrCell, MfCell, DtcCell, McapCell, StageCell, SectorCell } from './scan/ScanTable';
+import { SCAN, ScoreCell, FitCell, RsCell, PriceCell, ChgCell, Ema1021Cell, VolCell, DollarVolCell, RvolCell, FloatCell, AdrCell, MfCell, DtcCell, McapCell, StageCell, SectorCell } from './scan/ScanTable';
 import { usePhoneTable } from './scan/usePhoneTable';
 import { TickerCell } from './scan/TickerCell';
 import { poll } from '@/lib/poll';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The setup name sits directly beneath it.' },
-  CNF: {
-    what: 'Confluence score 0–100 — how many independent factors line up: RVOL, gap, range expansion, RS, catalyst quality, persistence, VWAP, regime, sector heat, dots, runway. Hover the number for the per-row breakdown and any grade ceiling.',
-    colour: 'The grade is on the ticker, not here: green 70+ (A) · amber 50+ (B) · grey below (C).',
+  FIT: {
+    what: 'OK or LATE (since 9 Oct 2026, replacing the A/B/C grade). LATE = already ran hard today: a big % gain, a range blowing out, far ahead of the market, closing off its high or below VWAP, thin dollar volume, already above its 50-day. Built on Sep 2022 – Sep 2024 scan rows and checked once on Sep 2024 – Sep 2026: the OK half beat QQQ by about +1.4% over the next 20 sessions, the LATE half trailed it by −3.8%. The two-way cut was chosen after that check, so the live record still has to confirm it.',
+    colour: 'Green OK · red LATE · -- not scored yet.',
   },
   PRICE: {
     what: 'Last price. The dot beside it is VWAP position.',
@@ -211,6 +211,9 @@ interface StockInPlay {
   newsSentiment?: 'positive' | 'negative' | 'neutral' | null;
   newsCausal?: boolean | null;
   conviction?: number | null;
+  /** OK / LATE score and flag (lib/scans/fit). */
+  fit?: number | null;
+  late?: boolean | null;
   thesis?: string | null;
   aboveEma10?: boolean | null;
   aboveEma21?: boolean | null;
@@ -239,7 +242,7 @@ interface StockInPlay {
 }
 
 type SortDirection = 'asc' | 'desc';
-type CnfFilterType = 'All' | 'A' | 'B';
+type CnfFilterType = 'All' | 'OK';
 type VwapFilterType = 'All' | 'above' | 'below';
 type AdrFilterType = 'All' | '5' | '10';
 type CapFilterType = 'All' | 'Small' | 'Large';
@@ -249,8 +252,8 @@ type CatalystFilterType = 'All' | 'news' | 'earnings';
 type GapFilterType = 'All' | '7' | '10';
 type SqueezeFilterType = 'All' | 'squeeze';
 
-const CNF_BUCKETS: CnfFilterType[] = ['A', 'B'];
-const CNF_MIN_SCORE: Record<'A' | 'B', number> = { A: 70, B: 50 };
+/* OK-only filter (lib/scans/fit) — replaced the A / B CNF pills on 9 Oct 2026. */
+const CNF_BUCKETS: CnfFilterType[] = ['OK'];
 const ADR_BUCKETS: AdrFilterType[] = ['5', '10'];
 const GAP_BUCKETS: GapFilterType[] = ['7', '10'];
 const CATALYST_BUCKETS: CatalystFilterType[] = ['news', 'earnings'];
@@ -541,6 +544,8 @@ export default function StocksInPlay() {
               newsCausal: item.newsCausal ?? null,
               catalystUrl: item.catalystUrl || null,
               conviction: item.conviction != null ? Number(item.conviction) : ((item.cnfScore ?? item.smbScore ?? item.aiScore ?? item.score) ?? null),
+              fit: typeof item.fit === 'number' ? item.fit : null,
+              late: typeof item.late === 'boolean' ? item.late : null,
               thesis: rawThesis,
               aboveEma10: item.aboveEma10 ?? null,
               aboveEma21: item.aboveEma21 ?? null,
@@ -622,8 +627,7 @@ export default function StocksInPlay() {
       });
     }
     if (cnfFilter !== 'All') {
-      const minScore = CNF_MIN_SCORE[cnfFilter];
-      filtered = filtered.filter(s => (s.conviction ?? -1) >= minScore);
+      filtered = filtered.filter(s => s.late === false);
     }
     if (adrFilter !== 'All') {
       const minAdr = Number(adrFilter);
@@ -835,7 +839,7 @@ export default function StocksInPlay() {
                       <button
                         key={g}
                         onClick={() => handleCnfFilter(g)}
-                        title={g === 'A' ? 'A only — CNF 70 and above' : 'B and above — includes A (CNF 50+)'}
+                        title="OK only — hide rows marked LATE (already ran hard today)"
                         className={`${pillBtn} ${cnfFilter === g ? filterBtnActive : filterBtnIdle}`}
                       >
                         {g}
@@ -925,7 +929,7 @@ export default function StocksInPlay() {
                 <tr className="border-b border-white/5 select-none">
                   <th className={`${thBase} w-[7%] !text-left pl-1`} title={colTip('TICKER')} onClick={() => handleSort('ticker')}>TICKER{getSortIcon('ticker')}</th>
                   <th className={`${thBase} w-[2%]`} title="News — ★ has an article, ★★ has a causal catalyst from a primary source">N</th>
-                  <th className={`${thBase} w-[4%]`} title={colTip('CNF')} onClick={() => handleSort('conviction')}>CNF{getSortIcon('conviction')}</th>
+                  <th className={`${thBase} w-[4%]`} title={colTip('FIT')} onClick={() => handleSort('fit')}>CNF{getSortIcon('fit')}</th>
                   <th className={`${thBase} w-[4%]`} title={colTip('RS')} onClick={() => handleSort('rsRating')}>RS{getSortIcon('rsRating')}</th>
                   <th className={`${thBase} w-[6%]`} title={colTip('PRICE')} onClick={() => handleSort('price')}>PRICE{getSortIcon('price')}</th>
                   <th className={`${thBase} w-[5%]`} title={colTip('CHG%')} onClick={() => handleSort('changePct')}>CHG%{getSortIcon('changePct')}</th>
@@ -967,9 +971,9 @@ export default function StocksInPlay() {
                       <React.Fragment key={i}>
                         <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
                           title={tier ? `${tier.toUpperCase()} — ${EDGE_FILTER_TIP[tier]}` : undefined}>
-                          <TickerCell symbol={row.ticker} name={row.name} score={row.conviction} />
+                          <TickerCell symbol={row.ticker} name={row.name} />
                           <td className={tdBase}><NewsStars row={row} /></td>
-                          <ScoreCell value={row.conviction} title={cnfTooltip(row)} />
+                          <FitCell late={row.late} />
                           <RsCell value={row.rsRating} />
                           <PriceCell price={row.price} vwapStatus={row.vwapStatus} vwapFilter={vwapFilter} onToggleVwap={toggleVwap} />
                           <ChgCell value={row.changePct} />

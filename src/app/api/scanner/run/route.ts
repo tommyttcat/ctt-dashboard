@@ -112,6 +112,7 @@
 //   CNF IS ALSO UNTOUCHED for the same reason. A chop penalty would move
 //   every score at once and make the effect impossible to isolate.
 
+import { fitScore, isLate } from '@/lib/scans/fit';
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 import { computeRMV } from '@/lib/indicators/rmv';
@@ -1393,6 +1394,14 @@ async function runScan(request: Request) {
         }
         goldenCross = (s50 / 50) > (s200 / 200);
       }
+      /* OK / LATE input (lib/scans/fit): price against the 50-day average
+         including today's bar, as scripts/backtest/replay-scanner.ts built it. */
+      let aboveSma50: boolean | null = null;
+      if (dailyBars.length >= 50 && price > 0) {
+        let s50 = 0;
+        for (let i = 0; i < 50; i++) s50 += dailyBars[i].c;
+        aboveSma50 = price > s50 / 50;
+      }
 
       let pctOffHigh: number | null = null;
       let pctOffLow: number | null = null;
@@ -1570,6 +1579,7 @@ async function runScan(request: Request) {
         atrExpansion: atrExpansion != null ? parseFloat(atrExpansion.toFixed(2)) : null,
         moveVsAtr: moveVsAtr != null ? parseFloat(moveVsAtr.toFixed(2)) : null,
         rsVsMkt: parseFloat(rsVsMkt.toFixed(2)),
+        aboveSma50,
         beta,
         alpha,
         _news: newsPick
@@ -1751,6 +1761,15 @@ async function runScan(request: Request) {
       t.cnfCeilingReason = cnf.ceilingReason;
       t.hasEarnings = hasEarnings;
       t.conviction = cnf.score;
+      /* OK / LATE (9 Oct 2026) — replaces the CNF grade on the SIP and Daily
+         tables. CNF stays computed for the tooltip and the other cards. */
+      t.fit = fitScore({
+        changePct: t.changePct, atrExpansion: t.atrExpansion, rsVsMkt: t.rsVsMkt, chop14: t.chop14,
+        dVol: t.dVol, vwapStatus: t.vwapStatus, aboveSma50: t.aboveSma50,
+        closeStrength: (t.dayHigh != null && t.dayLow != null && t.dayHigh > t.dayLow) ? (t.price - t.dayLow) / (t.dayHigh - t.dayLow) : null,
+      });
+      if (t.fit != null) t.fit = Math.round(t.fit);
+      t.late = isLate(t.fit);
       delete t._catalystTier;
       delete t._news;
       delete t._stageNum;

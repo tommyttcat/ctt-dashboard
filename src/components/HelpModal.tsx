@@ -642,7 +642,7 @@ function InteractionsTab() {
       <Li title="VCP">Green = ATR 3.5%+ with an 8%+ stop, the bases that paid. The tightest bases lost money, so they carry no colour.</Li>
       <Li title="HIDDEN RS">Green = RS 95+ and price $5–15, the only combination that separated outcomes there.</Li>
       <Li title="EP9M">Odds of a big move, not quality: green = float turnover 0.5x+ or market cap under $300M. 17–23% of those ran +50% in 60 sessions — and they also had the worst average outcome, so they need a tight stop and small size.</Li>
-      <Li title="SIPS / DAILY">Still the CNF grade. A = 60+, B = 45–59 after the v6.19 re-weight.</Li>
+      <Li title="SIPS / DAILY">No ticker colour. The CNF column shows OK or LATE instead of a grade (since 9 Oct 2026): LATE means the name already ran hard today. In a held-out test the OK half beat QQQ by about +1.4% over 20 sessions and the LATE half trailed it by −3.8%; live results still have to confirm it.</Li>
       <Li title="EP9M / SWING SCORE">Grey on purpose: in the 5-year test a higher score on these two did not mean a better trade, so the score sorts the list but is not coloured as a grade.</Li>
 
       <H>Column Key</H>

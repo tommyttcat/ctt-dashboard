@@ -80,18 +80,21 @@ import { SCANNER, COLUMN_NOTES, columnTip } from '@/lib/scanConfig';
 import { useFreezeWhileChartOpen } from './TickerChartHover';
 import { WatchlistToggle } from './WatchlistPanel';
 import { formatSetupName, isBlueDotSetup } from '@/lib/setupName';
+
+type FitFilterType = 'All' | 'OK';
+const FIT_BUCKETS: FitFilterType[] = ['OK'];
 import { edgeTier, EDGE_FILTER_TIP, EDGE_TINT } from '@/lib/scans/edge';
 import EdgeFilterPills, { edgeCounts, useEdgeFilter } from './EdgeFilterPills';
 import {
   formatTime,
   cnfBreakdownLines, matchesCapFilter,
-  CNF_BUCKETS, CNF_MIN_SCORE, ADR_BUCKETS, CAP_BUCKETS,
-  type TradePlanRow, type SortDirection, type CnfFilterType, type VwapFilterType,
+  ADR_BUCKETS, CAP_BUCKETS,
+  type TradePlanRow, type SortDirection, type VwapFilterType,
   type AdrFilterType, type CapFilterType,
 } from '@/lib/scans/tableFormat';
 import {
   SCAN, SortHeader, FilterPillGroup, BlueDot, RedDot,
-  ScoreCell, RsCell, PriceCell, ChgCell, Ema1021Cell, VolCell, DollarVolCell,
+  ScoreCell, FitCell, RsCell, PriceCell, ChgCell, Ema1021Cell, VolCell, DollarVolCell,
   RvolCell, FloatCell, AdrCell, MfCell, DtcCell, McapCell, StageCell, SectorCell,
 } from './scan/ScanTable';
 import { usePhoneTable } from './scan/usePhoneTable';
@@ -100,9 +103,9 @@ import { poll } from '@/lib/poll';
 
 const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   TICKER: { what: 'Symbol. Hover shows the company name. The setup name sits directly beneath it.' },
-  CNF: {
-    what: 'Confluence score 0–100 — how many independent factors line up: RVOL, gap, range expansion, RS, catalyst quality, persistence, VWAP, regime, sector heat, dots, runway. Hover the number for the per-row breakdown and any grade ceiling.',
-    colour: 'The grade is on the ticker, not here: green 70+ (A) · amber 50+ (B) · grey below (C).',
+  FIT: {
+    what: 'OK or LATE (since 9 Oct 2026, replacing the A/B/C grade). LATE = already ran hard today: a big % gain, a range blowing out, far ahead of the market, closing off its high or below VWAP, thin dollar volume, already above its 50-day. Built on Sep 2022 – Sep 2024 scan rows and checked once on Sep 2024 – Sep 2026: the OK half beat QQQ by about +1.4% over the next 20 sessions, the LATE half trailed it by −3.8%. The two-way cut was chosen after that check, so the live record still has to confirm it.',
+    colour: 'Green OK · red LATE · -- not scored yet.',
   },
   PRICE: {
     what: 'Last price. The dot beside it is VWAP position.',
@@ -171,6 +174,9 @@ interface SetupData {
   newsSentiment?: 'positive' | 'negative' | 'neutral' | null;
   newsCausal?: boolean | null;
   conviction?: number | null;
+  /** OK / LATE score and flag (lib/scans/fit). */
+  fit?: number | null;
+  late?: boolean | null;
   thesis?: string | null;
   tradeType?: string | null;
   aboveEma10?: boolean | null;
@@ -402,7 +408,8 @@ export default function DailySetups() {
   const [postureFilter, setPostureFilter] = useState<PostureFilterType>('All');
   const [chopFilter, setChopFilter] = useState<ChopFilterType>('All');
   const [marketCapFilter, setMarketCapFilter] = useState<CapFilterType>('All');
-  const [cnfFilter, setCnfFilter] = useState<CnfFilterType>('All');
+  /* OK-only filter (lib/scans/fit) — replaced the A / B CNF pills on 9 Oct 2026. */
+  const [cnfFilter, setCnfFilter] = useState<FitFilterType>('All');
   const [adrFilter, setAdrFilter] = useState<AdrFilterType>('All');
   const [vwapFilter, setVwapFilter] = useState<VwapFilterType>('All');
   const [holdFilter, setHoldFilter] = useState<HoldFilterType>('All');
@@ -450,6 +457,8 @@ export default function DailySetups() {
               newsCausal: item.newsCausal ?? null,
               catalystUrl: item.catalystUrl || null,
               conviction: item.conviction != null ? Number(item.conviction) : ((item.cnfScore ?? item.smbScore ?? item.aiScore ?? item.score) ?? null),
+              fit: typeof item.fit === 'number' ? item.fit : null,
+              late: typeof item.late === 'boolean' ? item.late : null,
               thesis: rawThesis,
               tradeType: item.tradeType || null,
               aboveEma10: item.aboveEma10 ?? null,
@@ -502,7 +511,7 @@ export default function DailySetups() {
   // Every group is a toggle: pressing the active option clears it. That is
   // what removed the need for a MKT CAP "All" button — nothing selected
   // already means all, and a second click gets you there.
-  const handleCnfFilter = (val: CnfFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
+  const handleCnfFilter = (val: FitFilterType) => setCnfFilter(prev => prev === val ? 'All' : val);
   const handleAdrFilter = (val: AdrFilterType) => setAdrFilter(prev => prev === val ? 'All' : val);
   const handleChopFilter = (val: ChopFilterType) => setChopFilter(prev => prev === val ? 'All' : val);
   const toggleVwap = (status: 'above' | 'below') => setVwapFilter(prev => prev === status ? 'All' : status);
@@ -557,8 +566,7 @@ export default function DailySetups() {
       filtered = filtered.filter(s => matchesCapFilter(s.mktCap, marketCapFilter));
     }
     if (cnfFilter !== 'All') {
-      const minScore = CNF_MIN_SCORE[cnfFilter];
-      filtered = filtered.filter(s => (s.conviction ?? -1) >= minScore);
+      filtered = filtered.filter(s => s.late === false);
     }
     if (adrFilter !== 'All') {
       const minAdr = Number(adrFilter);
@@ -782,10 +790,10 @@ export default function DailySetups() {
                 />
                 <FilterPillGroup
                   label="CNF"
-                  options={CNF_BUCKETS}
+                  options={FIT_BUCKETS}
                   active={cnfFilter}
                   onSelect={handleCnfFilter}
-                  titleOf={(g) => (g === 'A' ? 'A only — CNF 70 and above' : 'B and above — includes A (CNF 50+)')}
+                  titleOf={() => 'OK only — hide rows marked LATE (already ran hard today)'}
                 />
                 <FilterPillGroup
                   label="ADR"
@@ -813,7 +821,7 @@ export default function DailySetups() {
                 <tr className="border-b border-white/5 select-none">
                   <SortHeader label="TICKER" width="w-[7%]" className="!text-left pl-1" title={colTip('TICKER')} icon={getSortIcon('ticker')} onSort={() => handleSort('ticker')} />
                   <SortHeader label="N" width="w-[2%]" title="News — ★ has an article, ★★ has a causal catalyst from a primary source" />
-                  <SortHeader label="CNF" width="w-[4%]" title={colTip('CNF')} icon={getSortIcon('conviction')} onSort={() => handleSort('conviction')} />
+                  <SortHeader label="CNF" width="w-[4%]" title={colTip('FIT')} icon={getSortIcon('fit')} onSort={() => handleSort('fit')} />
                   <SortHeader label="RS" width="w-[4%]" title={colTip('RS')} icon={getSortIcon('rsRating')} onSort={() => handleSort('rsRating')} />
                   <SortHeader label="PRICE" width="w-[6%]" title={colTip('PRICE')} icon={getSortIcon('price')} onSort={() => handleSort('price')} />
                   <SortHeader label="CHG%" width="w-[5%]" title={colTip('CHG%')} icon={getSortIcon('changePct')} onSort={() => handleSort('changePct')} />
@@ -854,9 +862,9 @@ export default function DailySetups() {
                       <React.Fragment key={i}>
                         <tr className={`hover:bg-white/[0.02] transition-colors group ${tier ? EDGE_TINT[tier] : ''}`}
                           title={tier ? `${tier.toUpperCase()} — ${EDGE_FILTER_TIP[tier]}` : undefined}>
-                          <TickerCell symbol={row.ticker} name={row.name} score={row.conviction} />
+                          <TickerCell symbol={row.ticker} name={row.name} />
                           <td className={tdBase}><NewsStars row={row} /></td>
-                          <ScoreCell value={row.conviction} title={cnfTooltip(row)} />
+                          <FitCell late={row.late} />
                           <RsCell value={row.rsRating} />
                           <PriceCell price={row.price} vwapStatus={row.vwapStatus} vwapFilter={vwapFilter} onToggleVwap={toggleVwap} />
                           <ChgCell value={row.changePct} />
