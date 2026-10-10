@@ -1936,7 +1936,7 @@ const ChartStructure = ({ edgeMap }: { edgeMap?: Record<string, EdgeTier> }) => 
    day it was rebalanced on (scripts/backtest/rank-*.ts). A ranking, not a buy
    signal: no levels. Rebuilt nightly by /api/momentum/nightly, read through
    the CDN, fetched once per page load (it changes once a night). */
-type MomSortKey = 'mom' | 'r1m' | 'price' | 'dvol' | 'sue' | 'vol' | 'rvol' | 'rs' | 'stage' | 'cnf' | 'model';
+type MomSortKey = 'mom' | 'r1m' | 'price' | 'dvol' | 'sue' | 'vol' | 'rvol' | 'rs' | 'stage' | 'cnf' | 'model' | 'rank' | 'off52';
 const MomentumLeaders = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTier>; cnfMap?: Record<string, number> }) => {
   const [list, setList] = React.useState<MomentumList | null>(null);
   const [failed, setFailed] = React.useState(false);
@@ -1955,6 +1955,7 @@ const MomentumLeaders = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTie
     if (sort.key === 'stage') { const v = parseFloat(stageShort(r.stage)); return Number.isFinite(v) ? v : -Infinity; }
     if (sort.key === 'cnf') return cnfMap?.[r.t] ?? -Infinity;
     if (sort.key === 'model') return allModelScores()?.[r.t] ?? -Infinity;
+    if (sort.key === 'rank') return -(list.rows.indexOf(r));
     const v = r[sort.key as keyof MomentumRow];
     return typeof v === 'number' && Number.isFinite(v) ? v : -Infinity;
   };
@@ -1972,11 +1973,11 @@ const MomentumLeaders = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTie
   const header = (
     <div className={scrollRowCls} style={scrollRowStyle}>
       <div className="flex items-center whitespace-nowrap py-[2px] border-b border-white/5 mb-0.5">
-        <span className={`${H} hidden md:inline-block w-[18px] text-right mr-1`}>#</span>
+        <span className={`${H} ${S} hidden md:inline-block w-[18px] text-right mr-1`} onClick={() => onSort('rank')}>#{arrow('rank')}</span>
         <span className={`${H} shrink-0 w-[38px] md:w-[44px] text-center mx-0.5`}>Ticker</span>
-        <span className={`${H} ${S} w-[20px] md:w-[22px] text-center ml-2 md:ml-1`} onClick={() => onSort('cnf')}>CNF{arrow('cnf')}</span>
         <span className={`${H} ${S} w-[24px] md:w-[26px] text-center ml-2 md:ml-1`} onClick={() => onSort('model')} title="The System model's score, 0-100 (percentile of ~2,000 liquid stocks)">Mdl{arrow('model')}</span>
         <span className={`${H} ${S} w-[46px] md:w-[52px] text-right ml-1`} onClick={() => onSort('mom')}>12M{arrow('mom')}</span>
+        <span className={`${H} ${S} w-[38px] md:w-[42px] text-right ml-2 md:ml-1`} onClick={() => onSort('off52')} title="% below the highest high of the last 12 months">Off hi{arrow('off52')}</span>
         <span className={`${H} ${S} hidden md:inline-block w-[46px] text-right ml-1`} onClick={() => onSort('r1m')}>1M{arrow('r1m')}</span>
         {combined && <span className={`${H} ${S} w-[30px] md:w-[36px] text-right ml-2 md:ml-1`}><InfoDot content={<span>{"SURP — EARNINGS SURPRISE. The latest quarter's earnings per share against the same quarter a year earlier, divided by how much that year-on-year change usually moves for this company (its last 4-8 quarters). +2 = an unusually big improvement; 0 = about normal; negative = earnings got worse. Only quarters reported in the last 92 days count; a dash means no recent score."}</span>}><span onClick={() => onSort('sue')}>Surp{arrow('sue')}</span></InfoDot></span>}
         <span className={`${H} ${S} w-[36px] md:w-[42px] text-right ml-2 md:ml-1`} onClick={() => onSort('price')}>Prc{arrow('price')}</span>
@@ -1990,7 +1991,6 @@ const MomentumLeaders = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTie
   );
   const row = (r: MomentumRow) => {
     const edge = edgeMap?.[r.t] ?? null;
-    const cnf = cnfMap?.[r.t] ?? null;
     return (
       /* Same green / yellow / red tint as the scan cards and Top Movers, from
          the shared per-ticker map; a name no scan carries stays untinted. */
@@ -2000,9 +2000,9 @@ const MomentumLeaders = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTie
           <div className="flex items-center whitespace-nowrap py-[1px]">
             <span className="text-[9px] tabular-nums text-slate-600 hidden md:inline-block w-[18px] text-right mr-1">{rank.get(r.t)}</span>
             <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px] mx-0.5`}>{r.t}</span></TickerChartHover>
-            <span className="inline-block w-[20px] md:w-[22px] text-center ml-2 md:ml-1">{cnf != null ? <span className={`${badge} ${cnfBadgeCls(cnf)}`}>{Math.round(cnf)}</span> : <span className={dash}>-</span>}</span>
             {(() => { const ms = allModelScores()?.[r.t]; return <span className={`text-[9px] tabular-nums font-semibold inline-block w-[24px] md:w-[26px] text-center ml-2 md:ml-1 ${ms == null ? 'text-slate-600' : ms >= 2 / 3 ? 'text-emerald-400' : ms >= 1 / 3 ? 'text-amber-300' : 'text-rose-400'}`}>{ms == null ? '—' : Math.round(ms * 100)}</span>; })()}
             <span className={`text-[9px] tabular-nums font-semibold inline-block w-[46px] md:w-[52px] text-right ml-1 ${pctCls(r.mom)}`}>{r.mom >= 0 ? '+' : ''}{r.mom.toFixed(0)}%</span>
+            <span className="text-[9px] tabular-nums inline-block w-[38px] md:w-[42px] text-right text-slate-400 ml-2 md:ml-1">{r.off52 == null ? '—' : `${r.off52.toFixed(0)}%`}</span>
             <span className={`text-[9px] tabular-nums hidden md:inline-block w-[46px] text-right ml-1 ${pctCls(r.r1m)}`}>{r.r1m >= 0 ? '+' : ''}{r.r1m.toFixed(1)}%</span>
             {combined && <span className={`text-[9px] tabular-nums inline-block w-[30px] md:w-[36px] text-right ml-2 md:ml-1 ${r.sue == null ? 'text-slate-600' : r.sue >= 2 ? 'text-emerald-400' : r.sue > 0 ? 'text-slate-300' : 'text-rose-400'}`}>{r.sue == null ? '—' : `${r.sue >= 0 ? '+' : ''}${r.sue.toFixed(1)}`}</span>}
             <span className="text-[9px] tabular-nums inline-block w-[36px] md:w-[42px] text-right text-slate-300 ml-2 md:ml-1">{fmtPrc(r.price)}</span>
@@ -2026,7 +2026,7 @@ const MomentumLeaders = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTie
             ? <>The {list.rows.length} liquid stocks ranked on two things together: the strongest 12-month run (skipping the latest month) and the biggest jump in quarterly earnings against a year earlier. Ranked, not recommended — in testing it matched QQQ, not beat it. No buy levels.<br /><span className="text-slate-500">SURP = earnings surprise: this quarter&apos;s earnings vs the same quarter last year, scaled to the company&apos;s usual swing (+2 = unusually big jump, negative = worse).</span></>
             : <>The {list.rows.length} liquid stocks with the strongest 12-month return, skipping the latest month — ranked, not recommended. No buy levels. (The earnings half of the ranking switches on once enough companies have earnings scores.)</>}
         </p>
-        <InfoDot text={"WHAT IT IS — every common stock or ADR at $5+ trading $20M+ a day. 12M is its return from 12 months ago to 1 month ago; 1M is the latest month (left out of the ranking: last month's winners tend to give some back). SURP — the earnings surprise: the latest quarter's earnings per share against the same quarter a year earlier, measured against how much that number usually moves (+2 = an unusually big improvement). The list ranks on 12M and SURP together. RVOL is today's volume against its 20-day average; VOL is today's shares; RS is the relative-strength rating (1–99); STG is the Weinstein stage. CNF is the site's confluence score from the scans. Those are shown for context only — none is part of the ranking or was tested with it. On a phone # and 1M are hidden, as on Top Movers' layout.\n\nROW COLOUR — the same green / yellow / red as the scan cards, for names one of the scans also carries today. An uncoloured row is not on any scan.\n\nWHY THIS LIST — tested on Oct 2022 – Sep 2026, held as four staggered monthly portfolios: momentum and earnings together made +165% against SPY's +112%, beat SPY whichever day of the month it was rebalanced on (20 of 20, median +68%), and did better than momentum alone (+159%). Ranking on momentum alone among the same companies made +134%, so the earnings half adds something.\n\nTHE COSTS — it trailed SPY in 2022–24 (+34% vs +58%) and fell further (worst drop −29% vs −19%). And simply holding QQQ made the same +166% over those four years with smaller drops (−23%): the list's lead over SPY came from taking more risk, not from picking better. Four years is a short test, and the live earnings data comes from a different provider than the test's.\n\nNot a buy list and not advice. Rebuilt each evening from the day's close."} />
+        <InfoDot text={"WHAT IT IS — every common stock or ADR at $5+ trading $20M+ a day. 12M is its return from 12 months ago to 1 month ago; 1M is the latest month (left out of the ranking: last month's winners tend to give some back). SURP — the earnings surprise: the latest quarter's earnings per share against the same quarter a year earlier, measured against how much that number usually moves (+2 = an unusually big improvement). The list ranks on 12M and SURP together. RVOL is today's volume against its 20-day average; VOL is today's shares; RS is the relative-strength rating (1–99); STG is the Weinstein stage. Mdl is the System model's score (0-100, percentile of ~2,000 liquid stocks); Off hi is the % below the 12-month high. Those are shown for context only — none is part of the ranking or was tested with it. On a phone # and 1M are hidden, as on Top Movers' layout.\n\nROW COLOUR — the same green / yellow / red as the scan cards, for names one of the scans also carries today. An uncoloured row is not on any scan.\n\nWHY THIS LIST — tested on Oct 2022 – Sep 2026, held as four staggered monthly portfolios: momentum and earnings together made +165% against SPY's +112%, beat SPY whichever day of the month it was rebalanced on (20 of 20, median +68%), and did better than momentum alone (+159%). Ranking on momentum alone among the same companies made +134%, so the earnings half adds something.\n\nTHE COSTS — it trailed SPY in 2022–24 (+34% vs +58%) and fell further (worst drop −29% vs −19%). And simply holding QQQ made the same +166% over those four years with smaller drops (−23%): the list's lead over SPY came from taking more risk, not from picking better. Four years is a short test, and the live earnings data comes from a different provider than the test's.\n\nNot a buy list and not advice. Rebuilt each evening from the day's close."} />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-2">
         <div className="min-w-0">{header}{rows.slice(0, half).map(row)}</div>
