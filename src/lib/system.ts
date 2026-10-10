@@ -66,6 +66,30 @@ export function featuresAt(b: Bars, t: number, q: ArrayLike<number>, realPx: num
   ];
 }
 
+/* EXTRA features (10 Oct 2026, user: "RVOL, catalyst, ADX, gap should be part of the trend"):
+   ADX(14) and +DI minus -DI (trend strength and direction, Wilder), and the earnings
+   catalyst — SUE of the latest report, sessions since it, and the gap on its first
+   session (an episodic-pivot move). RVOL and gap were already features. */
+export const EXTRA_FEATS = ['adx', 'diSpread', 'sue', 'daysEarn', 'earnGap'] as const;
+/** `earnIdx` = index of the first session on/after the latest filing (<= t), or -1. */
+export function extraFeaturesAt(b: Bars, t: number, sue: number | null, earnIdx: number): number[] {
+  const H = b.h, L = b.l, C = b.c, O = b.o, n = 14;
+  let tr = 0, pdm = 0, ndm = 0, adx = NaN; const dxs: number[] = [];
+  for (let j = t - 60; j <= t; j++) {
+    const up = H[j] - H[j - 1], dn = L[j - 1] - L[j];
+    const trj = Math.max(H[j] - L[j], Math.abs(H[j] - C[j - 1]), Math.abs(L[j] - C[j - 1]));
+    const p = up > dn && up > 0 ? up : 0, m = dn > up && dn > 0 ? dn : 0;
+    if (j < t - 60 + n) { tr += trj; pdm += p; ndm += m; continue; }
+    tr = tr - tr / n + trj; pdm = pdm - pdm / n + p; ndm = ndm - ndm / n + m;
+    const pdi = tr > 0 ? 100 * pdm / tr : 0, ndi = tr > 0 ? 100 * ndm / tr : 0;
+    dxs.push(pdi + ndi > 0 ? 100 * Math.abs(pdi - ndi) / (pdi + ndi) : 0);
+    if (dxs.length === n) adx = dxs.reduce((a, x) => a + x, 0) / n; else if (dxs.length > n) adx = (adx * (n - 1) + dxs[dxs.length - 1]) / n;
+  }
+  const pdiT = tr > 0 ? 100 * pdm / tr : 0, ndiT = tr > 0 ? 100 * ndm / tr : 0;
+  const has = earnIdx >= 1 && earnIdx <= t;
+  return [adx, pdiT - ndiT, sue ?? NaN, has ? Math.min(120, t - earnIdx) : NaN, has ? (t - earnIdx <= 60 ? O[earnIdx] / C[earnIdx - 1] - 1 : 0) : NaN];
+}
+
 /** Rank each feature across the day's universe to [-0.5, 0.5] (NaN -> 0), as trained. */
 export function rankFeatures(rows: number[][]): Float32Array {
   const n = rows.length, X = new Float32Array(n * F);

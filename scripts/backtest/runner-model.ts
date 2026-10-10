@@ -63,7 +63,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DATA, loadAdjusted, listSessions, readDay } from './cache';
 import { loadReference, refAt } from './reference';
-import { featuresAt } from '../../src/lib/system';
+import { featuresAt, extraFeaturesAt, EXTRA_FEATS } from '../../src/lib/system';
+import { sueAt, type Qtr } from '../../src/lib/sue';
+import zlib from 'node:zlib';
 
 const c = loadAdjusted();
 const ref = loadReference();
@@ -79,7 +81,18 @@ const typeOk = new Map<string, boolean>();
 const isStock = (sym: string, date: string) => { const k = `${sym}|${date.slice(0, 4)}`; if (!typeOk.has(k)) { const t = (refAt(ref, sym, date)?.type || '').toUpperCase(); typeOk.set(k, t === 'CS' || t === 'ADRC'); } return typeOk.get(k)!; };
 const idx = (d: string) => { const i = sessions.findIndex(x => x >= d); return i < 0 ? N : i; };
 const FEATS = ['r5', 'r21', 'r63', 'r126', 'mom', 'vol20', 'vol60', 'adr', 'smooth', 'off52', 'vs20', 'vs50', 'vs200', 'slope50', 'rvol1', 'rvol5', 'chg1', 'atrExp', 'closeStr', 'gap', 'rsi', 'max21', 'min21', 'logDvol', 'beta', 'logPx', 'offLow20', 'secMom', 'relSec'];
+const EXTRA = process.env.EXTRA === '1';
+if (EXTRA) FEATS.push(...EXTRA_FEATS);
 const F = FEATS.length;
+/* EXTRA=1 (10 Oct 2026, pre-registered before its run): adds ADX(14), +DI-−DI, SUE, sessions
+   since the last earnings filing and that day's gap (lib/system extraFeaturesAt). Earnings
+   from backtest-data/fundamentals/quarterly (point in time by filing date). ADOPT for the
+   site's colours only if, on the same walk-forward, the top decile beats the average trade
+   in >= 8 of 9 years AND the top-10 book's average trade is >= the current model's in BOTH
+   halves (+1.71% / +0.49%). */
+const qCache = new Map<string, Qtr[] | null>();
+const quarters = (sym: string): Qtr[] | null => { if (qCache.has(sym)) return qCache.get(sym)!; let q: Qtr[] | null = null; const f = path.join(DATA, 'fundamentals', 'quarterly', `${sym}.json.gz`); if (fs.existsSync(f)) { try { q = JSON.parse(zlib.gunzipSync(fs.readFileSync(f)).toString()).q ?? null; } catch { q = null; } } qCache.set(sym, q); return q; };
+const firstSessionOnOrAfter = (d: string) => { let lo = 0, hi = sessions.length; while (lo < hi) { const m = (lo + hi) >> 1; if (sessions[m] < d) lo = m + 1; else hi = m; } return lo; };
 const qr = (k: number) => C[qId][k] / C[qId][k - 1] - 1;
 
 type Week = { t: number; ids: number[]; X: Float32Array; y: Float32Array; fwd: Float32Array; dv: Float32Array; run: Uint8Array; trade: Float32Array; momRank: Float32Array };
@@ -102,7 +115,9 @@ for (let t = start; t + 40 < N; t += 5) {
     trade -= 0.002;
     /* Features from the shared production code (lib/system featuresAt), so live
        scores and this test use the same arithmetic. */
-    rows.push({ id, dv, run, trade, fwd: cl[k] / cl[t] - 1, f: featuresAt({ o: O[id], h: H[id], l: L[id], c: cl, v: V[id] }, t, C[qId], RC[id][t], dv) });
+    const fb = featuresAt({ o: O[id], h: H[id], l: L[id], c: cl, v: V[id] }, t, C[qId], RC[id][t], dv);
+    if (EXTRA) { const q = quarters(syms[id]); const se = q ? sueAt(q, sessions[t]) : { sue: null, filed: null }; const lastFiled = q ? q.reduce((m, x) => (x.filed && x.filed <= sessions[t] && x.filed > m ? x.filed : m), '') : ''; const ei = lastFiled ? firstSessionOnOrAfter(lastFiled) : -1; fb.push(...extraFeaturesAt({ o: O[id], h: H[id], l: L[id], c: cl, v: V[id] }, t, se.sue, ei <= t ? ei : -1)); }
+    rows.push({ id, dv, run, trade, fwd: cl[k] / cl[t] - 1, f: fb });
   }
   if (rows.length < 100) continue;
   // sector momentum
