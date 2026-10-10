@@ -41,15 +41,19 @@ export type EdgeTier = 'green' | 'yellow' | 'red';
    screen (multi-year, fundamentals) keeps its own rule: a 20-day model says
    nothing about it. */
 import { modelScoreOf } from '@/lib/modelScoreStore';
+/* Off since 10 Oct 2026 at the user's request (the average-return model's colours fought
+   a momentum trader's read). Flip back on when a model's colours are wanted again. */
+export const MODEL_COLOURS = false;
 const tickerOf = (row: unknown): string | undefined => { const r = row as { ticker?: string; symbol?: string; t?: string } | null; return r?.ticker ?? r?.symbol ?? r?.t; };
 export function modelBand(score: number): EdgeTier { return score >= 2 / 3 ? 'green' : score >= 1 / 3 ? 'yellow' : 'red'; }
 export function blendModel(rule: EdgeTier | null, row: unknown): EdgeTier | null {
-  if (rule === 'red') return 'red';
+  if (!MODEL_COLOURS || rule === 'red') return rule;
   const s = modelScoreOf(tickerOf(row));
   return s == null ? rule : modelBand(s);
 }
 /** A ticker-keyed map (the summary edgeMap) re-coloured the same way. */
 export function blendModelMap(rule: Record<string, EdgeTier> | undefined, scores: Record<string, number> | null): Record<string, EdgeTier> {
+  if (!MODEL_COLOURS) return { ...(rule ?? {}) };
   const out: Record<string, EdgeTier> = {};
   if (scores) for (const [t, s] of Object.entries(scores)) out[t] = modelBand(s);
   for (const [t, tier] of Object.entries(rule ?? {})) if (tier === 'red' || out[t] == null) out[t] = tier;
@@ -379,7 +383,7 @@ export function vcpTier(row: Parameters<typeof vcpTierRule>[0]): EdgeTier | null
 /** hrsTier: the scan's own rule, re-coloured by the model where it scored the name (red rule wins). */
 export function hrsTier(row: Parameters<typeof hrsTierRule>[0]): EdgeTier | null { return blendModel(hrsTierRule(row), row); }
 
-for (const m of [EDGE_FILTER_TIP, SWING_TIP, CONSOLIDATION_TIP, EP9M_TIP, VCP_TIP, HRS_TIP]) {
+if (MODEL_COLOURS) for (const m of [EDGE_FILTER_TIP, SWING_TIP, CONSOLIDATION_TIP, EP9M_TIP, VCP_TIP, HRS_TIP]) {
   (m as Record<EdgeTier, string>).green = MODEL_TIP.green + m.green;
   (m as Record<EdgeTier, string>).yellow = MODEL_TIP.yellow + m.yellow;
   (m as Record<EdgeTier, string>).red = MODEL_TIP.red + m.red;
