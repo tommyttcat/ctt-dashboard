@@ -175,7 +175,7 @@ export const CONSOL_META: ScanConfigMeta = {
    ========================================================================== */
 export const EP9M = {
   minVolume: 9_000_000,
-  minPrice: 2.00,
+  minPrice: 3.00,  // Stockbee's floor; $2 until 11 Oct 2026
   maxPrice: 2000,
   minRvol: 2.0,   // 3.0 until 11 Oct 2026 (owner's call)
   minDollarVol: 20_000_000,
@@ -193,7 +193,7 @@ export const EP9M_META: ScanConfigMeta = {
   gates: [
     { label: 'Volume', value: `\u2265 ${shares(EP9M.minVolume)} shares`, why: 'The namesake threshold. Absolute, not time-weighted, so names appear progressively through the session.' },
     { label: 'RVOL', value: `\u2265 ${EP9M.minRvol}\u00d7`, why: 'THE gate. Without it the scan returns mega caps every day \u2014 NVDA trades 9M before 10am.' },
-    { label: 'Price', value: `${usd(EP9M.minPrice)} \u2013 ${usd(EP9M.maxPrice)}`, why: 'Below $2 the volume is noise.' },
+    { label: 'Price', value: `${usd(EP9M.minPrice)} \u2013 ${usd(EP9M.maxPrice)}`, why: 'Stockbee\'s floor. Below $3 the volume is mostly noise.' },
     { label: '$ Volume', value: `\u2265 ${usd(EP9M.minDollarVol)}`, why: 'It has to be actually tradeable.' },
     { label: 'Market cap', value: `\u2265 ${usd(EP9M.minMarketCap)}`, why: 'Excludes shells and sub-scale listings.' },
     { label: 'Type', value: 'Common stock only', why: 'ETFs are excluded \u2014 there is no company to re-rate.' },
