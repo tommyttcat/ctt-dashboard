@@ -365,7 +365,7 @@ function DashboardTab({ tier }: { tier: string }) {
 
           <H>EP9M (Episodic Pivot)<ProBadge /></H>
           <P>
-            Pradeep Bonde / Stockbee episodic pivots — stocks trading at least $9M in dollar volume on at least 3x their usual volume.
+            Pradeep Bonde / Stockbee episodic pivots — stocks trading at least 9M shares on at least 2x their usual volume.
             No trend gate, so STAGE is the main way to separate accumulation from capitulation. The fuchsia dot
             marks unprecedented volume (beat its own 60-day high).
           </P>

@@ -111,7 +111,7 @@ const FALLBACK_NOTES: Record<string, { what: string; colour?: string }> = {
   },
   '$VOL': { what: 'Dollar volume — price × volume.' },
   RVOL: {
-    what: "Today's volume vs its own 20-day average. Scan floors at 3x — the headline metric here, so the scale runs hotter than other tables. For the extreme end, filter on UNPREC rather than a high RVOL: the 20-day average is inflated by prior spikes, while the 60-day high is not.",
+    what: "Today's volume vs its own 20-day average. Scan floors at 2x — the headline metric here, so the scale runs hotter than other tables. For the extreme end, filter on UNPREC rather than a high RVOL: the 20-day average is inflated by prior spikes, while the 60-day high is not.",
     colour: 'Fuchsia 10x+ · purple 7x+ · green 5x+ · lime above the floor.',
   },
   TURN: {
@@ -887,7 +887,7 @@ export default function Ep9m() {
                       <button
                         key={opt}
                         onClick={() => handleRvolFilter(opt)}
-                        title={`Relative volume of ${opt}x and above — scan floor is 3x. For the extreme end use UNPREC, which measures against the 60-day high rather than an average prior spikes have inflated.`}
+                        title={`Relative volume of ${opt}x and above — scan floor is 2x. For the extreme end use UNPREC, which measures against the 60-day high rather than an average prior spikes have inflated.`}
                         className={`${pillBtn} ${rvolFilter === opt ? filterBtnActive : filterBtnIdle}`}
                       >
                         {opt}x+

@@ -177,7 +177,7 @@ export const EP9M = {
   minVolume: 9_000_000,
   minPrice: 2.00,
   maxPrice: 2000,
-  minRvol: 3.0,
+  minRvol: 2.0,   // 3.0 until 11 Oct 2026 (owner's call)
   minDollarVol: 20_000_000,
   minMarketCap: 10_000_000,
   volProfileDays: 60,
