@@ -24,6 +24,7 @@ import type { Bar } from '@/lib/indicators/marketMath';
 import { edgeTier } from '@/lib/scans/edge';
 import { EXIT_GUIDANCE } from '@/lib/scans/exits';
 import { scanPlanFor } from '@/lib/confluence/readout';
+import { etParts } from '@/lib/etCron';
 
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
@@ -351,6 +352,15 @@ export async function GET(request: Request) {
     if (searchParams.get('secret') !== cronSecret) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+  }
+
+  /* No report before 10:00 ET (12 Oct 2026). The 9:30 firing read the 9:20
+     pre-market scan rows, so it published pre-market names and changes for an
+     hour. Judged on the New York clock rather than by editing the UTC cron, so
+     it holds through DST (under EST the 8:30 firing is skipped too). force=1
+     with the cron secret still runs it. */
+  if (new URL(request.url).searchParams.get('force') !== '1' && etParts().hour < 10) {
+    return NextResponse.json({ success: true, skipped: `before 10:00 ET (${etParts().hhmm}) — the scan rows are still pre-market` });
   }
 
   const polygonApiKey = process.env.POLYGON_API_KEY || '';
