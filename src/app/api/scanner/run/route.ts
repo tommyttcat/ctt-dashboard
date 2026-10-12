@@ -115,6 +115,7 @@
 import { fitScore, isLate } from '@/lib/scans/fit';
 import { NextResponse } from 'next/server';
 import { tightnessOf } from '@/lib/scans/tightness';
+import { neglectOf } from '@/lib/scans/neglect';
 import { kv } from '@vercel/kv';
 import { computeRMV } from '@/lib/indicators/rmv';
 import { computeRMEDetail, rmeScoreAdjustment } from '@/lib/indicators/rme';
@@ -1529,6 +1530,7 @@ async function runScan(request: Request) {
 
       return {
         ...tightnessOf([...dailyBars].reverse()),   // swing checklist: tight & quiet (bars are newest-first here)
+        ...neglectOf([...dailyBars].reverse()),     // day checklist: neglected before today (lib/scans/neglect)
         ticker: sym, name: companyName, sector: deepSector, price, vwapStatus, changePct: chgPct, vol, avgVol, atr, dVol: vol * vwap, rvol: rvol ? parseFloat(rvol.toFixed(2)) : null,
         float, shortPct,
         daysToCover: daysToCover != null ? parseFloat(daysToCover.toFixed(1)) : null,

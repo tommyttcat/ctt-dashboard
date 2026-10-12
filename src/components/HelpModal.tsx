@@ -212,7 +212,7 @@ function ColourRules() {
         21 EMA (not chasing), RS 70+, its industry group (2-digit SIC) is in the top third by 3-month return, the last five days are tight (within 1.5 daily ranges) on volume drying up, and QQQ is above its 200-day; red when it is below the 50-day, more than three daily
         ranges above the 21 EMA, reports earnings within three days, or QQQ is below its 200-day.{' '}
         <strong className="text-slate-200">Day</strong> colours Stocks in Play, EP9M and Early Movers: green when it is up on
-        the day on twice its usual volume pace with a real catalyst (specific news, not just momentum), holding the top half of the day&apos;s range and above the open, with a 4%+ daily range
+        the day on twice its usual volume pace with a real catalyst (specific news, not just momentum), after being neglected — up no more than 15% over three months and 30% over six, in a 60-day range under 60% (Stocks in Play rows; the one gap setup that tested positive) — holding the top half of the day&apos;s range and above the open, with a 4%+ daily range
         and $20M+ traded; red when it is down on the day, below the open, or under 1.5× volume. Yellow is in between. Hover a row
         to see which checks it passed. These are rules traders use, not a tested edge — every mechanical entry we tested lost
         to holding QQQ. Each scan&apos;s own red rule below still wins.

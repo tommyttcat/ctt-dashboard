@@ -1,6 +1,7 @@
 /* scripts/checklist.test.mts — the day and swing checklists (lib/scans/checklist). */
 import { swingCheck, dayCheck, setMarketUp, checkTip, daysToEarnings, paceOf, setEarnings, setGroups } from '../src/lib/scans/checklist.ts';
 import { tightnessOf } from '../src/lib/scans/tightness.ts';
+import { neglectOf } from '../src/lib/scans/neglect.ts';
 import { groupTerciles } from '../src/lib/groups.ts';
 import { eq, ok, done } from './testkit.mts';
 
@@ -77,4 +78,10 @@ const names = [...['MSFT', 'ORCL', 'ADBE', 'CRM', 'NOW'].map(t => ({ t, r63: 0.3
 const g = groupTerciles(names);
 ok('groups: three groups ranked', g.MSFT === 0 && g.EOG === 1 && g.JPM === 2);
 eq('groups: under 5 names is unclassified', groupTerciles(names.slice(0, 4)).MSFT, undefined);
+eq('day: neglected = green', dy({ neglected: true, preRun3m: 5, preRun6m: 10 }), 'green');
+eq('day: already ran = yellow', dy({ neglected: false, preRun3m: 40, preRun6m: 80 }), 'yellow');
+const nb = (n: number, f: (i: number) => number) => Array.from({ length: n }, (_, i) => ({ t: Date.UTC(2026, 0, 1) + i * 864e5, h: f(i) * 1.01, l: f(i) * 0.99, c: f(i) }));
+eq('neglect: flat base is neglected', neglectOf(nb(200, () => 50), '2099-01-01').neglected, true);
+eq('neglect: a doubled stock is not', neglectOf(nb(200, i => 20 + i * 0.3), '2099-01-01').neglected, false);
+eq('neglect: too little history', neglectOf(nb(100, () => 50), '2099-01-01').neglected, null);
 done('checklist');
