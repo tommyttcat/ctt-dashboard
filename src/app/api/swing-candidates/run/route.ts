@@ -121,6 +121,7 @@
 //       the wire rather than only in this comment.
 
 import { NextResponse } from 'next/server';
+import { swingPrecheck, WIDE_MIN_DOLLAR_VOL, WIDE_MAX_EXTRA } from '@/lib/scans/swingWide';
 import { kv } from '@vercel/kv';
 import { CHOP_CHOP_MIN, CHOP_TREND_MAX } from '@/lib/indicators/chop';
 import { SWING, CONSOL, SWING_META, CONSOL_META } from '@/lib/scanConfig';
@@ -228,7 +229,7 @@ async function inBatches<T, R>(items: T[], size: number, fn: (item: T) => Promis
    a correct generic helper and the next thing needing a trailing return
    should not have to rewrite it. */
 
-async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, SnapInfo>; snapMapAll: Map<string, SnapInfo> }> {
+async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, SnapInfo>; snapMapAll: Map<string, SnapInfo>; wide: string[] }> {
   const data = await polygon<{ tickers?: any[] }>(
     `/v2/snapshot/locale/us/markets/stocks/tickers`
   );
@@ -274,7 +275,14 @@ async function getUniverse(): Promise<{ symbols: string[]; snapMap: Map<string, 
     snapMapAll.set(sym, buildSnap(t));
   }
 
-  return { symbols: filtered.map(t => t.ticker as string), snapMap, snapMapAll };
+  /* Every other $20M+ name, for the wider universe's pre-check (lib/scans/swingWide). */
+  const top = new Set(filtered.map(t => t.ticker as string));
+  const wide = tickers
+    .filter(t => { const p = t.prevDay; return !top.has(t.ticker) && /^[A-Z]{1,5}$/.test(t.ticker ?? '') && p?.c >= SWING.minPrice && p.c <= SWING.maxPrice && p.c * p.v >= WIDE_MIN_DOLLAR_VOL; })
+    .sort((a, b) => (b.prevDay.c * b.prevDay.v) - (a.prevDay.c * a.prevDay.v))
+    .map(t => t.ticker as string);
+
+  return { symbols: filtered.map(t => t.ticker as string), snapMap, snapMapAll, wide };
 }
 
 
@@ -371,19 +379,29 @@ function computeT2108(series: Map<string, LiteBar[]>): {
 }
 
 
+/* Earnings blackout (12 Oct 2026): FMP's calendar through the site's own /api/earnings/upcoming
+   (edge-cached 6 h), so 64 runs a day cost FMP nothing extra; FMP direct only if that read
+   fails. Benzinga's calendar returned 5 names for the week of 12 Oct and missed TSM and ASML.
+   Polygon's calendar is not on the plan. */
 async function getEarningsBlackout(): Promise<Set<string>> {
-  if (!BENZINGA_KEY) return new Set();
+  const today = dateStr(0), until = dateStr(-SWING.earningsBlackoutDays);
+  const inWindow = (m: Record<string, string>) => new Set(Object.entries(m).filter(([, d]) => d >= today && d <= until).map(([t]) => t));
+  const host = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  if (host) {
+    try {
+      const r = await fetch(`https://${host}/api/earnings/upcoming`, { signal: AbortSignal.timeout(10000) });
+      const j = r.ok ? await r.json() : null;
+      if (j?.ok && j.dates) return inWindow(j.dates);
+    } catch { /* fall through */ }
+  }
+  const key = (process.env.FMP_API_KEY || '').trim();
+  if (!key) return new Set();
   try {
-    const from = dateStr(0);
-    const to = dateStr(-SWING.earningsBlackoutDays);
-    const url =
-      `https://api.benzinga.com/api/v2.1/calendar/earnings?token=${BENZINGA_KEY}` +
-      `&parameters[date_from]=${from}&parameters[date_to]=${to}&pagesize=1000`;
-    const res = await fetch(url, { headers: { accept: 'application/json' } });
-    if (!res.ok) return new Set();
-    const data = await res.json();
-    const rows = Array.isArray(data?.earnings) ? data.earnings : [];
-    return new Set(rows.map((r: any) => (r?.ticker || '').toUpperCase()).filter(Boolean));
+    const r = await fetch(`https://financialmodelingprep.com/stable/earnings-calendar?from=${today}&to=${until}&apikey=${key}`, { signal: AbortSignal.timeout(15000) });
+    const rows = r.ok ? await r.json() : [];
+    const m: Record<string, string> = {};
+    for (const x of Array.isArray(rows) ? rows : []) { const t = String(x?.symbol || '').toUpperCase(), d = String(x?.date || '').slice(0, 10); if (t && d && (!m[t] || d < m[t])) m[t] = d; }
+    return inWindow(m);
   } catch {
     return new Set();
   }
@@ -426,10 +444,15 @@ async function runSwingScan() {
        mid-scan. The analyzers take it as a parameter. */
     const rsLookup: RsLookup = await loadRsRatings();
 
-    const [{ symbols: universe, snapMap, snapMapAll }, earningsBlackout] = await Promise.all([getUniverse(), getEarningsBlackout()]);
-    const toScan = universe.filter(sym => !earningsBlackout.has(sym));
+    const [{ symbols: universe, snapMap, snapMapAll, wide }, earningsBlackout] = await Promise.all([getUniverse(), getEarningsBlackout()]);
+    let toScan = universe.filter(sym => !earningsBlackout.has(sym));
 
     const groupedSeries = await getGroupedSeries(new Set(snapMapAll.keys()));
+    /* Wider universe (12 Oct 2026): up to 150 more $20M+ names that the whole-market bars
+       already in hand say are near the 21 EMA and oversold. Each costs the same 3 per-name
+       calls as the top 120, so a run is ~270 names, not 120. */
+    const wideExtra = wide.filter(sym => !earningsBlackout.has(sym) && swingPrecheck(groupedSeries.get(sym))).slice(0, WIDE_MAX_EXTRA);
+    toScan = [...toScan, ...wideExtra];
 
     // T2108 — market-wide breadth from the same grouped data. Persisted
     // independently so the Scorecard can read it without touching the
@@ -459,8 +482,9 @@ async function runSwingScan() {
         // Polygon defaults to oldest-first; without the sort, results[0] is the 2017 record.
         polygonSafe<any>(`/stocks/v1/short-interest?ticker=${sym}&sort=settlement_date.desc&limit=1`, { results: [] }),
       ]);
-      const swing = analyze(sym, bars, rsLookup, details, shortData, snapMap.get(sym));
-      const consol = analyzeConsolidation(sym, bars, rsLookup, details, shortData, snapMap.get(sym));
+      const snap = snapMap.get(sym) ?? snapMapAll.get(sym);
+      const swing = analyze(sym, bars, rsLookup, details, shortData, snap);
+      const consol = analyzeConsolidation(sym, bars, rsLookup, details, shortData, snap);
       if (!swing && !consol) return null;
       return { swing, consol };
     });

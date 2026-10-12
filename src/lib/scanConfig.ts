@@ -98,7 +98,7 @@ export const SCANNER_DAILY_META: ScanConfigMeta = {
 export const SWING = {
   minPrice: 2,
   maxPrice: 2000,
-  minAvgDollarVol: 50_000_000,
+  minAvgDollarVol: 20_000_000,   // $50M until 12 Oct 2026 (wider universe, lib/scans/swingWide)
   minAtrPct: 1.5,
   maxAtrPct: 6.0,
   minPctOffHigh: 2,
@@ -129,7 +129,7 @@ export const SWING_META: ScanConfigMeta = {
     { label: 'Stoch %K', value: `\u2264 ${SWING.maxStochK}`, why: 'Oversold on the 10/4 smoothed stochastic \u2014 the blue-dot condition.' },
     { label: 'Earnings', value: `Excluded within ${SWING.earningsBlackoutDays}d`, why: 'A pullback entry into an earnings print is a coin flip, not a setup.' },
   ],
-  shows: `Ranked by score, from the top ${SWING.universeSize} names by dollar volume`,
+  shows: `Ranked by score, from the top ${SWING.universeSize} names by dollar volume plus up to 150 more $20M+ names near the 21 EMA and oversold`,
 };
 
 /* ==========================================================================

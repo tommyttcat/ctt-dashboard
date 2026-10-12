@@ -2,6 +2,7 @@
 import { swingCheck, dayCheck, setMarketUp, checkTip, daysToEarnings, paceOf, setEarnings, setGroups } from '../src/lib/scans/checklist.ts';
 import { tightnessOf } from '../src/lib/scans/tightness.ts';
 import { neglectOf } from '../src/lib/scans/neglect.ts';
+import { swingPrecheck } from '../src/lib/scans/swingWide.ts';
 import { groupTerciles } from '../src/lib/groups.ts';
 import { eq, ok, done } from './testkit.mts';
 
@@ -84,4 +85,11 @@ const nb = (n: number, f: (i: number) => number) => Array.from({ length: n }, (_
 eq('neglect: flat base is neglected', neglectOf(nb(200, () => 50), '2099-01-01').neglected, true);
 eq('neglect: a doubled stock is not', neglectOf(nb(200, i => 20 + i * 0.3), '2099-01-01').neglected, false);
 eq('neglect: too little history', neglectOf(nb(100, () => 50), '2099-01-01').neglected, null);
+// wider Swing universe pre-check: an uptrend that dips back to its 21 EMA passes; a stock
+// ripping to new highs (stochastic pinned) does not.
+const up = (n: number) => Array.from({ length: n }, (_, i) => { const c = 100 + i * 0.5; return { c, h: c * 1.015, l: c * 0.985, v: 1e6 }; });
+const dip = [...up(40), ...[118, 117, 116.5, 116, 115.5].map(c => ({ c, h: c * 1.012, l: c * 0.985, v: 1e6 }))];
+eq('swingWide: a dip to the 21 EMA passes', swingPrecheck(dip), true);
+eq('swingWide: a stock at its highs does not', swingPrecheck(up(45)), false);
+eq('swingWide: too few bars', swingPrecheck(up(20)), false);
 done('checklist');

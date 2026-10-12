@@ -1,7 +1,7 @@
 // app/api/earnings/upcoming/route.ts — next earnings date by ticker, for the swing checklist's
 // "no earnings within 3 days" check on every card (lib/scans/checklist). 12 Oct 2026.
 //
-// FMP's earnings calendar (the Earnings card's source) for today through 6 days out, reduced
+// FMP's earnings calendar (the Earnings card's source) for today through 8 days out, reduced
 // to { TICKER: 'YYYY-MM-DD' } — the earliest date per name. Benzinga's calendar was tried
 // first and returned 5 names for the week of 12 Oct (JPM, GS, JNJ, UNH, TRV); FMP returned
 // 312, including TSM (15 Oct) and ASML (14 Oct).
@@ -20,7 +20,7 @@ const etDate = (ms: number) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Ame
 
 export async function GET() {
   const key = (process.env.FMP_API_KEY || '').trim();
-  const from = etDate(Date.now()), to = etDate(Date.now() + 6 * 864e5);
+  const from = etDate(Date.now()), to = etDate(Date.now() + 8 * 864e5);   // 8 days: Swing's 7-day blackout + a day
   const dates: Record<string, string> = {};
   let ok = false;
   if (key) {
