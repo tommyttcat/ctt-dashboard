@@ -747,8 +747,8 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
   const edge = edgeMap?.[p.ticker] ?? null;
 
   return (
-    <div key={idx} className={`flex items-center ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
-      title={edge ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : undefined}>
+    <InfoDot key={idx} block className={`flex items-center ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
+      text={edge ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : undefined}>
       {!skipWatchlistBtn && <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={p.ticker} /></span></span>}
       <div className={`${scrollRowCls} flex-1 min-w-0`} style={scrollRowStyle}>
       <div className="flex items-center whitespace-nowrap py-[1px]">
@@ -779,7 +779,7 @@ const renderStdRow = (p: ParsedStdRow, idx: number, gradeMap?: Record<string, 'A
         {extraEls}
       </div>
       </div>
-    </div>
+    </InfoDot>
   );
 };
 
@@ -1013,8 +1013,8 @@ const renderSetupRow = (
   const edge = edgeOf(s);
 
   return (
-    <div key={`ss-${s.ticker}-${i}`} className={`flex items-center gap-0 ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
-      title={edge ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : undefined}>
+    <InfoDot key={`ss-${s.ticker}-${i}`} block className={`flex items-center gap-0 ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
+      text={edge ? `${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : undefined}>
       <span className="hidden md:inline-flex shrink-0" style={{ width: 0, overflow: 'visible', position: 'relative' }}><span style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)' }}><WatchlistBtn symbol={s.ticker} /></span></span>
       <div className="w-[28px] shrink-0 flex items-center justify-end pr-1.5 gap-0.5">
         {hasIndicator && (
@@ -1029,7 +1029,7 @@ const renderSetupRow = (
         )}
       </div>
       <div className="flex-1 min-w-0">{renderStdRow(parsed, i, gradeMap, dotMap, postureMap, avoidSet, true, undefined, rsMap, stageMap, true)}</div>
-    </div>
+    </InfoDot>
   );
 };
 
@@ -1272,8 +1272,8 @@ const MoverRows = ({ pool }: { pool: any[] }) => {
     const unranked = SCORE_UNRANKED_SOURCES.has(String(s0?._source ?? ''));
     const grade: 'A' | 'B' | null = unranked ? null : cnf >= 70 ? 'A' : cnf >= 50 ? 'B' : null;
     return (
-      <div key={`tp-${ticker}`} className={`flex items-center justify-between md:justify-start whitespace-nowrap py-[1px] ${t ? `${EDGE_TINT[t.tier]} rounded-sm` : ''}`}
-        title={t ? `${t.tier.toUpperCase()} — ${t.tip}` : undefined}>
+      <InfoDot key={`tp-${ticker}`} block className={`flex items-center justify-between md:justify-start whitespace-nowrap py-[1px] ${t ? `${EDGE_TINT[t.tier]} rounded-sm` : ''}`}
+        text={t ? `${t.tier.toUpperCase()} — ${t.tip}` : undefined}>
         <span className="inline-flex items-center shrink-0"><span className="inline-block w-[6px] md:w-[28px]" /><TickerChartHover symbol={ticker}><span className={`${gradeChipCls(grade, false)} w-[38px] md:w-[44px]`}>{ticker}</span></TickerChartHover></span>
         <span className="hidden md:inline-block w-[28px]" />
         <span className={`inline-block align-baseline text-[7px] font-bold tabular-nums rounded border md:ml-1 w-[20px] md:w-[22px] leading-[14px] text-center ${unranked ? CNF_NEUTRAL : cnfBadgeCls(cnf)}`}>{cnf}</span>
@@ -1283,7 +1283,7 @@ const MoverRows = ({ pool }: { pool: any[] }) => {
         <span className="inline-block w-[22px] md:w-[24px] text-center md:ml-1">{rs != null
           ? <span className={`inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center ${rsBadge(rs)}`}>{rs}</span>
           : <span className="inline-block w-[20px] md:w-[22px] leading-[14px] rounded border text-[7px] font-bold tabular-nums text-center text-slate-600 border-slate-700/40 bg-slate-800/30">-</span>}</span>
-      </div>
+      </InfoDot>
     );
   };
 
@@ -1812,8 +1812,8 @@ const SocialSentiment = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTie
     const cnf = cnfMap?.[r.t] ?? null;
     const rv = r.rvol ?? null;
     return (
-      <div key={r.t} className={`flex items-center whitespace-nowrap py-[1px] ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
-        title={edge ? `${r.n ?? r.t} · ${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : (r.n ?? r.t)}>
+      <InfoDot key={r.t} block className={`flex items-center whitespace-nowrap py-[1px] ${edge ? `${EDGE_TINT[edge]} rounded-sm` : ''}`}
+        text={edge ? `${r.n ?? r.t} · ${edge.toUpperCase()} — ${EDGE_FILTER_TIP[edge]}` : (r.n ?? r.t)}>
         <TickerChartHover symbol={r.t}><span className={`${gradeChipCls(null, false)} w-[38px] md:w-[44px]`}>{r.t}</span></TickerChartHover>
         <span className="inline-block w-[20px] md:w-[22px] text-center ml-2 md:ml-1">{cnf != null
           ? <span className={`${badge} ${cnfBadgeCls(cnf)}`}>{Math.round(cnf)}</span>
@@ -1831,7 +1831,7 @@ const SocialSentiment = ({ edgeMap, cnfMap }: { edgeMap?: Record<string, EdgeTie
         </span>
         <span className={`text-[9px] tabular-nums inline-block w-[28px] md:w-[36px] text-right ml-2 md:ml-1 ${r.bsky && r.bsky.posts > 0 ? (bsPct == null ? 'text-slate-300' : leanCls(bsPct)) : 'text-slate-600'}`}>{r.bsky ? r.bsky.posts : '—'}</span>
         <span className="inline-block w-[14px] ml-1 text-center">{r.st?.summary ? <InfoDot text={r.st.summary} /> : null}</span>
-      </div>
+      </InfoDot>
     );
   };
   // The top 10, sorted as a set, then five a side (stacked on a phone). Blanks sort last.
