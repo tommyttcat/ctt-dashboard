@@ -25,9 +25,12 @@ export function isSipCandidate(changePct: number, price: number, vwap: number): 
   return Math.abs(changePct) >= SCANNER.minChange && price >= vwap;
 }
 
-/** Daily Setups: the same move, no VWAP requirement. */
-export function isDailyCandidate(changePct: number): boolean {
-  return changePct >= SCANNER.minChange;
+/** Daily Setups: the same move, and (since 12 Oct 2026, owner's call) holding above VWAP like
+ *  Stocks in Play. The VWAP arguments are optional so the historical replay, which has no
+ *  intraday VWAP, keeps its old behaviour. */
+export function isDailyCandidate(changePct: number, price?: number, vwap?: number): boolean {
+  if (!(changePct >= SCANNER.minChange)) return false;
+  return price == null || vwap == null || !(vwap > 0) || price >= vwap;
 }
 
 export interface ScannerRowGates {

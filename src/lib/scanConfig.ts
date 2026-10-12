@@ -80,9 +80,10 @@ export const SCANNER_SIP_META: ScanConfigMeta = {
 export const SCANNER_DAILY_META: ScanConfigMeta = {
   title: 'Daily Setups',
   premise:
-    'The same universe as Stocks in Play, ranked by dollar volume rather than share volume and without the VWAP requirement. Broader net, more swing-oriented.',
+    'The same universe as Stocks in Play, ranked by dollar volume rather than share volume. Broader net, more swing-oriented.',
   gates: [
     { label: 'Change', value: `\u2265 +${SCANNER.minChange}%`, why: 'Below this it is noise, not a move.' },
+    { label: 'VWAP', value: 'Price above', why: 'Longs below VWAP are fighting the day\'s average buyer. (Required since 12 Oct 2026.)' },
     { label: 'Volume', value: `\u2265 ${shares(SCANNER.minVolume)}`, why: 'Absolute floor \u2014 thin names cannot be traded out of.' },
     { label: '$ Volume', value: `\u2265 ${usd(SCANNER.minDollarVol)}`, why: 'Kills low-priced spikes that show big share counts but no real money.' },
     { label: 'ADR', value: `\u2265 ${pct(SCANNER.minAdrPct)}`, why: 'Anti-chop. A name that cannot travel 3% on a typical day has no room to pay you.' },

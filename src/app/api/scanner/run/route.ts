@@ -1156,7 +1156,7 @@ async function runScan(request: Request) {
     } catch (e) { console.error('ATHI/ATLO failed (non-blocking):', e); }
 
     const dailyCandidates = [...viableSetups]
-      .filter((t: any) => isDailyCandidate(t._liveChg))
+      .filter((t: any) => isDailyCandidate(t._liveChg, t._livePrice, t._liveVwap))
       .sort((a: any, b: any) => (b._livePrice * b._liveVol) - (a._livePrice * a._liveVol))
       .slice(0, 30);
 
