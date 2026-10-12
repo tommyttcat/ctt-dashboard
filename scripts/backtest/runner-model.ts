@@ -31,6 +31,13 @@
 //   target (expected value of the +20% / -10% / 40-session trade). PASS for this variant:
 //   top-decile average trade above the all-names average in >= 7 of 9 years AND the
 //   L3 book's average trade > 0 in both halves.
+// TARGET=swing (added 12 Oct 2026, before its run — the owner's swing: 3-5 days, runners run):
+//   buy the NEXT open (t+1); stop = the entry day's low, live from t+2 (a low at/through it
+//   exits at min(open, stop)); at the close of day 5 (t+5) sell unless the close is above
+//   the 10-day EMA — then hold until the first close below it; max 60 sessions; 0.2%.
+//   Same features, ranking and ridge as TARGET=trade; purge = 65 sessions.
+//   PASS: top decile beats the all-names average swing trade in >= 7 of 9 years AND the
+//   top-10-a-week book's average trade > 0 in both halves (2018-21, 2022-26).
 // (ai-system.ts rules follow)
 // RULES — fixed 10 Oct 2026, before the first run.
 //   Universe each week (every 5th session from 2016): CS/ADRC, real close >= $2,
@@ -82,6 +89,8 @@ const isStock = (sym: string, date: string) => { const k = `${sym}|${date.slice(
 const idx = (d: string) => { const i = sessions.findIndex(x => x >= d); return i < 0 ? N : i; };
 const FEATS = ['r5', 'r21', 'r63', 'r126', 'mom', 'vol20', 'vol60', 'adr', 'smooth', 'off52', 'vs20', 'vs50', 'vs200', 'slope50', 'rvol1', 'rvol5', 'chg1', 'atrExp', 'closeStr', 'gap', 'rsi', 'max21', 'min21', 'logDvol', 'beta', 'logPx', 'offLow20', 'secMom', 'relSec'];
 const EXTRA = process.env.EXTRA === '1';
+const SWING = process.env.TARGET === 'swing';
+const HZ = SWING ? 65 : 40;   // sessions an outcome can take (purge + loop bound)
 if (EXTRA) FEATS.push(...EXTRA_FEATS);
 const F = FEATS.length;
 /* EXTRA=1 (10 Oct 2026, pre-registered before its run): adds ADX(14), +DI-−DI, SUE, sessions
@@ -98,7 +107,18 @@ const qr = (k: number) => C[qId][k] / C[qId][k - 1] - 1;
 type Week = { t: number; ids: number[]; X: Float32Array; y: Float32Array; fwd: Float32Array; dv: Float32Array; run: Uint8Array; trade: Float32Array; momRank: Float32Array };
 const weeks: Week[] = [];
 const start = idx('2016-01-04');
-for (let t = start; t + 40 < N; t += 5) {
+const EMA10: Float32Array[] = SWING ? syms.map((_, id) => { const o = new Float32Array(N).fill(NaN); let e = NaN; for (let j = 0; j < N; j++) { const x = C[id][j]; if (Number.isNaN(x)) { e = NaN; continue; } e = Number.isNaN(e) ? x : x * (2 / 11) + e * (9 / 11); o[j] = e; } return o; }) : [];
+const swingTrade = (id: number, t: number): number => {
+  const e = t + 1, fill = O[id][e]; if (!(fill > 0) || Number.isNaN(C[id][e])) return NaN;
+  const stop = L[id][e];
+  for (let k = e + 1; k <= t + 60 && k < N; k++) {
+    if (Number.isNaN(C[id][k])) continue;
+    if (L[id][k] <= stop) return Math.min(O[id][k], stop) / fill - 1 - 0.002;
+    if (k >= t + 5 && (C[id][k] <= EMA10[id][k] || k === t + 60)) return C[id][k] / fill - 1 - 0.002;
+  }
+  let k = Math.min(N - 1, t + 60); while (k > e && Number.isNaN(C[id][k])) k--; return C[id][k] / fill - 1 - 0.002;
+};
+for (let t = start; t + HZ < N; t += 5) {
   const rows: { id: number; f: number[]; fwd: number; dv: number; run: number; trade: number }[] = [];
   for (let id = 0; id < syms.length; id++) {
     if (id === qId) continue;
@@ -113,6 +133,7 @@ for (let t = start; t + 40 < N; t += 5) {
     for (let j = t + 1; j <= t + 40; j++) { if (Number.isNaN(cl[j])) continue; const r = cl[j] / cl[t]; if (r >= 1.2) { run = 1; trade = 0.2; break; } if (r <= 0.9) { trade = r - 1; break; } }
     if (Number.isNaN(trade)) { let j = t + 40; while (j > t && Number.isNaN(cl[j])) j--; trade = cl[j] / cl[t] - 1; }
     trade -= 0.002;
+    if (SWING) { trade = swingTrade(id, t); if (Number.isNaN(trade)) continue; }
     /* Features from the shared production code (lib/system featuresAt), so live
        scores and this test use the same arithmetic. */
     const fb = featuresAt({ o: O[id], h: H[id], l: L[id], c: cl, v: V[id] }, t, C[qId], RC[id][t], dv);
@@ -127,7 +148,7 @@ for (let t = start; t + 40 < N; t += 5) {
   const rankInto = (vals: number[], put: (i: number, v: number) => void) => { const o = vals.map((v, i) => [v, i] as [number, number]).filter(p => Number.isFinite(p[0])).sort((a, b) => a[0] - b[0]); const m = o.length; o.forEach(([, i], r) => put(i, m > 1 ? r / (m - 1) - 0.5 : 0)); };
   const NOSEC = process.env.NOSEC === '1';
   for (let f = 0; f < F; f++) { if (NOSEC && (f === 27 || f === 28)) continue; /* sector features only (bug fix: was f >= 27, which also blanked EXTRA) */ rankInto(rows.map(r => r.f[f]), (i, v) => { X[i * F + f] = v; }); }
-  if (process.env.TARGET === 'trade') rankInto(rows.map(r => r.trade), (i, v) => { y[i] = v; }); else rows.forEach((r, i) => { y[i] = r.run; });
+  if (process.env.TARGET === 'trade' || SWING) rankInto(rows.map(r => r.trade), (i, v) => { y[i] = v; }); else rows.forEach((r, i) => { y[i] = r.run; });
   rows.forEach((r, i) => { fwd[i] = r.fwd; dv[i] = r.dv; });
   const run = new Uint8Array(n), trade = new Float32Array(n), momRank = new Float32Array(n);
   rows.forEach((r, i) => { run[i] = r.run; trade[i] = r.trade; momRank[i] = X[i * F + 4] + 0.5; });
@@ -159,7 +180,7 @@ type Pred = { w: Week; p: Float64Array };
 const preds: Pred[] = [];
 for (let Y = 2018; Y <= 2026; Y++) {
   const fi = weeks.findIndex(w => sessions[w.t] >= `${Y}-01-01`); if (fi < 0) break;
-  const train = weeks.filter(w => w.t + 40 < weeks[fi].t);
+  const train = weeks.filter(w => w.t + HZ < weeks[fi].t);
   const beta = fit(train); const row = new Float64Array(P);
   for (const w of weeks.filter(w => sessions[w.t].startsWith(String(Y)))) { const p = new Float64Array(w.ids.length); for (let i = 0; i < w.ids.length; i++) { featRow(w, i, row); let sc = 0; for (let a = 0; a < P; a++) sc += beta[a] * row[a]; p[i] = sc; } preds.push({ w, p }); }
 }
@@ -196,10 +217,10 @@ const baseTrades = (a: string, b: string) => { const tr: number[] = []; for (con
 console.log(`\nBOOK (top 10 a week, +20% / -10% / 40 sessions):`);
 const halves = [['2018-01-01', '2021-12-31'], ['2022-01-01', '2026-12-31']];
 const l3 = halves.map(([a, b]) => { const t = book(a, b), bt = baseTrades(a, b); console.log(`  ${a.slice(0, 4)}-${b.slice(0, 4)}: avg trade ${pct(mean(t))} win ${(100 * mean(t.map(x => +(x > 0)))).toFixed(0)}% hit +20% ${(100 * mean(t.map(x => +(x > 0.19)))).toFixed(0)}% n ${t.length} | random stock same rule ${pct(mean(bt))}`); return mean(t) > 0; });
-if (process.env.TARGET === 'trade') console.log(`\n→ TRADE target: top decile beats all-names avg trade in ${tradeYears}/${yrs.length} years; book both halves ${l3.every(Boolean)} → ${tradeYears >= 7 && l3.every(Boolean) ? 'PASS' : 'fail'}`);
+if (process.env.TARGET === 'trade' || SWING) console.log(`\n→ ${SWING ? 'SWING' : 'TRADE'} target: top decile beats all-names avg trade in ${tradeYears}/${yrs.length} years; book both halves ${l3.every(Boolean)} → ${tradeYears >= 7 && l3.every(Boolean) ? 'PASS' : 'fail'}`);
 else console.log(`\n→ L1 lift>=1.5 in ${l1}/${yrs.length} years; L2 in ${l2}/${yrs.length}; L3 both halves ${l3.every(Boolean)} → ${l1 >= 7 && l2 >= 7 && l3.every(Boolean) ? 'PASS' : 'fail'}`);
 if (process.env.DECILES === '1') { // POST-HOC (for colour cut-offs): avg trade by score decile, by half
   for (const [a, b] of halves) { const dec: number[][] = Array.from({ length: 10 }, () => []);
     for (const p of preds) { if (sessions[p.w.t] < a || sessions[p.w.t] > b) continue; const o = Array.from(p.p.keys()).sort((x, z) => p.p[z] - p.p[x]); o.forEach((i, r) => dec[Math.min(9, Math.floor(10 * r / o.length))].push(p.w.trade[i])); }
     console.log(`DECILES ${a.slice(0, 4)}-${b.slice(0, 4)} (1 = best): ` + dec.map((d, k) => `${k + 1}:${pct(mean(d))}`).join(' ')); } }
-if (process.env.EXPORT === '1') { const all = fit(weeks.filter(w => w.t + 40 < N)); console.log('\nEXPORT ' + JSON.stringify({ feats: FEATS, trainedOn: `${sessions[weeks[0].t]}..${sessions[weeks[weeks.length - 1].t]}`, weeks: weeks.length, beta: Array.from(all).map(x => +x.toPrecision(6)) })); }
+if (process.env.EXPORT === '1') { const all = fit(weeks.filter(w => w.t + HZ < N)); console.log('\nEXPORT ' + JSON.stringify({ feats: FEATS, trainedOn: `${sessions[weeks[0].t]}..${sessions[weeks[weeks.length - 1].t]}`, weeks: weeks.length, beta: Array.from(all).map(x => +x.toPrecision(6)) })); }
