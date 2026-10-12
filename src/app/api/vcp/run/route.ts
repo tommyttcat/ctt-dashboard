@@ -104,6 +104,7 @@
 // being strong", which is not information.
 
 import { NextResponse } from 'next/server';
+import { swingFieldsOf } from '@/lib/scans/swingFields';
 import { kv } from '@vercel/kv';
 import {
   analyzeVcp,
@@ -189,6 +190,7 @@ interface VcpCandidate {
   scoreBreakdown: Record<string, number>;
 
   rsRating: number | null;
+  ema50?: number; distToEma21?: number; distToEma10?: number; ema21Rising?: boolean; adrPct?: number; tight5?: number | null; volDry?: number | null;
   rsRaw: number | null;
 
   // VCP shape
@@ -535,6 +537,9 @@ async function runScan(request: Request) {
         scoreBreakdown: scored.breakdown,
 
         rsRating: rs,
+        /* The universal swing checklist's fields from these same bars (12 Oct 2026): without
+           them a VCP row could never be green ("near the 10/21" unchecked). */
+        ...swingFieldsOf(bars),
         /* rsRaw is gone. It was the pre-ranking score from this route's own
            computation, and the shared job does not publish per-symbol raws —
            only the ranked percentile, which is the number that means
