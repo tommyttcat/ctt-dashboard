@@ -25,6 +25,7 @@
 // ---------------------------------------------------------------------------
 
 import { NextResponse } from 'next/server';
+import { swingFieldsOf } from '@/lib/scans/swingFields';
 import { kv } from '@vercel/kv';
 import { loadRsRatings, type RsLookup } from '@/lib/indicators/rs';
 import { computeStage } from '@/lib/indicators/stage';
@@ -297,6 +298,10 @@ async function confirm(
         symbol: c.symbol,
         name: companyName,
         sector,
+        /* The universal swing checklist's fields from this year of bars (12 Oct 2026): without
+           them an HRS row could never be green ("near the 10/21" unchecked). Polygon range aggs
+           arrive oldest first. */
+        ...swingFieldsOf(yearBars.filter((b: any) => b && b.h > 0 && b.l > 0 && b.c > 0).map((b: any) => ({ h: b.h, l: b.l, c: b.c, v: b.v ?? 0 }))),
         price: snap.price,
         changePct: snap.changePct,
         vol: snap.vol,
